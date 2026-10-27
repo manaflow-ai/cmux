@@ -469,8 +469,9 @@ impl Hub {
     /// of it or its left host reported (`runs_full_access_by_records`), because an end of it
     /// failed and its host may still run (`FloorState::full_access_end_pending`, review 51 of
     /// #23322), because its reattached host's replay is not all in the log yet (`host_replaying`),
-    /// or because the host records cannot be read while this daemon hears no agent of it
-    /// (`host_unknown`).
+    /// because the host records cannot be read while this daemon hears no agent of it
+    /// (`host_unknown`), or because this daemon no longer hears its host (`host_unheard`, review
+    /// 64).
     async fn counts_as_full_access(&self, session: &Session) -> bool {
         if session.floor.full_access_end_pending.load(Ordering::SeqCst) {
             return true;
@@ -481,6 +482,7 @@ impl Hub {
         let records = Self::read_host_records();
         Self::host_unknown(session, records.as_ref()).await
             || self.runs_full_access_by_records(session, records.as_ref())
+            || Self::host_unheard(session).await
     }
 
     /// Whether the host records could not be read (`records`) while `session` has no agent this
@@ -496,6 +498,24 @@ impl Hub {
             Some(child) => !child.is_alive().await,
             None => true,
         }
+    }
+
+    /// Whether `session`'s agent host may hold reports this daemon has not seen: its link broke
+    /// (an entry could not be logged), its reader stopped (`ChildAgent::is_stopped`), or the link
+    /// closed while the host still runs. What it reported since
+    /// is unknown, so under MDM's off it counts as full access (review 64 of #23322); a request
+    /// would reattach it, but the push does not wait for one. Host records that cannot be read
+    /// do not prove the host gone (`host_record_gone`, review 67). A slot held past its bound
+    /// counts too, as for `host_replaying`.
+    async fn host_unheard(session: &Session) -> bool {
+        let wait = super::shutdown::SHUTDOWN_GRACE;
+        let Ok(slot) = tokio::time::timeout(wait, session.child.lock()).await else { return true };
+        let child = (*slot).clone();
+        drop(slot);
+        let Some(child) = child.filter(|c| c.host_record().is_some()) else { return false };
+        child.is_broken()
+            || child.is_stopped()
+            || (!child.is_alive().await && !Self::host_record_gone(&session.id))
     }
 
     /// Whether `session`'s agent host was reattached and its replay is not all in the log yet:
@@ -751,6 +771,16 @@ impl Hub {
             if !self.counts_as_full_access(&session).await {
                 continue;
             }
+            // What waits on an agent this daemon no longer hears is answered first: a start
+            // waiting on its `initialize` holds the spawn lock below, and its link may have broken
+            // while MDM was unset, when nothing failed it (review 3 of #26059). The agent slot is
+            // waited on only so long, as the end's is: a slot held elsewhere keeps no push
+            // waiting, and the end below marks itself pending.
+            let held = tokio::time::timeout(super::shutdown::SHUTDOWN_GRACE, session.child.lock());
+            let child = held.await.ok().and_then(|slot| (*slot).clone());
+            if let Some(child) = child.filter(|c| c.host_record().is_some()) {
+                child.fail_pending_if_unheard().await;
+            }
             let Ok(_spawning) = tokio::time::timeout(wait, session.spawn_lock.lock()).await else {
                 tracing::warn!(session = %session.id, "MDM forces full access off: its agent is busy starting or stopping; its end is tried again");
                 session.floor.full_access_end_pending.store(true, Ordering::SeqCst);
@@ -808,6 +838,10 @@ impl Hub {
             if tokio::time::timeout(grace * 2, child.terminate(grace)).await.is_err() {
                 tracing::warn!(session = %session.id, "its full-access agent did not end in time; its host is ended");
             }
+            // What waited on it is answered now: a reader that stopped reads no exit for it
+            // (review 65 of #23322).
+            child.fail_pending().await;
+            self.cancel_pending_permissions(session);
         }
         if !Self::host_record_gone(&session.id) {
             self.end_unadopted_host(session).await;

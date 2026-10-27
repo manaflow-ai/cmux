@@ -3283,6 +3283,313 @@ async fn an_off_pushed_while_a_left_host_is_adopted_judges_its_replay() {
     );
 }
 
+/// Review 64 of #23322: a host whose link broke (an entry could not be logged; the debug seam
+/// `ACPMUX_TEST_UNLOGGED_ONCE`) may hold a full-access report this daemon never saw. When MDM
+/// then turns full access off, that agent ends by the push, without waiting for a request to
+/// reattach it.
+#[tokio::test]
+async fn a_host_whose_link_broke_ends_when_mdm_turns_full_access_off() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\"")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmbroken", fake, &env).await;
+    let session = new_session(&daemon).await;
+    // An asking mode: only the report this daemon never logs puts the agent in full access.
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 300 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    // The harness moves into full access; that entry is not logged and the link breaks.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+                     "allowFullAccess": false, "allowFullAccessManaged": true});
+    let pushed = rpc.call("_acpmux/chat_settings", off).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an agent whose link broke ran on after MDM turned full access off"
+    );
+}
+
+/// Review 65 of #23322: a link that breaks after MDM turned full access off (an entry could not be
+/// logged; `ACPMUX_TEST_UNLOGGED_ONCE`) may hide a full-access report. The agent ends at once,
+/// without waiting for a request, a push or the idle period.
+#[tokio::test]
+async fn a_link_that_breaks_under_mdm_off_ends_its_agent_at_once() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\"")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmbreaklate", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 300 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an agent whose link broke under the managed off ran on until something else checked it"
+    );
+}
+
+/// Review 65 of #23322: an agent whose link broke ends by the off push; when that end fails (its
+/// terminate stalls and the end by nonce fails once), the next off push tries again instead of
+/// taking the chat's last known mode for the truth.
+#[tokio::test]
+async fn a_failed_end_of_an_unheard_agent_is_tried_again_by_the_next_push() {
+    let env = [
+        ("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\""),
+        ("ACPMUX_TEST_STALL_HOST_TERMINATE", "1"),
+        ("ACPMUX_TEST_HOST_END_FAILS", "once"),
+    ];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmendretry", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 300 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(alive(harness_pid), "the seams did not keep the first end from working");
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next off push left an agent whose end had failed"
+    );
+}
+
+/// Review 65 of #23322: a prompt in flight on an agent whose link broke (its full-access report
+/// was not logged) gets its answer once the off push ends that agent, instead of waiting forever
+/// for an exit the stopped reader never reads.
+#[tokio::test]
+async fn a_prompt_on_an_unheard_agent_settles_when_mdm_ends_it() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\"")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmendprompt", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let held = json!({"sessionId": session,
+                      "prompt": [{"type": "text", "text": "set-mode-hold: 60000 full-access"}]});
+    let prompt = tokio::spawn(async move { rpc.reply("session/prompt", held).await });
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let pushed = daemon.rpc().await.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let answered = tokio::time::timeout(Duration::from_secs(15), prompt).await;
+    assert!(answered.is_ok(), "the prompt waited on after MDM ended its agent");
+}
+
+/// Review 66 of #23322: a link that closes under MDM's off (another owner took the host over and
+/// left) leaves an agent this daemon no longer hears, which may move itself into full access. It
+/// ends at once, without waiting for a request, a push or the idle period.
+#[tokio::test]
+async fn a_link_lost_under_mdm_off_ends_its_agent_at_once() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmlinklost", fake, &[]).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 1500 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let record: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    let harness_pid = record.harness_pid.expect("harness pid") as i64;
+    match acpmux::agent_host::link::connect(record, 0).await.expect("take over") {
+        acpmux::agent_host::link::Connect::Ready(link, _) => drop(link),
+        _ => panic!("the host refused a same-build owner"),
+    }
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an agent whose link closed under the managed off ran on unheard"
+    );
+}
+
+/// Review 1 of #26059: under MDM's off, a link that breaks while its agent starts (the
+/// `initialize` answer could not be logged; `ACPMUX_TEST_UNLOGGED_ONCE`) left the start waiting,
+/// under the session's spawn lock, on an answer its stopped reader never reads. The start fails
+/// at once instead, and the agent ends.
+#[tokio::test]
+async fn a_link_that_breaks_while_its_agent_starts_under_mdm_off_ends_it() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "agentCapabilities")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmbreakstart", fake, &env).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let new = json!({"cwd": daemon.home, "mcpServers": []});
+    let created =
+        tokio::time::timeout(Duration::from_secs(20), rpc.reply("session/new", new)).await;
+    assert!(
+        created.is_ok(),
+        "a start whose link broke under the managed off waited on its stopped reader"
+    );
+    // Every host this start left ends.
+    for entry in std::fs::read_dir(daemon.home.join("hosts")).into_iter().flatten().flatten() {
+        let Ok(bytes) = std::fs::read(entry.path()) else { continue };
+        let Ok(record) = serde_json::from_slice::<Value>(&bytes) else { continue };
+        let Some(pid) = record["harness_pid"].as_i64() else { continue };
+        assert!(
+            gone_within(pid, Duration::from_secs(10)),
+            "the agent whose link broke while it started ran on under the managed off"
+        );
+    }
+}
+
+/// Review 3 of #26059: a link that breaks while its agent starts, with MDM unset (the `initialize`
+/// answer could not be logged), leaves the start waiting under the spawn lock on an answer its
+/// stopped reader never reads. An off pushed then fails that wait and ends the agent, at once.
+#[tokio::test]
+async fn an_off_pushed_after_a_link_broke_while_its_agent_started_ends_it() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "agentCapabilities")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmbreakthenoff", fake, &env).await;
+    let mut starts = daemon.rpc().await;
+    prove(&mut starts).await;
+    let new = json!({"cwd": daemon.home, "mcpServers": []});
+    let created = tokio::spawn(async move { starts.reply("session/new", new).await });
+    // The break is handled while MDM is unset.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let answered = tokio::time::timeout(Duration::from_secs(20), created).await;
+    assert!(answered.is_ok(), "the start whose link broke waited on after MDM's off");
+    for entry in std::fs::read_dir(daemon.home.join("hosts")).into_iter().flatten().flatten() {
+        let Ok(bytes) = std::fs::read(entry.path()) else { continue };
+        let Ok(record) = serde_json::from_slice::<Value>(&bytes) else { continue };
+        let Some(pid) = record["harness_pid"].as_i64() else { continue };
+        assert!(
+            gone_within(pid, Duration::from_secs(10)),
+            "the agent whose link broke while it started ran on under the managed off"
+        );
+    }
+}
+
+/// Review 3 of #26059: the reader of a lost link that is held after it stopped
+/// (`ACPMUX_TEST_READER_STOP_HOLD_MS`) while the next request reattaches the host marks nothing on
+/// the link that replaced it: an off pushed later leaves the reattached agent, which this daemon
+/// hears, running.
+#[tokio::test]
+async fn a_held_reader_of_a_lost_link_leaves_the_reattached_link_heard() {
+    let env = [("ACPMUX_TEST_READER_STOP_HOLD_MS", "3000")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmheldreader", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let record: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    let harness_pid = record.harness_pid.expect("harness pid") as i64;
+    match acpmux::agent_host::link::connect(record, 0).await.expect("take over") {
+        acpmux::agent_host::link::Connect::Ready(link, _) => drop(link),
+        _ => panic!("the host refused a same-build owner"),
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The next request reattaches the host while the old reader is held.
+    let hello = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]});
+    let answered = rpc.reply("session/prompt", hello.clone()).await;
+    assert_eq!(answered["result"]["stopReason"], "end_turn", "{answered}");
+    // Past the hold: the old reader went on.
+    tokio::time::sleep(Duration::from_millis(3500)).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+    assert!(alive(harness_pid), "an off ended the reattached agent the old reader marked unheard");
+    let answered = rpc.reply("session/prompt", hello).await;
+    assert_eq!(answered["result"]["stopReason"], "end_turn", "{answered}");
+}
+
+/// Review 1 of #26059: with MDM unset, a link whose acknowledgement failed while its socket still
+/// looks open (`ACPMUX_TEST_ACK_FAILS_ONCE`) goes as before: its agent still counts as alive, so
+/// the chat it answered is not marked disconnected, and its host runs on.
+#[tokio::test]
+async fn an_ack_failure_with_mdm_unset_leaves_its_chat_as_before() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let env = [("ACPMUX_TEST_ACK_FAILS_ONCE", "ack-fails-here")];
+    let (daemon, mut rpc) = proven_daemon("mdmackunset", fake, &env).await;
+    let session = new_session(&daemon).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let fails = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "ack-fails-here"}]});
+    rpc.reply("session/prompt", fails).await;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let summary = rpc.call("_acpmux/sessions", json!({})).await;
+    let entry = summary["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["sessionId"] == session.as_str())
+        .cloned()
+        .expect("the chat is kept");
+    assert_ne!(entry["status"], "disconnected", "{entry}");
+    assert!(alive(harness_pid), "an ack failure with MDM unset ended the agent");
+}
+
+/// Review 2 of #26059: a link that broke while MDM was unset (`ACPMUX_TEST_UNLOGGED_ONCE`) is
+/// reattached by the next request, and the broken link's notice arrives late
+/// (`ACPMUX_TEST_LINK_BROKEN_DELAY_MS`), after MDM turned full access off. It leaves the reattached
+/// link's open requests alone: a prompt in flight is answered by its agent.
+#[tokio::test]
+async fn a_late_notice_of_a_reattached_link_leaves_its_requests_alone() {
+    let env = [
+        ("ACPMUX_TEST_UNLOGGED_ONCE", "unheard-marker"),
+        ("ACPMUX_TEST_LINK_BROKEN_DELAY_MS", "5000"),
+    ];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmlatebreak", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    // The harness reports an option whose entry is not logged: the link breaks.
+    let mut first = daemon.rpc().await;
+    let breaks = json!({"sessionId": session,
+                        "prompt": [{"type": "text", "text": "set-option: unheard-marker on"}]});
+    first.send("session/prompt", breaks).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    // The next request reattaches the host, with MDM unset.
+    rpc.reply("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    // A prompt in flight on the reattached link when the old link's notice arrives.
+    let held = json!({"sessionId": session,
+                      "prompt": [{"type": "text", "text": "set-mode-hold: 6000 normal"}]});
+    let answered = tokio::time::timeout(Duration::from_secs(25), rpc.reply("session/prompt", held))
+        .await
+        .expect("the prompt was answered");
+    assert_eq!(
+        answered["result"]["stopReason"], "end_turn",
+        "a late notice of the old link failed a request on the reattached one: {answered}"
+    );
+}
+
+/// Review 68 of #23322: a host link whose acknowledgement failed (the debug seam
+/// `ACPMUX_TEST_ACK_FAILS_ONCE`) stops its reader while its socket may still look open. Under
+/// MDM's off what the host reports from then on is not heard, so the agent ends at once, before
+/// it moves itself into full access unseen.
+#[tokio::test]
+async fn an_agent_whose_ack_failed_ends_under_mdm_off() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let env = [("ACPMUX_TEST_ACK_FAILS_ONCE", "ack-fails-here")];
+    let (daemon, mut rpc) = proven_daemon("mdmackfail", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 1500 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let fails = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "ack-fails-here"}]});
+    rpc.reply("session/prompt", fails).await;
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an agent whose link stopped reading ran on under the managed off"
+    );
+}
+
 /// #24337 review: a prompt the next daemon adopts carries acpmux's own display line, worked out
 /// again, never one its log held (an older daemon's record, or a line the agent forged).
 #[tokio::test]

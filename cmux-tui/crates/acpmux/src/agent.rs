@@ -72,6 +72,11 @@ pub enum Inbound {
     /// (`ReplayHold` in `hub/lifecycle.rs`). Queued through the agent's own sender, behind
     /// everything its reader already queued.
     ReplayDone { agent: u64 },
+    /// The reader of this generation's host link stopped: an entry could not be logged, or the
+    /// link closed (the host died, or another owner took it), so what the host reports from there
+    /// is not heard until a reattach. The hub's full-access bound treats such an agent as unheard
+    /// (#23322).
+    LinkBroken { agent: u64 },
 }
 
 /// Tests only: the agent generation `ChildAgent::replay_pending` reports as replaying.
@@ -127,6 +132,11 @@ struct Hosted {
     /// not known (from a reattach or an adoption until it is learned, or for good when the host did
     /// not say).
     replay_to: std::sync::atomic::AtomicU64,
+    /// The reader of the current link stopped otherwise (the link closed, or an acknowledgement
+    /// failed while its socket still looked open): the agent is not heard through this link
+    /// (`is_stopped`, review 68 of #23322); a reattach clears it. Under MDM's off only: with it
+    /// unset the agent counts as alive as before (`is_alive`, review 1 of #26059).
+    stopped: std::sync::atomic::AtomicBool,
 }
 
 impl Hosted {
@@ -951,6 +961,28 @@ impl ChildAgent {
         self.ended_on_purpose.load(Ordering::SeqCst)
     }
 
+    /// Fails every request still waiting on this agent: it was ended, and no exit may be read for
+    /// it (a host whose reader stopped, #23322 review 65). A request already answered is not here.
+    pub async fn fail_pending(&self) {
+        let mut p = self.pending.lock().await;
+        for (_, tx) in p.map.drain() {
+            let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
+        }
+    }
+
+    /// `fail_pending` while this agent's link is still broken or stopped: a reattach clears those
+    /// under the same lock, so a late notice of an old link never fails the open requests of the
+    /// link that replaced it (review 2 of #26059).
+    pub async fn fail_pending_if_unheard(&self) {
+        let mut p = self.pending.lock().await;
+        if !self.is_broken() && !self.is_stopped() {
+            return;
+        }
+        for (_, tx) in p.map.drain() {
+            let _ = tx.send(Err(RpcError::internal("agent process closed")));
+        }
+    }
+
     /// Whether [`Self::retire`] ran.
     pub fn is_retired(&self) -> bool {
         *self.retired.lock().unwrap_or_else(|e| e.into_inner())
@@ -1481,6 +1513,12 @@ impl ChildAgent {
         self.hosted.as_ref().is_some_and(|h| h.broken.load(Ordering::SeqCst))
     }
 
+    /// The reader of the current host link stopped otherwise (`Hosted::stopped`): what the host
+    /// reports is not heard until a reattach.
+    pub fn is_stopped(&self) -> bool {
+        self.hosted.as_ref().is_some_and(|h| h.stopped.load(Ordering::SeqCst))
+    }
+
     /// Reconnect to the same host after the reader stopped, keeping every
     /// open request, answer waiter and turn of this process: resume after
     /// the last logged entry on a new owner connection. No recovery runs:
@@ -1496,13 +1534,19 @@ impl ChildAgent {
             Connect::Incompatible { .. } => return Err(anyhow!("agent host refused this build")),
         };
         {
-            // Under the link's lock, which `learn_replay_end` keeps an end under: an end learned
-            // through the old link never stands for this one.
+            // Under the requests' lock: `fail_pending_if_unheard` sees the link whole or not, and
+            // the old link's reader marks it unheard before this or not at all
+            // (`mark_link_unheard`, reviews 2 and 3 of #26059). And under the link's lock, which
+            // `learn_replay_end` keeps an end under: an end learned through the old link never
+            // stands for this one.
+            let _pending = self.pending.lock().await;
             let mut current = h.link.write_or_recover();
             h.replay_to.store(u64::MAX, Ordering::SeqCst);
             *current = link.clone();
+            drop(current);
+            h.broken.store(false, Ordering::SeqCst);
+            h.stopped.store(false, Ordering::SeqCst);
         }
-        h.broken.store(false, Ordering::SeqCst);
         self.start_reader(link);
         Ok(())
     }
@@ -1618,6 +1662,7 @@ impl ChildAgent {
                 logged: tokio::sync::watch::channel(resume_after).0,
                 broken: std::sync::atomic::AtomicBool::new(false),
                 replay_to: std::sync::atomic::AtomicU64::new(0),
+                stopped: std::sync::atomic::AtomicBool::new(false),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
@@ -1637,6 +1682,24 @@ impl ChildAgent {
         (agent, responses)
     }
 
+    /// Sets `flag` (`Hosted::broken` or `stopped`) while `link` is still this agent's link, under
+    /// the requests' lock a reattach replaces the link and clears those flags under (`reattach`):
+    /// a reader of a replaced link marks nothing on the one that replaced it (review 3 of #26059).
+    /// False once the link was replaced or the agent detached.
+    async fn mark_link_unheard(
+        &self,
+        hosted: &Hosted,
+        link: &Arc<crate::agent_host::link::Link>,
+        flag: &std::sync::atomic::AtomicBool,
+    ) -> bool {
+        let _pending = self.pending.lock().await;
+        if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), link) {
+            return false;
+        }
+        flag.store(true, Ordering::SeqCst);
+        true
+    }
+
     /// Read `link`'s entries: log each, act on it, then acknowledge it.
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
         let reader = self.clone();
@@ -1645,11 +1708,30 @@ impl ChildAgent {
             let mut entries = link.entries.lock().await;
             while let Some((h, entry)) = entries.recv().await {
                 let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
+                #[cfg(debug_assertions)]
+                let ack_fails = ack_fails_once(&entry);
+                #[cfg(not(debug_assertions))]
+                let ack_fails = false;
                 if !reader.on_host_entry(h, entry, &hosted.inbound).await {
                     // Not stored: never acknowledge it or anything after it.
                     // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
-                    hosted.broken.store(true, Ordering::SeqCst);
+                    if !reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
+                        return;
+                    }
+                    // Debug builds only: `ACPMUX_TEST_LINK_BROKEN_DELAY_MS` holds the notice of a
+                    // broken link before it is sent, as a busy inbound loop does, so the daemon's
+                    // integration tests can reattach the link first. Bounded; release builds have
+                    // no seam.
+                    #[cfg(debug_assertions)]
+                    if let Some(ms) = std::env::var("ACPMUX_TEST_LINK_BROKEN_DELAY_MS")
+                        .ok()
+                        .and_then(|v| v.parse::<u64>().ok())
+                    {
+                        tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+                    }
+                    let _ =
+                        hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
                     return;
                 }
                 hosted.logged.send_replace(h);
@@ -1664,20 +1746,26 @@ impl ChildAgent {
                     }
                     continue;
                 }
-                if link.ack(h).await.is_err() {
+                if ack_fails || link.ack(h).await.is_err() {
                     break;
                 }
             }
-            // A detach hands the agent and its open requests to the next
-            // daemon; a replaced link hands them to its own reader.
-            if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
-                return;
+            #[cfg(debug_assertions)]
+            reader_stop_hold().await;
+            // The host died or another owner took it, or an acknowledgement failed: the link is
+            // not heard from here, before anything is told. A detach hands the agent and its open
+            // requests to the next daemon; a replaced link hands them to its own reader.
+            {
+                let mut p = reader.pending.lock().await;
+                if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
+                    return;
+                }
+                hosted.stopped.store(true, Ordering::SeqCst);
+                for (_, tx) in p.map.drain() {
+                    let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
+                }
             }
-            // The host died or another owner took it.
-            let mut p = reader.pending.lock().await;
-            for (_, tx) in p.map.drain() {
-                let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
-            }
+            let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
         });
     }
 
@@ -1858,6 +1946,33 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
     let _ =
         tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
             .await;
+}
+
+/// Debug builds only: `ACPMUX_TEST_READER_STOP_HOLD_MS` holds a host link's reader once it stopped,
+/// before it marks the link stopped, as a busy runtime does, so the daemon's integration tests
+/// can reattach the link meanwhile. Bounded; release builds have no seam.
+#[cfg(debug_assertions)]
+async fn reader_stop_hold() {
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_READER_STOP_HOLD_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+    }
+}
+
+/// Debug builds only: `ACPMUX_TEST_ACK_FAILS_ONCE=TEXT` fails the acknowledgement of the first
+/// host entry whose text holds TEXT, once per process, as a link whose writer stopped first does:
+/// the reader stops while the socket still looks open. Release builds have no seam.
+#[cfg(debug_assertions)]
+fn ack_fails_once(entry: &crate::agent_host::Entry) -> bool {
+    use crate::agent_host::Entry;
+    static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let Ok(text) = std::env::var("ACPMUX_TEST_ACK_FAILS_ONCE") else { return false };
+    let msg = match entry {
+        Entry::Tap { msg, .. } | Entry::In { msg } => msg.to_string(),
+        _ => return false,
+    };
+    msg.contains(&text) && !FIRED.swap(true, Ordering::SeqCst)
 }
 
 /// The error of an agent (or its agent host) that did not start; `what` says which, e.g.
