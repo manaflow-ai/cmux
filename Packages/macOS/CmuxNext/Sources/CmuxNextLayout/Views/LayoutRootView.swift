@@ -414,6 +414,10 @@ public final class LayoutRootView: NSView {
             }
         }
 
+        // A released resize drag: its layout is in the screens now (`ScreenContentView+ResizeGesture`).
+        for view in screenViews.values where view.resizeGesture == .releasing {
+            view.resizeGestureModelSynced(gestureActive: snapshot.gestureActive)
+        }
         updateVisibility()
         overlayIsStale = true
         flushOverlaySync()
