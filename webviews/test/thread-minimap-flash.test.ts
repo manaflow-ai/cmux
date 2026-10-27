@@ -1,300 +1,333 @@
 // l10n-allow-file: fixture prompts and replies, not shipped UI.
 // CMUX_BROWSER_TESTS=1 bun test test/thread-minimap-flash.test.ts
-//
-// This is the measuring regression for the prompt rail flash. It keeps the same rows on screen
-// while the rail changes, counts row-node churn, and samples after painted frames so a compositor
-// flash cannot be mistaken for a virtualizer gap.
+// No CSS-presence oracle: assert captured text survives stationary hover/card changes. Moving
+// scenarios report strip-loss candidates for inspection because scrolling also moves text.
+// CMUX_FLASH_EVIDENCE saves sampled PNGs and counts; a pass does not prove the macOS bug fixed.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { transcriptPixels } from "./support/transcriptPixels";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
+  // Conditions hold across consecutive painted frames. A missed interaction fails at its deadline
+  // instead of ending observation before the card or scroll arrives. Every exit cancels the reader.
+  async function completed(page: Page, goal: "settled" | "closed" | "bottom" | "landing", id = "", timeout = 5_000) {
+    await page.evaluate(
+      ({ goal, id, timeout }) =>
+        new Promise<void>((resolve, reject) => {
+          let stop = () => {};
+          const finish = (error?: Error) => {
+            clearTimeout(timer);
+            stop();
+            if (error) reject(error);
+            else resolve();
+          };
+          const timer = setTimeout(() => finish(new Error(`interaction did not complete: ${goal} ${id}`)), timeout);
+          let previous = "",
+            stable = 0;
+          stop = window.cmuxAfterPaint(() => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            const box = scroller.getBoundingClientRect();
+            const bubble = document.querySelector<HTMLElement>(`[data-row-id="${id}"] .cv-user__bubble`);
+            const animations = document
+              .getAnimations()
+              .some((a) => a.playState === "running" && a.effect?.getComputedTiming().endTime !== Infinity);
+            const gap = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+            const ready =
+              !animations &&
+              (goal === "closed"
+                ? !document.querySelector(".acpmux-minimap__card, .acpmux-minimap__rail[data-hovering]")
+                : goal === "bottom"
+                  ? gap <= 2
+                  : goal === "landing"
+                    ? !!bubble && Math.abs(bubble.getBoundingClientRect().top - box.top - 35) <= 1
+                    : true);
+            const current = `${scroller.scrollTop}:${scroller.scrollHeight}`;
+            stable = ready && current === previous ? stable + 1 : 0;
+            previous = current;
+            if (stable >= 3) finish();
+          });
+        }),
+      { goal, id, timeout },
+    );
+  }
+
+  async function observeRows(page: Page, stationary: boolean) {
+    await page.evaluate((stationary) => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const view = scroller.getBoundingClientRect();
+      const expected = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
+        .filter((node) => {
+          const box = node.getBoundingClientRect();
+          return box.height > 0 && box.bottom > view.top && box.top < view.bottom;
+        })
+        .map((node) => node.dataset.rowId!);
+      const stats = { adds: 0, removes: 0, missingFrames: 0, fadingFrames: 0, domFrames: 0 };
+      const count = (nodes: NodeList) =>
+        [...nodes].reduce(
+          (total, node) =>
+            total +
+            (node instanceof HTMLElement
+              ? Number(node.matches("[data-row-id]")) + node.querySelectorAll("[data-row-id]").length
+              : 0),
+          0,
+        );
+      const consume = (records: MutationRecord[]) =>
+        records.forEach((r) => {
+          stats.adds += count(r.addedNodes);
+          stats.removes += count(r.removedNodes);
+        });
+      const observer = new MutationObserver(consume);
+      observer.observe(scroller, { childList: true, subtree: true });
+      const stop = window.cmuxAfterPaint(() => {
+        stats.domFrames++;
+        const current = scroller.getBoundingClientRect();
+        const nodes = stationary
+          ? expected.map((id) => scroller.querySelector<HTMLElement>(`[data-row-id="${id}"]`))
+          : [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].filter((node) => {
+              const box = node.getBoundingClientRect();
+              return box.bottom > current.top && box.top < current.bottom;
+            });
+        if (
+          !nodes.length ||
+          nodes.some((node) => {
+            const box = node?.getBoundingClientRect();
+            return (
+              !node ||
+              !box ||
+              box.width <= 0 ||
+              box.height <= 0 ||
+              box.bottom <= current.top ||
+              box.top >= current.bottom
+            );
+          })
+        )
+          stats.missingFrames++;
+        if (nodes.some((node) => node && getComputedStyle(node).opacity !== "1")) stats.fadingFrames++;
+      });
+      window.__flashStop = () => {
+        stop();
+        consume(observer.takeRecords());
+        observer.disconnect();
+        delete window.__flashStop;
+        return stats;
+      };
+    }, stationary);
+  }
+
   setDefaultTimeout(120_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
-  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-  let browser: Browser | undefined;
-
+  let vite: Awaited<ReturnType<typeof createServer>>;
+  let browser: Browser;
+  let chat: Awaited<ReturnType<typeof papercutPane>>;
   beforeAll(async () => {
     vite = await createServer({
       root: webviews,
       configFile: path.join(webviews, "vite.config.ts"),
-      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      server: { port: 0, host: "127.0.0.1" },
       logLevel: "error",
     });
     await vite.listen();
     await warmViteServer(vite, "/test/browser/thread-minimap.html");
     browser = await chromium.launch({ headless: true });
+    chat = await papercutPane(() => browser, { turns: 30, running: false });
   });
   afterAll(async () => {
     await browser?.close();
+    await chat?.close();
     await vite?.close();
   });
-
-  const row = (id: string, kind: string, text?: string, version = 1, extra: Record<string, unknown> = {}) => ({
-    id,
-    kind,
-    text,
-    version,
-    at: 1,
-    ...extra,
-  });
   const paragraph = "The streamed answer keeps enough spacing to exercise the transcript layout.";
-  const rows = Array.from({ length: 30 }, (_, index) => [
-    row(`t${index}-user`, "user", `Prompt ${index + 1}: inspect the thread rail redraw.`),
-    row(`t${index}-answer`, "assistant", `${paragraph}\n\n${paragraph}`),
-    row(`t${index}-end`, "turnSummary", undefined, 1, { status: "completed", durationMs: 1_000 }),
+  const rows = Array.from({ length: 30 }, (_, i) => [
+    { id: `t${i}-user`, kind: "user", text: `Prompt ${i + 1}: inspect the thread rail redraw.`, at: 1, version: 1 },
+    { id: `t${i}-answer`, kind: "assistant", text: `${paragraph}\n\n${paragraph}`, at: 1, version: 1 },
+    { id: `t${i}-end`, kind: "turnSummary", status: "completed", durationMs: 1_000, at: 1, version: 1 },
   ]).flat();
-  const streamedRows = rows.map((entry) =>
-    entry.id === "t4-answer"
-      ? {
-          ...entry,
-          version: 2,
-          text: `${entry.text}\n\n${Array.from({ length: 12 }, () => paragraph).join("\n\n")}`,
-        }
-      : entry,
-  );
-
-  type Scenario = {
-    name: string;
-    action: (page: Page) => Promise<void>;
-  };
-  type Result = {
-    name: string;
-    rowAdds: number;
-    rowRemoves: number;
-    missingFrames: number;
-    frameCount: number;
-    layerChanges: number;
-    removedIds?: string[];
-    before: Record<string, unknown>;
-    after: Record<string, unknown>;
-    cardLayer?: { isolation?: string; willChange?: string };
-  };
-
-  const settle = (page: Page) =>
-    page.evaluate(async () => {
-      const finite = () =>
-        document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
-      for (let tries = 0; tries < 20; tries += 1) {
-        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
-        await new Promise<void>((resolve) => {
-          let last = -1;
-          let still = 0;
-          window.cmuxAfterPaint(() => {
-            const top = document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0;
-            still = top === last ? still + 1 : 0;
-            last = top;
-            if (still < 2) return true;
-            resolve();
-            return false;
-          });
-        });
-        if (finite().every((animation) => animation.playState !== "running")) return;
-      }
-    });
-
-  const scenarioProbe = (page: Page, name: string) =>
-    page.evaluate(
-      ({ name }) =>
-        new Promise<Result>((resolve) => {
-          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-          const visibleAtStart = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
-            .filter((node) => {
-              const box = node.getBoundingClientRect();
-              const view = scroller.getBoundingClientRect();
-              return box.bottom > view.top && box.top < view.bottom;
-            })
-            .map((node) => node.dataset.rowId!);
-          let rowAdds = 0;
-          let rowRemoves = 0;
-          const removedIds: string[] = [];
-          const observer = new MutationObserver((records) => {
-            const ids = (node: Node) =>
-              node instanceof HTMLElement
-                ? [
-                    ...(node.matches(".acpmux-row") ? [node.dataset.rowId] : []),
-                    ...[...node.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) => row.dataset.rowId),
-                  ].filter((id): id is string => Boolean(id))
-                : [];
-            for (const record of records) {
-              for (const node of record.addedNodes) rowAdds += ids(node).length;
-              for (const node of record.removedNodes) {
-                const removed = ids(node);
-                rowRemoves += removed.length;
-                removedIds.push(...removed);
-              }
-            }
-          });
-          observer.observe(scroller, { childList: true, subtree: true });
-          const snapshot = () => {
-            const selectors = [".acpmux-scroll", ".acpmux-minimap__rail", ".acpmux-minimap__card"];
-            return Object.fromEntries(
-              selectors.map((selector) => {
-                const node = document.querySelector<HTMLElement>(selector);
-                if (!node) return [selector, null];
-                const style = getComputedStyle(node);
-                const box = node.getBoundingClientRect();
-                return [
-                  selector,
-                  {
-                    backdropFilter: style.backdropFilter,
-                    maskImage: style.maskImage,
-                    willChange: style.willChange,
-                    isolation: style.isolation,
-                    contain: style.contain,
-                    width: box.width,
-                    height: box.height,
-                  },
-                ];
-              }),
-            );
-          };
-          const before = snapshot();
-          const initialLayer = JSON.stringify(before);
-          let layerChanges = 0;
-          let missingFrames = 0;
-          let frameCount = 0;
-          let cardLayer: Result["cardLayer"];
-          const started = performance.now();
-          window.cmuxAfterPaint(() => {
-            frameCount += 1;
-            const current = snapshot();
-            if (JSON.stringify(current) !== initialLayer) layerChanges += 1;
-            const card = current[".acpmux-minimap__card"];
-            if (card && !cardLayer) cardLayer = card as Result["cardLayer"];
-            for (const id of visibleAtStart) {
-              const node = scroller.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${CSS.escape(id)}"]`);
-              const box = node?.getBoundingClientRect();
-              const opacity = node ? Number(getComputedStyle(node).opacity) : 0;
-              if (!node || !box || box.width === 0 || box.height === 0 || opacity !== 1) {
-                missingFrames += 1;
-                break;
-              }
-            }
-            if (performance.now() - started < 700) return true;
-            observer.disconnect();
-            const after = snapshot();
-            resolve({
-              name,
-              rowAdds,
-              rowRemoves,
-              removedIds,
-              missingFrames,
-              frameCount,
-              layerChanges,
-              before,
-              after,
-              cardLayer,
-            });
-            return false;
-          });
-        }),
-      { name },
-    );
-
-  const openPage = async () => {
-    const { port } = vite!.httpServer!.address() as { port: number };
-    const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
-    await installPaintedFrames(page);
-    await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
-    await page.waitForFunction(() => "__showRows" in window);
-    await page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
-    await page.waitForSelector(".acpmux-minimap__rail");
-    await settle(page);
-    await page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      scroller.scrollTop = Math.min(700, scroller.scrollHeight / 2);
-    });
-    await settle(page);
-    return page;
-  };
-
-  const tickPoint = (page: Page, index = 2) =>
-    page.evaluate((index) => {
-      const box = document.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.getBoundingClientRect();
-      return { x: box.left + 8, y: box.top + box.height / 2 };
-    }, index);
-
-  const scenarios: Scenario[] = [
-    {
-      name: "hover leave",
-      action: async (page) => {
-        const point = await tickPoint(page);
-        await page.mouse.move(point.x, point.y);
-        await page.locator(".acpmux-minimap__card").waitFor({ timeout: 5_000 });
-        await page.mouse.move(900, 20);
-      },
-    },
-    {
-      name: "stream spacing",
-      action: async (page) => {
-        await page.evaluate(
-          (next) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(next),
-          streamedRows,
-        );
-      },
-    },
-    {
-      name: "rail tick click",
-      action: async (page) => {
-        const point = await tickPoint(page);
-        await page.mouse.click(point.x, point.y);
-      },
-    },
-    {
-      name: "card open close",
-      action: async (page) => {
-        const point = await tickPoint(page);
-        await page.mouse.move(point.x, point.y);
-        await page.locator(".acpmux-minimap__card").waitFor({ timeout: 5_000 });
-        await page.mouse.move(900, 20);
-      },
-    },
-  ];
-
-  test("the rail highlight clears without transcript remounts or missing painted rows", async () => {
-    const results: Result[] = [];
-    for (const scenario of scenarios) {
-      const page = await openPage();
+  async function open() {
+    const { port } = vite.httpServer!.address() as { port: number };
+    const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+      await page.waitForFunction(() => "__showRows" in window);
+      await page.evaluate((rows) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(rows), rows);
+      await page.locator(".acpmux-minimap__rail").waitFor();
+      await completed(page, "settled");
+      await page.evaluate(() => {
+        document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 700;
+      });
+      await completed(page, "settled");
+      return page;
+    } catch (error) {
+      await page.close();
+      throw error;
+    }
+  }
+  async function measure(
+    page: Page,
+    name: string,
+    stationary: boolean,
+    action: (mark: (phase: string) => void) => Promise<void>,
+  ) {
+    const pixels = await transcriptPixels(page);
+    let output;
+    let dom;
+    try {
+      await observeRows(page, stationary);
+      await action(pixels.mark);
+      await completed(page, "settled");
+    } finally {
       try {
-        const probe = scenarioProbe(page, scenario.name);
-        await scenario.action(page);
-        results.push(await probe);
+        output = await pixels.stop(name);
+      } finally {
+        dom = await page.evaluate(() => window.__flashStop?.());
+        console.log(name, "DOM", JSON.stringify(dom));
+      }
+    }
+    console.log(name, "pixels", JSON.stringify({ ...output, samples: undefined }));
+    expect(output.frames).toBeGreaterThan(2);
+    expect(output.blankFrames).toEqual([]);
+    // Scrolling can empty a strip legitimately; its partial-loss candidates stay in the report.
+    if (stationary) {
+      expect(output.transientFrames).toEqual([]);
+      expect(output.referenceLossFrames).toEqual([]);
+      expect(dom).toMatchObject({ adds: 0, removes: 0, missingFrames: 0 });
+    }
+  }
+  const hover = async (page: Page) => {
+    const box = await page.locator('[data-tick="2"]').boundingBox();
+    if (!box) throw new Error("tick not drawn");
+    await page.mouse.move(box.x + 8, box.y + box.height / 2);
+    await page.locator(".acpmux-minimap__card").waitFor({ timeout: 5_000 });
+  };
+  test("captured transcript stays present through rail hover leave and card dismissal", async () => {
+    const page = await open();
+    try {
+      await measure(page, "hover-leave", true, async (mark) => {
+        mark("hover");
+        await hover(page);
+        mark("highlight-clear");
+        await page.mouse.move(1100, 20);
+        await completed(page, "closed");
+      });
+      await measure(page, "card-open-close", true, async (mark) => {
+        mark("open");
+        await hover(page);
+        await page.locator(".acpmux-minimap__card").hover();
+        mark("close");
+        await page.keyboard.press("Escape");
+        await page.mouse.move(1100, 20);
+        await completed(page, "closed");
+      });
+    } finally {
+      await page.close();
+    }
+  });
+  test("tick click and next/previous turn land at the requested prompt", async () => {
+    const page = await open();
+    try {
+      await measure(page, "tick-click", false, async (mark) => {
+        mark("jump");
+        await page.locator('[data-tick="12"]').click();
+        await completed(page, "landing", "t12-user");
+      });
+      for (const [action, id] of [
+        ["nextTurn", "t13-user"],
+        ["previousTurn", "t12-user"],
+      ]) {
+        await page.evaluate((action) => window.dispatchEvent(new CustomEvent(`cmux-acpmux-${action}`)), action);
+        await completed(page, "landing", id);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+  test("live latest reply grows through daemon chunks while following bottom", async () => {
+    const page = await chat.open({ width: 1280, height: 820 });
+    try {
+      await page.emulateMedia({ colorScheme: "dark" });
+      await page.evaluate(() => {
+        document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 1e9;
+      });
+      await completed(page, "bottom");
+      const start = await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop);
+      await measure(page, "live-stream", false, async (mark) => {
+        mark("stream");
+        chat.record("user_message", { text: "Stream the latest reply", promptId: "flash-live", turnId: "flash-live" });
+        chat.record("turn_started", {});
+        for (let index = 1; index <= 12; index++) {
+          chat.record(
+            "agent_message_chunk",
+            {
+              method: "session/update",
+              params: {
+                sessionId: "agent-1",
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: { type: "text", text: `Live paragraph ${index}: ${paragraph}\n\n` },
+                },
+              },
+            },
+            "in",
+          );
+          await page.getByText(`Live paragraph ${index}:`, { exact: false }).waitFor();
+          await completed(page, "bottom");
+        }
+        chat.record("turn_result", { status: "completed" });
+        await completed(page, "bottom");
+      });
+      expect((await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop)) - start).toBeGreaterThan(300);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a missed interaction fails its deadline and releases observation", async () => {
+    const page = await open();
+    try {
+      await expect(
+        measure(page, "timeout-control", true, () => completed(page, "landing", "absent", 50)),
+      ).rejects.toThrow("interaction did not complete");
+      expect(await page.evaluate(() => window.__flashStop === undefined)).toBe(true);
+      await completed(page, "settled");
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("pixel oracle detects a paint-only blank with unchanged DOM geometry", async () => {
+    const page = await open();
+    const pixels = await transcriptPixels(page);
+    try {
+      const before = await page.locator(".acpmux-row").first().boundingBox();
+      const style = await page.addStyleTag({ content: ".acpmux-thread { visibility: hidden !important; }" });
+      try {
+        await page.evaluate(() => window.cmuxPaintFrame());
+        await pixels.checkpoint("injected-blank");
+        expect(await page.locator(".acpmux-row").first().boundingBox()).toEqual(before);
+        expect(
+          await page
+            .locator(".acpmux-row")
+            .first()
+            .evaluate((node) => getComputedStyle(node).opacity),
+        ).toBe("1");
+      } finally {
+        await style.evaluate((node) => node.parentNode?.removeChild(node));
+      }
+      await completed(page, "settled");
+    } finally {
+      try {
+        const result = await pixels.stop("positive-control");
+        console.log("positive-control", JSON.stringify({ frames: result.frames, blankFrames: result.blankFrames }));
+        expect(result.blankFrames.length).toBeGreaterThan(0);
       } finally {
         await page.close();
       }
     }
-    console.log(`thread-minimap-flash ${JSON.stringify(results)}`);
-    expect(results.every((result) => result.missingFrames === 0)).toBe(true);
-    expect(results.find((result) => result.name === "hover leave")).toMatchObject({
-      rowAdds: 0,
-      rowRemoves: 0,
-    });
-    expect(results.find((result) => result.name === "card open close")).toMatchObject({
-      rowAdds: 0,
-      rowRemoves: 0,
-    });
-    // The rail and its card must have an independent, stable compositing boundary. Base fails this
-    // assertion while the frame counts above show that the rows themselves stayed mounted/painted.
-    expect(
-      results.every((result) => {
-        const rail = result.before[".acpmux-minimap__rail"] as {
-          isolation?: string;
-          willChange?: string;
-        } | null;
-        return rail?.isolation === "isolate" && rail.willChange?.includes("transform");
-      }),
-    ).toBe(true);
-    expect(
-      results
-        .filter((result) => result.cardLayer)
-        .every(
-          (result) => result.cardLayer?.isolation === "isolate" && result.cardLayer.willChange?.includes("transform"),
-        ),
-    ).toBe(true);
   });
 });
