@@ -14,7 +14,9 @@
 //! set nothing about a fixture harness is read from this machine: no
 //! version, sign-in or newest-version check, no model probe of it, no
 //! saved health copy, and every update (auto, requested or prepared) is
-//! refused, since its commands describe no real install.
+//! refused, since its commands describe no real install. Nor does the daemon
+//! verify launchers (`config/launchers.rs`), probe live model lists, read
+//! the ACP Registry or add a harness while a fixture is set.
 //!
 //! Unset (every normal run), nothing here is read and every path is the
 //! one it always was. A signed app never passes the variable to its daemon
@@ -85,12 +87,20 @@ fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
 fn loaded() -> &'static Option<Result<Fixture, String>> {
     static LOADED: OnceLock<Option<Result<Fixture, String>>> = OnceLock::new();
     LOADED.get_or_init(|| {
-        let path = std::env::var_os(ENV).filter(|v| !v.is_empty())?;
+        // Set but empty is a mistake, never "unset": the capture would show
+        // this host's harnesses.
+        let path = std::env::var_os(ENV)?;
+        if path.is_empty() {
+            return Some(Err(format!("{ENV} is set but empty")));
+        }
         Some(Fixture::read(Path::new(&path)))
     })
 }
 
-/// The fixture this process runs with, or None (the variable is unset). A
+/// The fixture this process runs with, or None (the variable is unset).
+/// It is per process: the daemon and the acpmux processes it starts read it
+/// (the app passes it only to its daemon); a CLI run without the variable
+/// sees the host as always. A
 /// fixture that could not be read is an empty one here, so a client
 /// process still reads nothing live; the daemon refuses to start (`check`).
 pub fn active() -> Option<&'static Fixture> {

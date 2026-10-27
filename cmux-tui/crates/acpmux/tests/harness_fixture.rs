@@ -112,6 +112,8 @@ async fn the_daemon_serves_a_fixture_and_reads_nothing_live() {
     assert_eq!(update["result"]["results"][0]["ok"], false, "{update}");
     // A model refresh waits for every probe; a probe would start the harness.
     call(&mut lines, &mut wr, 10, "_acpmux/models", json!({"refresh": true})).await;
+    let registry = call(&mut lines, &mut wr, 11, "_acpmux/registry", json!({})).await;
+    assert!(registry.get("error").is_some(), "{registry}");
     assert!(!marker.exists(), "the fixture harness ran: {:?}", std::fs::read_to_string(&marker));
     assert!(!dir.join("harness-health.json").exists(), "a fixture's health was saved");
 
@@ -126,12 +128,14 @@ async fn the_daemon_serves_a_fixture_and_reads_nothing_live() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A set variable whose file is missing stops the start: no ready line.
+/// A set variable whose file is missing, or that is empty, stops the start: no ready line.
 #[test]
 fn an_unreadable_fixture_stops_the_daemon() {
     let dir = scratch("bad");
-    let out = daemon(&dir, &dir.join("missing.json")).output().unwrap();
-    assert!(!out.status.success());
-    assert!(!String::from_utf8_lossy(&out.stdout).contains("\"ready\""));
+    for fixture in [dir.join("missing.json"), PathBuf::new()] {
+        let out = daemon(&dir, &fixture).output().unwrap();
+        assert!(!out.status.success(), "{fixture:?}");
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("\"ready\""), "{fixture:?}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
