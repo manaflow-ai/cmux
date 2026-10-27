@@ -76,7 +76,8 @@ import Testing
         #expect(stills.memoryUsage == MemoryUsage(footprintBytes: urls[2].utf8.count + urls[3].utf8.count, entries: 2))
         // The newest two stay under their keys; the oldest is encoded again under a new one.
         #expect(stills.still(arts[3], ready: {})?.dataURL == urls[3])
-        let again = try #require(stills.still(arts[0], ready: {}))
+        let asked = stills.still(arts[0], ready: {})
+        let again = try #require(asked)
         #expect(again.dataURL == nil, "a dropped still is encoded again when next asked")
     }
 
