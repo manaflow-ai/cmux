@@ -160,7 +160,7 @@ extension AgentPaneView {
                     let failure = (error as? AgentPaneUploadError)?.failure
                     var details: [String: Any] = [:]
                     if let failure { for (key, value) in failure.details { details[key] = value } }
-                    var eventError: [String: Any]? = nil
+                    var eventError: [String: Any]?
                     if let failure {
                         eventError = ["code": failure.code, "message": failure.message]
                         for (key, value) in failure.details { eventError?[key] = value }
