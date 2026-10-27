@@ -74,25 +74,76 @@ impl Edit {
         Ok(Self::Text { text: text.to_owned(), images })
     }
 
-    /// The blocks the waiting prompt `before` runs once edited.
-    fn blocks(self, before: &[Value]) -> Vec<Value> {
+    /// The blocks the waiting prompt `before` runs once edited, and for each the index of the
+    /// block of `before` it is (`None`: a new block). A `prompt` edit's blocks are all new: the
+    /// client wrote them, so none is known to be one of `before`.
+    fn blocks(self, before: &[Value]) -> (Vec<Value>, Vec<Option<usize>>) {
         let (text, images) = match self {
-            Self::Prompt(blocks) => return blocks,
+            Self::Prompt(blocks) => {
+                let origin = vec![None; blocks.len()];
+                return (blocks, origin);
+            }
             Self::Text { text, images } => (text, images),
         };
-        let kept = before.iter().filter(|block| {
-            if block.get("type").and_then(Value::as_str) == Some("text") {
-                return false;
-            }
-            let Some(ids) = &images else { return true };
-            match super::prompt_images::id_of(block) {
-                Some(id) => ids.contains(&id),
-                // Not an image (or not one it can name): it stays.
-                None => true,
-            }
-        });
-        std::iter::once(json!({"type": "text", "text": text})).chain(kept.cloned()).collect()
+        let kept: Vec<usize> = before
+            .iter()
+            .enumerate()
+            .filter(|(_, block)| {
+                if block.get("type").and_then(Value::as_str) == Some("text") {
+                    return false;
+                }
+                let Some(ids) = &images else { return true };
+                match super::prompt_images::id_of(block) {
+                    Some(id) => ids.contains(&id),
+                    // Not an image (or not one it can name): it stays.
+                    None => true,
+                }
+            })
+            .map(|(i, _)| i)
+            .collect();
+        let blocks = std::iter::once(json!({"type": "text", "text": text}))
+            .chain(kept.iter().map(|&i| before[i].clone()))
+            .collect();
+        (blocks, std::iter::once(None).chain(kept.into_iter().map(Some)).collect())
     }
+}
+
+/// A waiting prompt's display metadata (`PromptRun::display_parts`) once an edit moved its blocks
+/// (`origin`, `Edit::blocks`): each part follows its own block to where it is now, and a
+/// companion (`companionOf`, the original file of an image) follows its image. A part whose block
+/// or image the edit did not keep is dropped, never put on another block; the count of those is
+/// returned with it. No part is matched by its name.
+fn moved_display_parts(parts: Option<&Value>, origin: &[Option<usize>]) -> (Option<Value>, usize) {
+    let Some(Value::Array(parts)) = parts else { return (None, 0) };
+    let now: HashMap<u64, u64> = origin
+        .iter()
+        .enumerate()
+        .filter_map(|(new, old)| Some(((*old)? as u64, new as u64)))
+        .collect();
+    let mut dropped = 0;
+    let kept: Vec<Value> = parts
+        .iter()
+        .filter_map(|part| {
+            // `None`: it names no such block; `Some(None)`: the edit did not keep that block.
+            let index =
+                |key: &str| part.get(key).map(|v| v.as_u64().and_then(|i| now.get(&i).copied()));
+            let (at, of) = (index("blockIndex"), index("companionOf"));
+            let (Some(Some(at)), Some(mut fields)) = (at, part.as_object().cloned()) else {
+                dropped += 1;
+                return None;
+            };
+            if of == Some(None) {
+                dropped += 1;
+                return None;
+            }
+            fields.insert("blockIndex".into(), json!(at));
+            if let Some(Some(of)) = of {
+                fields.insert("companionOf".into(), json!(of));
+            }
+            Some(Value::Object(fields))
+        })
+        .collect();
+    ((!kept.is_empty()).then_some(Value::Array(kept)), dropped)
 }
 
 impl Hub {
@@ -192,13 +243,19 @@ impl Hub {
                 return Ok(false);
             };
             crate::author::may_change(editor, q.sender())?;
-            let mut blocks = edit.blocks(&q.run.blocks);
+            let (mut blocks, origin) = edit.blocks(&q.run.blocks);
             // Only `session/prompt` adds a hidden context (prompt_context.rs).
             crate::prompt_context::strip_marks(&mut blocks);
             let text = prompt_text(&blocks);
+            // Its images keep their names and their original files (`moved_display_parts`).
+            let (display_parts, dropped) =
+                moved_display_parts(q.run.display_parts.as_ref(), &origin);
+            if dropped > 0 {
+                tracing::info!(session = %session.id, prompt = %prompt_id, dropped, "a queue edit dropped the display parts of blocks it did not keep");
+            }
             q.run = Arc::new(PromptRun {
                 blocks,
-                display_parts: None,
+                display_parts,
                 control: stricter(q.run.control, control),
                 trust_gate: q.run.trust_gate || trust_gate,
                 // The person rewrote it: it is no longer the sender's message, unless the sender
@@ -400,5 +457,114 @@ impl Hub {
         let params = json!({"sessionId": sid, "promptId": prompt_id});
         let answer = child.request(method::MUX_STEER_WITHDRAW, params).await;
         Ok(matches!(&answer, Ok(v) if v["withdrawn"] == true))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Edit, moved_display_parts};
+    use serde_json::{Value, json};
+
+    /// Image bytes `bytes` as an ACP image block, and its attachment id.
+    fn image(bytes: &[u8], name: &str) -> (Value, String) {
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let block = json!({"type": "image", "mimeType": "image/png", "data": data, "name": name});
+        let id = super::super::prompt_images::id_of(&block).expect("an image id");
+        (block, id)
+    }
+
+    fn link(name: &str) -> Value {
+        json!({"type": "resource_link", "uri": format!("file:///originals/{name}"), "name": name})
+    }
+
+    /// A text edit moves every block after the new text: each image keeps its display part and
+    /// its original file (`companionOf`) still names it, at its new place.
+    #[test]
+    fn a_text_edit_moves_display_parts_with_their_blocks() {
+        let (a, _) = image(b"first", "a.png");
+        let (b, _) = image(b"second", "b.png");
+        let before = vec![
+            a,
+            link("a.png"),
+            json!({"type": "text", "text": "look at these"}),
+            b,
+            link("b.png"),
+        ];
+        let parts = json!([
+            {"kind": "image", "blockIndex": 0, "name": "Screenshot A.png"},
+            {"kind": "file", "blockIndex": 1, "name": "a.png", "companionOf": 0},
+            {"kind": "pasted", "blockIndex": 2, "start": 0, "end": 4},
+            {"kind": "image", "blockIndex": 3, "name": "Screenshot B.png"},
+            {"kind": "file", "blockIndex": 4, "name": "b.png", "companionOf": 3}
+        ]);
+        let edit = Edit::Text { text: "look again".into(), images: None };
+        let (blocks, origin) = edit.blocks(&before);
+        assert_eq!(origin, [None, Some(0), Some(1), Some(3), Some(4)]);
+        let (moved, dropped) = moved_display_parts(Some(&parts), &origin);
+        // The pasted range named the old words, which the edit replaced.
+        assert_eq!(dropped, 1);
+        assert_eq!(
+            moved,
+            Some(json!([
+                {"kind": "image", "blockIndex": 1, "name": "Screenshot A.png"},
+                {"kind": "file", "blockIndex": 2, "name": "a.png", "companionOf": 1},
+                {"kind": "image", "blockIndex": 3, "name": "Screenshot B.png"},
+                {"kind": "file", "blockIndex": 4, "name": "b.png", "companionOf": 3}
+            ]))
+        );
+        let moved = moved.unwrap();
+        for part in moved.as_array().unwrap() {
+            let at = part["blockIndex"].as_u64().unwrap() as usize;
+            let was = origin[at].unwrap();
+            assert_eq!(blocks[at], before[was], "{part} is on another block");
+        }
+    }
+
+    /// An edit that keeps one image only: the other's part and its original file's relation are
+    /// dropped, never moved onto the image that stays (both are named like it).
+    #[test]
+    fn a_dropped_image_takes_its_display_parts_with_it() {
+        let (a, _) = image(b"first", "shot.png");
+        let (b, b_id) = image(b"second", "shot.png");
+        let before = vec![a, link("shot.png"), b, link("shot.png")];
+        let parts = json!([
+            {"kind": "image", "blockIndex": 0, "name": "shot.png"},
+            {"kind": "file", "blockIndex": 1, "name": "shot.png", "companionOf": 0},
+            {"kind": "image", "blockIndex": 2, "name": "shot.png"},
+            {"kind": "file", "blockIndex": 3, "name": "shot.png", "companionOf": 2}
+        ]);
+        let edit = Edit::Text { text: "the second".into(), images: Some(vec![b_id]) };
+        let (blocks, origin) = edit.blocks(&before);
+        assert_eq!(origin, [None, Some(1), Some(2), Some(3)]);
+        assert_eq!(blocks.len(), 4);
+        let (moved, dropped) = moved_display_parts(Some(&parts), &origin);
+        assert_eq!(dropped, 2);
+        assert_eq!(
+            moved,
+            Some(json!([
+                {"kind": "image", "blockIndex": 2, "name": "shot.png"},
+                {"kind": "file", "blockIndex": 3, "name": "shot.png", "companionOf": 2}
+            ]))
+        );
+    }
+
+    /// A whole new prompt names none of the old blocks, and a part that is not one is dropped.
+    #[test]
+    fn a_prompt_edit_and_a_malformed_part_keep_nothing() {
+        let (a, _) = image(b"first", "a.png");
+        let parts = json!([{"kind": "image", "blockIndex": 0, "name": "a.png"}]);
+        let edit = Edit::Prompt(vec![a.clone()]);
+        let (_, origin) = edit.blocks(std::slice::from_ref(&a));
+        assert_eq!(moved_display_parts(Some(&parts), &origin), (None, 1));
+        let origin = [None, Some(0)];
+        let bad = json!([
+            "image",
+            {"kind": "image"},
+            {"kind": "image", "blockIndex": "0"},
+            {"kind": "file", "blockIndex": 0, "companionOf": 7}
+        ]);
+        assert_eq!(moved_display_parts(Some(&bad), &origin), (None, 4));
+        assert_eq!(moved_display_parts(None, &origin), (None, 0));
     }
 }
