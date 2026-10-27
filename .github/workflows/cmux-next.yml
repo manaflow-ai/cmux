@@ -2709,7 +2709,7 @@ jobs:
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
       - name: Stop this job's acpmux daemons and remove its home
-        if: ${{ always() }}
+        if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         timeout-minutes: 3
         run: |
@@ -3278,7 +3278,7 @@ jobs:
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
       - name: Stop this job's acpmux daemons and remove its home
-        if: ${{ always() }}
+        if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         timeout-minutes: 3
         run: |
@@ -4010,7 +4010,7 @@ jobs:
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
       - name: Stop this job's acpmux daemons and remove its home
-        if: ${{ always() }}
+        if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         timeout-minutes: 3
         run: |

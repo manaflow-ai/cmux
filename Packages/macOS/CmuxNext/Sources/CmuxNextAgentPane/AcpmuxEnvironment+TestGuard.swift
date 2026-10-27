@@ -28,7 +28,7 @@ nonisolated extension AcpmuxEnvironment {
 
     /// Whether `home` is `<personsHome>/.acpmux` or a folder below it (symlinks resolved).
     static func isPersonsAcpmuxHome(_ home: URL, personsHome: URL) -> Bool {
-        let root = personsHome.appendingPathComponent(".acpmux", isDirectory: true).resolvingSymlinksInPath().path
+        let root = sharedRoot(userHome: personsHome).resolvingSymlinksInPath().path
         let path = home.resolvingSymlinksInPath().path
         return path == root || path.hasPrefix(root + "/")
     }

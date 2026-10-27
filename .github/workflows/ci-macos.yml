@@ -1878,6 +1878,7 @@ jobs:
       # own, never the runner's ~/.acpmux, the mini's own daemon
       # (tests/test_ci_acpmux_job_home.py).
       - name: Give this job its own acpmux home
+        if: env.PACKAGE_TESTS_VIA_STEP != '1'
         run: |
           home="$RUNNER_TEMP/acpmux-home"
           rm -rf "$home" && mkdir -m 700 "$home"
@@ -2108,7 +2109,7 @@ jobs:
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
       - name: Stop this job's acpmux daemons and remove its home
-        if: ${{ always() }}
+        if: ${{ always() && env.PACKAGE_TESTS_VIA_STEP != '1' }}
         continue-on-error: true
         timeout-minutes: 3
         run: |

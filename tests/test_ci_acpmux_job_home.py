@@ -169,6 +169,17 @@ class AcpmuxJobHomeTests(unittest.TestCase):
         self.assertEqual(job_failures("w:j", {"steps": [dict(START, **{"if": stale}), dict(TEST, **{"if": stale}),
                                                         dict(STOP, **{"if": f"${{{{ always() && {stale} }}}}"})]}), [])
 
+    def test_the_fleet_package_lane_gives_its_tests_a_home_of_their_own(self) -> None:
+        # A fleet step (`cmux-ci run --script scripts/ci/package-test-lane.sh`) runs on a mini
+        # outside this job, so the lane itself makes a home when it was given none.
+        lane = (ROOT / "scripts" / "ci" / "package-test-lane.sh").read_text(encoding="utf-8")
+        setup = lane[lane.index("end_own_acpmux_home() {"):lane.rindex('case "$phase" in')]
+        self.assertIn("  suite|packages|run)\n    if [ -z \"${ACPMUX_HOME:-}\" ]; then", setup)
+        self.assertIn('export ACPMUX_HOME="$own_acpmux_home" ACPMUX_SOCKET=', setup)
+        self.assertIn("trap 'status=$?; end_own_acpmux_home; exit \"$status\"' EXIT", setup)
+        self.assertIn(f'env -u ACPMUX_SOCKET ACPMUX_HOME="$own_acpmux_home" "$acpmux" {SHUTDOWN}', setup)
+        self.assertIn('rm -rf "$own_acpmux_home"', setup)
+
     def test_other_swift_packages_are_not_acpmux(self) -> None:
         self.assertFalse(launches({"run": "swift test --package-path Packages/Shared/CmuxVNC"}))
         self.assertTrue(launches({"run": "swift test --skip-build", "working-directory": CMUX_NEXT_PACKAGE}))

@@ -126,7 +126,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             ?? executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
             .first(where: { isExecutable($0.path) }) else { return nil }
         if let teamIdentifier, !isTrustedExecutable(executable, teamIdentifier) { return nil }
-        let root = testRoot(environment) ?? userHome.appendingPathComponent(".acpmux", isDirectory: true)
+        let root = testRoot(environment) ?? sharedRoot(userHome: userHome)
         let ownHome = build?.acpmuxHome(root: root) ?? root
         let home: URL
         let customHome = environment["ACPMUX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
@@ -156,6 +156,11 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             daemonArguments: ownHome == root ? [] : ["--listen", "127.0.0.1:0"], childEnvironment: childEnvironment,
             passesPersonKeyAtSpawn: teamIdentifier == nil
         )
+    }
+
+    /// `~/.acpmux` of `userHome`: NIGHTLY's home, and the root of every build home.
+    static func sharedRoot(userHome: URL) -> URL {
+        userHome.appendingPathComponent(".acpmux", isDirectory: true)
     }
 
     /// `CMUX_NEXT_ACPMUX_ROOT`, the directory that stands for `~/.acpmux` in a
