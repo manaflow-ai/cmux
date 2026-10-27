@@ -5,7 +5,7 @@ import QuartzCore
 import Testing
 
 /// What rides with the chrome besides its frames: the overlay syncs once, at the spring's start; a glowing
-/// attention ring drops its fixed outline while it springs; the exclusion mask a dock cuts keeps its cutout
+/// attention ring's outline follows its spring; the exclusion mask a dock cuts keeps its cutout
 /// where the dock rests and covers the whole moving chrome; and the start converts through a zoomed canvas.
 extension PaneSublayerParityTests {
     /// Cmd-D places every ring once, in the key's turn (`LayoutViewContext.overlaySyncNow`): the sync the turn
@@ -54,9 +54,10 @@ extension PaneSublayerParityTests {
         return PaneOverlayView.ringOutline(size: frames.rounded.size, radius: frames.cornerRadius, width: chrome.attentionLayer.borderWidth)
     }
 
-    /// `notifications.attention.terminals` glow: the ring's fixed shadow path is gone while it springs, and it
-    /// is back at the rest outline when the spring lands and when the springs go back to the CPU.
-    @Test func aGlowingRingDropsItsOutlineWhileItSprings() async throws {
+    /// `notifications.attention.terminals` glow: the ring never casts from its content. While it springs its
+    /// model shadow path is the rest outline and keyframes give it the outline of its presented size; the
+    /// follow ends with the ride (the landing, the take-back).
+    @Test func aGlowingRingFollowsItsSpringWithAShadowPath() async throws {
         let design = DesignSettings.shared
         let saved = design.attention
         defer { design.attention = saved }
@@ -72,20 +73,25 @@ extension PaneSublayerParityTests {
             let a = try split.host("a")
             let ring = a.chrome.attentionLayer
             try #require(ring.opacity > 0 && ring.shadowOpacity > 0, "a's attention ring does not glow")
-            try #require(ring.shadowPath != nil, "the glowing ring has no outline at rest")
+            #expect(ring.shadowPath == Self.restOutline(a.chrome), "the glowing ring has no outline at rest")
 
             split.split()
             try #require(a.isOnRenderSpring, "Cmd-D is not on the render server")
-            #expect(ring.shadowPath == nil, "the glowing ring keeps its fixed outline while it springs")
+            #expect(ring.shadowPath == Self.restOutline(a.chrome), "the springing ring's model outline is not its rest one")
+            let follow = try #require(ring.animation(forKey: CALayer.shadowPathFollowKey) as? CAKeyframeAnimation,
+                                      "the springing ring's outline does not follow its size")
+            #expect(follow.keyPath == "shadowPath" && (follow.values?.count ?? 0) > 2,
+                    "the follow has \(follow.values?.count ?? 0) outlines, not one per frame of the spring")
             #expect(await split.landed(), "the split did not land in 5 s")
-            #expect(ring.shadowPath == Self.restOutline(a.chrome), "the landing did not put the rest outline back")
+            #expect(ring.shadowPath == Self.restOutline(a.chrome), "the landing did not leave the rest outline")
 
             split.split(.split(SplitID("d"), axis: .horizontal, ratio: 0.5, a: .leaf("a"),
                                b: .split(SplitID("e"), axis: .horizontal, ratio: 0.5, a: .leaf("b"), b: .leaf("c"))))
             try #require(a.isOnRenderSpring, "the second split is not on the render server")
-            #expect(ring.shadowPath == nil, "the glowing ring keeps its fixed outline while it springs again")
+            #expect(ring.animation(forKey: CALayer.shadowPathFollowKey) != nil, "the second spring's outline does not follow")
             a.stopRenderMoves()
-            #expect(ring.shadowPath == Self.restOutline(a.chrome), "the take-back did not put the rest outline back")
+            #expect(ring.animation(forKey: CALayer.shadowPathFollowKey) == nil, "the take-back left the outline following")
+            #expect(ring.shadowPath == Self.restOutline(a.chrome), "the take-back did not leave the rest outline")
         }
     }
 

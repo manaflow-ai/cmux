@@ -126,6 +126,8 @@ struct TabStripMove {
     static func cancel(_ root: CALayer) {
         for old in snapshot(root).layers {
             for key in old.layer.animationKeys() ?? [] where key.hasPrefix(keyPrefix) { old.layer.removeAnimation(forKey: key) }
+            // A shadow outline that followed the move (a lifted chip's pill) is at its model now too.
+            old.layer.stopFollowingShadowPath()
         }
     }
 

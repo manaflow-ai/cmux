@@ -97,6 +97,7 @@ extension TabStripView {
                 chip.frame = frame
                 chip.layer.opacity = alpha
                 moved = move.animate(from: before, scroll: scroll)
+                if moved { chip.followPillShadow() }
             } else {
                 chip.frame = frame
                 chip.layer.opacity = alpha

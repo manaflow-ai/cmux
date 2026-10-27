@@ -154,7 +154,8 @@ public struct RenderSpring {
     }
 
     /// Opacity is a fade in the motion policy (`animatesFades`, a crossfade under Reduce
-    /// Motion); every other key path a `RenderSpringValue` animates is movement.
+    /// Motion), and so is a shadow's (its shape is the layer's shadowPath, which does not move);
+    /// every other key path a `RenderSpringValue` animates is movement.
     public static func isFade(_ keyPath: String) -> Bool {
         keyPath == "opacity" || keyPath == "shadowOpacity"
     }

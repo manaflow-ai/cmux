@@ -39,6 +39,10 @@ public final class AgentCursorLayer {
     /// white pages, where the white rim does not show; the rim draws it on
     /// dark pages and terminals. A soft shadow lifts it off busy photos.
     static let outline = CGColor(gray: 0, alpha: 0.45)
+    /// The hairline's width.
+    static let outlineWidth: CGFloat = 2.9
+    /// The band the hairline draws: its shadow's path, so the shadow needs no offscreen pass.
+    static let outlineShadowPath: CGPath = arrowPath.copy(strokingWithWidth: outlineWidth, lineCap: .butt, lineJoin: .round, miterLimit: 10)
     /// The dart's specular highlight, top-left to the middle.
     static let dartSheen: [CGColor] = [CGColor(gray: 1, alpha: 0.45), CGColor(gray: 1, alpha: 0)]
     /// The name tag and caption glass: the shared ``FloatingGlassStyle/agentTag`` (Chief via
@@ -111,10 +115,11 @@ public final class AgentCursorLayer {
         arrowOutline.path = Self.arrowPath
         arrowOutline.fillColor = nil
         arrowOutline.strokeColor = Self.outline
-        arrowOutline.lineWidth = 2.9
+        arrowOutline.lineWidth = Self.outlineWidth
         arrowOutline.lineJoin = .round
         arrowOutline.shadowColor = CGColor(gray: 0, alpha: 1)
-        arrowOutline.shadowOpacity = 0.28
+        arrowOutline.shadowPath = Self.outlineShadowPath
+        arrowOutline.shadowOpacity = ShadowOutline.opacity(0.28, under: Self.outline)
         arrowOutline.shadowRadius = 2.5
         arrowOutline.shadowOffset = CGSize(width: 0, height: 1)
         arrow.path = Self.arrowPath
@@ -189,6 +194,7 @@ public final class AgentCursorLayer {
             let lead = padding + dot + gap
             let width = Self.captionWidth(name, size: Self.tagFontSize) + lead + padding
             nameTag.frame = CGRect(origin: Self.tagOffset, size: CGSize(width: width, height: Self.tagHeight))
+            nameTag.cast(shadowPath: ShadowOutline(size: nameTag.bounds.size, cornerRadius: nameTag.cornerRadius))
             Self.layoutRim(nameRim, in: nameTag.bounds)
             nameDot.path = CGPath(ellipseIn: CGRect(x: padding, y: (Self.tagHeight - dot) / 2, width: dot, height: dot), transform: nil)
             let lineHeight = ceil(Self.tagFontSize * 1.3)
@@ -328,6 +334,7 @@ public final class AgentCursorLayer {
         let wasShowing = isCaptionShowing
         let size = CGSize(width: width, height: Self.captionHeight)
         for layer in [caption, glassCaption] { layer.bounds = CGRect(origin: .zero, size: size) }
+        caption.cast(shadowPath: ShadowOutline(size: size, cornerRadius: caption.cornerRadius))
         let lineHeight = ceil(Self.captionFontSize * 1.3)
         captionText.frame = CGRect(x: padding, y: (Self.captionHeight - lineHeight) / 2,
                                    width: width - padding * 2, height: lineHeight)
@@ -378,9 +385,10 @@ public final class AgentCursorLayer {
             rim.colors = rimColors
             rim.isHidden = reducesTransparency
         }
+        // The tag and caption cast from their outlines, as strongly as their glass fill cast before.
         let shadow = Self.tagStyle.castsShadow && !reducesTransparency
-        nameTag.shadowOpacity = shadow ? 0.18 : 0
-        caption.shadowOpacity = shadow ? 0.16 : 0
+        nameTag.shadowOpacity = shadow ? ShadowOutline.opacity(0.18, under: fill) : 0
+        caption.shadowOpacity = shadow ? ShadowOutline.opacity(0.16, under: fill) : 0
     }
 
     /// Sizes a rim to its pill: a hairline just inside the capsule's edge.

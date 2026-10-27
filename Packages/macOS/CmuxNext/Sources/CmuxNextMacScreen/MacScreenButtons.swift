@@ -316,6 +316,7 @@ final class MacScreenSwitch: NSControl, MacScreenInked {
         wantsLayer = true
         layer?.addSublayer(track)
         layer?.addSublayer(knob)
+        // The knob is opaque (`applyState`): its outline casts as its fill did.
         knob.shadowOpacity = 0.25
         knob.shadowRadius = 1
         knob.shadowOffset = CGSize(width: 0, height: -0.5)
@@ -390,6 +391,7 @@ final class MacScreenSwitch: NSControl, MacScreenInked {
         let knobWidth = min(size.width - inset * 2, (knobHeight * 1.6).rounded())
         knob.frame = CGRect(x: isOn ? size.width - inset - knobWidth : inset, y: inset, width: knobWidth, height: knobHeight)
         knob.cornerRadius = knobHeight / 2
+        knob.cast(shadowPath: ShadowOutline(size: knob.bounds.size, cornerRadius: knob.cornerRadius))
         // Off, the system switch's track is the ink at 10% (light gray on light, a lift on dark) and its knob is
         // a light gray in dark mode; on, the track is the theme's focus color.
         track.backgroundColor = (isOn ? colors.focus : colors.primary.withAlphaComponent(0.1)).cgColor

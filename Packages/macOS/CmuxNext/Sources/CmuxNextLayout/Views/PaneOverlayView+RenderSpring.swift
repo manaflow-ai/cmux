@@ -14,8 +14,8 @@ extension PaneOverlayView {
     /// `velocity`, points per second) to its frame now, its rest, with its opacity from `fromAlpha` to
     /// `toAlpha` of its host's: its own layer's position and size as the host's
     /// (``NSView/renderSpringMoves(from:velocity:)``), its exclusion mask's (``rideMask(from:velocity:)``),
-    /// and each sublayer's (``sublayerStart(_:cellChange:)``). Empty outside the plane or hidden. A glowing
-    /// attention ring drops its fixed outline until ``rideEnded()``.
+    /// and each sublayer's (``sublayerStart(_:cellChange:)``). Empty outside the plane or hidden. Once the
+    /// group is added, ``followRideShadows()`` gives the glowing rings' shadows their springing outlines.
     func rideMoves(from: CGRect, velocity: RectComponents, fromAlpha: CGFloat, toAlpha: CGFloat) -> [RenderSpring.Move] {
         guard !isHidden, let layer else { return [] }
         var moves = renderSpringMoves(from: from, velocity: velocity)
@@ -32,7 +32,6 @@ extension PaneOverlayView {
         for (sublayer, rest) in sublayerFrames(chromeFrames(cellSize: bounds.size)) {
             moves += Self.springMoves(sublayer, from: Self.sublayerStart(rest, cellChange: change), to: rest, velocity: growth)
         }
-        releaseGlowOutline()
         return moves
     }
 
@@ -46,8 +45,7 @@ extension PaneOverlayView {
                size: CGSize(width: rest.size.width + cellChange.width, height: rest.size.height + cellChange.height))
     }
 
-    /// The host's spring landed (or was taken back to the CPU): the mask covers the rest bounds again and the
-    /// glow's outline comes back at rest.
+    /// The host's spring landed (or was taken back to the CPU): the mask covers the rest bounds again.
     func rideEnded() {
         endMaskRide()
         layoutLayers()
@@ -62,6 +60,7 @@ extension PaneOverlayView {
             RenderSpring.stop(target, "position")
             RenderSpring.stop(target, "bounds.size")
         }
+        stopFollowingRideShadows()
         rideEnded()
     }
 

@@ -47,25 +47,36 @@ extension PaneOverlayView {
         attentionLayer.add(hold, forKey: "attention-dismiss-glow")
     }
 
-    /// The ring's resize rides a render-server spring (`PaneOverlayView+RenderSpring`): a shadow path
-    /// is a fixed outline that Core Animation does not spring, so a glowing ring drops it until the
-    /// spring lands (``layoutLayers()`` puts it back) and its glow follows the ring's presented border.
-    func releaseGlowOutline() {
-        guard attentionLayer.shadowPath != nil, attentionLayer.shadowOpacity > 0, attentionLayer.opacity > 0 else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        attentionLayer.shadowPath = nil
-        CATransaction.commit()
+    /// Casts `layer`'s shadow from the band its border draws (its bounds, corner radius and border
+    /// width), built only when one of them changed: no offscreen pass to find the border's alpha.
+    static func castBorderShadow(_ layer: CALayer) {
+        let size = layer.bounds.size, radius = layer.cornerRadius, width = layer.borderWidth
+        layer.cast(shadowPathFor: [size.width, size.height, radius, width]) { ringOutline(size: size, radius: radius, width: width) }
     }
 
-    /// The outline a border of `width` inside a rounded rect of `size` draws, in
-    /// the layer's coordinates: the glow's shadow path, so Core Animation needs no
-    /// offscreen pass to find it.
+    /// The chrome rides a render-server spring (`PaneOverlayView+RenderSpring`), which Core Animation
+    /// does not apply to a shadow path: the glowing rings' outlines follow their springing sizes
+    /// frame by frame instead, so their glow stays on the presented border.
+    func followRideShadows() {
+        for (glowing, shownBy) in [(attentionLayer, attentionLayer), (glowLayer, glowLayer.superlayer ?? glowLayer)] {
+            // A glow that does not show (another ring style, no mark) has no outline to follow.
+            guard shownBy.opacity > 0 || (shownBy.presentation()?.opacity ?? 0) > 0 else {
+                glowing.stopFollowingShadowPath()
+                continue
+            }
+            let radius = glowing.cornerRadius, width = glowing.borderWidth
+            glowing.followShadowPath { Self.ringOutline(size: $0, radius: radius, width: width) }
+        }
+    }
+
+    /// The ride ended early (`stopRide`): the outlines are at rest with the springs.
+    func stopFollowingRideShadows() {
+        for glowing in [attentionLayer, glowLayer] { glowing.stopFollowingShadowPath() }
+    }
+
+    /// The band a border of `width` draws inside a rounded rect of `size`, in the layer's coordinates:
+    /// the glow's shadow path.
     static func ringOutline(size: CGSize, radius: CGFloat, width: CGFloat) -> CGPath? {
-        guard width > 0, size.width > width * 2, size.height > width * 2 else { return nil }
-        let inset = CGRect(origin: .zero, size: size).insetBy(dx: width / 2, dy: width / 2)
-        let corner = max(0, min(radius - width / 2, min(inset.width, inset.height) / 2))
-        return CGPath(roundedRect: inset, cornerWidth: corner, cornerHeight: corner, transform: nil)
-            .copy(strokingWithWidth: width, lineCap: .butt, lineJoin: .round, miterLimit: 10)
+        ShadowOutline(size: size, cornerRadius: radius).band(width: width)
     }
 }

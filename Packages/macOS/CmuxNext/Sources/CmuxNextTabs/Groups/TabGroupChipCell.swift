@@ -22,7 +22,8 @@ final class TabGroupChipCell {
             let elevation = PopupStyle.elevation2
             pill.shadowRadius = elevation.layerRadius
             pill.shadowOffset = elevation.layerOffset(flipped: true)
-            pill.shadowOpacity = isLifted ? Float(elevation.alpha) : 0
+            // Cast from the pill's outline (`layoutLayers`), as strongly as its fill cast before.
+            pill.shadowOpacity = isLifted ? ShadowOutline.opacity(elevation.alpha, under: pill.backgroundColor) : 0
             layer.zPosition = isLifted ? 11 : 1
         }
     }
@@ -125,6 +126,13 @@ final class TabGroupChipCell {
     /// Pill frame in the root layer's coordinates.
     var pillFrame: CGRect { pill.frame }
 
+    /// A strip move springs the pill's size (`TabStripMove.animate`): a lifted pill's shadow keeps
+    /// its outline on the way.
+    func followPillShadow() {
+        let radius = pill.cornerRadius
+        pill.followShadowPath { ShadowOutline(size: $0, cornerRadius: radius).path }
+    }
+
     private func contentChanged() {
         // An unnamed group without an icon turns into a dot on expand: no count to cover.
         let shown = countLayer.string
@@ -160,6 +168,8 @@ final class TabGroupChipCell {
         pill.frame = pixel(CGRect(x: m.groupChipOuterInset, y: (bounds.height - side) / 2, width: width, height: side))
         pill.cornerRadius = isDot ? side / 2 : max(0, m.cornerRadius - Metrics.space1)
         pill.opacity = width > 0 ? 1 : 0
+        // The lift shadow casts from the pill's outline, not from its name, count and icon offscreen.
+        pill.cast(shadowPath: ShadowOutline(size: pill.bounds.size, cornerRadius: pill.cornerRadius))
 
         let lineHeight = ceil(font.ascender - font.descender + font.leading)
         let textY = pixel((side - lineHeight) / 2)

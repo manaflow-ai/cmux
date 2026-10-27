@@ -37,6 +37,8 @@ final class PaneOverlayView: NSView {
     private let attention = CALayer()
     /// The attention ring's layer (for the glow, `PaneOverlayView+Glow`).
     var attentionLayer: CALayer { attention }
+    /// The focus ring's glow layer (`PaneOverlayView+Glow`).
+    var glowLayer: CALayer { glow }
     private let dimLayer = CALayer()
     /// The ring flashed when focus arrives without a click (`focus.flashOnMove`): its own layer, so
     /// the ring's opacity updates never cut the flash short.
@@ -182,7 +184,8 @@ final class PaneOverlayView: NSView {
         glow.borderWidth = focusRing.width
         glow.shadowRadius = max(2, focusRing.width * LayoutTunables.focusGlowRadiusFactor.value)
         attention.borderWidth = attentionSettings.width
-        attention.shadowPath = Self.ringOutline(size: frames.rounded.size, radius: frames.cornerRadius, width: attentionSettings.width)
+        // Each glow's shadowPath is its border's band.
+        for glowing in [attention, glow] { Self.castBorderShadow(glowing) }
         CATransaction.commit()
     }
 
@@ -323,6 +326,8 @@ final class PaneOverlayView: NSView {
             focusFlash.borderColor = Palette.paneFocusRing(focusRing, override: flashAlpha).cgColor
             glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value).cgColor
             glow.shadowColor = ringColor.cgColor
+            // It casts from its border's band (`castBorderShadow`) as strongly as from the border itself.
+            glow.shadowOpacity = ShadowOutline.opacity(1, under: glow.borderColor)
             let attentionColor = (attentionMark?.color ?? dismissingColor)?.nsColor ?? attentionSettings.color?.nsColor ?? attentionLook.defaultColor
             attention.borderColor = attentionColor.cgColor
             attention.shadowColor = attentionColor.cgColor
