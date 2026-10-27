@@ -26,6 +26,7 @@ import CmuxNextPopups
 import CmuxNextBrowserImport
 import CmuxNextPhone
 import CmuxNextPhoneAccess
+import CmuxNextRemote
 import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -113,7 +114,10 @@ final class AppServices {
     let iphone = IPhoneHostService()
     /// Settings > Accounts > This Mac on Your Tailnet (Labs): the local daemon's tailnet node.
     private(set) lazy var tailnetNode = TailnetNodeService(
-        daemon: daemon, defaults: .standard, qr: { [qr = PairingQRCode()] in qr.pngDataURL(for: $0) })
+        daemon: daemon,
+        cli: (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment))
+            .map { HostCLI(binary: $0, environment: SSHService.environment) },
+        defaults: .standard, qr: { [qr = PairingQRCode()] in qr.pngDataURL(for: $0) })
     /// Every action run's perform-to-commit time against the 10 ms budget (always on; zero-latency.md),
     /// each run published on the board of the app's ``MainWorkScheduler`` so the watchdog samples a slow one.
     let actionBudget: ActionBudgetMonitor

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextDaemonService
-import CmuxNextRemote
+public import CmuxNextRemote
 public import CmuxNextSettings
 public import Foundation
 public import Observation
@@ -24,11 +24,9 @@ public final class TailnetNodeService {
     static let accessKey = "tailnet.access"
 
     /// Composes the daemon-backed card with the app's defaults and QR renderer.
-    public init(daemon: DaemonService, defaults: UserDefaults, qr: @escaping (String) -> String?) {
+    public init(daemon: DaemonService, cli: HostCLI?, defaults: UserDefaults, qr: @escaping (String) -> String?) {
         self.daemon = daemon
         self.qr = qr
-        let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment))
-            .map { HostCLI(binary: $0, environment: SSHService.environment) }
         model = TailnetNodeModel(services: TailnetNodeServices(
             loginStart: {
                 guard let connection = daemon.connection else { throw DaemonError.notConnected }
