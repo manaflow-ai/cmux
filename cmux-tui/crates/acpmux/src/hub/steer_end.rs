@@ -40,7 +40,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     {
         return Ok(answer);
     }
-    let request = child.request_with_hook(method::SESSION_PROMPT, params, on_sent);
+    let request = child.request_with_hook(method::SESSION_PROMPT, params, None, on_sent);
     tokio::pin!(request);
     loop {
         tokio::select! {

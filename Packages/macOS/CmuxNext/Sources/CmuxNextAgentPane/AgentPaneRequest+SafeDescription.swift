@@ -40,6 +40,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .editShortcut: "editShortcut"
         case .runAction: "runAction"
         case .browseProject: "browseProject"
+        case .sandboxRun: "sandboxRun"
+        case .sandboxState: "sandboxState"
         case .chooseFolder: "chooseFolder"
         case .useFolder: "useFolder"
         case .chooseChatFolder: "chooseChatFolder"
