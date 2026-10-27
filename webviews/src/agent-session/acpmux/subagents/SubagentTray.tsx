@@ -139,7 +139,8 @@ export const SubagentTray = memo(function SubagentTray({
   const open = !headed || (opened ?? items.length <= TRAY_OPEN_MAX);
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
   // chevron or the list growing past TRAY_OPEN_MAX.
-  const fold = useFold(open, always, false);
+  // A fold on a hidden page applies at once (WebKit would play it on return).
+  const fold = useFold(open, pageShown, false);
   // Every line the tray has, drawn or not, and the ones drawn now.
   const keys = [...items.map(itemKey), ...finished.map(itemKey)];
   const drawnKeys = [
@@ -398,7 +399,7 @@ const NO_ITEMS: readonly TrayItem[] = [];
 const NO_KEYS: readonly string[] = [];
 /// The most lines that rise in from one update; a bigger burst is simply there.
 const ARRIVALS_PER_UPDATE = 3;
-const always = () => true;
+const pageShown = () => typeof document === "undefined" || document.visibilityState !== "hidden";
 
 /// What a line says it does now is only for what still runs: an ended one never reads "Running …".
 const liveSession = (session: StartedSession) => session.state === "running" || session.state === "waiting";

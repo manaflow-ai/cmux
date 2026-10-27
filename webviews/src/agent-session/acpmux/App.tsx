@@ -6226,7 +6226,9 @@ function AcpmuxPane() {
   if (trayChat.current !== shownSessionId) trayAbsentIn.current = undefined;
   trayChat.current = shownSessionId;
   const trayEnters = shownSessionId !== undefined && trayAbsentIn.current === shownSessionId;
-  if (!hasTray) trayAbsentIn.current = shownSessionId;
+  // Absence counts only once the chat's own rows are read: a partial snapshot during a slow switch
+  // would make a tray it already had look new.
+  if (!hasTray && snapshot.chatRead === true) trayAbsentIn.current = shownSessionId;
   // Another chat showing drops the last one's leaving tray at once.
   useLayoutEffect(() => settleTrayExit(), [shownSessionId]);
   const trayNode =
