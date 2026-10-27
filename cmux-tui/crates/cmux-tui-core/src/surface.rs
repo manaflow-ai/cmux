@@ -126,6 +126,7 @@ use hosted_reader::HostedReader;
 mod host_kitty_limits;
 #[cfg(any(unix, windows))]
 mod journal_reconnect;
+mod kitty_pixels;
 #[cfg(any(unix, windows))]
 mod prelaunch;
 #[cfg(any(unix, windows))]
