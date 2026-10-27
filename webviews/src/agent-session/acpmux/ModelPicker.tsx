@@ -261,7 +261,7 @@ const STARRED = "\u0000starred";
 /// Their model catalogs refresh after selection; do not borrow another account's models.
 function railByHarness(
   list: QuickFamily[],
-  _running: string | undefined,
+  running: string | undefined,
   profiles: Readonly<Record<string, readonly PickerProfile[]>> = {},
   signedOut: (id: string) => boolean = () => false,
 ): QuickFamily[] {
@@ -272,7 +272,9 @@ function railByHarness(
     const folded = profiles[family.id] ?? [];
     const names = folded.map((profile) => ({ ...profile, name: launchName(family.name, profile.name, profile.id) }));
     const currentName = names.find((profile) => profile.id === family.id)?.name ?? family.name;
-    const own = { ...family, name: currentName };
+    const brand = agentBrand(family.id);
+    const alternate = brand && family.id !== brand && family.id !== running;
+    const own = { ...family, name: currentName, ...(alternate ? { launch: true } : {}) };
     return [
       own,
       ...names.flatMap((profile): QuickFamily[] => {

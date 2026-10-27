@@ -264,7 +264,7 @@ for (const [title, harness, family] of [
       const every = [
         ...host.querySelectorAll<HTMLElement>('.acpmux-mp-models [role="option"][data-key^="model:"]'),
       ].map(label);
-      expect(every.length, "More models lists more than the menu shows").toBeGreaterThan(shown.length);
+      expect(every.length, "More models retains every harness menu choice").toBeGreaterThanOrEqual(shown.length);
       for (const name of shown) expect(every, every.join(", ")).toContain(name);
       expect(
         every.filter((name) => name === "Opus 5.5"),

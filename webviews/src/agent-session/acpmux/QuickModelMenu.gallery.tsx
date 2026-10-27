@@ -126,6 +126,13 @@ export default componentEntry<Props>({
                     onModel: () => undefined,
                     ...extras,
                     harnessPlacement: placement,
+                    search: {
+                      find: (query) =>
+                        list
+                          .flatMap((family) => [...family.models, ...family.more])
+                          .filter((model) => model.name.toLowerCase().includes(query.toLowerCase())),
+                      pick: () => undefined,
+                    },
                     account: {
                       sessionId: "gallery",
                       accounts: {

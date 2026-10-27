@@ -427,13 +427,17 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fork") !== null);
       },
     },
-    // Its Account row: the harness's own accounts (profiles), then the chat's routes.
+    // Its Account row contains signed-in routes, separate from named launch harnesses.
     "started-chat-accounts": {
       props: startedFork,
       play: async (ctx) => {
         await openQuick(ctx);
         await ctx.click({ role: "menuitem", name: /^Account/ });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
+        await ctx.waitFor(() =>
+          Array.from(ctx.document.querySelectorAll('[role="menuitemradio"]')).some(
+            (row) => row.textContent === "Anthropic API key",
+          ),
+        );
       },
     },
     // Three captures keep the menu comparison concrete: default Effort submenu, opt-in slider, and
@@ -458,13 +462,17 @@ export default componentEntry<GalleryProps>({
       play: openQuick,
     },
     "quick-menu-slider": { props: quickSlider, play: openQuickSlider },
-    // A new chat on a Mac with a second Claude account: one Claude tab, its accounts under Account.
+    // A new chat with a named alternate launch harness and separate account routes.
     "quick-menu-accounts": {
       props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
       play: async (ctx) => {
         await openQuick(ctx);
         await ctx.click({ role: "menuitem", name: /^Account/ });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
+        await ctx.waitFor(() =>
+          Array.from(ctx.document.querySelectorAll('[role="menuitemradio"]')).some(
+            (row) => row.textContent === "Anthropic API key",
+          ),
+        );
       },
     },
     // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
