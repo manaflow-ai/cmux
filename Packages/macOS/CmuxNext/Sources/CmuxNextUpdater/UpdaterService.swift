@@ -183,6 +183,13 @@ public final class UpdaterService {
     @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
     @ObservationIgnored var automaticInstallInFlight = false
+    /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
+    @ObservationIgnored var installingBuild: String?
+    /// The frontmost app when the automatic install in flight started (``UpdateRelaunchFocus``).
+    @ObservationIgnored var automaticInstallFrontmost: UpdateFrontmostApp?
+    /// Whether this app is the frontmost one, and the app that is (``UpdateRelaunchFocus``); AppKit in
+    /// the app, a fake in tests.
+    @ObservationIgnored public var frontmost: () -> UpdateFrontmostApp = { UpdateFrontmostApp.current() }
     /// Whether a window shows the update notice (the sidebar footer's
     /// pill). Without it, checks and installs open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }
@@ -247,11 +254,8 @@ public final class UpdaterService {
             // The daemon keeps every terminal, agent and running turn, so all app relaunches are
             // immediate. `UpdateDriver` uses this same flag for automatic installs.
             controller.holdsUserInstalls = false
-            // The nightly feed lists each build's deltas minutes after its DMG
-            // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
-            // waits once instead of downloading the full DMG. The tip feed lists an
-            // item's deltas with it (cmux-next-dev-daily.yml, job tip): nothing comes later.
-            if identity.track == .nightly, !identity.isTipBuild { controller.pendingDeltaWindow = 45 * 60 }
+            // A found update is offered at once, deltas listed or not: no check holds a build back
+            // for deltas that come minutes later (a later check uses them for the next build).
             // Until the settings load (``configure``), a launch check's update waits: nothing
             // downloads or installs by itself, whichever way `updates.downloadAutomatically` is set.
             // Once it is on, a downloaded update installs by itself once staged; the daemon preserves

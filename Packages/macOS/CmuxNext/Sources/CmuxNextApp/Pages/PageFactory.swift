@@ -216,7 +216,7 @@ struct PageFactory {
                                     // The acpmux this app starts; none in a showcase or with the mock agent host.
                                     guard let environment = services.flatMap(QuitAgents.environment) else { return nil }
                                     return (AcpmuxDaemonSummary.title, await AcpmuxDaemonSummary.current(environment).text)
-                                })),
+                                }, machines: { DaemonUpdateBoard.shared.otherMachines })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),

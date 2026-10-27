@@ -654,7 +654,7 @@ function LocationPicker({
           placeholder={t(allowPath ? CONTEXT_LABELS.folderSearch : "composer.environmentSearch")}
           inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
           listClassName="acpmux-location-folders m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
-          itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
+          itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
           itemLabel={(id) => {
             const option = options.find((candidate) => candidate.id === id);
             return allowPath ? [option?.label, id].filter(Boolean).join(" ") : (option?.label ?? id);
