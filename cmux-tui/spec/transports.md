@@ -210,6 +210,16 @@ the connection with `bad_message` and the reason (`bad_magic`, `unknown_kind`,
 `frames_not_negotiated`, `line_too_long`, `invalid_utf8`, `truncated`).
 Nothing after the bad byte is interpreted.
 
+An INPUT frame (p05-ipc-078) is the raw bytes of a `send` to the surface of
+the attach stream it names, with no JSON and no base64. Its aux is the key
+press's flow id (0: none), which joins the daemon's flow hops to the echo, as
+`send`'s `flow` does. It runs on its stream's sequence after that stream's
+earlier items, is never parsed and is never answered. When its bytes do not
+reach the terminal, the stream gets the event `input-failed{reason, bytes}`
+([events.md](events.md#input-failed)); once the terminal ended, later INPUT on
+the stream is dropped with no second event. An INPUT frame on a stream the
+connection has not opened is a bad message (`unknown_stream`).
+
 Golden vectors for every kind, one mixed stream and each bad-message case are
 in `spec/fixtures/ipc-frames` with a `manifest.json` that describes them in
 plain fields. Every implementation decodes them the same way.

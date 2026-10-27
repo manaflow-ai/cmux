@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499. */
+/* cmux-tui mux protocol 12, IR 0e0edec9dae5dfc09da116204375224a26855a675407686c54b5509c7f4508e4. */
 
 
 import type * as T from "./types.js";
@@ -384,6 +384,14 @@ export type HistoryChangedEvent = { event: "history-changed" } & {
   "cause"?: T.EventCause;
   "kinds": Array<string>;
   "revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: attach-byte. */
+export type InputFailedEvent = { event: "input-failed" } & {
+  "bytes": bigint;
+  "reason": "terminal_ended" | "not_a_terminal" | "write_failed" | "stream_full";
+  /** The attach stream the INPUT frame named; the stream's tag, as on every item of an attach stream. */
+  "stream": number;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -899,6 +907,7 @@ export type KnownCmuxEvent =
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | HistoryChangedEvent
+  | InputFailedEvent
   | KeybindingsChangedEvent
   | LayoutChangedEvent
   | LoopbackClosedEvent
@@ -1052,6 +1061,7 @@ export type KnownAttachEvent =
   | ColorsChangedEvent
   | DetachedEvent
   | FrameEvent
+  | InputFailedEvent
   | NotificationEvent
   | OutputEvent
   | OverflowEvent
@@ -1066,6 +1076,7 @@ export type KnownAttachEvent =
 export type KnownByteAttachEvent =
   | ColorsChangedEvent
   | DetachedEvent
+  | InputFailedEvent
   | NotificationEvent
   | OutputEvent
   | OverflowEvent

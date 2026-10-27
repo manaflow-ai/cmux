@@ -160,6 +160,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "terminal-stream-events": (0xC0, "Content of an attach stream: output, render state, frames and sizes.", (
         "output", "render-delta", "render-state", "frame", "browser-state", "vt-state", "resized",
         "colors-changed", "detached", "overflow", "scroll-changed", "size-state",
+        "input-failed",
     )),
     "mux-events": (0xC1, "The mux tree: workspaces, screens, panes, tabs, surfaces and their state.", (
         "layout-changed", "tree-changed", "empty", "pane-*", "tab-*", "screen-*", "workspace-*",

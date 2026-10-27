@@ -46011,6 +46011,65 @@ Result<HistoryChangedEvent> Codec<HistoryChangedEvent>::decode(const Json& value
     return result;
 }
 
+Result<Json> Codec<InputFailedEvent>::encode(const InputFailedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("input-failed")));
+    auto encoded_bytes = encode_value(value.bytes);
+    if (!encoded_bytes) return std::move(encoded_bytes).error();
+    object.emplace("bytes", std::move(encoded_bytes).value());
+    auto encoded_reason = encode_value(value.reason);
+    if (!encoded_reason) return std::move(encoded_reason).error();
+    object.emplace("reason", std::move(encoded_reason).value());
+    auto encoded_stream = encode_value(value.stream);
+    if (!encoded_stream) return std::move(encoded_stream).error();
+    object.emplace("stream", std::move(encoded_stream).value());
+    return Json(std::move(object));
+}
+
+Result<InputFailedEvent> Codec<InputFailedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    InputFailedEvent result{};
+    const Json* field_bytes = value.find("bytes");
+    if (!field_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'bytes'");
+    }
+    if (field_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.bytes = std::move(decoded).value();
+    }
+    const Json* field_reason = value.find("reason");
+    if (!field_reason) {
+        return make_error(ErrorCode::decode, "missing required field 'reason'");
+    }
+    if (field_reason) {
+        auto decoded = decode_value<InputFailedEventReason>(*field_reason);
+        if (!decoded) return std::move(decoded).error();
+        result.reason = std::move(decoded).value();
+    }
+    const Json* field_stream = value.find("stream");
+    if (!field_stream) {
+        return make_error(ErrorCode::decode, "missing required field 'stream'");
+    }
+    if (field_stream) {
+        auto decoded = decode_value<std::uint16_t>(*field_stream);
+        if (!decoded) return std::move(decoded).error();
+        result.stream = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("input-failed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<KeybindingsChangedEvent>::encode(const KeybindingsChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -51686,6 +51745,24 @@ Result<GraphicsStatusEventKind> Codec<GraphicsStatusEventKind>::decode(const Jso
     return make_error(ErrorCode::decode, "unknown GraphicsStatusEventKind value");
 }
 
+Result<Json> Codec<InputFailedEventReason>::encode(const InputFailedEventReason& value) {
+    switch (value) {
+        case InputFailedEventReason::terminal_ended: return Json(std::string("terminal_ended"));
+        case InputFailedEventReason::not_a_terminal: return Json(std::string("not_a_terminal"));
+        case InputFailedEventReason::write_failed: return Json(std::string("write_failed"));
+        case InputFailedEventReason::stream_full: return Json(std::string("stream_full"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<InputFailedEventReason> Codec<InputFailedEventReason>::decode(const Json& value) {
+    if (value == Json(std::string("terminal_ended"))) return InputFailedEventReason::terminal_ended;
+    if (value == Json(std::string("not_a_terminal"))) return InputFailedEventReason::not_a_terminal;
+    if (value == Json(std::string("write_failed"))) return InputFailedEventReason::write_failed;
+    if (value == Json(std::string("stream_full"))) return InputFailedEventReason::stream_full;
+    return make_error(ErrorCode::decode, "unknown InputFailedEventReason value");
+}
+
 Result<Json> Codec<KeybindingsChangedEventOrigin>::encode(const KeybindingsChangedEventOrigin& value) {
     switch (value) {
         case KeybindingsChangedEventOrigin::user: return Json(std::string("user"));
@@ -52153,6 +52230,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
     }
     if (name.value() == "history-changed") {
         auto decoded = decode_value<HistoryChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "input-failed") {
+        auto decoded = decode_value<InputFailedEvent>(value);
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
@@ -53026,7 +53108,7 @@ constexpr std::array<CommandMetadata, 362> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 92> kEvents{{
+constexpr std::array<EventMetadata, 93> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -53067,6 +53149,7 @@ constexpr std::array<EventMetadata, 92> kEvents{{
     {"frontend-projection-changed", 7U, "", "subscribe", "emitted"},
     {"graphics-status", 10U, "", "subscribe", "emitted"},
     {"history-changed", 12U, "history-v1", "subscribe", "emitted"},
+    {"input-failed", 12U, "ipc-frames-v2", "attach-byte", "emitted"},
     {"keybindings-changed", 12U, "keybindings-v1", "subscribe", "emitted"},
     {"layout-changed", 6U, "", "subscribe", "emitted"},
     {"loopback-closed", 12U, "loopback-forward-v1", "control", "emitted"},

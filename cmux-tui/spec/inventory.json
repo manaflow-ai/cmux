@@ -865,6 +865,12 @@
       ]
     },
     {
+      "name": "input-failed",
+      "streams": [
+        "attach-byte"
+      ]
+    },
+    {
       "name": "keybindings-changed",
       "streams": [
         "subscribe"

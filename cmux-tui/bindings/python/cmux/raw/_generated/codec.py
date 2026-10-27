@@ -753,6 +753,7 @@ MODEL_BY_PATH = {
     'events/frontend-projection-changed/payload': models.FrontendProjectionChangedEvent,
     'events/graphics-status/payload': models.GraphicsStatusEvent,
     'events/history-changed/payload': models.HistoryChangedEvent,
+    'events/input-failed/payload': models.InputFailedEvent,
     'events/keybindings-changed/payload': models.KeybindingsChangedEvent,
     'events/layout-changed/payload': models.LayoutChangedEvent,
     'events/loopback-closed/payload': models.LoopbackClosedEvent,

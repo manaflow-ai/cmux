@@ -22,6 +22,19 @@
 //! answered without running. A CANCEL for an id that is not in flight lost a
 //! race with its reply and is dropped.
 //!
+//! An INPUT frame (p05-ipc-078) is the raw bytes of a `send` on a stream:
+//! its header names the stream and the key press's flow id, its payload is
+//! the bytes. It is never parsed and never answered. It runs on the stream's
+//! sequence, after the stream's earlier items, and writes its surface's
+//! terminal the way `send` does. A failure is the stream's event
+//! `input-failed{reason, bytes}`; once the terminal ended, later INPUT on
+//! the stream is dropped with no second event. This is Chrome's
+//! `WidgetInputHandler`: input is a one-way message on the widget's own
+//! associated pipe, ordered with the widget's other messages, with no reply
+//! (chromium third_party/blink/public/mojom/input/input_handler.mojom,
+//! `DispatchNonBlockingEvent`). An INPUT on a stream this connection has
+//! not opened is a bad message.
+//!
 //! Only `Command` methods answer on frames yet. A feature route or a v2
 //! operation replies on its own writer, so a frame naming one gets the ERROR
 //! [`METHOD_NOT_FRAMED`] and the client sends that method as a line; the
@@ -29,6 +42,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,10 +52,12 @@ use cmux_ipc::{
     MethodAttrs, MethodId, MethodTables, Payload, PriorityHint,
 };
 use serde::{Deserialize, Deserializer, de::IgnoredAny};
-use serde_json::json;
+use serde_json::{Value, json};
 
-use crate::diagnostics::{IpcTransport, JsonParseScope};
+use crate::SurfaceId;
+use crate::diagnostics::{IpcTransport, JsonParseScope, LockCallerScope};
 
+use super::cmd_terminal_io::{self, InputFailure};
 use super::line_connection::{
     ConnectionBadMessage, FrameConnection, FrameLane, IPC_FRAMES_CAPABILITY,
 };
@@ -100,7 +116,7 @@ impl FrameCall {
 /// Why a REQUEST or CANCEL frame closed its connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum CallRefusal {
-    /// A call on a stream this connection has not opened.
+    /// A call, or an INPUT frame, on a stream this connection has not opened.
     UnknownStream { stream: u16 },
     /// A method id this daemon's table does not have.
     UnknownMethod { method_id: u16 },
@@ -174,22 +190,92 @@ impl fmt::Display for CallRefusal {
     }
 }
 
+/// One item of a stream's sequence.
+pub(super) type StreamItem = Box<dyn FnOnce() + Send>;
+
+/// Why a stream did not take an item. It did not run and never will.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum StreamPostRefusal {
+    /// The stream's sequence holds its cap of queued items.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the stream sequences of p05-ipc-073 are its first producer")
+    )]
+    Full,
+    /// The stream or its connection is ending.
+    Closed,
+}
+
+/// A connection's open streams, as its INPUT frames reach them. A stream is
+/// the view `attach-surface {stream}` opens (attach-streams-v1,
+/// p05-ipc-074), whose items run in order on a sequence of their own
+/// (p05-ipc-073).
+pub(super) trait InputStreams: Send + Sync {
+    /// The surface stream `stream` views; `None` when no open stream of
+    /// this connection has the id.
+    fn surface(&self, stream: u16) -> Option<SurfaceId>;
+
+    /// Queues `item` on stream `stream`, after the items queued before it.
+    fn post(&self, stream: u16, item: StreamItem) -> Result<(), StreamPostRefusal>;
+
+    /// Sends `event` as stream `stream`'s next item.
+    fn send_event(&self, stream: u16, event: &Value);
+}
+
+/// The streams of a connection on this daemon today: none opens yet
+/// (attach-streams, p05-ipc-074), so every INPUT frame names an unopened
+/// stream, as every call on a stream does.
+struct NoOpenStreams;
+
+impl InputStreams for NoOpenStreams {
+    fn surface(&self, _stream: u16) -> Option<SurfaceId> {
+        None
+    }
+
+    fn post(&self, _stream: u16, _item: StreamItem) -> Result<(), StreamPostRefusal> {
+        Err(StreamPostRefusal::Closed)
+    }
+
+    fn send_event(&self, _stream: u16, _event: &Value) {}
+}
+
+/// The surface a stream's INPUT writes, and whether its terminal ended:
+/// shared by the stream's queued INPUT items, so an ended terminal gives one
+/// `input-failed`, not one per frame.
+struct InputTarget {
+    surface: SurfaceId,
+    ended: Arc<AtomicBool>,
+}
+
 /// The production frame lane: the grant is the client's recorded
-/// capability; REQUEST and CANCEL frames on stream 0 are routed, every other
-/// kind is a bad message. Owned by the connection's reader thread.
+/// capability; REQUEST and CANCEL frames on stream 0 and INPUT frames on an
+/// open stream are routed, every other kind is a bad message. Owned by the
+/// connection's reader thread.
 pub(super) struct RequestFrames {
     tables: &'static MethodTables,
     /// Requests by id, from arrival until a sweep after their reply.
     in_flight: HashMap<u32, Arc<FrameCall>>,
     sweep_at: usize,
+    streams: Arc<dyn InputStreams>,
+    /// The streams INPUT arrived on, by id, while they stay open.
+    inputs: HashMap<u16, InputTarget>,
 }
 
 impl Default for RequestFrames {
     fn default() -> Self {
+        Self::with_streams(Arc::new(NoOpenStreams))
+    }
+}
+
+impl RequestFrames {
+    /// The lane of a connection whose open streams are `streams`.
+    pub(super) fn with_streams(streams: Arc<dyn InputStreams>) -> Self {
         RequestFrames {
             tables: MethodTables::schema(),
             in_flight: HashMap::new(),
             sweep_at: SWEEP_MIN,
+            streams,
+            inputs: HashMap::new(),
         }
     }
 }
@@ -213,6 +299,15 @@ impl FrameLane for RequestFrames {
                 .cancel(&header, call, frame.payload().is_empty())
                 .map(|()| true)
                 .map_err(ConnectionBadMessage::Call),
+            (FrameKind::Input, None) => {
+                let flow = match header.aux() {
+                    Aux::FlowId(flow) => flow,
+                    Aux::Offset(_) | Aux::SharedBufferSize(_) | Aux::Call(_) => 0,
+                };
+                self.input(header.stream(), flow, frame, connection)
+                    .map(|()| true)
+                    .map_err(ConnectionBadMessage::Call)
+            }
             (kind, _) => Err(ConnectionBadMessage::UnroutedKind { kind }),
         }
     }
@@ -289,6 +384,75 @@ impl RequestFrames {
         }
         target.cancellation.cancel();
         Ok(())
+    }
+
+    /// Queues an INPUT frame's bytes on its stream. Nothing parses them and
+    /// nothing answers them; a failure is the stream's `input-failed`.
+    fn input(
+        &mut self,
+        stream: u16,
+        flow: u64,
+        frame: Frame,
+        connection: &FrameConnection<'_>,
+    ) -> Result<(), CallRefusal> {
+        let Some(surface) = self.streams.surface(stream) else {
+            self.inputs.remove(&stream);
+            return Err(CallRefusal::UnknownStream { stream });
+        };
+        if frame.payload().is_empty() {
+            return Ok(());
+        }
+        let ended = self.input_target(stream, surface);
+        if ended.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let len = frame.payload().len();
+        let mux = connection.mux.clone();
+        let client = connection.client;
+        let streams = self.streams.clone();
+        // Its lock acquisitions count under the connection's caller class
+        // (`debug-daemon-locks`), as a request's do.
+        let lock_caller = connection.writer.lock_caller.clone();
+        let item: StreamItem = Box::new(move || {
+            if ended.load(Ordering::Acquire) {
+                return;
+            }
+            let _request_path =
+                crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+            let _lock_caller = LockCallerScope::enter(lock_caller.get());
+            let Err(failure) =
+                cmd_terminal_io::write_input(&mux, client, surface, frame.payload(), flow)
+            else {
+                return;
+            };
+            if failure.is_final() && ended.swap(true, Ordering::AcqRel) {
+                return;
+            }
+            streams.send_event(stream, &failure.event(len));
+        });
+        match self.streams.post(stream, item) {
+            Ok(()) | Err(StreamPostRefusal::Closed) => {}
+            Err(StreamPostRefusal::Full) => {
+                self.streams.send_event(stream, &InputFailure::StreamFull.event(len));
+            }
+        }
+        Ok(())
+    }
+
+    /// The ended flag INPUT on `stream` for `surface` shares; a stream id
+    /// that now views another surface starts a new one.
+    fn input_target(&mut self, stream: u16, surface: SurfaceId) -> Arc<AtomicBool> {
+        let fresh = || InputTarget { surface, ended: Arc::new(AtomicBool::new(false)) };
+        let target = match self.inputs.entry(stream) {
+            Entry::Occupied(mut entry) => {
+                if entry.get().surface != surface {
+                    entry.insert(fresh());
+                }
+                entry.into_mut()
+            }
+            Entry::Vacant(entry) => entry.insert(fresh()),
+        };
+        target.ended.clone()
     }
 
     /// The header's method, refusing an unopened stream or a priority hint
@@ -388,3 +552,7 @@ fn send_not_framed(writer: &MessageWriter, method: &MethodAttrs) -> bool {
 #[cfg(all(test, unix))]
 #[path = "frame_dispatch_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "input_frames_tests.rs"]
+mod input_frames_tests;

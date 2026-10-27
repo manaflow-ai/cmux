@@ -122,7 +122,7 @@
   "terminal-stream-events": {
    "id": 192,
    "description": "Content of an attach stream: output, render state, frames and sizes.",
-   "next_ordinal": 12
+   "next_ordinal": 13
   },
   "mux-events": {
    "id": 193,
@@ -36976,6 +36976,63 @@
     ]
    },
    "event_id": 49411,
+   "priority": "control"
+  },
+  "input-failed": {
+   "since": 12,
+   "capability": "ipc-frames-v2",
+   "streams": [
+    "attach-byte"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "input-failed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The attach stream the INPUT frame named; the stream's tag, as on every item of an attach stream."
+     },
+     "reason": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "terminal_ended",
+        "not_a_terminal",
+        "write_failed",
+        "stream_full"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Sent on the attach stream an INPUT frame named, when its bytes did not reach the terminal; INPUT frames have no reply. After terminal_ended or not_a_terminal, later INPUT on the stream is dropped with no second event."
+    ]
+   },
+   "event_id": 49164,
    "priority": "control"
   },
   "keybindings-changed": {

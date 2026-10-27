@@ -19,6 +19,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
+| Stream input notice | No command; sent on the attach stream whose INPUT frame did not reach its terminal | `input-failed` |
 | Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
@@ -83,6 +84,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
 | `terminal-input-unclaimed` | control | `terminal_id` | `terminal-input-while-creating-v1`; only to the connection that queued the bytes |
+| `input-failed` | attach (`stream`) | `stream` | protocol 12; capability `ipc-frames-v2`; only on the stream the INPUT frame named |
 | `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
 | `window-title-requested` | subscribe | session | protocol 6 |
@@ -1347,6 +1349,35 @@ Example:
 
 ```json
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
+```
+
+### input-failed
+
+| Field | Value |
+| --- | --- |
+| event | `input-failed` |
+| status | implemented stream event |
+| since | protocol 12, capability `ipc-frames-v2` |
+
+Payload:
+
+```text
+object{event:"input-failed",stream:uint16,reason:"terminal_ended"|"not_a_terminal"|"write_failed"|"stream_full",bytes:uint64}
+```
+
+Meaning: The bytes of an INPUT frame (p05-ipc-078, [transports.md](transports.md)) did not reach the
+terminal of the attach stream the frame named. INPUT frames have no reply; this event is how a client
+learns its input was lost. `bytes` is the length of that frame's payload. `terminal_ended`: the surface
+closed or its terminal ended; later INPUT on the stream is dropped with no second event. `not_a_terminal`:
+the stream views a browser surface; later INPUT is dropped the same way. `write_failed`: the terminal
+refused the write (its host did not come back, or the write timed out); a later frame is tried again.
+`stream_full`: the stream's sequence held its cap of queued items, so the frame was not queued. It is sent
+as the next item of that stream, with its `stream` tag.
+
+Example:
+
+```json
+{"event":"input-failed","stream":7,"reason":"terminal_ended","bytes":3}
 ```
 
 ### terminal-clipboard-read

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499";
+inline constexpr std::string_view kProtocolIrSha256 = "0e0edec9dae5dfc09da116204375224a26855a675407686c54b5509c7f4508e4";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -801,6 +801,7 @@ struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
 struct HistoryChangedEvent;
+struct InputFailedEvent;
 struct KeybindingsChangedEvent;
 struct LayoutChangedEvent;
 struct LoopbackClosedEvent;
@@ -897,6 +898,7 @@ enum class BrowserStateEventStatus;
 enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+enum class InputFailedEventReason;
 enum class KeybindingsChangedEventOrigin;
 enum class SettingsChangedEventOrigin;
 struct CloudAttachmentUploadResultStoredPoster;
@@ -4573,6 +4575,20 @@ struct ImportSessionOrganizationRequest {
     std::string session_id{};
     std::optional<std::vector<JsonValue>> workspaces{};
     friend bool operator==(const ImportSessionOrganizationRequest&, const ImportSessionOrganizationRequest&) = default;
+};
+
+enum class InputFailedEventReason {
+    terminal_ended,
+    not_a_terminal,
+    write_failed,
+    stream_full,
+};
+
+struct InputFailedEvent {
+    std::uint64_t bytes{};
+    InputFailedEventReason reason{};
+    std::uint16_t stream{};
+    friend bool operator==(const InputFailedEvent&, const InputFailedEvent&) = default;
 };
 
 struct JournalFrontendEventRequest {
@@ -12432,6 +12448,12 @@ struct Codec<HistoryChangedEvent> {
 };
 
 template <>
+struct Codec<InputFailedEvent> {
+    static Result<Json> encode(const InputFailedEvent& value);
+    static Result<InputFailedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<KeybindingsChangedEvent> {
     static Result<Json> encode(const KeybindingsChangedEvent& value);
     static Result<KeybindingsChangedEvent> decode(const Json& value);
@@ -13005,6 +13027,12 @@ template <>
 struct Codec<GraphicsStatusEventKind> {
     static Result<Json> encode(const GraphicsStatusEventKind& value);
     static Result<GraphicsStatusEventKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<InputFailedEventReason> {
+    static Result<Json> encode(const InputFailedEventReason& value);
+    static Result<InputFailedEventReason> decode(const Json& value);
 };
 
 template <>
