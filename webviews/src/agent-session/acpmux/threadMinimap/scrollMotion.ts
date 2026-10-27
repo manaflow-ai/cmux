@@ -67,18 +67,21 @@ export function animateScrollBy(
   toEnd: boolean,
   finished: () => void,
 ): { remaining(): number } {
-  let remaining = distance;
+  let done = 0;
   let previous = 0;
-  const left = () => (toEnd ? Math.max(0, node.scrollHeight - node.clientHeight - node.scrollTop) : remaining);
+  const left = () => (toEnd ? Math.max(0, node.scrollHeight - node.clientHeight - node.scrollTop) : distance - done);
   runScroll(
     node,
     duration,
     curve,
     (progress) => {
-      const before = node.scrollTop;
       const fraction = previous === 1 ? 1 : (progress - previous) / (1 - previous);
-      node.scrollTop += left() * fraction;
-      remaining -= node.scrollTop - before;
+      // Quantize only cumulative mouse-wheel travel. Each incremental write is a whole pixel,
+      // so WebKit cannot floor a fractional tail past the target and bounce back. The live
+      // offset (including the row-id anchor's own corrections) is never rounded or replaced.
+      const next = Math.round(distance * progress);
+      node.scrollTop += toEnd ? left() * fraction : next - done;
+      done = next;
       previous = progress;
     },
     finished,
