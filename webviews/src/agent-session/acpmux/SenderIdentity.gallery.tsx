@@ -25,8 +25,8 @@ export default componentEntry<{ treatment: Treatment }>({
     const { PreviewCard } = await import("./threadMinimap/PreviewCard");
     const remote = sessionEntry({
       sessionId: "fixture-review",
-      name: "gcp-codex-lane-10/pr-row",
-      peer: "gcp-codex-lane-10",
+      name: "review-box/design-check",
+      peer: "review-box",
       harness: "codex",
     });
     const child = sessionEntry({
