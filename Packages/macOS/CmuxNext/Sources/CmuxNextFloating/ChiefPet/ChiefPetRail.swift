@@ -90,14 +90,16 @@ final class ChiefPetTool: NSButton {
     static func turned(_ image: NSImage, by degrees: CGFloat) -> NSImage {
         guard degrees != 0 else { return image }
         let turned = NSImage(size: image.size, flipped: false) { rect in
-            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            guard let graphics = NSGraphicsContext.current,
+                  let representation = image.bestRepresentation(for: rect, context: graphics, hints: nil)
+            else { return false }
+            let context = graphics.cgContext
             context.saveGState()
             defer { context.restoreGState() }
             context.translateBy(x: rect.midX, y: rect.midY)
             context.rotate(by: degrees * .pi / 180)
             context.translateBy(x: -rect.midX, y: -rect.midY)
-            image.draw(in: rect)
-            return true
+            return representation.draw(in: rect)
         }
         turned.isTemplate = image.isTemplate
         return turned
