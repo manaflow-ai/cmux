@@ -126,9 +126,9 @@ import Testing
         #expect(tasks.runNext() == nil)
     }
 
-    /// A waiter for sequence N (inside a transaction) fires once that whole transaction applied, not
-    /// before; the applied sequence advances per transaction.
-    @Test func aWaiterForASequenceFiresOnceItsTransactionApplied() throws {
+    /// A waiter for sequence N (inside a transaction) fires once that whole transaction applied, and
+    /// never waits on a tail task: the tail through it applies at once, the rest still waits.
+    @Test func aWaiterForASequenceInTheTailFiresWithNoTailTask() throws {
         let tasks = TailTasks()
         let (store, driver) = makeStore(tail: tasks)
         var sequence: UInt64 = 0
@@ -138,12 +138,45 @@ import Testing
         let target = lasts[5] - 1  // the first event of transaction 5
         var fired = false
         store.whenApplied(ClientTransactionID(rawValue: "unrelated"), reaching: target) { fired = true }
-        for index in 0..<10 {
-            #expect(fired == (index > 5), "before task \(index)")
-            tasks.runNext()
-            #expect(store.appliedSequence == lasts[index], "task \(index) did not advance through its transaction")
-        }
+        #expect(fired, "the person's wait waited on the automation tail")
+        #expect(store.appliedSequence == lasts[5], "the wait split its transaction or applied past it")
+        #expect(title(store, 1) == "a5")
+        #expect(title(store, 2) == "a5")
+        #expect(store.drainTailCount == 4)
+        var runs = 0
+        while tasks.runNext() != nil { runs += 1 }
+        #expect(runs == 4)
+        #expect(store.appliedSequence == sequence)
+    }
+
+    /// ``DaemonStore/waitApplied(atLeast:since:)`` for a sequence in the tail returns reached with
+    /// no tail task run.
+    @Test func aSequenceWaitForTheTailIsReachedWithNoTailTask() async throws {
+        let tasks = TailTasks()
+        let (store, driver) = makeStore(tail: tasks)
+        var sequence: UInt64 = 0
+        var lasts: [UInt64] = []
+        for index in 0..<10 { lasts.append(appendPair(driver, &sequence, "a\(index)", cause: .automation)) }
+        store.drain()
+        let result = await store.waitApplied(atLeast: lasts[2], since: store.connectionEpoch)
+        #expect(result == .reached)
+        #expect(store.appliedSequence == lasts[2])
+        #expect(store.drainTailCount == 7)
+    }
+
+    /// An automation echo a waiter waits for applies in the frame it arrives in, with what is before it.
+    @Test func anAwaitedEchoInTheBatchAppliesInTheFrame() throws {
+        let tasks = TailTasks()
+        let (store, driver) = makeStore(tail: tasks)
+        var fired = false
+        store.whenApplied(ClientTransactionID(rawValue: "tx-a3")) { fired = true }
+        var sequence: UInt64 = 0
+        var lasts: [UInt64] = []
+        for index in 0..<6 { lasts.append(appendPair(driver, &sequence, "a\(index)", cause: .automation)) }
+        store.drain()
         #expect(fired)
+        #expect(store.appliedSequence == lasts[3])
+        #expect(store.drainTailCount == 2)
     }
 
     /// A person's transaction that arrives while the tail waits flushes the tail first, in order.
@@ -256,7 +289,7 @@ import Testing
 
 /// A tail scheduler run by hand: the posted tasks in order, with their classes.
 @MainActor
-private final class TailTasks: DrainTailScheduler {
+final class TailTasks: DrainTailScheduler {
     private var posts: [(workClass: BudgetedWorkClass, body: @MainActor () -> Void)] = []
     /// Every class posted, in order.
     private(set) var classes: [BudgetedWorkClass] = []

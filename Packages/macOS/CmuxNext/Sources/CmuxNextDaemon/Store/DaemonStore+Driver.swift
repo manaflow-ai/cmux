@@ -145,12 +145,26 @@ final class EventInbox: Sendable {
             state.live = 0
             defer { state.events.removeAll(keepingCapacity: true) }
             guard let collapseCause else { return state.events.compactMap { $0 } }
-            return state.events.compactMap { (envelope: DaemonEventEnvelope?) -> DaemonEventEnvelope? in
-                guard let envelope, case .overflow = envelope.event else { return envelope }
-                return DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: envelope.sourceID,
-                                           cause: collapseCause)
-            }
+            return Self.events(state.events, overflowCause: collapseCause)
         }
+    }
+
+    /// The live `events`, the `.overflow` marker among them carrying `cause`.
+    private static func events(_ events: [DaemonEventEnvelope?], overflowCause cause: ObservationCause) -> [DaemonEventEnvelope] {
+        events.compactMap { (envelope: DaemonEventEnvelope?) -> DaemonEventEnvelope? in
+            guard let envelope, case .overflow = envelope.event else { return envelope }
+            return DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: envelope.sourceID, cause: cause)
+        }
+    }
+
+    /// `envelopes` collapsed as the buffer collapses past its limit: one `.overflow` (with the
+    /// highest cause of what it drops, and the newest sequence), then the events that outlive the
+    /// snapshot it asks for. The drain's tail collapses this way past its own limit (``DrainTail``).
+    static func collapse(_ envelopes: [DaemonEventEnvelope], reason: String) -> [DaemonEventEnvelope] {
+        guard let newest = envelopes.lazy.map(\.sequence).max() else { return [] }
+        var state = State(events: [DaemonEventEnvelope(sequence: newest, event: .overflow(reason))], live: 1, collapsed: true)
+        for envelope in envelopes { keep(envelope, in: &state) }
+        return events(state.events, overflowCause: state.collapseCause)
     }
 
     /// Keeps new events from scheduling frames (during a resync).
@@ -191,9 +205,10 @@ struct StoreDriver {
 
     @MainActor
     init(connection: DaemonConnection, inbox: EventInbox, scheduler: any FrameBatchScheduler, tail: (any DrainTailScheduler)? = nil,
+         tailLimit: Int = EventInbox.defaultLimit,
          snapshot: (@MainActor @Sendable () async throws -> (tree: DaemonTree, barrier: UInt64))? = nil) {
         (self.connection, self.inbox, self.scheduler) = (connection, inbox, scheduler)
-        self.tail = DrainTail(scheduler: tail)
+        self.tail = DrainTail(scheduler: tail, limit: tailLimit)
         self.snapshot = snapshot ?? { try await connection.snapshot() }
     }
 

@@ -3,12 +3,13 @@ import CmuxNextWakeups
 /// The frame drain of the event inbox and its tail (p06-scheduler-223, ``DrainTail``).
 extension DaemonStore {
     /// The frame drain: applies, as one batch, everything up to and including the last transaction a
-    /// person or the app's frontend caused (with the tail before it, when there is one), so the echo
+    /// person or the app's frontend caused, or a read-your-writes wait needs (with the tail before it,
+    /// when there is one), so the echo
     /// of a person's action with no intent (close other tabs, close a workspace from the palette)
     /// shows in the frame after it arrives, after what the daemon sent before it and whatever else
     /// is queued. The transactions after it go to the tail, which applies them in budgeted tasks; a
-    /// store with no ``drainTailScheduler`` applies the whole batch here. No daemon transaction (close
-    /// twelve panes and the layout change) is ever split. The batch's cost is what changed since the
+    /// store with no ``drainTailScheduler`` applies the whole batch here. A daemon transaction (close
+    /// twelve panes and the layout change; ``TransactionRun``) is never split. The batch's cost is what changed since the
     /// last frame: whole-value events coalesce in the inbox, a snapshot applies only what differs
     /// (DaemonStore+SnapshotDiff.swift), the unread sum and the workspace-list check cost the
     /// workspaces that joined, left or changed their own count, and the sidebar is flattened only by
@@ -19,7 +20,7 @@ extension DaemonStore {
     ///   end of a connection).
     func drain(flushingTail: Bool = false) {
         guard let driver, !isResyncing else { return }
-        let batch = driver.tail.frame(driver.inbox.take(), flushing: flushingTail)
+        let batch = driver.tail.frame(driver.inbox.take(), flushing: flushingTail) { awaitsNow($0) }
         if !batch.isEmpty {
             let connected = batch.contains { if case .connected = $0.event { true } else { false } }
             // A snapshot that failed past its retry budget is retried on the
@@ -38,6 +39,23 @@ extension DaemonStore {
 
     /// Transactions the frame drain left for budgeted tasks (tests, diagnostics).
     var drainTailCount: Int { driver?.tail.count ?? 0 }
+
+    /// Applies now, as the frame does, the tail's transactions through the last one with an event
+    /// `awaited` matches: a read-your-writes wait (the person's action waiting on its reply's event
+    /// sequence) never waits on the automation share, as it never waits on a script batch's stage.
+    func applyAwaitedTail(_ awaited: (DaemonEventEnvelope) -> Bool) {
+        // Inside an apply the tail is newer than the batch applying: it waits for the next frame or task.
+        guard applyDepth == 0, let driver, !isResyncing else { return }
+        let batch = driver.tail.take(through: awaited)
+        guard !batch.isEmpty else { return }
+        let (followup, cost) = DrainCost.measured(on: drainClock) { apply(batch: batch) }
+        drainCost.record(cost, events: batch.count)
+        if followup == .resync || needsResync {
+            causes.resync = max(causes.resync, batch.lazy.map(\.cause).max() ?? .program)
+            return resync()
+        }
+        if followup == .personal { refetchPersonal() }
+    }
 
     private func postDrainTail(_ tail: DrainTail) {
         tail.post { [weak self] workClass in self?.runDrainTail(tail, as: workClass) }
