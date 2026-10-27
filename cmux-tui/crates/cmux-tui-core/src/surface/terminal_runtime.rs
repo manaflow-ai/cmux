@@ -230,8 +230,8 @@ pub struct PtyTerminalRuntime {
     pub(super) runtime: RankedMutex<PtyRuntime>,
     /// The terminal's input FIFO: every input to it (any view, connection
     /// or thread) writes all of its bytes in one turn of it, in arrival
-    /// order (crate::pty_write).
-    pub(super) input_fifo: crate::pty_write::PtyInputFifo,
+    /// order (crate::pty_input_fifo).
+    pub(super) input_fifo: crate::pty_input_fifo::PtyInputFifo,
     /// Explicit lifecycle authority for this process. Session content may
     /// survive a daemon replacement through a durable host; daemon-owned
     /// auxiliaries must terminate with the backend that created them.

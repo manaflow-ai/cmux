@@ -1,6 +1,7 @@
 //! Per-terminal input order (p05-ipc-085): a 1 MiB control `send` (its
-//! text, its bytes and its submit Return) and 1k keys typed on a stream at
-//! the same time reach the PTY with no key inside the send.
+//! text, its bytes and its submit Return), typed or pasted, and 1k keys
+//! typed on a stream at the same time reach the PTY with no key inside the
+//! send.
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -45,6 +46,18 @@ fn stream_key(mux: &Arc<Mux>, surface: &Arc<crate::Surface>) {
 
 #[test]
 fn pty_input_order_a_control_send_is_never_interleaved_with_stream_keys() {
+    send_with_stream_keys(false);
+}
+
+#[test]
+fn pty_input_order_a_control_paste_is_never_interleaved_with_stream_keys() {
+    send_with_stream_keys(true);
+}
+
+/// Sends 1 MiB (`paste` or typed) with its submit Return while a stream
+/// types keys, and checks that no key lands between the first byte of the
+/// send and its Return.
+fn send_with_stream_keys(paste: bool) {
     let mux = Mux::new_for_test("pty-input-order", crate::SurfaceOptions::default());
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     let recorder = Recorder::default();
@@ -80,6 +93,7 @@ fn pty_input_order_a_control_send_is_never_interleaved_with_stream_keys() {
         "surface": surface.id,
         "text": text,
         "bytes": bytes,
+        "paste": paste,
         "submit": true,
     }))
     .unwrap();

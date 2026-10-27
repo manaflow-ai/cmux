@@ -46,7 +46,7 @@ pub(crate) enum LockRank {
     /// `Mux::state`.
     MuxState,
     /// Not a mutex: a terminal's input turn, taken from its
-    /// `pty_write::PtyInputFifo` and held for one whole input (a `send` with
+    /// `pty_input_fifo::PtyInputFifo` and held for one whole input (a `send` with
     /// its paste and Return, an INPUT frame, an image paste, a clear-history
     /// key). The write it holds the turn for takes the terminal (a paste's
     /// bracketed mode) and the runtime lock, so it ranks before both. It

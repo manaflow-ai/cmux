@@ -1,13 +1,13 @@
 //! Input delivery on `Surface`: raw and receipted writes and bounded paste.
 //!
 //! Every write takes a turn of the terminal's input FIFO
-//! ([`crate::pty_write::PtyInputFifo`]) and writes all of its bytes in it.
+//! ([`crate::pty_input_fifo::PtyInputFifo`]) and writes all of its bytes in it.
 //! A caller whose one input is several writes (`send`: text, bytes and its
 //! Return) takes one turn with [`Surface::input_turn`] and writes each part
 //! with the `_in` variants, so no other input lands between them.
 
 use super::*;
-use crate::pty_write::InputTurn;
+use crate::pty_input_fifo::InputTurn;
 use std::sync::PoisonError;
 
 /// How long hosted input waits for a lost host connection to come back (a

@@ -76,6 +76,7 @@ mod process_trace;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;
+mod pty_input_fifo;
 mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
