@@ -181,6 +181,39 @@ import Testing
         #expect(frames.launchFrameCount == 0, "the frames no pane took stayed after the settle")
     }
 
+    /// A launch that settles after the read's lane ended but before the main actor handed its frames to the panes
+    /// that asked: those panes still get their frames, then the read holds none.
+    @Test func aSettleBetweenTheLaneEndAndTheHandoffStillShowsTheWaitingPanes() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor),
+                                              "tab-2": Self.frame(Self.size, scale: 2)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let probe = LaunchReadProbe(held: true)
+        let frames = TerminalLaunchFrames(directory: directory, reader: probe.reader)
+        let read = try #require(frames.prefetch(on: Self.work), "the launch read did not start")
+        let laneEnd = try #require(frames.launchReadLaneEnd)
+        #expect(await probe.waitForStart(), "the read never started")
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        let ended = DispatchSemaphore(value: 0)
+        // Off the main actor (a @Sendable closure is nonisolated): the main actor stays blocked below.
+        Self.work.task(.userVisible) { @Sendable in
+            await laneEnd()
+            ended.signal()
+        }
+        probe.release()
+        probe.release()  // one per saved file
+        // The main actor stays in this turn until the lane ended, so the prefetch task has not handed off yet.
+        #expect(ended.wait(timeout: .now() + 10) == .success, "the read never ended")
+        frames.dropLaunchRead()
+        #expect(pane.held != nil, "the pane that asked before the read ended did not get its frame")
+        #expect(frames.launchFrameCount == 0, "the frames no pane took stayed after the settle")
+        await read.value
+        #expect(pane.held != nil)
+    }
+
     /// The launch read reports its decoded bytes, and the critical limit drops it at once.
     @Test func theLaunchReadReportsItsBytesAndGoesAtCritical() async throws {
         let directory = try await Self.saved(["tab-1": Self.frame(Self.size, scale: 2)])

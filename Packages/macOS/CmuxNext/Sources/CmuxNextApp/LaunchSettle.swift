@@ -91,13 +91,15 @@ final class LaunchSettle {
     /// launch reads of the last quit's terminal frames and agent pages go, not at their 30 s deadline (p07-memory-083).
     ///
     /// - Parameters:
-    ///   - services: The app's services, whose stores hold the reads.
+    ///   - frames: The last quit's terminal frames (`AppServices.terminalLaunchFrames`).
+    ///   - pages: The last quit's agent pages (`AppServices.launchImages`, the agent tabs' store).
+    ///   - features: The app's feature list.
     ///   - images: The launch's image hold (`AppDelegate.launchImageHold`).
-    func dropLaunchReads(of services: AppServices, images: LaunchImageHold) {
-        guard services.features.isEnabled(.memorySmallAppStores) else { return }
-        whenSettledAndClear(images: images) { [weak services] in
-            services?.terminalLaunchFrames.dropLaunchRead()
-            services?.agentTabs.launchDidSettle()
+    func dropLaunchReads(frames: TerminalLaunchFrames, pages: AgentPaneLaunchImages, features: FeatureList, images: LaunchImageHold) {
+        guard features.isEnabled(.memorySmallAppStores) else { return }
+        whenSettledAndClear(images: images) { [weak frames, weak pages] in
+            frames?.dropLaunchRead()
+            pages?.dropLaunchRead()
         }
     }
 

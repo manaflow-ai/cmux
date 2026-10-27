@@ -93,6 +93,24 @@ import Testing
         #expect((stills.memoryUsage?.footprintBytes ?? 0) > 0, "its encode ends and its page gets it")
     }
 
+    @Test func aNewStillAtTheCriticalLimitNeverDropsOneEncoding() async throws {
+        let stills = GlassBackdropImages(maxPixelSize: 64, capacity: 4)
+        stills.registerMemoryConsumer(with: FakeRegistry(limit: .criticalThreshold))
+        let readyA = AsyncStream<Void>.makeStream(), readyB = AsyncStream<Void>.makeStream()
+        let artA = try Self.art(width: 64), artB = try Self.art(width: 48)
+        let a = try #require(stills.still(artA) { readyA.continuation.yield() })
+        let b = try #require(stills.still(artB) { readyB.continuation.yield() })
+        #expect(a.dataURL == nil && b.dataURL == nil)
+        #expect(stills.memoryUsage?.entries == 2, "both encodes run past the held limit of 1")
+        for await _ in readyA.stream { break }
+        for await _ in readyB.stream { break }
+        #expect(stills.still(artA, ready: {})?.dataURL?.isEmpty == false, "the first page gets its still")
+        #expect(stills.still(artA, ready: {})?.key == a.key)
+        // The next new still trims the encoded ones down to the held limit.
+        _ = stills.still(try Self.art(width: 40), ready: {})
+        #expect(stills.memoryUsage?.entries == 1)
+    }
+
     @Test func anExpiredSliceDropsNothing() async throws {
         let stills = GlassBackdropImages(maxPixelSize: 64, capacity: 4)
         stills.registerMemoryConsumer(with: FakeRegistry())

@@ -115,11 +115,23 @@ public final class TerminalLaunchFrames {
     }
 
     /// The launch settled (`LaunchSettle`): the decoded frames no pane took go now, not at the keep deadline,
-    /// and no read starts later. A read still running keeps its frames until the panes that asked before it
-    /// ended have theirs, then drops them.
+    /// and no read starts later. The panes that asked before the read ended get their frames first: now when its
+    /// lane has ended (the prefetch task's main-actor handoff may not have run yet), else when it ends.
     public func dropLaunchRead() {
-        guard let read, read.value == nil else { return dropRead() }
-        dropsWhenRead = true
+        guard let read else { return dropRead() }
+        guard read.value != nil else {
+            dropsWhenRead = true
+            return
+        }
+        showWaiting()
+        dropRead()
+    }
+
+    /// Ends once the launch read's lane has its result, apart from the main-actor handoff to the waiting panes
+    /// (tests); nil with no read.
+    var launchReadLaneEnd: (@Sendable () async -> Void)? {
+        guard let read else { return nil }
+        return { _ = await read.finished() }
     }
 
     /// How many decoded frames of the launch read the store holds (0 before the read ends and once dropped).

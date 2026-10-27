@@ -141,13 +141,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // The rest runs with main()'s settings read, now or when it lands (the startup's main hop, unbudgeted):
         // no wait, no frame in the defaults (p08-startup 025). The launch marks end where the launch work ends.
-        settingsRead.whenRead(hop: .userVisible, startup: order.startup, take: { [logger] read in
+        settingsRead.whenRead(hop: .userVisible, startup: order.startup, take: { [logger, features] read in
             DebugTimings.markLaunch("dfl.settings_wait")  // the read in hand: at once warm, after the disk cold
             if let failure = read.bootstrapFailure { logger.error("cmux-next config bootstrap failed: \(failure, privacy: .public)") }
             // cmux.json's appearance goes on the Ghostty overrides; the first config builds with them on a files lane and the launch goes on when it lands (p02-threads-129).
             TerminalThemeSetting.prime(read.snapshot)
-            // The Kitty image budget per screen, sized from this Mac's memory, before the first config builds (p07-memory-083).
-            GhosttyRuntime.shared.setImageStorageBytesPerScreen(SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface)
+            // The Kitty image budget per screen before the first config builds: with memorySmallAppStores sized from this Mac's memory (p07-memory-083).
+            GhosttyRuntime.shared.setImageStorageBytesPerScreen(GhosttyImageStorageBudget.startingBytes(memoryBudget: SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface, sizedFromMemory: features?.isEnabled(.memorySmallAppStores) == true))
         }, then: { [self] read in GhosttyRuntime.shared.start(loadingOn: GhosttyLaneConfigLoader(work: launchReads.work, mainWork: mainWork)) { [self] in finishLaunching(settings: read, launchStart: launchStart) } })
     }
 
@@ -224,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HandlerCoverage.verifyAtLaunch(services.registry)  // every handler is bound by now; Debug builds only
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, on: services.mainWork)
-        launchSettle.dropLaunchReads(of: services, images: launchImageHold)  // p07-memory-083
+        launchSettle.dropLaunchReads(frames: services.terminalLaunchFrames, pages: services.launchImages, features: services.features, images: launchImageHold)  // p07-memory-083
         daemonPrompts = DaemonPrompts.start(services)
         services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
         services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())

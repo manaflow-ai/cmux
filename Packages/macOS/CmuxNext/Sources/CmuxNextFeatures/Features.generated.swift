@@ -999,12 +999,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Small app stores join the memory coordinator: last-quit terminal frames and agent pages go once the launch settles; glass lens stills and What's New pictures go at memory warning and are made again; terminal Kitty image storage halves at warning.
+    /// Small app stores join the memory coordinator: last-quit terminal frames and agent pages go once the launch settles; glass lens stills and What's New pictures go at memory warning and are made again; terminal Kitty image storage is sized from the Mac's memory and halves at warning.
     public static let memorySmallAppStores = Feature(
         index: 57,
         name: "memorySmallAppStores",
         owner: "PL-memory",
-        description: "Small app stores join the memory coordinator: last-quit terminal frames and agent pages go once the launch settles; glass lens stills and What's New pictures go at memory warning and are made again; terminal Kitty image storage halves at warning.",
+        description: "Small app stores join the memory coordinator: last-quit terminal frames and agent pages go once the launch settles; glass lens stills and What's New pictures go at memory warning and are made again; terminal Kitty image storage is sized from the Mac's memory and halves at warning.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,

@@ -302,7 +302,11 @@ struct AppMemoryConsumers {
         let coordinator = services.memoryCoordinator
         GlassBackdropImages.shared.registerMemoryConsumer(with: coordinator)
         services.terminalLaunchFrames.registerMemoryConsumer(with: coordinator)
-        let kittyBytes = SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface
-        services.lifetimeFollowers.append(GhosttyImageStorageConsumer.registered(fullBytes: kittyBytes, runtime: .shared, with: coordinator))
+        let kittyImages = GhosttyImageStorageBudget(
+            fullBytes: SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface,
+            riseDeadline: MainDeadline(owner: "GhosttyImageStorageBudget.rise", workClass: .background, scheduler: services.mainDeadlines),
+            riseDelay: MemoryCoordinator.limitRiseDelay) { GhosttyRuntime.shared.setImageStorageBytesPerScreen($0) }
+        kittyImages.follow(coordinator)
+        services.lifetimeFollowers.append(kittyImages)
     }
 }

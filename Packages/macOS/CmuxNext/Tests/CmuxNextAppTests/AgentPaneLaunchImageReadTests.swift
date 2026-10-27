@@ -71,7 +71,7 @@ struct AgentPaneLaunchImageReadTests {
     }
 
     /// p07-memory-083: the decoded pages no pane took went 30 s after launch; they go once the launch settled
-    /// (`LaunchSettle`, `AgentTabStore.launchDidSettle`), and no read starts again.
+    /// (`LaunchSettle.dropLaunchReads`), and no read starts again.
     @Test func theLaunchReadHoldsNoPageOnceTheLaunchSettled() async throws {
         let directory = try await Self.saved(["tab_a", "tab_b"])
         defer { try? FileManager.default.removeItem(at: directory) }

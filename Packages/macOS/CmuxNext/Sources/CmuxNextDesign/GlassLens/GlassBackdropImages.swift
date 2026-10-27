@@ -33,7 +33,6 @@ public final class GlassBackdropImages {
         let key: String
         var dataURL: String?
         var waiters: [@MainActor () -> Void] = []
-        var encode: Task<Void, Never>?
 
         init(image: NSImage, key: String) {
             self.image = image
@@ -71,26 +70,36 @@ public final class GlassBackdropImages {
         let entry = Entry(image: image, key: "still-\(serial)")
         entry.waiters = [ready]
         entries.append(entry)
-        while entries.count > heldLimit { removeOldest() }
+        dropEncoded(downTo: heldLimit)
         let source = Bitmap(image: bitmap), size = maxPixelSize
-        entry.encode = Task { [weak self, weak entry] in
+        Task { [weak self, weak entry] in
             let url = await Task.detached(priority: Task.currentPriority) { Self.jpegDataURL(source.image, maxPixelSize: size) }.value
-            guard let entry, !Task.isCancelled else { return }
+            guard let entry else { return }
             entry.dataURL = url ?? ""
             self?.encodedBytes += entry.dataURL?.utf8.count ?? 0
             let waiters = entry.waiters
             entry.waiters = []
-            entry.encode = nil
             waiters.forEach { $0() }
         }
         return (entry.key, nil)
     }
 
-    /// Drops the least recently asked still, cancelling its encode when it has not ended.
-    private func removeOldest() {
-        let oldest = entries.removeFirst()
-        oldest.encode?.cancel()
-        encodedBytes -= oldest.dataURL?.utf8.count ?? 0
+    /// Drops the least recently asked encoded stills until at most `keep` stills stay. A still encoding stays
+    /// (its pages wait for its `ready`), so the stills go over `keep` until those encodes end and the next new
+    /// still or release trims them.
+    ///
+    /// - Parameters:
+    ///   - keep: How many stills may stay.
+    ///   - slice: The release's time slice; nil when a new still trims.
+    /// - Returns: `.more` when `slice` expired before the stills got down to `keep`.
+    @discardableResult
+    private func dropEncoded(downTo keep: Int, within slice: MemoryReleaseSlice? = nil) -> MemoryReleaseProgress {
+        while entries.count > keep, let index = entries.firstIndex(where: { $0.dataURL != nil }) {
+            if slice?.isExpired == true { return .more }
+            let entry = entries.remove(at: index)
+            encodedBytes -= entry.dataURL?.utf8.count ?? 0
+        }
+        return .done
     }
 
     /// `image` scaled down to at most `maxPixelSize` on its longest side and encoded as a JPEG
@@ -145,13 +154,7 @@ extension GlassBackdropImages: MemoryConsumer {
     /// encoding stay.
     public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
         updateMemoryLimit(slice.limit)
-        let keep = slice.limit.scale(capacity)
-        while entries.count > keep, let index = entries.firstIndex(where: { $0.dataURL != nil }) {
-            if slice.isExpired { return .more }
-            let entry = entries.remove(at: index)
-            encodedBytes -= entry.dataURL?.utf8.count ?? 0
-        }
-        return .done
+        return dropEncoded(downTo: slice.limit.scale(capacity), within: slice)
     }
 
     /// The encoded stills' bytes and how many stills it holds, from two counters.

@@ -11,10 +11,4 @@ extension AgentTabStore {
         }
         return images
     }
-
-    /// The launch settled and no agent pane draws its last page any more (`LaunchSettle`): the launch read's
-    /// pages no pane took go now (decoded pages are large); the released pages' held frames stay.
-    func launchDidSettle() {
-        launchImages.dropLaunchRead()
-    }
 }
