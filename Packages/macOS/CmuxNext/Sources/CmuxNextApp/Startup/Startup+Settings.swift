@@ -1,23 +1,37 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextLaunch
 import CmuxNextSettings
+import CmuxNextWakeups
 import CmuxNextWebUpdates
 import Foundation
 
 // Launch calls that follow cmux.json: the settings controller, Home's feeds and the tagged control socket
 // (`action.list/describe/run`) over the registry (task 014, see Startup+Core.swift).
 extension AppDelegate {
-    /// cmux-next.json settings over the registry: the web OTA check, managed policy, the palette's
-    /// settings, the browser follows, the shortcut editor, the managed status report and hang reports.
+    /// cmux-next.json settings over the registry: the web OTA check, the managed status report, managed policy,
+    /// the palette's settings and shortcut editor, the browser follows, the file watches and hang reports.
     func registerSettings(services: AppServices, launch: SettingsController.LaunchRead) -> SettingsController {
-        // Start the web OTA launch check before any restored or prewarmed page can
-        // request its entry document. Otherwise the entry can come from the app
-        // bundle while later chunks come from the kept update tree.
-        WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
+        // The web OTA launch check (kept update read in `main`) before any page asks for its entry document, else the
+        // entry can come from the bundle and later chunks from the update; the network check waits for startup complete.
+        WebUpdates.shared.prepare(
+            launch.snapshot.updates, launch: environment.webUpdates, files: services.work, energy: services.mainWork.energy,
+            shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil)
+        order.startup.post(.afterStartup, "WebUpdates.startChecks", on: .main) { WebUpdates.shared.startChecks() }
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
+        // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md: written on the files lane after startup.
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        // One sequence: each write replaces the file, so a later status must never land before an earlier one.
+        let statusWrites = services.work.sequence("settings.managed-status")
+        settings.writeManagedStatus(to: ManagedStatusReport.defaultURL(bundleID: bundleID),
+                                    context: ManagedStatusReport.Context(appVersion: version, bundleID: bundleID)) { [startup = order.startup] write in
+            startup.post(.afterStartup, "Settings.writeManagedStatus", on: .sequence(statusWrites, .bestEffort), write)
+        }
         settings.applyManagedFeaturesNow()
-        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth).start()
+        settings.adoptLaunchRead()  // the first load from the launch read, no file call: the first frame is in the file's look
+        services.lifetimeFollowers += ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth, mainWork: services.mainWork, appEvents: services.appEvents).start()
         self.settings = settings
         services.settings = settings
         // No socket write asks for a confirmation before the first frame: the control socket starts after it.
@@ -28,27 +42,32 @@ extension AppDelegate {
         order.startup.post(.afterFirstFrame, "Settings.followActivation", on: .main) { [weak settings, events = services.appEvents] in
             settings?.followActivation(on: events)
         }
-        // Every palette-exposed schema setting in the palette (R93).
-        services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
-            services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
+        // Every palette-exposed schema setting in the palette (R93), and the recorder's writes; neither builds the palette.
+        order.startup.post(.afterFirstFrame, "Palette.settingsSource", on: .main) { [weak services, weak settings] in
+            guard let services, let settings else { return }
+            services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
+                services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
+            }
+            services.paletteShortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         }
         // Neither the first frame nor a page engine reads these (p08-startup-028).
         LaunchServicePosts.browserFollows(historyDaemonSync: { [weak services] in services?.history.startDaemonSync(settings: settings) },
                                           locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
-        let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
-        services.paletteShortcutEditor = shortcutEditor  // the palette's recorder writes through it once built
-        // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md: written on the files lane after startup.
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        // One sequence: each write replaces the file, so a later status must never land before an earlier one.
-        let statusWrites = services.work.sequence("settings.managed-status")
-        settings.writeManagedStatus(to: ManagedStatusReport.defaultURL(bundleID: bundleID),
-                                    context: ManagedStatusReport.Context(appVersion: version, bundleID: bundleID)) { [startup = order.startup] write in
-            startup.post(.afterStartup, "Settings.writeManagedStatus", on: .sequence(statusWrites, .bestEffort), write)
+        // The file watches and the diagnostic toasts; the launch read is applied above, and the start reloads once.
+        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings] in settings?.start(announcingDiagnostics: true) }
+        AppProcessRoot.shared.hangReports?.recordUserWrites(of: settings)  // the person's own consent, from the first write on
+        order.startup.post(.afterStartup, "HangReports.start", on: .main) { [weak settings, asks = services.machineAsks, startup = order.startup] in
+            if let settings { AppProcessRoot.shared.hangReports?.start(settings: settings, asks: asks, firstWindow: { await startup.afterFirstFrame() }) }
         }
-        settings.start(announcingDiagnostics: true)
-        AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })
         return settings
+    }
+
+    /// `launch.savedPicture` off deletes the saved window pictures at once, not at the next quit (p08-startup 3C).
+    func registerSavedPicture(services: AppServices, settings: SettingsController) {
+        guard let pictures = services.environment.windowPictures else { return }
+        services.lifetimeFollowers.append(pictures.followSavedPicture({
+            settings.loadCount >= 1 ? settings.snapshot.savedPicture : nil
+        }, on: services.mainWork))
     }
 
     /// The chats pager, Home's launch feeds and the GitHub feed.
@@ -59,12 +78,13 @@ extension AppDelegate {
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
-        Task { [weak services, weak settings] in
-            guard let settings else { return }
-            await settings.waitForLoad(atLeast: 1)
-            for await github in ObservationStream({ settings.snapshot.feedGitHub }) {
+        order.startup.post(.afterStartup, "FeedGitHub.follow", on: .main) { [weak services, weak settings] in
+            guard let services, let settings else { return }
+            services.lifetimeFollowers.append(ServiceObservation(.background, owner: "FeedGitHub.setting", on: services.mainWork) {
+                settings.snapshot.feedGitHub
+            } apply: { [weak services] github in
                 services?.configureFeedGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)  // builds no feed
-            }
+            })
         }
     }
 

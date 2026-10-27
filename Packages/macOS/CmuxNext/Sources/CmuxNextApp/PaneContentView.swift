@@ -25,12 +25,14 @@ final class PaneContentView: NSView, PaneContentChrome {
     let paneScope = ThemeScope(level: .workspace)
     /// The pane's own background and tint (`PaneContentView+Backdrop`).
     let backdropState = PaneBackdropState()
-    private var paneBackgroundsObservation: Task<Void, Never>?
+    private var paneBackgroundsObservation: VisibleObservation<PaneBackgroundMode>?
     let contentHost = NSView()
     private(set) weak var content: NSView?
     /// A view in the window that this pane, in no window yet, shows: it moves here when the pane enters one.
     private var windowEntry = WindowEntryHandoff()
-    private var tokenObservation: Task<Void, Never>?
+    private var tokenObservation: VisibleObservation<ChromeTokens>?
+    /// What ``tokenObservation`` reads; Equatable, so a read of the same values applies nothing.
+    nonisolated private struct ChromeTokens: Equatable { var metrics: PaneChromeMetrics, tabRowTools: Bool }
     /// The pane's size changed (divider drag, window resize, animation).
     var onResize: (() -> Void)?
     var onPaneHeaderHeightChange: (() -> Void)?
@@ -40,21 +42,21 @@ final class PaneContentView: NSView, PaneContentChrome {
     var barPosition: TabBarPosition = .top {
         didSet { if barPosition != oldValue { updateBand() } }
     }
-    private var placementObservation: Task<Void, Never>?
+    private var placementObservation: VisibleObservation<(TabBarPosition, TabBarOrder, ToolbarPosition)>?
     /// The pane's buttons at the strip's trailing end (`PaneContentView+Toolbar`).
     var toolbar: PaneToolbar? { didSet { installToolbar(replacing: oldValue) } }
     /// Its tab bar's empty space drags the pane onto another to swap them (cx-8bv1j).
     var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
-    private var agentTagObservation: Task<Void, Never>?
+    private var agentTagObservation: VisibleObservation<TabPresence?>?
     /// No strip: the person hid this pane's tab bar (``PaneTabBar``).
     var hidesStrip = false {
         didSet {
             guard hidesStrip != oldValue else { return }
             // Applied in layout(): a paint hold may keep the strip until its swap.
             refreshBandHeight()
-            needsLayout = true
+            needsLayout = true // invalidate: the strip shows or hides (the guard above).
         }
     }
     /// A browser's tab bar above or below its toolbar (`tabs.barOrder`, R109).
@@ -80,7 +82,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var isBandActive: Bool { !bandPins.isEmpty }
     private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
-    let paintHold = PanePaintHold(owner: "pane.paint-hold")
+    let paintHold: PanePaintHold
     /// The strip the hold's outgoing view showed under, kept until the swap.
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
@@ -89,17 +91,28 @@ final class PaneContentView: NSView, PaneContentChrome {
     var launchImageShare: LaunchImageHold.Share?
     /// Runs once when the launch image goes (`clearLaunchImage`).
     var onLaunchImageCleared: (() -> Void)?
-    let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
+    let launchImageDeadline: MainDeadline
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
     var parked: [ParkedContent] = []
+
+    /// The pane's visibility node (`PaneController.visibilityNode`): the view's observations track
+    /// only while it is visible, and an appearance change of a hidden pane waits for its show.
+    let node: VisibilityNode
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in): the app's
     ///   one (`AppServices.launchReveal`).
     /// - Parameter input: The app's input tap, for the strip's mode subscriptions (`AppServices.inputTap`).
-    init(stripModel: TabStripModel, reveal: LaunchReveal, input: InputEventTap) {
+    /// - Parameter node: The pane's visibility node.
+    /// - Parameter deadlines: The app's one main-thread deadline scheduler (`AppServices.mainDeadlines`); its
+    ///   work scheduler runs the view's observations.
+    init(stripModel: TabStripModel, reveal: LaunchReveal, input: InputEventTap, node: VisibilityNode, deadlines: MainDeadlineScheduler) {
         stripView = TabStripView(model: stripModel, input: input)
+        self.node = node
+        // The pane's limit for a page that never paints under its launch image: `visible` work.
+        launchImageDeadline = MainDeadline(owner: "pane.launch-image", workClass: .visible, scheduler: deadlines)
+        paintHold = PanePaintHold(owner: "pane.paint-hold", deadlines: deadlines)
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         barPosition = DesignSettings.shared.tabBarPosition
         barOrder = DesignSettings.shared.tabBarOrder
@@ -113,42 +126,32 @@ final class PaneContentView: NSView, PaneContentChrome {
         stripScope.root(stripView)
         reveal.hold(stripView, until: .tabs)
         reveal.hold(contentHost, until: .pane)
-        agentTagObservation = observeAgentTag(stripModel)
+        let work = deadlines.work
+        agentTagObservation = observeAgentTag(stripModel, on: work)
         themeDidChange()
-        tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value) }) {
-                self?.needsLayout = true
-                self?.refreshBandHeight()
-            }
+        // The pane's views follow the settings while it shows; a hidden pane reads them once on show.
+        tokenObservation = VisibleObservation(node, owner: "PaneContentView.tokens", on: work) {
+            ChromeTokens(metrics: PaneChromeMetrics.current, tabRowTools: ChromeTunables.tabRowTools.value)
+        } apply: { [weak self] _ in
+            self?.needsLayout = true // invalidate: the strip metrics or tab-row sharing changed (applied on a change only).
+            self?.refreshBandHeight()
         }
-        paneBackgroundsObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.paneBackgrounds }) { self?.paintPaneBackdrop() }
+        paneBackgroundsObservation = VisibleObservation(node, owner: "PaneContentView.paneBackgrounds", on: work) {
+            DesignSettings.shared.paneBackgrounds
+        } apply: { [weak self] _ in
+            self?.paintPaneBackdrop()
         }
-        placementObservation = Task { [weak self] in
-            for await (position, order, toolbar) in ObservationStream({
-                (DesignSettings.shared.tabBarPosition, DesignSettings.shared.tabBarOrder, DesignSettings.shared.browserToolbarPosition)
-            }) {
-                self?.barPosition = position
-                self?.barOrder = order
-                self?.toolbarPosition = toolbar
-            }
+        placementObservation = VisibleObservation(node, owner: "PaneContentView.placement", on: work) {
+            (DesignSettings.shared.tabBarPosition, DesignSettings.shared.tabBarOrder, DesignSettings.shared.browserToolbarPosition)
+        } apply: { [weak self] placement in
+            self?.barPosition = placement.0
+            self?.barOrder = placement.1
+            self?.toolbarPosition = placement.2
         }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            tokenObservation?.cancel()
-            placementObservation?.cancel()
-            paneBackgroundsObservation?.cancel()
-            agentTagObservation?.cancel()
-        }
-    }
-
 
     nonisolated override var isFlipped: Bool { true }
 
@@ -189,7 +192,8 @@ final class PaneContentView: NSView, PaneContentChrome {
             // area 0 high at the bottom, toolbar under it) until a tab switch.
             // Lay it out at its new size now, in this pass (a descendant).
             if hostChanged || resized {
-                content.needsLayout = true
+                content.needsLayout = true // invalidate: the host or the content changed size (the check above).
+                // sync-layout: a descendant in this pane's own pass (the comment above), not an extra pass.
                 content.layoutSubtreeIfNeeded()
             }
         }
@@ -237,7 +241,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         refreshBandHeight()
-        needsLayout = true
+        needsLayout = true // invalidate: the scale changed; the strip height snaps to the new pixel grid.
     }
 
     func setPaneContentCornerRadius(_ radius: CGFloat) {
@@ -324,9 +328,10 @@ final class PaneContentView: NSView, PaneContentChrome {
                 // window's pass, never from inside the browser's layout.
                 guard self.isBandActive else { return }
                 if let window = self.window as? ShellWindow {
+                    // invalidate: the browser's header changed height (it reports a change only); the band follows it.
                     window.afterLayoutPass { [weak self] in self?.needsLayout = true }
                 } else {
-                    self.needsLayout = true
+                    self.needsLayout = true // invalidate: as above, with no shell window to wait for.
                 }
             }
         }
@@ -384,14 +389,15 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        themeDidChange()
+        // A hidden pane repaints once, when it shows (R-appear).
+        node.deferUntilVisible(key: "PaneContentView.appearance") { [weak self] in self?.themeDidChange() }
     }
 
     /// The content background under the content only (the strip has its
     /// own backdrop), or nothing in a translucent window, where the window
     /// root paints the one sheet (`WindowBackdrop`).
     func themeDidChange() {
-        needsLayout = true
+        needsLayout = true // invalidate: the theme changed (init, or an appearance change once shown).
         let tokens = themeTokens
         let paints = WindowBackdrop.current(tokens).panesPaintBackground
         performWithTheme {

@@ -5,18 +5,21 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import { subscribePageStreams } from "../shared/pageStreams";
 import table from "./generated/strings.json";
 import { KeybindingsPage } from "./KeybindingsPage";
 import { MockKeybindingsProvider, SAMPLE_TITLES, sampleLayers } from "./mockProvider";
-import { KeybindingsStore } from "./store";
+import { KEYBINDINGS_PAGE, KeybindingsStore } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
 import { focusSearchField } from "../shared/searchField";
 
 export function mountKeybindingsPage(root: HTMLElement, client: PageClient | null = defaultClient()): KeybindingsStore {
+  const state = openPageState(client, KEYBINDINGS_PAGE);
   const store = new KeybindingsStore(client);
+  state.keep(() => store.pageInputs());
   // The app's key dispatcher sends page commands (Cmd-F is `find`); the page never reads chords.
   if (client) {
     void subscribePageStreams(client, {

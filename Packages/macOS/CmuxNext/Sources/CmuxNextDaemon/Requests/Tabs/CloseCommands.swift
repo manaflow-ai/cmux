@@ -19,7 +19,7 @@ public struct ClosePaneRequest: DaemonRequest {
         self.endTerminals = endTerminals
     }
 
-    enum CodingKeys: String, CodingKey { case pane, endTerminals }
+    enum CodingKeys: String, CodingKey { case pane, endTerminals = "end_terminals" }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(pane, forKey: .pane)
@@ -38,7 +38,7 @@ public struct CloseScreenRequest: DaemonRequest {
         self.endTerminals = endTerminals
     }
 
-    enum CodingKeys: String, CodingKey { case screen, endTerminals }
+    enum CodingKeys: String, CodingKey { case screen, endTerminals = "end_terminals" }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(screen, forKey: .screen)

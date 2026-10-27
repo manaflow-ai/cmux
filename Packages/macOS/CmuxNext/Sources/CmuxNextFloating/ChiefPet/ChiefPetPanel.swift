@@ -1,6 +1,9 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
+import CmuxNextInput
+import CmuxNextInputCore
+public import CmuxNextWakeups
 
 /// The Chief pet: a small pixel character over a glass rail, floating over every app and every
 /// Space as the references draw it (`cmux-design-references` chief-water-reference: the pet,
@@ -38,9 +41,13 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     private var screenObserver: MainActorObservation?
 
     /// `notifications`: where screen-parameter changes are posted (AppKit posts to `.default`); tests give their own.
-    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, notifications: NotificationCenter = .default) {
+    /// `pointerFrames`: the windows' frame-aligned pointer input (feature `pointerFrameDrags`); nil: a drag
+    /// moves the panel on every event.
+    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, notifications: NotificationCenter = .default,
+                pointerFrames: FrameInputCoalescers? = nil) {
         placement = ChiefPetPlacement(defaults: defaults)
         pet = ChiefPetView(image: mascot.image)
+        pet.pointerFrames = pointerFrames
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.petSize),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -170,8 +177,17 @@ final class ChiefPetView: NSView {
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
     private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
+    /// The pointing hand's area over the character (p04-input-090), placed again only when the character moves.
+    /// Active in the active app, as the panel is never key (`.activeAlways` takes no `.cursorUpdate`).
+    private var characterCursorArea: NSTrackingArea?
     /// A press is moving the pet now.
     var isDragging: Bool { dragging }
+    /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the panel moves on a frame
+    /// interval's first drag event and once more at its frame, to the latest point, as Chromium delivers
+    /// rAF-aligned moves (main_thread_event_queue.cc). Nil: every drag event moves it.
+    var pointerFrames: FrameInputCoalescers?
+    /// This press's consumer of the panel's coalescer, from mouse-down to mouse-up.
+    private(set) var frameDrag: PointerFrameConsumer?
 
     init(image: NSImage?) {
         super.init(frame: .zero)
@@ -205,6 +221,12 @@ final class ChiefPetView: NSView {
         super.layout()
         let size = ChiefPetPanel.characterSize
         character.frame = CGRect(x: ((bounds.width - size.width) / 2).rounded(), y: bounds.height - size.height, width: size.width, height: size.height)
+        if characterCursorArea?.rect != character.frame {
+            if let characterCursorArea { removeTrackingArea(characterCursorArea) }
+            let area = NSTrackingArea(rect: character.frame, options: [.cursorUpdate, .activeInActiveApp], owner: self)
+            addTrackingArea(area)
+            characterCursorArea = area
+        }
         let width = rail.width
         rail.frame = CGRect(x: ((bounds.width - width) / 2).rounded(), y: 0, width: width, height: ChiefPetRail.height)
         let badge = badgeView.fittingSize
@@ -244,12 +266,38 @@ final class ChiefPetView: NSView {
         let local = convert(window?.convertPoint(fromScreen: start) ?? start, from: nil)
         press = (start, window?.frame.origin ?? .zero, character.frame.contains(local))
         dragging = false
+        frameDrag?.cancel()
+        frameDrag = window.flatMap { pointerFrames?.coalescer(for: $0) }?.consumer(owner: "ChiefPetDrag") { [weak self] input in
+            self?.drag(to: CGPoint(x: input.latest.screenLocation.x, y: input.latest.screenLocation.y))
+        }
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let press, let window else { return }
-        // The event's own screen point: the panel moves under the pointer on every step.
+        guard press != nil, window != nil else { return }
+        // The event's own screen point: the panel moves under the pointer, so its window point would read
+        // against a frame that moved since the event was made.
         let point = event.screenLocation
+        if let frameDrag, let type = InputEventType(event.type) {
+            var record = InputEventRecord(event, type: type)
+            record.screenLocation = InputPoint(x: point.x, y: point.y)
+            frameDrag.post(record)
+            return
+        }
+        drag(to: point)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        // The frame's pending point lands before the release (Chromium's ShouldFlushQueue).
+        frameDrag?.flush()
+        frameDrag = nil
+        defer { press = nil; dragging = false }
+        guard let press else { return }
+        if dragging { onDragEnded?() } else if press.onCharacter { onClick?() }
+    }
+
+    /// The panel follows the press to `point` on screen once it passes the drag slop.
+    private func drag(to point: CGPoint) {
+        guard let press, let window else { return }
         if !dragging, !ChiefPetPlacement.isDrag(from: press.start, to: point) { return }
         dragging = true
         // Whole points, as the saved spot is: the drop then rounds nothing and the notices stay put.
@@ -257,17 +305,11 @@ final class ChiefPetView: NSView {
         onDragMoved?()
     }
 
-    override func mouseUp(with event: NSEvent) {
-        defer { press = nil; dragging = false }
-        guard let press else { return }
-        if dragging { onDragEnded?() } else if press.onCharacter { onClick?() }
-    }
-
     /// Where the character sits in the view.
     var characterFrame: CGRect { character.frame }
 
-    override func resetCursorRects() {
-        addCursorRect(character.frame, cursor: .pointingHand)
+    override func cursorUpdate(with event: NSEvent) {
+        if character.frame.contains(convert(event.locationInWindow, from: nil)) { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
     }
 }
 

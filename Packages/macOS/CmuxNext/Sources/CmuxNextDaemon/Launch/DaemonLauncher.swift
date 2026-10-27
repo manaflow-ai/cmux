@@ -299,10 +299,12 @@ public struct DaemonLauncher: Sendable {
     /// The user's per-user temp directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`),
     /// independent of the process's `TMPDIR`. Falls back to `/tmp`.
     public static func userTemporaryDirectory() -> URL {
-        let length = confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
+        // SAFETY: with a nil buffer and length 0, confstr only returns the size it needs.
+        let length = unsafe confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
         if length > 0 {
             var buffer = [CChar](repeating: 0, count: length)
-            if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, length) > 0 {
+            // SAFETY: confstr writes at most `length` bytes, the array's size, into its storage, lent for the call.
+            if unsafe confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, length) > 0 {
                 let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
                 if !path.isEmpty { return URL(fileURLWithPath: path, isDirectory: true) }
             }
@@ -418,7 +420,11 @@ public struct DaemonLauncher: Sendable {
 
     /// Endpoint provider for `DaemonConnection`: every (re)connect re-runs
     /// `ensure`, which restarts a crashed daemon.
-    public var endpointProvider: DaemonConnection.EndpointProvider {
+    public var endpointProvider: DaemonConnection.EndpointProvider { spawnObservingEndpointProvider(onSpawned: nil) }
+
+    /// ``endpointProvider`` that also calls `onSpawned` after each `ensure` that started a daemon (status
+    /// `started`, never a running owner or a remembered socket): the launch's `daemon.spawned` milestone.
+    public func spawnObservingEndpointProvider(onSpawned: (@Sendable () -> Void)?) -> DaemonConnection.EndpointProvider {
         let remembered = rememberedSocket
         let handoff = handoff
         let clock = clock
@@ -436,7 +442,9 @@ public struct DaemonLauncher: Sendable {
                     return DaemonEndpoint(socketPath: path, wireStats: wireStats)
                 }
             }
-            var endpoint = try await ensureRecordingOutcome().endpoint
+            let ensured = try await ensureRecordingOutcome()
+            if ensured.status == "started" { onSpawned?() }
+            var endpoint = ensured.endpoint
             endpoint.wireStats = wireStats
             return endpoint
         }

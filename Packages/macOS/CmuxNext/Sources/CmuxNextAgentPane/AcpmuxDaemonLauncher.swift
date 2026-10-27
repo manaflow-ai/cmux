@@ -2,6 +2,10 @@ import Darwin
 import Foundation
 import os
 import CmuxNextCompat
+import struct CmuxNextDaemon.POSIXErrorText
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Starts a detached acpmux daemon and returns its WebSocket endpoint from
 /// the `--ready-fd` line, so a fresh daemon needs no status round trip.
@@ -46,7 +50,8 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// Use secret, plus `childEnvironment`, non-secret Computer Use v2 state,
     /// the session offer tools while suggested tasks are on
     /// (``AcpmuxEnvironment/offersSessionTools``), the agent message runaway guard
-    /// off when ``AcpmuxEnvironment/agentPairGuard`` is off (else its cap), and the launch knobs.
+    /// off when ``AcpmuxEnvironment/agentPairGuard`` is off (else its cap), the app's daemon
+    /// features (``AcpmuxEnvironment/daemonFeatures``) and the launch knobs.
     static func spawnEnvironment(_ environment: AcpmuxEnvironment, inherited: [String: String]) -> [String: String] {
         let computerUse = Set(AcpmuxEnvironment.computerUseKeys + [AcpmuxEnvironment.computerUseHostKey])
         let safeInherited = inherited.filter { key, _ in
@@ -68,8 +73,11 @@ nonisolated enum AcpmuxDaemonLauncher {
         } else {
             variables[AcpmuxEnvironment.agentPairGuardKey] = "0"
         }
+        variables.merge(environment.daemonFeatures) { $1 }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
         variables["ACPMUX_LOGIN_ENV"] = "1"
+        // The owning app: the leftover daemon idle exit keeps the daemon while it runs.
+        variables["ACPMUX_OWNER_APP_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         return variables
     }
 
@@ -86,7 +94,7 @@ nonisolated enum AcpmuxDaemonLauncher {
                                    onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
-        guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable) else {
+        guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable, team: SigningTeamInstall.process.team) else {
             throw Failure.untrustedExecutable(environment.executable.path)
         }
         logger.info("acpmux launch requested executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) args=\(environment.daemonArguments.joined(separator: " "), privacy: .public)")
@@ -94,8 +102,9 @@ nonisolated enum AcpmuxDaemonLauncher {
         let variables = spawnEnvironment(environment, inherited: ProcessInfo.processInfo.environment)
         logger.info("acpmux launch environment home=\(variables["ACPMUX_HOME", default: ""], privacy: .public) socket=\(variables["ACPMUX_SOCKET", default: ""], privacy: .public) pathPresent=\(variables["PATH"] != nil, privacy: .public)")
         var outputPipe: [Int32] = [-1, -1]
-        guard Darwin.pipe(&outputPipe) == 0 else {
-            throw Failure.spawnFailed(String(cString: strerror(errno)))
+        // SAFETY: pipe writes its two descriptors into the array's own storage (two Int32), lent for the call.
+        guard unsafe Darwin.pipe(&outputPipe) == 0 else {
+            throw Failure.spawnFailed(POSIXErrorText(errno).description)
         }
         defer {
             if outputPipe[0] >= 0 { Darwin.close(outputPipe[0]) }
@@ -105,19 +114,21 @@ nonisolated enum AcpmuxDaemonLauncher {
         // legacy Computer Use token until a checked socket enrolls it below.
         var keyPipe: [Int32] = [-1, -1]
         if environment.passesPersonKeyAtSpawn {
-            guard Darwin.pipe(&keyPipe) == 0 else {
-                throw Failure.spawnFailed(String(cString: strerror(errno)))
+            // SAFETY: pipe writes its two descriptors into the array's own storage (two Int32), lent for the call.
+            guard unsafe Darwin.pipe(&keyPipe) == 0 else {
+                throw Failure.spawnFailed(POSIXErrorText(errno).description)
             }
             // Close-on-exec at once: a child another part of this app spawns meanwhile never
             // inherits either end. The spawn's dup2 to the daemon's descriptor clears it there.
             guard fcntl(keyPipe[0], F_SETFD, FD_CLOEXEC) == 0, fcntl(keyPipe[1], F_SETFD, FD_CLOEXEC) == 0 else {
                 Darwin.close(keyPipe[0])
                 Darwin.close(keyPipe[1])
-                throw Failure.spawnFailed(String(cString: strerror(errno)))
+                throw Failure.spawnFailed(POSIXErrorText(errno).description)
             }
             // A new key for this unsigned daemon (one key per daemon instance, cx-fcaq).
             let keyLine = Array((AcpmuxPersonKey.spawnKey(for: environment.socketPath) + "\n").utf8)
-            let written = keyLine.withUnsafeBytes { Darwin.write(keyPipe[1], $0.baseAddress, $0.count) }
+            // SAFETY: write reads keyLine.count bytes from the array's own storage, lent for the call.
+            let written = unsafe Darwin.write(keyPipe[1], keyLine, keyLine.count)
             guard written == keyLine.count else { throw Failure.spawnFailed("unable to pass the person key") }
             Darwin.close(keyPipe[1])
             keyPipe[1] = -1
@@ -144,8 +155,9 @@ nonisolated enum AcpmuxDaemonLauncher {
             keyPipe[0] = -1
         }
         guard spawnStatus == 0 else {
-            logger.error("acpmux spawn failed status=\(spawnStatus, privacy: .public) errno=\(String(cString: strerror(spawnStatus)), privacy: .public) executable=/bin/sh")
-            throw Failure.spawnFailed(String(cString: strerror(spawnStatus)))
+            let why = POSIXErrorText(spawnStatus).description
+            logger.error("acpmux spawn failed status=\(spawnStatus, privacy: .public) errno=\(why, privacy: .public) executable=/bin/sh")
+            throw Failure.spawnFailed(why)
         }
         logger.info("acpmux spawn succeeded executable=/bin/sh")
         onSpawn(processIdentifier)
@@ -176,42 +188,44 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// - Returns: `posix_spawn`'s status and the shell's pid.
     private static func spawnShell(arguments: [String], variables: [String], descriptors: SpawnDescriptors,
                                    priority: MayBlockPriority) throws -> (status: Int32, pid: pid_t) {
+        // SAFETY (every posix_spawn_* call below): each takes the address of `actions` or `attributes`, locals
+        // initialized here and destroyed once by the defer, and copies the C strings it is lent (the NUL-terminated
+        // copies made for the call) before it returns.
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
-        guard posix_spawn_file_actions_init(&actions) == 0,
-              posix_spawnattr_init(&attributes) == 0 else {
+        guard unsafe posix_spawn_file_actions_init(&actions) == 0,
+              unsafe posix_spawnattr_init(&attributes) == 0 else {
             throw Failure.spawnFailed("unable to initialize acpmux spawn")
         }
         defer {
-            posix_spawn_file_actions_destroy(&actions)
-            posix_spawnattr_destroy(&attributes)
+            unsafe posix_spawn_file_actions_destroy(&actions)
+            unsafe posix_spawnattr_destroy(&attributes)
         }
         // The read end closes first: in a process with few descriptors open it can be the
         // person key's descriptor, and closing it after the dup2 dropped the key (the daemon
         // then closed its own I/O driver's descriptor in its place and panicked).
-        let actionStatus = posix_spawn_file_actions_addclose(&actions, descriptors.outputRead)
-        guard actionStatus == 0,
-              posix_spawn_file_actions_adddup2(&actions, descriptors.outputWrite, STDOUT_FILENO) == 0,
-              descriptors.keyRead.map({ posix_spawn_file_actions_adddup2(&actions, $0, personKeyDescriptor) == 0 }) ?? true,
-              "/dev/null".withCString({ path in
-                  posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, path, O_RDONLY, 0)
-              }) == 0,
-              "/dev/null".withCString({ path in
-                  posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, path, O_WRONLY, 0)
-              }) == 0 else {
+        guard unsafe posix_spawn_file_actions_addclose(&actions, descriptors.outputRead) == 0,
+              unsafe posix_spawn_file_actions_adddup2(&actions, descriptors.outputWrite, STDOUT_FILENO) == 0,
+              unsafe descriptors.keyRead.map({ unsafe posix_spawn_file_actions_adddup2(&actions, $0, personKeyDescriptor) == 0 }) ?? true,
+              unsafe posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0) == 0,
+              unsafe posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0) == 0 else {
             throw Failure.spawnFailed("unable to configure acpmux spawn")
         }
         let spawnFlags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSID)
-        guard posix_spawnattr_setflags(&attributes, spawnFlags) == 0 else {
+        guard unsafe posix_spawnattr_setflags(&attributes, spawnFlags) == 0 else {
             throw Failure.spawnFailed("unable to configure acpmux descriptor policy")
         }
         var processIdentifier: pid_t = 0
-        let status = try withCStringArray(arguments) { argv in
-            try withCStringArray(variables) { envp in
-                "/bin/sh".withCString { executable in
-                    blockingPosixSpawn(&processIdentifier, executable, &actions, &attributes, argv, envp, priority: priority)
-                }
+        // SAFETY: argv and envp are NULL-terminated lists that withCStringList lends for its closure; posix_spawn
+        // copies them, writes the child's pid into `processIdentifier`, a local, and reads `actions` and
+        // `attributes` (above).
+        let status = unsafe withCStringList(arguments) { argv in
+            unsafe withCStringList(variables) { envp in
+                unsafe blockingPosixSpawn(&processIdentifier, "/bin/sh", &actions, &attributes, argv, envp, priority: priority)
             }
+        }
+        guard let status = status.flatMap({ $0 }) else {
+            throw Failure.spawnFailed("unable to allocate acpmux spawn arguments")
         }
         return (status, processIdentifier)
     }
@@ -262,28 +276,10 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// armed for a shell that exited before. A shell that never exited would hold the launch; the script only
     /// backgrounds the daemon, in its own session (no terminal can stop it), so it cannot.
     private static func reap(_ pid: pid_t) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        // A watch dropped without its exit event ends the wait (abandoned): the launch goes on.
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-launch-reap.\(pid)", qos: .userInitiated))
-                .start { _ in continuation.resume() }
-        }
-    }
-
-    private static func withCStringArray<Value>(
-        _ strings: [String],
-        operation: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> Value
-    ) throws -> Value {
-        var pointers: [UnsafeMutablePointer<CChar>?] = strings.map { strdup($0) }
-        guard pointers.allSatisfy({ $0 != nil }) else {
-            pointers.forEach { free($0) }
-            throw Failure.spawnFailed("unable to allocate acpmux spawn arguments")
-        }
-        pointers.append(nil)
-        defer { pointers.forEach { free($0) } }
-        return try pointers.withUnsafeMutableBufferPointer { buffer in
-            guard let baseAddress = buffer.baseAddress else {
-                throw Failure.spawnFailed("unable to allocate acpmux spawn arguments")
-            }
-            return try operation(baseAddress)
+                .start { _ in continuation.resume(returning: ()) }
         }
     }
 }

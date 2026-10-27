@@ -242,9 +242,9 @@ impl ProviderMachineController {
     pub(crate) fn placeholder(
         &mut self,
         notice: impl Into<String>,
-    ) -> (Session, String, MachineUiState) {
-        let (session, label, ui) = self.provider.placeholder(notice);
-        (session, label, self.merge_local_ui(ui))
+    ) -> anyhow::Result<(Session, String, MachineUiState)> {
+        let (session, label, ui) = self.provider.placeholder(notice)?;
+        Ok((session, label, self.merge_local_ui(ui)))
     }
 
     fn perform_request(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
@@ -632,7 +632,7 @@ impl ProviderMachineRuntime {
     pub(crate) fn placeholder(
         &mut self,
         notice: impl Into<String>,
-    ) -> (Session, String, MachineUiState) {
+    ) -> anyhow::Result<(Session, String, MachineUiState)> {
         self.open = None;
         let label = self
             .snapshot
@@ -643,7 +643,7 @@ impl ProviderMachineRuntime {
             .unwrap_or_else(|| "machines".to_string());
         let mut ui = self.ui_state(false);
         ui.notice = Some(notice.into());
-        (placeholder_session(), label, ui)
+        Ok((placeholder_session()?, label, ui))
     }
 
     fn perform_request(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
@@ -1646,7 +1646,7 @@ impl ProviderMachineRuntime {
             .and_then(|id| self.snapshot.machines.iter().find(|machine| &machine.id == id))
             .cloned();
         let Some(machine) = selected else {
-            return Ok((placeholder_session(), "machines".to_string(), None, false));
+            return Ok((placeholder_session()?, "machines".to_string(), None, false));
         };
         if !machine.connectable {
             anyhow::bail!(localization::catalog().sidebar.machine_not_ready_to_connect);
@@ -1765,12 +1765,23 @@ impl ProviderMachineRuntime {
             self.stage_mandatory_replacement(None);
             result.ui.session_available = false;
             let machine = result.ui.snapshot.active;
-            result.replacement = Some(crate::machine::MachineSession {
-                session: placeholder_session(),
-                label,
-                machine,
-                reused: false,
-            });
+            match placeholder_session() {
+                Ok(session) => {
+                    result.replacement = Some(crate::machine::MachineSession {
+                        session,
+                        label,
+                        machine,
+                        reused: false,
+                    });
+                }
+                Err(error) => append_notice(
+                    &mut result.ui.notice,
+                    format!(
+                        "{}: {error}",
+                        localization::catalog().sidebar.machine_provider_update_failed
+                    ),
+                ),
+            }
             result.restart_updates = true;
         }
         result
@@ -2470,11 +2481,11 @@ fn workspace_creation_mode(mode: protocol::WorkspaceCreateMode) -> WorkspaceCrea
     }
 }
 
-fn placeholder_session() -> Session {
-    Session::Local(Mux::new(
+fn placeholder_session() -> anyhow::Result<Session> {
+    Ok(Session::Local(Mux::try_new(
         format!("provider-placeholder-{}", std::process::id()),
         SurfaceOptions::default(),
-    ))
+    )?))
 }
 
 fn machine_status(status: protocol::MachineStatus) -> MachineStatus {

@@ -1,8 +1,10 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextLaunch
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextWakeups
 
 // Launch calls for the services, the daemon, the first window and its
@@ -13,13 +15,15 @@ extension AppDelegate {
     /// reports and Debug Settings.
     func registerServices(launch settingsRead: SettingsController.LaunchRead) -> AppServices {
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
-                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
-                                   launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys)
+                                   launchImages: launchReads.images, terminalLaunchFrames: launchReads.frames, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
+                                   launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys,
+                                   watchdog: control.watchdog, features: features)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,
                                              work: launchReads.work, mainWork: mainWork)  // p08-startup-019: on a lane
         TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
+        BrowserExternalApps.shared.queries = services.workspaceQueries  // a page's app links ask Launch Services on the system lane
         // Frame rate classes (p03-rendering-013): links at their clients' rate, loops at 30 Hz.
         let rateClasses = services.features.isEnabled(.frameRateClasses)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
@@ -30,15 +34,23 @@ extension AppDelegate {
         if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
         // The settle references, one closure each, before the daemon starts and the windows restore
         // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
-        // screen) reveals at once.
+        // screen) reveals at once and is interrupted: its first frame records no launch sample.
         let startup = mainWork.startup
-        startup.noteLaunch(NSApp.isHidden ? .hidden : .window)
+        let presentation: StartupPhase.Presentation = NSApp.isHidden ? .hidden : .window
+        startup.noteLaunch(presentation)
+        if presentation != .window { DebugTimings.markLaunch(LaunchSlices.interruptedMark) }  // before the first window
         services.daemon.store.whenFirstSnapshotApplied { startup.markDone(.firstSnapshot) }
         // The restore and visible-page references are the pane refs' (`VisiblePaneRefs.finishRestore`).
         startupReferences.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
+        // Idle wakeups per inactive minute (p09-observability-059), once the launch's own work is done.
+        order.startup.post(.afterStartup, "AppServices.startIdleWakeups", on: .main) { [weak services, control = self.control] in
+            guard let services else { return }
+            services.startIdleWakeups(watchdog: control.watchdog, hiddenWorkspaceMemory: AppProcessRoot.shared.hangReports?.memory)
+            control.idleWakeups = services.idleWakeups  // the person's input ends an idle period at that input
+        }
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
@@ -48,14 +60,18 @@ extension AppDelegate {
     /// The handler coverage check, app activation, the launch settle, OSC 52 prompts, the daemon, managed feature policy and Cloud's post.
     func registerDaemon(services: AppServices) {
         HandlerCoverage.verifyAtLaunch(services.registry)  // every handler is bound by now; Debug builds only
-        WindowActivation.activateApp()
-        launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup)
-        daemonPrompts = DaemonPrompts.start(services)
-        services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
-        FeaturePolicyEnforcer(services: services).start()
+        order.startup.post(.critical, "WindowActivation.activateApp", on: .main) { WindowActivation.activateApp() }
+        launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, on: services.mainWork)
+        launchSettle.dropLaunchReads(frames: services.terminalLaunchFrames, pages: services.launchImages, features: services.features, images: launchImageHold)  // p07-memory-083
+        // The painted terminal colors first (OSC 10/11/12), and the prompts' side-event subscriptions before the connect.
+        daemonPrompts = services.startLocalDaemon(prestart: daemonPrestart)
+        services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
-        // Before the first window opens (restoreWhenLoaded opens one at once).
+        // Before the first window opens (restoreWhenLoaded opens one at once): its indicators and its first
+        // become-main notice find the config and resync follows running.
+        StatusIndicatorAppearance.shared.observe(on: services.mainWork, appEvents: services.appEvents,
+                                                 workspaceEvents: services.workspaceEvents)
         services.windows.onPresent = { [weak services] controller in
             DebugTimings.markLaunch("first_window_presented")  // launch.first_window ends here (once per process)
             services?.crashRecovery.showRestartNotice(on: controller.window)
@@ -64,15 +80,15 @@ extension AppDelegate {
 
     /// First-window hooks and the afterStartup warm-ups (palette, icon picker, open panel) and cleanup.
     func registerFirstWindowHooks(services: AppServices) {
-        services.windows.onFirstWindow = { [weak services] _ in
+        services.windows.onFirstWindow = { [weak services, startup = order.startup] _ in
             #if DEBUG || CMUX_BENCH_HOOKS
             if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
             #endif
             // An App Store request made while no window existed shows in this window (S22).
             if let apps = services?.apps, apps.isStoreWaiting { Task { @MainActor in apps.windowDidShowContent() } }
             // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
-            if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts {
-                Task { @MainActor in await RecoveryNotice.show(store: drafts, in: window) }
+            if let services, let window = services.windows.active?.window {
+                RecoveryNotice.post(store: services.recoveryDrafts, in: window, on: startup, work: services.work, mainWork: services.mainWork)
             }
             CATransaction.setMainCompletion { [weak self] in
                 DebugTimings.markLaunch("first_window_frame_committed")

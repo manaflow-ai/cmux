@@ -75,9 +75,14 @@ import Testing
         let orderChecks = rig.host.orderChecks
         let reorders = rig.layer.reorderCount
 
-        // AppKit posts didUpdate once per event of the window: the stand-in for 100 keys.
-        for _ in 0..<100 { rig.window.update() }
+        // AppKit posts didUpdate once per event of the window: the stand-in for 100 keys, on the center the
+        // layer and the host observe (the window's `WindowEvents` and the page observers are on it).
+        for _ in 0..<100 {
+            rig.center.post(name: NSWindow.didUpdateNotification, object: rig.window)
+            rig.center.post(name: NSWindow.didUpdateNotification, object: rig.page)
+        }
 
+        #expect(!WindowEvents.of(rig.window).isObserving(NSWindow.didUpdateNotification))
         #expect(rig.layer.evaluations == evaluations, "a window update re-checked the overlay placement")
         #expect(rig.host.orderChecks == orderChecks, "a window update re-checked the child order")
         #expect(rig.layer.reorderCount == reorders)
@@ -175,7 +180,7 @@ import Testing
         rig.showPage()
         // The layer asks the window's pages on the default center (`CEFHostView` listens there).
         let posts = Count()
-        let watch = MainActorObservation(Notification.Name.browserChildWindowPagesNeedUpdate, object: rig.window) { posts.value += 1 }
+        let watch = MainActorObservation(Notification.Name("CmuxBrowserChildWindowPagesNeedUpdate"), object: rig.window) { posts.value += 1 }
 
         rig.center.post(name: NSWindow.didMoveNotification, object: rig.window)
         #expect(posts.value == 1, "the pages follow the move at once")

@@ -73,6 +73,26 @@ class HandlerCommandTests(unittest.TestCase):
             commands["pick"].payload, "key: String,\nmap: BTreeMap<String, u64>,"
         )
 
+    def test_a_module_with_a_route_and_no_try_handle_serves_its_enum(self) -> None:
+        enum = '#[serde(tag = "cmd")]\nenum Command {\n    #[serde(rename = "{0}")]\n    X,\n}\n'
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            self.write(
+                tui,
+                "routed.rs",
+                enum.replace("{0}", "routed")
+                + "pub(in crate::server) const ROUTES: &[Route] = &[];\n"
+                "fn handle(line: &RouteLine<'_>) -> Option<bool> { None }\n",
+            )
+            self.write(
+                tui,
+                "unrouted.rs",
+                enum.replace("{0}", "unrouted") + "fn handle() {}\n",
+            )
+            commands = HANDLERS.handler_commands(tui)
+        self.assertEqual(set(commands), {"routed"})
+        self.assertEqual(commands["routed"].module.name, "routed.rs")
+
     def test_the_struct_that_flattens_the_enum_adds_its_fields_to_every_command(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory) / "cmux-tui"
@@ -239,6 +259,23 @@ class SnifferNameTests(unittest.TestCase):
             },
         )
         self.assertEqual({entry.module for entry in served.values()}, {"sniffer.rs"})
+
+    def test_route_names_are_served_names(self) -> None:
+        # A typed route handler compares no `cmd`: its route's names are what it serves.
+        source = (
+            'const COMMAND: &str = "by-const";\n'
+            "pub(in crate::server) const ROUTES: &[Route] = &[Route {\n"
+            "    names: &[\n"
+            "        RouteName::Exact(COMMAND),\n"
+            '        crate::server::routes::RouteName::Exact("literal"),\n'
+            '        RouteName::OneOf(&[COMMAND, "listed"]),\n'
+            '        RouteName::Prefix("family-"),\n'
+            "    ],\n"
+            "    stage: FrameStage::Route,\n"
+            "    entry: handle,\n"
+            "}];\n"
+        )
+        self.assertEqual(self.names(source), {"by-const", "literal", "listed"})
 
     def test_guard_arms_matches_and_command_expressions(self) -> None:
         self.assertEqual(
@@ -502,29 +539,21 @@ class LiveSchemaTests(unittest.TestCase):
         document["commands"]["send"]["request"]["fields"]["paste"]["presence"] = "required"
         self.validate(document, self.inventory)
 
-    def test_boxed_command_request_uses_its_named_struct_fields(self) -> None:
-        fields = CHECKER.runtime_command_fields()["create-surface-with-receipt"]
-
-        self.assertEqual(set(fields), {
-            "operation",
-            "origin",
-            "receipt",
-            "idempotency_key",
-            "selectors",
-            "selector_fallbacks",
-            "pane",
-            "workspace",
-            "argv",
-            "cwd",
-            "url",
-            "width",
-            "cols",
-            "rows",
-        })
-        self.assertEqual(
-            CHECKER._runtime_type_shape(fields["selectors"].rust_type),
-            "ref<ResourceSelectors>",
-        )
+    def test_tabs_family_commands_are_generated_not_written(self) -> None:
+        # p05-ipc-029: tabs joined terminal-io in server-families.json, so its
+        # Command variants (the boxed create-surface-with-receipt and
+        # move-tab-to-column with its refused `sticky`) are no longer read
+        # from server.rs, and a schema change to them is not drift.
+        generated = CHECKER.generated_command_names()
+        runtime = set(CHECKER.runtime_command_fields())
+        for name in ("create-surface-with-receipt", "new-tab", "move-tab-to-column", "close-tabs"):
+            self.assertIn(name, generated)
+            self.assertNotIn(name, runtime)
+        document = copy.deepcopy(self.document)
+        fields = document["commands"]["new-tab"]["request"]["fields"]
+        fields["keep"]["presence"] = "required"
+        fields["keep"].pop("default")
+        self.validate(document, self.inventory)
 
     def test_struct_fields_accept_restricted_visibility(self) -> None:
         fields = CHECKER._parse_rust_fields(
@@ -810,7 +839,7 @@ struct SurfaceParams {
                 "literals": {
                     "machine-catalog-publish": {
                         "request": ["client_registry/machine_catalog.rs::Nope"],
-                        "handler": "try_handle",
+                        "handler": "handle",
                     }
                 },
                 "authority": "local-admin",
@@ -828,7 +857,7 @@ struct SurfaceParams {
                         "machine-catalog-publish": {
                             "request": ["client_registry/machine_catalog.rs::Publication"],
                             "fields": fields,
-                            "handler": "try_handle",
+                            "handler": "handle",
                         }
                     },
                     "authority": "local-admin",
@@ -915,6 +944,56 @@ struct SurfaceParams {
         document = copy.deepcopy(self.document)
         document["events"]["bell"]["streams"] = ["attach-byte"]
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "event stream drift"):
+            self.validate(document, self.inventory)
+
+    def test_agent_inventory_requests_come_from_the_enums_their_handlers_decode(self) -> None:
+        commands = CHECKER.handler_command_fields(
+            {"agent-inventory", "agent-inventory-refresh", "agent-inventory-watch"}
+        )
+        presence = {
+            name: {field: CHECKER._runtime_field_presence(value) for field, value in fields.items()}
+            for name, fields in commands.items()
+        }
+        self.assertEqual(
+            presence,
+            {
+                "agent-inventory": {"expected_machine_id": ("optional", False)},
+                "agent-inventory-refresh": {"expected_machine_id": ("required", False)},
+                "agent-inventory-watch": {
+                    "expected_machine_id": ("required", False),
+                    "enabled": ("required", False),
+                    "expected_watch_id": ("optional", False),
+                    "admission_receipt": ("optional", False),
+                },
+            },
+        )
+
+    def test_agent_inventory_watch_field_type_drift_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-inventory-watch"]["request"]["fields"]["enabled"]["type"] = {
+            "kind": "scalar",
+            "name": "string",
+        }
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "type drift"):
+            self.validate(document, self.inventory)
+
+    def test_agent_inventory_watch_fence_presence_drift_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        fields = document["commands"]["agent-inventory-watch"]["request"]["fields"]
+        fields["expected_machine_id"]["presence"] = "optional"
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift"):
+            self.validate(document, self.inventory)
+
+    def test_present_non_null_option_is_optional_and_not_nullable(self) -> None:
+        refusing = CHECKER.RuntimeField(
+            "Option<String>", ('default, deserialize_with = "present_non_null"',)
+        )
+        self.assertEqual(CHECKER._runtime_field_presence(refusing), ("optional", False))
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-inventory"]["request"]["fields"]["expected_machine_id"][
+            "nullable"
+        ] = True
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift"):
             self.validate(document, self.inventory)
 
 

@@ -1,0 +1,18 @@
+{
+  "id": "swift-main-turn",
+  "tier": "builder",
+  "description": "MainTurnMeterBench: ns per main run-loop turn of the always-on MainTurnMeter (observer callouts, the input span and a task span), the clock read, and the cost over its clock reads.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-main-turn", "--filter", "MainTurnMeterBench", "--env", "CMUX_MAIN_TURN_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.main_turn\\.(turn|clock_read|over_clock_reads)_ns", "unit": "ns", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/MainTurnMeterBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "Performance Lead",
+  "component": "Scheduler>MainThread",
+  "hot_paths": ["main-turn"]
+}

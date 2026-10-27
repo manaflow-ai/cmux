@@ -888,8 +888,35 @@ class FocusedFixtureTests(unittest.TestCase):
         self.assertEqual(lines, ["swift:CmuxNextApp\tPackages/macOS/CmuxNext/Sources/CmuxNextApp/Toast.swift:4\t"
                                  "demand-sync\toneshot"])
 
+    def test_demand_sync_finds_a_timer_declared_in_another_file_of_the_module(self) -> None:
+        write(self.root, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Toast.swift", """\
+            @MainActor final class Toast {
+                let timer = DemandTimer(owner: "toast")
+                let pacer = MainDeadline()
+            }
+            """)
+        write(self.root, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Toast+Show.swift", """\
+            extension Toast {
+                func show() {
+                    timer.schedule(after: .seconds(2)) { @MainActor [weak self] in self?.hide() }
+                    pacer.schedule(after: .seconds(2)) { @MainActor [weak self] in self?.hide() }
+                }
+                func hide() {}
+            }
+            """)
+        # The same name in another module is not a DemandTimer there.
+        write(self.root, "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Strip.swift", """\
+            @MainActor final class Strip {
+                let timer = MainDeadline()
+                func show() { timer.schedule(after: .seconds(2)) { @MainActor in } }
+            }
+            """)
+        lines = self.audit.run("--queue", "demand-sync").stdout.splitlines()
+        self.assertEqual(lines, ["swift:CmuxNextApp\tPackages/macOS/CmuxNext/Sources/CmuxNextApp/Toast+Show.swift:3\t"
+                                 "demand-sync\toneshot"])
 
-SHIM = "Packages/macOS/CmuxNext/CEFShim/src"
+
+SHIM ="Packages/macOS/CmuxNext/CEFShim/src"
 HOST = "Packages/macOS/CmuxNext/ChromiumHost/src"
 GHOSTTY = "ghostty-next/src"
 

@@ -19,8 +19,8 @@ public import CmuxNextCompat
 /// The write methods publish into the ring its owner attaches (``attach(_:)``): the black box, which
 /// `TraceBlackBox` makes and attaches at launch (task 005), so the runtime holds it from then on. Catalog
 /// names go by id and interned names by their id in the active ring (tasks 003 and 004). The category
-/// defaults are ``TraceCategories`` (task 005). The API is frozen (task 000); recording (020) and crash keys
-/// (078) are still stubs.
+/// defaults are ``TraceCategories`` (task 005). The crash keys go into the page its owner attaches
+/// (``attachCrashKeys(_:)``, task 078). The API is frozen (task 000); recording (020) is still a stub.
 ///
 /// ```swift
 /// TraceRuntime.shared.write(name: 46, categoryBit: 10, phase: .instant)
@@ -29,7 +29,7 @@ public final class TraceRuntime: Sendable {
     /// The app's runtime: every Swift trace point, hang-watch scope and histogram of this process.
     // singleton-allow: Chrome's TraceLog: trace points run in every module and thread with no injection path;
     // lint:allow singleton: the one reviewed TraceRuntime exception in plans/cmux-next/arch-ratchet.json (2026-10-25).
-    public static let shared = TraceRuntime(role: .app)
+    public static let shared = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: nil, routesBlockingCalls: true)
 
     /// The process kind this runtime records (the ring header's `role`).
     public let role: Role
@@ -58,6 +58,15 @@ public final class TraceRuntime: Sendable {
     let ringAddress = Atomic<UInt64>(0)
     /// The last scope ``nextAsyncScope()`` handed out.
     let asyncScopes = Atomic<UInt64>(0)
+    /// The address of this runtime's ``CmuxNextCompat/BlockingTraceSink`` (an `Unmanaged` reference retained once
+    /// and never released) when it routes the process's checked blocking calls (``shared`` does), else 0. Set
+    /// once, in `init`, before any other thread sees the runtime.
+    let blockingSinkAddress = Atomic<UInt64>(0)
+    /// The address of the histogram store ``attachMetrics(_:)`` attached (retained once and never released, as
+    /// the ring), 0 until its owner attaches one.
+    let metricsAddress = Atomic<UInt64>(0)
+    /// The crash-key page ``attachCrashKeys(_:)`` attached; none until its owner attaches one.
+    let crashKeyPage = AttachedCrashKeyPage()
 
     /// A runtime for a process of kind `role`, with every category off and no ring yet.
     ///
@@ -69,12 +78,15 @@ public final class TraceRuntime: Sendable {
     }
 
     /// A runtime whose records take their times from `clock` and, while no ring is attached, go to
-    /// `stubRecorder` too (tests).
-    init(role: Role, clock: TraceClock, stubRecorder: (@Sendable (StubRecord) -> Void)?) {
+    /// `stubRecorder` too (tests). With `routesBlockingCalls`, the process's checked blocking calls write their
+    /// `task.blocking_call` intervals into this runtime while its `task` category records
+    /// (``CmuxNextCompat/BlockingTraceHook``): ``shared``, and a test that checks those intervals.
+    init(role: Role, clock: TraceClock, stubRecorder: (@Sendable (StubRecord) -> Void)?, routesBlockingCalls: Bool = false) {
         self.role = role
         self.clock = clock
         self.stubRecorder = stubRecorder
         hangWatch = HangWatch()
+        if routesBlockingCalls { installBlockingCallSink() }
     }
 
     // MARK: ring
@@ -107,6 +119,29 @@ public final class TraceRuntime: Sendable {
     @inline(__always)
     private var attachedRing: Unmanaged<TraceRing>? {
         UnsafeRawPointer(bitPattern: UInt(ringAddress.load(ordering: .acquiring))).map { Unmanaged.fromOpaque($0) }
+    }
+
+    // MARK: metrics
+
+    /// Gives this runtime its histogram store, CmuxNextMetrics' `MetricsStore` (the only caller), which every
+    /// `Metrics(runtime:)` of the process then records into. Chrome keeps one `GlobalHistogramAllocator` per
+    /// process beside its `TraceLog` the same way (base/metrics/persistent_histogram_allocator.h).
+    ///
+    /// - Returns: false when a store was attached already (the first one stays).
+    @discardableResult
+    package func attachMetrics<Store: AnyObject & Sendable>(_ store: Store) -> Bool {
+        let retained = Unmanaged.passRetained(store)
+        let address = UInt64(UInt(bitPattern: retained.toOpaque()))
+        guard metricsAddress.compareExchange(expected: 0, desired: address, ordering: .acquiringAndReleasing).exchanged else {
+            retained.release()
+            return false
+        }
+        return true
+    }
+
+    /// The store ``attachMetrics(_:)`` attached, unretained (it lives as long as the process), nil until then.
+    package var attachedMetrics: Unmanaged<AnyObject>? {
+        UnsafeRawPointer(bitPattern: UInt(metricsAddress.load(ordering: .acquiring))).map { Unmanaged.fromOpaque($0) }
     }
 
     // MARK: categories
@@ -173,8 +208,25 @@ public final class TraceRuntime: Sendable {
     /// its category is on. The name has one id per ring, claimed at its first record there
     /// (trace.md "Name table": interned ids follow the ring's catalog and category entries, from the
     /// ring's `name_cursor`); past the ring's `name_capacity` the record has no name.
-    public func write(_ name: InternedName, phase: Phase, flags: RecordFlags = [], arg0: UInt64 = 0, arg1: UInt64 = 0) {
-        guard isEnabled(categoryBit: name.categoryBit) else { return }
+    ///
+    /// - Returns: Whether the record passed its category gate. A begin's caller keeps it and ends a written begin
+    ///   with ``writeEnd(_:phase:flags:arg0:arg1:)``.
+    @discardableResult
+    public func write(_ name: InternedName, phase: Phase, flags: RecordFlags = [], arg0: UInt64 = 0, arg1: UInt64 = 0) -> Bool {
+        guard isEnabled(categoryBit: name.categoryBit) else { return false }
+        publish(name, phase: phase, flags: flags, arg0: arg0, arg1: arg1)
+        return true
+    }
+
+    /// Writes the end (E or AE) of a begin that ``write(_:phase:flags:arg0:arg1:)`` wrote, without reading the
+    /// category flags, as ``writeEnd(name:categoryBit:phase:flags:arg0:arg1:)`` does for a catalog name.
+    public func writeEnd(_ name: InternedName, phase: Phase, flags: RecordFlags = [], arg0: UInt64 = 0, arg1: UInt64 = 0) {
+        publish(name, phase: phase, flags: flags, arg0: arg0, arg1: arg1)
+    }
+
+    /// Publishes one record under an interned name into the attached ring; with no ring (a test's runtime) it
+    /// only counts.
+    private func publish(_ name: InternedName, phase: Phase, flags: RecordFlags, arg0: UInt64, arg1: UInt64) {
         guard let ring = attachedRing else {
             stubRecordCount.add(1, ordering: .relaxed) // No ring attached (a test's runtime): count what passed the gate.
             return
@@ -214,18 +266,6 @@ public final class TraceRuntime: Sendable {
     /// the same way (base/atomic_sequence_num.h).
     public func nextAsyncScope() -> UInt64 {
         asyncScopes.add(1, ordering: .relaxed).newValue
-    }
-
-    // MARK: crash keys
-
-    /// Stores `value` in a crash-key slot (one relaxed store into the crash-key page).
-    public func setCrashKey(_ slot: CrashKeySlot, _ value: UInt64) {
-        // Task 078: the page.
-    }
-
-    /// The value a crash-key slot holds now (0 when never set).
-    public func crashKey(_ slot: CrashKeySlot) -> UInt64 {
-        0 // Task 078.
     }
 }
 

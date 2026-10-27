@@ -10,12 +10,14 @@ import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextInput
 import CmuxNextLaunch
+import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextWebUpdates
 import CmuxNextPalette
 import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
 import os
@@ -29,8 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let launchReveal: LaunchReveal
     /// The startup trace `CMUX_TRACE_STARTUP` asked for (nil: none): launch phases record their slices in it.
     private let startupTrace: StartupTrace?
-    /// The app's daemon wire counters, made in `main` (nil in a release build).
+    /// The app's daemon wire counters, made in `main` (nil in a release build without field data opt-in).
     let wireStats: DaemonWireStats?
+    /// The launch's feature list from the composition root (``AppServices/launchFeatures(_:)``).
+    let features: FeatureList?
     /// The first live terminal frame (or no daemon): reveals the pane region and, with the launch images, starts the control socket.
     let launchSettle: LaunchSettle
     /// An unavailable daemon's settle: every phase reference and startup ref it ends.
@@ -42,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Cleanup deferred until startup completes (injected; tests pass their own).
     let launchCleanup: LaunchCleanup
     /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
-    let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
+    let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, frames: TerminalLaunchFrames, wake: AgentPaneRelaunchWake)
     /// cmux-next.json and the managed layers, read on the files lane since `main` (p08-startup 025).
     private let settingsRead: SettingsController.PendingLaunchRead
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
@@ -79,13 +83,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var webAuthHandler: WebAuthSessionHandler?
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?, features: FeatureList? = nil,
          startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, settingsRead: SettingsController.PendingLaunchRead,
-         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake),
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, frames: TerminalLaunchFrames, wake: AgentPaneRelaunchWake),
          launchCleanup: LaunchCleanup = LaunchCleanup(cleanUpDownloadTempFiles: { BrowserDownloadTempFiles.shared.cleanUpLeftovers() })) {
         (self.environment, self.launchReads, self.settingsRead) = (environment, launchReads, settingsRead)
         (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
-        self.wireStats = wireStats
+        (self.wireStats, self.features) = (wireStats, features)
         self.launchCleanup = launchCleanup
         self.order = order
         launchImageHold = LaunchImageHold(startup: order.startup)
@@ -97,7 +101,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
         startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
-        control = AppControl(mainWork: order.mainWork, input: inputTap)
+        let control = AppControl(mainWork: order.mainWork, input: inputTap)
+        #if CMUX_PGO_PROFILE
+        control.profileFlush = order.profileFlush
+        #endif
+        self.control = control
         mouseSideButtons = MouseSideButtons(input: inputTap)
         super.init()
     }
@@ -110,12 +118,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerPlatformLaunch()
         // The rest runs with main()'s settings read, now or when it lands (the startup's main hop, unbudgeted):
         // no wait, no frame in the defaults (p08-startup 025). The launch marks end where the launch work ends.
-        settingsRead.whenRead(hop: .userVisible, startup: order.startup, take: { [logger] read in
+        settingsRead.whenRead(hop: .userVisible, startup: order.startup, take: { [logger, features] read in
             DebugTimings.markLaunch("dfl.settings_wait")  // the read in hand: at once warm, after the disk cold
             if let failure = read.bootstrapFailure { logger.error("cmux-next config bootstrap failed: \(failure, privacy: .public)") }
-            // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config load, so the first frame needs no reload.
+            // cmux.json's appearance goes on the Ghostty overrides; the first config builds with them on a files lane and the launch goes on when it lands (p02-threads-129).
             TerminalThemeSetting.prime(read.snapshot)
-        }, then: { [self] read in finishLaunching(settings: read, launchStart: launchStart) })
+            // The Kitty image budget per screen before the first config builds: with memorySmallAppStores sized from this Mac's memory (p07-memory-083).
+            GhosttyRuntime.shared.setImageStorageBytesPerScreen(GhosttyImageStorageBudget.startingBytes(memoryBudget: SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface, sizedFromMemory: features?.isEnabled(.memorySmallAppStores) == true))
+        }, then: { [self] read in GhosttyRuntime.shared.start(loadingOn: GhosttyLaneConfigLoader(work: launchReads.work, mainWork: mainWork)) { [self] in finishLaunching(settings: read, launchStart: launchStart) } })
     }
 
     /// The launch steps that need the settings, run after the settings launch read's take (`applicationDidFinishLaunching`):
@@ -139,25 +149,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = registerSettings(services: services, launch: settingsRead)
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)
-        ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
+        services.lifetimeFollowers += ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath, on: services.mainWork)
         // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
         services.followEnergySaver(settings)
+        registerSavedPicture(services: services, settings: settings)
         registerHomeFeeds(services: services, settings: settings, acpmux: acpmux)
-        services.configActions.start(settings: settings)
+        order.startup.post(.afterFirstFrame, "ConfigActions.start", on: .main) { [weak services, weak settings] in
+            if let settings { services?.configActions.start(settings: settings) }  // cmux.json's custom actions for the palette and menus
+        }
         // What an engine reads when it makes a page or starts, before any does (managed policy included).
-        services.cache.browserTabs.preference.follow(settings)
-        BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
-        WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
-        BrowserOmnibarPreference.follow(settings, cache: services.cache)
-        services.terminalTheme.follow(settings)
-        services.themes.start()
-        services.themes.followChromeTheme(settings)
+        services.cache.browserTabs.preference.follow(settings, on: services.mainWork)
+        services.lifetimeFollowers += BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium, on: services.mainWork)
+        order.startup.post(.afterFirstFrame, "WorkspaceAutoName.start", on: .main) { [weak services, weak settings] in
+            if let services, let settings { WorkspaceAutoNameWiring(services: services).start(settings: settings) }  // `workspaces.autoName.variant` persist (hq#1957)
+        }
+        services.lifetimeFollowers += BrowserOmnibarPreference.follow(settings, cache: services.cache, on: services.mainWork)
+        // The look of the first frame: the loaded theme, background and backdrop art, then each workspace's theme and the app accent.
+        order.startup.post(.critical, "TerminalTheme.follow", on: .main) { services.terminalTheme.follow(settings) }
+        order.startup.post(.critical, "Themes.start", on: .main) { services.themes.start(); services.themes.followChromeTheme(settings) }
         services.bookmarks.follow(settings)
         registerControl(services: services, settings: settings)
-        services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
-        MainMenu.install(registry: services.registry, blocking: services.blocking, on: order.startup)  // critical `MainMenu.make`
+        MainMenu.install(registry: services.registry, blocking: services.blocking, decidedKey: services.decidedKey, on: order.startup)  // critical `MainMenu.make`
         DebugTimings.markLaunch("dfl.menu")
         registerDaemon(services: services)
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
@@ -166,8 +180,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         DebugTimings.markLaunch("dfl.first_window_hooks")
         services.home.startWorkspace()  // the restore's first workspace waits for ensure_home; the Chief owner is a feed post
-        mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
-        services.keybindingsFile.start()
+        order.startup.post(.afterFirstFrame, "MouseSideButtons.start", on: .main) { [weak self, weak services] in
+            self?.mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
+        }
+        order.startup.post(.afterFirstFrame, "KeybindingsFile.start", on: .main) { [weak services] in services?.keybindingsFile.start() }
         registerBrowserData(services: services, profilesDirectory: profilesDirectory)
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded(paneRefs: launchSettle.paneRefs)
@@ -178,8 +194,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.startChromiumRuntime()
         services.postLaterTabWarmups(on: order.startup)
         registerExternalOpen(services: services)
-        // The registered launch work ends the implicit ref. The first window is made in this turn
-        // (`restoreWhenLoaded`), so its commit ends the first-frame ref; a launch that shows none
+        // The registered launch work ends the implicit ref. The first window is made in this turn, or
+        // on the launch snapshot read's end (`restoreWhenLoaded`), so its commit ends the first-frame ref; a launch that shows none
         // completes at the scheduler's failsafe, with reason `failsafe`.
         order.startup.finishRegistration()
         DebugTimings.markLaunch("did_finish_launching_end")
@@ -256,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.diffPages.terminate()
         services?.viewers.markdownPages.terminate()
         services?.viewers.editorPages.terminate()
-        // Design mode's Home composer files left by cards still in a draft (BrowserDesignModeTempFiles).
+        // This launch's design mode Home composer files left by cards still in a draft (BrowserDesignModeTempFiles).
         BrowserDesignModeController.tempFiles.removeAll()
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
@@ -273,11 +289,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.daemon.shutdownConnection()
     }
 
-    /// The app stays running with no windows (standard macOS behavior): a window closes when its
-    /// last workspace closes, and the daemon keeps every terminal regardless.
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false
-    }
+    /// The app stays running with no windows (standard macOS behavior); the daemon keeps every terminal regardless.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Secure coding for any restorable state (as chrome/browser/app_controller_mac.mm); every cmux window is `isRestorable = false` (p08-startup-087).
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
     /// Dock click with no window open: the last closed window comes back
     /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).

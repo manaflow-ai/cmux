@@ -23,6 +23,9 @@
   "requires": [
     "resource_api"
   ],
+  "switches": [
+    "terminal-holder"
+  ],
   "platforms": [
     "linux",
     "mac"
@@ -69,7 +72,40 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "closing the running terminal ends its shell and retires its record: the session lists no terminal"
+    },
+    {
+      "id": "retired",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals",
+        "predicate": "empty",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.close",
+        "params": {},
+        "idempotencyKey": "terminal-close-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
