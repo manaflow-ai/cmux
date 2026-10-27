@@ -417,9 +417,9 @@ impl Hub {
             return;
         }
         for session in self.sessions() {
-            if (session.floor.full_access_end_pending.load(Ordering::SeqCst)
+            if session.floor.full_access_end_pending.load(Ordering::SeqCst)
                 || self.runs_full_access_by_any_record(&session)
-                || Self::host_unheard(&session).await)
+                || Self::host_unheard(&session).await
             {
                 let _spawning = session.spawn_lock.lock().await;
                 self.end_if_runs_full_access(&session, off).await;
