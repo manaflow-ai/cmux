@@ -186,6 +186,51 @@ struct ComputerUseSetupTests {
         #expect(opened.count == 2)
     }
 
+    /// The helper exited and the daemon started another (macOS "Quit & Reopen"
+    /// after a Screen Recording grant). The new helper has not answered: the old
+    /// grants must not stay "ready", and its own answer brings the new grant.
+    @Test func anotherHelperReadsItsGrantsFromStarting() async {
+        let reads = GatedReads()
+        let box = InputBox()
+        let setup = ComputerUseSetup(inputs: { box.value },
+                                     configuration: { .init(socketPath: "/unused/cua.sock", authToken: nil, machineName: "") },
+                                     read: { _ in await reads.read() },
+                                     resolveHelper: { _ in nil },
+                                     notifications: NotificationCenter(), distributed: NotificationCenter(), clock: RetryClock())
+        setup.start()
+        for await waiting in ObservationStream({ reads.waiting }) where waiting { break }
+        reads.answer(.answered(ComputerUsePermissions(accessibility: true, screenRecording: false), helper: nil))
+        await wait(setup, for: .ready)
+
+        box.value.helper = .running(43)
+        for await waiting in ObservationStream({ reads.waiting }) where waiting { break }
+        #expect(setup.phase == .starting)
+        #expect(setup.pageJSON["screen_recording"] == .null)
+
+        reads.answer(.answered(ComputerUsePermissions(accessibility: true, screenRecording: true), helper: nil))
+        await wait(setup, for: .ready)
+        #expect(setup.permissions.screenRecording)
+    }
+
+    /// Reads that wait until the test answers them.
+    @MainActor @Observable final class GatedReads {
+        private(set) var waiting = false
+        @ObservationIgnored private var pending: CheckedContinuation<ComputerUseSetup.Read, Never>?
+
+        func read() async -> ComputerUseSetup.Read {
+            await withCheckedContinuation {
+                pending = $0
+                waiting = true
+            }
+        }
+
+        func answer(_ read: ComputerUseSetup.Read) {
+            waiting = false
+            pending?.resume(returning: read)
+            pending = nil
+        }
+    }
+
     actor GrantRequestsStore {
         var panes: [ComputerUsePermissionPane] = []
         func add(_ pane: ComputerUsePermissionPane) { panes.append(pane) }
