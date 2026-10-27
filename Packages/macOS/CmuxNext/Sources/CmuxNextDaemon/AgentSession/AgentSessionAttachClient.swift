@@ -130,12 +130,7 @@ public actor AgentSessionAttachClient {
         guard servesStart else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
         }
-        if let ownerLink {
-            guard let before, await ownerLink() == before else {
-                throw AgentSessionAttachError(code: "agent_session.host_unverified", message: "the Cloud API did not say this machine is yours")
-            }
-        }
-        let callerOwnsVM = ownerLink != nil
+        let callerOwnsVM = try await Self.ownerAnswer(ownerLink, before: before)
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
                                       servesKeyedReason: servesKeyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: servesVMKind)
         let data = try await call("agent-session-start", params)
@@ -165,12 +160,14 @@ public actor AgentSessionAttachClient {
     /// (acpmux's `acp.trust.get` reply), or with `level` the person's answer recorded there
     /// (`acp.trust.set`). Only the person's own answer is ever sent (the pane's relay).
     ///
-    /// `callerOwnsVM`: nil for a machine that is not a Cloud machine; for one, whether the Cloud API
-    /// answered `vmKind: "owner"` for this app on the link in use (``trustVMKind(callerOwnsVM:servesVMKind:)``).
-    public func trust(cwd: String, level: String?, homeConfirmed: Bool = false, callerOwnsVM: Bool? = nil) async throws -> Data {
+    /// `ownerLink`: as for ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``, the same rule:
+    /// a Cloud machine's trust is asked or set only on the owner answer of the link the call goes
+    /// over, through any daemon, with `vm_kind: "owner"` to one with `agent-session-trust-vm-kind-v1`.
+    public func trust(cwd: String, level: String?, homeConfirmed: Bool = false, ownerLink: OwnerLink? = nil) async throws -> Data {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot change trust")
         }
+        let before = await ownerLink?()
         _ = try await liveTransport()
         guard servesTrust else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session trust")
@@ -178,21 +175,19 @@ public actor AgentSessionAttachClient {
         var params: [String: any Sendable] = ["cwd": cwd]
         if let level { params["level"] = level }
         if homeConfirmed { params["home_confirmed"] = true }
-        if let kind = try Self.trustVMKind(callerOwnsVM: callerOwnsVM, servesVMKind: servesTrustVMKind) { params["vm_kind"] = kind }
+        if try await Self.ownerAnswer(ownerLink, before: before), servesTrustVMKind { params["vm_kind"] = "owner" }
         return try await call("agent-session-trust", params)
     }
 
-    /// The `vm_kind` of a trust call: `owner` to a Cloud machine's daemon that takes it, only when the
-    /// Cloud API said this app owns the machine. A daemon without `agent-session-trust-vm-kind-v1`
-    /// would trust its own record (its agents can write it), so a Cloud machine's is refused here
-    /// unless the caller owns it; it then gets no param (it would refuse one).
-    static func trustVMKind(callerOwnsVM: Bool?, servesVMKind: Bool) throws -> String? {
-        guard let callerOwnsVM else { return nil }
-        if callerOwnsVM { return servesVMKind ? "owner" : nil }
-        guard servesVMKind else {
+    /// For a Cloud machine (`ownerLink` set): true when the link gives the same id now as `before`
+    /// (read before the connection), so the owner answer is the one of the link the call goes over;
+    /// refused otherwise. False for a machine that is not a Cloud one.
+    private static func ownerAnswer(_ ownerLink: OwnerLink?, before: Int?) async throws -> Bool {
+        guard let ownerLink else { return false }
+        guard let before, await ownerLink() == before else {
             throw AgentSessionAttachError(code: "agent_session.host_unverified", message: "the Cloud API did not say this machine is yours")
         }
-        return nil
+        return true
     }
 
     /// The code ``start(cwd:harness:)`` throws for a daemon without `agent-session-start-v1`.

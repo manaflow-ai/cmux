@@ -239,10 +239,12 @@ extension AgentTabStore {
             }
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
-            if let cloud = services.machines.session(daemon.machineID) {
-                // Read at each trust call, never kept past the link (an app-server link has none).
-                host.callerOwnsVM = { [link = cloud.link] in await link?.callerOwnsVM ?? false }
-            }
+            // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
+            // trust only on the Cloud API's owner answer on the link the call goes over, checked as
+            // it is sent, through any daemon (an app-server link has none: no owner word).
+            let cloudLink: CloudMachineLink?? = services.machines.session(daemon.machineID).map(\.link)
+            let ownerLink = cloudLink.map { link -> AgentSessionAttachClient.OwnerLink in { await link?.ownerLink } }
+            host.ownerLink = ownerLink
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
@@ -256,11 +258,6 @@ extension AgentTabStore {
                 // the page's first send, never when the tab opens.
                 guard started else { return nil }
                 guard daemon.supports(DaemonCapability.agentSessionStart.rawValue) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
-                // A Cloud machine (the app's own record, never the guest's) starts a chat only on
-                // the Cloud API's owner answer on the link the start goes over, checked as it is
-                // sent, through any daemon (an app-server link has none: no owner word).
-                let cloudLink: CloudMachineLink?? = services.machines.session(daemon.machineID).map(\.link)
-                let ownerLink = cloudLink.map { link -> AgentSessionAttachClient.OwnerLink in { await link?.ownerLink } }
                 host.start = { [weak tabs] cwd, harness, personKey in
                     guard let tabs else { throw CancellationError() }
                     return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey,
