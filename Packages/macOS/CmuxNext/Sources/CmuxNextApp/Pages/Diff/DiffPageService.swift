@@ -14,6 +14,7 @@ import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 
 extension InternalPageID {
     /// The diff viewer (diff-host.md Q4: a pane tab in the workspace).
@@ -58,11 +59,13 @@ final class DiffPageService: InternalPageProvider {
     /// This Mac's agent git link (``AppServices/agentGit``) and the launch's identity, read when the service is made.
     private let localGit: AgentPaneGitLink
     private let launch: LaunchIdentity
+    /// The app's main-thread work scheduler (``AppServices/mainWork``), read when the service is made.
+    private let mainWork: MainWorkScheduler
     /// Made on the first tab (tests pass their own).
-    private lazy var runtime = DiffPageRuntime(git: localGit)
+    private lazy var runtime = DiffPageRuntime(git: localGit, mainWork: mainWork)
     private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: launch))
     /// Prefs (`diff.*` settings) and viewed marks (next to the recents), shared by every tab.
-    private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs { [servicesReference] in servicesReference.resolve()?.settings },
+    private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs(mainWork: mainWork) { [servicesReference] in servicesReference.resolve()?.settings },
                                              viewed: DiffViewedFiles(url: DiffViewedFiles.standardURL(recents: recentsStore.url)))
     /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
     /// WebKit's default nearest 60 fps.
@@ -82,6 +85,7 @@ final class DiffPageService: InternalPageProvider {
         servicesReference = OwnerReference(services: services)
         localGit = services.agentGit.local
         launch = services.environment.launch
+        mainWork = services.mainWork
         self.clock = clock
         if let runtime { self.runtime = runtime }
         if let recents { recentsStore = recents }

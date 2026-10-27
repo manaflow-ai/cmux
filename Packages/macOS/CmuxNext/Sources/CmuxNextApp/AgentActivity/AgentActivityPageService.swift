@@ -45,7 +45,7 @@ final class AgentActivityPageService {
     /// The page of tab `key`; nil once the services are gone.
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab? {
         guard let services else { return nil }
-        return AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource(),
+        return AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource(services),
                              openPage: { services.webUI.open($0) }, deadlines: services.mainDeadlines)
     }
 
@@ -129,11 +129,12 @@ final class AgentActivityPageService {
         }
     }
 
-    private func makeSource() -> any AgentActivitySource {
+    private func makeSource(_ services: AppServices) -> any AgentActivitySource {
         let environment = ProcessInfo.processInfo.environment
-        if services?.environment.showcase == true || (DevTools.isEnabled && environment["CMUX_NEXT_AGENT_ACTIVITY_MOCK"] == "1") {
+        if services.environment.showcase || (DevTools.isEnabled && environment["CMUX_NEXT_AGENT_ACTIVITY_MOCK"] == "1") {
             return AgentActivityMockSource()
         }
-        return AgentActivitySocketSource(configuration: .standard(machineName: AgentActivityPaneStrings.thisMac))
+        return AgentActivitySocketSource(configuration: .standard(machineName: AgentActivityPaneStrings.thisMac),
+                                         deadlines: services.mainDeadlines)
     }
 }

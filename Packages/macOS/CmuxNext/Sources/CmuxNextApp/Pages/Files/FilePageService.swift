@@ -59,7 +59,8 @@ final class FilePageService: InternalPageProvider {
     private let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
     private let comments: (any MarkdownCommentStoring)?
-    private(set) lazy var look = FilePageLook(kind: kind, settings: { [servicesReference] in servicesReference.resolve()?.settings })
+    private(set) lazy var look = FilePageLook(kind: kind, settings: { [servicesReference] in servicesReference.resolve()?.settings },
+                                              mainWork: mainWork)
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
     /// Files whose draft is over the store's limit and that already said so.
@@ -70,6 +71,8 @@ final class FilePageService: InternalPageProvider {
     private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock, work: work)
     /// The app's background work (``AppServices/work``), which the live share server runs on.
     private let work: BackgroundWork
+    /// The app's main-thread work scheduler (``AppServices/mainWork``), read when the service is made.
+    private let mainWork: MainWorkScheduler
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
@@ -81,6 +84,7 @@ final class FilePageService: InternalPageProvider {
          tableWidths: (any MarkdownTableWidthStoring)? = nil) {
         servicesReference = OwnerReference(services: services)
         work = services.work
+        mainWork = services.mainWork
         self.tableWidths = kind == .markdown
             ? tableWidths ?? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory())
             : nil
