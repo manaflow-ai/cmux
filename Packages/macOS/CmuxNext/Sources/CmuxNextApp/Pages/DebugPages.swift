@@ -115,9 +115,7 @@ enum DebugPages {
             // "no element matches" while the page has not drawn it yet (a card the host fills in later):
             // a caller may wait; "not in view" is final.
             let reason = scrolled["reason"]?.stringValue ?? "no match"
-            if reason == "not in view" || reason == "top covered" {
-                return ["error": .string("\(selector) is \(reason) after the scroll")]
-            }
+            if reason == "not in view" { return ["error": .string("\(selector) is not in view after the scroll")] }
             return ["error": .string("no element matches \(selector) (\(reason))")]
         case "query":
             return await page.debugQuery(params["selector"]?.stringValue ?? "*")
