@@ -643,6 +643,22 @@ run casename 0
 grep '^::error' <<<"$out" | grep -q 'case passing the buck()' \
   || fail "the error does not name the lost \"case passing\" test" "$out"
 
+# A helper that hangs with no test open (before the first starts, or after the last finishes and
+# its summary is out) has nothing for the per-test ages to name; silence for the whole stall limit
+# still ends it.
+cat > "$TMP/silent.out" <<'EOF'
+◇ Test run started.
+◇ Test a() started.
+✔ Test a() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+started=$SECONDS
+STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run silent 0
+(( SECONDS - started < 30 )) || fail "a silent helper with no test open was ended only after $((SECONDS - started)) s" "$out"
+[[ "$status" != 0 ]] || fail "a silent hung helper exited 0" "$out"
+grep '^::error title=cmux-next swift test stuck' <<<"$out" | grep -q 'no test open' \
+  || fail "the stuck error does not say no test was open" "$out"
+
 # An open test is not a RUNNING test, so age alone must never end a run. swift-testing prints
 # every test "started." as it enters the run while the parallelization width lets only a few
 # execute, so on the real suite thousands of tests sit open, and waiting, far past this limit:

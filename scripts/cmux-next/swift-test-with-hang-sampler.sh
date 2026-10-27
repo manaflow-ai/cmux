@@ -219,6 +219,7 @@ sample_and_kill() {
   # their BYTES, and every line matches).
   finish_re='^(✔ Test |✘ Test .* (passed|failed) after |━ Test .* (passed|failed) after |➜ Test )'
   last_finishes=-1
+  last_size=-1
   last_progress=$started_at
   while :; do
     sleep "$poll" &
@@ -276,17 +277,23 @@ sample_and_kill() {
     # poll, and the watchdog killed a run that was finishing a test every second.
     finishes=$(grep -cE "$finish_re" "$log" 2>/dev/null || true)
     finishes=${finishes:-0}
-    if [ "$finishes" != "$last_finishes" ]; then
-      last_finishes="$finishes"
+    # With no test open (before the first starts, or after the last finishes), any output is
+    # progress; silence for the whole limit is a hang too (a helper that never exits).
+    size=$(wc -c < "$log" 2>/dev/null | tr -d ' ')
+    if [ "$finishes" != "$last_finishes" ] || { [ ! -s "$open" ] && [ "${size:-0}" != "$last_size" ]; }; then
       last_progress="$now"
     fi
+    last_finishes="$finishes"
+    last_size="${size:-0}"
     if (( now - last_progress < stuck_limit )); then
       : > "$stuck"
+    elif [ ! -s "$stuck" ]; then
+      echo "no test open; the run printed nothing in ${stuck_limit} s" > "$stuck"
     fi
     if [ -s "$stuck" ]; then
       : > "$fired"
       list="$(awk '{ printf "%s%s", (NR > 1 ? "; " : ""), $0 }' "$stuck")"
-      count=$(wc -l < "$stuck" | tr -d ' ')
+      count=$(grep -c ' ([0-9]* s)$' "$stuck" || true)
       echo "::error title=cmux-next swift test stuck::no test finished in ${stuck_limit}s (CMUX_NEXT_TEST_STUCK_SECONDS); $count test$([ "$count" = 1 ] || echo s) open at least that long: $list; sampling the test processes"
       if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
         printf '### No Swift test finished in %ss; these were open at least that long\n\n' "$stuck_limit" >> "$GITHUB_STEP_SUMMARY"
@@ -465,5 +472,6 @@ fi
 if [ -e "$log.fired" ]; then exit $(( status == 0 ? 1 : status )); fi
 # A truncated run fails even when swift test exited 0: a missing summary line,
 # or a summary that reports fewer tests than the log shows starting.
-if (( report_status == 3 && status == 0 )); then exit 1; fi
+# So does a report that could not run (an awk error): no verdict is not a pass.
+if (( report_status != 0 && status == 0 )); then exit 1; fi
 exit "$status"
