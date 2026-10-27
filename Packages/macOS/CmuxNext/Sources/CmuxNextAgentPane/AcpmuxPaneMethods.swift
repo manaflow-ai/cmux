@@ -31,6 +31,13 @@ nonisolated enum AcpmuxPaneMethods {
         // Mac's app and unix socket only. Only `sessionId` (``knownParams``): never `host`, which
         // would name any peer's session by its own id.
         "_acpmux/peer_snapshot",
+        // A failed subagent's, sub-session's or turn's Retry (subagents/retryState.ts runRetry,
+        // direct.ts retry; acpmux server/agent_messages.rs): acpmux runs the failed turn again, or
+        // resumes the failed subagent, now. It runs a turn, so it needs the click (``gestureRules``);
+        // a sub-session's names the child chat, which the click's scope credit brings in
+        // (``sourceScoped``). Only `sessionId` and `subagentId` (``knownParams``): never `_meta`,
+        // which carries acpmux's control and trust-gate marks.
+        "_acpmux/retry",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over",
@@ -246,9 +253,13 @@ nonisolated enum AcpmuxPaneMethods {
     /// and prepare name the source (`sessionId`); the others name the handoff (`handoffId`), whose
     /// source the relay reads off the daemon's handoff records (``AcpmuxPaneSessions``).
     /// `_acpmux/handoff_get` only reads a record, like the other reads of a read-only view.
+    /// `_acpmux/retry` follows the same rule without copying anything: a Retry on a sub-session's
+    /// card names that child chat, which the pane shows only as a card, so from outside the scope it
+    /// takes the click's scope credit, as an attach of the child would; that attach would let the
+    /// same click send it a prompt, which grants more than a Retry of its failed turn.
     public static let sourceScoped: Set<String> = [
         "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
-        "_acpmux/handoff_discard",
+        "_acpmux/handoff_discard", "_acpmux/retry",
     ]
 
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
@@ -297,6 +308,8 @@ nonisolated enum AcpmuxPaneMethods {
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
         "_acpmux/app_reply": .always,
+        // A Retry runs the failed turn (or subagent) again.
+        "_acpmux/retry": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).

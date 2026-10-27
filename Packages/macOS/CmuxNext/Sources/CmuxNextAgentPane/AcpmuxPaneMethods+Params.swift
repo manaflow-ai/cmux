@@ -28,6 +28,9 @@ nonisolated extension AcpmuxPaneMethods {
         // The pane names the listed chat (its id or `HOST/id`) and takes acpmux's default bounds:
         // no `host`, `limit` or `maxBytes`.
         "_acpmux/peer_snapshot": (["sessionId"], []),
+        // runRetry sends `{sessionId, subagentId}` for a subagent, `{sessionId}` for a sub-session
+        // (its own id) or the chat's own turn.
+        "_acpmux/retry": (["sessionId", "subagentId"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
         "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], []),
         "_acpmux/detach": (["sessionId"], []),

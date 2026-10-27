@@ -4,7 +4,8 @@
   "initialize": "initialize",
   "requests": [
     "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
-    "_acpmux/watch", "_acpmux/sessions", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+    "_acpmux/watch", "_acpmux/sessions", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
+    "_acpmux/peer_snapshot", "_acpmux/retry",
     "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
     "_acpmux/status", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/btw", "_acpmux/queue_remove", "_acpmux/queue_edit",
     "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
@@ -36,7 +37,7 @@
   "optional_scoped_session_params": {"_acpmux/offer_respond": ["childSessionId"]},
   "source_scoped": [
     "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
-    "_acpmux/handoff_discard"
+    "_acpmux/handoff_discard", "_acpmux/retry"
   ],
   "gesture_rules": {
     "session/prompt": "always",
@@ -49,7 +50,8 @@
     "_acpmux/permission_group_respond": "when_decision_allows",
     "_acpmux/secret_submit": "always",
     "_acpmux/agent_pair_resume": "always",
-    "_acpmux/app_reply": "always"
+    "_acpmux/app_reply": "always",
+    "_acpmux/retry": "always"
   },
   "non_trusting_levels": ["untrusted", "unknown"],
   "setting_methods": ["session/set_mode", "session/set_config_option"],
@@ -63,9 +65,12 @@
     "_acpmux/sessions": {"params": ["limit", "cursor"], "acpmux": []},
     "_acpmux/events": {"params": ["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], "acpmux": []},
     "_acpmux/attachment": {"params": ["sessionId", "id"], "acpmux": []},
+    "_acpmux/peer_snapshot": {"params": ["sessionId"], "acpmux": []},
+    "_acpmux/retry": {"params": ["sessionId", "subagentId"], "acpmux": []},
     "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], "acpmux": []},
     "_acpmux/detach": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/view": {"params": ["sessionId", "visible"], "acpmux": []},
+    "_acpmux/typing": {"params": ["sessionId", "on"], "acpmux": []},
     "_acpmux/warm": {"params": ["sessionIds", "limit"], "acpmux": []},
     "_acpmux/kill": {"params": ["sessionId", "purge"], "acpmux": []},
     "_acpmux/prewarm": {"params": ["harness", "cwd", "release"], "acpmux": []},
