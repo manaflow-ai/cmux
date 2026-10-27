@@ -1,0 +1,21 @@
+{
+  "schema": "cmux-stability-lanes/v1",
+  "lanes": [
+    {
+      "id": "state-corruption",
+      "task": "p10-stability-174",
+      "tier": "long",
+      "kind": "crash-e2e",
+      "host_class": "dedicated",
+      "bare_metal": true,
+      "needs_build": "dev",
+      "minutes": 120,
+      "priority": "lowest",
+      "never_with": ["bench"],
+      "script": "scripts/cmux-next/state-corruption-e2e.py",
+      "args": ["--app", "{app}", "--out", "{out}"],
+      "artifacts": ["{out}/state-corruption.jsonl", "{out}/state-corruption-run.json", "{out}/app.log"],
+      "pass": "exit 0: every (file, mutation) row passed"
+    }
+  ]
+}
