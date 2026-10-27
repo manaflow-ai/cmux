@@ -87,26 +87,48 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
         const failure = rect(".acpmux-minimap__failure");
         const bookmark = rect(".acpmux-minimap__bookmark");
         const card = node.getBoundingClientRect();
+        const baseline = node.cloneNode(true) as HTMLElement;
+        baseline.removeAttribute("data-prompt");
+        baseline.removeAttribute("data-card-failure");
+        baseline.style.cssText = "position:absolute; visibility:hidden; max-height:none; overflow:visible;";
+        baseline.querySelector<HTMLElement>(".acpmux-minimap__prompt")!.style.webkitLineClamp = "2";
+        baseline.querySelector<HTMLElement>(".acpmux-minimap__reply")!.style.cssText =
+          "-webkit-line-clamp:4; height:auto; max-height:none;";
+        document.body.append(baseline);
+        const baselineHeight = baseline.getBoundingClientRect().height;
+        baseline.remove();
+        const inside = (child: DOMRect) =>
+          child.top >= card.top && child.bottom <= card.bottom && child.left >= card.left && child.right <= card.right;
         return {
           prompt: prompt.height,
           reply: reply.height,
           failure: failure.height,
           gap: metadata.top - prompt.bottom,
           width: card.width,
+          baselineHeight,
           bookmarkInside: bookmark.right <= card.right && bookmark.top >= card.top,
+          promptInside: inside(prompt),
+          metadataInside: inside(metadata),
+          replyInside: inside(reply),
+          failureInside: inside(failure),
         };
       });
       expect(bounds.prompt).toBeGreaterThan(20);
       expect(bounds.prompt).toBeLessThanOrEqual(60);
-      expect(bounds.reply).toBeGreaterThanOrEqual(40);
-      // Chromium's 20 px body line box rounds to 20.5 px at this viewport, so four lines can
-      // measure just over 80 px while the card's 166 px maximum remains the real bound.
+      expect(bounds.reply).toBeGreaterThanOrEqual(20);
+      // Chromium's body line box is fractional, but each rendered reply line remains complete.
       expect(bounds.reply).toBeLessThanOrEqual(84);
       expect(bounds.failure).toBeLessThanOrEqual(60);
       expect(bounds.gap).toBeGreaterThanOrEqual(4);
       expect(bounds.width).toBeLessThanOrEqual(360);
-      expect(await card.evaluate((node) => node.getBoundingClientRect().height)).toBeLessThanOrEqual(166);
+      expect(await card.evaluate((node) => node.getBoundingClientRect().height)).toBeLessThanOrEqual(
+        bounds.baselineHeight,
+      );
       expect(bounds.bookmarkInside).toBe(true);
+      expect(bounds.promptInside).toBe(true);
+      expect(bounds.metadataInside).toBe(true);
+      expect(bounds.replyInside).toBe(true);
+      expect(bounds.failureInside).toBe(true);
       await page.locator(".acpmux-scroll").evaluate((node) => {
         node.scrollTop = 200;
       });
@@ -117,11 +139,6 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
       await page.waitForFunction(
         () => document.querySelector(".acpmux-minimap__bookmark")?.getAttribute("aria-pressed") === "true",
       );
-      await page.setViewportSize({ width: 320, height: 640 });
-      await page.waitForFunction(() => {
-        const card = document.querySelector(".acpmux-minimap__card")?.getBoundingClientRect();
-        return card && card.right <= innerWidth - 8;
-      });
     } finally {
       await page.close();
     }
@@ -187,6 +204,19 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
           const card = node.getBoundingClientRect();
           return {
             card: card.height,
+            baseline: (() => {
+              const clone = node.cloneNode(true) as HTMLElement;
+              clone.removeAttribute("data-prompt");
+              clone.removeAttribute("data-card-failure");
+              clone.style.cssText = "position:absolute; visibility:hidden; max-height:none; overflow:visible;";
+              clone.querySelector<HTMLElement>(".acpmux-minimap__prompt")!.style.webkitLineClamp = "2";
+              clone.querySelector<HTMLElement>(".acpmux-minimap__reply")!.style.cssText =
+                "-webkit-line-clamp:4; height:auto; max-height:none;";
+              document.body.append(clone);
+              const height = clone.getBoundingClientRect().height;
+              clone.remove();
+              return height;
+            })(),
             prompt: prompt.height,
             promptScroll: (node.querySelector(".acpmux-minimap__prompt") as HTMLElement).scrollHeight,
             reply: reply.height,
@@ -198,12 +228,95 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
       const long = await inspect(1);
       expect(short.prompt).toBeLessThanOrEqual(20);
       expect(short.card).toBeLessThan(166);
+      expect(Math.abs(short.card - short.baseline)).toBeLessThanOrEqual(1);
       expect(long.prompt).toBeGreaterThan(short.prompt);
       expect(long.prompt).toBeLessThanOrEqual(60);
       expect(long.promptScroll).toBeGreaterThan(long.prompt + 1);
-      expect(long.reply).toBeGreaterThanOrEqual(40);
+      expect(long.reply).toBeGreaterThanOrEqual(20);
       expect(long.card).toBeLessThanOrEqual(166);
+      expect(long.card).toBeLessThanOrEqual(long.baseline);
       expect(long.text).toContain("Fourth line is beyond the cap");
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a narrow failure card wraps metadata without clipping any prompt, error or reply line", async () => {
+    const page = await browser.newPage({ viewport: { width: 320, height: 640 } });
+    try {
+      const port = (vite.httpServer!.address() as { port: number }).port;
+      await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+      await page.waitForFunction(() => "__showRows" in window);
+      await page.evaluate(() => {
+        const row = (id: string, kind: string, text?: string, extra = {}) => ({
+          id,
+          kind,
+          text,
+          at: 1_700_000_000_000,
+          version: 1,
+          ...extra,
+        });
+        const rows = Array.from({ length: 4 }, (_, index) => [
+          row(
+            `user-${index}`,
+            "user",
+            "Prompt line one\nPrompt line two\nPrompt line three\nPrompt line four\nPrompt line five\nPrompt line six",
+          ),
+          row(
+            `reply-${index}`,
+            "assistant",
+            "A useful reply remains visible below the failure details.\nSecond reply line stays whole.\nThird detail follows.\nhttps://github.com/manaflow-ai/cmux/pull/25794 https://github.com/manaflow-ai/cmux/pull/25795 https://github.com/manaflow-ai/cmux/pull/25796",
+          ),
+          row(`summary-${index}`, "turnSummary", undefined, {
+            status: "failed",
+            durationMs: 42_000,
+            toolCount: 7,
+            fileCount: 5,
+            error: "peer disconnected while waiting for the agent to answer; reconnect and try again now",
+          }),
+        ]).flat();
+        (window as unknown as { __showRows(rows: unknown[]): void }).__showRows(rows);
+      });
+      const tick = page.locator('[data-tick="0"]');
+      await tick.focus();
+      const card = page.locator(".acpmux-minimap__card");
+      await card.waitFor({ state: "visible" });
+      const bounds = await card.evaluate((node) => {
+        const card = node.getBoundingClientRect();
+        const get = (selector: string) => node.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+        const inside = (rect: DOMRect) =>
+          rect.top >= card.top && rect.bottom <= card.bottom && rect.left >= card.left && rect.right <= card.right;
+        const baseline = node.cloneNode(true) as HTMLElement;
+        baseline.removeAttribute("data-prompt");
+        baseline.removeAttribute("data-card-failure");
+        baseline.style.cssText = "position:absolute; visibility:hidden; max-height:none; overflow:visible;";
+        baseline.querySelector<HTMLElement>(".acpmux-minimap__prompt")!.style.webkitLineClamp = "2";
+        baseline.querySelector<HTMLElement>(".acpmux-minimap__reply")!.style.cssText =
+          "-webkit-line-clamp:4; height:auto; max-height:none;";
+        document.body.append(baseline);
+        const baselineHeight = baseline.getBoundingClientRect().height;
+        baseline.remove();
+        return {
+          card,
+          baselineHeight,
+          prompt: get(".acpmux-minimap__prompt"),
+          metadata: get(".acpmux-minimap__metadata"),
+          failure: get(".acpmux-minimap__failure"),
+          reply: get(".acpmux-minimap__reply"),
+          inside: [
+            ".acpmux-minimap__prompt",
+            ".acpmux-minimap__metadata",
+            ".acpmux-minimap__failure",
+            ".acpmux-minimap__reply",
+          ].map((selector) => inside(get(selector))),
+        };
+      });
+      expect(bounds.card.height).toBeLessThanOrEqual(bounds.baselineHeight);
+      expect(bounds.prompt.height).toBeLessThanOrEqual(60);
+      expect(bounds.metadata.height).toBeGreaterThan(16);
+      expect(bounds.failure.height).toBeGreaterThan(40);
+      expect(bounds.reply.height).toBeGreaterThanOrEqual(20);
+      expect(bounds.inside.every(Boolean)).toBe(true);
     } finally {
       await page.close();
     }
