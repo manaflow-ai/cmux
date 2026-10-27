@@ -21,7 +21,8 @@ final class ZlibStream {
         unsafe stream.initialize(to: z_stream())
         // SAFETY: inflateInit_ fills the initialized stream at its final address; it
         // reads the NUL-terminated version string Swift passes for this call only.
-        let status = unsafe inflateInit_(stream, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+        // z_stream is about 112 bytes: the conversion is exact.
+        let status = unsafe inflateInit_(stream, ZLIB_VERSION, Int32(truncatingIfNeeded: MemoryLayout<z_stream>.size))
         guard status == Z_OK else {
             // SAFETY: inflateInit_ failed, so zlib holds no state; the local stream is freed once here.
             unsafe stream.deinitialize(count: 1)
@@ -76,9 +77,9 @@ final class ZlibStream {
                         throw RFBError.protocolViolation("zlib inflate \(status)")
                     }
                     // SAFETY: the live stream; a field read.
-                    return capacity - Int(unsafe stream.pointee.avail_out)
+                    return capacity - Int(truncatingIfNeeded: unsafe stream.pointee.avail_out)
                 }
-                result.append(contentsOf: output[0 ..< produced])
+                result.append(contentsOf: output.prefix(produced))
                 guard result.count <= limit else { throw RFBError.protocolViolation("compressed rectangle inflates past \(limit) bytes") }
                 // SAFETY: the live stream; a field read.
                 let inputLeft = unsafe stream.pointee.avail_in

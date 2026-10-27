@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextWakeups
 import Foundation
 
 /// The Chief conversation's notice while a turn waits for the compactor to
@@ -22,12 +23,15 @@ public nonisolated final class ChiefSettleWatch {
     private let source: DispatchSourceFileSystemObject?
 
     /// `report` runs on the main actor with the current notice, once now and
-    /// after every change of the folder.
-    public init(home: ChiefHome, report: @escaping @MainActor @Sendable (String?) -> Void) {
+    /// after every change of the folder: a `visible` task on `mainWork` (the notice
+    /// shows under the Chief's turn; it never takes a person's input turn).
+    public init(home: ChiefHome, mainWork: MainWorkScheduler, report: @escaping @MainActor @Sendable (String?) -> Void) {
         let folder = home.settleStatusFile.deletingLastPathComponent()
         let file = home.settleStatusFile
         let queue = DispatchQueue(label: "com.cmuxterm.app.next.chief-settle", qos: .utility)
-        let send: @Sendable (String?) -> Void = { text in Task { @MainActor in report(text) } }
+        let send: @Sendable (String?) -> Void = { text in
+            mainWork.postFromAnyThread(.visible, owner: "ChiefSettleWatch.report") { report(text) }
+        }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let fd = open(folder.path, O_EVTONLY)
         if fd >= 0 {

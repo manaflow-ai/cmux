@@ -47,7 +47,7 @@
   "terminal-io": {
    "id": 3,
    "description": "Terminal input, output streams, screen reads and terminal requests to the frontend.",
-   "next_ordinal": 26
+   "next_ordinal": 27
   },
   "terminals": {
    "id": 4,
@@ -122,7 +122,7 @@
   "terminal-stream-events": {
    "id": 192,
    "description": "Content of an attach stream: output, render state, frames and sizes.",
-   "next_ordinal": 12
+   "next_ordinal": 13
   },
   "mux-events": {
    "id": 193,
@@ -13077,6 +13077,31 @@
     }
    },
    "additional_properties": false
+  },
+  "CancelStreamResult": {
+   "kind": "object",
+   "fields": {
+    "stream": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "outcome": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "applied",
+       "ended"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -18936,6 +18961,20 @@
         "clamped_maximum": 10000
        }
       ]
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "attach-streams-v1",
+      "constraints": [
+       "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
+      ]
      }
     },
     "additional_properties": false
@@ -19032,6 +19071,20 @@
       "constraints": [
        "Relay sub-view name; exactly one of lease or view."
       ]
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "attach-streams-v1",
+      "constraints": [
+       "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
+      ]
      }
     },
     "additional_properties": false
@@ -19090,6 +19143,20 @@
       "capability": "shared-sizing-v1",
       "constraints": [
        "Relay sub-view name; exactly one of lease or view."
+      ]
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "attach-streams-v1",
+      "constraints": [
+       "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
       ]
      }
     },
@@ -20643,6 +20710,20 @@
       "nullable": true,
       "default": null,
       "capability": "terminal-snapshot-v1"
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "attach-streams-v1",
+      "constraints": [
+       "A client-minted id for this view, unique among this connection's open attach streams; an id whose stream-end has not been queued is stream_in_use."
+      ]
      }
     },
     "additional_properties": false,
@@ -20650,7 +20731,8 @@
      "cols and rows must be supplied together.",
      "Browser surfaces reject mode:render.",
      "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal.",
-     "snapshot \"ghostsnp\" with the host's snapshot_version starts the byte stream with a snapshot event instead of vt-state; another version gets the byte replay. viewer_backlog_bytes (default 8388608 = 8 MiB, set per attach, no daemon setting; clamped to 65536..8388608) bounds the viewer's backlog; overflow resyncs by snapshot."
+     "snapshot \"ghostsnp\" with the host's snapshot_version starts the byte stream with a snapshot event instead of vt-state; another version gets the byte replay. viewer_backlog_bytes (default 8388608 = 8 MiB, set per attach, no daemon setting; clamped to 65536..8388608) bounds the viewer's backlog; overflow resyncs by snapshot.",
+     "With stream, every item of the view carries stream, stream-end is its last item, and the id is free once the client reads that stream-end. A failure after the id was taken queues stream-end{reason:\"attach_failed\"} before the error reply."
     ]
    },
    "result": {
@@ -20671,6 +20753,7 @@
      "render-state",
      "resized",
      "scroll-changed",
+     "stream-end",
      "vt-state"
     ],
     "mode_field": "mode",
@@ -20683,14 +20766,16 @@
       "scroll-changed",
       "notification",
       "overflow",
-      "detached"
+      "detached",
+      "stream-end"
      ],
      "render": [
       "render-state",
       "render-delta",
       "scroll-changed",
       "overflow",
-      "detached"
+      "detached",
+      "stream-end"
      ],
      "browser": [
       "browser-state",
@@ -20698,7 +20783,8 @@
       "notification",
       "scroll-changed",
       "overflow",
-      "detached"
+      "detached",
+      "stream-end"
      ]
     },
     "ordering": "Initial state precedes the command response. Later surface events preserve order. A resized replay replaces the previous byte mirror; overflow ends that surface stream.",
@@ -20712,6 +20798,40 @@
    "clients": [
     "macos",
     "cli",
+    "sdk"
+   ]
+  },
+  "cancel-stream": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "attach-streams-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "CancelStreamResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Ends the attach stream with stream-end{reason:\"canceled\"}, dropping what it still queues, and removes its view before the reply.",
+    "Idempotent: an id with no open stream answers outcome:ended."
+   ],
+   "method_id": 794,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
     "sdk"
    ]
   },
@@ -28647,6 +28767,20 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "attach-streams-v1",
+      "constraints": [
+       "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). The snapshot is asked of that view only."
+      ]
      }
     },
     "additional_properties": false
@@ -41700,6 +41834,56 @@
     "additional_properties": false
    },
    "event_id": 50947,
+   "priority": "control"
+  },
+  "stream-end": {
+   "since": 12,
+   "capability": "attach-streams-v1",
+   "streams": [
+    "attach-byte",
+    "attach-render",
+    "attach-browser"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "stream-end"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "canceled",
+        "detached",
+        "overflow",
+        "attach_failed"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "The last item of a client-minted attach stream; nothing of that stream follows it, and its id is free for a new attach-surface."
+    ]
+   },
+   "event_id": 49164,
    "priority": "control"
   }
  }

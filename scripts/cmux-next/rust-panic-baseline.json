@@ -741,8 +741,8 @@
    "cast_possible_truncation": 1
   },
   "cmux-tui-core": {
-   "unwrap_used": 809,
-   "expect_used": 160,
+   "unwrap_used": 807,
+   "expect_used": 163,
    "panic": 2,
    "unreachable": 20,
    "todo": 0,

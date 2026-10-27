@@ -39,7 +39,9 @@ impl Surface {
         }
         if let Some(reader) = pty.reader_thread.lock().recover_poison().take() {
             if pty.reader_completion.wait_until(deadline) {
-                if reader.join().is_err() {
+                if let TerminalReader::Thread(reader) = reader
+                    && reader.join().is_err()
+                {
                     eprintln!("cmux-tui: terminal reader thread panicked during shutdown");
                 }
             } else {
@@ -73,7 +75,7 @@ impl Surface {
             completion.complete();
             result.expect("installed test terminal reader panicked");
         });
-        let previous = pty.reader_thread.lock().unwrap().replace(reader);
+        let previous = pty.reader_thread.lock().unwrap().replace(TerminalReader::Thread(reader));
         assert!(previous.is_none(), "test PTY already owns a reader thread");
     }
 

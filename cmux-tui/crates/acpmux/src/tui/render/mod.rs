@@ -334,13 +334,9 @@ pub fn now_ms() -> u64 {
 /// "Today 10:13 PM", "Yesterday 9:02 AM", or "Sep 12, 9:02 AM", in local time.
 pub fn when_label(ms: u64) -> String {
     #[cfg(unix)]
-    unsafe {
-        let mut tm: libc::tm = std::mem::zeroed();
-        let mut now_tm: libc::tm = std::mem::zeroed();
-        let t = (ms / 1000) as libc::time_t;
-        let n = (now_ms() / 1000) as libc::time_t;
-        libc::localtime_r(&t, &mut tm);
-        libc::localtime_r(&n, &mut now_tm);
+    {
+        let tm = local_time((ms / 1000) as libc::time_t);
+        let now_tm = local_time((now_ms() / 1000) as libc::time_t);
         let (h24, m) = (tm.tm_hour, tm.tm_min);
         let ampm = if h24 >= 12 { "PM" } else { "AM" };
         let h12 = match h24 % 12 {
@@ -365,6 +361,19 @@ pub fn when_label(ms: u64) -> String {
         let _ = ms;
         String::new()
     }
+}
+
+/// `secs` since the epoch broken down in local time; all fields 0 if the
+/// conversion fails.
+#[cfg(unix)]
+fn local_time(secs: libc::time_t) -> libc::tm {
+    // SAFETY: `tm` is integers plus, on some platforms, a zone-name pointer;
+    // all-zero (a null pointer) is a valid value.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: both pointers name live locals; localtime_r is the reentrant form
+    // and writes only `tm`.
+    unsafe { libc::localtime_r(&secs, &mut tm) };
+    tm
 }
 
 /// The left gutter every transcript row shares.
@@ -776,4 +785,18 @@ pub fn word_bounds(line: &str, col: usize) -> (usize, usize) {
         e += 1;
     }
     (s, e)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn when_label_reads_local_time_for_now_and_a_fixed_instant() {
+        assert!(when_label(now_ms()).starts_with("Today "));
+        // 2001-07-15 12:00 UTC is July 14, 15 or 16 in every time zone.
+        let label = when_label(995_198_400_000);
+        assert!(label.starts_with("Jul 1"), "{label}");
+        assert!(label.ends_with(" AM") || label.ends_with(" PM"), "{label}");
+    }
 }

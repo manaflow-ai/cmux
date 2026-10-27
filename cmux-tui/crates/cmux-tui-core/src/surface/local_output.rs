@@ -6,20 +6,19 @@
 use super::*;
 use std::io;
 #[cfg(unix)]
-use std::io::Write;
-#[cfg(unix)]
 use std::os::fd::{AsRawFd, OwnedFd};
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
 
 pub(super) struct LocalOutput {
     #[cfg(unix)]
     pub(super) descriptor: Option<OwnedFd>,
     #[cfg(unix)]
-    pub(super) wake: Option<UnixStream>,
+    /// Queues a run of this terminal's reader on the read loop
+    /// (`ReadKick`), set once the reader is registered there.
+    pub(super) wake: Option<crate::mux::terminal_work::read_loop::ReadKick>,
     pub(super) title_changed: Arc<AtomicBool>,
     pub(super) pending_responses: Arc<Mutex<Vec<u8>>>,
     pub(super) pending_bells: PendingBells,
+    registry_publication: Arc<RegistryPublication>,
     #[cfg(unix)]
     pub(super) parsed_sink: Option<Arc<crate::holder_runtime::HolderSink>>,
     shell_marks: crate::prompt_mode_reset::ShellMarks,
@@ -39,6 +38,60 @@ pub(super) struct ParsedOutput {
 pub(super) struct OutputPublisher {
     pending_responses: Arc<Mutex<Vec<u8>>>,
     pending_bells: PendingBells,
+    registry_publication: Arc<RegistryPublication>,
+}
+
+/// One terminal's registry publication (directory, progress and program
+/// status) runs as one job at a time on the owner's terminal work pool, off
+/// the reader: it takes the registry lock and writes sqlite, which an echo
+/// path never waits on (Chrome posts such work to a `MayBlock` ThreadPool
+/// task, base/task/task_traits.h). A change during a job runs one more pass
+/// after it, so the latest state is the one published.
+#[derive(Default)]
+struct RegistryPublication(AtomicU8);
+
+impl RegistryPublication {
+    const IDLE: u8 = 0;
+    const SCHEDULED: u8 = 1;
+    /// Scheduled, and a change came after the running pass read its state.
+    const AGAIN: u8 = 2;
+
+    /// True when the caller must start the job: none is queued or running.
+    fn schedule(&self) -> bool {
+        let previous = self.0.swap(Self::AGAIN, Ordering::AcqRel);
+        if previous == Self::IDLE {
+            self.0.store(Self::SCHEDULED, Ordering::Release);
+            return true;
+        }
+        false
+    }
+
+    /// After a pass: true when another one is due.
+    fn pass_done(&self) -> bool {
+        self.0
+            .compare_exchange(Self::SCHEDULED, Self::IDLE, Ordering::AcqRel, Ordering::Acquire)
+            .is_err_and(|_| {
+                self.0.store(Self::SCHEDULED, Ordering::Release);
+                true
+            })
+    }
+
+    /// The job ends with no pass due: a panicking pass must not leave the
+    /// terminal unpublished for good.
+    fn reset(&self) {
+        self.0.store(Self::IDLE, Ordering::Release);
+    }
+}
+
+/// Resets a [`RegistryPublication`] when its job unwinds.
+struct PublicationJob(Arc<RegistryPublication>);
+
+impl Drop for PublicationJob {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.reset();
+        }
+    }
 }
 
 impl LocalOutput {
@@ -47,17 +100,17 @@ impl LocalOutput {
         pending_responses: Arc<Mutex<Vec<u8>>>,
         pending_bells: PendingBells,
         #[cfg(unix)] descriptor: Option<OwnedFd>,
-        #[cfg(unix)] wake: Option<UnixStream>,
         #[cfg(unix)] parsed_sink: Option<Arc<crate::holder_runtime::HolderSink>>,
     ) -> Self {
         Self {
             title_changed,
             pending_responses,
             pending_bells,
+            registry_publication: Arc::default(),
             #[cfg(unix)]
             descriptor,
             #[cfg(unix)]
-            wake,
+            wake: None,
             #[cfg(unix)]
             parsed_sink,
             shell_marks: Default::default(),
@@ -229,10 +282,11 @@ impl LocalOutput {
             Ok(())
         })();
         if !self.pending.is_empty()
-            && let Some(wake) = self.wake.as_mut()
+            && let Some(wake) = self.wake.as_ref()
         {
-            // Nonblocking: an already queued wake also guarantees publication.
-            let _ = wake.write(&[1]);
+            // Queues the reader's next run, which publishes them; a run in
+            // progress is followed by one more.
+            wake.kick();
         }
         result
     }
@@ -254,14 +308,18 @@ impl LocalOutput {
         OutputPublisher {
             pending_responses: self.pending_responses.clone(),
             pending_bells: self.pending_bells.clone(),
+            registry_publication: self.registry_publication.clone(),
         }
     }
 }
 
 impl OutputPublisher {
-    pub(super) fn publish(&self, surface: &Surface, events: Vec<ParsedOutput>) {
+    pub(super) fn publish(&self, surface: &Arc<Surface>, events: Vec<ParsedOutput>) {
         let Some(pty) = surface.as_pty() else { return };
         let mux = &pty.mux;
+        if !events.is_empty() {
+            self.publish_registry(surface, mux);
+        }
         for ParsedOutput {
             generation,
             title_update,
@@ -270,8 +328,6 @@ impl OutputPublisher {
             finished_commands,
         } in events
         {
-            surface.publish_pending_directory();
-            surface.publish_pending_progress();
             pty.stream_progress.notify();
             pty.request_frame(generation);
             // Mux events take `Mux::state`; publish them only after
@@ -290,7 +346,7 @@ impl OutputPublisher {
             if !terminal_notifications.is_empty()
                 && let Some(mux) = mux.upgrade()
             {
-                mux.post_terminal_notifications(surface.id, terminal_notifications);
+                will_block(|| mux.post_terminal_notifications(surface.id, terminal_notifications));
             }
             if !finished_commands.is_empty()
                 && let Some(mux) = mux.upgrade()
@@ -305,9 +361,50 @@ impl OutputPublisher {
                     .unwrap_or_else(std::sync::PoisonError::into_inner),
             );
             if !responses.is_empty() {
-                let _ = surface.write_bytes(&responses);
+                // Waits while the child does not read its input.
+                let _ = will_block(|| surface.write_bytes(&responses));
             }
         }
+    }
+
+    /// Hands the terminal's pending directory and progress publication to
+    /// the terminal work pool (inline only when the pool is full).
+    fn publish_registry(&self, surface: &Arc<Surface>, mux: &Weak<Mux>) {
+        if !surface.has_pending_publication() {
+            return;
+        }
+        let Some(owner) = mux.upgrade() else { return };
+        if !self.registry_publication.schedule() {
+            return;
+        }
+        let job = PublicationJob(self.registry_publication.clone());
+        let surface = surface.clone();
+        let publish = Box::new(move || {
+            loop {
+                surface.publish_pending_directory();
+                surface.publish_pending_progress();
+                if !job.0.pass_done() {
+                    break;
+                }
+            }
+        });
+        if let Err(publish) = owner.submit_terminal_work(publish) {
+            will_block(publish);
+        }
+    }
+}
+
+/// A publication call that may wait on others. On a read-loop worker it
+/// frees the worker's slot while it runs (`read_loop::will_block`); a
+/// reader thread of its own just runs it.
+fn will_block<R>(f: impl FnOnce() -> R) -> R {
+    #[cfg(unix)]
+    {
+        crate::mux::terminal_work::read_loop::will_block(f)
+    }
+    #[cfg(not(unix))]
+    {
+        f()
     }
 }
 

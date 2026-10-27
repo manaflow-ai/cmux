@@ -265,6 +265,7 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
         .ok()
         .and_then(|s| s.trim().parse::<i32>().ok());
     #[cfg(unix)]
+    // SAFETY: signal 0 sends nothing; kill only checks that `p` exists.
     let alive = pid.map(|p| unsafe { libc::kill(p, 0) } == 0).unwrap_or(false);
     #[cfg(not(unix))]
     let alive = pid.is_some();
