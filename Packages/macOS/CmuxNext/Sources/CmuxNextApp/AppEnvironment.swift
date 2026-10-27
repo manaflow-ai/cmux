@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -105,6 +106,13 @@ struct AppEnvironment: Sendable {
     /// it each `HomeService` uses a temporary folder of its own (tests that build `AppServices`), so
     /// no test reads a draft another test typed in the same conversation.
     var homeCachesDirectory: URL?
+    /// The Home list's caches (its conversations and its last list) of this build's Chief owner, read on a launch
+    /// lane from `main` (p08-startup-076): the Home list's first frame never reads them on the main thread. Only the
+    /// real app process starts it; without it `HomeService` starts its own as it is made (tests that build `AppServices`).
+    var homeListRead: HomeListLaunchRead?
+    /// This Mac's install id, read on a launch lane from `main` before the settings read (p08-startup-076). Only the
+    /// real app process starts it; without it `CloudService` reads the id at its first use (tests that build `AppServices`).
+    var cloudDeviceID: CloudDeviceIDSource?
     /// `CMUX_NEXT_ORACLE_ROOT` and `HOME` of the launch: the oracle case root (its aliases separated by `:`) and the
     /// hermetic home the `terminals` facet rewrites to `$ROOT` and `$HOME` before hashing (schemas/oracle/README.md).
     var oracleRoot: String?

@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
+import CmuxNextHomeEngine
 import CmuxNextInput
 import CmuxNextIPC
 import CmuxNextLaunch
@@ -83,8 +84,10 @@ public struct CmuxNextApp {
         TypingLatencyProbe.shared.startFlows(launchEnvironment: ProcessInfo.processInfo.environment)
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
-        environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
+        let homeCaches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        environment.homeCachesDirectory = homeCaches
+        // The Home list's caches of this build's Chief owner, read on the files lane while AppKit starts (p08-startup-076).
+        environment.homeListRead = HomeListLaunchRead.start(owner: ChiefHome.resolve(tag: environment.tag).session, caches: homeCaches, on: work)
         DebugTimings.markLaunch("main.app_environment")
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting. Where each chat
@@ -119,6 +122,11 @@ public struct CmuxNextApp {
                                                              in: ledgerThenSettings)
         // The saved sidebars, before the settings read: the launch window's first frame draws them (p08-startup-075).
         environment.sidebarSnapshot = environment.sidebarSnapshotFile?.startLaunchRead(in: ledgerThenSettings)
+        // This Mac's install id, after the feature choices (the launch's features do not wait for it) and after the run marker
+        // and saved sidebars, before the settings read: the windows built when that lands find it read (p08-startup-076).
+        let cloudPaths = CloudPaths.standard(bundleID: Bundle.main.bundleIdentifier)
+        let deviceID = LaunchRead(in: ledgerThenSettings, dropped: .failure(.notReadYet)) { cloudPaths.deviceIDResult() }
+        environment.cloudDeviceID = CloudDeviceIDSource(paths: cloudPaths) { deviceID.value }
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
