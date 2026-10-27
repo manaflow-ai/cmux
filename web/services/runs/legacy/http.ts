@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { resolveVmRouteAccountScope, withAuthedVmApiRoute, jsonResponse } from "../vms/routeHelpers";
+import { resolveVmRouteAccountScope, withAuthedVmApiRoute, jsonResponse } from "../../vms/routeHelpers";
 import type { RunScope } from "./repository";
 
 export class RunHttpError extends Error {

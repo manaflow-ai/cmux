@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
-import { cloudDb } from "../../db/client";
-import { cloudRuntimes, cloudVms, runAttempts } from "../../db/schema";
+import { cloudDb } from "../../../db/client";
+import { cloudRuntimes, cloudVms, runAttempts } from "../../../db/schema";
 import { RunHttpError, runNotFound } from "./http";
 import { readRunSnapshot, type RunScope } from "./repository";
 
