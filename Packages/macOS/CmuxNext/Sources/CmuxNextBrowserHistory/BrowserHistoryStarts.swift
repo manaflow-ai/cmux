@@ -13,9 +13,10 @@ public import CmuxNextWakeups
 public final class BrowserHistoryStarts {
     /// How long a held page waits for its saved history before it loads its address.
     public static let budget: Duration = .seconds(1)
-    /// How long a restored page's first load (or a local page's folder load) is waited on before its
-    /// saved scroll position and entries are given up (PageWaiters' bound; a closed page ends the wait at once).
-    static let loadLimit: Duration = .seconds(60)
+    /// The bound of the wait for a restored page's first load (or a local page's folder load): a week, which
+    /// no load reaches, so the wait ends as before only when the load ends or the page closes. Every keyed
+    /// wait has a bound (``BrowserPageWaiting``); its deadline is one entry in the shared heap, no wake.
+    static let loadLimit: Duration = .seconds(7 * 24 * 3600)
     /// The owner of a held page's budget deadline in the board and the wakeup ledger.
     static let budgetOwner = "BrowserHistoryStarts.budget"
 
@@ -62,7 +63,7 @@ public final class BrowserHistoryStarts {
         guard engineRestored.remove(tabID) != nil else { return false }
         guard page.engineKind == .cef, let saved, saved.entries.indices.contains(saved.index),
               let loads = page as? any BrowserPageWaiting else { return true }
-        // task-owner: one restored page's first load, bounded by loadLimit; the page's close ends the wait at once
+        // task-owner: one restored page's first load; it ends with the load or when the page closes
         // main-hop-allow: when(phase:) is the page's main-actor keyed wait (PageWaiters, R-wait); its resume scrolls and restores the page in the load's order
         Task { [weak loads] in
             // R-wait: the page's keyed phase wait, read only on a load-phase change.
@@ -118,7 +119,7 @@ public final class BrowserHistoryStarts {
             // No saved entries on top: a local page's could not navigate (WebKit refuses a
             // scripted replace to a file), whether or not the restore takes.
             engineRestored.insert(tabID)
-            // task-owner: one local page's folder load, bounded by loadLimit; the page's close ends the wait at once
+            // task-owner: one local page's folder load; it ends with the load or when the page closes
             // main-hop-allow: when(phase:) is the page's main-actor keyed wait (PageWaiters, R-wait); the restore must replace the load's entry before the page's scripts run
             Task { [weak self, weak page] in
                 // The load's phase, not its address: WebKit reports the address as the load is

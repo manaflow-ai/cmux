@@ -2,6 +2,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDaemonService
 public import CmuxNextHistory
+public import CmuxNextWakeups
 import Foundation
 
 /// Stash (a native OneTab, `stash-v1`) on this Mac's daemon: serves the Stashed page
@@ -10,16 +11,19 @@ import Foundation
 /// another window).
 public final class StashService: StashPageSource {
     private weak var host: (any StashHost)?
-    public let model = StashPageModel()
+    public let model: StashPageModel
     /// Each Stashed page's own OneTab paste box, by page key.
     private var drafts: [String: StashImportDraft] = [:]
     /// Follows the daemon's stash changes (``watchChanges()``); cancelled when the service goes.
     private var watcher: Task<Void, Never>?
 
     /// Creates the service over `host`'s daemon and starts following its stash changes.
-    /// - Parameter host: The App's side of Stash; held weakly.
-    public init(host: any StashHost) {
+    /// - Parameters:
+    ///   - host: The App's side of Stash; held weakly.
+    ///   - mainWork: The app's one main-thread scheduler, where the page's ops end.
+    public init(host: any StashHost, mainWork: MainWorkScheduler) {
         self.host = host
+        model = StashPageModel(mainWork: mainWork)
         model.source = self
         watchChanges()
     }

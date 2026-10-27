@@ -53,7 +53,7 @@ public final class StashPageHostView: NSView, VisibilityGatedContent {
         super.viewDidMoveToWindow()
         visibility.place(in: window)
         resolveColors()
-        if window != nil { model.start { await $0.reload() } } else { draft.close() }
+        if window != nil { model.startReload() } else { draft.close() }
     }
 
     // R-hide: hiding forwards to the node.

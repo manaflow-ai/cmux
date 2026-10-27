@@ -40,23 +40,23 @@ struct StashTests {
             let urls = (0..<3).map { "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/\($0)" }
             let draft = StashImportDraft()
             draft.text = urls.map { "\($0) | Page" }.joined(separator: "\n")
-            await model.importPasted(draft)
+            await model.importPasted(draft)?.value
             let imported = try #require(model.groups.first { $0.tabs.map(\.url) == urls }, "groups: \(model.groups)")
 
             // A row's ×: that tab goes for good.
-            await model.delete(imported, tab: imported.tabs[0])
+            await model.delete(imported, tab: imported.tabs[0])?.value
             let afterDelete = try #require(model.groups.first { $0.id == imported.id })
             #expect(afterDelete.tabs.map(\.url) == Array(urls[1...]))
 
             // A row's click: that tab comes back; the group keeps the rest.
-            await model.restore(afterDelete, tab: afterDelete.tabs[0])
+            await model.restore(afterDelete, tab: afterDelete.tabs[0])?.value
             try await PinnedPageTests.until({ Self.tab(url: urls[1], store) != nil }, report: { "no tab at \(urls[1])" })
             #expect(model.groups.first { $0.id == imported.id }?.tabs.map(\.url) == [urls[2]])
             #expect(Self.tab(url: urls[0], store) == nil, "the deleted tab never came back")
 
             // Restore in New Workspace: every tab left, in a workspace of its own; the emptied group goes.
             let workspaces = Set(store.workspaces.map(\.id))
-            await model.restoreInNewWorkspace(try #require(model.groups.first { $0.id == imported.id }))
+            await model.restoreInNewWorkspace(try #require(model.groups.first { $0.id == imported.id }))?.value
             #expect(!model.groups.contains { $0.id == imported.id })
             try await PinnedPageTests.until({
                 store.workspaces.contains { !workspaces.contains($0.id) && Self.urls(of: $0).contains(urls[2]) }
@@ -65,9 +65,9 @@ struct StashTests {
             // Delete Group.
             let other = StashImportDraft()
             other.text = "https://stash-delete.example/ | Gone"
-            await model.importPasted(other)
+            await model.importPasted(other)?.value
             let doomed = try #require(model.groups.first { $0.tabs.first?.url == "https://stash-delete.example/" })
-            await model.delete(doomed)
+            await model.delete(doomed)?.value
             #expect(!model.groups.contains { $0.id == doomed.id })
         }
     }
@@ -85,7 +85,7 @@ struct StashTests {
             https://e.example/ |\u{20}
             not a page
             """
-            await model.importPasted(draft)
+            await model.importPasted(draft)?.value
             #expect(!draft.isOpen, "the paste box closes once the import went through")
             let groups = model.groups.map { $0.tabs.map(\.url) }
             #expect(Set(groups) == [
@@ -97,7 +97,7 @@ struct StashTests {
             // An imported page reopens in the app's browser engine.
             let b = try #require(model.groups.first { $0.tabs.first?.url == "https://b.example/" })
             #expect(b.tabs.map(\.title) == ["B", nil])
-            await model.restore(b)
+            await model.restore(b)?.value
             let store = services.daemon.store
             try await PinnedPageTests.until({ Self.tab(url: "https://b.example/", store) != nil })
             guard case .open(let choice) = services.cache.browserTabs.resolve(requested: nil) else {
@@ -284,7 +284,7 @@ struct StashTests {
         try await PinnedPageTests.withApp { services, connection in
             let url = "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/undo"
             _ = try await connection.state.importOneTab([.init(name: nil, pages: [.init(url: url, title: "Undo")])], engine: "webkit")
-            let service = StashService(host: VanishingStashHost(services))
+            let service = StashService(host: VanishingStashHost(services), mainWork: services.mainWork)
             // The list reads through the app's own service, which outlives the vanishing host.
             service.model.source = services.historyPage.stash
             await service.model.reload()
@@ -328,7 +328,7 @@ struct StashTests {
             let tag = UUID().uuidString.prefix(6).lowercased()
             let draft = StashImportDraft()
             draft.text = "https://alpha-\(tag).example/ | Alpha \(tag)\nhttps://beta-\(tag).example/ | Beta"
-            await model.importPasted(draft)
+            await model.importPasted(draft)?.value
             let shown = model.groups(matching: "alpha-\(tag)")
             #expect(shown.count == 1)
             #expect(shown.first?.tabs.map(\.title) == ["Alpha \(tag)"])

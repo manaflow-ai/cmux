@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextFeed
 @testable import CmuxNextHistory
@@ -13,7 +14,8 @@ import Testing
 /// (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-344, rule 9): one case per migrated owner
 /// class. A page's record and history writes follow it as background service observations that still run with no
 /// page on screen, and a record another client moved flushes as automation; every history writer shares the app's
-/// one resign-active observer; a held page's history budget is a visible deadline that the read's answer drops; the
+/// one resign-active observer; a held page's history budget is a visible deadline that the read's answer drops; a
+/// restored Chromium page's first-load wait is its keyed phase wait, which ends only with the load or the close; the
 /// Feed, History and Stashed pages resolve a theme change of a hidden page once, on show, and the Stashed page's
 /// paste box still closes when the page hides. GitHubFeedSourcePollTests has the poll's background deadline and its
 /// hidden-app alignment, CloudLinkReconnectingTests the link's posted redial state, CmuxNextScreenshotsTests'
@@ -100,6 +102,60 @@ import Testing
         #expect(!rig.hasArmedWake, "the answered read's budget kept its wake")
     }
 
+    // MARK: Wait: a restored Chromium page's first load (R-wait)
+
+    /// A restored Chromium page whose saved history is `[a, b]` at `b`, loading `b`, its waits on `rig`'s queue.
+    private static func restoredPage(_ rig: MainDeadlineRig) throws -> (MockBrowserTab, BrowserNavigationID, FrontendBrowserHistory) {
+        let page = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false, waitDeadlines: rig.queue)
+            .makeMockTab(BrowserTabConfiguration())
+        let b = try #require(URL(string: "https://example.com/b"))
+        let navigation = page.makeNavigationID()
+        page.simulate(.started(navigation, url: b))
+        let saved = FrontendBrowserHistory(entries: [.init(url: "https://example.com/a"), .init(url: b.absoluteString)], index: 1)
+        return (page, navigation, saved)
+    }
+
+    /// Lets the wait's task run its resume (it resumes on a later main-actor turn).
+    private static func settle(until done: () -> Bool) async {
+        for _ in 0..<200 where !done() { await Task.yield() }
+    }
+
+    /// The wait ends only with the load, as the old observation did: a load slower than any bound a person sees
+    /// still gets its saved entries once it ends.
+    @Test func aRestoredPagesSlowFirstLoadStillGetsItsSavedEntries() async throws {
+        let rig = MainDeadlineRig()
+        let starts = BrowserHistoryStarts(deadlines: rig.deadlines)
+        let (page, navigation, saved) = try Self.restoredPage(rig)
+        defer { page.close() }
+        starts.markEngineRestored("t")
+        #expect(starts.takeEngineRestored("t", page: page, saved: saved))
+        await page.pageWaiters.untilPending(1)
+        rig.advance(by: .seconds(3_600))
+        rig.fireAtNow()
+        #expect(page.pageWaiters.pendingCount == 1, "an hour-long first load gave up its saved entries")
+
+        let b = try #require(URL(string: saved.entries[1].url))
+        page.simulate(.committed(navigation, url: b))
+        page.simulate(.finished(navigation))
+        await Self.settle { !page.restoredSessions.isEmpty }
+        #expect(page.restoredSessions.map(\.current) == [1], "the load's end did not restore the saved entries")
+    }
+
+    /// A page closed during its first load ends the wait at once and restores nothing.
+    @Test func closingARestoredPageDuringItsFirstLoadEndsTheWait() async throws {
+        let rig = MainDeadlineRig()
+        let starts = BrowserHistoryStarts(deadlines: rig.deadlines)
+        let (page, _, saved) = try Self.restoredPage(rig)
+        starts.markEngineRestored("t")
+        #expect(starts.takeEngineRestored("t", page: page, saved: saved))
+        await page.pageWaiters.untilPending(1)
+
+        page.close()
+        #expect(page.pageWaiters.pendingCount == 0, "the close left the load wait waiting")
+        await Self.settle { false }
+        #expect(page.restoredSessions.isEmpty, "a closed page got its saved entries")
+    }
+
     // MARK: Hidden: the Feed, History and Stashed pages (R-appear, R-hide)
 
     /// A host in a window whose node reads visible (the window is never ordered in): its node follows only its own hide.
@@ -120,7 +176,7 @@ import Testing
     }
 
     @Test func aThemeChangeOfAHiddenStashedPageResolvesItsColorsOnceOnShow() {
-        let host = StashPageHostView(model: StashPageModel(), draft: StashImportDraft())
+        let host = StashPageHostView(model: StashPageModel(mainWork: Self.heldWork()), draft: StashImportDraft())
         let window = Self.shownWindow(host)
         defer { window.contentView = nil; window.close() }
         Self.expectOneResolveOnShow(host, resolves: { host.colorResolves }, "stashed page")
@@ -129,7 +185,7 @@ import Testing
     /// The Stashed page's paste box closes when the page hides (its node's own hide), as when it closes.
     @Test func hidingTheStashedPageClosesItsPasteBox() {
         let draft = StashImportDraft()
-        let host = StashPageHostView(model: StashPageModel(), draft: draft)
+        let host = StashPageHostView(model: StashPageModel(mainWork: Self.heldWork()), draft: draft)
         let window = Self.shownWindow(host)
         defer { window.contentView = nil; window.close() }
         draft.open()

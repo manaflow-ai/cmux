@@ -167,8 +167,7 @@ final class CloudService {
         move.cli = binary
         move.ledger = .standard
         if let binary {
-            hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName,
-                                        mainWork: mainWork)
+            hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
         movedChats.defaults = { [weak self] in self?.move.ledger }
         moveRetries.defaults = { [weak self] in self?.move.ledger }

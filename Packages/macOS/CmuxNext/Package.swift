@@ -471,7 +471,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The App only answers `StashHost`.
         .target(
             name: "CmuxNextStash",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextHistory"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextHistory", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
