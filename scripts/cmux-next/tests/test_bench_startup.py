@@ -221,6 +221,22 @@ class ValueSummaryTests(unittest.TestCase):
         self.assertEqual(bs.value_summary(runs)[-1], "  launch.interrupted: none of 4 runs", "the interrupted line stays last")
         self.assertNotIn(bs.FIRST_FRAME_THREADS, [row[1] for row in bs.table(runs)], "never a timed row")
 
+    def test_action_catalog_main_wait_prints_zero_in_how_many_runs(self):
+        """p08-startup-092: the acceptance count `action_catalog_main_wait_ms 0 in N of N`; a missing wait is not 0."""
+        clean = {bs.ACTION_CATALOG_MAIN_WAIT: 0.0, bs.ACTION_CATALOG_MAIN_READ: 40.0}
+        runs = [dict(clean) for _ in range(3)] + [{bs.ACTION_CATALOG_MAIN_WAIT: 1500.0, bs.ACTION_CATALOG_MAIN_READ: 1500.0},
+                                                  {"main_start": 1}]
+        self.assertTrue({bs.ACTION_CATALOG_MAIN_WAIT, bs.ACTION_CATALOG_MAIN_READ} <= set(bs.VALUE_MARKS), "not times")
+        self.assertEqual(bs.run_values(runs[3]), ["action catalog wait 1.50 ms"])
+        lines = bs.action_catalog_summary(runs)
+        self.assertTrue(lines[0].startswith("  action_catalog_main_wait_ms: 0 in 3 of 5 runs; "), lines[0])
+        self.assertTrue(lines[0].endswith("n 4 (1 without it)"), lines[0])
+        self.assertIn("max 1.50", lines[0])
+        self.assertTrue(lines[1].startswith("  action_catalog_main_read_ms: p50 0.04"), lines[1])
+        self.assertEqual(bs.action_catalog_summary([{"main_start": 1}]), [], "an older build prints no catalog line")
+        self.assertEqual(bs.value_summary(runs)[-1], "  launch.interrupted: none of 5 runs", "the interrupted line stays last")
+        self.assertNotIn(bs.ACTION_CATALOG_MAIN_WAIT, [row[1] for row in bs.table(runs)], "never a timed row")
+
     def test_a_run_without_its_runtime_count_reads_missing_never_zero(self):
         """p08-startup-068: a quit before the census's later lines is a missing measurement, not the 0 target."""
         clean = {bs.FIRST_FRAME_THREADS: 41.0, bs.FIRST_FRAME_RUNTIME_THREADS: 0.0, bs.FIRST_FRAME_GHOSTTY_THREADS: 4.0}

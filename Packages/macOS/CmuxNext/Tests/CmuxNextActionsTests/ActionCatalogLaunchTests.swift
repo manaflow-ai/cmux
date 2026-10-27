@@ -24,7 +24,7 @@ import Testing
         let catalog = launch(FakeClock())
         catalog.build()
         _ = catalog.descriptors()
-        #expect(catalog.mainAccess == ActionCatalogMainAccess(outcome: .ready, milliseconds: 0))
+        #expect(catalog.mainAccess == ActionCatalogMainAccess(outcome: .ready, microseconds: 0))
         #expect(catalog.mainAccess?.waitMilliseconds == 0)
     }
 
@@ -32,14 +32,15 @@ import Testing
         let catalog = launch(FakeClock(), readNanoseconds: 12_000_000)
         catalog.buildBegan()
         _ = catalog.descriptors()
-        #expect(catalog.mainAccess == ActionCatalogMainAccess(outcome: .waited, milliseconds: 12))
+        #expect(catalog.mainAccess == ActionCatalogMainAccess(outcome: .waited, microseconds: 12_000))
         #expect(catalog.mainAccess?.waitMilliseconds == 12)
+        #expect(catalog.mainAccess?.waitMicroseconds == 12_000)
     }
 
     @Test func noBuildStartedMeansTheMainThreadBuildsItAndDoesNotWait() {
         let catalog = launch(FakeClock(), readNanoseconds: 60_000_000)
         _ = catalog.descriptors()
-        #expect(catalog.mainAccess == ActionCatalogMainAccess(outcome: .builtOnMain, milliseconds: 60))
+        #expect(catalog.mainAccess == ActionCatalogMainAccess(outcome: .builtOnMain, microseconds: 60_000))
         #expect(catalog.mainAccess?.waitMilliseconds == 0)
     }
 
@@ -55,7 +56,7 @@ import Testing
         _ = catalog.descriptors()
         catalog.buildBegan()
         _ = catalog.descriptors()
-        #expect(catalog.mainAccess == ActionCatalogMainAccess(outcome: .ready, milliseconds: 3))
+        #expect(catalog.mainAccess == ActionCatalogMainAccess(outcome: .ready, microseconds: 3_000))
     }
 
     /// Sub-millisecond reads keep microsecond resolution.

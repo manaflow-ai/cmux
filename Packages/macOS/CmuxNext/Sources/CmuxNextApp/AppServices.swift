@@ -897,6 +897,9 @@ final class AppServices {
         }
         scrollerStyleWatch = SystemScrollers.follow(settingChangesOn: appEvents)
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
+        if let access = environment.actionCatalog.mainAccess {  // the registry's catalog read above (p08-startup-092)
+            launchValues.recordActionCatalogMainAccess(waitMicroseconds: access.waitMicroseconds, readMicroseconds: access.microseconds)
+        }
     }
     /// Builds and starts the browser host's engine provider once, from its launch post (p08-startup-031). Its
     /// `start()` follows the settings `AppDelegate` set before it (`browser.showAgentCursor`).

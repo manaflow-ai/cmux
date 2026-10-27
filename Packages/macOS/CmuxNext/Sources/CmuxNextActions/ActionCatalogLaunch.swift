@@ -27,17 +27,23 @@ public nonisolated struct ActionCatalogMainAccess: Sendable, Equatable {
 
     /// Who had built the catalog.
     public let outcome: Outcome
-    /// The main thread's time inside the read, in milliseconds (microsecond resolution).
-    public let milliseconds: Double
+    /// The main thread's time inside the read, in microseconds.
+    public let microseconds: UInt64
 
-    /// The part of ``milliseconds`` the main thread spent waiting for another thread's build; 0 unless
+    /// ``microseconds`` in milliseconds.
+    public var milliseconds: Double { Double(microseconds) / 1_000 }
+
+    /// The part of ``microseconds`` the main thread spent waiting for another thread's build; 0 unless
     /// ``Outcome/waited`` (a build on main is main-thread work, not a wait).
-    public var waitMilliseconds: Double { outcome == .waited ? milliseconds : 0 }
+    public var waitMicroseconds: UInt64 { outcome == .waited ? microseconds : 0 }
+
+    /// ``waitMicroseconds`` in milliseconds: `action_catalog_main_wait_ms`.
+    public var waitMilliseconds: Double { Double(waitMicroseconds) / 1_000 }
 
     /// A recorded read.
-    public init(outcome: Outcome, milliseconds: Double) {
+    public init(outcome: Outcome, microseconds: UInt64) {
         self.outcome = outcome
-        self.milliseconds = milliseconds
+        self.microseconds = microseconds
     }
 }
 
@@ -47,14 +53,14 @@ public nonisolated struct ActionCatalogMainAccess: Sendable, Equatable {
 /// The catalog is one `swift_once` global: the first reader builds it, any other reader waits for that
 /// build, and with no build started the main thread builds it itself (Chromium's
 /// `base/lazy_instance_helpers.cc` has the same contract). The registry's read is a signpost interval
-/// (`action_catalog.first_main_access`, category `stalls`) and is recorded as ``mainAccess``, so a launch
+/// (`action_catalog.first_main_access`, category `launch`) and is recorded as ``mainAccess``, so a launch
 /// shows whether the main thread waited, the way Chromium's `base/threading/scoped_blocking_call.h` makes a
 /// UI-thread wait visible. Lock-free: two atomics.
 ///
 /// ```swift
 /// let catalog = ActionCatalogLaunch()
 /// Thread { catalog.build() }.start()                      // launch warm-up thread
-/// let registry = ActionRegistry.standard(launch: catalog, runTiming: timing)   // main
+/// let registry = ActionRegistry.standard(launch: catalog, runTiming: timing, mainWork: mainWork)   // main
 /// catalog.mainAccess?.waitMilliseconds                    // 0 when the build ended first
 /// ```
 public nonisolated final class ActionCatalogLaunch: Sendable {
@@ -69,7 +75,7 @@ public nonisolated final class ActionCatalogLaunch: Sendable {
     private let access = Atomic<UInt64>(0)
     private let read: @Sendable () -> [ActionDescriptor]
     private let uptimeNanoseconds: @Sendable () -> UInt64
-    private let signposter = OSSignposter(subsystem: SignpostCategory.subsystem, category: "stalls")
+    private let signposter = OSSignposter(subsystem: SignpostCategory.subsystem, category: SignpostCategory.launch.rawValue)
 
     /// The build of the app's catalog.
     public convenience init() {
@@ -125,6 +131,6 @@ public nonisolated final class ActionCatalogLaunch: Sendable {
     public var mainAccess: ActionCatalogMainAccess? {
         let raw = access.load(ordering: .relaxed)
         guard let outcome = ActionCatalogMainAccess.Outcome(rawValue: raw & 0b11) else { return nil }
-        return ActionCatalogMainAccess(outcome: outcome, milliseconds: Double(raw >> 2) / 1_000)
+        return ActionCatalogMainAccess(outcome: outcome, microseconds: raw >> 2)
     }
 }
