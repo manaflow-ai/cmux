@@ -228,11 +228,16 @@ extension CaptureSceneRegistry {
         }
         do {
             let workspaceID = try await services.windows.createWorkspace(WorkspaceSpawn(newTabPage: true),
-                                                                            on: services.daemon, into: windowID)
+                                                                            on: services.daemon)
             let key = WorkspaceKey(rawValue: workspaceID)
+            services.windows.claimNew(workspaceID: workspaceID, window: windowID)
             guard let pane = await services.daemon.store.firstPane(mirroring: key),
                   let workspace = services.daemon.store.workspace(key: key) else {
                 return .object(["error": .string("auto-name workspace has no mirrored pane"), "scene": .string(definition.name)])
+            }
+            guard workspace.nameSource == .auto else {
+                return .object(["error": .string("auto-name workspace source is \(workspace.nameSource.rawValue), expected auto"),
+                                "scene": .string(definition.name)])
             }
             _ = try await connection.renameWorkspace(key, to: Self.firstAutoName, source: .auto,
                                                       expectedNameRevision: workspace.nameRevision)
