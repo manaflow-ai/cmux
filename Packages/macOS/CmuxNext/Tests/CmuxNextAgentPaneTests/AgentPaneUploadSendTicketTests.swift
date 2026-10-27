@@ -110,9 +110,12 @@ struct AgentPaneUploadSendTicketTests {
         #expect(coordinator.start("t", size: 4, upload: "hold", sessionId: "s-1", connection: 0, context: 9))
         let pending = try await #require(coordinator.query("cmux.agent.uploads.status", context: 9, params: ["token": "t"]))
         #expect(((pending["value"] as? [String: Any])?["uploadId"] as? String) == nil)
+        coordinator.assigned("t", uploadId: "u-1")
+        coordinator.terminal("t", state: "finished")
         coordinator.terminal("t", state: "cancelled")
-        coordinator.terminal("t", state: "failed")
-        #expect(events.count == 1 && events.first?.kind == "uploads.state")
+        let finished = try await #require(coordinator.query("cmux.agent.uploads.status", context: 9, params: ["token": "t"]))
+        #expect(((finished["value"] as? [String: Any])?["state"] as? String) == "finished")
+        #expect(events.count == 2 && events.last?.kind == "uploads.state")
     }
 
     @Test func theBeginParamsCarryTheTicketPromptAndChat() {

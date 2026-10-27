@@ -59,7 +59,9 @@ import Foundation
             task.cancel()
             _ = await task.value
         } else if op == "cmux.agent.uploads.cancel", let id = record.uploadId, let model {
-            await model.transport.cancelUpload(connection: record.connection, sessionId: record.sessionId, uploadId: id)
+            guard await model.transport.cancelUpload(connection: record.connection, sessionId: record.sessionId, uploadId: id) else {
+                return AgentPaneReply.failure(code: "upload_cancel_failed", message: "The upload cleanup was not acknowledged")
+            }
         }
         var value: [String: Any] = ["token": token, "state": records[token]?.state ?? record.state, "size": record.size]
         if let id = records[token]?.uploadId { value["uploadId"] = id }
@@ -146,17 +148,19 @@ extension AgentPaneView {
                     guard offset == size else { throw AgentPaneUploadError.rpc("upload size mismatch") }
                     let finished = try await model.transport.uploadControl(connection: connection, method: "_acpmux/file_put_finish",
                         params: ["sessionId": sessionId, "uploadId": id, "fileName": name, "size": size])
-                    try Task.checkCancellation()
-                    guard model.transport.gestures.releaseUpload(upload) else { throw CancellationError() }
+                    // A successful daemon finish is terminal. Record it before any cancellation
+                    // or ticket-release work can race with an explicit uploads.cancel call.
                     coordinator.terminal(token, state: "finished")
+                    _ = model.transport.gestures.releaseUpload(upload)
                     var result: [String: Any] = ["token": token, "uploadId": id, "offset": offset, "size": size]
                     if let path = finished["path"] as? String { result["path"] = path }
                     return NativeUploadResult(AgentPaneReply.success(result))
                 } catch {
+                    var cleanupFailed = false
                     if let id = uploadId {
-                        await model.transport.cancelUpload(connection: connection, sessionId: sessionId, uploadId: id)
+                        cleanupFailed = !(await model.transport.cancelUpload(connection: connection, sessionId: sessionId, uploadId: id))
                     }
-                    let cancelled = error is CancellationError
+                    let cancelled = error is CancellationError && !cleanupFailed
                     let failure = (error as? AgentPaneUploadError)?.failure
                     var details: [String: Any] = [:]
                     if let failure { for (key, value) in failure.details { details[key] = value } }
@@ -164,10 +168,15 @@ extension AgentPaneView {
                     if let failure {
                         eventError = ["code": failure.code, "message": failure.message]
                         for (key, value) in failure.details { eventError?[key] = value }
+                    } else if cleanupFailed {
+                        eventError = ["code": "upload_cancel_failed", "message": "The upload cleanup was not acknowledged"]
                     } else if !cancelled {
                         eventError = ["code": "upload_failed", "message": "The upload could not be completed"]
                     }
                     coordinator.terminal(token, state: cancelled ? "cancelled" : "failed", error: eventError)
+                    if cleanupFailed {
+                        return NativeUploadResult(AgentPaneReply.failure(code: "upload_cancel_failed", message: "The upload cleanup was not acknowledged"))
+                    }
                     if let failure {
                         return NativeUploadResult(AgentPaneReply.failure(code: failure.code, message: failure.message,
                                                                          details: details.isEmpty ? nil : details, retryable: nil, origin: "daemon"))

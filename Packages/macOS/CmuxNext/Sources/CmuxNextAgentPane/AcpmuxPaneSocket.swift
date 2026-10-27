@@ -403,10 +403,11 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     if object["_cmuxCancelled"] as? Bool == true {
                         continuation.resume(throwing: CancellationError())
                     } else if let error = object["error"] as? [String: Any] {
-                        let code = error["code"] as? String ?? "upload_failed"
+                        let data = error["data"] as? [String: Any] ?? [:]
+                        let code = data["reason"] as? String ?? "upload_failed"
                         let message = error["message"] as? String ?? "upload refused"
                         let details = ["host", "path"].reduce(into: [String: String]()) { result, key in
-                            if let value = error[key] as? String { result[key] = value }
+                            if let value = data[key] as? String { result[key] = value }
                         }
                         continuation.resume(throwing: AgentPaneUploadError.rpcDetails(code: code, message: message, details: details))
                     } else {
@@ -448,8 +449,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     }
 
     /// The foreground cancellation waits for the daemon ACK; caller cancellation does not cancel this cleanup.
-    func cancelUploadAndWait(sessionId: String, uploadId: String) async {
-        _ = try? await callHost("_acpmux/file_put_cancel", params: ["sessionId": sessionId, "uploadId": uploadId])
+    func cancelUploadAndWait(sessionId: String, uploadId: String) async -> Bool {
+        do { _ = try await callHost("_acpmux/file_put_cancel", params: ["sessionId": sessionId, "uploadId": uploadId]); return true }
+        catch { return false }
     }
 
     /// Cleanup never waits for the daemon's cancellation response (used by late begin replies).

@@ -187,7 +187,13 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             guard self.handler != nil else { return }
             let reply: [String: Any]
             if result?["ok"] as? Bool == true { reply = ["t": "ok", "id": callID, "value": result?["value"] ?? NSNull()] }
-            else { let error = result?["error"] as? [String: Any] ?? [:]; reply = ["t": "err", "id": callID, "code": error["code"] ?? "upload_failed", "message": error["userMessage"] ?? "The upload could not be completed", "retryable": error["retryable"] ?? false] }
+            else {
+                let error = result?["error"] as? [String: Any] ?? [:]
+                var value: [String: Any] = ["t": "err", "id": callID, "code": error["code"] ?? "upload_failed", "message": error["userMessage"] ?? "The upload could not be completed", "retryable": error["retryable"] ?? false]
+                if let details = error["details"] { value["details"] = details }
+                if let origin = error["origin"] { value["origin"] = origin }
+                reply = value
+            }
             let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
             _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
             answered += 1
@@ -212,9 +218,12 @@ public final class ChromiumPageHostBridge: PageHostBridge {
                 reply = ["t": "ok", "id": callID, "value": result?["value"] ?? NSNull()]
             } else {
                 let error = result?["error"] as? [String: Any] ?? [:]
-                reply = ["t": "err", "id": callID, "code": error["code"] ?? "upload_failed",
+                var value: [String: Any] = ["t": "err", "id": callID, "code": error["code"] ?? "upload_failed",
                          "message": error["userMessage"] ?? "The upload could not be completed",
                          "retryable": error["retryable"] ?? false]
+                if let details = error["details"] { value["details"] = details }
+                if let origin = error["origin"] { value["origin"] = origin }
+                reply = value
             }
             let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
             _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
