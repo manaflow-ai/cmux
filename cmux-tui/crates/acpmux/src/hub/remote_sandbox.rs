@@ -50,6 +50,8 @@
 
 use super::*;
 #[cfg(target_os = "linux")]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+#[cfg(target_os = "linux")]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 /// The checked-in Seatbelt profile.
@@ -815,8 +817,12 @@ if [ -n "$5" ]; then
   printf x > "$5/CLAUDE.md" 2>/dev/null; c=$?
   printf x > "$5/source-git" && printf x > "$5/source-claude"; w=$?
   if [ "$w" -eq 0 ]; then
-    mv -T -- "$5/source-git" "$5/.git/hooks/pre-commit"; rg=$?
-    mv -T -- "$5/source-claude" "$5/CLAUDE.md"; rc=$?
+  if rr=$("$7" "${@:8}" __remote-sandbox-canary-rename "$5/source-git" "$5/.git/hooks/pre-commit"); then
+    case "$rr" in rename=0) rg=0;; rename=1) rg=1;; esac
+  fi
+  if rr=$("$7" "${@:8}" __remote-sandbox-canary-rename "$5/source-claude" "$5/CLAUDE.md"); then
+    case "$rr" in rename=0) rc=0;; rename=1) rc=1;; esac
+  fi
   fi
 fi
 persistence="$5"
@@ -833,21 +839,95 @@ else
   echo "acpmux-canary outside=$o loopback=$l tmp=$i"
 fi"#;
 
-fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<PathBuf>, String> {
+struct PersistenceProbe {
+    path: PathBuf,
+    #[cfg(target_os = "linux")]
+    fd: OwnedFd,
+}
+
+#[cfg(target_os = "linux")]
+fn probe_entry_absent(dir: RawFd, name: &str) -> bool {
+    let Ok(name) = std::ffi::CString::new(name) else { return false };
+    let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
+    let rc =
+        unsafe { libc::fstatat(dir, name.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW as _) };
+    rc < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT)
+}
+
+#[cfg(target_os = "linux")]
+fn probe_paths_are_absent(probe: &PersistenceProbe) -> bool {
+    let hooks = std::ffi::CString::new(".git/hooks").unwrap();
+    let hooks_fd = unsafe {
+        libc::openat(
+            probe.fd.as_raw_fd(),
+            hooks.as_ptr(),
+            libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if hooks_fd < 0 {
+        return false;
+    }
+    let hooks = unsafe { OwnedFd::from_raw_fd(hooks_fd) };
+    probe_entry_absent(hooks.as_raw_fd(), "pre-commit")
+        && probe_entry_absent(probe.fd.as_raw_fd(), "CLAUDE.md")
+}
+
+#[cfg(target_os = "linux")]
+/// The fixed two-name loop ends after bounded O_NONBLOCK reads from the pinned directory.
+fn probe_sources_intact(probe: &PersistenceProbe) -> bool {
+    for name in ["source-git", "source-claude"] {
+        let Ok(name) = std::ffi::CString::new(name) else { return false };
+        let raw = unsafe {
+            libc::openat(
+                probe.fd.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        };
+        if raw < 0 {
+            return false;
+        }
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
+        if unsafe { libc::fstat(fd.as_raw_fd(), &mut stat) } != 0
+            || stat.st_mode & libc::S_IFMT != libc::S_IFREG
+        {
+            return false;
+        }
+        let mut byte = [0_u8; 2];
+        let read = unsafe { libc::read(fd.as_raw_fd(), byte.as_mut_ptr().cast(), byte.len() as _) };
+        if read != 1 || byte[0] != b'x' {
+            return false;
+        }
+    }
+    true
+}
+
+fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<PersistenceProbe>, String> {
     if !linux {
         return Ok(None);
     }
     let probe = cwd.join(format!(".acpmux-canary-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(probe.join(".git/hooks"))
         .map_err(|e| format!("canary setup persistence probe: {e}"))?;
-    Ok(Some(probe))
-}
-
-/// Red-stage host probe check; the fix pins the probe directory and uses openat/fstatat.
-fn probe_sources_intact(probe: &Path) -> bool {
-    ["source-git", "source-claude"]
-        .iter()
-        .all(|name| std::fs::read(probe.join(name)).is_ok_and(|data| data == b"x"))
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = probe;
+        return Ok(None);
+    }
+    #[cfg(target_os = "linux")]
+    let text = std::ffi::CString::new(probe.as_os_str().as_encoded_bytes())
+        .map_err(|_| "canary probe path contains NUL")?;
+    #[cfg(target_os = "linux")]
+    let raw = unsafe {
+        libc::open(text.as_ptr(), libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+    };
+    #[cfg(target_os = "linux")]
+    if raw < 0 {
+        return Err(format!("canary pin probe: {}", std::io::Error::last_os_error()));
+    }
+    #[cfg(target_os = "linux")]
+    Ok(Some(PersistenceProbe { path: probe, fd: unsafe { OwnedFd::from_raw_fd(raw) } }))
 }
 
 type CanaryFields = [Option<i32>; 9];
@@ -908,8 +988,6 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     }
     let port6 = listener6.as_ref().and_then(|l| l.local_addr().ok()).map_or(0, |a| a.port());
     let persistence_probe = canary_persistence_probe(&bound.cwd, linux)?;
-    let git_canary = persistence_probe.as_ref().map(|path| path.join(".git/hooks/pre-commit"));
-    let claude_canary = persistence_probe.as_ref().map(|path| path.join("CLAUDE.md"));
     let outside = bound.home.join(format!(".acpmux-sandbox-canary-{}", uuid::Uuid::now_v7()));
     #[cfg(unix)]
     let socket_path = bound
@@ -937,7 +1015,7 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     let persistence_arg = persistence_probe
         .as_ref()
         .filter(|_| linux)
-        .map_or_else(String::new, |path| path.to_string_lossy().into_owned());
+        .map_or_else(String::new, |probe| probe.path.to_string_lossy().into_owned());
     let canary_args = ["/bin/bash", "-c", CANARY, "acpmux-canary"]
         .into_iter()
         .map(str::to_owned)
@@ -976,25 +1054,29 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     if linux {
         scrub_loader_env(&mut cmd);
     }
-    let absent = |path: &Path| {
-        matches!(std::fs::symlink_metadata(path),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound)
-    };
-    let absent_before = git_canary.as_ref().is_none_or(|path| absent(path))
-        && claude_canary.as_ref().is_none_or(|path| absent(path));
+    cmd.env("PATH", "/usr/bin:/bin");
+    #[cfg(target_os = "linux")]
+    let absent_before = persistence_probe.as_ref().is_none_or(probe_paths_are_absent);
+    #[cfg(not(target_os = "linux"))]
+    let absent_before = true;
     let run = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await;
     let landed = std::fs::symlink_metadata(&outside).is_ok();
     if landed {
         let _ = std::fs::remove_file(&outside);
     }
-    let probe_paths_absent = absent_before
-        && git_canary.as_ref().is_none_or(|path| absent(path))
-        && claude_canary.as_ref().is_none_or(|path| absent(path));
+    #[cfg(target_os = "linux")]
+    let probe_paths_absent =
+        absent_before && persistence_probe.as_ref().is_none_or(probe_paths_are_absent);
+    #[cfg(not(target_os = "linux"))]
+    let probe_paths_absent = absent_before;
     // A denied rename must leave the ordinary source in place too. This finite
     // pair check proves the successful cwd writes independently of the report.
-    let sources_intact = persistence_probe.as_ref().is_none_or(|probe| probe_sources_intact(probe));
-    if let Some(path) = &persistence_probe {
-        let _ = std::fs::remove_dir_all(path);
+    #[cfg(target_os = "linux")]
+    let sources_intact = persistence_probe.as_ref().is_none_or(probe_sources_intact);
+    #[cfg(not(target_os = "linux"))]
+    let sources_intact = true;
+    if let Some(probe) = &persistence_probe {
+        let _ = std::fs::remove_dir_all(&probe.path);
     }
     #[cfg(unix)]
     let _ = std::fs::remove_file(&socket_path);
@@ -1405,12 +1487,15 @@ mod endpoint_tests {
         std::fs::write(&mv, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$RENAME_LOG\"\nexit 1\n")
             .unwrap();
         std::fs::set_permissions(&mv, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let helper = root.join("bin/helper");
+        std::fs::write(&helper, "#!/bin/sh\ncase \"$1\" in __remote-sandbox-canary-rename) echo rename=0;; *) echo unix=unknown;; esac\n").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
         let out = std::process::Command::new("/bin/bash")
             .args(["-c", CANARY, "canary", "/nonexistent/outside", "0"])
             .arg(&root)
             .arg("0")
-            .arg(&probe)
-            .args(["", ""])
+            .arg(&probe.path)
+            .args(["/nonexistent/socket", helper.to_str().unwrap()])
             .env("PATH", format!("{}:/usr/bin:/bin", root.join("bin").display()))
             .env("RENAME_LOG", &log)
             .output()
@@ -1418,12 +1503,9 @@ mod endpoint_tests {
         let attempts = std::fs::read_to_string(log).unwrap_or_default();
         let _ = std::fs::remove_dir_all(&root);
         assert!(out.status.success());
-        for target in [".git/hooks/pre-commit", "CLAUDE.md"] {
-            assert!(
-                attempts.contains(&probe.join(target).display().to_string()),
-                "canary never attempted rename to {target}: {attempts}"
-            );
-        }
+        assert!(attempts.is_empty(), "canary used project-controlled mv: {attempts}");
+        let report = String::from_utf8_lossy(&out.stdout);
+        assert!(report.contains("rename_git=0") && report.contains("rename_claude=0"), "{report}");
     }
 
     #[cfg(target_os = "linux")]
@@ -1500,15 +1582,34 @@ mod endpoint_tests {
     fn probe_source_symlink_is_rejected_without_reading_target() {
         let root = std::env::temp_dir().join(format!("probe-fd-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&root).unwrap();
-        std::os::unix::fs::symlink("/dev/zero", root.join("source-git")).unwrap();
-        std::fs::write(root.join("source-claude"), b"x").unwrap();
-        let root_for_thread = root.clone();
+        let probe = canary_persistence_probe(&root, true).unwrap().unwrap();
+        std::os::unix::fs::symlink("/dev/zero", probe.path.join("source-git")).unwrap();
+        std::fs::write(probe.path.join("source-claude"), b"x").unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(probe_sources_intact(&root_for_thread));
+            let _ = tx.send(probe_sources_intact(&probe));
+        });
+        let result = rx.recv_timeout(std::time::Duration::from_millis(100));
+        assert_eq!(result.ok(), Some(false), "probe check did not reject quickly");
+        let root2 = std::env::temp_dir().join(format!("probe-fifo-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root2).unwrap();
+        let probe = canary_persistence_probe(&root2, true).unwrap().unwrap();
+        let fifo = probe.path.join("source-git");
+        let _ = std::fs::remove_file(&fifo);
+        unsafe {
+            libc::mkfifo(
+                std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap().as_ptr(),
+                0o600 as _,
+            )
+        };
+        std::fs::write(probe.path.join("source-claude"), b"x").unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(probe_sources_intact(&probe));
         });
         let result = rx.recv_timeout(std::time::Duration::from_millis(100));
         let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(root2);
         assert_eq!(result.ok(), Some(false), "probe check did not reject quickly");
     }
 

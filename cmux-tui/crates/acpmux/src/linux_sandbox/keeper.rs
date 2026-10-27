@@ -104,6 +104,31 @@ pub(crate) fn canary_unix(args: &[OsString]) -> Result<()> {
     Ok(())
 }
 
+/// Hidden canary helper; rename(2) runs exactly once for the supplied pair.
+/// It reports only the two supervisor denial errnos; all other errors refuse.
+pub(crate) fn canary_rename(args: &[OsString]) -> Result<()> {
+    let [source, destination] = args else {
+        return Err("expected source and destination paths".into());
+    };
+    let source =
+        std::ffi::CString::new(source.as_encoded_bytes()).map_err(|_| "source contains NUL")?;
+    let destination = std::ffi::CString::new(destination.as_encoded_bytes())
+        .map_err(|_| "destination contains NUL")?;
+    // SAFETY: both strings are NUL-terminated and remain live for the call.
+    if unsafe { libc::rename(source.as_ptr(), destination.as_ptr()) } == 0 {
+        println!("rename=0");
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::EPERM | libc::EACCES) => {
+            println!("rename=1");
+            Ok(())
+        }
+        _ => Err(format!("canary rename: {error}")),
+    }
+}
+
 #[derive(Debug)]
 struct Options {
     paths: Paths,
