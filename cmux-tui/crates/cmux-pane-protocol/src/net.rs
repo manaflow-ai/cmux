@@ -206,7 +206,7 @@ mod tests {
         accepted_tx.send(true).await.unwrap();
         accepted_tx.send(false).await.unwrap();
         let looping = tokio::spawn(accept_loop(accept, handle, |_| {}));
-        let wait = std::time::Duration::from_secs(10);
+        let wait = Duration::from_secs(10);
         tokio::time::timeout(wait, served_rx.recv()).await.unwrap().unwrap();
         assert!(!looping.is_finished(), "a panicking connection does not end the loop");
         looping.abort();

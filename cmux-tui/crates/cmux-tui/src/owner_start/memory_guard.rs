@@ -139,7 +139,7 @@ struct Watch<S, A> {
 
 /// Run `watch` on the "memory-guard" thread under `policy`. Each run starts
 /// from `MemoryGuard::new`, samples at once, then every interval until the
-/// owner stops it (seen after the current interval; shutdown does not wait).
+/// owner stops it (a stop ends the wait at once; shutdown does not wait).
 fn start<S, A>(
     supervisor: &Supervisor,
     policy: Restart,
@@ -161,9 +161,8 @@ where
                 {
                     (watch.alert)(memory, crossed);
                 }
-                // A periodic sample is this thread's intended behavior, not a wait on a condition.
-                std::thread::sleep(watch.interval);
-                if stop.is_stopped() {
+                // wakeup-allow: interval the sample period; a stop request unparks it at once.
+                if stop.wait_timeout(watch.interval) {
                     return;
                 }
             }
@@ -292,6 +291,43 @@ mod tests {
         assert_eq!(*recorded.restarts.lock().unwrap(), vec!["memory-guard".to_owned()]);
         assert!(recorded.fatal.lock().unwrap().is_empty());
         assert!(samples.load(Ordering::SeqCst) >= 3);
+    }
+
+    /// Owner shutdown ends the guard at once, not after its sample interval.
+    #[test]
+    fn shutdown_ends_the_guard_without_waiting_for_its_interval() {
+        use std::sync::{Arc, mpsc};
+
+        struct Sink;
+        impl cmux_panic_log::FailureSink for Sink {
+            fn fatal(&self, report: &cmux_panic_log::FatalReport) {
+                panic!("unexpected fatal: {report}");
+            }
+        }
+
+        let supervisor = Supervisor::new(Arc::new(Sink));
+        let (sampled, first_sample) = mpsc::channel();
+        // Dropped with the worker's body, when its thread ends.
+        let (alive, ended) = mpsc::channel::<()>();
+        let watch = Watch {
+            threshold: u64::MAX,
+            interval: Duration::from_secs(3600),
+            sample: move || {
+                let _alive = &alive;
+                let _ = sampled.send(());
+                None
+            },
+            alert: |_, _| {},
+        };
+        let _handle = start(&supervisor, Restart::state_private(), watch).unwrap();
+        let wait = Duration::from_secs(10);
+        first_sample.recv_timeout(wait).unwrap();
+        assert!(supervisor.shutdown().late.is_empty());
+        assert_eq!(
+            ended.recv_timeout(wait),
+            Err(mpsc::RecvTimeoutError::Disconnected),
+            "the guard ended within the wait, not after its hour-long interval"
+        );
     }
 
     #[test]

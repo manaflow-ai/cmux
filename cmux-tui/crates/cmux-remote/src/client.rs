@@ -555,16 +555,28 @@ async fn connect_rpc_channel(
             }
         }
     });
-    // supervise-allow: the channel's reader monitor; it only awaits the reader and fails the channel's pending requests, so a reader panic ends those requests with an error instead of leaving them waiting.
-    tokio::spawn(async move {
-        let failure =
-            reader.await.unwrap_or_else(|error| format!("workspace RPC reader stopped: {error}"));
+    let close = async move {
         let _ = messages.close().await;
-        for (_, sender) in request_registry(&requests).pending.drain() {
-            let _ = sender.send(Err(failure.clone()));
-        }
-    });
+    };
+    // supervise-allow: the channel's reader monitor; it only awaits the reader and fails the channel's pending requests, so a reader panic ends those requests with an error instead of leaving them waiting.
+    tokio::spawn(settle_when_reader_ends(reader, close, requests));
     Ok(channel)
+}
+
+/// Awaits the channel's reader, closes the stream, then fails every pending
+/// request with the reader's failure. A reader that panicked fails them with
+/// "workspace RPC reader stopped" instead of leaving them waiting.
+async fn settle_when_reader_ends(
+    reader: tokio::task::JoinHandle<String>,
+    close: impl Future<Output = ()>,
+    requests: RequestRegistry,
+) {
+    let failure =
+        reader.await.unwrap_or_else(|error| format!("workspace RPC reader stopped: {error}"));
+    close.await;
+    for (_, sender) in request_registry(&requests).pending.drain() {
+        let _ = sender.send(Err(failure.clone()));
+    }
 }
 
 fn request_registry(
@@ -760,5 +772,37 @@ fn attach_process_handle(
             "invalid-argument",
             "process handle can be attached only to a spawn-process request",
         )),
+    }
+}
+
+#[cfg(test)]
+mod reader_monitor_tests {
+    use super::*;
+
+    /// A workspace RPC reader that panics fails the channel's pending
+    /// requests with an error; they do not wait forever.
+    #[tokio::test]
+    async fn a_reader_panic_fails_pending_requests() {
+        let requests: RequestRegistry =
+            Arc::new(Mutex::new(WorkspaceRequestRegistry::new().unwrap()));
+        let (sender, pending) = oneshot::channel();
+        {
+            let mut registry = request_registry(&requests);
+            let id = registry.allocate().unwrap();
+            registry.pending.insert(id, sender);
+        }
+        let reader = tokio::spawn(async { panic!("workspace RPC response handling failed") });
+        let (closed_tx, closed) = oneshot::channel();
+        let close = async move {
+            let _ = closed_tx.send(());
+        };
+        let monitor = tokio::spawn(settle_when_reader_ends(reader, close, Arc::clone(&requests)));
+
+        let wait = Duration::from_secs(10);
+        let failure = tokio::time::timeout(wait, pending).await.unwrap().unwrap().unwrap_err();
+        assert!(failure.starts_with("workspace RPC reader stopped"), "{failure}");
+        closed.await.expect("the stream was closed");
+        monitor.await.unwrap();
+        assert!(request_registry(&requests).pending.is_empty());
     }
 }

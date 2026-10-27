@@ -78,3 +78,36 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<cmux_panic_log::Supe
     }
     Ok(supervisor)
 }
+
+/// The owner's loop ended with `result`: stop its supervised workers before
+/// the mux they serve goes away (none restarts, Skip workers are asked to
+/// stop, Block workers are waited for). When the signal thread failed, the
+/// supervisor's fatal sink is ending the process: wait for that exit instead
+/// of racing it with teardown and a second exit.
+pub(crate) fn stop_supervised(
+    supervisor: &cmux_panic_log::Supervisor,
+    result: &anyhow::Result<()>,
+) {
+    if let Err(error) = result
+        && error.downcast_ref::<crate::headless::SignalRecordFailed>().is_some()
+    {
+        await_supervised_exit();
+    }
+    let report = supervisor.shutdown();
+    if !report.late.is_empty() {
+        crate::client_log::stderr_log!(
+            "shutdown",
+            "{}: supervised workers still running at their deadline: {}",
+            crate::cli::BIN,
+            report.late.join(", ")
+        );
+    }
+}
+
+/// The owner's [`owner_panic::supervisor`] sink (`ExitProcess`) never
+/// returns: it records the failure and exits. The caller parks until then.
+fn await_supervised_exit() -> ! {
+    loop {
+        std::thread::park();
+    }
+}

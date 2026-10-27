@@ -3,6 +3,7 @@
 //! attaches off the UI thread.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Condvar, Mutex};
 
 use cmux_tui_core::SurfaceId;
@@ -15,6 +16,7 @@ use crate::app::surface_sync::{
     retire_missing_surface_attach,
 };
 use crate::app::{AppEvent, SessionEventSender};
+use crate::localization;
 use crate::session::{
     Session, SurfaceAttach, is_remote_surface_unavailable, is_remote_timeout,
     is_remote_transport_failure,
@@ -159,7 +161,7 @@ pub(super) struct RemoteSurfaceAttachJob {
 }
 
 impl RemoteSurfaceAttachJob {
-    pub(super) fn run(self) {
+    fn run(self) {
         let Self {
             mut claim,
             session,
@@ -230,20 +232,56 @@ impl RemoteSurfaceAttachJob {
         let _ = events.send(AppEvent::SurfaceAttachSettled { outcome: result.outcome });
     }
 
-    pub(super) fn fail(self, error: String) {
-        let mut failures = self.attach_failures.lock().unwrap();
-        let state = next_surface_sync_failure(failures.get(&self.id).copied(), true, false);
-        failures.insert(self.id, state);
-        drop(failures);
-        let _ = self.events.send(AppEvent::SurfaceAttachSettled {
-            outcome: SurfaceAttachOutcome::Failed {
-                surface: self.id,
-                operation: "attach",
-                error,
-                reconnect_required: false,
-            },
-        });
+    /// [`Self::run`] on a pool worker. A panic in the job's remote calls
+    /// settles it as a failed attach and the worker takes the next job: no
+    /// shared lock is held across those calls, and the unwind already
+    /// released the job's claim.
+    fn run_on_worker(self) {
+        let id = self.id;
+        let events = self.events.clone();
+        let attach_failures = self.attach_failures.clone();
+        if let Err(payload) = std::panic::catch_unwind(AssertUnwindSafe(|| self.run())) {
+            let message = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("non-text panic payload");
+            crate::client_log::error(
+                "surface-attach",
+                &format!("surface {id}: attach job panicked: {message}"),
+            );
+            settle_failed_attach(
+                &attach_failures,
+                &events,
+                id,
+                localization::catalog().attach.remote_attach_worker_panicked.to_string(),
+            );
+        }
     }
+
+    pub(super) fn fail(self, error: String) {
+        settle_failed_attach(&self.attach_failures, &self.events, self.id, error);
+    }
+}
+
+fn settle_failed_attach(
+    attach_failures: &Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>,
+    events: &SessionEventSender,
+    id: SurfaceId,
+    error: String,
+) {
+    let mut failures = attach_failures.lock().unwrap();
+    let state = next_surface_sync_failure(failures.get(&id).copied(), true, false);
+    failures.insert(id, state);
+    drop(failures);
+    let _ = events.send(AppEvent::SurfaceAttachSettled {
+        outcome: SurfaceAttachOutcome::Failed {
+            surface: id,
+            operation: "attach",
+            error,
+            reconnect_required: false,
+        },
+    });
 }
 
 #[derive(Default)]
@@ -275,7 +313,7 @@ impl RemoteSurfaceAttachExecutor {
         let mut worker_count: usize = 0;
         for worker in 0..REMOTE_ATTACH_WORKER_LIMIT {
             let worker_shared = shared.clone();
-            // supervise-allow: one of REMOTE_ATTACH_WORKER_LIMIT pool workers owned by the executor and stopped with it; a panic ends that worker's job only.
+            // supervise-allow: one of REMOTE_ATTACH_WORKER_LIMIT pool workers owned by the executor and stopped with it; run_on_worker settles a panicking job as a failed attach, so the worker releases its background slot and takes the next job.
             let spawned = std::thread::Builder::new()
                 .name(format!("surface-attach-{worker}"))
                 .spawn(move || {
@@ -303,7 +341,7 @@ impl RemoteSurfaceAttachExecutor {
                             }
                         };
                         if let Some(job) = job {
-                            job.run();
+                            job.run_on_worker();
                         }
                         if background {
                             let (queue, ready) = &*worker_shared;

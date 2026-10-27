@@ -43,35 +43,21 @@ where
         // start here, before the loop wakes and teardown begins, so a
         // shell that dies of the same logout signal is a host loss
         // (`session-shutdown`).
-        // Fatal: without this thread a termination signal no longer stops
-        // the owner. It waits on the signal itself, so shutdown leaves it be.
         let signalled = Arc::downgrade(mux);
-        let (recorded, signal_recorded) = std::sync::mpsc::sync_channel::<()>(1);
-        supervisor
-            .supervise_thread(
-                "headless-signal-wait",
-                cmux_panic_log::Fatal,
-                cmux_panic_log::ShutdownBehavior::Continue,
-                move |_stop: &cmux_panic_log::StopToken| {
-                    wait_for_shutdown_signal_peek();
-                    if shutdown_requested()
-                        && let Some(mux) = signalled.upgrade()
-                    {
-                        mux.begin_session_shutdown();
-                        // Name who stopped this owner (cx-0tgl LA).
-                        if let Some((signal, sender, uid)) = signal_sender::shutdown_signal() {
-                            mux.record_daemon_signal(signal, sender, uid);
-                        }
-                    }
-                    let _ = recorded.send(());
-                    wake_headless();
-                },
-            )
-            .ok()
-            .map(|_worker| signal_recorded)
+        start_signal_recorder(supervisor, wait_for_shutdown_signal_peek, move || {
+            if shutdown_requested()
+                && let Some(mux) = signalled.upgrade()
+            {
+                mux.begin_session_shutdown();
+                // Name who stopped this owner (cx-0tgl LA).
+                if let Some((signal, sender, uid)) = signal_sender::shutdown_signal() {
+                    mux.record_daemon_signal(signal, sender, uid);
+                }
+            }
+        })
     };
     #[cfg(not(unix))]
-    let signal_wait: Option<std::sync::mpsc::Receiver<()>> = {
+    let signal_wait: Option<SignalRecord> = {
         let _ = supervisor;
         None
     };
@@ -90,11 +76,12 @@ where
     // the sender; teardown and exit then raced that record and left a cut
     // `daemon_signal` line. A signal stop waits for the record (the thread
     // returns once the signal is seen); any other stop leaves the thread
-    // parked on the wake descriptor.
+    // parked on the wake descriptor. A record that failed stops here: the
+    // supervisor's fatal sink ends the process, and teardown must not race it.
     if shutdown_requested()
         && let Some(signal_wait) = signal_wait
     {
-        let _ = signal_wait.recv();
+        signal_wait.finish()?;
     }
     if let Some(chief_brains) = chief_brains {
         chief_brains.stop();
@@ -136,6 +123,65 @@ pub(crate) fn ws_token(
         );
     }
     Ok(WsToken { token: Some(websocket_credential::mint_token()?), minted: true })
+}
+
+/// The signal thread's record of a shutdown signal; [`SignalRecord::finish`]
+/// waits for it.
+pub(crate) struct SignalRecord(std::sync::mpsc::Receiver<()>);
+
+/// The signal thread failed before its record: the supervisor's fatal sink
+/// is ending the owner, so the caller must not start its own teardown.
+#[derive(Debug)]
+pub(crate) struct SignalRecordFailed;
+
+impl std::fmt::Display for SignalRecordFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the headless signal thread failed before it recorded the signal")
+    }
+}
+
+impl std::error::Error for SignalRecordFailed {}
+
+impl SignalRecord {
+    /// `Ok` once the thread recorded the signal; [`SignalRecordFailed`] when
+    /// its body unwound (its sender dropped without a record).
+    pub(crate) fn finish(self) -> Result<(), SignalRecordFailed> {
+        self.0.recv().map_err(|_| SignalRecordFailed)
+    }
+}
+
+/// Starts "headless-signal-wait": `wait` blocks until a termination signal,
+/// then `record` runs and the thread sends its record and wakes the loop.
+/// Fatal: without this thread a termination signal no longer stops the
+/// owner. It waits on the signal itself, so shutdown leaves it be.
+#[cfg(unix)]
+fn start_signal_recorder(
+    supervisor: &cmux_panic_log::Supervisor,
+    wait: impl FnOnce() + Send + 'static,
+    record: impl FnOnce() + Send + 'static,
+) -> Option<SignalRecord> {
+    let (recorded, signal_recorded) = std::sync::mpsc::sync_channel::<()>(1);
+    let started = supervisor.supervise_thread(
+        "headless-signal-wait",
+        cmux_panic_log::Fatal,
+        cmux_panic_log::ShutdownBehavior::Continue,
+        move |_stop: &cmux_panic_log::StopToken| {
+            wait();
+            record();
+            let _ = recorded.send(());
+            wake_headless();
+        },
+    );
+    match started {
+        Ok(_worker) => Some(SignalRecord(signal_recorded)),
+        Err(error) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "{BIN}: the headless signal thread did not start: {error}"
+            );
+            None
+        }
+    }
 }
 
 /// The WebSocket token a daemon starts with, and whether it minted it.
@@ -228,6 +274,40 @@ mod tests {
             cmux_threads::snapshot().iter().all(|row| row.name != "main"),
             "the row leaves with its thread"
         );
+    }
+
+    /// A signal record that panics is Fatal under the supervisor, and the
+    /// loop sees a failed record (not a finished one), so it leaves the exit
+    /// to the supervisor instead of starting teardown.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_signal_record_is_fatal_and_stops_the_owner_teardown() {
+        use std::sync::{Arc, mpsc};
+        use std::time::Duration;
+
+        struct Recording(mpsc::Sender<cmux_panic_log::FatalReport>);
+        impl cmux_panic_log::FailureSink for Recording {
+            fn fatal(&self, report: &cmux_panic_log::FatalReport) {
+                let _ = self.0.send(report.clone());
+            }
+        }
+
+        let (reports, fatal) = mpsc::channel();
+        let supervisor = cmux_panic_log::Supervisor::new(Arc::new(Recording(reports)));
+        let record =
+            super::start_signal_recorder(&supervisor, || {}, || panic!("the signal record failed"))
+                .expect("the signal thread starts");
+        assert!(matches!(record.finish(), Err(super::SignalRecordFailed)));
+        let report = fatal.recv_timeout(Duration::from_secs(10)).expect("a fatal report");
+        assert_eq!(report.worker, "headless-signal-wait");
+        assert!(matches!(
+            &report.reason,
+            cmux_panic_log::FatalReason::Failed(cmux_panic_log::Failure::Panicked { .. })
+        ));
+
+        let fine = super::start_signal_recorder(&supervisor, || {}, || {}).unwrap();
+        assert!(fine.finish().is_ok(), "a recorded signal lets teardown run");
+        assert!(fatal.try_recv().is_err(), "a clean record is not fatal");
     }
 
     #[test]

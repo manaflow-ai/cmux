@@ -376,6 +376,56 @@ fn failed_surface_sync_is_bounded_until_lifecycle_recovery() {
     ));
 }
 
+/// A remote attach job that panics settles as a failed attach, and the pool
+/// keeps serving: more panicking background attaches than the pool has
+/// background slots, then one more attach still settles.
+#[test]
+fn a_panicking_remote_attach_settles_failed_and_the_pool_keeps_serving() {
+    let mux = Mux::new("surface-attach-panic-test", SurfaceOptions::default());
+    let (mut app, events) = test_app_with_events(Session::Local(mux));
+    app.session.remote = true;
+    let panics = Arc::new(AtomicBool::new(true));
+    let hook_panics = panics.clone();
+    *app.session.surface_attach_after_obsolete_check.lock().unwrap() = Some(Arc::new(move || {
+        assert!(!hook_panics.load(Ordering::SeqCst), "the remote attach call failed");
+    }));
+
+    let panicking: HashSet<SurfaceId> =
+        (70..70 + crate::app::REMOTE_ATTACH_WORKER_LIMIT as u64).collect();
+    for surface in &panicking {
+        app.session.attach_surface(*surface, None);
+    }
+    let mut failed = HashSet::new();
+    while failed.len() < panicking.len() {
+        let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
+        if let AppEvent::SurfaceAttachSettled {
+            outcome:
+                crate::app::SurfaceAttachOutcome::Failed { surface, operation: "attach", error, .. },
+        } = &event
+        {
+            assert_eq!(
+                error,
+                localization::catalog().attach.remote_attach_worker_panicked,
+                "the panic text stays in the client log"
+            );
+            failed.insert(*surface);
+        }
+        app.handle(event).unwrap();
+    }
+    assert_eq!(failed, panicking);
+
+    panics.store(false, Ordering::SeqCst);
+    app.session.attach_surface(90, None);
+    loop {
+        let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
+        let settled = matches!(&event, AppEvent::SurfaceAttachSettled { .. });
+        app.handle(event).unwrap();
+        if settled {
+            break;
+        }
+    }
+}
+
 #[test]
 fn retiring_surface_during_inflight_attach_is_not_a_sync_failure() {
     let mux = Mux::new("surface-retired-during-attach-test", SurfaceOptions::default());

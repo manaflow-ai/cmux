@@ -37,6 +37,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem::{size_of, size_of_val};
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex};
@@ -168,6 +169,8 @@ pub enum BrowserInputKind {
     },
     #[cfg(test)]
     TestProbe(std::sync::mpsc::Sender<SurfaceId>),
+    #[cfg(test)]
+    TestPanic,
 }
 
 struct SequencedBrowserInputEvent {
@@ -564,7 +567,7 @@ impl BrowserInputScheduler {
         });
         for worker_index in 0..worker_count {
             let worker = scheduler.clone();
-            // supervise-allow: one of the scheduler's worker_count workers, stopped by its shutdown; a panic ends that worker's lane only.
+            // supervise-allow: one of the scheduler's worker_count workers, stopped by its shutdown; process_one catches a panic in an event's dispatch, so the worker releases that event and keeps serving.
             if let Err(error) = std::thread::Builder::new()
                 .name(format!("mux-browser-input-{worker_index}"))
                 .spawn(move || worker.run())
@@ -697,12 +700,31 @@ impl ScheduledSurfaceInputLane {
         };
         let mut event = event;
         if !event.lifetime.load(Ordering::Acquire) {
-            dispatch_surface_event(
-                &mut event,
-                &scheduler.failed_resizes,
-                scheduler.on_resize_failure.as_ref(),
-                scheduler.on_control_failure.as_ref(),
-            );
+            // The dispatch calls out of the scheduler (the surface's browser
+            // call and the app's callbacks). A panic there drops this event
+            // only, as a renderer that exits drops its queued input
+            // (RenderWidgetHostImpl::RendererExited,
+            // content/browser/renderer_host/render_widget_host_impl.cc):
+            // the event is released below and the lane is scheduled again.
+            // No scheduler lock is held across those calls.
+            let surface_id = event.event.surface_id;
+            let dispatched = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                dispatch_surface_event(
+                    &mut event,
+                    &scheduler.failed_resizes,
+                    scheduler.on_resize_failure.as_ref(),
+                    scheduler.on_control_failure.as_ref(),
+                );
+            }));
+            if let Err(payload) = dispatched {
+                crate::client_log::error(
+                    "browser-input",
+                    &format!(
+                        "surface {surface_id}: input dispatch panicked: {}",
+                        panic_payload_text(payload.as_ref())
+                    ),
+                );
+            }
         }
         scheduler.release_event(&event);
     }
@@ -944,6 +966,14 @@ impl SurfaceInputLane {
     }
 }
 
+fn panic_payload_text(payload: &(dyn std::any::Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("non-text panic payload")
+}
+
 fn dispatch_surface_event(
     event: &mut SequencedBrowserInputEvent,
     failed_resizes: &Mutex<HashMap<SurfaceId, FailedBrowserResize>>,
@@ -1160,6 +1190,8 @@ fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<bool> {
             let _ = observed.send(event.surface_id);
             Ok(true)
         }
+        #[cfg(test)]
+        BrowserInputKind::TestPanic => panic!("browser surface failed"),
     }
 }
 
@@ -1403,6 +1435,35 @@ mod tests {
             rx.recv_timeout(Duration::from_millis(50)).is_err(),
             "disposable input must not emit status feedback"
         );
+    }
+
+    /// A panic in one event's dispatch drops that event only: the worker
+    /// releases its admission and serves the same surface's next event.
+    #[test]
+    fn a_panicking_dispatch_drops_its_event_and_the_surface_keeps_serving() {
+        let dispatcher = BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap();
+        let (observed_tx, observed_rx) = std::sync::mpsc::channel();
+        for _ in 0..2 * BROWSER_INPUT_WORKER_COUNT {
+            assert!(dispatcher.enqueue(BrowserInputEvent {
+                surface_id: 1,
+                surface: SurfaceHandle::RemoteBrowserUnsupported,
+                kind: BrowserInputKind::TestPanic,
+            }));
+            assert!(dispatcher.enqueue(BrowserInputEvent {
+                surface_id: 1,
+                surface: SurfaceHandle::RemoteBrowserUnsupported,
+                kind: BrowserInputKind::TestProbe(observed_tx.clone()),
+            }));
+            assert_eq!(
+                observed_rx.recv_timeout(Duration::from_secs(5)),
+                Ok(1),
+                "the surface's next event after a panicking dispatch"
+            );
+        }
+        // Every panicking event was released; only the last probe, observed
+        // before its own release, may still hold its admission.
+        let scheduler = dispatcher.scheduler.as_ref().unwrap();
+        assert!(scheduler.admission.lock().unwrap().queued_events <= 1);
     }
 
     #[test]

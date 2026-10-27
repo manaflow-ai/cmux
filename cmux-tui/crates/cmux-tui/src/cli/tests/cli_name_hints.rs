@@ -55,7 +55,7 @@ fn no_gui_only_cli_name_is_also_a_verb() {
             | Ok(None)
             | Err(_) => {}
             Ok(Some(command)) => {
-                shadowed.push(format!("{name} ({id}): an app verb parses it as {command:?}"))
+                shadowed.push(format!("{name} ({id}): an app verb parses it as {command:?}"));
             }
         }
     }

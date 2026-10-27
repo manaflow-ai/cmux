@@ -2713,6 +2713,7 @@ fn run_server(
             Err(error) => Err(error),
         }
     };
+    owner_start::stop_supervised(&supervisor, &result);
     // The owner's loop ended (a termination signal, shutdown-daemon or the
     // last client): record the session shutdown before any teardown, so a
     // shell that dies of the same logout signal is a host loss
