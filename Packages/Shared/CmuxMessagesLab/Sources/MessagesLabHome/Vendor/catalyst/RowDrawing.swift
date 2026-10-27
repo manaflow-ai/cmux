@@ -615,7 +615,9 @@ enum PartRenderer {
     /// `ThreadPreview.quoteOpacity` so the text does not show the fill through it. Replaces the 1 pt outline with
     /// blue or gray text and a full-size tail on a 24 pt body, which did not match the quoted message.
     static func drawQuoteBubble(_ ctx: CGContext, _ pv: ThreadPreview, box: CGRect) {
-        let out = pv.outgoing
+        var out = pv.outgoing
+        // cmux: a quoted file card keeps the card's neutral fill on either side (HomeFileCard, #26395).
+        if case let .attachment(a) = pv.part, HomeFileCard.isCard(a) { out = false }
         let fill = out ? Fixture.outgoing : Fixture.incoming
         let ink = out ? Fixture.outgoingText : Fixture.incomingText
         let shape = BubblePath.balloon(frame: box, row: pv.shapeRow)

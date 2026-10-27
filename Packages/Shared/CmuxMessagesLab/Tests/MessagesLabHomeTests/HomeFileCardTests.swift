@@ -80,6 +80,9 @@ import UniformTypeIdentifiers
         let short = HomeFileCard.truncated(mine.fileName, font: HomeFileCard.nameFont, width: room)
         #expect(short.hasSuffix(".ips") && short.contains("\u{2026}") && short.hasPrefix("cmux DEV-"), "\(short)")
         #expect(TextDraw.width(short, font: HomeFileCard.nameFont) <= room)
+        // A long "extension" is not kept whole: the name still fits the card.
+        let dump = HomeFileCard.truncated("dump.backup-2026-10-27T15-39-44-full-snapshot", font: HomeFileCard.nameFont, width: room)
+        #expect(TextDraw.width(dump, font: HomeFileCard.nameFont) <= room, "\(dump)")
         #expect(HomeFileCard.size(theirs, maxWidth: 600).width < HomeFileCard.maxWidth)
         #expect(HomeFileCard.size(mine, maxWidth: 600).width == HomeFileCard.maxWidth)
         #expect(HomeFileCard.icon(theirs, pixels: 128) != nil)

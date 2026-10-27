@@ -44,7 +44,8 @@ enum HomeFileCard {
     }
 
     static func kind(_ a: Attachment) -> String {
-        if let t = type(a), !t.isDynamic, let d = t.localizedDescription, !d.isEmpty { return d }
+        // A generic base type ("data") says less than upstream's "Document".
+        if let t = type(a), !t.isDynamic, ![UTType.data, .item, .content].contains(t), let d = t.localizedDescription, !d.isEmpty { return d }
         return Strings.fileKind(a)
     }
 
@@ -56,13 +57,15 @@ enum HomeFileCard {
     }
 
     /// `name` shortened in the middle until it fits `width`, keeping its extension whole
-    /// ("cmux DEV-2026-10…14-02.ips"), as Messages and Finder do.
-    static func truncated(_ name: String, font: UIFont, width: CGFloat) -> String {
+    /// ("cmux DEV-2026-10…14-02.ips"), as Messages and Finder do. A long or spaced "extension"
+    /// (`backup-2026-10-27T15-39-44`, `0 final`) or one that alone does not fit is not kept.
+    static func truncated(_ name: String, font: UIFont, width: CGFloat, keepExtension: Bool = true) -> String {
         guard TextDraw.width(name, font: font) > width else { return name }
         let ns = name as NSString
-        let ext = ns.pathExtension
+        var ext = keepExtension ? ns.pathExtension : ""
+        if ext.count > 8 || ext.contains(" ") || TextDraw.width("\u{2026}." + ext, font: font) > width / 2 { ext = "" }
         let suffix = ext.isEmpty ? "" : "." + ext
-        let stem = Array(ext.isEmpty ? name : ns.deletingPathExtension)
+        let stem = Array(ext.isEmpty ? name : String(name.dropLast(suffix.count)))
         // Keep the most characters of the stem that fit, split between its start and its end.
         var lo = 0, hi = stem.count
         var best = "\u{2026}" + suffix
@@ -99,7 +102,7 @@ enum HomeFileCard {
             fg.setFill()
             UIBezierPath(roundedRect: CGRect(x: bar.minX, y: bar.minY, width: bar.width * CGFloat(min(1, max(0, pr))), height: 4), cornerRadius: 2).fill()
         }
-        TextDraw.line(truncated(sub, font: detailFont, width: room), font: detailFont, color: fg.withAlphaComponent(0.6), x: x,
+        TextDraw.line(truncated(sub, font: detailFont, width: room, keepExtension: false), font: detailFont, color: fg.withAlphaComponent(0.6), x: x,
                       baseline: body.minY + detailBaseline, in: ctx)
     }
 
