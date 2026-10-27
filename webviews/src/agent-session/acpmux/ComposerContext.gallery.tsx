@@ -46,6 +46,43 @@ const baseProps = {
   onConnect: () => undefined,
 };
 
+/// What `acpmux host ls` lists on a Mac with a fleet (hub.peers(), sorted by name): four machines of
+/// the person's own, two numbered VM pools with four still reconnecting and one in its handshake,
+/// and a cmux Cloud machine. 21 machines, as the daemon reports them.
+const fleetPeers = [
+  "build-mini",
+  "desk-linux",
+  "gpu-box",
+  "home-server",
+  ...Array.from({ length: 6 }, (_, index) => `agent-vm-${index + 1}`),
+  ...Array.from({ length: 10 }, (_, index) => `codex-vm-${index + 1}`),
+  "Cloud machine",
+];
+const fleetStates: Record<string, string> = Object.fromEntries(
+  fleetPeers.map((name) => [
+    name,
+    name === "gpu-box"
+      ? "offline"
+      : /^agent-vm-[3-5]$/.test(name)
+        ? "reconnecting"
+        : name === "agent-vm-6"
+          ? "degraded"
+          : "connected",
+  ]),
+);
+const fleetProps = {
+  ...baseProps,
+  peers: fleetPeers,
+  peerKinds: Object.fromEntries(fleetPeers.map((name) => [name, name === "Cloud machine" ? "cloud" : "ssh"])) as Record<
+    string,
+    "ssh" | "cloud"
+  >,
+  peerConnected: Object.fromEntries(
+    fleetPeers.map((name) => [name, fleetStates[name] === "connected" || fleetStates[name] === "degraded"]),
+  ),
+  peerStates: fleetStates,
+};
+
 /// The New Tab page's saved environments (SavedEnvironmentRows), with `current` picked.
 function savedProps(current?: string): ComponentProps<typeof ComposerContext> {
   return {
@@ -411,6 +448,32 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-fleet": {
+      note: "Preview: every machine acpmux lists (21, from `host ls`), in This Mac, My machines and Cloud and VMs sections; in each the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
+      props: { ...fleetProps, environments: true },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
+      },
+    },
+    "environment-picker-fleet-search": {
+      note: 'Preview: with 21 machines, typing "agent" leaves one pool, its connected ones first.',
+      props: { ...fleetProps, environments: true },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+        await ctx.type("agent");
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length < 12);
+      },
+    },
+    "computer-menu-fleet": {
+      note: "Previews off: the plain Computer menu lists the same 21 machines in the same sections, greyed the same way.",
+      props: fleetProps,
+      play: async (ctx) => {
+        await openComputer(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length > 20);
       },
     },
     "machine-colors": {

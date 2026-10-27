@@ -35,7 +35,7 @@ import { carryInline, inlinePrompt, recordedPromptParts, restoreInline } from ".
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
-import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
+import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
@@ -1320,6 +1320,7 @@ export class AcpmuxDirectClient {
   /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
   private peerConnected: Record<string, boolean> = {};
+  private peerStates: Record<string, string> = {};
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
   private reconnectTimer?: number;
@@ -3951,6 +3952,7 @@ export class AcpmuxDirectClient {
       peers: this.peers,
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,
+      peerStates: this.peerStates,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
@@ -5743,6 +5745,7 @@ export class AcpmuxDirectClient {
       : [];
     this.peerKinds = peerKindsFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
+    this.peerStates = peerStatesFromStatus(status);
     this.peerStatus = peerStatusFromStatus(status);
   }
   /// Probes every agent's live model list again (`_acpmux/models {refresh: true}`): acpmux forgets

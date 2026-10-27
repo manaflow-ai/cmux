@@ -308,6 +308,29 @@ test("picking a machine instead clears the saved environment", async () => {
   expect(folderButton()).not.toBeNull();
 });
 
+test("picking another machine acpmux lists starts the chat there", async () => {
+  const calls = await mount();
+  await click(environmentButton());
+  await click(row("devbox"));
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox`);
+  await ask("tail the logs");
+  const asked = calls.find((call) => call.method === "chat.new")!.params!;
+  expect(asked).toMatchObject({ harness: "claude", peer: "devbox" });
+  // Another machine's folder is not this Mac's: no local folder check.
+  expect(calls.some((call) => call.method === "workspace.useFolder")).toBe(false);
+  expect(calls.find((call) => call.method === "chat.send")?.params).toEqual({ text: "tail the logs" });
+});
+
+test("picking this Mac again after another machine starts the chat here", async () => {
+  const calls = await mount();
+  await click(environmentButton());
+  await click(row("devbox"));
+  await click(environmentButton());
+  await click(rows().find((item) => item.querySelector('.acpmux-env-row[data-kind="local"]')));
+  await ask("fix the build");
+  expect(calls.find((call) => call.method === "chat.new")?.params?.peer).toBeUndefined();
+});
+
 test("Create environment saves where the page would start and picks it", async () => {
   const calls = await mount();
   await click(environmentButton());
