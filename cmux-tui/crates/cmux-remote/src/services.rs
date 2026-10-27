@@ -834,13 +834,15 @@ impl DaemonServices {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
-        let (reader, writer) =
+        // Whether the daemon took frames changes nothing here: it decides
+        // the far client's grants, and the bridge reads frames either way.
+        let (socket, _frames) =
             tokio::time::timeout(MUX_BRIDGE_HELLO_TIMEOUT, open_mux_bridge(path))
                 .await
                 .map_err(|_| ServicesError::Remote("mux bridge hello timed out".into()))??;
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
-        pump_mux_server_with_budget(stream, reader, writer, upload_budget).await
+        pump_mux_server_with_budget(stream, socket.reader, socket.writer, upload_budget).await
     }
 
     #[cfg(not(unix))]
@@ -868,7 +870,8 @@ const BRIDGE_HELLO_CAPABILITY: &str = "bridge-hello-v1";
 /// the far client frames, never descriptors (cmux-tui-core
 /// server/client_hello.rs; spec/transports.md "Framed IPC grants").
 #[cfg(unix)]
-const BRIDGE_HELLO_LINE: &[u8] = b"{\"cmd\":\"bridge-hello\",\"features\":[\"bridge-frames-v1\"]}\n";
+const BRIDGE_HELLO_LINE: &[u8] =
+    b"{\"cmd\":\"bridge-hello\",\"features\":[\"bridge-frames-v1\"]}\n";
 
 /// Longest `identify` or `bridge-hello` reply the remote end reads.
 #[cfg(unix)]
@@ -877,37 +880,44 @@ const MAX_BRIDGE_HELLO_REPLY_BYTES: usize = 1024 * 1024;
 #[cfg(unix)]
 const MUX_BRIDGE_HELLO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// The remote end's connection to the local daemon.
+#[cfg(unix)]
+struct MuxBridgeSocket {
+    reader: BufReader<tokio::net::unix::OwnedReadHalf>,
+    writer: tokio::net::unix::OwnedWriteHalf,
+}
+
 /// Connects the remote end of the mux bridge to the local daemon and says
 /// it is a bridge that reads frames. A daemon that predates `bridge-hello`
 /// would take it as the connection's first line and close the far client's
-/// hello window, so an `identify` on its own connection asks first.
+/// hello window, so an `identify` on its own connection asks first. The
+/// flag is true when the daemon took `bridge-frames-v1`: it may then grant
+/// the far client frames.
 #[cfg(unix)]
-async fn open_mux_bridge(
-    path: &std::path::Path,
-) -> Result<
-    (BufReader<tokio::net::unix::OwnedReadHalf>, tokio::net::unix::OwnedWriteHalf),
-    ServicesError,
-> {
+async fn open_mux_bridge(path: &std::path::Path) -> Result<(MuxBridgeSocket, bool), ServicesError> {
     let takes_hello = {
         let (reader, mut writer) = connect_owned_unix_socket(path).await?.into_split();
         writer.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").await?;
         let identify = read_bridge_hello_reply(&mut BufReader::new(reader)).await?;
-        identify
-            .pointer("/data/capabilities")
-            .and_then(serde_json::Value::as_array)
-            .is_some_and(|capabilities| {
+        identify.pointer("/data/capabilities").and_then(serde_json::Value::as_array).is_some_and(
+            |capabilities| {
                 capabilities.iter().any(|name| name.as_str() == Some(BRIDGE_HELLO_CAPABILITY))
-            })
+            },
+        )
     };
     let (reader, mut writer) = connect_owned_unix_socket(path).await?.into_split();
     let mut reader = BufReader::new(reader);
+    let mut frames = false;
     if takes_hello {
         writer.write_all(BRIDGE_HELLO_LINE).await?;
-        // A refusal (a phone host's lane, an unverified peer) leaves the
-        // connection a plain bridge: the far client gets streams only.
-        read_bridge_hello_reply(&mut reader).await?;
+        // A refusal (an unverified peer) leaves the connection a plain
+        // bridge: the far client gets streams only.
+        let reply = read_bridge_hello_reply(&mut reader).await?;
+        frames = reply.pointer("/data/features").and_then(serde_json::Value::as_array).is_some_and(
+            |features| features.iter().any(|name| name.as_str() == Some(BRIDGE_FRAMES_V1_FEATURE)),
+        );
     }
-    Ok((reader, writer))
+    Ok((MuxBridgeSocket { reader, writer }, frames))
 }
 
 #[cfg(unix)]
@@ -916,7 +926,8 @@ where
     R: tokio::io::AsyncBufRead + Unpin,
 {
     let mut line = Vec::new();
-    let size = reader.take(MAX_BRIDGE_HELLO_REPLY_BYTES as u64 + 1).read_until(b'\n', &mut line).await?;
+    let size =
+        reader.take(MAX_BRIDGE_HELLO_REPLY_BYTES as u64 + 1).read_until(b'\n', &mut line).await?;
     if size == 0 {
         return Err(ServicesError::Remote("mux closed before the bridge hello reply".into()));
     }

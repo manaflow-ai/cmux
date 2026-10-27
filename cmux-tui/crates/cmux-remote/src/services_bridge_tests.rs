@@ -68,10 +68,14 @@ async fn first_line_after_open(takes_hello: bool, first: &[u8]) -> Vec<u8> {
         BufReader::new(socket).read_until(b'\n', &mut line).await.unwrap();
         line
     });
-    let (reader, mut writer) = open_mux_bridge(&path).await.unwrap();
-    writer.write_all(first).await.unwrap();
+    let (mut socket, frames) = open_mux_bridge(&path).await.unwrap();
+    assert_eq!(frames, takes_hello);
+    socket.writer.write_all(first).await.unwrap();
     let line = tokio::time::timeout(WAIT, daemon).await.unwrap().unwrap();
-    assert!(reader.buffer().is_empty(), "the hello reply is the bridge's, not the far client's");
+    assert!(
+        socket.reader.buffer().is_empty(),
+        "the hello reply is the bridge's, not the far client's"
+    );
     line
 }
 
@@ -179,6 +183,8 @@ async fn a_real_daemon_serves_the_far_client_through_the_bridge_as_a_direct_one(
     let mux = cmux_tui_core::Mux::new(session, options);
     let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((80, 24))).unwrap().id;
     let socket = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    // The daemon takes the remote end's hello: its far client may get frames.
+    assert!(open_mux_bridge(&socket).await.unwrap().1);
 
     let (client_endpoint, daemon_endpoint) = endpoint_pair();
     let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
