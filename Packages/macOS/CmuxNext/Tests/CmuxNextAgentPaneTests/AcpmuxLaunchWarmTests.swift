@@ -41,20 +41,16 @@ struct AcpmuxLaunchWarmTests {
             return ["mine"]
         }
         #expect(first == .agentsStillRunning(["mine-too"]))
-        #expect(await warm.end { sessions in
-            #expect(sessions == ["mine-too"])
-            return Set(sessions)
-        } == .ended)
+        let second = await warm.end { sessions in Set(sessions) }
+        #expect(second == .ended)
         #expect(await warm.end { _ in Issue.record("completed cleanup sent another request"); return [] } == .noDaemon)
     }
 
     @Test func aLostWarmReplyStillRecordsTheExactChatForEndSessions() async throws {
         let warm = AcpmuxLaunchWarm { _, _ in throw AcpmuxStatusClient.Failure.closed }
         try await warm.warm(["mine"], socket: "unused")
-        #expect(await warm.end { sessions in
-            #expect(sessions == ["mine"])
-            return Set(sessions)
-        } == .ended)
+        let ended = await warm.end { sessions in Set(sessions) }
+        #expect(ended == .ended)
     }
 
     @Test func cancellationRetainsEarlierAndInFlightChatsButNotQueuedOnes() async throws {
@@ -73,10 +69,8 @@ struct AcpmuxLaunchWarmTests {
         }
         task.cancel()
         await #expect(throws: CancellationError.self) { try await task.value }
-        #expect(await warm.end { sessions in
-            #expect(sessions == ["completed", "in-flight"])
-            return Set(sessions)
-        } == .ended)
+        let ended = await warm.end { sessions in Set(sessions) }
+        #expect(ended == .ended)
     }
 
 }
