@@ -16,14 +16,16 @@
 //! the cap. So a session has at most `cap + classes - 1` workers, and none
 //! mixes classes.
 //!
-//! [`ShardPlanner`] is the broker's placement state, owned by its one thread
-//! (no lock). Each call returns the [`ShardAction`]s the broker applies in
+//! [`ShardPlanner`] is the placement state of the VT worker broker
+//! (`vt_worker_runtime`, keyed by `VtTerminalKey`) and of the VT pool (keyed by
+//! its terminal token), owned by that one thread (no lock). Each call returns the [`ShardAction`]s the broker applies in
 //! order. When a terminal moves to another worker its ring is unmapped from
 //! the old worker before the new one maps it, so no ring is ever mapped in
 //! two workers and no worker maps a ring of a class other than its lock.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
+use std::hash::Hash;
 use std::num::NonZeroUsize;
 
 use serde::Serialize;
@@ -81,66 +83,71 @@ impl TrustClass {
 #[serde(transparent)]
 pub struct WorkerSlot(pub u64);
 
+/// The key a placement owner names its terminals by.
+pub trait TerminalKey: Copy + Ord + Hash + fmt::Debug {}
+
+impl<K: Copy + Ord + Hash + fmt::Debug> TerminalKey for K {}
+
 /// One holder ring of a terminal. A holder restart can give a terminal a
 /// fresh ring, so a terminal maps one segment at a time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct RingSegment {
-    pub terminal: SurfaceId,
+pub struct RingSegment<K = SurfaceId> {
+    pub terminal: K,
     pub segment: u64,
 }
 
 /// What the broker does, in the order returned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ShardAction {
+pub enum ShardAction<K = SurfaceId> {
     /// Start a worker in `slot`, locked to `class`.
     Spawn { slot: WorkerSlot, class: TrustClass },
     /// Pass the ring's fd to the worker, which maps it read-only.
-    Map { slot: WorkerSlot, ring: RingSegment },
+    Map { slot: WorkerSlot, ring: RingSegment<K> },
     /// Tell the worker to unmap the ring and drop the terminal's screen.
-    Unmap { slot: WorkerSlot, ring: RingSegment },
+    Unmap { slot: WorkerSlot, ring: RingSegment<K> },
     /// Stop the worker; it maps no ring.
     Retire { slot: WorkerSlot },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ShardError {
-    AlreadyPlaced(SurfaceId),
-    UnknownTerminal(SurfaceId),
+pub enum ShardError<K = SurfaceId> {
+    AlreadyPlaced(K),
+    UnknownTerminal(K),
     UnknownWorker(WorkerSlot),
 }
 
-impl fmt::Display for ShardError {
+impl<K: fmt::Debug> fmt::Display for ShardError<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::AlreadyPlaced(id) => write!(f, "terminal {id} already has a VT worker"),
-            Self::UnknownTerminal(id) => write!(f, "terminal {id} has no VT worker"),
+            Self::AlreadyPlaced(id) => write!(f, "terminal {id:?} already has a VT worker"),
+            Self::UnknownTerminal(id) => write!(f, "terminal {id:?} has no VT worker"),
             Self::UnknownWorker(slot) => write!(f, "no VT worker in slot {}", slot.0),
         }
     }
 }
 
-impl std::error::Error for ShardError {}
+impl<K: fmt::Debug> std::error::Error for ShardError<K> {}
 
 /// One worker's row of `debug.vt`'s mapped-segment list.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct WorkerMappings {
+pub struct WorkerMappings<K = SurfaceId> {
     pub slot: WorkerSlot,
     /// The worker's lock.
     pub class: TrustClass,
     /// Every ring it maps, with each ring's own class.
-    pub segments: Vec<MappedSegment>,
+    pub segments: Vec<MappedSegment<K>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-pub struct MappedSegment {
+pub struct MappedSegment<K = SurfaceId> {
     #[serde(flatten)]
-    pub ring: RingSegment,
+    pub ring: RingSegment<K>,
     pub class: TrustClass,
 }
 
-struct Worker {
+struct Worker<K> {
     class: TrustClass,
-    rings: BTreeSet<RingSegment>,
+    rings: BTreeSet<RingSegment<K>>,
 }
 
 #[derive(Clone, Copy)]
@@ -151,14 +158,14 @@ struct Placement {
 }
 
 /// Which worker parses which terminal, by trust class.
-pub struct ShardPlanner {
+pub struct ShardPlanner<K = SurfaceId> {
     cap: NonZeroUsize,
-    workers: BTreeMap<WorkerSlot, Worker>,
-    terminals: HashMap<SurfaceId, Placement>,
+    workers: BTreeMap<WorkerSlot, Worker<K>>,
+    terminals: HashMap<K, Placement>,
     next_slot: u64,
 }
 
-impl ShardPlanner {
+impl<K: TerminalKey> ShardPlanner<K> {
     /// `cap` is the worker count N the broker aims for; a class with no
     /// worker spills past it.
     pub fn new(cap: NonZeroUsize) -> Self {
@@ -168,10 +175,10 @@ impl ShardPlanner {
     /// Give a new terminal a worker of its class.
     pub fn place(
         &mut self,
-        terminal: SurfaceId,
+        terminal: K,
         class: TrustClass,
         segment: u64,
-    ) -> Result<Vec<ShardAction>, ShardError> {
+    ) -> Result<Vec<ShardAction<K>>, ShardError<K>> {
         if self.terminals.contains_key(&terminal) {
             return Err(ShardError::AlreadyPlaced(terminal));
         }
@@ -185,9 +192,9 @@ impl ShardPlanner {
     /// class. The old worker unmaps the ring first.
     pub fn reclassify(
         &mut self,
-        terminal: SurfaceId,
+        terminal: K,
         class: TrustClass,
-    ) -> Result<Vec<ShardAction>, ShardError> {
+    ) -> Result<Vec<ShardAction<K>>, ShardError<K>> {
         let placement =
             *self.terminals.get(&terminal).ok_or(ShardError::UnknownTerminal(terminal))?;
         if placement.class == class {
@@ -202,9 +209,9 @@ impl ShardPlanner {
     /// The terminal got a fresh holder ring: its worker swaps mappings.
     pub fn replace_segment(
         &mut self,
-        terminal: SurfaceId,
+        terminal: K,
         segment: u64,
-    ) -> Result<Vec<ShardAction>, ShardError> {
+    ) -> Result<Vec<ShardAction<K>>, ShardError<K>> {
         let placement =
             self.terminals.get_mut(&terminal).ok_or(ShardError::UnknownTerminal(terminal))?;
         if placement.segment == segment {
@@ -222,7 +229,7 @@ impl ShardPlanner {
     }
 
     /// The terminal ended: unmap its ring, retire its worker if now empty.
-    pub fn remove(&mut self, terminal: SurfaceId) -> Result<Vec<ShardAction>, ShardError> {
+    pub fn remove(&mut self, terminal: K) -> Result<Vec<ShardAction<K>>, ShardError<K>> {
         let placement =
             self.terminals.get(&terminal).copied().ok_or(ShardError::UnknownTerminal(terminal))?;
         let mut actions = Vec::with_capacity(2);
@@ -233,7 +240,7 @@ impl ShardPlanner {
     /// The worker in `slot` died, and the kernel unmapped its rings. Its
     /// replacement keeps the slot and the class lock and maps the same
     /// rings (the broker reseeds each from its holder prologue).
-    pub fn worker_lost(&mut self, slot: WorkerSlot) -> Result<Vec<ShardAction>, ShardError> {
+    pub fn worker_lost(&mut self, slot: WorkerSlot) -> Result<Vec<ShardAction<K>>, ShardError<K>> {
         let worker = self.workers.get(&slot).ok_or(ShardError::UnknownWorker(slot))?;
         let mut actions = Vec::with_capacity(worker.rings.len() + 1);
         actions.push(ShardAction::Spawn { slot, class: worker.class });
@@ -241,7 +248,7 @@ impl ShardPlanner {
         Ok(actions)
     }
 
-    pub fn slot_of(&self, terminal: SurfaceId) -> Option<WorkerSlot> {
+    pub fn slot_of(&self, terminal: K) -> Option<WorkerSlot> {
         self.terminals.get(&terminal).map(|placement| placement.slot)
     }
 
@@ -250,7 +257,7 @@ impl ShardPlanner {
     }
 
     /// `debug.vt`'s mapped-segment list, by slot.
-    pub fn mapped_segments(&self) -> Vec<WorkerMappings> {
+    pub fn mapped_segments(&self) -> Vec<WorkerMappings<K>> {
         self.workers
             .iter()
             .map(|(&slot, worker)| WorkerMappings {
@@ -270,10 +277,10 @@ impl ShardPlanner {
 
     fn place_into(
         &mut self,
-        terminal: SurfaceId,
+        terminal: K,
         class: TrustClass,
         segment: u64,
-        actions: &mut Vec<ShardAction>,
+        actions: &mut Vec<ShardAction<K>>,
     ) {
         let slot = match self.suitable_worker(class) {
             Some(slot) if self.workers.len() >= self.cap.get() => slot,
@@ -292,12 +299,7 @@ impl ShardPlanner {
         actions.push(ShardAction::Map { slot, ring });
     }
 
-    fn unplace(
-        &mut self,
-        terminal: SurfaceId,
-        placement: Placement,
-        actions: &mut Vec<ShardAction>,
-    ) {
+    fn unplace(&mut self, terminal: K, placement: Placement, actions: &mut Vec<ShardAction<K>>) {
         self.terminals.remove(&terminal);
         let ring = RingSegment { terminal, segment: placement.segment };
         let Some(worker) = self.workers.get_mut(&placement.slot) else {

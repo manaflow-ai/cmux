@@ -73,7 +73,7 @@ fn assert_unmixed(
     assert_eq!(mixed_workers(&rows), 0);
 }
 
-fn mixed_workers(rows: &[WorkerMappings]) -> usize {
+fn mixed_workers<K>(rows: &[WorkerMappings<K>]) -> usize {
     rows.iter().filter(|row| row.segments.iter().any(|s| s.class != row.class)).count()
 }
 
@@ -355,4 +355,27 @@ fn a_random_heavy_mixed_session_never_mixes_a_worker() {
         // spill is at most one worker per class past the first.
         assert!(planner.worker_count() <= 4 + present.len().saturating_sub(1));
     }
+}
+
+/// The broker names terminals by its own key (`VtTerminalKey`), not by
+/// surface id: the planner takes any key.
+#[test]
+fn the_broker_key_places_the_same_way() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    struct BrokerKey(u64);
+
+    let mut planner: ShardPlanner<BrokerKey> =
+        ShardPlanner::new(NonZeroUsize::new(2).expect("cap is nonzero"));
+    for id in 0..12 {
+        let class = if id < 8 { TrustClass::Local } else { TrustClass::Remote };
+        planner.place(BrokerKey(id), class, 0).expect("place");
+    }
+    let rows = planner.mapped_segments();
+    assert_eq!(mixed_workers(&rows), 0);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(planner.remove(BrokerKey(99)), Err(ShardError::UnknownTerminal(BrokerKey(99))));
+    assert_eq!(
+        ShardError::UnknownTerminal(BrokerKey(99)).to_string(),
+        "terminal BrokerKey(99) has no VT worker"
+    );
 }
