@@ -47,7 +47,7 @@ enum CloudPresenter {
 
     /// An error, copyable (the whole text goes to the clipboard on Copy).
     static func failure(_ error: any Error, in window: NSWindow?) {
-        show(CloudStrings.failedTitle, String(describing: error), copyable: true, in: window)
+        show(CloudStrings.failedTitle, CloudStrings.errorText(error), copyable: true, in: window)
     }
 
     /// The money confirmation of a machine create: only the person answers

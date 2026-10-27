@@ -4,7 +4,7 @@
 #   - generated files: copies DIR's files (the cmux-next generated files job's
 #     cmux-next-generated-patch artifact, or the base autofix's action-exports
 #     artifact: the action contracts, the CI target graph and the settings
-#     exports with their source stamp, regenerated on a Mac by
+#     exports, regenerated on a Mac by
 #     regenerate-action-exports.sh and regenerate-settings-exports.sh, at their
 #     repository paths) over the checkout;
 #   - the CI target graph: rewrites Packages/macOS/CmuxNext/ci-target-graph.json

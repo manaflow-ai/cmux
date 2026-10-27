@@ -211,7 +211,8 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
     const page = await open("no-preference", false);
     try {
       const seen = Object.keys(await entrances(page));
-      for (const label of ["context menu", "composer picker menu", "model picker", "tooltip", "hover card", "dialog"])
+      // Menus and popovers open in one frame on every page (test/popover-instant-open.test.ts).
+      for (const label of ["tooltip", "hover card", "dialog", "notice from an edge", "card with presence"])
         expect(seen).toContain(label);
     } finally {
       await page.close();

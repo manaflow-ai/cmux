@@ -118,9 +118,18 @@ def _string(value: str) -> str:
 def _doc(text: str | None, indent: str = "") -> list[str]:
     if not text:
         return []
-    # Escape what rustdoc would read as markup: a backtick, and `<` (an `<hex>` in a schema
-    # description became an unclosed HTML tag and failed `cargo doc -D warnings`, #20129).
-    words = " ".join(str(text).split()).replace("`", "\\`").replace("<", "\\<")
+    # Escape what rustdoc would read as markup: a backtick, `<` (an `<hex>` in a schema
+    # description became an unclosed HTML tag and failed `cargo doc -D warnings`, #20129), and
+    # `[` and `]` (a `[::1]` read as an intra-doc link to nothing and failed the same way). A
+    # backslash goes first, or one already in the text would cancel the escape after it.
+    words = (
+        " ".join(str(text).split())
+        .replace("\\", "\\\\")
+        .replace("`", "\\`")
+        .replace("<", "\\<")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
+    )
     return [f"{indent}/// {words}"]
 
 

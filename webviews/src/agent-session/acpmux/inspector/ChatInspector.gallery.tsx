@@ -20,7 +20,9 @@ import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
 import { activity, assistant, chat, CONTEXT_BREAKDOWN, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
+import { createWorkflowAdapter } from "../summary/foldWorkflows";
 import { sessionSummary } from "../summary/sessionSummary";
+import { workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { ChatInspector, InspectorPanel, type InspectorPlacement } from "./ChatInspector";
 import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
 import { subagentSummary, type SubagentScope } from "./subagentScope";
@@ -39,6 +41,8 @@ type Props = ComponentProps<typeof ChatInspector> & {
   header?: SubagentHeaderVariant;
   /// A gallery-only palette for the Context breakdown's categories (ContextSection.css tones).
   tones?: CSSProperties;
+  /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
+  ceiling?: string;
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -93,10 +97,12 @@ function GalleryInspector({
   scope,
   header = "title",
   tones,
+  ceiling,
   ...props
 }: Props) {
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
+      {ceiling ? <style>{`.acpmux-chat-inspector[data-placement]{max-height:${ceiling}}`}</style> : null}
       {transcript ? <Transcript /> : null}
       <InspectorPanel
         width={320}
@@ -291,6 +297,7 @@ const full: Props = {
   onOpenOutput: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
+  onReconnectMcp: async () => undefined,
   remoteControl: { on: false, set: () => undefined },
 };
 
@@ -314,6 +321,31 @@ const busySessions: StartedSession[] = LANES.map((title, index) => ({
   createdAt: started - (index + 1) * 300_000,
 }));
 const busy: Props = { ...full, agents: busyAgents, sessions: busySessions };
+
+/// A chat running a Claude workflow (Labs `workflowLabs`): its events fed through the real subagent
+/// fold (summary/workflowFixture.ts), so Background tasks shows what the fold keeps
+/// (inspector/WorkflowTasks.tsx). The workflow's node leaves Subagents for Background tasks.
+const workflowProps = (stage: WorkflowFixtureStage): Props => {
+  const nodes = workflowFixture(stage);
+  return {
+    summary,
+    machineName: "Studio",
+    repository: "manaflow-ai/cmux",
+    agents: nodes,
+    workflows: createWorkflowAdapter()(nodes, "gallery-chat"),
+    onStopWorkflow: async () => undefined,
+    onOpenSubagent: () => undefined,
+    onSaveEnvironment: () => undefined,
+    remoteControl: { on: true, set: () => undefined },
+  };
+};
+/// Opens the workflow's `n`th phase (from 1).
+const openPhase =
+  (n: number): Play =>
+  async (ctx) => {
+    await ctx.click({ selector: `.acpmux-workflow-phase:nth-child(${n}) .acpmux-workflow-phase__head` });
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-phase__agents") !== null);
+  };
 
 /// A chat in ~/Projects that worked across several projects, as Claude Code desktop lists them.
 const PROJECTS = "/Users/you/Projects";
@@ -452,6 +484,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/chatFolders.ts",
     "agent-session/acpmux/inspector/ChildSessionRows.tsx",
     "agent-session/acpmux/inspector/ChangesSection.tsx",
+    "agent-session/acpmux/inspector/ConnectorsSection.tsx",
     "agent-session/acpmux/inspector/ContextSection.tsx",
     "agent-session/acpmux/inspector/PullRequestGlyph.tsx",
     "agent-session/acpmux/inspector/EnvironmentSection.tsx",
@@ -462,13 +495,39 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/SubagentScopeHeader.tsx",
     "agent-session/acpmux/inspector/subagentScope.ts",
     "agent-session/acpmux/inspector/TasksSection.tsx",
+    "agent-session/acpmux/inspector/WorkflowTasks.tsx",
+    "agent-session/acpmux/summary/foldWorkflows.ts",
     "agent-session/acpmux/subagents/AgentLine.tsx",
   ],
   load: async () => GalleryInspector,
   variants: {
+    "subagents-done": {
+      note: "A busy chat with Environment, Context, Outputs and 31 completed subagents: four static harness avatars beside the count, opening the named list.",
+      props: {
+        ...full,
+        agents: agents.slice(3, 34).map((agent, index) => ({
+          ...agent,
+          state: "completed",
+          harness: index % 2 ? "codex" : "claude",
+        })),
+        sessions: [],
+      },
+    },
     full: {
       note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: eight pull requests across three repositories (five shown, then Show more) and its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
       props: full,
+    },
+    "workflow-running": {
+      note: "Labs: a Claude workflow running, read from the subagent fold. Background tasks heads with it: its name, 13s and Stop; 1 running · 2 queued · 3 done · 185k tokens; what it does; Brainstorm 3 done and Critique 1 running · 2 queued, a dot per agent (done filled, running the accent, queued an outline). Critique has a running agent, so it is open: Model: Opus 5.5, punchy with a spinner, playful and descriptive Queued. Up next: Judge.",
+      props: workflowProps("running"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-finished": {
+      note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop and no Up next. Critique opened: its agents with a check and how long each took.",
+      props: workflowProps("finished"),
+      play: openPhase(2),
     },
     "layout-glance": {
       note: "Chosen (Leo, 2026-10-22: \"this session rail is tmi and too many boxes?\"). Eight cards became three blocks with a hairline between them and no box: the Environment's rows with no title, Context and Connectors one row each; Changes and Outputs; Subagents and Background tasks, the Servers card's row now heading Background tasks. Least ink of the three while every section and click stays; the rows line up under the panel's title.",
@@ -509,7 +568,7 @@ export default componentEntry<Props>({
       },
     },
     "context-connectors-open": {
-      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
+      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status, the failed one with Reconnect.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
     },
     "context-breakdown": {
@@ -616,7 +675,7 @@ export default componentEntry<Props>({
       },
     },
     "fits-content": {
-      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the 560px ceiling is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
+      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the ceiling (the room under the header) is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
       props: {
         summary: { ...summary, mcpServers: [] },
         machineName: "Studio",
@@ -626,8 +685,21 @@ export default componentEntry<Props>({
       },
     },
     ceiling: {
-      note: "A busy coordinator over the same 900px pane: its sections run far past the ceiling, so the card stops at 560px (never more than 80% of the room under the header) and its body scrolls.",
+      note: "Chosen. A busy coordinator over the same 900px pane: the card uses the full room under the header, less its 8px inset at the foot, and only then does its body scroll; it still floats over the chat with its own edge (Leo, 2026-10-26: \"you still haven't done the full-length thing. It's still just this constrained height for, like, no reason at all\").",
       props: { ...busy, closable: true },
+    },
+    "ceiling-capped": {
+      note: 'Before, for comparison: the old ceiling, the smallest of 560px and 80% of the room under the header, so a busy card stopped with room left and scrolled (Leo: "this constrained height for, like, no reason at all").',
+      props: {
+        ...busy,
+        closable: true,
+        ceiling:
+          "min(560px, calc((100% - var(--acpmux-inspector-top, 0px)) * 0.8), calc(100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset)))",
+      },
+    },
+    "ceiling-most": {
+      note: "Alternative: 90% of the room under the header, leaving a band of the chat under the card.",
+      props: { ...busy, closable: true, ceiling: "calc((100% - var(--acpmux-inspector-top, 0px)) * 0.9)" },
     },
     push: {
       note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",

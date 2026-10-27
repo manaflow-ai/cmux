@@ -233,6 +233,15 @@ public final class SidebarDocStore {
         }
     }
 
+    /// Archive (`archived` true): each item moves to the end of its own list (its group, or its
+    /// section's top level) and draws dimmed. Unarchive puts it back where it was archived from
+    /// (plans/cmux-next/archiving-DESIGN.md). One undo step titled `title`. Throws the reducer's
+    /// refusal (a provider-owned section, an unknown item), so the CLI and MCP get it too.
+    public func setArchived(_ items: [String], archived: Bool, title: String) throws(SidebarDocSendRefusal) {
+        guard !items.isEmpty else { return } // nothing placed yet (an adopt is on the way)
+        try sendChecked(ops: [["op": archived ? "archive" : "unarchive", "items": items]], title: title)
+    }
+
     /// Folds or opens `group` in the document (the owner of record; other clients follow it). The
     /// sidebar already shows the fold (it is view state the window applies at once): this sends one
     /// `group.update` with the value, not a toggle, so fast clicks each send what they show, and it

@@ -10,6 +10,7 @@
 import { experimentArm } from "../../../experiments/experiment";
 import type { AcpmuxRow } from "../model";
 import { type AcpmuxSessionEntry, type SessionPullRequest, sessionMark } from "../sessionList";
+import type { RetryState } from "../subagents/retryState";
 import { startedSessionCards } from "./startedSessions.experiment";
 
 /// The row kind of one or more started chats' cards, drawn together where they were started.
@@ -49,6 +50,10 @@ export type StartedSession = {
   /// What its running turn does now (acpmux's doing line, sessionList.ts `doingLine`), for the tray;
   /// only with `doing` asked for, so the transcript's cards do not redraw on each of its calls.
   doing?: string;
+  /// The tool part of `doing` (sessionList.ts `doingTool`), with it.
+  doingTool?: string;
+  /// acpmux's retry of its failed turn while one waits (retryState.ts ``sessionRetry``).
+  retry?: RetryState;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -143,6 +148,8 @@ export function startedSessions(
         ...(pullRequests ? { pullRequests } : {}),
         ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
         ...(doing && entry.doing ? { doing: entry.doing } : {}),
+        ...(doing && entry.doing && entry.doingTool ? { doingTool: entry.doingTool } : {}),
+        ...(entry.retry ? { retry: entry.retry } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

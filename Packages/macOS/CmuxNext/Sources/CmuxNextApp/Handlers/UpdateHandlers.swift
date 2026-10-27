@@ -18,12 +18,21 @@ enum UpdateHandlers {
                     arguments: ["setting": .string("announcements.enabled"), "on": .bool(on)], origin: invocation.origin))
             })
         }
-        // Not tracked for `action.run wait`: a feed fetch can outlast the 2 s
-        // control deadline. `updates.check` / `updates.status` carry the result.
-        registry.bind("palette.checkForUpdates", run: { _ in updater.checkForUpdates() })
+        // A CLI run answers the feed's result (current and newest build) or the check's failure
+        // (``UpdaterService/checkAnswer()``); a menu or palette run reads it on the notice card.
+        registry.bind("palette.checkForUpdates", run: { [weak registry] _ in
+            updater.checkForUpdates()
+            guard let registry, registry.isCapturingWork else { return }
+            registry.track(result: result(updater.checkAnswer()))
+        })
         for id: ActionID in ["palette.applyUpdateIfAvailable", "palette.attemptUpdate"] {
             registry.bind(id, unavailable: { updater.installUnavailableReason }, invoke: { [weak registry] _ in
-                do { try updater.installAvailableUpdate() } catch { registry?.refuse(String(describing: error)) }
+                // Taken before the request: only a phase the request reached answers a CLI run.
+                let baseline = updater.settledFlowMoves()
+                do { try updater.installAvailableUpdate() } catch { registry?.refuse(String(describing: error)); return }
+                // A CLI run answers once the update installs, or with why nothing installs (``UpdaterService/installAnswer(after:limit:)``).
+                guard let registry, registry.isCapturingWork else { return }
+                registry.track(result: result(updater.installAnswer(after: baseline)))
             })
         }
         // The pulled-build banner's Roll Back: the same stores, and the same question as updates.rollback.
@@ -48,5 +57,24 @@ enum UpdateHandlers {
                 registry?.refuse(String(describing: error))
             }
         })
+    }
+
+    /// An update command's answer as the action's result (`action.run` `result`, or its error).
+    static func result(_ answer: Task<UpdateCommandAnswer, Never>) -> ActionResultWork {
+        // task-owner: the action run; ends with `answer`.
+        Task {
+            switch await answer.value {
+            case .answered(let fields):
+                .success(fields.mapValues { field in
+                    switch field {
+                    case .string(let text): .string(text)
+                    case .bool(let flag): .bool(flag)
+                    case .double(let number): .double(number)
+                    }
+                })
+            case .refused(let reason): .failure(ActionWorkFailure(refusal: .unavailable, reason: reason))
+            case .failed(let message): .failure(ActionWorkFailure(message))
+            }
+        }
     }
 }

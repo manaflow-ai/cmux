@@ -244,7 +244,9 @@ impl Mux {
             }
             (deltas, host.cursor, host.roster.snapshot().to_string())
         };
-        if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+        // The connection alone, never the workspace registry lock, so state
+        // commits do not wait behind the snapshot write (issue 23038).
+        if let Err(error) = self.registry_connection.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
             cursor,

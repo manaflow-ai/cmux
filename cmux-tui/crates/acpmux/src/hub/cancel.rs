@@ -21,6 +21,7 @@ impl Hub {
         // Stop also stops an automatic continuation that has not fired yet, and the running
         // turn gets none (`auto_resume.rs`).
         self.stop_auto_resume(session);
+        self.stop_subagent_retries(session, false);
         let child = session
             .child
             .lock()

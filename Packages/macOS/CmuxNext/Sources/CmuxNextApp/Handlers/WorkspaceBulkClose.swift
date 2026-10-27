@@ -117,7 +117,7 @@ enum WorkspaceBulkClose {
             }
             for group in others { sidebar.handle(.closeGroup(group.id)) }
         } else {
-            close(members)
+            WorkspaceClose.close(members)
         }
         guard invocation.origin == .user, members.count > 1, let window else { return }
         WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services)
@@ -161,32 +161,6 @@ enum WorkspaceBulkClose {
         return (sidebar, groups.filter { $0.id.rawValue != group.id.rawValue })
     }
 
-    /// The one close path for several workspaces at once (every bulk close, Close Workspaces in
-    /// Group): on each daemon, the workspaces with tabs close in one `layout.bulk` request with
-    /// their terminals (`BulkClosePlan`), one closed group, so one Reopen Closed brings all of them
-    /// back; an empty workspace, or any on an older daemon, closes alone. `send` runs each daemon
-    /// command (the sidebar's resyncs its rows when one fails).
-    static func close(_ members: [Member],
-                      send: (DaemonService, String, @escaping DaemonCommandBody) -> Void = { $0.send($1, $2) }) {
-        var daemons: [DaemonService] = []
-        for (_, daemon) in members where !daemons.contains(where: { $0 === daemon }) { daemons.append(daemon) }
-        for daemon in daemons {
-            let workspaces = members.filter { $0.1 === daemon && $0.0.key != nil }.map(\.0)
-            let plan = BulkClosePlan(workspaces, servesBulk: daemon.servesBulkClose, id: \.resourceID,
-                                     hasTabs: { $0.screens.contains { $0.panes.contains { !$0.tabs.isEmpty } } })
-            if !plan.bulk.isEmpty {
-                for (workspace, _) in plan.bulk { _ = WorkspaceClose.closing(workspace, on: daemon) }
-                let ids = plan.bulk.map(\.id)
-                send(daemon, "close-workspaces") { try await $0.state.closeBulk(.workspace, ids: ids, endTerminals: true) }
-            }
-            for workspace in plan.each {
-                guard let key = workspace.key else { continue }
-                let terminals = WorkspaceClose.closing(workspace, on: daemon)
-                send(daemon, "close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
-            }
-        }
-    }
-
     /// The question before a person's run of `id`, or nil to close at once.
     static func prompt(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext, warn: Bool) async -> DestructiveConfirmation.Prompt? {
         guard let (members, window) = try? plan(id, invocation, context) else { return nil }
@@ -199,7 +173,10 @@ enum WorkspaceBulkClose {
     static func prompt(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false, incognito: Bool = false,
                        title: String? = nil) async -> DestructiveConfirmation.Prompt? {
         var programs: [String] = []
-        if warn { for (workspace, daemon) in members { programs += await DestructiveConfirmation.runningPrograms(in: workspace, on: daemon) } }
+        // Every workspace's terminals are asked at once: each answers within its own short deadline.
+        // task-owner: one process-info lookup per workspace, all awaited right here.
+        let lookups = (warn ? members : []).map { member in Task { @MainActor in await DestructiveConfirmation.runningPrograms(in: member.0, on: member.1) } }
+        for lookup in lookups { programs += await lookup.value }
         guard let first = members.first, !programs.isEmpty || (askWithoutUndo && members.count > 1) else { return nil }
         let count = String(localized: "confirm.closeWorkspaces.title", defaultValue: "Close \(members.count) workspaces?", table: "Handlers", bundle: .module)
         // Incognito workspaces are never saved: nothing brings them back (WindowRegistry).

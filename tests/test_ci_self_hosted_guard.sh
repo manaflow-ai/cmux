@@ -1260,6 +1260,12 @@ check_no_self_hosted_fleet_runners() {
   # the bare capability, generic fleet labels and main selector stay guarded.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # Nightly native build selectors are pooled: main cache-writing builds use
+  # the trusted pool, and NEXT build/prepare jobs use the controller-managed
+  # side pool on attempt 1. Both are guarded by repository, event, ref, and
+  # owned-pool predicates; retries fall through to Blacksmith.
+  local nightly_main_trusted_selector="github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL"
+  local nightly_next_side_selector="github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/nightly-next' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER"
   # cmux-next's GUI suites and its autofix bots keep the std GUI minis (#18589,
   # #19587, #21658) behind CI_PR_POOL_OWNED, the owned-pool switch; with it off,
   # or on a fork pull request (its branch comes first), they take Blacksmith.
@@ -1294,6 +1300,8 @@ check_no_self_hosted_fleet_runners() {
       content="${content/"$next_trusted_selector"/}"
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"
+      content="${content/"$nightly_main_trusted_selector"/}"
+      content="${content/"$nightly_next_side_selector"/}"
     fi
     # A pull request workflow keeps the exemption only while its fork pull
     # request branch comes first on the line; base autofix runs on push only.

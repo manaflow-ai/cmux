@@ -158,6 +158,7 @@ export default agentPaneEntry({
   widths: { narrow: 420, normal: 760, wide: 1100 },
   covers: [
     "agent-session/acpmux/composerLook.ts",
+    "agent-session/acpmux/composerFooterShared.css",
     "agent-session/acpmux/LookSwitch.tsx#LookSwitch",
     "agent-session/acpmux/newtab/PageDots.tsx#PageDots",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
@@ -185,6 +186,22 @@ export default agentPaneEntry({
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "claude"),
     },
+    "permission-pill-claude": {
+      note: "Claude's permission capsule hovered: the shared 8px inset, 28px height and full radius match Codex.",
+      snapshot: startedChat(),
+      play: async (ctx) => {
+        await look(ctx, "claude");
+        await ctx.hover({ selector: ".acpmux-access-trigger" });
+      },
+    },
+    "permission-pill-codex": {
+      note: "Codex's permission capsule hovered: the same dimensions, 16px after the + glyph.",
+      snapshot: startedChat(),
+      play: async (ctx) => {
+        await look(ctx, "codex");
+        await ctx.hover({ selector: ".acpmux-access-trigger" });
+      },
+    },
     "claude-chat-dots": {
       note: "Claude's look with the pointer in the quiet row's empty middle: the two dots show there, Claude marked.",
       snapshot: startedChat(),
@@ -199,7 +216,7 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-chat-dots": {
-      note: "Codex's look with the pointer in the band under the box (the dead space Codex leaves): the two dots show there, Codex marked.",
+      note: "Codex's look with the pointer in the box's internal dead-space row: the two dots show there, Codex marked.",
       snapshot: startedChat(),
       play: async (ctx) => {
         await look(ctx, "codex");

@@ -59,11 +59,13 @@ final class CEFHostView: NSView {
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
         liveResizeWillStart?()
+        layerHosting.windowLiveResize(active: true)
         updateBackground()
     }
 
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
+        layerHosting.windowLiveResize(active: false)
         updateBackground()
     }
 
@@ -183,6 +185,8 @@ final class CEFHostView: NSView {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         readGeometry = nil
+        // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
+        layerHosting.windowDidChange()
         guard let window else { return }
         windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] note in
             let force = note.userInfo?[browserPagesForceUpdateKey] as? Bool ?? false
@@ -230,7 +234,7 @@ final class CEFHostView: NSView {
 /// A CEF tab's `contentView`. All tabs of a pane share one Chromium window,
 /// so the container only borrows the pane's `CEFHostView` while it is in a
 /// window, and shows a snapshot while the tab is occluded.
-final class CEFTabContentView: NSView {
+final class CEFTabContentView: NSView, PaneMotionSettling {
     weak var tab: CEFTab?
     private let snapshotView = NSImageView()
 
@@ -337,6 +341,13 @@ final class CEFTabContentView: NSView {
         if let tab, let emulation, !deviceMode, emulation.viewport(in: emulation.layoutArea(in: pageViewportFrame).size) != tab.deviceEmulationViewport {
             tab.applyDeviceEmulation()
         }
+    }
+
+    /// The pane's layout spring landed (a split's new pane grown in, a close, a zoom): the shown
+    /// page is placed and clipped at the landed frame (`CEFPaneHost.paneMotionSettled`).
+    func paneMotionDidSettle() {
+        guard let tab, tab.host.hostView.superview === self else { return }
+        tab.host.paneMotionSettled(tab)
     }
 
     /// Adds the fit frame under the page for a fit and removes it otherwise.

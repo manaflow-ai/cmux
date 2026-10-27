@@ -24,11 +24,11 @@
 {"file":"agent-session/acpmux/chips/chips.css","kind":"height","property":"height","values":{"44px":1}}
 {"file":"agent-session/acpmux/chips/chips.css","kind":"height","property":"min-height","values":{"90px":1}}
 {"file":"agent-session/acpmux/chips/chips.css","kind":"spacing","property":"gap","values":{"6px":3}}
-{"file":"agent-session/acpmux/chips/chips.css","kind":"spacing","property":"padding","values":{"1px 6px 1px 5px":1,"6px 10px":3,"2px 8px":2,"1px 5px":1}}
+{"file":"agent-session/acpmux/chips/chips.css","kind":"spacing","property":"padding","values":{"6px 10px":3,"2px 8px":2,"1px 5px":1}}
 {"file":"agent-session/acpmux/chips/chips.css","kind":"spacing","property":"padding-left","values":{"3px":1}}
 {"file":"agent-session/acpmux/chips/linkCard.css","kind":"height","property":"height","values":{"14px":1,"1px":1,"18px":1}}
-{"file":"agent-session/acpmux/chips/linkCard.css","kind":"spacing","property":"gap","values":{"6px":5,"3px":1,"2px 10px":1,"5px":1,"4px 6px":1,"1px 10px":1}}
-{"file":"agent-session/acpmux/chips/linkCard.css","kind":"spacing","property":"padding","values":{"8px 10px":1,"0 6px":4,"5px 8px":1}}
+{"file":"agent-session/acpmux/chips/linkCard.css","kind":"spacing","property":"gap","values":{"6px":3,"3px":1,"2px 10px":1,"4px 6px":1,"5px":1}}
+{"file":"agent-session/acpmux/chips/linkCard.css","kind":"spacing","property":"padding","values":{"8px 10px":1,"0 6px":4}}
 {"file":"agent-session/acpmux/chips/linkCard.css","kind":"spacing","property":"padding-block","values":{"max(0px,calc((20px - var(--text-control--line-height)) / 2))":1}}
 {"file":"agent-session/acpmux/chips/linkCard.css","kind":"spacing","property":"padding-top","values":{"2px":1}}
 {"file":"agent-session/acpmux/composer/dropOverlay.css","kind":"height","property":"height","values":{"calc(100% - 12px)":1,"18px":1}}
@@ -38,7 +38,6 @@
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"min-height","values":{"44px":1,"300px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"gap","values":{"3px":2,"6px":2,"13px":1,"2px 6px":1,"2px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"padding","values":{"0 32px 0 10px":1,"0 10px 0 14px":1,"7px 10px":1,"7px 24px 7px 8px":1,"0 28px 0 10px":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"padding-right","values":{"10px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"height","property":"height","values":{"1px":1,"calc(23.5px * var(--cmux-interface-scale, 1))":1,"calc(15px * var(--cmux-interface-scale, 1))":1,"3px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"spacing","property":"padding","values":{"0 8px 6px":1,"6px 10px 4px":1,"0 6px 0 8px":1}}
@@ -59,16 +58,13 @@
 {"file":"agent-session/acpmux/composerStates.css","kind":"height","property":"min-height","values":{"45px":1}}
 {"file":"agent-session/acpmux/composerStates.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"agent-session/acpmux/composerStates.css","kind":"spacing","property":"padding","values":{"0 10px":1,"15px 16px 8px 32px":1,"2px 6px":1,"0 6px 0 4px":1,"0 6px 2px 12px":1,"0 6px":1,"4px 0 2px":1}}
-{"file":"agent-session/acpmux/contextCard.css","kind":"height","property":"height","values":{"4px":1,"8px":1,"22px":1}}
-{"file":"agent-session/acpmux/contextCard.css","kind":"spacing","property":"gap","values":{"2px":1}}
-{"file":"agent-session/acpmux/contextCard.css","kind":"spacing","property":"padding","values":{"8px 10px 9px":1,"0 6px":1}}
 {"file":"agent-session/acpmux/ContextRing.gallery.css","kind":"height","property":"height","values":{"14px":1,"18px":1,"10px":1}}
 {"file":"agent-session/acpmux/conversation/AgentMessageRow.css","kind":"height","property":"height","values":{"26px":1}}
 {"file":"agent-session/acpmux/conversation/AgentMessageRow.css","kind":"spacing","property":"gap","values":{"5px":1}}
 {"file":"agent-session/acpmux/conversation/AgentMessageRow.css","kind":"spacing","property":"padding","values":{"0 7px":1,"7px 11px":1}}
-{"file":"agent-session/acpmux/conversation/conversation.css","kind":"height","property":"height","values":{"120px":3,"26px":4,"1px":5,"var(--cv-bullet-size, 5px)":1,"45.5px":1,"22px":3,"var(--cv-worked-height, 27px)":1,"44px":1,"36px":1,"16px":1,"4px":1,"12px":1,"calc(16px + var(--cv-line-height))":1}}
+{"file":"agent-session/acpmux/conversation/conversation.css","kind":"height","property":"height","values":{"120px":3,"26px":4,"1px":5,"var(--cv-bullet-size, 5px)":1,"45.5px":1,"22px":3,"var(--cv-worked-height, 27px)":1,"44px":1,"36px":1,"16px":1,"12px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"height","property":"min-height","values":{"26px":1,"36px":2,"160px":1,"120px":1}}
-{"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"gap","values":{"6px":14,"2px":10,"10px":6,"2px 8px":1,"var(--cv-worked-gap, 2px)":1,"7px":1,"5px":1,"3px":1}}
+{"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"gap","values":{"6px":13,"2px":10,"10px":6,"2px 8px":1,"var(--cv-worked-gap, 2px)":1,"7px":1,"5px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"padding","values":{"0 10px":4,"0 8px 0 14px":1,"2px":1,"4px 20px 20px":1,"10px 12px 8px":1,"var(--cv-code-padding, 0.75px 5px)":1,"var(--cv-td-pad-y, 8.5px) 22px var(--cv-td-pad-y, 8.5px) 0":1,"0 18px 0 21px":1,"0 6px 0 12px":1,"4px 12px 6px":1,"6px 12px":2,"2px 0":1,"8px 12px 10px":1,"5px 10px":1,"0 7px":1,"6px 10px":1,"3px 9px":1,"10px 12px":1,"0 1px":1,"0 10px 0 16px":1,"16px 56px":1,"0 6px 0 10px":2,"0 6px":3,"2px 12px 8px 26px":1,"6px 8px 6px 12px":1,"4px 6px 4px 12px":1,"2px 6px":1,"8px 10px":1,"2px 8px":1,"0 0 4px 22.5px":1,"0 0 0 22.5px":1,"2px 0 2px 8px":1,"1px 8px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"padding-block","values":{"3px":2,"2px 6px":1,"2px 4px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"padding-bottom","values":{"var(--cv-th-pad-bottom, 1.75px)":1}}
@@ -158,7 +154,6 @@
 {"file":"agent-session/acpmux/run-board/variants/tournament/styles.css","kind":"spacing","property":"padding","values":{"14px 16px":1,"6px 5px":1,"7px 0":1,"14px 17px 12px":1,"22px 17px 26px":1,"17px 12px 24px":1}}
 {"file":"agent-session/acpmux/savedEnvironments.css","kind":"height","property":"height","values":{"26px":1}}
 {"file":"agent-session/acpmux/savedEnvironments.css","kind":"height","property":"min-height","values":{"22px":1}}
-{"file":"agent-session/acpmux/savedEnvironments.css","kind":"opaque-glass","property":"background","values":{"var(--surface-popup, var(--agent-input-bg))":1}}
 {"file":"agent-session/acpmux/savedEnvironments.css","kind":"spacing","property":"gap","values":{"10px":1,"2px":1,"6px":3}}
 {"file":"agent-session/acpmux/savedEnvironments.css","kind":"spacing","property":"padding","values":{"10px 12px":1,"2px":1,"0 10px":2}}
 {"file":"agent-session/acpmux/shell/ShellRow.gallery.css","kind":"height","property":"min-height","values":{"36px":1,"18px":1}}
@@ -169,9 +164,9 @@
 {"file":"agent-session/acpmux/started/startedSessions.css","kind":"spacing","property":"gap","values":{"10px":1,"2px":1,"6px":1}}
 {"file":"agent-session/acpmux/started/startedSessions.css","kind":"spacing","property":"padding","values":{"7px 12px 7px 14px":1,"1px 5px":1}}
 {"file":"agent-session/acpmux/styles.css","kind":"height","property":"height","values":{"16px":7,"7px":1,".5px":1,"48px":1,"18px":1,"12px":4,"22px":9,"31px":1,"40px":3,"56px":4,"42px":2,"1px":1,"26px":5,"34px":1,"30px":2,"8px":3,"29px":1,"14px":1,"36px":1,"180px":2,"360px":1,"6px":3,"164px":1,"10px":1,"15px":1,"68px":1,"max(var(--ui-row-height,28px),calc(96px * var(--cmux-interface-scale,1)))":1,"44px":1,"17px":1,"21px":1,"5px":1}}
-{"file":"agent-session/acpmux/styles.css","kind":"height","property":"min-height","values":{"34px":2,"38px":1,"30px":1,"16px":1,"128px":1,"48px":2,"33px":1,"36px":1,"58px":1,"46px":1,"56px":1,"26px":1,"44px":1}}
-{"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"gap","values":{"7px":1,"6px":21,"10px":12,"2px":9,"14px":1,"5px":3,"3px":3,"6px 8px":1,"11px":1,"var(--acp-row-gap,7px)":1}}
-{"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"padding","values":{"16px var(--cv-inset,max(18px,calc((100% - 760px)/2)))":1,"9px 12px":2,"9px":1,"5px 0":2,"3px 0":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2)))":1,"11px":1,"7px 12px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px":1,"15px 16px 8px":1,"0 10px":7,"6px 6px 6px 12px":1,"0 8px 0 6px":2,"0 6px 0 8px":1,"2px 6px":3,"5px var(--ui-row-padding-inline)":1,"0 14px":1,"clamp(48px,16vh,168px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 32px":1,"0 8px 0 18px":1,"3px":2,"0 8px 0 10px":1,"2px 0 4px":1,"3px 6px 3px 12px":1,"0 6px 0 12px":1,"6px":2,"5px 10px":2,"6px 10px 8px":1,"6px 8px":4,"7px 8px":2,"0 2px":1,"0 5px":3,"0 max(16px,calc((100% - 760px)/2)) 12px":1,"4px 10px 2px":1,"0 2.5px":1,"0 9px":1,"6px 16px":1,"0 6px 0 16px":1,"4px 6px 4px 12px":1,"0 6px":1,"var(--acp-row-pad-y,11px)":1,"var(--acp-row-pad-y,7px) 10px":1,"var(--acp-row-pad-y,5px) 0":1,"6px 8px 0":2,"4px 10px 6px":1,"12px 8px 2px 12px":1,"2px 5px 4px":1,"14px 76px 14px 28px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px":1,"11px 12px":1,"6px 12px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px":1,"0 7px 0 8px":1,"10px 14px":2,"0 7px":1,"8px 14px 0":2,"2px 9px":1,"0.5px 4px":1,"10px":1,"10px 0 0":1,"10px 12px":1,"5px 6px 5px 12px":1,"7px 10px":1,"4px 2px":2,"4px 10px":2,"0 3px":1,"3px 6px":1,"2px 4px":1}}
+{"file":"agent-session/acpmux/styles.css","kind":"height","property":"min-height","values":{"34px":2,"38px":1,"30px":1,"16px":1,"128px":1,"48px":2,"33px":1,"36px":1,"58px":1,"46px":1,"56px":1,"44px":1}}
+{"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"gap","values":{"7px":1,"6px":19,"10px":12,"2px":9,"14px":1,"5px":3,"3px":3,"6px 8px":1,"11px":1,"var(--acp-row-gap,7px)":1}}
+{"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"padding","values":{"16px var(--cv-inset,max(18px,calc((100% - 760px)/2)))":1,"9px 12px":2,"9px":1,"5px 0":2,"3px 0":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2)))":1,"11px":1,"7px 12px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px":1,"15px 16px 8px":1,"0 10px":7,"6px 6px 6px 12px":1,"0 8px 0 6px":2,"0 6px 0 8px":1,"2px 6px":3,"5px var(--ui-row-padding-inline)":1,"0 14px":1,"clamp(48px,16vh,168px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 32px":1,"0 8px 0 18px":1,"3px":2,"0 8px 0 10px":1,"2px 0 4px":1,"3px 6px 3px 12px":1,"0 6px 0 12px":1,"6px":2,"5px 10px":2,"6px 10px 8px":1,"6px 8px":4,"7px 8px":2,"0 2px":1,"0 5px":3,"0 max(16px,calc((100% - 760px)/2)) 12px":1,"4px 10px 2px":1,"2.5px":1,"0 9px":1,"6px 16px":1,"0 6px 0 16px":1,"4px 6px 4px 12px":1,"0 6px":1,"var(--acp-row-pad-y,11px)":1,"var(--acp-row-pad-y,7px) 10px":1,"var(--acp-row-pad-y,5px) 0":1,"6px 8px 0":2,"4px 10px 6px":1,"12px 8px 2px 12px":1,"2px 5px 4px":1,"14px 76px 14px 28px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px":1,"11px 12px":1,"6px 12px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px":1,"0 7px 0 8px":1,"10px 14px":2,"0 7px":1,"8px 14px 0":2,"2px 9px":1,"0.5px 4px":1,"10px":1,"10px 0 0":1,"10px 12px":1,"5px 6px 5px 12px":1,"7px 10px":1,"4px 2px":2,"0 3px":1,"4px 10px":1,"3px 6px":1,"2px 4px":1}}
 {"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"padding-bottom","values":{"10px":1,"7px":1}}
 {"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"padding-top","values":{"6px":1,"7px":1}}
 {"file":"agent-session/acpmux/styles.css","kind":"spacing","property":"row-gap","values":{"6px":1}}
@@ -317,7 +312,7 @@
 {"file":"sidebar/AllChatsDesigns.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"styles.css","kind":"height","property":"height","values":{"1px":3,"12px":6,"13px":5,"14px":3,"17px":1,"56px":1,"26px":1,"22px":2,"18px":1,"19px":1,"15px":1,"6px":1}}
 {"file":"styles.css","kind":"height","property":"min-height","values":{"31px":1,"30px":3,"52px":1,"50px":1}}
-{"file":"styles.css","kind":"spacing","property":"gap","values":{"7px":2,"6px":8,"5px":6,"10px":2,"2px":5,"14px":1,"1.5px":1}}
+{"file":"styles.css","kind":"spacing","property":"gap","values":{"7px":2,"6px":8,"5px":6,"10px":2,"2px":4,"14px":1,"1.5px":1}}
 {"file":"styles.css","kind":"spacing","property":"padding","values":{"3px 4px 3px 8px":1,"0 24px 0 9px":1,"0 7px 0 9px":1,"7px 9px":1,"12px 9px":1,"5px 8px 7px":1,"0 7px":1,"2px":2,"0 4px 0 10px":1,"3px 7px":1,"0 10px":1,"0 6px 6px":2,"2px 7px 6px":1,"5px 7px":1,"0 5px":1,"10px 12px":1,"1px 6px":3,"12px 10px":1,"1px 8px":1,"3px 8px":1,"0 7px 0 8px":1,"2px 10px 2px 2px":1,"0 8px 0 10px":1,"0 10px 0 12px":1,"6px":1,"9px 12px":2,"5px 8px":1,"0 12px 0 17px":1}}
 {"file":"styles.css","kind":"spacing","property":"padding-right","values":{"9px":1}}
 {"file":"ui/Breadcrumbs.gallery.css","kind":"height","property":"min-height","values":{"200px":1,"18px":1}}

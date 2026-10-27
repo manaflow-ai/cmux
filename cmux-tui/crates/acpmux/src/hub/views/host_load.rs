@@ -16,7 +16,7 @@ impl Hub {
     /// `daemon status`'s `host_pressure`: the verdict, the turns and background
     /// processes running here, and the sessions with the most of them. Waits at most
     /// `host_pressure::SAMPLE_WAIT` for a sample; with none yet, `ok` is null.
-    pub(in crate::hub) async fn host_pressure_status(&self) -> Value {
+    pub(crate) async fn host_pressure_status(&self) -> Value {
         let verdict = Meter::shared().current().await;
         let mut v = match verdict.and_then(|v| serde_json::to_value(v).ok()) {
             Some(v) => v,

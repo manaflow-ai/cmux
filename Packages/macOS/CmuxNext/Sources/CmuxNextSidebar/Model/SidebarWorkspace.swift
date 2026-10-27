@@ -110,6 +110,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var progress: SidebarProgress?
     /// Tabs in pane order, shown only when the sidebar tab setting is enabled.
     public var tabs: [SidebarTab]
+    /// The selected tab of the most recently focused pane (the tab the row stands for): the
+    /// second crumb of a `SidebarRowTitleMode.breadcrumb` name. Nil for a workspace with no tabs.
+    public var focusedTab: TabID?
     /// Live daemon data, a saved row drawn before the daemon answered, or a
     /// placeholder (`SidebarRowState`).
     public var rowState: SidebarRowState
@@ -129,6 +132,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
     /// terminal in the home folder): the row reads quiet while idle (`SidebarTunables.quietUnnamedRows`).
     public var isUnnamed = false
+    /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
+    /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.
+    public var isArchived = false
     /// Agents acting in the workspace's tabs right now, in a stable order
     /// (`agent-presence-v1`); drawn only with `sidebar.presenceDots` on.
     public var presence: [SidebarPresence] = []

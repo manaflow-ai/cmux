@@ -10,6 +10,7 @@ nonisolated enum BrowserSettingsSchema {
         let toolbar = SettingsText.keyed("settings.group.toolbar", "Toolbar")
         let extensions = SettingsText.keyed("settings.group.extensions", "Extensions")
         let agentInput = SettingsText.keyed("settings.group.agentInput", "Agent Input")
+        let importGroup = SettingsText.keyed("settings.group.import", "Import")
         return [
             BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
@@ -41,6 +42,14 @@ nonisolated enum BrowserSettingsSchema {
                 title: SettingsText.keyed("settings.browser.showBookmarksBar", "Show Bookmarks Bar"),
                 help: SettingsText.keyed("settings.browser.showBookmarksBar.help", "A row of bookmarks under each browser toolbar."),
                 kind: .toggle, default: .bool(false), keywords: ["bookmarks", "favorites", "bar"]
+            ),
+            SettingDescriptor(
+                BrowserImportSetting.configPath, section: .browser, group: importGroup,
+                title: SettingsText.keyed("settings.browser.importEnabled", "Import from Other Browsers"),
+                help: SettingsText.keyed("settings.browser.importEnabled.help",
+                                         "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."),
+                kind: .toggle, default: .bool(BrowserImportSetting.fallback),
+                keywords: ["import", "browser", "chrome", "safari", "arc", "firefox", "bookmarks", "history", "passwords", "cookies", "suggestions"]
             ),
             SettingDescriptor(
                 AgentCursorSetting().configPath, section: .browser, group: agentInput,

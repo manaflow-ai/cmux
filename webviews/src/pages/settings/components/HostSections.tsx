@@ -3,6 +3,7 @@
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
 import { useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
+import { Switch } from "../editors/ToggleEditor";
 import type { BrowserProfile, DevicesHostState, HostListRow, HostLists } from "../ops";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
@@ -130,11 +131,13 @@ export function MachinesSection({ title }: { title: string }) {
 
 /**
  * Settings > Devices (add-device-DESIGN.md 2.4-2.6): every device that can reach this computer, in
- * words a person reads, each with Remove (a second click confirms), and the recent activity.
+ * words a person reads, each with Remove (a second click confirms), and the recent activity. A
+ * paired client machine also has its Full access switch (off unless turned on here), with what it allows.
  */
 function DevicesSection({ devices }: { devices: DevicesHostState }) {
   const store = useStore();
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [setting, setSetting] = useState<string | null>(null);
   return (
     <section className="group" data-card="devices">
       <h3 className="group-title">{devices.title}</h3>
@@ -172,6 +175,27 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                   </button>
                 )}
               </div>
+              {typeof row.full_access === "boolean" && (
+                <div className="row-main device-full-access" data-device-full-access={row.id}>
+                  <div className="row-label">
+                    <div className="row-title" id={`device-full-access-${row.id}`}>
+                      {devices.full_access_title}
+                    </div>
+                    {row.full_access_help && <div className="row-help">{row.full_access_help}</div>}
+                  </div>
+                  <div className="row-control">
+                    <Switch
+                      checked={row.full_access}
+                      disabled={setting === row.id}
+                      labelId={`device-full-access-${row.id}`}
+                      onToggle={(on) => {
+                        setSetting(row.id);
+                        void store.setDeviceFullAccess(row.id, on).finally(() => setSetting(null));
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           ))
         )}

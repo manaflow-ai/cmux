@@ -14,10 +14,17 @@ enum AgentPaneHostKind: Equatable {
 
     /// The acpmux that runs `record`'s session: the record says who owns it, so a restored tab
     /// attaches to the same daemon.
-    init(_ record: AgentSessionRef, localHost: String?, chiefHost: String?) {
+    ///
+    /// - Parameter listedHere: whether this Mac's own tree lists the tab. Every `chief:<home id>`
+    ///   such a tab names is a Chief home of this Mac (#25262): the record keeps the home it was
+    ///   made under (NIGHTLY's per-build home before it moved to the shared one, a tagged build's
+    ///   home), so it may differ from `chiefHost` and is still never another machine's.
+    init(_ record: AgentSessionRef, localHost: String?, chiefHost: String?, listedHere: Bool) {
         if let localHost, record.host == localHost {
             self = .local
         } else if let chiefHost, record.host == chiefHost {
+            self = .chief
+        } else if listedHere, record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix) {
             self = .chief
         } else {
             self = .remote
@@ -25,9 +32,23 @@ enum AgentPaneHostKind: Equatable {
     }
 }
 
+extension AgentTabStore {
+    /// The pane host of a Chief subagent tab whose record names `host` (`chief:<home id>`): the
+    /// app's Chief home's, or for another Chief home of this Mac (#25262) that home's acpmux when
+    /// it keeps the chat, else this Mac's.
+    func chiefTabHost(_ host: String) -> (any AgentPaneHostProviding)? {
+        if host == chiefHost { return chiefPaneHost }
+        let fallback = localSessionHost ?? self.host
+        guard let chiefHomes else { return fallback }
+        return ChiefHomeSessionHost(host: host, homes: chiefHomes, fallback: fallback)
+    }
+}
+
 /// This app's Chief home as an agent tab host: `chief:<home id>` and its acpmux
 /// (`ChiefHome.acpmuxHome`, as HomeBrainHost starts it).
 struct ChiefHomeAcpmux {
+    /// Every Chief home's agent tab host starts with it: `chief:<home id>`.
+    nonisolated static let hostPrefix = ChiefHome.tabHostPrefix
     let host: String
     let paneHost: any AgentPaneHostProviding
     /// This Mac's tabs' host: a session the Chief host runs (an older subagent tab recorded
@@ -77,19 +98,13 @@ struct ChiefHomeAcpmux {
     }
 
     /// The acpmux of the Chief home `home` (its socket is `socketPath`), nil without one.
-    static func environment(home: ChiefHome) -> AcpmuxEnvironment? {
+    nonisolated static func environment(home: ChiefHome) -> AcpmuxEnvironment? {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         return AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin, environment: ["ACPMUX_HOME": home.acpmuxHome.path])
     }
 
-    /// `chief:<home id>` of the Chief home `muxHome`. The id is optchat-chief
-    /// `paths::home_id`: FNV-1a 32 of the path bytes.
-    static func host(muxHome: URL) -> String {
-        var hash: UInt32 = 0x811c_9dc5
-        for byte in muxHome.path.utf8 {
-            hash ^= UInt32(byte)
-            hash = hash &* 0x0100_0193
-        }
-        return "chief:" + String(format: "%08x", hash)
+    /// `chief:<home id>` of the Chief home `muxHome` (``ChiefHome/tabHost(muxHome:)``).
+    nonisolated static func host(muxHome: URL) -> String {
+        ChiefHome.tabHost(muxHome: muxHome)
     }
 }

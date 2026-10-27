@@ -528,6 +528,8 @@ pub struct IntegrationPolicySetParamsGithub {
     pub require_org_admin: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub repo_allowlist: Option<Option<Vec<RepoPattern>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_workflows: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

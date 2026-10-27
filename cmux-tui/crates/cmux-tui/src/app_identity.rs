@@ -156,9 +156,29 @@ impl AppIdentity {
     /// nightly, rc or staging build, `cmux-app` for release, and
     /// `cmux-app--<key hash>` for every other build (the untagged DEV build
     /// among them), so each build reaches its own daemon.
+    ///
+    /// An untagged NIGHTLY, RC or staging app that adopted the old shared
+    /// session (`DaemonLauncher.appNames`, `LegacyChannelSession`, cx-r650e)
+    /// runs `cmux-app` instead: the app records that once beside its daemon
+    /// state ([`BuildIdentity::legacy_session_marker`]), and this answer
+    /// follows the record, so `cmux tab list`, `cmux browser open` and
+    /// `cmux pane split` from that app's terminals reach its daemon.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn daemon_session(&self) -> Option<String> {
-        self.build().app_session()
+        let home = std::env::var_os("HOME").map(PathBuf::from)?;
+        self.daemon_session_in(&home)
+    }
+
+    /// [`Self::daemon_session`] for the user home `home` (tests).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn daemon_session_in(&self, home: &Path) -> Option<String> {
+        let build = self.build();
+        let session = build.app_session()?;
+        if build.legacy_session_marker(home).is_some_and(|marker| marker.is_file()) {
+            // `LegacyChannelSession.session`: the old shared daemon session.
+            return Some("cmux-app".to_owned());
+        }
+        Some(session)
     }
 }
 
@@ -365,6 +385,33 @@ mod tests {
             identity(Some("com.cmuxterm.app.debug.nx9"), None).daemon_session().as_deref(),
             Some("cmux-app-nx9")
         );
+    }
+
+    #[test]
+    fn an_adopted_legacy_session_is_the_channel_apps_daemon() {
+        let root =
+            std::env::temp_dir().join(format!("cmux-adopted-session-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let nightly = identity(Some("com.cmuxterm.app.nightly"), None);
+        assert_eq!(nightly.daemon_session_in(&root).as_deref(), Some("cmux-app-nightly"));
+        let marker = nightly.build().legacy_session_marker(&root).unwrap();
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(&marker, br#"{"session":"cmux-app","state_root":"/x"}"#).unwrap();
+        assert_eq!(
+            nightly.daemon_session_in(&root).as_deref(),
+            Some("cmux-app"),
+            "the NIGHTLY app runs the adopted cmux-app session"
+        );
+        assert_eq!(
+            identity(Some("com.cmuxterm.app.rc"), None).daemon_session_in(&root).as_deref(),
+            Some("cmux-app-rc"),
+            "another channel's record is not this one's"
+        );
+        assert_eq!(
+            identity(Some("com.cmuxterm.app.debug.nx9"), None).daemon_session_in(&root).as_deref(),
+            Some("cmux-app-nx9")
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

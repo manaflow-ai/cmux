@@ -24,12 +24,16 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-# Every check reads git's pushed-refs lines; read them once.
+# Every check reads git's pushed-refs lines; read them once. $1 is the pushed remote (a name, or the URL of a
+# push to a URL): the checks bound the push's own commits by its refs (cmux-next-checks/push_range.py).
 PUSHED_REFS="$(cat)"
+PUSHED_REMOTE="${1:-origin}"
+CHECKS="$HOOK_DIR/cmux-next-checks"
 
 WEB_LINT="$HOOK_DIR/web_lint_prepush.py"
 if [[ -f "$WEB_LINT" ]]; then
-    printf '%s\n' "$PUSHED_REFS" | "$PYTHON3_BIN" -I "$WEB_LINT" --pre-push --repo "$REPO_ROOT"
+    printf '%s\n' "$PUSHED_REFS" | "$PYTHON3_BIN" -I "$WEB_LINT" --pre-push --repo "$REPO_ROOT" \
+        --remote "$PUSHED_REMOTE" --trusted-scripts-dir "$CHECKS"
 else
     echo "pre-push: web lint helper is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
@@ -37,8 +41,9 @@ fi
 
 GATE="$HOOK_DIR/cmux_next_prepush_gate.py"
 if [[ -f "$GATE" ]]; then
-    printf '%s\n' "$PUSHED_REFS" | "$PYTHON3_BIN" -I "$GATE" --pre-push --repo "$REPO_ROOT" \
-        --trusted-scripts-dir "$HOOK_DIR/cmux-next-checks"
+    # The remote's URL ($2): the compile trailer rule applies only to a push to manaflow-ai/cmux's feat-cmux-next.
+    printf '%s\n' "$PUSHED_REFS" | CMUX_PREPUSH_REMOTE_URL="${2:-}" "$PYTHON3_BIN" -I "$GATE" --pre-push \
+        --repo "$REPO_ROOT" --remote "$PUSHED_REMOTE" --trusted-scripts-dir "$CHECKS"
 else
     echo "pre-push: cmux-next checks gate is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1

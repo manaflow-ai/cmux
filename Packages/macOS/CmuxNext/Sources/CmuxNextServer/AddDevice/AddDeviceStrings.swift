@@ -106,6 +106,11 @@ public nonisolated struct AddDeviceStrings {
     public static var removeTitle: String { s("devices.remove", "Remove") }
     public static var removeConfirmTitle: String { s("devices.removeConfirm", "Remove for Good") }
     public static var removeHelp: String { s("devices.removeHelp", "It stops working with this computer at once. To use it again, add it again.") }
+    public static var fullAccessTitle: String { s("devices.fullAccess", "Full access") }
+    /// What Full access allows, under the device's name (a description line: 60 characters at most).
+    static var fullAccessHelp: String { s("devices.fullAccessHelp", "Its chats edit files and run commands here without asking") }
+    static var fullAccessOnFailed: String { s("devices.fullAccessOnFailed", "Still off: this Mac could not confirm it was you") }
+    static var fullAccessOffFailed: String { s("devices.fullAccessOffFailed", "Full access could not be turned off. Try again.") }
     public static var activityTitle: String { s("devices.activity", "Recent activity") }
     public static var addDeviceTitle: String { s("devices.add", "Add Device…") }
 }

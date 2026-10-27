@@ -4,6 +4,7 @@ import AppKit
 import Darwin
 import QuartzCore
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Lawrence 2026-10-21 ("there's lag here fix it", screen recording 8.15.58 PM): with a workspace
 /// hover card open, moving the pointer down and up the sidebar lit each row 2 to 6 frames after

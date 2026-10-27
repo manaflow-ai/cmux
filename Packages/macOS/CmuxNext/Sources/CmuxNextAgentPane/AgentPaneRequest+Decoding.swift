@@ -127,6 +127,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setAttachmentView":
+            // The composer's Inline or Strip choice; the page writes only this key with it.
+            if let view = (params?["view"] as? String).flatMap(AgentPaneAttachmentView.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.attachmentViewPath, value: .string(view.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setDisplay":
             // Only the chat's own look keys: the page can never write another setting.
             if let key = params?["key"] as? String, let path = AgentPaneDisplaySetting.writablePath(key) {
@@ -175,6 +182,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "acpmux.restart":
+            self = .restartAcpmux
         case "harness.restart":
             self = .harnessRestart
         case "shell.run":
@@ -275,6 +284,11 @@ extension AgentPaneRequest {
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
+        case "agent.avatar", "agent.avatar.set", "agent.avatar.remove":
+            // A session id is short; anything else never names a stored avatar.
+            if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
+                self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
+            } else { self = .unsupported(method) }
         case "project.icon":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }
             else { self = .unsupported(method) }
@@ -329,6 +343,8 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .asksOpen(id) } else { self = .unsupported(method) }
+        case "chat.asks.answer":
+            if let ask = AgentPaneAskAnswer(params) { self = .asksAnswer(ask) } else { self = .unsupported(method) }
         case "chat.offer.open":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .offerOpen(id, sender: params?["sender"] as? Bool == true) } else { self = .unsupported(method) }
         case "chat.upload":

@@ -41,6 +41,14 @@ final class PaneOverlayView: NSView {
     /// The ring flashed when focus arrives without a click (`focus.flashOnMove`): its own layer, so
     /// the ring's opacity updates never cut the flash short.
     private let focusFlash = CALayer()
+    /// Chats sit directly on the window glass. These decorative layers otherwise draw above
+    /// their page menus when the overlay plane is hosted above Chromium child windows.
+    var showsContentFrame = true {
+        didSet {
+            guard showsContentFrame != oldValue else { return }
+            for layer in [border, ring, glowClip, focusFlash] { layer.isHidden = !showsContentFrame }
+        }
+    }
     /// This pane was the focused one at the last update.
     private var isFocusedPane = false
     private var padding: CGFloat = 0
@@ -95,9 +103,9 @@ final class PaneOverlayView: NSView {
     var attentionOpacity: Float { attention.opacity }
 
     /// Whether the focus ring or glow is showing (for `debug.layers`).
-    var showsRing: Bool { ring.opacity > 0 || glowClip.opacity > 0 }
+    var showsRing: Bool { showsContentFrame && (ring.opacity > 0 || glowClip.opacity > 0) }
     /// Whether the hairline border is showing (for `debug.layers`).
-    var showsBorder: Bool { border.opacity > 0 }
+    var showsBorder: Bool { showsContentFrame && border.opacity > 0 }
 
     private var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 

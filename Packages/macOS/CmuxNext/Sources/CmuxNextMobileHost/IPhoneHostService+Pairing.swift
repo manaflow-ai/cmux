@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextMobile
 import Foundation
@@ -24,21 +25,42 @@ extension IPhoneHostService {
     static let denyButton = "deny"
 
     private var pairedFile: MobileHostPairedDevicesFile? {
-        dependencies.map { MobileHostPairedDevicesFile(directory: $0.stateDirectory) }
+        dependencies.map {
+            MobileHostPairedDevicesFile(
+                directory: $0.stateDirectory,
+                seal: MobileHostKeychainPairingSeal(bundleID: $0.stateDirectory.deletingLastPathComponent().lastPathComponent))
+        }
     }
 
-    /// Loads the list of the signed-in user; a sign-out forgets that user's phones.
+    /// Loads the list of the signed-in user; a sign-out forgets that user's phones. The list is
+    /// read off the main actor (its seal is a Keychain item), after every save already queued;
+    /// until it is in, no phone is trusted and no pairing is decided (each needs `paired`).
     func loadPaired(signedOut: Bool) {
         guard let file = pairedFile else { return }
-        if signedOut, let previous = paired {
-            try? file.save(MobileHostPairedDevices(userID: previous.userID))
+        // A sign-out forgets the phones before anything else, even while the list is still read.
+        if signedOut, let previous = paired?.userID ?? pairedLoad.userID {
+            file.saveInBackground(MobileHostPairedDevices(userID: previous))
         }
         if paired?.userID != account?.userID { resetPrompts() }
-        paired = account.map { file.load(userID: $0.userID) }
+        paired = nil
+        let read = pairedLoad.begin(userID: account?.userID)
         if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
-            approverSync = MobileHostApproverSync(environment: environment)
+            approverSync = makeApproverSync(environment)
         }
         pushPaired()
+        guard let userID = account?.userID else { return }
+        // task-owner: one read per account change; its answer is dropped once a newer read began
+        Task { [weak self] in
+            let list = await file.loadInBackground(userID: userID)
+            guard let self, let done = self.pairedLoad.finish(read, userID: userID, list: list) else { return }
+            if done.forgot {
+                // A phone signed out or was removed while the list was read.
+                self.savePaired(done.list)
+            } else {
+                self.paired = done.list
+                self.pushPaired()
+            }
+        }
     }
 
     /// Settings > Mobile: forget a phone. Its live links end now, its next link asks
@@ -47,12 +69,20 @@ extension IPhoneHostService {
         prompts.forget(id: id)
         showPairDialog()
         if prompts.pending.isEmpty { quietAttention() }
-        guard var list = paired else { return }
-        list.remove(id)
-        savePaired(list)
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op
         Task { await supervisor.drop(phoneDeviceIDs: [id]) }
+        guard var list = paired else {
+            // The list is still being read: the phone is removed from it once it is in, and the
+            // stored list stops counting now (right after the read, on the save queue).
+            if pairedLoad.userID != nil {
+                pairedLoad.forget(id)
+                pairedFile?.withdrawTrust()
+            }
+            return
+        }
+        list.remove(id)
+        savePaired(list)
     }
 
     func pairingEvent(_ event: MobileHostEvent) {
@@ -199,24 +229,43 @@ extension IPhoneHostService {
         showPairDialog()
     }
 
+    /// Every save (a phone added, removed or re-keyed) makes the list it replaces stop counting
+    /// (``MobileHostPairedDevicesFile/save(_:)``).
     private func savePaired(_ list: MobileHostPairedDevices) {
         paired = list
-        do {
-            try pairedFile?.save(list)
-        } catch {
-            Self.logger.error("paired phones not saved: \(String(describing: error), privacy: .public)")
-        }
+        // Off the main actor, in order (the seal is a Keychain item); a failure is logged there.
+        pairedFile?.saveInBackground(list)
         pushPaired()
+    }
+
+    /// The approver sync, which also hands hostd each phone's own acpmux credential.
+    func makeApproverSync(_ environment: AcpmuxEnvironment) -> MobileHostApproverSync {
+        let sync = MobileHostApproverSync(environment: environment)
+        let supervisor = supervisor
+        sync.phoneCredentialsChanged = { credentials in
+            // task-owner: one hop to the supervisor actor; setPhoneCredentials replaces the whole set
+            Task { await supervisor.setPhoneCredentials(credentials) }
+        }
+        return sync
     }
 
     /// hostd's `devices` line and acpmux's approvers follow the list.
     private func pushPaired() {
         let list = paired ?? MobileHostPairedDevices(userID: "")
-        let supervisor = supervisor
-        // task-owner: one hop to the supervisor actor; setDevices is idempotent
-        Task { await supervisor.setDevices(list) }
+        // At once: the next hostd start or restart gets this list, never an older one.
+        supervisor.setNewestDevices(list)
         guard let directory = dependencies?.stateDirectory,
               let macDevice = try? MobileHostDeviceIdentity(directory: directory).deviceID() else { return }
         approverSync?.update(list.approversParams(macDevice: macDevice))
+        pushListedPhones()
+    }
+
+    /// The paired phones the account lists get their own acpmux credential (their Full-access
+    /// setting); every other phone's record is revoked. Until the account's list is read (or
+    /// connections are off), none gets one and none is revoked for being unlisted.
+    func pushListedPhones() {
+        let paired = paired ?? MobileHostPairedDevices(userID: "")
+        approverSync?.updatePhones(paired: Set(paired.devices.map(\.id)),
+                                   listed: phonesKnown ? paired.listed(in: knownPhones) : nil)
     }
 }

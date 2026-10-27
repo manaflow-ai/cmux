@@ -65,6 +65,9 @@ for helper in "$frameworks"/*" Helper.app" "$frameworks"/*" Helper ("*").app"; d
 done
 # The Chromium host app (embed-cef.sh, Debug builds): Chromium's browser
 # process, as the app itself is when it runs Chromium in process.
+# A Release bundle has no host app: the glob stays literal, and the `if` keeps
+# that miss from becoming the script's exit status (a bare `[[ ]] &&` as the
+# loop's last command made sign-cef.sh exit 1 and failed Embed CEF).
 for host_app in "$frameworks"/*" Chromium Host.app"; do
-  [[ -d "$host_app" ]] && codesign "${flags[@]}" "$host_app"
+  if [[ -d "$host_app" ]]; then codesign "${flags[@]}" "$host_app"; fi
 done

@@ -4,14 +4,12 @@
 
 ## Rules that must never be broken
 
-- Nightlies never use Blacksmith (user decision 2026-10-19). Every
-  `*nightly*.yml` and `*notarization*.yml` job compiles on the trusted minis
-  (`build-nightly-app`; cmux-tui macOS legs on `CI_SIDE_LANE_RUNNER`) or runs on
-  an ephemeral GitHub-hosted image (`ubuntu-24.04`, `macos-26`, `macos-15`):
-  signing, notarization and publishing stay ephemeral. These workflows read no
-  shared runner variable (`LINUX_RUNNER`, `MACOS_RUNNER_*`, ...), so those
-  variables cannot move a nightly back. `tests/test_ci_nightly_off_blacksmith.py`
-  enforces it.
+- Nightlies use the same pooled capacity as dev builds. Native work goes to an
+  owned controller-managed Mac pool first, then the trusted Blacksmith macOS
+  pool. Control, verification and publication steps use the Linux pool. No
+  nightly may name a runner-specific label or reserve one host; the routing
+  fallback is explicit in the workflow and enforced by
+  `tests/test_ci_nightly_off_blacksmith.py`.
 - CI is minis first. Blacksmith is overflow; do not disable an owned lane to
   make room for a dev build.
 - Every mini must have every pinned Xcode from
@@ -854,42 +852,23 @@ queued after three minutes is cancelled and dispatched on
 ### Which macOS jobs may take an owned Mac
 
 Owned minis run macOS 26 with Xcode 26.6 only, run same-repository pull
-request code, and keep their home directory and caches between jobs. So a job
-stays off the pull request pools when it signs, notarizes, uploads or
-publishes (anything with signing, store or release secrets, or whose output
-ships or seeds a shared cache), when it runs fork code, or when it needs an OS
-or Xcode the minis lack. Everything else routes through a picker, with
-Blacksmith as the overflow and ci-owned-pool-rescue.yml as the way off a busy
-or refusing mini.
+request code, and keep their home directory and caches between jobs. A job
+that signs, notarizes, uploads or publishes uses the trusted Blacksmith macOS
+pool and a protected environment; it never uses the general pull request side
+pool until a controller admission tuple for nightly signing exists. Fork
+code and jobs that need an OS or Xcode the minis lack stay off owned machines.
+Everything else routes through a picker, with Blacksmith as the overflow and
+ci-owned-pool-rescue.yml as the way off a busy or refusing mini.
 
-The trusted pool (`vars.CI_SEED_TRUSTED_POOL`,
-`glaeda-trusted-<class>-xcode-<version>`) is the owned home for main's own
-cache writers and builds: minis with no pull request runners, whose
-job-started hook admits only a push or schedule run on main. The DerivedData
-seed takes it on every main push. The nightly app compile takes one runner of
-it first, `vars.CI_NIGHTLY_TRUSTED_RUNNER` (`glaeda-runner-cmux15-glaeda`):
-runs-on asks for the pool label and that runner's own label together, so it
-never lands on cmuxs-mac-mini-6, whose dev-build worker builds team code as the
-same user. Either variable empty sends it to Blacksmith, which is also its
-fallback. `runner_label_policy.py` refuses any other shape for either
-variable. glaeda classes the job `isolated` (teamleaderleo/glaeda#1287), so it
-never holds the canonical root a seed on the same mini waits for. Signing and
-notarization are not on it: no signing run on an owned Mac has been proven,
-and the retired self-hosted fleet failed `codesign` with
-`errSecInternalComponent` (#6264).
-
-NEXT uses separate `CI_NIGHTLY_NEXT_TRUSTED_POOL` and
-`CI_NIGHTLY_NEXT_TRUSTED_RUNNER` variables with the same trusted-pool and
-runner-name shapes. The selector also requires `glaeda-trusted-next-nightly`,
-a capability label installed only with the narrow NEXT admission wrapper. Both
-variables and that capability are required on attempt 1 of a same-repository
-`nightly-next` push. The worker hook must explicitly admit only that workflow,
-job and ref, and the worker must have no pull request runners or dev-build
-worker under the same user. Do not activate these variables until that hook is
-deployed and main's rescue and variable-policy support is green. Empty variables,
-retries, dispatches and fast builds use Blacksmith. The main-only
-`ci-cache-writer` environment stays on main; NEXT's trusted job skips shared cache
-restores and writes. It retains its own Release build database, intermediates,
+Nightly NEXT app builds use `CI_SIDE_LANE_RUNNER`, the same
+controller-managed pool label used by dev builds, on initial push/schedule
+attempts. Main cache-writing builds use the trusted `CI_SEED_TRUSTED_POOL`;
+retries, dispatches and fast builds use `MACOS_RUNNER_26` and then the
+Blacksmith macOS fallback. Each label names a pool, never one runner, so a
+worker can leave or join without a workflow change. Secret-bearing nightly
+jobs use the trusted Blacksmith macOS pool. The main-only `ci-cache-writer` environment stays on main;
+NEXT's job skips shared cache restores and writes. It retains its own Release
+build database, intermediates,
 products and Swift packages under `~/Library/Caches/cmux-nightly-next`, separated
 by runner, source path and Xcode/SDK. Checkout cleanup removes only the links.
 The forced web build still runs; identical source and resource bytes regain the
@@ -917,8 +896,8 @@ incremental builds without trusting an old bundle stamp.
 | `iroh-release-gate` version skew | Blacksmith macOS 15 | pins the macOS 15 pool's Xcode 26.3 |
 | `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
 | `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, release and nightly Ghostty helpers | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
-| `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | Blacksmith | signing and store secrets; signing on an owned Mac is unproven |
-| `nightly.yml` `build-nightly-app` | one trusted runner on attempt 1: main push/schedule uses `CI_SEED_TRUSTED_POOL` plus `CI_NIGHTLY_TRUSTED_RUNNER`; a `nightly-next` push uses `CI_NIGHTLY_NEXT_TRUSTED_POOL` plus `CI_NIGHTLY_NEXT_TRUSTED_RUNNER`; GitHub-hosted `macos-26` for `rc/**`, dispatches, fast dogfood and every re-run (the trusted hooks refuse those) | ci-owned-pool-rescue.yml watches it (`NIGHTLY_WORKFLOW_PATH`): stuck one queue round past `CI_OWNED_POOL_RESCUE_SECONDS`, or refused, its failed jobs re-run on Blacksmith. Its compilation cache keys its own lineage (the mini's workspace path) |
+| `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | trusted Blacksmith macOS pool | signing keys remain in protected GitHub environments; no key is written to a worker |
+| `nightly.yml` `build-nightly-app` | main: trusted `CI_SEED_TRUSTED_POOL`; NEXT initial push/schedule: controller-managed `CI_SIDE_LANE_RUNNER`; retries/dispatches/fast: `MACOS_RUNNER_26` / Blacksmith; unsigned resume uses Blacksmith Linux | no dedicated host tuple; every route has a pooled fallback |
 | `seed-derived-data` trusted pool | trusted owned pool, push to main | the minis' own j14 seed |
 | `nightly.yml` `refresh-compilation-cache`, `refresh-test-compilation-cache`, `seed-derived-data` Blacksmith pools | Blacksmith | they seed Blacksmith's own lanes: the release cache the nightly fallback restores, and the pull request admission seeds for each Blacksmith pool |
 | `build-ghosttykit`, `cmux-tui-build-package` (artifacts, nightly, release), `relay-publish-npm` | Blacksmith | publish with R2 or release secrets |

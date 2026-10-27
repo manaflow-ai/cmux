@@ -67,10 +67,11 @@ export function createPopupHost(
 ): PopupHost {
   const quiet = (call: "show" | "update" | "hide", params: Record<string, unknown> = {}) =>
     post(call, params).catch(() => undefined);
-  // A page with no entry animations (a New Tab: `data-new-tab`, newtab/noEntry.css) asks the host
-  // to show the panel in one frame (`instant`); its close still fades.
+  // Menus and lists open in one frame, including the rows shown past a chat pane's edge.
+  // New Tab also suppresses tooltip entrances; other tooltips keep their own motion.
   const request = (model: PopupModel): Record<string, unknown> =>
-    typeof document !== "undefined" && document.documentElement.hasAttribute("data-new-tab")
+    model.kind !== "tooltip" ||
+    (typeof document !== "undefined" && document.documentElement.hasAttribute("data-new-tab"))
       ? { ...model, instant: true }
       : { ...model };
   let current: object | null = null;

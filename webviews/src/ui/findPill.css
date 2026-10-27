@@ -130,7 +130,6 @@
   border-radius: calc(var(--find-pill-button) / 2);
   background: none;
   color: color-mix(in srgb, currentColor 62%, transparent);
-  cursor: default;
 }
 .find-pill__button:hover:not(:disabled) {
   background: color-mix(in srgb, currentColor 9%, transparent);

@@ -38,9 +38,12 @@ public nonisolated struct DeviceListing: Equatable, Sendable, Decodable {
         /// A sentence a person can act on (an error, what a pending device waits for).
         public var detail: String?
         public var addedAt: String?
+        /// A paired client machine's Full-access setting (acpmux `pair_set`); nil for every other
+        /// row, which has no such setting.
+        public var fullAccess: Bool?
 
         public init(id: String, name: String, kind: String = "computer", roles: [String], state: String,
-                    os: String? = nil, detail: String? = nil, addedAt: String? = nil) {
+                    os: String? = nil, detail: String? = nil, addedAt: String? = nil, fullAccess: Bool? = nil) {
             self.id = id
             self.name = name
             self.kind = kind
@@ -49,11 +52,13 @@ public nonisolated struct DeviceListing: Equatable, Sendable, Decodable {
             self.os = os
             self.detail = detail
             self.addedAt = addedAt
+            self.fullAccess = fullAccess
         }
 
         nonisolated enum CodingKeys: String, CodingKey {
             case id, name, kind, roles, state, os, detail
             case addedAt = "added_at"
+            case fullAccess = "full_access"
         }
     }
 

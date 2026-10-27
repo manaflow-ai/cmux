@@ -12,8 +12,10 @@
 // subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
 import type { ReactNode } from "react";
+import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
+import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
@@ -27,6 +29,7 @@ export function AgentLine({
   state,
   time,
   icon = "agent.session",
+  mark,
   iconSize = ROW_ICON,
   depth = 0,
   current = false,
@@ -38,6 +41,8 @@ export function AgentLine({
   after,
   card,
   wave,
+  working = false,
+  expanded,
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -49,6 +54,8 @@ export function AgentLine({
   time?: string;
   /// `agent.session` for a subagent, `terminal` for a background command.
   icon?: string;
+  /// The harness of an agent of another family (`codex`), whose mark replaces the icon.
+  mark?: string;
   iconSize?: number;
   /// How far it sits under the agent that spawned it.
   depth?: number;
@@ -70,8 +77,13 @@ export function AgentLine({
   /// Its place among the running lines in the one shared running wave (ui/wave.ts); none for a
   /// line that does not run, which stays still.
   wave?: number;
+  /// A live command uses the shared spinner, never a breathing dot.
+  working?: boolean;
+  /// A command row's live-tail disclosure state.
+  expanded?: boolean;
 }) {
   const shimmer = waveProps(wave);
+  const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
   const button = (
     <button
       type="button"
@@ -79,6 +91,7 @@ export function AgentLine({
       style={depth > 0 ? { paddingLeft: 8 + Math.min(depth, 3) * 14 } : undefined}
       data-status={status}
       aria-current={current ? "true" : undefined}
+      aria-expanded={expanded}
       aria-label={label}
       /* tooltip-allow: the line shows the name; the task appears nowhere else */
       title={card ? undefined : title}
@@ -90,7 +103,13 @@ export function AgentLine({
         style={shimmer.style}
         data-state={status}
       >
-        <Icon name={icon} size={iconSize} row />
+        {working ? (
+          <Spinner size={iconSize} loading />
+        ) : brand ? (
+          <AgentMark agent={brand} size={iconSize} />
+        ) : (
+          <Icon name={icon} size={iconSize} row />
+        )}
       </span>
       <span className="acpmux-summary-text">
         {kind && <span className="acpmux-agent-line__kind">{kind}</span>}

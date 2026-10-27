@@ -178,30 +178,87 @@ fn startup_settings(effort: &str, fast: bool) -> Option<Value> {
     (!settings.is_empty()).then_some(Value::Object(settings))
 }
 
+/// The most items a workflow snapshot can hold and still be logged whole
+/// (`logged_line`): a small run's snapshots stay as Claude sent them.
+const LOGGED_SNAPSHOT_ITEMS: usize = 16;
+
+/// A raw Claude stdout line as the session's event log keeps it, under its
+/// own kind (`claude.<type>[.<subtype>]`). A workflow's `task_progress`
+/// snapshot (`workflow_progress`) repeats every agent of the run so far,
+/// about 1 KB each, and comes with every agent's start and end, so one run
+/// of several hundred agents would log hundreds of megabytes. A snapshot of
+/// more than `LOGGED_SNAPSHOT_ITEMS` items is logged as how many it held
+/// (`_acpmux.workflowProgressItems`); the translated `subagent_progress`
+/// keeps what changed (`workflows.rs`).
+pub fn logged_line(raw: &Value) -> Message {
+    let kind = format!(
+        "claude.{}{}",
+        raw.get("type").and_then(Value::as_str).unwrap_or("?"),
+        raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
+    );
+    let snapshot = raw.get("workflow_progress").and_then(Value::as_array);
+    let line = match (raw.as_object(), snapshot) {
+        (Some(fields), Some(items)) if items.len() > LOGGED_SNAPSHOT_ITEMS => {
+            let mut kept: serde_json::Map<String, Value> = fields
+                .iter()
+                .filter(|(key, _)| *key != "workflow_progress")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            kept.insert("_acpmux".into(), json!({"workflowProgressItems": items.len()}));
+            Value::Object(kept)
+        }
+        _ => raw.clone(),
+    };
+    Message::notification(&kind, line)
+}
+
 /// The model choices offered in pickers before Claude Code's own list answers.
 pub fn models() -> &'static [(String, String)] {
     &MODELS
 }
 
+pub(crate) mod agent_transcript;
+#[cfg(test)]
+mod agent_transcript_tests;
 #[cfg(test)]
 mod background_output_tests;
+#[cfg(test)]
+mod context_usage_tests;
 mod early_calls;
 #[cfg(test)]
 mod early_calls_tests;
 #[cfg(test)]
 mod edit_diff_tests;
+mod elicitation;
+#[cfg(test)]
+mod elicitation_tests;
 mod inbound;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
+mod steer_withdraw;
+#[cfg(test)]
+mod steer_withdraw_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
 #[cfg(test)]
 mod tests;
+mod usage_limits;
+#[cfg(test)]
+mod usage_limits_tests;
 #[cfg(test)]
 mod workflow_tests;
 mod workflows;
+pub use usage_limits::merge_usage_limits;
+
+/// Longest failure text a failed subagent's end carries, in characters.
+const MAX_FAILURE_CHARS: usize = 600;
+
+/// Most failed subagents remembered for a resume (`failed_agents`); the oldest goes first. A
+/// resume of one forgotten still streams under its own session (`subagent_route.rs`); only its
+/// `running` again is not said.
+const MAX_FAILED_AGENTS: usize = 64;
 
 /// The internal ACP request that stops one of Claude Code's background
 /// tasks (`hub/processes.rs`), `{sessionId, taskId}`: Claude Code's
@@ -217,9 +274,24 @@ pub const STOP_TASK: &str = "_acpmux/claude/stop_task";
 /// origin `user_backgrounded`.
 pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
 
+/// The internal ACP request that reconnects one of the chat's MCP servers
+/// (`hub/tools.rs`), `{sessionId, server}`: Claude Code's `mcp_reconnect`
+/// control request. The answer is `{}` once Claude Code connected it again,
+/// or Claude Code's error.
+pub const MCP_RECONNECT: &str = "_acpmux/claude/mcp_reconnect";
+
+/// The most categories, memory files, MCP tools and skills a context breakdown
+/// names (`context_breakdown`; the lists the largest first, categories in Claude Code's order): a chat with hundreds of MCP
+/// tools would otherwise log every one at each turn's end.
+const BREAKDOWN_ROWS: usize = 50;
+
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
 pub const STEER_NO_TURN: &str = "steer: no turn is running";
+
+/// The answer of a steered prompt taken back before Claude Code read it
+/// (`MUX_STEER_WITHDRAW`, `steer_withdraw.rs`).
+pub const STEER_WITHDRAWN: &str = "steer: withdrawn before the agent read it";
 
 /// What the hub's request becomes: lines for claude's stdin, or an
 /// immediate ACP reply when claude need not be asked.
@@ -322,6 +394,9 @@ pub struct Translator {
     /// `updatedInput` (its permission reply schema), so an allow the hub
     /// did not rewrite hands the input back as it came.
     inputs: Mutex<HashMap<String, Value>>,
+    /// claude control request_id -> the MCP elicitation form it asked
+    /// (`elicitation.rs`), held until the answer.
+    elicitations: Mutex<HashMap<String, elicitation::Form>>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -346,6 +421,9 @@ pub struct Translator {
     /// not echoed yet, oldest first, as (line uuid, ACP request id): each is
     /// answered at its echo.
     steers: Mutex<std::collections::VecDeque<(String, String)>>,
+    /// Each steer's line uuid by the hub's promptId (`_meta.promptId`), so a
+    /// withdraw names the line to drop (`steer_withdraw.rs`).
+    steer_lines: Mutex<HashMap<String, String>>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -367,9 +445,12 @@ pub struct Translator {
     /// Claude's task ids of running subagents -> their Agent tool call
     /// (`task_updated` names only the task).
     subagent_tasks: Mutex<HashMap<String, String>>,
-    /// Running Workflow tool calls (`workflows.rs`), each with its run's
-    /// transcript dir once its launch named it.
-    workflows: Mutex<HashMap<String, Option<std::path::PathBuf>>>,
+    /// Subagents that ended failed, oldest first: the agent id SendMessage resumes each by, its
+    /// Agent call and its session, so a resume reports that subagent running again.
+    failed_agents: Mutex<std::collections::VecDeque<(String, String, String)>>,
+    /// Running Workflow tool calls (`workflows.rs`): each run's transcript
+    /// dir once its launch named it, and what was last sent of its agents.
+    workflows: Mutex<HashMap<String, workflows::WorkflowRun>>,
     /// The chat model's context window as Claude Code last reported it (a
     /// result's `modelUsage`), 0 until then: `usage_update`'s `size`.
     context_window: AtomicU64,
@@ -402,6 +483,9 @@ pub struct Translator {
     /// and those in the background (`run_in_background`, or moved there) until
     /// their `task_notification` or Claude's exit ends them.
     background_shells: Mutex<HashMap<String, BackgroundShell>>,
+    /// The plan usage limit windows Claude Code reported, newest each, by id
+    /// (`usage_limits.rs`).
+    usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
 }
 
 /// A running shell: the session its Bash call ran in, its command, Claude's
@@ -438,6 +522,8 @@ enum Pending {
     /// `end_background_asks` unmarks them when nothing moved, at that
     /// deadline, or when the turn ends.
     Background(Vec<String>, Option<std::time::Instant>),
+    /// A steer's take-back (`MUX_STEER_WITHDRAW`), answered when claude takes it.
+    Withdraw,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -455,6 +541,7 @@ impl Translator {
             control_out: Mutex::new(HashMap::new()),
             suggestions: Mutex::new(HashMap::new()),
             inputs: Mutex::new(HashMap::new()),
+            elicitations: Mutex::new(HashMap::new()),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
@@ -467,6 +554,7 @@ impl Translator {
             prompt_echo: Mutex::new(None),
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
+            steer_lines: Mutex::new(HashMap::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
@@ -475,6 +563,7 @@ impl Translator {
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),
+            failed_agents: Mutex::new(Default::default()),
             workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
@@ -485,6 +574,7 @@ impl Translator {
             streamed_subagents: Mutex::new(HashSet::new()),
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
+            usage_limits: Mutex::new(Default::default()),
         })
     }
 
@@ -493,8 +583,16 @@ impl Translator {
     /// are dropped: used when Claude's answer cannot be carried (a line over
     /// the agent host's frame limit), so no turn waits forever.
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
+        // Drain pending replies before taking the steers lock. A withdrawal reply removes its
+        // pending entry before it inspects the steers, so holding steers while awaiting pending
+        // would invert the lock order used by the withdrawal path.
         let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
-        ids.extend(self.steers.lock().await.drain(..).map(|(_, id)| id));
+        // Hold steers while clearing its prompt-id index: an outbound steer either keeps both
+        // records or waits until the stale index has been cleared.
+        let mut steers = self.steers.lock().await;
+        ids.extend(steers.drain(..).map(|(_, id)| id));
+        self.steer_lines.lock().await.clear();
+        drop(steers);
         ids.into_iter()
             .map(|id| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
@@ -506,10 +604,12 @@ impl Translator {
     /// Error answers for the steered prompts Claude Code never echoed: the
     /// turn ended without reading them (no echo support).
     async fn fail_steers(&self) -> Vec<Message> {
-        self.steers
-            .lock()
-            .await
-            .drain(..)
+        let mut steers = self.steers.lock().await;
+        let failed: Vec<_> = steers.drain(..).collect();
+        self.steer_lines.lock().await.clear();
+        drop(steers);
+        failed
+            .into_iter()
             .map(|(_, id)| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
                 Message::err(
@@ -767,6 +867,70 @@ fn tool_title(name: &str, input: &Value) -> String {
         "ExitPlanMode" => "Approve plan".into(),
         _ => name.to_owned(),
     }
+}
+
+/// Whether a raw Claude line answers the `get_context_usage` a turn's result
+/// asked (`ctx-*`); its trimmed breakdown is what acpmux keeps.
+pub fn is_context_answer(line: &Value) -> bool {
+    line.pointer("/response/request_id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| id.starts_with("ctx-"))
+}
+
+/// Claude Code's answer to `get_context_usage` (its `/context`), trimmed to
+/// what a client draws: each category's tokens and kind, the memory files,
+/// MCP tools and skills by size (at most `BREAKDOWN_ROWS` of each, the
+/// largest), and the totals; no grid or colors. None without categories: a
+/// Claude Code too old to answer, or one that answered something else.
+pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
+    let categories = usage.get("categories")?.as_array()?;
+    let count = |v: &Value, key: &str| v.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let tokens = |v: &Value| count(v, "tokens");
+    let rows = |list: Option<&Value>, fields: &[&str]| -> Vec<Value> {
+        let mut rows: Vec<Value> = list
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|row| {
+                let mut kept = serde_json::Map::new();
+                for field in fields {
+                    if let Some(v) = row.get(*field).filter(|v| v.is_string()) {
+                        kept.insert((*field).into(), v.clone());
+                    }
+                }
+                kept.insert("tokens".into(), json!(tokens(row)));
+                Value::Object(kept)
+            })
+            .collect();
+        rows.sort_by_key(|row| std::cmp::Reverse(tokens(row)));
+        rows.truncate(BREAKDOWN_ROWS);
+        rows
+    };
+    // Claude Code names a dozen; the bound keeps a misbehaving answer out of the log.
+    let categories: Vec<Value> = categories
+        .iter()
+        .take(BREAKDOWN_ROWS)
+        .map(|c| {
+            let mut kept =
+                json!({"name": c.get("name"), "tokens": tokens(c), "kind": c.get("kind")});
+            if let Some(id) = c.get("id").filter(|id| id.is_string()) {
+                kept["id"] = id.clone();
+            }
+            kept
+        })
+        .collect();
+    let mut breakdown = json!({
+        "categories": categories,
+        "memoryFiles": rows(usage.get("memoryFiles"), &["path", "type"]),
+        "mcpTools": rows(usage.get("mcpTools"), &["name", "serverName"]),
+        "totalTokens": count(usage, "totalTokens"),
+        "maxTokens": count(usage, "maxTokens"),
+    });
+    // Claude Code names its skills only when they take context.
+    if let Some(skills) = usage.pointer("/skills/skillFrontmatter").filter(|s| s.is_array()) {
+        breakdown["skills"] = json!(rows(Some(skills), &["name"]));
+    }
+    Some(breakdown)
 }
 
 /// Claude's permission suggestions as session-only permission updates: each

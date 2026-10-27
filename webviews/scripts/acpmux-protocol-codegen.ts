@@ -46,8 +46,10 @@ if (check) {
   }
   const extra = existsSync(outDir) ? readdirSync(outDir).filter((name) => !(name in files)) : [];
   if (drift.length > 0 || extra.length > 0) {
-    console.error(`acpmux protocol codegen drift in ${outRel}: ${[...drift, ...extra].join(", ")}`);
-    console.error("rerun: bun scripts/acpmux-protocol-codegen.ts");
+    console.error(`acpmux protocol generated files are stale in ${outRel}: ${[...drift, ...extra].join(", ")}`);
+    console.error(
+      "rerun from webviews/: ACPMUX_PROTOCOL_BLESS=1 cargo test --manifest-path ../cmux-tui/Cargo.toml -p acpmux protocol_ir_is_current && bun scripts/acpmux-protocol-codegen.ts",
+    );
     process.exit(1);
   }
   console.log(`acpmux protocol generated code is current (${source})`);

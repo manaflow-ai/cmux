@@ -1227,3 +1227,20 @@ final class Seen: @unchecked Sendable {
         #expect(LiveAPI.prefsBody(TeamAppearance(colorHex: "#30D158", emoji: nil, transparent: true))["transparent"] as? Bool == false)
     }
 }
+
+@Suite struct SimulatorTabTreeTests {
+    /// A Mac phone tab (`page: phone`) is a simulator tab; another page tab is not shown.
+    @Test func aPhoneTabIsASimulatorTab() throws {
+        let reply = Data("""
+        {"id":"m","ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"name":"app","screens":[{"id":3,"panes":[{"id":2,"tabs":[
+          {"surface":12,"kind":"conversation","name":null,"title":"","conversation":{"page":"phone","route":"sim:ABC"}},
+          {"surface":13,"kind":"conversation","title":"Settings","conversation":{"page":"settings"}}
+        ]}]}]}]}}
+        """.utf8)
+        let tree = try DaemonTree(reply: reply, macID: "mac-1", agents: AgentStates())
+        let tabs = try #require(tree.workspaces.first).tabs
+        #expect(tabs.map(\.id) == ["s12"])
+        #expect(tabs.first?.kind == .simulator && tabs.first?.title == "Simulator")
+        #expect(tabs.first?.systemImage == "iphone")
+    }
+}

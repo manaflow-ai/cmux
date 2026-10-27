@@ -21,7 +21,9 @@
 //!
 //! Policy (`policy.rs`): at most two entries per cwd, the harness used
 //! before the current one and the one the pane hints at
-//! (`_acpmux/prewarm`, debounced); a 1 GB RSS cap for the whole pool, oldest
+//! (`_acpmux/prewarm`, debounced: a harness pick, or typing in a new chat);
+//! one hinted entry per harness across folders (`pool.hintedPerHarness`), and
+//! a hint the pane takes back (`release`) ends its entry; a 1 GB RSS cap for the whole pool, oldest
 //! first; idle exit on the injected clock (`pool.idleMinutes`, default 10).
 //! The default for idle CPU is that exit; `pool.park` (off) SIGSTOPs a ready
 //! harness instead. Never for a remote-origin chain (REMOTE-FLOOR v3).
@@ -56,6 +58,10 @@ pub use reaper::tree_rss_bytes;
 /// Most a pooled start's `initialize` and harness session may take before
 /// it counts as failed (and its host is ended).
 const START_BUDGET: Duration = Duration::from_secs(90);
+// A pooled host waits longer for its first controller than this budget
+// gives the attach (`agent_host/host.rs`).
+#[cfg(unix)]
+const _: () = assert!(agent_host::host::POOLED_OWNER_WAIT.as_secs() > START_BUDGET.as_secs());
 /// How often the pool's RSS is measured again while it holds entries.
 const RSS_TICK: Duration = Duration::from_secs(60);
 /// Most a `session/new` waits for a matching entry that is still starting
@@ -157,6 +163,9 @@ pub struct PrewarmRequest {
     pub cwd: Option<PathBuf>,
     /// Answer once the hinted entry is ready or failed (tests, benchmarks).
     pub wait: bool,
+    /// Take the hint back instead (the person cleared a new chat's prompt or
+    /// closed it unsent): the entry ends unless another role wants it.
+    pub release: bool,
     /// Asked over a remote-origin connection: refused.
     pub remote: bool,
     /// Whether the request came from a gated LocalApp/Web path.
@@ -320,6 +329,9 @@ impl Hub {
                 "a remote-origin connection never uses the session pool",
             ));
         }
+        if req.release {
+            return Ok(self.pool_release(req).await);
+        }
         if crate::launch_policy::agent_launch_disabled() {
             return Ok(
                 json!({"accepted": false, "reason": crate::launch_policy::DISABLED_MESSAGE}),
@@ -378,6 +390,23 @@ impl Hub {
         Ok(json!({"accepted": true, "superseded": key.is_none(), "pool": self.pool_view_json()}))
     }
 
+    /// `_acpmux/prewarm` with `release`: the hint for this harness in this cwd is taken back
+    /// and its entry ends unless the last-used role still wants it. Starts nothing, so it
+    /// needs no Trust answer. A debounced hint still waiting is not superseded: it may be
+    /// another new chat's, in another folder.
+    async fn pool_release(&self, req: PrewarmRequest) -> Value {
+        let Some(cwd) = req.cwd else { return json!({"released": 0}) };
+        // The key a hint for this harness and folder was pooled under (resolved harness name,
+        // the session folder as a session/new would get it). No key: nothing was pooled.
+        let Ok(spec) = self.pool_spec(req.harness, req.preset, cwd).await else {
+            return json!({"released": 0});
+        };
+        let (released, ended) =
+            lock(&self.pool.pool).release(&spec.key.cwd, Some(&spec.key.harness));
+        self.pool_discard(ended);
+        json!({"released": released})
+    }
+
     /// Wait until `key` is not warming.
     async fn pool_settled(&self, key: &PoolKey) {
         loop {
@@ -397,11 +426,15 @@ impl Hub {
         if lock(&self.pool.oversize).contains(&spec.key) {
             return;
         }
-        let idle = self.config.read().await.pool.idle();
+        let (idle, per_harness) = {
+            let cfg = self.config.read().await;
+            (cfg.pool.idle(), usize::try_from(cfg.pool.hinted_per_harness).unwrap_or(usize::MAX))
+        };
         let now = lock(&self.clock).now();
         let wanted = {
             let mut pool = lock(&self.pool.pool);
             pool.set_idle(idle);
+            pool.set_hinted_per_harness(per_harness);
             pool.want(role, spec.key.clone(), now)
         };
         self.pool_discard(wanted.evicted);
@@ -847,7 +880,7 @@ impl Drop for ClaimGuard {
 
 /// End one pooled session: continue a parked harness, end it through its
 /// host, then by nonce proof if the host still runs.
-async fn end_pooled(p: Pooled) {
+pub(super) async fn end_pooled(p: Pooled) {
     #[cfg(unix)]
     if p.parked {
         signal_harness(&p.record, libc::SIGCONT);

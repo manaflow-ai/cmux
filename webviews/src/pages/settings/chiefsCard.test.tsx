@@ -174,3 +174,48 @@ test("a Chief with its own picture keeps it; the others wear the character", asy
   ]);
   page.unmount();
 });
+
+// The Engine row (Leo's list 89(3); #64 decided the default): which Chief Home opens. Auto is this
+// Mac's optchat-chief while it runs, else the Hosted Chief; This Mac and Hosted force one. It leads
+// the Chiefs card for everyone, and each Chief's own harness stays in its editor.
+const engine = (scope: ParentNode) => scope.querySelector<HTMLElement>('[data-row-key="home.chiefEngine"]');
+const segments = (row: HTMLElement) =>
+  [...row.querySelectorAll<HTMLInputElement>('input[type="radio"]')].map((input) => ({
+    value: input.value,
+    title: input.getAttribute("aria-label"),
+    checked: input.checked,
+  }));
+
+test("the Chiefs card leads with an Engine row: Auto, This Mac or Hosted, Auto by default", async () => {
+  const page = await renderPage({ path: "/settings/chief" });
+  const row = engine(card(page.container));
+  expect(row).not.toBeNull();
+  expect(row!.textContent).toContain("Engine");
+  expect(segments(row!)).toEqual([
+    { value: "auto", title: "Auto", checked: true },
+    { value: "local", title: "This Mac", checked: false },
+    { value: "hosted", title: "Hosted", checked: false },
+  ]);
+  // Above the list of Chiefs, and drawn once: the page's group list leaves it out.
+  const list = card(page.container).querySelector("[data-chiefs]")!;
+  expect(row!.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(page.container.querySelectorAll('[data-row-key="home.chiefEngine"]')).toHaveLength(1);
+  page.unmount();
+});
+
+test("picking Hosted writes home.chiefEngine", async () => {
+  const page = await renderPage({ path: "/settings/chief" });
+  const hosted = engine(card(page.container))!.querySelector<HTMLInputElement>('input[value="hosted"]')!;
+  await act(async () => hosted.click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "home.chiefEngine", value: "hosted" }]);
+  page.unmount();
+});
+
+test("a search result for the Engine row lands on it", async () => {
+  const page = await renderPage({ path: "/settings/chief?focus=home.chiefEngine" });
+  await settle();
+  const row = engine(card(page.container))!;
+  expect(row.contains(document.activeElement)).toBe(true);
+  page.unmount();
+});

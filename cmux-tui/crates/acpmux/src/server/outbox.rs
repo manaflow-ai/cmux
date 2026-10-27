@@ -72,6 +72,8 @@ pub(super) async fn handle(
         return Err(RpcError::invalid_params(format!("no session: {target}"))
             .with_data(json!({"reason": "no_session", "session": target})));
     }
+    // Over the caps it is refused now, never kept (`attach.rs`).
+    crate::attach::check_wire(&request)?;
     let mux = request
         .as_object_mut()
         .map(|r| r.entry("_meta").or_insert_with(|| json!({})))
@@ -95,10 +97,21 @@ pub(super) async fn handle(
         created_at: now,
         updated_at: now,
     };
+    // Its attachments are kept beside outbox.json, once, not in each rewrite of it.
+    let kept = hub.outbox.attachments_path(&new);
+    if let Some(path) = kept.clone() {
+        let request = new.request.clone();
+        tokio::task::spawn_blocking(move || crate::hub::outbox::keep_attachments(&path, &request))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| RpcError::internal(format!("cannot keep the attachments: {e:#}")))?;
+    }
     let delivery = hub.outbox.add(new.clone());
     // The same prompt id again: the first delivery, already on its way.
     if delivery.id == new.id {
         spawn(hub.clone(), delivery.id.clone());
+    } else if let Some(path) = kept {
+        forget_attachments(path).await;
     }
     Ok(delivery.status())
 }
@@ -157,7 +170,12 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     d.state = State::Delivered;
                     d.error = None;
                     d.accepted = Some(accepted);
+                    // Settled: its record keeps no attachment bytes (`attach.rs`).
+                    crate::attach::strip(&mut d.request);
                 });
+                if let Some(path) = hub.outbox.attachments_path(&delivery) {
+                    forget_attachments(path).await;
+                }
                 return;
             }
             Err((error, next)) => {
@@ -169,12 +187,25 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         _ => State::Failed,
                     };
                     d.error = Some(error);
+                    if d.settled() {
+                        crate::attach::strip(&mut d.request);
+                    }
                 });
-                let Some(secs) = delay else { return };
+                let Some(secs) = delay else {
+                    if let Some(path) = hub.outbox.attachments_path(&delivery) {
+                        forget_attachments(path).await;
+                    }
+                    return;
+                };
                 tokio::time::sleep(Duration::from_secs(*secs)).await;
             }
         }
     }
+}
+
+/// Deletes a settled delivery's kept attachments.
+async fn forget_attachments(path: std::path::PathBuf) {
+    let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
 }
 
 /// One attempt: the target's acceptance, or the error and whether to try again.

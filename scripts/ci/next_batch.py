@@ -126,18 +126,23 @@ WEB_GENERATED = (
     "webviews/src/pages/diff/generated/locales/*",
     "webviews/src/pages/diff/generated/localeLoaders.ts",
 )
+def settings_exports() -> tuple[str, ...]:
+    """scripts/cmux-next/settings-exports.txt, the one list of what the settings export writes, so
+    the settings half of SWIFT_GENERATED cannot drift from it. Its own copy was already short by
+    docs/mdm/cmux-example.mobileconfig, which made that export look rebuildable anywhere (review
+    of #23915)."""
+    text = (TOOLS_ROOT / "scripts/cmux-next/settings-exports.txt").read_text(encoding="utf-8")
+    listed = [line.split("#", 1)[0].strip() for line in text.splitlines()]
+    return tuple(path for path in listed if path)
+
+
 # Written by Swift tests under CMUX_UPDATE_*; only a mini can rebuild them.
 SWIFT_GENERATED = (
     "plans/cmux-next/action-surfaces.json",
     "plans/cmux-next/actions.md",
     "plans/cmux-next/links.json",
     "plans/cmux-next/daemon-capabilities.json",
-    "schemas/settings/settings-schema.json",
-    "docs/mdm/com.manaflow.cmux.json",
-    "docs/mdm/com.manaflow.cmux.plist",
-    "docs/mdm/com.manaflow.cmux.intune.plist",
-    "docs/mdm/managed-preferences.md",
-    "schemas/settings-export/settings-schema.sources.sha256",
+    *settings_exports(),
     "Packages/macOS/CmuxNext/ci-target-graph.json",
 )
 # cmux-tui/bindings/codegen/generate.py output.
@@ -1593,13 +1598,9 @@ class Controller:
             return validation
         sha = stack.head
         changed = self.git("diff", "--name-only", base_sha, sha).splitlines()
-        pin = ""
         tree = touches_tree(changed, self.worktree)
         if tree:
-            pin = f"cmux-tui-pin-{sha[:12]}"
-            self.push(sha, pin)
-            if not self.local:  # the job token's push starts no workflow
-                self.gh.dispatch(TUI_WORKFLOW, pin)
+            log(f"{name}: no helper publisher ref; the fleet build bundles its own daemon")
         dispatched = now()
         self.gh.dispatch(HEAVY_WORKFLOW, branch)
         heavy = self.find_run(HEAVY_WORKFLOW, branch, lambda item: item["head_sha"] == sha, dispatched)
@@ -1624,8 +1625,6 @@ class Controller:
             validation.heavy_passed = self.passed_heavy_jobs(heavy["id"])
         if lane_runs:
             self.finish_group_lanes(validation, lane_runs)
-        if pin:
-            self.delete_branch(pin)
         validation.seconds = int(time.monotonic() - started)
         log(f"{name}: {'green' if validation.green else 'red'} in {validation.seconds}s")
         return validation

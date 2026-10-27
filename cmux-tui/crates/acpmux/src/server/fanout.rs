@@ -11,6 +11,7 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
     let mut harnesses = hub.subscribe_harness_changes();
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
+    let mut presence = hub.presence.subscribe();
     tokio::spawn(async move {
         loop {
             let ev = tokio::select! {
@@ -37,6 +38,20 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
                     }
                     continue;
                 }
+                // Who has a chat open (`hub/presence.rs`), to the connections attached to it.
+                note = presence.recv() => {
+                    match note {
+                        Ok(note) => send_presence(&conn, &note),
+                        // Fell behind: the chats it holds, as they are now.
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            for chat in conn.local_attached_ids() {
+                                send_presence(&conn, &hub.presence.snapshot(&chat));
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
+                    continue;
+                }
                 changed = inventory.changed() => {
                     if changed.is_err() { break; }
                     inventory_watch::send_latest(&conn, &mut inventory).await;
@@ -52,4 +67,20 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
             }
         }
     })
+}
+
+/// `_acpmux/presence` for a chat of this daemon's that `conn` is attached to (not a peer's chat
+/// with the same raw id); never to a peer daemon's link, which does not carry presence
+/// (`hub/presence.rs`).
+fn send_presence(conn: &Conn, note: &serde_json::Value) {
+    if conn.origin == super::Origin::Peer {
+        return;
+    }
+    let attached = note
+        .get("sessionId")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|chat| conn.sub_opts(chat).is_some_and(|opts| !opts.remote));
+    if attached {
+        conn.send(&Message::notification(crate::rpc::method::MUX_PRESENCE, note.clone()));
+    }
 }

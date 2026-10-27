@@ -266,6 +266,11 @@ mark {
   gap: 16px;
 }
 
+/* A device row's Full access switch, under the device's own line (Settings > Devices). */
+.row-main.device-full-access {
+  padding-top: 8px;
+}
+
 .row-label {
   flex: 1;
   min-width: 0;

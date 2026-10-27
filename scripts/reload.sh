@@ -736,7 +736,7 @@ Options:
   --config <debug|release|bench>
                          debug (default) and release as above. bench: the Release
                          configuration (-O, whole module, the shipped flags) plus
-                         -DDEBUG -DCMUX_BENCH_HOOKS, so the debug.* socket commands
+                         -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG), so the debug.* socket commands
                          the benches and the STRESS builder drive exist in an
                          optimized app. Never for a shipped product:
                          scripts/cmux-next/check-no-bench-hooks.sh refuses such an
@@ -1692,10 +1692,16 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
 fi
 SWIFT_OTHER_FLAGS='$(inherited)'
 if [[ "$BENCH_HOOKS" -eq 1 ]]; then
-  # Optimized as shipped; DEBUG keeps the debug.* control surface and its counters compiled in, and
-  # CMUX_BENCH_HOOKS marks the binary (check-no-bench-hooks.sh) so it can never ship.
-  SWIFT_OTHER_FLAGS+=" -DDEBUG -DCMUX_BENCH_HOOKS"
-  echo "==> bench configuration: Release optimization with -DDEBUG -DCMUX_BENCH_HOOKS"
+  # Optimized as shipped, without DEBUG. CMUX_BENCH_HOOKS compiles in only the debug.* control surface
+  # and the counters it reads (`#if DEBUG || CMUX_BENCH_HOOKS`); every other DEBUG-only block (logging,
+  # fixtures, debug-only features) stays out. It also marks the binary so it can never ship
+  # (check-no-bench-hooks.sh).
+  # CMUX_BLOCKING_CHECKS: the main-thread blocking detector records (never traps) so a bench sees the
+  # blocking it hits (`debug.blocking`, plans/cmux-next/threading-model.md), as a Nightly would.
+  # shellcheck source=cmux-next/lib/bench-swift-defines.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/cmux-next/lib/bench-swift-defines.sh"
+  SWIFT_OTHER_FLAGS+=" $CMUX_BENCH_SWIFT_DEFINES"
+  echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
@@ -2140,8 +2146,10 @@ fi
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
   TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${PRODUCT_APP_NAME}"
   # A startup process may not service its quit request yet. Do not replace the
-  # resource-bearing bundle while it is still mapped; the helper forces only
-  # this tag's executables after a bounded graceful window.
+  # resource-bearing bundle while it is still mapped: the helper waits for the
+  # clean quit (it saves sessions and agent wake states), sends a second
+  # SIGTERM (the app's force exit) after a bounded window, never SIGKILLs, and
+  # fails (stopping this script under set -e) when the app is still running.
   cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
     "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}}"
   # Tagged --launch runs are handed off to launchd so they survive the terminal

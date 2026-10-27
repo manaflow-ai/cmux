@@ -270,6 +270,9 @@ public struct DaemonTree: Sendable {
         case "browser":
             let url = (tab["url"] as? String).flatMap(URL.init(string:))
             return WorkspaceTab(id: id, kind: .browser, title: title.isEmpty ? (url?.host() ?? "Browser") : title, url: url)
+        case "conversation" where (tab["conversation"] as? [String: Any])?["page"] as? String == "phone":
+            // A Mac phone tab (`page: phone`, route `sim:<udid>`): its simulator streams like a browser tab.
+            return WorkspaceTab(id: id, kind: .simulator, title: title.isEmpty ? "Simulator" : title)
         case "conversation":
             guard let session = (tab["conversation"] as? [String: Any])?["agent_session"] as? [String: Any] else { return nil }
             let binding = AgentBinding(session: session["session"] as? String, harness: session["harness"] as? String, host: session["host"] as? String)

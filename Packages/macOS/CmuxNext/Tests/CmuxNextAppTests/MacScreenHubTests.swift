@@ -6,6 +6,7 @@ import CmuxScreenKit
 import CryptoKit
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 // Mac Screen with the device hub (docs/device-hub/PROTOCOL.md): device
 // records, the viewer's cards per hub state and error code, View Only
@@ -506,7 +507,7 @@ struct MacScreenHubViewerTests {
 struct MacScreenHubPushTests {
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file))
+        return MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
     }
 
     @Test func pushesReachTheTabOfTheirSession() throws {
@@ -660,7 +661,7 @@ struct MacScreenDevicesSettingsTests {
     /// The state never carries a secret, even with relays this Mac can open.
     @Test func theStateHoldsNoSecrets() async throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file))
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
         let settings = MacScreenDevicesSettings(pages: pages)
         pages.hubConfigured = true
         #expect(settings.state.available && settings.state.thisDevice == nil)
@@ -695,7 +696,7 @@ struct MacScreenHubHostOrderTests {
 
     private func serving() -> (MacScreenHubHost, DeviceHub) {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file))
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
         let hub = testHub()
         let host = pages.hubHost
         host.hub = { hub }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextMobile
 @testable import CmuxNextServer
 import Foundation
 import Testing
@@ -156,6 +157,13 @@ import Testing
          "available":[],"invites":[]}
         """
         var removedPhones: [String] = []
+        var fullAccessSets: [String] = []
+        var pairSetFails = false
+
+        func pairSet(_ id: String, _ on: Bool) -> Bool {
+            fullAccessSets.append("\(id) \(on)")
+            return !pairSetFails
+        }
 
         func run(_ args: [String]) -> Data? {
             calls.append(args)
@@ -196,5 +204,73 @@ import Testing
         cli.removeFails = true
         #expect(await directory.remove(id: "peer:mini-7") != nil)
         #expect(directory.lastError != nil)
+    }
+
+    @Test func fullAccessIsAPairedClientsSwitchSetThroughAcpmux() async throws {
+        let cli = FakeCLI()
+        cli.listing = """
+        {"network":{"kind":"tailscale","up":true},"devices":[
+          {"id":"peer:mini-7","name":"mini-7","kind":"computer","roles":["runs-agents"],"state":"connected"},
+          {"id":"paired:dv_leo","name":"leo-mbp","kind":"computer","roles":["uses-this"],"state":"offline","full_access":false}],
+         "available":[],"invites":[]}
+        """
+        let directory = DeviceDirectory(run: { cli.run($0) }, removePhone: { cli.removedPhones.append($0) },
+                                        setFullAccess: { cli.pairSet($0, $1) })
+        await directory.refresh()
+        let rows = directory.rows(phones: [(id: "p1", name: "Lawrence's iPhone", connected: true)])
+        #expect(rows.map(\.fullAccess) == [nil, false, nil], "only a paired client machine has the setting, off by default")
+        #expect(rows[1].fullAccessHelp == "Its chats edit files and run commands here without asking")
+        #expect(rows[0].fullAccessHelp == nil)
+        let page = try #require(try JSONSerialization.jsonObject(with: directory.pageData(phones: [])) as? [String: Any])
+        let pageRows = try #require(page["rows"] as? [[String: Any]])
+        #expect(page["full_access_title"] as? String == "Full access")
+        #expect(pageRows[0]["full_access"] == nil)
+        #expect(pageRows[1]["full_access"] as? Bool == false)
+
+        cli.calls = []
+        #expect(await directory.setFullAccess(id: "paired:dv_leo", on: true) == nil)
+        #expect(cli.fullAccessSets == ["dv_leo true"], "acpmux gets the pairing id")
+        #expect(cli.calls.first == ["device", "list", "--json"], "the list is read again after a change")
+        #expect(await directory.setFullAccess(id: "peer:mini-7", on: true) == nil)
+        #expect(cli.fullAccessSets.count == 1, "a row without the setting never reaches acpmux")
+        cli.pairSetFails = true
+        #expect(await directory.setFullAccess(id: "paired:dv_leo", on: true) == AddDeviceStrings.fullAccessOnFailed)
+        #expect(await directory.setFullAccess(id: "paired:dv_leo", on: false) == AddDeviceStrings.fullAccessOffFailed)
+        #expect(directory.lastError == AddDeviceStrings.fullAccessOffFailed)
+    }
+
+    /// Leo: "#2 seems reasonable i think... it's a gate that you can enable for your phone, which
+    /// is an attack vector you opt in to". A phone paired with this Mac has its own acpmux record
+    /// (role `phone`, named for the phone), and its row carries that record's switch, off by
+    /// default. The record is never a row of its own, and a phone without one has no switch.
+    @Test func aPairedPhoneHasTheFullAccessSwitchOfItsOwnRecord() async throws {
+        let phone = "6A7B8C9D-0000-4000-8000-000000000002"
+        let record = DeviceDirectory.phoneRecordName(phone)
+        #expect(record == MobileHostPairedDevices.acpmuxRecordName(phone), "the app issues it under the same name")
+        #expect(record == "phone-6a7b8c9d-0000-4000-8000-000000000002")
+        let cli = FakeCLI()
+        cli.listing = """
+        {"network":{"kind":"tailscale","up":true},"devices":[
+          {"id":"paired:dv_imposter","name":"\(record)","kind":"computer","roles":["uses-this"],"state":"offline","full_access":true},
+          {"id":"paired:dv_phone","name":"\(record)","kind":"phone","roles":["uses-this"],"state":"connected","full_access":false},
+          {"id":"paired:dv_gone","name":"phone-gone","kind":"phone","roles":["uses-this"],"state":"offline","full_access":true}],
+         "available":[],"invites":[]}
+        """
+        let directory = DeviceDirectory(run: { cli.run($0) }, removePhone: { cli.removedPhones.append($0) },
+                                        setFullAccess: { cli.pairSet($0, $1) })
+        await directory.refresh()
+        let rows = directory.rows(phones: [(id: phone, name: "Leo's iPhone", connected: true),
+                                           (id: "not-issued", name: "Old iPhone", connected: false)])
+        #expect(rows.map(\.id) == ["paired:dv_imposter", "phone:\(phone)", "phone:not-issued"],
+                "a phone's record is not a row of its own")
+        #expect(rows[1].fullAccess == false, "off by default")
+        #expect(rows[1].fullAccessHelp == AddDeviceStrings.fullAccessHelp)
+        #expect(rows[2].fullAccess == nil && rows[2].fullAccessHelp == nil, "no record yet: no switch")
+
+        #expect(await directory.setFullAccess(id: "phone:\(phone)", on: true) == nil)
+        #expect(cli.fullAccessSets == ["dv_phone true"], "the phone's own record, never a machine of the same name")
+        #expect(await directory.setFullAccess(id: "phone:\(phone)", on: false) == nil)
+        #expect(await directory.setFullAccess(id: "phone:not-issued", on: true) == nil)
+        #expect(cli.fullAccessSets == ["dv_phone true", "dv_phone false"], "a phone without a record never reaches acpmux")
     }
 }

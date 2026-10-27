@@ -1,8 +1,7 @@
 // The sender chip of another agent's message (conversation/IncomingMessageCard.tsx) goes to that
 // chat (Leo, ask-7325396234: "I THINK I WANNA BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"):
 // a click opens the sender by its acpmux id, a lane on a peer found by its bare name too, and the
-// tooltip names the chat and the other machine it runs on. In the queue the chip opens it as a
-// sender (`openSender`, `chat.offer.open` with `sender`), not only as this chat's family.
+// tooltip names the chat and the other machine it runs on.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -57,7 +56,6 @@ afterAll(() => {
 
 const { createRoot } = await import("react-dom/client");
 const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
-const { ComposerQueue } = await import("../src/agent-session/acpmux/ComposerQueue");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
 
 const t = translatorFor("en");
@@ -109,27 +107,4 @@ test("a sender no list names is no button: nothing to open", async () => {
   const { chip } = await line({ name: "gone-lane" });
   expect(chip).toBeNull();
   expect(host.querySelector(".cv-received__name.is-plain")?.textContent).toBe("gone-lane");
-});
-
-test("a queued message's chip opens its sender as a sender, not as this chat's family", async () => {
-  const store = new SubsessionStore();
-  store.set(sessions);
-  const family: string[] = [];
-  const senders: string[] = [];
-  const text = "Steer: pick up the hover state too.";
-  root = createRoot(host);
-  await act(async () =>
-    root!.render(
-      <ComposerQueue
-        queue={[{ id: "q1", prompt: text, message: { name: "chief-ui", text, raw: text } }] as never}
-        t={t}
-        subsessions={{ store, open: (id) => void family.push(id), openSender: (id) => void senders.push(id) }}
-        onRemove={async () => true}
-        onChange={async () => true}
-      />,
-    ),
-  );
-  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__name")!.click());
-  expect(senders).toEqual(["mux-chief-ui"]);
-  expect(family).toEqual([]);
 });

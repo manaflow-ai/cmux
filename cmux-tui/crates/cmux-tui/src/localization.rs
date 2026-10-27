@@ -13,6 +13,7 @@ mod coderouter;
 mod config;
 mod foreign_viewport;
 mod graphics;
+mod host_share;
 mod layout;
 mod local_server;
 mod machine_agent;
@@ -149,6 +150,7 @@ pub(crate) struct Catalog {
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
     pub agents_doctor: AgentsDoctorMessages,
+    pub host_share: host_share::Messages,
     pub app_control: AppControlMessages,
     pub coderouter: CodeRouterMessages,
     pub billing: BillingMessages,
@@ -170,6 +172,7 @@ static ENGLISH: Catalog = Catalog {
     app_control: app_control::ENGLISH,
     agent_wrapper: agent_wrapper::ENGLISH,
     agents_doctor: agents_doctor::ENGLISH,
+    host_share: host_share::ENGLISH,
     startup: startup::ENGLISH,
     terminal_input: terminal_input::ENGLISH,
     local_server: local_server::ENGLISH,
@@ -202,6 +205,7 @@ static JAPANESE: Catalog = Catalog {
     app_control: app_control::JAPANESE,
     agent_wrapper: agent_wrapper::JAPANESE,
     agents_doctor: agents_doctor::JAPANESE,
+    host_share: host_share::JAPANESE,
     startup: startup::JAPANESE,
     terminal_input: terminal_input::JAPANESE,
     local_server: local_server::JAPANESE,

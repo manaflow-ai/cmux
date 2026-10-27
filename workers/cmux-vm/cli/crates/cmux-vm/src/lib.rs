@@ -105,6 +105,8 @@ enum Command {
     Retire(DeleteArgs),
     /// Resume a paused VM
     Resume(VmArg),
+    /// Run a command in a VM (the guest's shell); fails when the command fails
+    Exec(ExecArgs),
     /// Fork a VM into a new VM with the same memory and disk
     Fork(ForkArgs),
     /// Delete a VM permanently (asks to type the VM id, or needs --yes without a terminal)
@@ -336,6 +338,18 @@ struct ApiKeyRevokeArgs {
 struct VmArg {
     /// VM id (vm_...)
     vm_id: String,
+}
+
+#[derive(Args, Debug)]
+struct ExecArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Kill the command after this many milliseconds
+    #[arg(long)]
+    timeout_ms: Option<u64>,
+    /// The command; several words are joined with spaces (put them after `--`)
+    #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+    command: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -778,6 +792,14 @@ async fn dispatch(
                 ));
             }
             out.retired(&response, id.as_str())
+        }
+        Command::Exec(args) => {
+            let body: types::ExecRequest = request_body(json!({
+                "command": args.command.join(" "),
+                "timeoutMs": args.timeout_ms,
+            }))?;
+            let result = fetch_body(client.exec_exec_vm(&args.vm_id, None, &body)).await?;
+            out.exec(&result)
         }
         Command::Resume(VmArg { vm_id }) => {
             let vm = fetch_body(client.vms_resume_vm(&vm_id, None)).await?;

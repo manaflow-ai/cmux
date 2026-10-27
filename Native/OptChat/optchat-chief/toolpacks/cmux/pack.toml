@@ -1,0 +1,10 @@
+# cmux-managed: true
+# The cmux CLI pack (plans/cmux-next/chief-toolpacks-DESIGN.md): no sign-in, a skill and a health check.
+name = "cmux"
+title = "cmux"
+description = "The cmux CLI: workspaces, panes, tabs, groups, notifications and the app's actions"
+health = ["cmux", "version", "--json"]
+
+[tool]
+bin = "cmux"
+url = "https://cmux.com"

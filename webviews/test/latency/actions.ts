@@ -159,7 +159,7 @@ const diffActions: LatencyAction[] = [
   {
     name: "sidebar toggle",
     async prepare(page) {
-      // The panel slides at once; the diff column changes width when the slide ends.
+      // The panel slides at once; the diff column changes width two frames after the toggle.
       await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
       const hidden = await page.evaluate(() => document.body.dataset.filesHidden);
       const target = hidden === "true" ? "open" : "closed";

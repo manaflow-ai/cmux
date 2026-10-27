@@ -112,13 +112,19 @@
   background: none;
 }
 .acpmux-effort-track {
-  --acpmux-effort-inset: calc(13px * var(--cmux-interface-scale, 1));
+  /* The thumb's center is the stop: the first and last centers sit on the physical track ends. */
+  --acpmux-effort-inset: 0px;
   position: relative;
   height: calc(23.5px * var(--cmux-interface-scale, 1));
   margin-top: calc(12px * var(--cmux-interface-scale, 1));
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
   animation: acpmux-effort-track-in var(--cmux-motion-standard) cubic-bezier(0.2, 0, 0, 1) both;
+}
+/* In the model menu the track opens with its popup, at once (Leo, 2026-10-24: "No fade in ever");
+   standing on its own it keeps its entrance. */
+.ui-popup .acpmux-effort-track {
+  animation: none;
 }
 .acpmux-effort-fill {
   position: absolute;
@@ -266,11 +272,11 @@
   white-space: nowrap;
 }
 
-.acpmux-goal { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px var(--cv-edge,18px); color: var(--agent-soft); font-size: var(--text-detail); }
+.acpmux-goal { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px var(--cv-edge,16px); color: var(--agent-soft); font-size: var(--text-detail); }
 .acpmux-goal-copy { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
 .acpmux-goal-state, .acpmux-goal-budget { flex: none; color: var(--agent-muted); font-size: var(--text-caption); }
 .acpmux-goal-objective { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acpmux-goal button { border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; padding: 4px 6px; cursor: default; }
+.acpmux-goal button { border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; padding: 4px 8px; }
 .acpmux-goal button:hover { background: var(--acpmux-row-hover); }
 .acpmux-goal button:focus-visible { outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color); }
 .acpmux-goal-error { flex-basis: 100%; color: var(--agent-danger); }

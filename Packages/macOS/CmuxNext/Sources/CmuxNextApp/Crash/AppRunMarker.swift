@@ -124,6 +124,7 @@ final class AppRunMarker {
         guard descriptor >= 0 else { return }
         fatalSignalDescriptor = descriptor
         CrashReporter.installCrashDeadline()
+        CrashReporter.installCrashWatcher(sampleFile: directory.appending(path: "crash-watcher-sample.txt").path)
         installHandlers()
         let window = LaunchRecovery.quickCrashWindow
         survivalTask = Task { [weak self] in

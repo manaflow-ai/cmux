@@ -64,6 +64,7 @@ priority = 50
 # reason (a shared resource, a race) gets that cause fixed instead.
 [test-groups]
 timing-alone = { max-threads = 1 }
+fork-count-alone = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = '''
@@ -76,6 +77,37 @@ filter = '''
 '''
 test-group = 'timing-alone'
 threads-required = 'num-test-threads'
+
+# The shell-integration fork counts on Linux: a count is the gap in the
+# system PID counter, so a process any other test starts in the window
+# counts as a fork of the shell. nextest runs each test in its own process;
+# this group runs them one at a time, and taking every test thread keeps the
+# rest of the run out of their windows. Not on macOS: there the kernel counts
+# the shell's own forks (shell_integration/fork_watch.rs) and nothing else on
+# the host changes them, so the run stays parallel.
+[[profile.default.overrides]]
+platform = 'cfg(not(target_os = "macos"))'
+filter = 'binary_id(cmux-tui-core) & test(/^shell_integration::fork_count_tests::/)'
+test-group = 'fork-count-alone'
+threads-required = 'num-test-threads'
+
+# Every platform: a passing fork-count test keeps its output, so the step log
+# shows its FORK-COUNT line (both counts and how they were taken), the bash
+# version it ran, its FORK-COUNT-SKIP lines (Linux: a shell that is not
+# installed), and on macOS the pinned-shell build line.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^shell_integration::fork_count_tests::/)'
+success-output = "final"
+
+# macOS: the first bash and fish runs on a host also get the pinned shells
+# (scripts/ci/pinned-shell.sh downloads and compiles bash 5.3, and unpacks
+# fish; cached after that) before they count. That time is not measured
+# yet: pinned-shell.sh prints it ("ready in N s"); set this margin from the
+# first fleet runs. A hang still fails.
+[[profile.default.overrides]]
+platform = 'cfg(target_os = "macos")'
+filter = 'binary_id(cmux-tui-core) & test(/^shell_integration::fork_count_tests::fork_count_(bash|fish)_/)'
+slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 
 # The lifecycle latency test (perf-10x lifecycle) prints its LIFECYCLE lines
 # on stderr; a fleet step shows them only when a passing test's output is kept.

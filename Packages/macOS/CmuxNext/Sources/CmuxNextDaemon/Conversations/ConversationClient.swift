@@ -11,12 +11,12 @@ public struct ConversationClient: Sendable {
     }
 
     public static func supported(by connection: DaemonConnection) async -> Bool {
-        await connection.identity?.supports(DaemonCapabilities.localConversations) == true
+        await connection.identity?.supports(DaemonCapability.localConversations.rawValue) == true
     }
 
     private func require() async throws {
         guard await Self.supported(by: connection) else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.localConversations])
+            throw DaemonError.missingCapabilities([DaemonCapability.localConversations.rawValue])
         }
     }
 

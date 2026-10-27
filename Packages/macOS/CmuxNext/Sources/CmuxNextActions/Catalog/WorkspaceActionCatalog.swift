@@ -132,6 +132,14 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace clear-name",
                 mainMenu: .file
             ),
+            // Asks the cheapest model for a name from the workspace's tabs and applies it as the
+            // person's own rename (WorkspaceActivityName). Leo 2026-10-26: "just run it on the cheapest model."
+            ActionDescriptor(
+                id: "workspace.nameFromActivity",
+                title: String(localized: "action.workspace.nameFromActivity", defaultValue: "Name from Activity", bundle: .module),
+                keywords: ["title", "name", "rename", "auto", "summarize", "ai"], category: .workspace, symbol: "sparkles",
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace name-from-activity"
+            ),
             ActionDescriptor(
                 id: "editWorkspaceDescription",
                 title: String(localized: "action.editWorkspaceDescription", defaultValue: "Edit Workspace Description…", bundle: .module),
@@ -240,6 +248,14 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace pin-unpin",
                 mainMenu: .file
             ),
+            // Archive keeps the workspace in its group (or its section), last and dimmed; Unarchive puts
+            // it back (plans/cmux-next/archiving-DESIGN.md). The menu reads Archive or Unarchive.
+            ActionDescriptor(
+                id: "workspace.toggleArchive",
+                title: String(localized: "action.workspace.toggleArchive", defaultValue: "Archive/Unarchive Workspace", bundle: .module),
+                keywords: ["archive", "unarchive", "dim", "done", "end", "bottom"], category: .workspace, symbol: "archivebox",
+                surfaces: [.palette, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace archive-unarchive"
+            ),
             ActionDescriptor(
                 id: "palette.markWorkspaceRead",
                 title: String(localized: "action.palette.markWorkspaceRead", defaultValue: "Mark Workspace as Read", bundle: .module),
@@ -296,7 +312,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "copyWorkspaceSSHError",
                 title: String(localized: "action.copyWorkspaceSSHError", defaultValue: "Copy SSH Error", bundle: .module),
                 keywords: ["ssh", "remote", "error"], category: .workspace, symbol: "exclamationmark.bubble",
-                surfaces: [.contextMenu], targets: [.workspace], cliName: "workspace copy-ssh-error"
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace copy-ssh-error"
             ),
             ActionDescriptor(
                 id: "clearWorkspaceNotifications",
@@ -308,7 +324,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "revealWorkspaceInFinder",
                 title: String(localized: "action.revealWorkspaceInFinder", defaultValue: "Show Workspace in Finder", bundle: .module),
                 keywords: ["finder", "reveal", "directory"], category: .workspace, symbol: "folder.badge.gearshape",
-                surfaces: [.contextMenu], targets: [.workspace], cliName: "workspace show-in-finder"
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace show-in-finder"
             ),
             ActionDescriptor(
                 id: "palette.copyWorkspaceID",
@@ -351,6 +367,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.workspaceGroup.togglePin", defaultValue: "Pin/Unpin Group", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "pin.circle", surfaces: [.palette, .contextMenu],
                 targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
+            ),
+            ActionDescriptor(
+                id: "workspaceGroup.toggleArchive",
+                title: String(localized: "action.workspaceGroup.toggleArchive", defaultValue: "Archive/Unarchive Group", bundle: .module),
+                keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group toggle-archive"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.markRead",

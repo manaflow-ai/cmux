@@ -38,10 +38,24 @@ import Testing
                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
             }
-            NSApp.postEvent(try event(.leftMouseUp), atStart: false)
+            Self.post(try event(.leftMouseUp))
             document.mouseDown(with: try event(.leftMouseDown))
             // A list that did not track the press leaves its mouse-up queued: drop it.
             while NSApp.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true) != nil {}
+        }
+
+        /// Queues `event` for the list's press-and-drag loop. `NSApp.postEvent` stops the run loop
+        /// running when it is called, to wake an event wait; from a test's main-actor job that is
+        /// the test process's outermost loop, whose return ends the process. Posted from a pass of
+        /// a mode of its own, the stop ends that pass, and the pass runs nothing else. The wake
+        /// ends the pass as soon as the event is queued, should AppKit not stop it.
+        private static func post(_ event: NSEvent) {
+            let mode = CFRunLoopMode("com.cmuxterm.next.tests.post-event" as CFString)
+            CFRunLoopPerformBlock(CFRunLoopGetMain(), mode.rawValue) {
+                MainActor.assumeIsolated { NSApp.postEvent(event, atStart: false) }
+                CFRunLoopWakeUp(CFRunLoopGetMain())
+            }
+            CFRunLoopRunInMode(mode, 1, true)
         }
 
         /// A key-down on the list's document view (`keyCode` for arrows, `characters` for Return).
@@ -110,6 +124,36 @@ import Testing
     /// The keyboard sat on the list (the person used it last), as before any click on it.
     private static func keyboardOnList(_ h: Harness) {
         h.window.makeFirstResponder(h.document)
+    }
+
+    /// A click leaves the run loop it was called from running. In a test process that loop is the
+    /// process's outermost one: swift-testing's async main runs `CFRunLoopRun` and exits 0 when it
+    /// returns. The harness queued its mouse-up with `NSApp.postEvent`, and AppKit stops the
+    /// running loop to wake an event wait (`-[NSEvent _postAtStart:]` calls `CFRunLoopStop`); the
+    /// stop stayed on the outermost loop, which returned at the test's next suspension. The whole
+    /// CmuxNextAppTests process then ended with exit 0 and no summary, hundreds of tests unfinished
+    /// (the PR job's "no Test run with summary line", 2026-10-21). Here the click runs in a nested
+    /// pass of the main run loop, which a stop left by the click ends as stopped.
+    @Test func aClickLeavesTheRunLoopItRanInRunning() async throws {
+        let h = try await Self.harness()
+        defer { h.close() }
+        var clicked = false
+        let result = Self.inANestedPass { clicked = (try? h.click(Self.rows[1])) != nil }
+        #expect(clicked, "the click never ran")
+        #expect(result == .finished, "the click stopped the run loop it ran in")
+    }
+
+    /// Runs `body` in one nested pass of the main run loop and returns how that pass ended:
+    /// `.stopped` when `body` stopped it, else `.finished`. The pass runs in a mode of its own, so
+    /// it runs `body` and nothing else (a default-mode pass would also run other suites' main-actor
+    /// jobs, and end as handled when it drained them), and the wake after `body` ends it.
+    private static func inANestedPass(_ body: @escaping () -> Void) -> CFRunLoopRunResult {
+        let mode = CFRunLoopMode("com.cmuxterm.next.tests.nested-pass" as CFString)
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), mode.rawValue) {
+            MainActor.assumeIsolated { body() }
+            CFRunLoopWakeUp(CFRunLoopGetMain())
+        }
+        return CFRunLoopRunInMode(mode, 5, true)
     }
 
     /// Every entry point on one Home (a second Home in the same test process does not get its

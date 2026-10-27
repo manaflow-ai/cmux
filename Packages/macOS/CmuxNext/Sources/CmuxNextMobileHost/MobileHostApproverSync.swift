@@ -12,7 +12,11 @@ import os
 ///   (``AcpmuxCheckedLine``); only the person may set approvers.
 /// - acpmux keeps approvers in memory only, so a restarted daemon starts with
 ///   none: the connection stays open, and each new one sends the list again.
-/// - Nothing to sync (no paired phones) and no connection: it does not connect.
+/// - Nothing to sync (no paired phones) and no connection: it does not connect, once it has
+///   listed acpmux's phone records (``MobileHostPhoneCredentials``).
+/// - Each paired phone the account lists gets its own acpmux credential
+///   (``MobileHostPhoneCredentials``), handed to hostd, so the phone's Full-access setting
+///   (Settings > Devices, off by default) can cover it.
 @MainActor
 final class MobileHostApproverSync {
     private let environment: AcpmuxEnvironment
@@ -36,7 +40,14 @@ final class MobileHostApproverSync {
     private var picksClearPending = false
     private var needed: Bool {
         hasApprovers || workspaceRoots?.isEmpty == false || rootsClearPending || newChatPicks != nil || picksClearPending
+            || credentials.needsConnection
     }
+    /// Hands hostd every phone's credential, by phone device id, whenever the set changes.
+    var phoneCredentialsChanged: (@MainActor ([String: String]) -> Void)?
+    /// The phones' own acpmux credentials and their records' revocations.
+    private var credentials = MobileHostPhoneCredentials()
+    /// The credentials hostd holds now.
+    private var handedTokens: [String: String] = [:]
     private var nextID = 10
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.approvers")
 
@@ -57,6 +68,14 @@ final class MobileHostApproverSync {
         } else if connection == nil, reconnect == nil, needed {
             connect()
         }
+    }
+
+    /// The paired phones (link ids) and, once the account's list is read, the ones it lists
+    /// (``MobileHostPairedDevices/listed(in:)``): each listed one gets its own credential; one that
+    /// left has its record revoked.
+    func updatePhones(paired: Set<String>, listed: Set<String>?) {
+        run(credentials.update(paired: paired, listed: listed, ids: &nextID))
+        if !proven, connection == nil, reconnect == nil, needed { connect() }
     }
 
     /// The folders of the workspaces the daemon lists now (each tab's folder). acpmux lets
@@ -96,6 +115,7 @@ final class MobileHostApproverSync {
         connection?.cancel()
         connection = nil
         proven = false
+        credentials.disconnected()
     }
 
     private func connect() {
@@ -140,9 +160,20 @@ final class MobileHostApproverSync {
                 return lost(line)
             }
             proven = true
-            backoff.reset()
+            // A refusal retried on this connection keeps the backoff growing.
+            if !credentials.refused { backoff.reset() }
+            run(credentials.connected(ids: &nextID))
             send()
         default:
+            if let requests = credentials.reply(id: id, message, ids: &nextID) {
+                guard credentials.refused else { return run(requests) }
+                let error = message["error"] as? [String: Any]
+                logger.error("acpmux refused a phone credential request: \(String(describing: error?["message"]), privacy: .public); retrying")
+                // A new connection retries it, after the backoff.
+                run([])
+                line.cancel()
+                return lost(line)
+            }
             if let error = message["error"] as? [String: Any] {
                 logger.error("acpmux refused a person update: \(String(describing: error["message"]), privacy: .public)")
             } else {
@@ -158,6 +189,18 @@ final class MobileHostApproverSync {
         guard let connection, proven, let params else { return }
         nextID += 1
         connection.send(Self.frame(id: nextID, method: "_acpmux/approvers_set", params: params))
+    }
+
+    /// Sends the credential requests (only on the proven connection), then hands hostd the
+    /// credentials whenever they changed.
+    private func run(_ requests: [MobileHostPhoneCredentials.Request]) {
+        if let connection, proven {
+            for request in requests { connection.send(Self.frame(id: request.id, method: request.method, params: request.params)) }
+        }
+        let tokens = credentials.tokens
+        guard tokens != handedTokens else { return }
+        handedTokens = tokens
+        phoneCredentialsChanged?(tokens)
     }
 
     private func sendRoots() {
@@ -178,6 +221,7 @@ final class MobileHostApproverSync {
         guard connection === line else { return }
         connection = nil
         proven = false
+        credentials.disconnected()
         if needed { scheduleReconnect() }
     }
 

@@ -4,8 +4,9 @@
 // loses whole edges and the arcs next to them. Linux engines draw such a rim fine, so this checks
 // the geometry contract instead: at each device scale, every inset ring on these boxes is a whole
 // number of device pixels (the rim one at 1x and 2x), and the composer's rim clears with
-// `appearance.borders` none, as the New Tab box's does. Focus draws no ring and no glass rim (Leo
-// 2026-10-19: the focus ring flashed): a focused box looks as it does at rest, apart from the caret.
+// `appearance.borders` none, as the New Tab box's does. Focus draws no ring and no glass rim: a
+// focused box keeps its one rim at the same width, a step brighter (Leo 2026-10-21: "a subtle
+// hairline border that brightens slightly on focus"; agent-pane-hairline-focus.test.ts).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -117,8 +118,13 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
       ]) {
         const rest = await insets(page, id);
         await page.focus(`#${field}`);
-        // No focus ring (Leo 2026-10-19): the focused box keeps its resting rim, width and tone.
-        expect(await insets(page, id), `${id} focused draws its resting rim`).toEqual(rest);
+        // No focus ring: the focused box keeps its resting rim's width (the shell its tone too).
+        const focused = await insets(page, id);
+        expect(
+          focused.map(({ spread }) => spread),
+          `${id} focused keeps its rim's width`,
+        ).toEqual(rest.map(({ spread }) => spread));
+        if (id === "shell") expect(focused, "the shell's accent rim stays as it rests").toEqual(rest);
       }
       await page.close();
     });
@@ -164,20 +170,25 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
     });
   }
 
-  // Over art the glass card keeps its top-lit rim (#21786) as it rests: focus no longer brightens it
-  // (#22114's glass focus rim flashed, Leo 2026-10-19), and the ring keeps its resting tone.
-  test("over art focus leaves the glass card's top-lit rim and ring as they rest", async () => {
+  // Over art the glass card keeps its top-lit rim (#21786) as it rests: focus never brightens it
+  // (#22114's glass focus rim flashed, Leo 2026-10-19); only the hairline ring takes its focused step.
+  test("over art focus leaves the glass card's top-lit rim as it rests and adds no ring", async () => {
     const page = await open(2);
     await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
     const topRim = async () => (await insets(page, "composer")).find(({ spread }) => spread === 0)?.alpha ?? 0;
     const rest = await insets(page, "composer");
-    expect(await topRim(), "the glass card draws its top-lit rim").toBeGreaterThan(0);
+    const restTop = await topRim();
+    expect(restTop, "the glass card draws its top-lit rim").toBeGreaterThan(0);
     await page.focus("#composer-field");
-    expect(await insets(page, "composer"), "focus changes neither the rim nor the ring").toEqual(rest);
+    expect(await topRim(), "focus leaves the top-lit rim").toBe(restTop);
+    expect(
+      (await insets(page, "composer")).map(({ spread }) => spread),
+      "focus adds no ring and widens none",
+    ).toEqual(rest.map(({ spread }) => spread));
     await page.close();
   });
 
-  test("neither pointer focus nor keyboard traversal changes the composer rim", async () => {
+  test("pointer focus on a chip leaves the composer rim; the prompt's focus brightens it a step", async () => {
     const page = await open(2);
     const rest = await insets(page, "composer");
     const chip = page.locator("#composer-chip");
@@ -186,11 +197,13 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
     expect(await insets(page, "composer")).toEqual(rest);
 
     // Move from the chip to the prompt with a real reverse-Tab. The prompt is then :focus-visible,
-    // and the card still draws its resting rim: the caret alone shows focus.
+    // and the card draws its one rim, the same width, a step brighter.
     await chip.focus();
     await page.keyboard.press("Shift+Tab");
     expect(await page.evaluate(() => document.activeElement?.id)).toBe("composer-field");
-    expect(await insets(page, "composer")).toEqual(rest);
+    const focused = await insets(page, "composer");
+    expect(focused.map(({ spread }) => spread)).toEqual(rest.map(({ spread }) => spread));
+    expect(focused[0].alpha, "a step brighter").toBeGreaterThan(rest[0].alpha);
     await page.close();
   });
 });

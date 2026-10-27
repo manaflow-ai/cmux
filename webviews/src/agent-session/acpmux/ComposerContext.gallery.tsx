@@ -196,7 +196,7 @@ const repoProps = {
 };
 
 // No icon file of their own: cmux draws its GitHub owner's avatar (here a drawn stand-in), atlas-web
-// its framework, relay its language.
+// its framework, relay its language, notes (no manifest) a folder.
 const ownerAvatar =
   "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iMTYiIGZpbGw9IiMxZjIzMjgiLz48cGF0aCBkPSJNOSAyMlYxMWw3IDcgNy03djExIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+";
 const repoHost = {
@@ -206,6 +206,33 @@ const repoHost = {
   projectGlyphs: { "/Users/you/src/atlas-web": "react", "/Users/you/src/relay": "rust" },
 };
 
+// One project per kind the host tells apart (AgentPaneProjectIcon.glyph), and one it cannot.
+const frameworkGlyphs = {
+  "vite-app": "vite",
+  dashboard: "next",
+  storefront: "react",
+  docs: "astro",
+  "admin-panel": "vue",
+  "svelte-kit-site": "svelte",
+  desktop: "electron",
+  "mobile-app": "expo",
+  "api-server": "bun",
+  engine: "rust",
+  "macos-app": "swift",
+  "ml-pipeline": "python",
+  notes: undefined,
+} as const;
+const frameworkProjects = Object.keys(frameworkGlyphs).map((label) => ({ cwd: `/Users/you/src/${label}`, label }));
+const frameworkProps = {
+  ...baseProps,
+  projectChoices: frameworkProjects,
+};
+const frameworkHost = {
+  projectIcons: {},
+  projectGlyphs: Object.fromEntries(
+    Object.entries(frameworkGlyphs).flatMap(([label, glyph]) => (glyph ? [[`/Users/you/src/${label}`, glyph]] : [])),
+  ),
+};
 // Every cmux folder draws manaflow-ai's avatar (the host reads it for a chat folder in a lane checkout
 // too); a folder with no repository draws a plain folder.
 const laneHost = {
@@ -218,7 +245,9 @@ const laneHost = {
 
 const openComputer: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /^Computer/ });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector('.acpmux-location-menu [role="option"], [role="menu"] [role="menuitemradio"]'),
+  );
 };
 
 export default componentEntry<ComponentProps<typeof ComposerContext>>({
@@ -265,6 +294,12 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       note: "Projects with a favicon (public/, app/, the folder itself) show it in their tile; cmux has none and draws a plain folder.",
       props: baseProps,
       chipHost: { projectIcons },
+      play: openFolder,
+    },
+    "framework-marks": {
+      note: "With no favicon, each project shows its framework or language (from package.json dependencies, Package.swift, Cargo.toml…) in its brand color; a folder with no manifest shows a folder.",
+      props: frameworkProps,
+      chipHost: frameworkHost,
       play: openFolder,
     },
     "duplicate-worktrees": {
@@ -354,8 +389,18 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
       play: openComputer,
     },
+    "computer-search": {
+      note: "The classic machine picker uses the same searchable Combobox as environments and folders; filtering twenty machines leaves gpu-box.",
+      props: { ...baseProps, peers: ["gpu-box", ...Array.from({ length: 20 }, (_, i) => `build-${i + 1}`)] },
+      play: async (ctx) => {
+        await openComputer(ctx);
+        await ctx.focus({ role: "combobox", name: "Computer" });
+        await ctx.type("gpu");
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === 1);
+      },
+    },
     "environment-picker": {
-      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…) comes last. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.",
+      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…, Connect Phone…) comes last. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.",
       props: {
         ...baseProps,
         environments: true,

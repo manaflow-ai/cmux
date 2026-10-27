@@ -6,7 +6,7 @@ import CmuxNextSettings
 import Observation
 
 /// The cmux.json keys every agent page shows, followed for ``AgentTabs``: `labs.previewFeatures`, `agentPane.needsYou.enabled`,
-/// `agentPane.editedFiles.*`, `agentPane.showContextUsage`, `diff.colors` and the Debug Settings
+/// `agentPane.editedFiles.*`, `agentPane.showContextUsage`, `agentPane.spellChecking`, `diff.colors` and the Debug Settings
 /// toggles `agent.reasoningSlider`/`agent.reasoningSliderStyle`/`agentPane.debug.sidebarPreviewVariant`. Each change reaches every open view; a new view gets the current
 /// values (``apply(to:)``).
 final class AgentPanePageSettings {

@@ -15,6 +15,9 @@ final class GoneTabWatch {
     private var stores: [String: DaemonStore] = [:]
     private var seenLive: Set<String> = []
     private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// Tab records this watch examined since it was made, over every tree change it woke for: what a
+    /// tree change costs it. Tests read it; it must follow the tabs it tracks, not the session.
+    private(set) var tabsVisited = 0
 
     /// Follows tab `key` in `store`'s tree; `release` lets it go once the tree drops it.
     func track(_ key: String, in store: DaemonStore, release: @escaping @MainActor (String) -> Void) {
@@ -22,23 +25,25 @@ final class GoneTabWatch {
         // Seen in another tree is not seen in this one: this tree must list it before it can drop it.
         if stores[key] != nil { seenLive.remove(key) }
         stores[key] = store
-        if AgentTabStore.liveTabs(store)?.contains(key) == true { seenLive.insert(key) }
+        if store.liveTreeLists(tab: key) == true { seenLive.insert(key) }
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once no tracked terminal belongs to the store
         watches[id] = Task { [weak self] in
-            for await live in ObservationStream({ AgentTabStore.liveTabs(store) }) where live != nil {
-                guard let self, let live else { return }
-                for key in self.gone(in: store, live: live) { release(key) }
+            for await revision in ObservationStream({ store.liveTabListRevision }) where revision != nil {
+                guard let self else { return }
+                for key in self.gone(in: store) { release(key) }
             }
         }
     }
 
     /// The tracked keys of `store` its live tree dropped; the ones it lists count as seen.
-    private func gone(in store: DaemonStore, live: Set<String>) -> [String] {
+    private func gone(in store: DaemonStore) -> [String] {
         var gone: [String] = []
         for (key, owner) in stores where owner === store {
-            if live.contains(key) {
+            guard let listed = store.liveTreeLists(tab: key) else { return [] }
+            tabsVisited += 1
+            if listed {
                 seenLive.insert(key)
             } else if seenLive.contains(key) {
                 gone.append(key)

@@ -188,10 +188,10 @@ OWNED_RUNNER_SELECTOR = re.compile(
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
 FORK_GATE_EXEMPT = {
-    ("cmux-next.yml", "vars.CI_FAST_LANE_RUNNER == '' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && 'fast-tier' || '',"): (
-        "a continuation line of the side-lane placement step's CASCADE_RUNS list: "
-        "it compares the fast-lane variable with '' to name the fast-tier job, "
-        "selects no runner, and the placement step itself is gated to glaeda routes"
+    ("cmux-next.yml", "FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}"): (
+        "side_lane_placement.py's input: the placement step is gated to glaeda routes "
+        "(never a fork) and selects no runner; fast_route() writes it to fast_runner "
+        "only while one of its runners is idle"
     ),
     ("ci.yml", "DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}"): (
         "pr_runner_pool.py's input: it compares the lane with its default and "

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Leo 2026-10-14: tooltips showed at once on every control the pointer
 /// passed. They now behave as AppKit's: the first waits (about AppKit's

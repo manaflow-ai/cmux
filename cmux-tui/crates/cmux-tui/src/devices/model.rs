@@ -94,6 +94,10 @@ pub(crate) struct Device {
     /// A sentence a person can act on (an error, what a pending device waits for).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// A paired client machine's or phone's Full-access setting (acpmux `pair_set`): whether it
+    /// may run chats here in Full access. None for every other row, which has no such setting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_access: Option<bool>,
 }
 
 /// A computer the network knows that is not a device yet (Add Device, way 1).
@@ -168,6 +172,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             via: vec![Via::Peer { name: name.clone() }],
             added_at: None,
             detail: if state == State::Error { error } else { None },
+            full_access: None,
         });
     }
     for paired in array(&sources.pairing, "devices") {
@@ -189,7 +194,9 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         devices.push(Device {
             id: format!("paired:{id}"),
             name,
-            kind: Kind::Computer,
+            // A phone's own record (acpmux role `phone`): the Mac app lists the phone and joins
+            // this row to it for its Full-access setting.
+            kind: if role == "phone" { Kind::Phone } else { Kind::Computer },
             roles: vec![match role.as_str() {
                 "read-only" => Role::WatchOnly,
                 "daemon" => Role::RunsAgents,
@@ -201,6 +208,8 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             via: vec![Via::Paired { id }],
             added_at,
             detail: None,
+            full_access: matches!(role.as_str(), "client" | "phone")
+                .then(|| paired["full_access"] == true),
         });
     }
     if sources.remote["enabled"].as_bool() == Some(true) {
@@ -311,6 +320,7 @@ fn login_row(
         via: vec![via],
         added_at,
         detail,
+        full_access: None,
     }
 }
 

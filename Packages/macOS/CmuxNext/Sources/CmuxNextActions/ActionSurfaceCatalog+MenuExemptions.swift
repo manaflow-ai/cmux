@@ -37,6 +37,7 @@ nonisolated extension ActionSurfaceCatalog {
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
             "showNotifications", "feed.show", "markAllNotificationsRead",
             "clearAllNotifications", "notifications.toggleBanners", "notifications.dismissal.keystroke",
+            "notifications.setAgentSound", "notifications.setEventSound", "notifications.importSound",
             "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
             "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.openTerminalChatView",
             "palette.quickAgentChat",
@@ -133,8 +134,12 @@ nonisolated extension ActionSurfaceCatalog {
             "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
         ],
         .minimalMenu: [
-            "space.setDefaults", "browserProfile.clearSpaceDefault",
+            "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",
         ],
+        // Leo 2026-10-23: the workspace row menu drops this long tail; the palette keeps it.
+        .pointerMenuTrim: ["workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
+            "palette.copyWorkspaceIDAndRef", "palette.copyWorkspaceLink", "workspace.showResources", "palette.openWorkspacePullRequests",
+            "workspace.setRemoteLocalhost"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],

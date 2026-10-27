@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileAuth
 import CmuxMobileBrowserStream
+import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
@@ -9,6 +10,7 @@ import CmuxMobileNotifications
 import CmuxMobileTransport
 import CmuxMobileOnboarding
 import CmuxMobileSettings
+import CmuxMobileVoice
 import SwiftUI
 import OSLog
 import UIKit
@@ -264,6 +266,9 @@ public struct RootView: View {
     /// same account signs in again (verify/persistence.md). Removing it from
     /// the Macs is its own action (Settings → Devices).
     private func signedOut() {
+        // A live Chief call (even minimized) ends with the account; a call asked for while signed out is dropped.
+        ChiefLiveCall.shared.signedOut()
+        ChiefCallLauncher.shared.cancelPending()
         let ending = live
         live = nil
         setupPlan = nil
@@ -278,9 +283,13 @@ public struct RootView: View {
         }
         store.resetForSignOut()
         // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
-        PushSnapshots().removeAll()
-        PushOutbox(group: .current())?.removeAll()
         PushRetryStore.app?.removeAll()
+        // The App Group is resolved and emptied off the main thread.
+        Task.detached(priority: .utility) {
+            let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
+            PushSnapshotStore(group: group)?.removeAll()
+            PushOutbox(group: group)?.removeAll()
+        }
         welcomeCut = false
         log.info("signed out: account state reset, device identity kept")
     }
@@ -398,6 +407,7 @@ struct ShellView: View {
         )
         .ignoresSafeArea()
         .cmuxMobileToast($shell.toast)
+        .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }
@@ -477,6 +487,8 @@ struct ShellView: View {
         }
         .onChange(of: live.map(ObjectIdentifier.init)) { _, _ in
             shell.attach(live: live)
+            // A tapped notification that waited for the link (cold launch) opens now, or waits for its Mac's tree.
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
         }
         .task {
             #if DEBUG
@@ -542,7 +554,7 @@ private struct LinkSettingsObserver: ViewModifier {
                 // Hidden pages stop painting on the Mac and give up the lane.
                 StreamedBrowserDirectory.shared.setAppActive(phase != .background)
                 // The notification preview shows these chats' last messages.
-                if phase == .background { PushSnapshots().save() }
+                if phase == .background { Task { await PushSnapshots().save() } }
             }
     }
 }
@@ -558,6 +570,41 @@ extension ShellView {
 extension CmuxMobileModel.TransportKind {
     /// The link layer's transport for the Settings choice.
     var link: CmuxMobileTransport.TransportKind { self == .webrtc ? .webRTC : .wireGuard }
+}
+
+/// The live Chief call over the signed-in shell: the full-screen call, the
+/// pill while it is minimized, and every Call Chief entry point
+/// (``ChiefCallLauncher``) routed to ``ShellModel/callChief()``.
+private struct LiveCallHost: ViewModifier {
+    let shell: ShellModel
+    private let call = ChiefLiveCall.shared
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if let session = call.session, call.isMinimized, !session.hasEnded {
+                    LiveCallPill(call: call, session: session)
+                        .padding(.top, 2)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(theme.motion.snappy.animation, value: call.isMinimized)
+            .fullScreenCover(isPresented: Binding(
+                get: { call.showsScreen },
+                set: { if !$0 { call.isMinimized = true } }
+            )) {
+                if let session = call.session {
+                    LiveCallScreen(call: call, session: session) { shell.openChiefCallSettings() }
+                }
+            }
+            .task(id: shell.auth.isSignedIn ? shell.auth.user?.id : nil) {
+                let user = shell.auth.isSignedIn ? shell.auth.user : nil
+                call.configure(store: shell.store, accountID: user?.id,
+                               userName: user?.name.split(separator: " ").first.map(String.init))
+                ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
+            }
+            .onDisappear { ChiefCallLauncher.shared.handler = nil }
+    }
 }
 
 /// Exactly four tabs: Home, Workspaces, Feed, Settings. The selected tab is
@@ -588,6 +635,7 @@ struct ShellTabs: View {
                     scrollRequest: shell.settingsScrollTarget,
                     directory: shell.deviceDirectory,
                     sizing: shell.sizingService,
+                    callChief: { shell.callChief() },
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {

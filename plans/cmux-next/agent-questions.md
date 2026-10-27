@@ -99,9 +99,13 @@ keys and these rules (Leo, 2026-10-20):
   the pane's own listeners, except in the floating chat, where an unclaimed
   Esc hides the panel. Inside the Other field the first Esc only leaves the
   field. Skip is the only way to decline.
-- One click (or 1-9, or Enter) on the last single-choice question submits at
-  once, as in Codex and Claude Code. Multi-select and Other wait for Submit
-  or ⌘↩.
+- A click chooses an option and never sends it (Leo, 2026-10-24: "just
+  clicking it directly just automatically sends the input. So it makes the
+  skip and submit buttons redundant"). Submit or ⌘↩ sends the choice, and
+  Skip declines. On a single-choice question the arrows move the choice with
+  the highlight. Enter (or 1-9) on the last single-choice question chooses
+  that row and submits, and a double-click on a single-choice option chooses
+  and submits it. Multi-select and Other wait for Submit or ⌘↩.
 - A reply acpmux refuses (`chat.permission` fails and the ask stays pending)
   shows the error on the card, and the card takes input again for a retry.
 
@@ -110,7 +114,8 @@ keys and these rules (Leo, 2026-10-20):
 - DECIDED: Skip declines (the agent sees "rejected"), because a hidden
   pending ask blocks the agent's turn forever. Esc does not decline: it
   returns focus to the composer and never answers (§6).
-- DECIDED: one click on the last single-choice question submits at once.
+- DECIDED (2026-10-24, replacing 2026-10-20's one-click submit): a click
+  only chooses; Submit, ⌘↩, Enter or a double-click sends.
 - DECIDED: a refused reply shows its error on the card and the controls work
   again for a retry; the card never stays locked on a pending ask.
 - Codex end to end is UNVERIFIED: it depends on how the Codex ACP adapter

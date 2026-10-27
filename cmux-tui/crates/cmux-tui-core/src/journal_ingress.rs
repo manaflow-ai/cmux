@@ -21,6 +21,7 @@ use crate::{Mux, panic_free::RecoverPoison};
 mod coalesce;
 mod completion;
 pub(crate) mod contention;
+mod disk_full;
 mod effect_intents;
 pub(crate) use completion::JournalBatchReceipt;
 use completion::{complete_batch_error, complete_batch_success};
@@ -506,6 +507,7 @@ struct JournalIngressState {
     commit_admission: Mutex<()>,
     queue_space_epoch: Mutex<u64>,
     queue_space_changed: Condvar,
+    disk_full: disk_full::DiskFullState,
     #[cfg(test)]
     failure_notifier: Mutex<Option<SyncSender<String>>>,
     #[cfg(test)]
@@ -941,6 +943,9 @@ impl JournalIngressSender {
                 }
                 Err(TrySendError::Full(event)) => {
                     self.state.stats.enqueue_failed(lane);
+                    if self.state.disk_full.is_full() {
+                        return Err(self.state.disk_full.drop_event());
+                    }
                     pending = event;
                 }
                 Err(TrySendError::Disconnected(_)) => {
@@ -998,6 +1003,11 @@ impl JournalIngressSender {
                 }
                 if let Some(error) = self.state.admission_error() {
                     return Err((error, Box::new(pending)));
+                }
+                // A waiter is answered now, not at its deadline.
+                if self.state.disk_full.is_full() {
+                    self.state.disk_full.refused_waiter(&self.state);
+                    return Err((disk_full::WAITER_ERROR.into(), Box::new(pending)));
                 }
                 // Count before the event is visible to the writer, which may
                 // drain it before `try_send` returns.
@@ -1097,6 +1107,7 @@ pub(crate) fn start(
 }
 
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
+    let mut disk_full_retry = disk_full::DiskFullRetry::new();
     loop {
         let Some(batch) = receive_batch(&receivers) else { return };
         let mut pending = VecDeque::from([batch]);
@@ -1165,6 +1176,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             mux.request_registry_flush();
                         }
                         drop((writer, mux));
+                        disk_full_retry.recovered(&receivers.state);
                         complete_batch_success(&batch, commits);
                         break;
                     }
@@ -1174,6 +1186,19 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                         if reported_error.as_deref() != Some(summary.as_str()) {
                             eprintln!("cmux-tui: append session journal batch: {summary}");
                             reported_error = Some(summary.clone());
+                        }
+                        if disk_full::is_disk_full(&error) {
+                            drop((writer, mux));
+                            let (batch, rest) = (&mut batch, &mut pending);
+                            if !disk_full_retry.wait(&receivers, batch, rest, &summary) {
+                                return;
+                            }
+                            if batch.is_empty() {
+                                break;
+                            }
+                            // Only events nobody waits on are kept: no deadline.
+                            retry_deadline = Instant::now() + journal_durable_wait();
+                            continue;
                         }
                         let transient = contention::is_transient(&error, retry_deadline);
                         if Instant::now() >= retry_deadline {

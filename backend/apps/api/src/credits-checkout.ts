@@ -80,6 +80,10 @@ export const createCheckout = async (env: Env, key: string, origin: string, team
   const form: Record<string, string> = {
     mode: "payment",
     ...(customer ? { customer } : { customer_creation: "always" }),
+    // One tap next time (paid-plan.md §5): the card is saved on the team's customer, and a later top-up
+    // shows it (cards saved this way are "limited" redisplay, which Checkout hides unless asked).
+    "payment_intent_data[setup_future_usage]": "on_session",
+    ...(customer ? { "saved_payment_method_options[allow_redisplay_filters][0]": "always", "saved_payment_method_options[allow_redisplay_filters][1]": "limited", "saved_payment_method_options[allow_redisplay_filters][2]": "unspecified" } : {}),
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "usd",
     "line_items[0][price_data][unit_amount]": String(cents),

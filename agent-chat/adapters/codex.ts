@@ -70,6 +70,19 @@ const STEER_TURN_ID_WAIT_TIMEOUT_MS = 5_000;
 
 const STOP_DEADLINE_ERROR = "codex turn did not start before the stop deadline";
 
+function compactCommand(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+export function codexCommandActivity(item: { command?: unknown; description?: unknown; commandDescription?: unknown }): { name: "shell"; detail: string; description?: string } {
+  const detail = typeof item.command === "string" ? compactCommand(item.command) : "";
+  const rawDescription = item.description ?? item.commandDescription;
+  const description = typeof rawDescription === "string" && rawDescription.trim().length > 0
+    ? rawDescription.trim()
+    : undefined;
+  return { name: "shell", detail, description };
+}
+
 let shared: AppServer | null = null;
 let sharedStarting: Promise<AppServer> | null = null;
 
@@ -514,7 +527,7 @@ function itemStarted(sess: SessionCtx, item: any) {
   if (!item) return;
   switch (item.type) {
     case "commandExecution":
-      sess.emit({ kind: "tool-start", toolId: item.id, name: "shell", detail: truncate(item.command ?? "") });
+      sess.emit({ kind: "tool-start", toolId: item.id, ...codexCommandActivity(item) });
       break;
     case "fileChange":
     case "patchApply":

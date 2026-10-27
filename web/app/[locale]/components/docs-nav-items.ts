@@ -167,5 +167,21 @@ export const navItems: NavEntry[] = [
       },
     ],
   },
+  {
+    sectionKey: "nextSection",
+    children: [
+      { titleKey: "nextGettingStarted", href: "/docs/next", locales: baseDocsLocales },
+      { titleKey: "nextUpdates", href: "/docs/next/updates", locales: baseDocsLocales },
+      { titleKey: "nextHome", href: "/docs/next/home-and-chief", locales: baseDocsLocales },
+      { titleKey: "nextAgents", href: "/docs/next/agents", locales: baseDocsLocales },
+      { titleKey: "nextWorkspaces", href: "/docs/next/workspaces", locales: baseDocsLocales },
+      { titleKey: "nextBrowser", href: "/docs/next/browser", locales: baseDocsLocales },
+      { titleKey: "nextMarkdown", href: "/docs/next/markdown", locales: baseDocsLocales },
+      { titleKey: "nextCloud", href: "/docs/next/cloud", locales: baseDocsLocales },
+      { titleKey: "nextShortcuts", href: "/docs/next/keyboard-shortcuts", locales: baseDocsLocales },
+      { titleKey: "nextCli", href: "/docs/next/cli", locales: baseDocsLocales },
+      { titleKey: "nextSettings", href: "/docs/next/settings", locales: baseDocsLocales },
+    ],
+  },
   { titleKey: "changelog", href: "/docs/changelog" },
 ];
