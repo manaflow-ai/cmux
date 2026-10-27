@@ -20,7 +20,7 @@
 //!
 //! Each form is judged by the shared rule (`start_mode::is_full_access`). A start whose profile
 //! pins full access is refused (`refuse_pinned_full_access`), and so is one that comes up in it
-//! (`cap_full_access`).
+//! (`cap_full_access`). An agent that already runs in it ends (below, `end_if_runs_full_access`).
 
 use super::*;
 
@@ -78,7 +78,8 @@ impl FullAccessView {
             mode: crate::web_modes::mode_of(&meta),
             undeclared_mode,
             options: config_options(&meta).cloned().collect(),
-            argv: meta.harness_argv,
+            // The argv its agent started with; before any start, the creation's.
+            argv: meta.spawn_argv.unwrap_or(meta.harness_argv),
             reported: false,
         }
     }
@@ -122,7 +123,7 @@ impl StartReports {
             return;
         }
         // A blank id names no session (review 70): it counts for all, as a missing one does.
-        let Some(sid) = params["sessionId"].as_str().filter(|s| !s.trim().is_empty()) else {
+        let Some(sid) = known_id(params["sessionId"].as_str()) else {
             self.all = true;
             return;
         };
@@ -139,11 +140,17 @@ impl StartReports {
     /// are not its own, `on_update`); for any session when it is not known (none, or a blank id).
     pub(crate) fn of(&self, harness_session: Option<&str>) -> bool {
         // A blank id names no session (review 74): any report counts for it.
-        let harness_session = harness_session.filter(|s| !s.trim().is_empty());
+        let harness_session = known_id(harness_session);
         self.all
             || harness_session
                 .map_or(!self.sessions.is_empty(), |sid| self.sessions.iter().any(|s| s == sid))
     }
+}
+
+/// A harness or report session id that names a session: none for a missing, empty or blank one
+/// (reviews 70 and 74 of #23322). Every such id is read through it.
+pub(crate) fn known_id(id: Option<&str>) -> Option<&str> {
+    id.filter(|s| !s.trim().is_empty())
 }
 
 /// Whether an agent runs in full access, and in which form. The one predicate: every check of
@@ -318,19 +325,135 @@ impl Hub {
     /// decides) finishes first, and so does a family message or answer checked under the old
     /// bound (`family_gate`), so no approve-all decision made after the push returns uses the
     /// old bound.
-    /// `changed`: this push turned it off; the pool drains only then.
+    /// It runs at every push of the off, as one may follow an agent that entered full access
+    /// since. `changed`: this push turned it off; the pool drains only then.
     pub(super) async fn full_access_turned_off(&self, changed: bool) {
         drop(self.family_gate.write().await);
         for session in self.sessions() {
             drop(session.permissions.lock().unwrap_or_else(|e| e.into_inner()));
         }
-        if !changed {
-            return;
-        }
         // Pooled agents started under the old bound (a profile pinning full access among them)
         // end; the pool starts again under the new one.
-        self.drain_pool();
+        if changed {
+            self.drain_pool();
+        }
+        // Unavailable now, not only for the next start: an agent still in full access ends.
+        self.end_every_managed_full_access(true).await;
     }
+}
+
+/// Ending what already runs (#23322): under the managed off, an agent that runs in full access
+/// ends (`end_if_runs_full_access`) wherever `runs_full_access` turns true for it:
+/// - the push that turns it off (`full_access_turned_off`, every session);
+/// - a mode or option write, the harness's own included: `write_mode_state` wakes the hub's
+///   background task (`idle.rs`), which checks every session;
+/// - a mode switch that raced the push, checked again after it writes its mode (`Hub::forward`);
+/// - a host a restart left, at adoption (`adopt_agent_hosts`) or at the next start
+///   (`ensure_child`);
+/// - the next start (`ensure_child`); `child_for` never hands such an agent out.
+impl Hub {
+    /// Under the managed off, ends `session`'s agent when it runs in full access
+    /// (`counts_as_full_access`), and says what it did: its live child, and any host a restart
+    /// left. Called under the session's spawn lock, with `off` the caller's one read of MDM's off
+    /// (`full_access_managed_off`), taken where its operation begins: nothing here reads it again.
+    pub(super) async fn end_if_runs_full_access(
+        &self,
+        session: &Session,
+        off: bool,
+    ) -> FullAccessEnd {
+        if !off || !self.counts_as_full_access(session).await {
+            return FullAccessEnd::NotInFullAccess;
+        }
+        self.end_managed_full_access(session).await
+    }
+
+    /// Whether `session`'s agent counts as in full access under MDM's off: by what acpmux keeps
+    /// of it (`runs_full_access`), or because an end of it failed and its host may still run
+    /// (`FloorState::full_access_end_pending`, review 51 of #23322).
+    async fn counts_as_full_access(&self, session: &Session) -> bool {
+        session.floor.full_access_end_pending.load(Ordering::SeqCst)
+            || runs_full_access(&FullAccessView::of_session(session)).is_some()
+    }
+
+    /// Every agent still running in full access under the managed off ends now (a turn in
+    /// progress ends with it), each under its session's spawn lock, checked again there. `off`:
+    /// the caller's one read of MDM's off (`end_if_runs_full_access`).
+    pub(super) async fn end_every_managed_full_access(&self, off: bool) {
+        if !off {
+            return;
+        }
+        for session in self.sessions() {
+            if self.counts_as_full_access(&session).await {
+                let _spawning = session.spawn_lock.lock().await;
+                self.end_if_runs_full_access(&session, off).await;
+            }
+        }
+    }
+
+    /// Ends the agent of a session that runs in full access while MDM forces it off: the live
+    /// child and any host a restart left. The start that follows runs in a mode that asks, or
+    /// refuses a profile that pins full access (`refuse_pinned_full_access`). A host whose end its
+    /// nonce does not prove may still run in full access: what says so stays, so the next check
+    /// (a start, a push, the background check) tries again, and nothing reaches it meanwhile
+    /// (`FullAccessEnd::StillRunning`, review 51 of #23322). So does one whose host records
+    /// cannot be read (`host_record_gone`, review 66).
+    pub(super) async fn end_managed_full_access(&self, session: &Session) -> FullAccessEnd {
+        let child = session.child.lock().await.take();
+        let ended = child.is_some() || !Self::host_record_gone(&session.id);
+        if let Some(child) = child {
+            // Bounded: a host whose link stopped reading never answers the terminate; it is then
+            // ended by its nonce below (review 27 of #23322).
+            let grace = super::shutdown::SHUTDOWN_GRACE;
+            if tokio::time::timeout(grace * 2, child.terminate(grace)).await.is_err() {
+                tracing::warn!(session = %session.id, "its full-access agent did not end in time; its host is ended");
+            }
+        }
+        if !Self::host_record_gone(&session.id) {
+            self.end_unadopted_host(session).await;
+            if !Self::host_record_gone(&session.id) {
+                tracing::warn!(session = %session.id, "MDM forces full access off: its full-access agent host did not end; it is not reached until it does");
+                self.append(session, "mux", "full_access_end_failed", json!({"reason": "managed"}));
+                session.floor.full_access_end_pending.store(true, Ordering::SeqCst);
+                return FullAccessEnd::StillRunning;
+            }
+        }
+        session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
+        // What only the ended agent said goes with it: the mode it reported without declaring
+        // modes, and a full-access value of any option (the next agent reports its own, and
+        // `replay_config` skips a null).
+        *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let scrubbed = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let mut scrubbed = false;
+            for o in m.config_options.as_mut().and_then(Value::as_array_mut).into_iter().flatten() {
+                if o["currentValue"].as_str().is_some_and(super::start_mode::is_full_access) {
+                    o["currentValue"] = Value::Null;
+                    scrubbed = true;
+                }
+            }
+            scrubbed
+        };
+        if scrubbed {
+            self.save_meta(session);
+        }
+        if ended {
+            tracing::info!(session = %session.id, "MDM forces full access off: its full-access agent ended");
+            self.append(session, "mux", "full_access_ended", json!({"reason": "managed"}));
+        }
+        FullAccessEnd::Ended
+    }
+}
+
+/// What `end_if_runs_full_access` did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FullAccessEnd {
+    /// The agent does not run in full access (or MDM does not force it off).
+    NotInFullAccess,
+    /// It ran in full access and has ended.
+    Ended,
+    /// It ran in full access and its host may still run: its end by nonce failed. Nothing may
+    /// reach it; the next check tries again.
+    StillRunning,
 }
 
 #[cfg(test)]

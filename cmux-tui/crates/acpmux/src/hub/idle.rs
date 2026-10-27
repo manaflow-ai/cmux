@@ -9,7 +9,8 @@
 //! agent session id stay, so the next prompt resumes it (`session/load`).
 //!
 //! The same task ends a running turn whose model has said nothing for
-//! `stalledTurnEndMs` (`stalled_turn.rs`).
+//! `stalledTurnEndMs` (`stalled_turn.rs`), and an agent a mode write moved
+//! into full access while MDM forces it off (`full_access_bound.rs`).
 //!
 //! One task per hub waits on the injected clock for the earliest deadline
 //! and on a wake signal for a new child; it never polls, so idle costs no
@@ -89,6 +90,7 @@ impl Hub {
                 None => wake.notified().await,
             }
             let Some(hub) = weak.upgrade() else { return };
+            hub.end_every_managed_full_access(hub.full_access_managed_off()).await;
             if let Some(stalled) = hub.config.read().await.stalled_turn_end() {
                 hub.settle_stalled_turns(stalled);
             }

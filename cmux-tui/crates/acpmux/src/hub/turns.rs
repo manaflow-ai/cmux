@@ -1080,11 +1080,11 @@ impl Hub {
         self.save_meta(session);
         // MDM forced full access off while this switch waited on the harness (after both checks
         // above). The mode is written before this reads the off, and the push writes the off
-        // before it returns, so a switch the push overtook ends here; one that finished first is
-        // an agent already in full access when MDM turned it off (#23322 b).
+        // before its teardown reads modes (`end_every_managed_full_access`): either way the
+        // agent ends.
         if self.managed_off_runs_full_access(session) {
             let _spawning = session.spawn_lock.lock().await;
-            self.stop_full_access_agent(session).await;
+            self.end_if_runs_full_access(session, true).await;
             return Err(super::start_mode::full_access_off());
         }
         Ok(res)
