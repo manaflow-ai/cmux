@@ -28,6 +28,7 @@ import argparse
 import hashlib
 import json
 import os
+import plistlib
 import random
 import re
 import shutil
@@ -305,10 +306,15 @@ class Frames(threading.Thread):
         super().__init__(daemon=True)
         self.app, self.directory, self.interval = app, Path(directory), max(0.25, interval)
         self.count, self.stopped = 0, threading.Event()
+        # A quiet relaunch (`relaunch` `quiet`): no snapshot reaches the app before this time.
+        self.quiet_until = 0.0
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def run(self):
         while not self.stopped.is_set() and self.count < MAX_FRAMES:
+            if now() < self.quiet_until:
+                self.stopped.wait(min(self.interval, self.quiet_until - now()))
+                continue
             try:
                 self.app.snapshot(self.directory / f"frame-{self.count:05d}.png")
                 self.count += 1
@@ -984,15 +990,42 @@ class Journey:
             time.sleep(float(step["leftovers_after"]))
             self.leftovers = {"after_s": float(step["leftovers_after"]), "rows": app.bundle_processes(old)}
             record["leftovers"] = self.leftovers
+        if step.get("reopen_after"):
+            # A person reopens the app some seconds after it quit, not at once: what the quit wrote after its
+            # process ended (the daemon's launch snapshot, the window picture) is there by then.
+            time.sleep(max(0.0, started + record["ended_after_s"] + float(step["reopen_after"]) - now()))
+            record["reopened_after_s"] = round(now() - started - record["ended_after_s"], 2)
         if step.get("mark"):
             self.marks[step["mark"]] = now()
         argv = ["/usr/bin/open", "-g", "-n", "-a", app.bundle]
         for key, value in env.items():
             argv += ["--env", f"{key}={value}"]
+        quiet = float(step.get("quiet") or 0)
+        frames = getattr(self, "frames", None)
+        if quiet and frames is not None:
+            frames.quiet_until = now() + quiet
         opened = subprocess.run(argv, capture_output=True, text=True, timeout=60)
         if opened.returncode != 0:
             raise StepError(f"relaunch: open exited {opened.returncode}: {(opened.stderr or opened.stdout)[-300:]}")
         t, end = now(), now() + RELAUNCH_SECONDS
+        if quiet:
+            # A person's reopen: nothing asks the app anything while it starts and restores. The new
+            # process is found in the process table (no control-socket request) and left alone `quiet`
+            # seconds from the open, as capture-host relaunch and a person do (QA v2.1 bug 1 needed it).
+            started_pid = None
+            with open(os.path.join(app.bundle, "Contents", "Info.plist"), "rb") as info_plist:
+                main = os.path.join(app.bundle, "Contents", "MacOS", plistlib.load(info_plist)["CFBundleExecutable"])
+            while now() < end and started_pid is None:
+                out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+                for line in out.splitlines():
+                    pid, _, command = line.strip().partition(" ")
+                    if pid.isdigit() and int(pid) != old and (command == main or command.startswith(main + " ")):
+                        started_pid = int(pid)
+                        break
+                if started_pid is None:
+                    time.sleep(0.1)
+            record["quiet"] = {"seconds": quiet, "process_after_s": round(now() - t, 2) if started_pid else None}
+            time.sleep(max(0.0, t + quiet - now()))
         while now() < end:
             try:
                 info = app.rpc("system.identify", timeout=3)
@@ -1327,6 +1360,7 @@ class Journey:
     def run(self):
         started, wall = now(), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         frames = Frames(self.app, self.out / "frames", self.frame_interval)
+        self.frames = frames
         frames.start()
         status, reason = "pass", ""
         try:

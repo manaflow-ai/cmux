@@ -268,6 +268,7 @@
   {
    "do": "relaunch",
    "how": "quit",
+   "reopen_after": 5,
    "mark": "reopened"
   },
   {

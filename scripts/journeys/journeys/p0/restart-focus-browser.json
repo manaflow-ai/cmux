@@ -27,7 +27,7 @@
        {"frame_text": "Example Domain"}
      ]},
 
-    {"do": "relaunch", "how": "quit", "mark": "reopened"},
+    {"do": "relaunch", "how": "quit", "reopen_after": 5, "mark": "reopened"},
 
     {"do": "use", "name": "left"},
     {"do": "expect", "title": "after the reopen: the browser pane has the keyboard again, not the sidebar", "since": "reopened", "timeout": 45,

@@ -1,0 +1,76 @@
+{
+  "id": "restart-focus-qa-exact",
+  "priority": "P0",
+  "title": "QA bug 1 as QA ran it: a browser pane focused, Cmd-Q, reopen 5 s later and leave the app alone 5 s, type 'echo hi' Return and 'zzz' Return: no key reaches the sidebar",
+  "why": "QA chrome-parity-v2-1 (bug 1, high): after a restart with a browser pane focused, the window's first responder was SidebarListView, the first Return opened the workspace's rename field and 'zzz' Return renamed it. restart-focus-browser, -browser-keys and -after-settings pass on that build because their relaunch opens the app again 0.3 s after the old process ended; QA started it again seconds later (a separate capture-host step). By then the quit's browser launch picture is on disk, the restored browser pane shows it (no key view) when the window is first placed on screen, and AppKit gives the window's first key view, the sidebar list, the keyboard; reopened at once, the pane has no picture yet and AppKit's pick is a pane view, which leaves the window and is re-applied. On job 2769005f506c: reopened 5 s later it fails 5 of 5 (with `quiet` on cmux17, cmux18 and cmux24 twice; without it on cmux21); reopened at once it passes 2 of 2 even with `quiet` (cmux21, cmux24), so the delay decides, not the requests. This one reopens 5 s later (`reopen_after`) and asks the app nothing for 5 s more (`quiet`), with the QA's own waits between the keys.",
+  "source": "independent QA bug (qa-chrome-parity-v2-1.json bugs[0]; evidence b12, b13, b14 log.json)",
+  "first_in_app": true,
+  "budget_seconds": 180,
+  "steps": [
+    {"do": "fresh_app"},
+    {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws"},
+    {"do": "wait", "seconds": 2},
+    {"do": "key", "key": "`", "modifiers": ["control"]},
+    {"do": "focused_terminal", "as": "left"},
+    {"do": "neutral_prompt"},
+    {"do": "wait", "seconds": 2},
+    {"do": "expect", "title": "Ctrl+` made a terminal that has the keyboard; the workspace's automatic name is kept", "timeout": 10,
+     "all": [
+       {"daemon_prompt": true},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "terminal"}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_pane", "not_equals": null, "bind": "left_pane"}},
+       {"app_layout": {"selected": true, "bind_workspace": "ws_name"}}
+     ]},
+    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split"},
+    {"do": "wait", "seconds": 2},
+    {"do": "key", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser"},
+    {"do": "wait", "seconds": 4},
+    {"do": "type", "text": "example.com", "enter": true, "mark": "loaded"},
+    {"do": "wait", "seconds": 4},
+    {"do": "expect", "title": "before the quit: the browser pane shows example.com and has the keyboard", "since": "loaded", "timeout": 40,
+     "all": [
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "browserPage"}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_pane", "not_in": ["${left_pane}"], "bind": "browser_pane"}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.appkit.classified", "not_in": ["sidebar", "sidebarField"]}},
+       {"app_layout": {"panes": 2}},
+       {"frame_text": "Example Domain"}
+     ]},
+
+    {"do": "relaunch", "how": "quit", "reopen_after": 5, "quiet": 5, "mark": "reopened"},
+    {"do": "use", "name": "left"},
+    {"do": "expect", "title": "5 s after the reopen, untouched until now: the restored browser pane has the keyboard, not the sidebar", "since": "reopened", "timeout": 5,
+     "all": [
+       {"app_rpc": {"method": "debug.crashes", "path": "launch.recovery", "equals": "clean"}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.appkit.first_responder", "not_in": ["SidebarListView"]}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.appkit.classified", "not_in": ["sidebar", "sidebarField"]}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "in": ["browserPage", "addressBar"]}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_pane", "equals": "${browser_pane}"}},
+       {"app_layout": {"workspace": "${ws_name}", "panes": 2}},
+       {"frame_text": "Example Domain"}
+     ]},
+    {"do": "type", "text": "echo hi-${nonce}", "enter": true, "mark": "first"},
+    {"do": "type", "text": "zzz${nonce}", "enter": true, "mark": "second"},
+    {"do": "expect", "title": "the two typed lines did not rename the workspace or open the sidebar's rename field", "since": "second", "timeout": 10, "settle": 2,
+     "all": [
+       {"app_layout": {"workspace": "${ws_name}"}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "not_in": ["sidebar", "sidebarField"]}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.appkit.classified", "not_in": ["sidebar", "sidebarField"]}},
+       {"daemon_lacks": "zzz${nonce}"}
+     ]},
+
+    {"do": "key", "key": "left", "modifiers": ["cmd", "option"], "mark": "to-left"},
+    {"do": "expect", "title": "Cmd+Opt+Left moves the keyboard to the restored terminal on the left", "since": "to-left", "timeout": 10,
+     "all": [
+       {"app_pane": {"focused": true}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "terminal"}}
+     ]},
+    {"do": "type", "text": "echo ok-${nonce}-$((6*7))", "enter": true, "mark": "ok"},
+    {"do": "expect", "title": "the restored terminal runs the typed command; the workspace keeps its name", "since": "ok", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "ok-${nonce}-42"},
+       {"app_text_line": "ok-${nonce}-42"},
+       {"app_layout": {"workspace": "${ws_name}"}},
+       {"frame_text": "ok-${nonce}-42"}
+     ]}
+  ]
+}
