@@ -25,9 +25,9 @@ pub struct HostLock {
 
 impl Drop for HostLock {
     fn drop(&mut self) {
-        // Release the advisory lock before File's close.  Some runners can
-        // observe the close asynchronously; an explicit unlock makes the
-        // handoff to the next host deterministic.
+        // A concurrent fork can inherit this open file description. Closing
+        // our descriptor alone then leaves the flock held until the child
+        // closes its copy. Explicitly unlock when the host guard drops.
         let _ = self._file.unlock();
     }
 }
