@@ -410,6 +410,7 @@
         "CmuxNextLayout",
         "CmuxNextMacScreen",
         "CmuxNextMobile",
+        "CmuxNextMobileHost",
         "CmuxNextNowPlaying",
         "CmuxNextOnboarding",
         "CmuxNextPagesTestSupport",

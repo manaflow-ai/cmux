@@ -1389,6 +1389,7 @@ pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
 pub mod folder_profiles;
+pub mod harness_icon;
 pub mod profiles;
 pub use profiles::{
     Diagnostic as ProfileDiagnostic, LoadedProfiles, ProfileMeta, ProfileSource, ProfileSources,

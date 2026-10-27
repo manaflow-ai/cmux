@@ -55,6 +55,10 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// Stores one secret in the Keychain (`cmux harness secret set ID KEY`): `{id, key, value}`
     /// answers `{item}` (`cmux-harness/<id>/<KEY>`), the name a profile reads as `keychain:NAME`.
     case secretSet = "_acpmux/harness/secret/set"
+    /// Sets the icon of a profile in the user's harness folder (user 12922): `{id, icon}` (an
+    /// emoji, an SF Symbol name or an agent mark id), `{id, data, ext}` (base64 png or svg bytes,
+    /// copied next to the profile) or `{id, clear: true}`. Answers `{id, path, icon}`.
+    case icon = "_acpmux/harness/icon"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
@@ -64,7 +68,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         // The daemon's own limit is at most 60 s (`timeoutMs`).
         case .complete: .seconds(65)
         case .registry, .health, .models: .seconds(40)
-        case .list, .add, .remove, .restore, .reload, .secretSet: .seconds(10)
+        case .list, .add, .remove, .restore, .reload, .secretSet, .icon: .seconds(10)
         }
     }
 }
