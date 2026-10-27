@@ -88,17 +88,16 @@ public final class SettingsDiffPrefs: DiffPrefsStoring {
     ///
     /// A service observation: it pushes to the page's subscription, which the page's own delivery holds while the
     /// tab is hidden. `visible`: a change made in Settings shows in the open tab; the person's own flushes before
-    /// its frame. The first value is the subscription's start, not a change, so it is not pushed.
+    /// its frame. The first apply pushes the prefs at the subscription's start, so a change made after the page
+    /// read its config and before it subscribed still reaches it.
     public func listen(_ onPrefs: @escaping @MainActor ([String: JSONValue]) -> Void) -> () -> Void {
         let settings = settings
-        var started = false
         let observation = ServiceObservation(.visible, owner: "SettingsDiffPrefs.listen", on: mainWork) {
             settings()?.fileRoot[DiffPrefKey.section]
         } apply: { [weak self] _ in
-            guard started, let self else { return }
+            guard let self else { return }
             onPrefs(prefs())
         }
-        started = true
         return { observation.cancel() }
     }
 

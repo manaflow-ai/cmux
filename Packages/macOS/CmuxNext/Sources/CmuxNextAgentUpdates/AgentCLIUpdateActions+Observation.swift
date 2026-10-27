@@ -76,6 +76,12 @@ extension AgentCLIUpdateActions {
     static func terminalChanges(sideEvents: DaemonSideEvents, stamp: DaemonControlStamp, on mainWork: MainWorkScheduler,
                                 current: @escaping @MainActor () -> Bool) -> AsyncStream<Void> {
         let (events, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        // Not admitted now: a finished stream with no observer. Admitted: the observation's first apply below reads
+        // the same in this turn, so only a later loss finishes the stream, once `onTermination` is set.
+        guard current(), sideEvents.controlStamp == stamp else {
+            continuation.finish()
+            return events
+        }
         let token = sideEvents.subscribeEnvelopes { envelope in
             guard current(), sideEvents.controlStamp == stamp else { continuation.finish(); return }
             guard envelope.sourceID == stamp.sourceID, envelope.connectionSerial == stamp.serial else { return }

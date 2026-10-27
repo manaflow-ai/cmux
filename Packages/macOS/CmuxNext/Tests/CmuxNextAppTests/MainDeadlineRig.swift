@@ -16,14 +16,16 @@ final class MainDeadlineRig {
     private let keeper: FrameClient
     private var frames: Double = 0
 
-    /// - Parameter startup: The scheduler's launch phases; a test of work the launch holds passes a launching one.
-    init(startup: StartupPhase = .settled()) {
+    /// - Parameters:
+    ///   - startup: The scheduler's launch phases; a test of work the launch holds passes a launching one.
+    ///   - input: The person's pending input the budget's yields read; a test of work that yields to it passes one it sets.
+    init(startup: StartupPhase = .settled(), input: any InputPendingSource = NoInputPending()) {
         let timer = HandFiredWakeUpTimer(), uptime = RigUptime(0), budgetClock = RigUptime(1_000_000_000)
         self.timer = timer
         self.uptime = uptime
         self.budgetClock = budgetClock
         let queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }), uptime: { uptime.now }) { _ in timer }
-        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: { budgetClock.now }), ledger: WakeupLedger(),
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: { budgetClock.now }), ledger: WakeupLedger(),
                                              startup: startup) { _ in RigLink() }
         self.queue = queue
         self.work = work

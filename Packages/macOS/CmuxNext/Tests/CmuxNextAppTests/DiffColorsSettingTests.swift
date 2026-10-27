@@ -47,7 +47,9 @@ struct DiffColorsSettingTests {
         for _ in 0..<200 where pages.diffColors != "muted" { await Task.yield() }
         #expect(pages.diffColors == "muted")
 
-        #expect(streamed.isEmpty, "the stream pushed the prefs the tab opened with")
+        // The subscription's start pushes the prefs once: a change between the page's config read and its subscribe
+        // is not lost.
+        #expect(streamed == [.string("muted")], "the stream did not push the prefs once at its start")
 
         try await settings.set(.string("standard"), at: ["diff", "colors"])
         // The stream's push is one task on the scheduler: give the main run loop turns, not only yields.

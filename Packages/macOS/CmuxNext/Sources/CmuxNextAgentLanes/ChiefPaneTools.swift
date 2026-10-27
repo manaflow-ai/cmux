@@ -24,15 +24,17 @@ public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
     /// This view's node (tests attach it to a shown window's).
     var visibilityNode: VisibilityNode { visibility.node }
     private var watch: VisibleObservation<Watched>?
+    /// Follows `ChromeTunables.tabRowTools` into the dock's layout, shown or hidden: the setting turned back on
+    /// must lay the dock out again while these tools are hidden (the dock hides them while it is off).
+    private var rowSetting: ServiceObservation<Bool>?
     private var shownInRow = ChromeTunables.tabRowTools.value
     /// The Chief has a subagent now (the Subagents row is enabled).
     public private(set) var hasSubagents = false
 
-    /// What the tools draw: the Chief's status, its subagent count and the tab row setting.
+    /// What the tools draw: the Chief's status and its subagent count.
     struct Watched: Equatable {
         var status: ChiefSidebar.Status
         var subagents: Int
-        var inRow: Bool
     }
 
     /// - Parameters:
@@ -45,14 +47,20 @@ public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.chief.paneTools")
         addSubview(indicator)
-        // Views only (the mark, the dock's layout): a hidden dock reads nothing and reads once on show.
+        // The mark only: hidden tools read nothing and read once on show.
         watch = VisibleObservation(visibility.node, owner: "ChiefPaneTools.status", on: mainWork) { [chief] in
-            Watched(status: chief.status, subagents: chief.allSubagents().count, inRow: ChromeTunables.tabRowTools.value)
+            Watched(status: chief.status, subagents: chief.allSubagents().count)
         } apply: { [weak self] watched in
-            guard let self else { return }
-            show(watched.status, subagents: watched.subagents)
-            // The setting decides whether the dock reports these tools (HomeDockSwitchView+TabRow).
-            if watched.inRow != shownInRow { shownInRow = watched.inRow; superview?.needsLayout = true }
+            self?.show(watched.status, subagents: watched.subagents)
+        }
+        // The setting decides whether the dock reports these tools (HomeDockSwitchView+TabRow), so it invalidates
+        // another owner's layout: a service observation (p06 rule 3). `visible`: the dock's row changes on screen.
+        rowSetting = ServiceObservation(.visible, owner: "ChiefPaneTools.rowSetting", on: mainWork) {
+            ChromeTunables.tabRowTools.value
+        } apply: { [weak self] inRow in
+            guard let self, inRow != shownInRow else { return }
+            shownInRow = inRow
+            superview?.needsLayout = true // invalidate: the dock's tab row tools come or go with the setting.
         }
     }
 
