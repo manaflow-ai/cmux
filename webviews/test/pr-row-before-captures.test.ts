@@ -38,6 +38,8 @@ await requireBrowserLane("pr-row-before-captures.test.ts", () => {
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant: "compact-count", width })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        if (await page.locator("aside.acpmux-chat-inspector").count())
+          await page.locator(".acpmux-chat-inspector-toggle").click();
         await page.locator(".acpmux-pr-dock__disclosure").waitFor();
         await page.screenshot({ path: `${captures}/closed-${width}.jpg`, type: "jpeg", quality: 75 });
         await page.locator(".acpmux-pr-dock__disclosure").click();
