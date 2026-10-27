@@ -346,8 +346,8 @@ import Darwin
                 subscription.onFlip(effective)
             }
             guard renderingGeneration == generation else { return }
-            if rendering { runDeferred() }
         }
+        runDeferredIfRendering()
         guard isCaptured != notifiedCaptured else { return }
         notifiedCaptured = isCaptured
         notifyExemption()
@@ -366,11 +366,15 @@ import Darwin
             guard notifyGeneration == generation else { return }
             subscription.onFlip(value)
         }
+        guard notifyGeneration == generation else { return }
+        runDeferredIfRendering()
     }
 
     /// Runs the deferred work in the order it was first deferred, while the node still renders (a
-    /// body that hides it again leaves the rest for the next time it renders).
-    private func runDeferred() {
+    /// body that hides it again leaves the rest for the next time it renders). It follows whether
+    /// the node renders now, not whether that changed: a subscriber can defer work while the node
+    /// is hidden and show it again inside the same pass.
+    private func runDeferredIfRendering() {
         while wantsFrames, !deferred.isEmpty {
             deferred.removeFirst().work()
         }
