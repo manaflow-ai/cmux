@@ -120,17 +120,19 @@ SMOKING_SCRIPTS = re.compile(
     r"scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-nightly-notarization\.sh|scripts/ci/resume-helper-notarization\.sh"
     r"|scripts/ci/resume-stapled-app-notarization\.sh|scripts/ci/finish-stapled-app-dmgs\.sh"
 )
-SIGNING_SECRET_REFERENCE = re.compile(r"secrets\.(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_|CONTENT_SIGNING_)")
+SIGNING_SECRET_REFERENCE = re.compile(r"secrets\.(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_|CONTENT_SIGNING_)", re.IGNORECASE)
 # Rule 7. These repository variables hold only ephemeral runner labels; the
 # live-value check in cmux-next-guards.yml keeps them so. Add a variable here
 # only together with that check.
 EPHEMERAL_RUNNER_VARIABLES = ("LINUX_RUNNER", "MACOS_RUNNER_26")
 EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-)[a-z0-9.-]+$")
-# vars.NAME or vars['NAME'] / vars["NAME"], with the literal it falls back to.
+# vars.NAME or vars['NAME'] / vars["NAME"], with the literal it falls back to. GitHub reads
+# context and variable names without regard to case, so this does too.
 RUNNER_VARIABLE = re.compile(
-    r"vars(?:\.([A-Za-z0-9_]+)|\[\s*['\"]([A-Za-z0-9_]+)['\"]\s*\])(?:\s*\|\|\s*'([^']*)')?"
+    r"vars(?:\.([A-Za-z0-9_]+)|\[\s*['\"]([A-Za-z0-9_]+)['\"]\s*\])(?:\s*\|\|\s*'([^']*)')?",
+    re.IGNORECASE,
 )
-ANY_VARS = re.compile(r"\bvars\b")
+ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
 LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
 
@@ -202,7 +204,7 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                 "guard cannot check; write vars.NAME"
             )
         for dotted, bracketed, fallback in RUNNER_VARIABLE.findall(runs_on):
-            variable = dotted or bracketed
+            variable = (dotted or bracketed).upper()
             if variable not in EPHEMERAL_RUNNER_VARIABLES:
                 failures.append(
                     f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
