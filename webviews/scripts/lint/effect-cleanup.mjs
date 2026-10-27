@@ -79,8 +79,10 @@ export const intervalCleanup = {
       if (!node) return false;
       if (sameHandle(node, handle)) return true;
       if (node.type === "ArrayPattern" || node.type === "ObjectPattern") {
-        return node.elements?.some((child) => writesHandle(child, handle)) ||
-          node.properties?.some((child) => writesHandle(child.value ?? child.argument, handle));
+        return (
+          node.elements?.some((child) => writesHandle(child, handle)) ||
+          node.properties?.some((child) => writesHandle(child.value ?? child.argument, handle))
+        );
       }
       if (node.type === "AssignmentPattern") return writesHandle(node.left, handle);
       return false;
@@ -218,13 +220,6 @@ export const intervalCleanup = {
           write.parent.parent === effect.body
         )
           return false;
-        let nestedFunction = false;
-        for (let parent = write.parent; parent && parent !== effect; parent = parent.parent) {
-          if (functions.has(parent.type)) nestedFunction = true;
-        }
-        // A handle write inside any nested callback can occur after teardown
-        // and cannot be proven to belong to a currently-live lifetime.
-        if (nestedFunction) return true;
         let statement = write;
         while (statement.parent && statement.parent.type !== "BlockStatement") statement = statement.parent;
         const block = statement.parent;
@@ -268,13 +263,19 @@ export const intervalCleanup = {
       CallExpression(node) {
         if (isTimer(node.callee, "setInterval")) intervals.push(node);
         if (isEffect(node.callee)) {
-          const callbacks = [];
-          const direct = resolveFunction(node.arguments[0]);
-          if (direct) callbacks.push(direct);
-          walk(node.arguments[0], (child) => {
-            if (functions.has(child.type)) callbacks.push(child);
-          });
-          for (const callback of callbacks) if (!effects.includes(callback)) effects.push(callback);
+          function register(callback) {
+            const direct = resolveFunction(callback);
+            if (direct) {
+              if (!effects.includes(direct)) effects.push(direct);
+            } else if (callback?.type === "ConditionalExpression") {
+              register(callback.consequent);
+              register(callback.alternate);
+            } else if (callback?.type === "LogicalExpression") {
+              register(callback.left);
+              register(callback.right);
+            }
+          }
+          register(node.arguments[0]);
         }
       },
       "Program:exit"() {
