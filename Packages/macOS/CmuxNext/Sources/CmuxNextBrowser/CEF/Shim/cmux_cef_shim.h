@@ -235,17 +235,30 @@ typedef enum {
   // a key selected, -1 none. HIDE: the token's rows close. ANNOUNCE: s1 =
   // what VoiceOver reads.
   CMUX_SHIM_SUGGESTIONS = 60,
+  // Host mode only (task p01-process-228): the Chromium Host's pushes of the
+  // fork API 31 color chooser, device chooser and screen-share picker
+  // handlers, which it installs while the app has set
+  // cmux_shim_set_color_chooser_handler, _set_device_chooser_handler or
+  // _set_desktop_media_handler. request = that handler's event
+  // (CMUX_SHIM_COLOR_CHOOSER_OPEN ...), a = token, b = the color (color
+  // chooser), s1 = the fork struct's fields as bytes
+  // (ChromiumHost/src/host_choosers.h). The remote shim calls the handler's
+  // fn with them; they never reach the event fn, and the in-process shim
+  // never sends them.
+  CMUX_SHIM_COLOR_CHOOSER = 61,
+  CMUX_SHIM_DEVICE_CHOOSER = 62,
+  CMUX_SHIM_DESKTOP_MEDIA = 63,
   // A page's alert, confirm or prompt (CefJSDialogHandler::OnJSDialog), only
   // after cmux_shim_set_page_dialogs(1); Chromium shows no dialog of its own.
   // request = the question's token; a = 0 alert, 1 confirm, 2 prompt
   // (cef_jsdialog_type_t); s1 = the message; s2 = the URL of the frame that
   // asks, a newline, then the prompt's default text ("" for the others). The
   // page waits for cmux_shim_js_dialog_reply (during the event or later).
-  CMUX_SHIM_JS_DIALOG = 61,
+  CMUX_SHIM_JS_DIALOG = 64,
   // Chromium ended the browser's waiting JS_DIALOG questions itself (a
   // navigation, the renderer ended, DevTools answered). Not sent after the
   // host's answer.
-  CMUX_SHIM_JS_DIALOG_DISMISSED = 62,
+  CMUX_SHIM_JS_DIALOG_DISMISSED = 65,
   // A server or a proxy asks for a user name and password
   // (CefRequestHandler::GetAuthCredentials), only after
   // cmux_shim_set_page_dialogs(1); Chromium shows no sign-in dialog of its
@@ -254,10 +267,10 @@ typedef enum {
   // scheme ("basic", "digest", "ntlm", "negotiate"), a newline, then the
   // realm ("" when the server sends none). The request waits for
   // cmux_shim_auth_reply.
-  CMUX_SHIM_AUTH = 63,
+  CMUX_SHIM_AUTH = 66,
   // The browser's waiting AUTH questions are gone (a new main-frame
   // navigation started). Not sent after the host's answer.
-  CMUX_SHIM_AUTH_DISMISSED = 64,
+  CMUX_SHIM_AUTH_DISMISSED = 67,
 } cmux_shim_event_kind_t;
 
 typedef enum {

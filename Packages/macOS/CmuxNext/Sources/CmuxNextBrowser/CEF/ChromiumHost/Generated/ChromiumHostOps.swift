@@ -58,9 +58,9 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case tabSendMouseMove = 204
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "bed092e229a57a5f8fee9beaaa08e63ff1b371c83cf39b841e684bdef392f668"
+    static let abiIdentity = "00641fc06a28cd3e9af1377fd00092c38e710279e8053de069a12025111b2171"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "d01c79e8f82909827506d187c45a14ee236620905b39bd22bf2beeb61da7eaf6"
+    static let wireIdentity = "4ff5617a99516a96c0605cea7820d22c1294b7aee352fd84cddce45e757cce37"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -527,9 +527,9 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case localFileHandoff = 38, bookmarksEvent = 39, externalURL = 40, permissionPrompt = 41
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
     case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, dragOperation = 55, tooltip = 57
-    case popupMenu = 58, popupMenuHide = 59, suggestions = 60, jsDialog = 61, jsDialogDismissed = 62, auth = 63
-    case authDismissed = 64, pageMessage = 49, evaluateResult = 50, createFailed = 51, widgetContext = 52
-    case widgetGone = 53, wheelAck = 56
+    case popupMenu = 58, popupMenuHide = 59, suggestions = 60, colorChooser = 61, deviceChooser = 62
+    case desktopMedia = 63, jsDialog = 64, jsDialogDismissed = 65, auth = 66, authDismissed = 67, pageMessage = 49
+    case evaluateResult = 50, createFailed = 51, widgetContext = 52, widgetGone = 53, wheelAck = 56
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).

@@ -6,7 +6,7 @@ import CmuxNextSettings
 @MainActor
 final class PageScriptTarget {
     /// Nil while no engine shows a document: a Chromium page on its way has none, and it gets its
-    /// theme and scale when it attaches (``PageWebView/startChromium(hosting:)``).
+    /// theme and scale when it attaches (``PageWebView/startChromium(hosting:origin:)``).
     var bridge: (any PageHostBridge)?
     /// False while the page waits for its first show (PageWebView+FirstShow.swift): it has no
     /// document, and a script would make WebKit launch its WebContent process

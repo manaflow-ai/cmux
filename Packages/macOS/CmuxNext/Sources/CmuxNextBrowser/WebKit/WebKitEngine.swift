@@ -3,6 +3,9 @@ public import CmuxNextWakeups
 public import Foundation
 public import WebKit
 public import CmuxNextDesign
+#if DEBUG || CMUX_BENCH_HOOKS
+public import CmuxNextInput
+#endif
 
 /// The WebKit engine: one `WKWebView` per tab, one persistent
 /// `WKWebsiteDataStore` per profile.
@@ -48,6 +51,9 @@ public final class WebKitEngine: BrowserEngine {
     /// WebKit's; the clock times its steps (tests replace both).
     var rateReshowSnapshot: (() async -> NSImage?)?
     var rateReshowClock: any Clock<Duration> = ContinuousClock()
+    /// A tab the content lifecycle hides is hidden to WebKit (``WebKitPageVisibility``, feature `webkitHiddenTabs`).
+    /// Read when each tab is made; the App sets it once, before its first tab.
+    public var hidesHiddenTabs = false
     /// The remembered-sign-in rules for a profile's tabs, over the store both engines share
     /// (``BrowserSharedStores/httpCredentials``).
     func httpSignInMemory(for profile: BrowserProfileID) -> BrowserHTTPSignInMemory {
@@ -66,6 +72,11 @@ public final class WebKitEngine: BrowserEngine {
     /// The organization's URL blocklist and allowlist (Chrome's `URLBlocklist`
     /// and `URLAllowlist` policies); the App sets it from the managed policy.
     public var urlFilter: BrowserURLFilter = .none
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEV and bench builds: reports when each new tab's page painted after an input, so its latency slot gets a
+    /// presented time (p04-input-099). The App sets it once, before the first tab.
+    public var pageInputTiming: WebPageInputTiming?
+    #endif
     /// Answers every tab's `<input type="file">` (the tab's `runOpenPanelWith`): the App's one
     /// made-ahead panel (`AppServices.openPanel`, passed through `TabContentCache`), which agent
     /// composer pages share, so a browser tab's file input gets the panel made ahead when one is,
@@ -211,7 +222,8 @@ public final class WebKitEngine: BrowserEngine {
         guard WebKitRenderRate.framesPerSecond(energySaver: !fullRate, displayMaxFPS: display)
                 != WebKitRenderRate.framesPerSecond(energySaver: fullRate, displayMaxFPS: display) else { return }
         let snapshot = rateReshowSnapshot ?? { [weak webView] in try? await webView?.takeSnapshot(configuration: nil) }
-        tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock)
+        tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock,
+                                                 setHidden: { [weak tab] in tab?.setReshowing($0) })
     }
 
     private func makeConfiguration(for profile: BrowserProfileID) -> WKWebViewConfiguration {

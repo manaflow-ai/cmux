@@ -50,11 +50,15 @@ pub(crate) fn adopt_master(
     master: std::os::fd::OwnedFd,
 ) -> anyhow::Result<Box<dyn MasterPty + Send>> {
     let file = File::from(master);
+    // SAFETY: `file` owns the descriptor for the call; isatty only reads it.
     if unsafe { libc::isatty(file.as_raw_fd()) } != 1 {
         bail!("inherited descriptor is not a PTY master: {}", io::Error::last_os_error());
     }
+    // SAFETY: `file` owns the descriptor for the call; F_GETFD takes no pointer argument.
     let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFD) };
     if flags < 0
+        // SAFETY: `file` owns the descriptor for the call; F_SETFD takes an int flag set, no
+        // pointer.
         || unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
     {
         bail!("failed to mark the PTY master close-on-exec: {}", io::Error::last_os_error());
@@ -65,8 +69,11 @@ pub(crate) fn adopt_master(
 fn open_pty_master() -> anyhow::Result<File> {
     let flags = libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC;
     loop {
+        // SAFETY: posix_openpt takes flags only and returns a new descriptor or -1.
         let descriptor = unsafe { libc::posix_openpt(flags) };
         if descriptor >= 0 {
+            // SAFETY: `descriptor` is non-negative, so posix_openpt returned a fresh descriptor
+            // that nothing else owns; the File takes its sole ownership.
             let master = unsafe { File::from_raw_fd(descriptor) };
             require_cloexec(&master, "PTY master")?;
             return Ok(master);
@@ -83,6 +90,8 @@ fn retry_pty_control(
     operation: unsafe extern "C" fn(RawFd) -> libc::c_int,
 ) -> io::Result<()> {
     loop {
+        // SAFETY: `operation` is grantpt or unlockpt, which take a descriptor and no pointers; the
+        // caller passes the master it owns.
         if unsafe { operation(descriptor) } == 0 {
             return Ok(());
         }
@@ -98,6 +107,9 @@ fn pty_slave_name(descriptor: RawFd) -> anyhow::Result<CString> {
     loop {
         let status = platform_ptsname_r(descriptor, buffer.as_mut_ptr(), buffer.len());
         if status == 0 {
+            // SAFETY: ptsname_r returned 0, so it wrote a NUL-terminated name that fits in `buffer`
+            // (it fails with ERANGE otherwise), and `buffer` outlives the borrowed CStr, which is
+            // copied before return.
             let name = unsafe { CStr::from_ptr(buffer.as_ptr()) };
             anyhow::ensure!(!name.to_bytes().is_empty(), "PTY slave name is empty");
             return Ok(name.to_owned());
@@ -111,11 +123,15 @@ fn pty_slave_name(descriptor: RawFd) -> anyhow::Result<CString> {
 
 #[cfg(target_vendor = "apple")]
 fn platform_ptsname_r(descriptor: RawFd, buffer: *mut libc::c_char, length: usize) -> libc::c_int {
+    // SAFETY: `buffer` points to `length` writable bytes (the caller passes its array and that
+    // array's len); ptsname_r writes at most `length` bytes including the NUL.
     unsafe { ptsname_r(descriptor, buffer, length) }
 }
 
 #[cfg(target_os = "linux")]
 fn platform_ptsname_r(descriptor: RawFd, buffer: *mut libc::c_char, length: usize) -> libc::c_int {
+    // SAFETY: `buffer` points to `length` writable bytes (the caller passes its array and that
+    // array's len); ptsname_r writes at most `length` bytes including the NUL.
     unsafe { libc::ptsname_r(descriptor, buffer, length) }
 }
 
@@ -132,8 +148,12 @@ fn ptsname_error(status: libc::c_int) -> io::Error {
 fn open_pty_slave(name: &CStr) -> anyhow::Result<File> {
     let flags = libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC;
     loop {
+        // SAFETY: `name` is a NUL-terminated CStr that lives across the call; open does not keep
+        // the pointer.
         let descriptor = unsafe { libc::open(name.as_ptr(), flags) };
         if descriptor >= 0 {
+            // SAFETY: `descriptor` is non-negative, so open returned a fresh descriptor that
+            // nothing else owns; the File takes its sole ownership.
             let slave = unsafe { File::from_raw_fd(descriptor) };
             require_cloexec(&slave, "PTY slave")?;
             return Ok(slave);
@@ -146,6 +166,7 @@ fn open_pty_slave(name: &CStr) -> anyhow::Result<File> {
 }
 
 fn require_cloexec(file: &File, role: &str) -> anyhow::Result<()> {
+    // SAFETY: `file` owns the descriptor for the call; F_GETFD takes no pointer argument.
     let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFD) };
     if flags == -1 {
         return Err(io::Error::last_os_error())
@@ -168,6 +189,8 @@ fn set_fd_window_size(fd: RawFd, size: PtySize) -> io::Result<()> {
         ws_ypixel: size.pixel_height,
     };
     loop {
+        // SAFETY: TIOCSWINSZ reads one winsize through the pointer, which points to the live local
+        // `window_size`; a bad descriptor fails with EBADF rather than touching memory.
         if unsafe { libc::ioctl(fd, libc::TIOCSWINSZ as _, &window_size as *const libc::winsize) }
             == 0
         {
@@ -314,11 +337,15 @@ impl MasterPty for MacOsMasterPty {
 
     fn get_size(&self) -> anyhow::Result<PtySize> {
         let mut size = std::mem::MaybeUninit::<libc::winsize>::zeroed();
+        // SAFETY: TIOCGWINSZ writes one winsize through the pointer, which points to `size`, a live
+        // MaybeUninit<winsize>; `self.file` owns the descriptor for the call.
         if unsafe { libc::ioctl(self.file.as_raw_fd(), libc::TIOCGWINSZ as _, size.as_mut_ptr()) }
             != 0
         {
             bail!("failed to read PTY size: {}", io::Error::last_os_error());
         }
+        // SAFETY: ioctl returned 0, so TIOCGWINSZ wrote the whole winsize; the buffer was also
+        // zeroed and every field is an integer, so any bit pattern is a valid winsize.
         let size = unsafe { size.assume_init() };
         Ok(PtySize {
             rows: size.ws_row,
@@ -343,6 +370,7 @@ impl MasterPty for MacOsMasterPty {
     }
 
     fn process_group_leader(&self) -> Option<libc::pid_t> {
+        // SAFETY: `self.file` owns the descriptor for the call; tcgetpgrp takes no pointers.
         match unsafe { libc::tcgetpgrp(self.file.as_raw_fd()) } {
             pid if pid > 0 => Some(pid),
             _ => None,
@@ -399,7 +427,11 @@ impl Drop for MacOsMasterWriter {
             return;
         }
         let mut termios = std::mem::MaybeUninit::<libc::termios>::zeroed();
+        // SAFETY: tcgetattr writes one termios through the pointer, which points to `termios`, a
+        // live MaybeUninit<termios>; `self.file` owns the descriptor for the call.
         if unsafe { libc::tcgetattr(self.file.as_raw_fd(), termios.as_mut_ptr()) } == 0 {
+            // SAFETY: tcgetattr returned 0, so it filled the termios; it was zeroed before, and
+            // every field is an integer or an integer array, so any bit pattern is valid.
             let termios = unsafe { termios.assume_init() };
             let end_of_transmission = termios.c_cc[libc::VEOF];
             if end_of_transmission != 0 {
@@ -421,6 +453,7 @@ fn resolved_shell(command: &PtyCommand) -> OsString {
         return shell;
     }
 
+    // SAFETY: getuid takes no arguments, cannot fail, and touches no memory.
     if let Some(shell) = account_shell(unsafe { libc::getuid() }) {
         return shell;
     }
@@ -431,6 +464,7 @@ fn account_shell(uid: libc::uid_t) -> Option<OsString> {
     const DEFAULT_BUFFER_SIZE: usize = 1_024;
     const MAX_BUFFER_SIZE: usize = 64 * 1_024;
 
+    // SAFETY: sysconf takes an integer name and touches no memory.
     let suggested_size = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
     let initial_size = usize::try_from(suggested_size)
         .unwrap_or(DEFAULT_BUFFER_SIZE)
@@ -440,6 +474,9 @@ fn account_shell(uid: libc::uid_t) -> Option<OsString> {
     loop {
         let mut password_entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
         let mut result = std::ptr::null_mut();
+        // SAFETY: `password_entry` and `result` are live locals of the pointee types, and `buffer`
+        // holds `buffer.len()` writable bytes; getpwuid_r writes only into those and keeps no
+        // pointer to them after it returns.
         let status = unsafe {
             libc::getpwuid_r(
                 uid,
@@ -453,10 +490,15 @@ fn account_shell(uid: libc::uid_t) -> Option<OsString> {
             if result.is_null() {
                 return None;
             }
+            // SAFETY: `result` is non-null, so getpwuid_r set it to `password_entry`, which it
+            // filled; that passwd lives until the end of this loop iteration.
             let shell_pointer = unsafe { (*result).pw_shell };
             if shell_pointer.is_null() {
                 return None;
             }
+            // SAFETY: `shell_pointer` is non-null and points into `buffer`, where getpwuid_r stored
+            // a NUL-terminated string; `buffer` is not touched until the CStr is copied into an
+            // OsString below.
             let shell = unsafe { CStr::from_ptr(shell_pointer) };
             return (!shell.to_bytes().is_empty())
                 .then(|| OsString::from_vec(shell.to_bytes().to_vec()));
@@ -470,6 +512,8 @@ fn account_shell(uid: libc::uid_t) -> Option<OsString> {
 
 fn is_executable(path: &OsStr) -> bool {
     let Ok(path) = CString::new(path.as_bytes()) else { return false };
+    // SAFETY: `path` is a NUL-terminated CString that lives across the call; access does not keep
+    // it.
     unsafe { libc::access(path.as_ptr(), libc::X_OK) == 0 }
 }
 

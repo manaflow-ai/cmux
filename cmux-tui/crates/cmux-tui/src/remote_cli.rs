@@ -1739,7 +1739,7 @@ fn read_invitation_ticket_file(path: &Path) -> anyhow::Result<String> {
 
 #[cfg(unix)]
 fn current_parent_process_id() -> u32 {
-    unsafe { libc::getppid() }.try_into().unwrap_or_default()
+    std::os::unix::process::parent_id()
 }
 
 #[cfg(not(unix))]
@@ -1790,15 +1790,27 @@ fn wait_for_process_exit(pid: u32) -> io::Result<()> {
     if queue < 0 {
         return Err(io::Error::last_os_error());
     }
-    // SAFETY: the kevent structs are fully initialized and outlive the call.
-    let mut change: libc::kevent = unsafe { std::mem::zeroed() };
-    change.ident = pid as libc::uintptr_t;
-    change.filter = libc::EVFILT_PROC;
-    change.flags = libc::EV_ADD | libc::EV_ONESHOT;
-    change.fflags = libc::NOTE_EXIT;
-    let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+    let change = libc::kevent {
+        ident: pid as libc::uintptr_t,
+        filter: libc::EVFILT_PROC,
+        flags: libc::EV_ADD | libc::EV_ONESHOT,
+        fflags: libc::NOTE_EXIT,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    };
+    let mut event = libc::kevent {
+        ident: 0,
+        filter: 0,
+        flags: 0,
+        fflags: 0,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    };
     let mut changes = 1;
     let result = loop {
+        // SAFETY: `change` and `event` are initialized kevents that outlive the call; kevent reads
+        // `changes` (0 or 1) entries of `change` and writes at most one into `event`; the timeout
+        // is null.
         let count =
             unsafe { libc::kevent(queue, &change, changes, &mut event, 1, std::ptr::null()) };
         if count > 0 {
@@ -2097,6 +2109,9 @@ struct PendingInstall {
 impl Drop for PendingInstall {
     fn drop(&mut self) {
         if self.armed {
+            // SAFETY: `name` is a NUL-terminated CString. `parent_fd` belongs to the `parent`
+            // OwnedFd that `run_install_self` declares before this guard, so it is still open when
+            // the guard drops.
             unsafe {
                 libc::unlinkat(self.parent_fd, self.name.as_ptr(), 0);
             }
@@ -2115,38 +2130,26 @@ fn install_path_component(
 }
 
 fn open_install_parent(path: &Path) -> anyhow::Result<std::os::fd::OwnedFd> {
-    use std::os::fd::FromRawFd as _;
-    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
 
-    let encoded = std::ffi::CString::new(path.as_os_str().as_bytes())
-        .context("install parent contains a NUL byte")?;
-    let descriptor = unsafe {
-        libc::open(
-            encoded.as_ptr(),
-            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-        )
-    };
-    if descriptor < 0 {
-        return Err(io::Error::last_os_error()).context("could not open install parent");
-    }
-    // SAFETY: `open` returned a new owned descriptor.
-    let descriptor = unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor) };
-    let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
-    if unsafe { libc::fstat(descriptor.as_raw_fd(), status.as_mut_ptr()) } != 0 {
-        return Err(io::Error::last_os_error()).context("could not inspect install parent");
-    }
-    // SAFETY: `fstat` initialized the structure on success.
-    let status = unsafe { status.assume_init() };
-    if status.st_uid != unsafe { libc::geteuid() } || status.st_mode & 0o022 != 0 {
+    // std opens close-on-exec; read-only is O_RDONLY.
+    let parent = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)
+        .context("could not open install parent")?;
+    let status = parent.metadata().context("could not inspect install parent")?;
+    if status.uid() != cmux_tui_core::platform::effective_uid() || status.mode() & 0o022 != 0 {
         return Err(anyhow!(
             "install parent must be owned by the current user and not group or world writable"
         ));
     }
-    Ok(descriptor)
+    Ok(parent.into())
 }
 
 fn run_install_self(args: &[String]) -> anyhow::Result<()> {
     use std::os::fd::FromRawFd as _;
+    use std::os::unix::fs::PermissionsExt as _;
 
     let destination = flag_value(args, "--destination")
         .map(expand_home)
@@ -2166,6 +2169,8 @@ fn run_install_self(args: &[String]) -> anyhow::Result<()> {
     let temporary_name =
         std::ffi::CString::new(format!(".cmux-tui-install-{}", uuid::Uuid::new_v4()))
             .expect("UUID staging name has no NUL bytes");
+    // SAFETY: `temporary_name` is a NUL-terminated CString that outlives the call and `parent` is
+    // open.
     let temporary_descriptor = unsafe {
         libc::openat(
             parent.as_raw_fd(),
@@ -2187,10 +2192,11 @@ fn run_install_self(args: &[String]) -> anyhow::Result<()> {
         .with_context(|| format!("could not copy {}", source.display()))?;
     temporary.flush().context("could not flush staged install")?;
     temporary.sync_all().context("could not sync staged install")?;
-    if unsafe { libc::fchmod(temporary.as_raw_fd(), 0o755) } != 0 {
-        return Err(io::Error::last_os_error()).context("could not set staged install permissions");
-    }
+    temporary
+        .set_permissions(fs::Permissions::from_mode(0o755))
+        .context("could not set staged install permissions")?;
     temporary.sync_all().context("could not sync staged install permissions")?;
+    // SAFETY: both names are NUL-terminated CStrings that outlive the call and `parent` is open.
     if unsafe {
         libc::renameat(
             parent.as_raw_fd(),
@@ -2203,6 +2209,7 @@ fn run_install_self(args: &[String]) -> anyhow::Result<()> {
         return Err(io::Error::last_os_error()).context("could not install remote binary");
     }
     pending.armed = false;
+    // SAFETY: `parent` is open and fsync takes no pointer.
     if unsafe { libc::fsync(parent.as_raw_fd()) } != 0 {
         return Err(io::Error::last_os_error()).context("could not sync install parent");
     }
@@ -2773,6 +2780,7 @@ fn terminate_detached_process(child: &mut Child) -> io::Result<()> {
 fn signal_detached_process_group(child: &Child, signal: libc::c_int) -> io::Result<()> {
     let process_group = libc::pid_t::try_from(child.id())
         .map_err(|_| io::Error::other("detached child PID does not fit pid_t"))?;
+    // SAFETY: kill takes no pointer and has no memory-safety precondition.
     if unsafe { libc::kill(-process_group, signal) } == 0 {
         return Ok(());
     }
@@ -2864,7 +2872,7 @@ fn open_private_daemon_file(path: &Path, append: bool) -> io::Result<fs::File> {
             "daemon state path is not a regular file",
         ));
     }
-    if metadata.uid() != unsafe { libc::geteuid() } {
+    if metadata.uid() != cmux_tui_core::platform::effective_uid() {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "daemon state file is not owned by the effective user",
@@ -2891,6 +2899,7 @@ fn lock_daemon_start(session_state: &Path) -> anyhow::Result<fs::File> {
     let lock_path = session_state.join("start.lock");
     let lock = open_private_daemon_file(&lock_path, false)
         .with_context(|| format!("could not open daemon start lock {}", lock_path.display()))?;
+    // SAFETY: `lock` is open for the call and flock takes no pointer.
     let locked = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) };
     if locked != 0 {
         return Err(io::Error::last_os_error().into());
@@ -3219,7 +3228,7 @@ mod tests {
                 .expect("stdio proxy kept the rejected connection open")
                 .unwrap()
         });
-        let expected_uid = unsafe { libc::geteuid() };
+        let expected_uid = cmux_tui_core::platform::effective_uid();
         let peer_uid = expected_uid.wrapping_add(1);
 
         let error = proxy_stdio_with_io(&socket, tokio::io::empty(), tokio::io::sink(), |_| {
@@ -3453,6 +3462,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let fifo = directory.path().join("invitation.fifo");
         let fifo_path = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `fifo_path` is a NUL-terminated CString that outlives the call.
         assert_eq!(unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) }, 0);
 
         let started = Instant::now();
@@ -3764,7 +3774,7 @@ mod tests {
         let mut log = open_private_daemon_file(&log_path, true).unwrap();
         log.write_all(b"new log\n").unwrap();
         let metadata = fs::metadata(&log_path).unwrap();
-        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.uid(), cmux_tui_core::platform::effective_uid());
         assert_eq!(metadata.nlink(), 1);
         assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
         assert_eq!(fs::read_to_string(&log_path).unwrap(), "old log\nnew log\n");
@@ -3799,6 +3809,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let fifo = directory.path().join("daemon.log");
         let fifo_bytes = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `fifo_bytes` is a NUL-terminated CString that outlives the call.
         let result = unsafe { libc::mkfifo(fifo_bytes.as_ptr(), 0o600) };
         assert_eq!(result, 0, "mkfifo failed: {}", io::Error::last_os_error());
 
@@ -3881,6 +3892,7 @@ mod tests {
         .unwrap_err();
         let survived_timeout = child.try_wait().unwrap().is_none();
         if survived_timeout {
+            // SAFETY: kill takes no pointer and has no memory-safety precondition.
             unsafe {
                 libc::kill(-pid, libc::SIGKILL);
             }

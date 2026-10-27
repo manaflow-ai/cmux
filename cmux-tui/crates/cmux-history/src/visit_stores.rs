@@ -235,6 +235,12 @@ impl VisitStores {
         Ok(removed)
     }
 
+    /// Frees the page cache of every open log, each on this thread, its
+    /// owner's. A log that is not open holds no cache and stays closed.
+    pub fn release_memory(&self) -> Result<(), HistoryError> {
+        self.open.values().try_for_each(VisitStore::release_memory)
+    }
+
     /// Whether `profile` has a log on disk or open. Reads and removals of
     /// an unknown profile answer nothing and create no file.
     fn known(&self, profile: &str) -> Result<bool, HistoryError> {

@@ -216,10 +216,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 58: self = .popupMenu(browser: browser, token: a, popup: ChromiumHostPopupMenu(json: s1))
         case 59: self = .popupMenuHidden(browser: browser, token: a)
         case 60: self = ChromiumHostSuggestionEvent(request: request, a: a, b: b, s1: s1).map { Self.pageView(browser: browser, .suggestions($0)) } ?? .unknown(kind: kind)
-        case 61: self = .jsDialog(browser: browser, token: request, dialog: CEFJSDialog(wireKind: a, message: s1, details: s2))
-        case 62: self = .jsDialogsDismissed(browser: browser)
-        case 63: self = .auth(browser: browser, token: request, challenge: CEFAuthChallenge(host: s1, port: a, flags: b, details: s2))
-        case 64: self = .authDismissed(browser: browser)
+        case 64: self = .jsDialog(browser: browser, token: request, dialog: CEFJSDialog(wireKind: a, message: s1, details: s2))
+        case 65: self = .jsDialogsDismissed(browser: browser)
+        case 66: self = .auth(browser: browser, token: request, challenge: CEFAuthChallenge(host: s1, port: a, flags: b, details: s2))
+        case 67: self = .authDismissed(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }
