@@ -2851,7 +2851,9 @@ export function VirtualTranscript({
       : undefined;
   const placementDelta = (projectedTop ?? unplacedScroll.top) - unplacedScroll.top;
   const renderScroll = projectedTop === undefined ? unplacedScroll : { ...unplacedScroll, top: projectedTop };
-  const renderFollowing = sessionSwitched || following;
+  // The ref carries reader intent synchronously; React's `following` state may lag one RAF behind
+  // a touch/trackpad scroll when an older page response lands in the same frame.
+  const renderFollowing = sessionSwitched || followingRef.current;
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.
   const shownTop = renderScroll.top - lift;
