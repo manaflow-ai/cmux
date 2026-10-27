@@ -53,9 +53,8 @@ public struct MobileHostPairTokens: Sendable {
     static func constantTimeEqual(_ a: String, _ b: String) -> Bool {
         let x = Array(a.utf8), y = Array(b.utf8)
         guard x.count == y.count else { return false }
-        var difference: UInt8 = 0
-        for index in x.indices { difference |= x[index] ^ y[index] }
-        return difference == 0
+        // Every byte is compared, whatever differs first.
+        return zip(x, y).reduce(UInt8(0)) { $0 | ($1.0 ^ $1.1) } == 0
     }
 
     static func randomBytes(_ count: Int) -> Data {
@@ -63,7 +62,7 @@ public struct MobileHostPairTokens: Sendable {
         if SecRandomCopyBytes(kSecRandomDefault, count, &bytes) != errSecSuccess {
             // SystemRandomNumberGenerator is cryptographically secure on Apple platforms.
             var generator = SystemRandomNumberGenerator()
-            for index in bytes.indices { bytes[index] = UInt8.random(in: .min ... .max, using: &generator) }
+            bytes = bytes.map { _ in UInt8.random(in: .min ... .max, using: &generator) }
         }
         return Data(bytes)
     }
