@@ -154,9 +154,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observation?.cancel(); observation = Task { [weak self] in
             for await structure in later {
                 guard let self, let structure = structure.value else { return }
-                // A tab that left this pane for another one of this workspace (a move) is shown there and leaves
-                // here in one turn, under one topology: the workspace's layout first, which syncs this strip too.
-                self.workspace?.applyLayoutIfChanged()
+                // A tab moved in or out of this pane (its record's tabs changed): the workspace's layout and every
+                // moved strip change in this turn, under one topology, so focus follows the tab at once.
+                if self.stripIsStale { self.workspace?.applyMovedTabs() }
                 guard !Task.isCancelled else { return } // that apply removed this pane (teardown cancels this task)
                 self.apply(self.compose(structure))
             }
@@ -197,6 +197,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observe()
         // After the strip map: its selection changes flipped no tab, so only the tab selected now flips.
         visibilityNode.set(.visible)
+    }
+
+    /// The strip lags the pane record's tabs (a tab moved out or in since its last apply).
+    var stripIsStale: Bool { !isSuspended && !pane.tabs.lazy.map(\.id).elementsEqual(appliedRecordTabs) }
+
+    /// Maps the strip again when it lags the record (`stripIsStale`), as its observation would.
+    func syncStripIfStale() {
+        guard stripIsStale else { return }
+        apply(compose(structure()))
     }
 
     private func compose(_ structure: Snapshot, refresh: Bool = false) -> Snapshot {

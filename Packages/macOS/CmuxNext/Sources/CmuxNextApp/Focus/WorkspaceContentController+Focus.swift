@@ -30,6 +30,16 @@ extension WorkspaceContentController {
         for controller in panes.values where controller.stripIsStale { controller.syncStripIfStale() }
     }
 
+    /// A pane's strip observation saw a tab move in or out: the layout (a move to a new pane changes it) and every
+    /// moved strip apply now, and one topology goes out with all of them (a move between existing panes leaves the
+    /// layout as it is: the strips still change together).
+    func applyMovedTabs() {
+        applyLayoutIfChanged()
+        guard !isParked, !isApplying, !isTornDown, panes.values.contains(where: \.stripIsStale) else { return }
+        withApplying { syncStaleStrips() }
+        sendTopology()
+    }
+
     /// Topologies name tabs by id only: a wait by a daemon surface takes its tab's id (same target, pane, generation)
     /// once the store has it: at each topology send (a new tab) and at a split's confirm (`terminalConfirmed`).
     func rekeySurfaceWait() {
@@ -141,15 +151,6 @@ extension FocusTopology.Kind {
 }
 
 extension PaneController {
-    /// The strip lags the pane record's tabs (a tab moved out or in since its last apply).
-    var stripIsStale: Bool { !isSuspended && !pane.tabs.lazy.map(\.id).elementsEqual(appliedRecordTabs) }
-
-    /// Maps the strip again when it lags the record (`stripIsStale`).
-    func syncStripIfStale() {
-        guard stripIsStale else { return }
-        syncStripFromStore()
-    }
-
     /// This pane as the focus topology sees it: strip order (pending closes
     /// hidden, session browser tabs included) and the selected tab.
     var focusPane: FocusTopology.Pane {
