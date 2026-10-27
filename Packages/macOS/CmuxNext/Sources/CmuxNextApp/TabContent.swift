@@ -186,12 +186,13 @@ final class BrowserEntry {
     var extensionMenuHandler: (any ExtensionMenuHandling)?
 
     /// `work` is the app's background lanes; `mainWork` the app's one main-thread scheduler; `node` the tab's
-    /// (`TabContentCache.node(for:)`).
+    /// (`TabContentCache.node(for:)`); `actionIcons` the extension toolbar icons every tab shares.
     init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil,
-         work: BackgroundWork, mainWork: MainWorkScheduler, node: VisibilityNode?) {
+         work: BackgroundWork, mainWork: MainWorkScheduler, node: VisibilityNode?, actionIcons: ExtensionActionIcons? = nil) {
         self.tab = tab
         if let node { (tab as? any BrowserTabNodeAdopting)?.adoptNode(node) }
-        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, work: work, mainWork: mainWork, node: node)
+        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, work: work, mainWork: mainWork, node: node,
+                                   actionIcons: actionIcons)
         chrome.history = history
         // Shortcuts route through the action registry (browser* actions).
         chrome.handlesDefaultShortcuts = false

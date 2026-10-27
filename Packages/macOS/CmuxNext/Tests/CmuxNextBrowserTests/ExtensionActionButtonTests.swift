@@ -11,8 +11,8 @@ struct ExtensionActionButtonTests {
     @MainActor private final class Harness {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        let button = ExtensionActionButton(actionID: "ext", work: BackgroundWork(label: "test.extension-button"),
-                                           mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let button = ExtensionActionButton(actionID: "ext", icons: ExtensionActionIcons(work: BackgroundWork(label: "test.extension-button"),
+                                                                                        mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         var runs = 0
         var moves: [CGFloat] = []
         var ends: [CGFloat] = []

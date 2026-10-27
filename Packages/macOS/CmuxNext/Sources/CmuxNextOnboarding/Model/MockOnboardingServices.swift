@@ -97,5 +97,13 @@ public final class MockOnboardingServices: OnboardingServices {
     public func importTargets() async -> [ImportTargetChoice] { targetChoices }
     public func earlierImportTargets() async -> [String: String] { earlierTargets }
 
+    /// The profile pictures by file, and each request for them (the files and the row's point size).
+    public var avatars: [URL: NSImage] = [:]
+    public private(set) var avatarRequests: [(files: [URL], points: CGFloat)] = []
+    public func profileAvatars(_ files: [URL], points: CGFloat) async -> [URL: NSImage] {
+        avatarRequests.append((files, points))
+        return avatars.filter { files.contains($0.key) }
+    }
+
     public var computerUsePermissions: (any ComputerUsePermissionSource)? { computerUseSource }
 }

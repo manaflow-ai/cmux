@@ -72,11 +72,12 @@ final class ExtensionActionToolbar {
 
     /// The app's scheduler and the tab's node (nil: node-free): the toolbar renders at its frames while the tab shows.
     private let mainWork: MainWorkScheduler, node: VisibilityNode?
-    /// Reads and decodes the extensions' icons off the main thread.
-    private let work: BackgroundWork
+    /// Decode the bubble's icons off the main thread, and the pinned buttons' (the app's one set; nil: this toolbar's own).
+    private let work: BackgroundWork, actionIcons: ExtensionActionIcons
 
-    init(slot: NSStackView, work: BackgroundWork, mainWork: MainWorkScheduler, node: VisibilityNode?) {
+    init(slot: NSStackView, work: BackgroundWork, mainWork: MainWorkScheduler, node: VisibilityNode?, actionIcons: ExtensionActionIcons? = nil) {
         (self.slot, self.work, self.mainWork, self.node) = (slot, work, mainWork, node)
+        self.actionIcons = actionIcons ?? ExtensionActionIcons(work: work, mainWork: mainWork)
         trampoline.action = { [weak self] in self?.showMenu() }
     }
 
@@ -350,7 +351,7 @@ final class ExtensionActionToolbar {
     }
 
     private func makeButton(for id: String) -> ExtensionActionButton {
-        let button = ExtensionActionButton(actionID: id, work: work, mainWork: mainWork)
+        let button = ExtensionActionButton(actionID: id, icons: actionIcons)
         button.onRun = { [weak self] in self?.run(id) }
         button.onMenu = { [weak self] _ in self?.showItemMenu(id) }
         button.canDrag = { [weak self] in self?.host?.extensionStore.supportsPinnedOrder == true }

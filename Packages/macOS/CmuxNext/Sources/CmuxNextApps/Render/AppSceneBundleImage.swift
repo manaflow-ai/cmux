@@ -1,16 +1,43 @@
 import AppKit
 public import CmuxNextCompat
+import CmuxNextIcons
+public import CmuxNextWakeups
 import SwiftUI
 
-/// `Image(src)`: a file inside the app bundle (never the network).
+/// `Image(src)`: a file inside the app bundle (never the network). An image not decoded yet draws
+/// nothing until it is read and decoded off the main thread (``AppBundleImageCache/load(path:in:)``).
 struct AppSceneBundleImage: View {
     let path: String?
     @Environment(\.appBundleDirectory) private var directory
-    @Environment(\.appBundleImages) private var images
 
     var body: some View {
-        if let image = images?.image(path: path, in: directory) {
-            Image(nsImage: image).resizable().scaledToFit()
+        // The placeholder takes no room, as no image did before; it is a view (not EmptyView) so its load task runs.
+        AppBundleImageView(path: path, directory: directory) { Image(nsImage: $0).resizable().scaledToFit() } placeholder: {
+            Color.clear.frame(width: 0, height: 0)
+        }
+    }
+}
+
+/// A bundle image from the environment's ``AppBundleImageCache``: `content` with the kept image, else `placeholder`
+/// while the file is read and decoded off the main thread (or when it does not decode).
+struct AppBundleImageView<Content: View, Placeholder: View>: View {
+    let path: String?
+    let directory: URL?
+    @ViewBuilder let content: (NSImage) -> Content
+    @ViewBuilder let placeholder: () -> Placeholder
+    @Environment(\.appBundleImages) private var images
+    /// The image this view loaded (it is in the cache too, until a memory release drops it).
+    @State private var loaded: (key: AppBundleImageCache.LoadKey, image: NSImage)?
+
+    var body: some View {
+        let key = AppBundleImageCache.LoadKey(path: path, directory: directory)
+        if let image = images?.cachedImage(path: path, in: directory) ?? (loaded?.key == key ? loaded?.image : nil) {
+            content(image)
+        } else {
+            placeholder().task(id: key) {
+                guard let images, let image = await images.load(path: path, in: directory) else { return }
+                loaded = (key, image)
+            }
         }
     }
 }
@@ -50,13 +77,24 @@ public final class AppBundleImageCache {
     private var order: [String] = []
     private(set) var bytes = 0
     private var memoryRegistration: MemoryConsumerRegistration?
+    /// Reads and decodes the files off the main thread.
+    private let work: BackgroundWork
+
+    /// What one bundle image view loads: its path in its bundle.
+    nonisolated struct LoadKey: Hashable, Sendable {
+        let path: String?
+        let directory: URL?
+    }
 
     /// Makes an empty cache.
     ///
     /// - Parameters:
+    ///   - work: The app's lanes: the files are read and decoded on its `.files` lane.
     ///   - maxCount: Images kept at the full memory limit, beyond the working set.
     ///   - now: The clock the working set is measured on (tests pass their own).
-    public init(maxCount: Int = 64, now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }) {
+    public init(work: BackgroundWork, maxCount: Int = 64,
+                now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }) {
+        self.work = work
         self.maxCount = max(0, maxCount)
         countLimit = self.maxCount
         self.now = now
@@ -70,26 +108,70 @@ public final class AppBundleImageCache {
             name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: registry)
     }
 
-    func image(path: String?, in directory: URL?) -> NSImage? {
+    /// The absolute path of `path` in `directory`, nil when it would leave the bundle.
+    private static func file(_ path: String?, in directory: URL?) -> URL? {
         guard let path, let directory, !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { return nil }
         let url = directory.appending(path: path).standardizedFileURL
-        guard url.path.hasPrefix(directory.standardizedFileURL.path) else { return nil }
-        let key = url.path
-        if var cached = images[key] {
-            cached.used = now()
-            images[key] = cached
-            order.removeAll { $0 == key }
-            order.append(key)
-            return cached.image
-        }
-        guard let data = try? Data(blockingContentsOf: url), let image = blockingNSImage(data) else { return nil }
-        // Drawn now, so in the working set: kept whatever the limit; older ones past it go.
-        let entry = Entry(image: image, bytes: Self.decodedBytes(of: image, encoded: data.count), used: now())
-        images[key] = entry
+        return url.path.hasPrefix(directory.standardizedFileURL.path) ? url : nil
+    }
+
+    /// The decoded image of `path` in `directory` when it is kept, marked as drawn now; nil when it is not decoded yet.
+    func cachedImage(path: String?, in directory: URL?) -> NSImage? {
+        guard let key = Self.file(path, in: directory)?.path, var cached = images[key] else { return nil }
+        cached.used = now()
+        images[key] = cached
+        order.removeAll { $0 == key }
         order.append(key)
+        return cached.image
+    }
+
+    /// The image of `path` in `directory`: the kept one, else the file read and decoded on the `.files` lane, then
+    /// kept. Nil when the path leaves the bundle, or the file does not read or decode.
+    func load(path: String?, in directory: URL?) async -> NSImage? {
+        if let cached = cachedImage(path: path, in: directory) { return cached }
+        guard let url = Self.file(path, in: directory),
+              let read = try? await work.run(.userVisible, mayBlock: .files, { Self.read(url) }) else { return nil }
+        // Another view's load of the same file may have landed first.
+        if let cached = cachedImage(path: path, in: directory) { return cached }
+        let image: NSImage
+        switch read.contents {
+        case .bitmap(let bitmap):
+            image = NSImage(cgImage: bitmap, size: NSSize(width: bitmap.width, height: bitmap.height))
+        case .vector(let data):
+            // decode: an SVG or a PDF, which only NSImage reads: it parses here, in blockingNSImage's checked call,
+            // and draws as vectors; a bitmap never comes this way.
+            guard let vector = blockingNSImage(data) else { return nil }
+            image = vector
+        }
+        // Drawn now, so in the working set: kept whatever the limit; older ones past it go.
+        let entry = Entry(image: image, bytes: Self.decodedBytes(of: image, encoded: read.encodedBytes), used: now())
+        images[url.path] = entry
+        order.append(url.path)
         bytes += entry.bytes
         _ = trim { false }
         return image
+    }
+
+    /// A file's image as the lane hands it back: a bitmap decoded to pixels, or a vector file's data.
+    private nonisolated struct Read: Sendable {
+        nonisolated enum Contents: Sendable {
+            case bitmap(CGImage)
+            case vector(Data)
+        }
+
+        let contents: Contents
+        let encodedBytes: Int
+    }
+
+    /// Reads `url` and decodes a bitmap at its full size (``IconAssetDecode``); an SVG or a PDF comes back as data.
+    /// Runs on a lane thread.
+    private nonisolated static func read(_ url: URL) -> Read? {
+        guard let data = try? Data(blockingContentsOf: url) else { return nil }
+        if let bitmap = IconAssetDecode.thumbnail(data, types: IconAssetDecode.bitmapTypes, maxPixelSize: IconAssetDecode.maxSide) {
+            return Read(contents: .bitmap(bitmap), encodedBytes: data.count)
+        }
+        let isPDF = data.starts(with: Array("%PDF".utf8))
+        return IconAssetDecode.isSVGText(data) || isPDF ? Read(contents: .vector(data), encodedBytes: data.count) : nil
     }
 
     /// Drops the least recently used images while more than ``countLimit`` are kept and the oldest is

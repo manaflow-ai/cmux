@@ -10,7 +10,6 @@ struct AppIconView: View {
     let bundleDirectory: URL?
     var size: CGFloat = 40
     @Environment(\.appSceneColors) private var colors
-    @Environment(\.appBundleImages) private var images
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
@@ -18,9 +17,9 @@ struct AppIconView: View {
             shape.fill(colors.hover)
             switch icon {
             case .file(let path)?:
-                if let image = images?.image(path: path, in: bundleDirectory) {
-                    Image(nsImage: image).resizable().scaledToFit().padding(size * 0.14)
-                } else {
+                AppBundleImageView(path: path, directory: bundleDirectory) {
+                    Image(nsImage: $0).resizable().scaledToFit().padding(size * 0.14)
+                } placeholder: {
                     symbol("app")
                 }
             case .symbol(let name)?: symbol(name)

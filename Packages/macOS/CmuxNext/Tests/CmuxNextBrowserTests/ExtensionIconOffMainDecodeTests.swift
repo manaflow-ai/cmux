@@ -171,7 +171,8 @@ struct ExtensionIconOffMainDecodeTests {
         let png = try Self.png(side: Self.side)
         let log = LaneLog()
         let work = BackgroundWork(label: "test.extension-button-icon", onRan: { lane, _, _, _ in log.record(lane) })
-        let button = ExtensionActionButton(actionID: "ext", work: work, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let icons = ExtensionActionIcons(work: work, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let button = ExtensionActionButton(actionID: "ext", icons: icons)
 
         button.update(CEFExtensionAction(id: "ext", name: "Ext", title: "Ext", iconPNG: png))
         let puzzle = try #require(button.image)
@@ -183,6 +184,86 @@ struct ExtensionIconOffMainDecodeTests {
         #expect(icon !== puzzle)
         #expect(icon.size == NSSize(width: OmnibarStyle.barHeight, height: OmnibarStyle.barHeight))
         #expect(Self.pixels(icon) == Int(CEFExtensionAction.iconPixels), "decoded at the icon's drawn size, not the PNG's 512 px")
+        await work.shutdown()
+    }
+
+    /// Every tab's toolbar shares the decoded icons (Chrome's `ExtensionActionViewController::GetIcon`): a second
+    /// toolbar's button for an action already decoded shows its icon in its first update, with no second decode, and
+    /// a new badge (a new PNG) keeps the old icon on the button until the new one is decoded.
+    @Test func aSecondToolbarShowsTheDecodedIconInItsFirstUpdate() async throws {
+        let (png, badged) = (try Self.png(side: Self.side), try Self.png(side: 256))
+        let work = BackgroundWork(label: "test.extension-button-shared")
+        let icons = ExtensionActionIcons(work: work, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let action = CEFExtensionAction(id: "ext", name: "Ext", title: "Ext", iconPNG: png)
+        let first = ExtensionActionButton(actionID: "ext", icons: icons)
+        first.update(action)
+        let puzzle = try #require(first.image)
+        Self.spin { first.image !== puzzle }
+        let decoded = try #require(first.image)
+
+        let second = ExtensionActionButton(actionID: "ext", icons: icons)
+        second.update(action)
+        #expect(second.image?.accessibilityDescription == nil, "a new tab's button showed the puzzle piece")
+        #expect(Self.pixels(try #require(second.image)) == Int(CEFExtensionAction.iconPixels))
+        #expect(icons.decodes == 1, "a second toolbar decoded the same icon again")
+
+        var withBadge = action
+        withBadge.iconPNG = badged
+        withBadge.badge = "3"
+        first.update(withBadge)
+        #expect(first.image === decoded, "a badge change showed another icon before its decode")
+        Self.spin { first.image !== decoded }
+        #expect(icons.decodes == 2)
+        #expect(first.image?.accessibilityDescription == nil)
+        await work.shutdown()
+    }
+
+    /// A PNG-only extension's row (no icon file) keeps its icon while a new PNG (a badge change) decodes, then shows
+    /// the new one; the cache holds one icon for the extension, not one per PNG (Chrome's `ExtensionIconImage` keeps
+    /// the image it has until the new one is loaded, extensions/browser/extension_icon_image.cc).
+    @Test func aRowWhosePNGChangesKeepsItsIconUntilTheNewOneArrives() async throws {
+        let (png, badged) = (try Self.png(side: 64), try Self.png(side: 96))
+        let work = BackgroundWork(label: "test.extension-icons-png")
+        let icons = ExtensionIconCache(side: 20, work: work, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        var arrivals = 0
+        icons.onLoad = { arrivals += 1 }
+        let info = BrowserExtensionInfo(id: "ext", name: "Ext", iconPath: nil)
+
+        _ = icons.images(for: [info], pngs: ["ext": png])
+        Self.spin { arrivals == 1 }
+        let shown = icons.images(for: [info], pngs: ["ext": png])[0]
+        #expect(shown.accessibilityDescription == nil, "the PNG's icon did not arrive")
+
+        let whileDecoding = icons.images(for: [info], pngs: ["ext": badged])[0]
+        #expect(whileDecoding === shown, "the row changed to the puzzle piece while its new PNG decoded")
+        Self.spin { arrivals == 2 }
+        let updated = icons.images(for: [info], pngs: ["ext": badged])[0]
+        #expect(updated !== shown)
+        #expect(updated.accessibilityDescription == nil)
+        #expect(icons.count == 1, "one icon per extension, not one per PNG")
+        #expect(icons.images(for: [], pngs: [:]).isEmpty)
+        #expect(icons.count == 0, "an extension no longer listed kept its icon")
+        await work.shutdown()
+    }
+
+    /// An arrival for a PNG the row no longer shows (it changed twice while the first decoded) does not replace the
+    /// newer one's.
+    @Test func aStaleArrivalIsDropped() async throws {
+        let (first, second) = (try Self.png(side: 64), try Self.png(side: 96))
+        let work = BackgroundWork(label: "test.extension-icons-stale")
+        let icons = ExtensionIconCache(side: 20, work: work, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        var arrivals = 0
+        icons.onLoad = { arrivals += 1 }
+        let info = BrowserExtensionInfo(id: "ext", name: "Ext", iconPath: nil)
+
+        _ = icons.images(for: [info], pngs: ["ext": first])
+        _ = icons.images(for: [info], pngs: ["ext": second])
+        Self.spin { arrivals >= 1 && icons.images(for: [info], pngs: ["ext": second])[0].accessibilityDescription == nil }
+        for _ in 0..<4 { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002)) }
+
+        #expect(arrivals == 1, "the first PNG's arrival landed after the row moved on")
+        #expect(icons.images(for: [info], pngs: ["ext": first])[0].accessibilityDescription == nil,
+                "the first PNG is asked for again and the row keeps the second's icon meanwhile")
         await work.shutdown()
     }
 

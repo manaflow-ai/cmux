@@ -17,8 +17,8 @@ final class ImportStepView: NSView {
     private let status = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textTertiary, lines: 2)
     private var rows: [String: ImportProfileRow] = [:]
     private var rowSlots: [ImportProfileRow] = []
-    /// How many browser icons the rows show (they land after detection).
-    private var shownIconCount = 0
+    /// How many browser icons and profile pictures the rows show (they land after detection).
+    private var shownIconCount = 0, shownAvatarCount = 0
     private var kindBoxes: [ImportDataKind: NSButton] = [:]
     private var kindSlots: [NSButton] = []
     private var shownKinds: [ImportDataKind] = []
@@ -136,11 +136,11 @@ final class ImportStepView: NSView {
         passwordsCSV.isHidden = !model.offersPasswordCSV
         let profiles = model.profiles
         let awaiting = model.awaitingAccess
-        let icons = model.browserIcons
-        if profiles != shownProfiles || awaiting != shownAwaiting || icons.count != shownIconCount {
+        let icons = model.browserIcons, avatars = model.profileAvatars
+        if profiles != shownProfiles || awaiting != shownAwaiting || icons.count != shownIconCount || avatars.count != shownAvatarCount {
             shownProfiles = profiles
             shownAwaiting = awaiting
-            shownIconCount = icons.count
+            (shownIconCount, shownAvatarCount) = (icons.count, avatars.count)
             rows = [:]
             let blockedBrowsers = Set(model.sources.filter(\.needsFullDiskAccess).map(\.browser))
             while rowSlots.count < profiles.count + awaiting.count {
@@ -161,7 +161,7 @@ final class ImportStepView: NSView {
                     continue
                 }
                 let profile = profiles[index]
-                row.configure(profile: profile, icon: icons[profile.browser],
+                row.configure(profile: profile, icon: icons[profile.browser], avatar: profile.avatar.flatMap { avatars[$0] },
                               needsFullDiskAccess: blockedBrowsers.contains(profile.browser),
                               onAccess: { [weak model] in model?.openFullDiskAccessSettings() }) { [weak model] in model?.toggle(profile) }
                 rows[profile.id] = row

@@ -90,7 +90,7 @@ final class ImportProfileRow: NSView {
             icon.widthAnchor.constraint(equalToConstant: 30), icon.heightAnchor.constraint(equalToConstant: 30),
             avatar.trailingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 4),
             avatar.bottomAnchor.constraint(equalTo: icon.bottomAnchor, constant: 3),
-            avatar.widthAnchor.constraint(equalToConstant: 16), avatar.heightAnchor.constraint(equalToConstant: 16),
+            avatar.widthAnchor.constraint(equalToConstant: Self.avatarSide), avatar.heightAnchor.constraint(equalToConstant: Self.avatarSide),
             names.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12), names.centerYAnchor.constraint(equalTo: centerYAnchor),
             names.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor, constant: -12),
             trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4), trailing.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -101,12 +101,15 @@ final class ImportProfileRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    convenience init(profile: BrowserSourceProfile, icon: NSImage?, needsFullDiskAccess: Bool = false,
+    convenience init(profile: BrowserSourceProfile, icon: NSImage?, avatar: NSImage? = nil, needsFullDiskAccess: Bool = false,
                      onAccess: (() -> Void)? = nil, toggle: @escaping () -> Void) {
         self.init(toggle: toggle)
-        configure(profile: profile, icon: icon, needsFullDiskAccess: needsFullDiskAccess,
+        configure(profile: profile, icon: icon, avatar: avatar, needsFullDiskAccess: needsFullDiskAccess,
                   onAccess: onAccess, toggle: toggle)
     }
+
+    /// The profile picture's side on the browser icon, in points.
+    static let avatarSide: CGFloat = 16
 
     private static func slot(width: CGFloat, containing view: NSView) -> NSView {
         let slot = NSView()
@@ -123,7 +126,8 @@ final class ImportProfileRow: NSView {
         return slot
     }
 
-    func configure(profile: BrowserSourceProfile, icon browserIcon: NSImage?, needsFullDiskAccess: Bool = false,
+    /// `avatar` is the profile's picture, decoded off the main thread (``ImportStepModel/profileAvatars``); nil shows none.
+    func configure(profile: BrowserSourceProfile, icon browserIcon: NSImage?, avatar picture: NSImage? = nil, needsFullDiskAccess: Bool = false,
                    onAccess: (() -> Void)? = nil, toggle: @escaping () -> Void) {
         self.toggle = toggle
         self.onAccess = onAccess
@@ -131,7 +135,7 @@ final class ImportProfileRow: NSView {
         configured = true
         (accessButton as? OnboardingTextButton)?.setPlainTitle(OnboardingStrings.openSystemSettings)
         icon.image = browserIcon ?? Self.placeholder
-        avatar.image = profile.avatar.flatMap { try? Data(blockingContentsOf: $0) }.flatMap { blockingNSImage($0) }
+        avatar.image = picture
         avatar.alphaValue = avatar.image == nil ? 0 : 1
         name.stringValue = profile.browser.displayName
         let showsProfile = !(profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore)

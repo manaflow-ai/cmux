@@ -25,19 +25,25 @@ package nonisolated struct IconAssetDecode {
     /// Largest side and pixel count decoded at all: a small file can declare a huge bitmap.
     package static let maxSide = 16_384
     package static let maxPixels = 100_000_000
+    /// The most pixels a decode on the main thread may make: its image gate
+    /// (``BlockingKind/cpuIntensiveImagePixelBytes`` at 4 bytes a pixel), 256 x 256. A caller that must decode
+    /// in the main thread's turn (a menu that opens now, a cursor) passes it as `pixelLimit`, so a larger image
+    /// is refused rather than decoded there.
+    package static let mainThreadPixels = BlockingKind.cpuIntensiveImagePixelBytes / 4
 
     /// `data` scaled to at most `maxPixelSize` on its longer side, when it is one of `types`
-    /// and its declared size is within ``maxSide`` and ``maxPixels``; nil otherwise. The pixels
-    /// are decoded here (`kCGImageSourceShouldCacheImmediately`), on the calling thread, as a
-    /// checked CPU call, not at the image's first draw.
-    package static func thumbnail(_ data: Data, types: Set<String>, maxPixelSize: Int) -> CGImage? {
+    /// and its declared size is within ``maxSide`` and `pixelLimit` (``maxPixels`` by default); nil
+    /// otherwise. The pixels are decoded here (`kCGImageSourceShouldCacheImmediately`), on the calling
+    /// thread, as a checked CPU call, not at the image's first draw.
+    package static func thumbnail(_ data: Data, types: Set<String>, maxPixelSize: Int,
+                                  pixelLimit: Int = IconAssetDecode.maxPixels) -> CGImage? {
         let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
         guard let source = CheckedImageSource(data, options: options),
               let type = source.type, types.contains(type),
               let properties = source.properties(at: 0, options: options),
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int,
-              width > 0, height > 0, width <= maxSide, height <= maxSide, width * height <= maxPixels else { return nil }
+              width > 0, height > 0, width <= maxSide, height <= maxSide, width * height <= min(maxPixels, pixelLimit) else { return nil }
         return source.thumbnail(options: [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,

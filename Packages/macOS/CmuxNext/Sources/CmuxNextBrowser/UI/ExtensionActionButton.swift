@@ -25,18 +25,16 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
     private var hover: PointerHover?
     private var isHovering: Bool { hover?.isHovering ?? false }
     var isPointerHovering: Bool { isHovering }
-    /// Decodes the action's icon off the main thread; `mainWork` takes it back.
-    private let work: BackgroundWork
-    private let mainWork: MainWorkScheduler
-    /// The PNG on its way (`work`): a later icon drops an earlier one's arrival.
+    /// The app's decoded action icons, shared by every tab's toolbar.
+    private let icons: ExtensionActionIcons
+    /// The PNG on its way (`icons`): a later icon drops an earlier one's arrival.
     private var decoding: Data?
     /// The action's decoded icon, unsized.
     private var decodedIcon: CGImage?
 
-    init(actionID: String, work: BackgroundWork, mainWork: MainWorkScheduler) {
+    init(actionID: String, icons: ExtensionActionIcons) {
         self.actionID = actionID
-        self.work = work
-        self.mainWork = mainWork
+        self.icons = icons
         super.init(frame: .zero)
         isBordered = false
         bezelStyle = .regularSquare
@@ -84,24 +82,25 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         isEnabled = action.isEnabled
     }
 
-    /// Decodes `png` on `work`'s `.cpu` lane and shows it when it comes; the icon shown stays
-    /// until then (the puzzle piece before the first one).
+    /// Shows `png`'s icon: at once when any toolbar decoded it already, else the extension's last decoded icon (the
+    /// puzzle piece before the first one) until it decodes off the main thread (``ExtensionActionIcons``).
     private func loadIcon(_ png: Data?) {
         guard let png else {
             (decoding, decodedIcon) = (nil, nil)
             showIcon()
             return
         }
+        if let icon = icons.icon(id: actionID, png: png) {
+            (decoding, decodedIcon) = (nil, icon)
+            showIcon()
+            return
+        }
         guard png != decoding else { return }
         decoding = png
-        if image == nil { showIcon() }
-        // The size Chromium draws the icon at (``CEFExtensionAction/iconPixels``): a larger PNG is scaled down once.
-        let pixels = Int(CEFExtensionAction.iconPixels)
-        work.run(.userVisible, mayBlock: .cpu) {
-            IconAssetDecode.thumbnail(png, types: IconAssetDecode.bitmapTypes, maxPixelSize: pixels)
-        }.reply(on: mainWork, class: .visible, owner: "ExtensionActionButton.icon") { [weak self] bitmap in
-            self?.decoded(bitmap, from: png)
-        }
+        let before = decodedIcon
+        if decodedIcon == nil { decodedIcon = icons.latest(id: actionID) }
+        if image == nil || decodedIcon !== before { showIcon() }
+        icons.decode(id: actionID, png: png) { [weak self] bitmap in self?.decoded(bitmap, from: png) }
     }
 
     private func decoded(_ bitmap: CGImage?, from png: Data) {

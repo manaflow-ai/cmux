@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextIcons
 
 /// A page's cursor as the Chromium Host reports it (`CMUX_SHIM_CURSOR`; task 045 of
 /// plans/cmux-next/chrome-parity/p01-process.md): a `cef_cursor_type_t`, or a CSS cursor image.
@@ -121,12 +121,15 @@ nonisolated enum CEFPageCursor: Equatable, Sendable {
     @MainActor private static let hidden = NSCursor(image: NSImage(size: NSSize(width: 1, height: 1)), hotSpot: .zero)
 
     /// An image cursor sized in points (pixels / scale), its hotspot too, as Chrome's
-    /// `CreateCustomCursor`; nil when the PNG does not decode. The PNG decodes here, in the checked
-    /// seam, not at the cursor's first draw: Blink drops a cursor image past 128 DIPs a side
-    /// (`kMaximumCursorSize`, third_party/blink/renderer/core/input/event_handler.cc), so even at 2x
-    /// it stays within the main thread's image gate.
+    /// `CreateCustomCursor` (ui/base/cocoa/cursor_utils.mm) makes it on the UI thread; nil when the PNG
+    /// does not decode. The PNG decodes here, in the cursor change's turn, not at its first draw.
     @MainActor private static func imageCursor(png: Data, scale: Double, hotspotX: Int32, hotspotY: Int32) -> NSCursor? {
-        guard let bitmap = blockingImageDecode(png), bitmap.width > 0, bitmap.height > 0, scale > 0 else { return nil }
+        // decode: at most IconAssetDecode.mainThreadPixels (256 x 256 px, 256 KiB): 128 DIPs a side, Blink's cursor
+        // limit (kMaximumCursorSize, third_party/blink/renderer/core/input/event_handler.cc), at 2x, the Mac's
+        // largest backing scale. Blink applies it in DIPs, so a 3x or 4x image past that shows the arrow.
+        guard scale > 0, let bitmap = IconAssetDecode.thumbnail(png, types: IconAssetDecode.bitmapTypes, maxPixelSize: IconAssetDecode.maxSide,
+                                                                pixelLimit: IconAssetDecode.mainThreadPixels),
+              bitmap.width > 0, bitmap.height > 0 else { return nil }
         let image = NSImage(cgImage: bitmap, size: NSSize(width: Double(bitmap.width) / scale, height: Double(bitmap.height) / scale))
         return NSCursor(image: image, hotSpot: NSPoint(x: Double(hotspotX) / scale, y: Double(hotspotY) / scale))
     }

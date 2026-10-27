@@ -51,7 +51,7 @@ final class AppsService {
         transport = DaemonAppsTransport(daemon: services.daemon, mainWork: services.mainWork, inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
-        client = AppsClient(transport: transport, bundleImages: AppBundleImageCache())
+        client = AppsClient(transport: transport, bundleImages: AppBundleImageCache(work: services.work))
         AppMemoryConsumers(services: services).registerAppBundleImages(client.bundleImages)
     }
 

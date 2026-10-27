@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCookieImport
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextOnboarding
 import CmuxNextSettings
 import LocalAuthentication
@@ -37,6 +38,19 @@ final class AppOnboardingServices: OnboardingServices {
         }
         return icons ?? [:]
     }
+
+    func profileAvatars(_ files: [URL], points: CGFloat) async -> [URL: NSImage] {
+        // Each profile folder's picture, read and decoded on the files lane at the row's size.
+        let pixels = Int(points * 2)
+        let bitmaps = try? await services.work.run(.userVisible, mayBlock: .files) {
+            files.reduce(into: [URL: CGImage]()) { bitmaps, file in
+                guard let data = try? Data(blockingContentsOf: file) else { return }
+                bitmaps[file] = IconAssetDecode.thumbnail(data, types: IconAssetDecode.bitmapTypes, maxPixelSize: pixels)
+            }
+        }
+        return (bitmaps ?? [:]).mapValues { IconAssetDecode.image($0, points: points) }
+    }
+
     func browsersAwaitingAccess() async -> [ImportBrowser] { await folderAccess.awaiting() }
     func accessFolder(for browser: ImportBrowser) -> URL? { folderAccess.folder(browser) }
     func requestFolderAccess(for browser: ImportBrowser) async -> Bool { await folderAccess.request(browser) }

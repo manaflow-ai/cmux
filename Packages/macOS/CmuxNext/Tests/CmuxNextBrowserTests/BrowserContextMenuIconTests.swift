@@ -20,6 +20,32 @@ import Testing
         let system = try #require(NSImage.menuSymbol("puzzlepiece.extension"))
         #expect(MenuIconPixels(image) == MenuIconPixels(system))
     }
+
+    /// An extension row's files decode in the menu's turn at 16 and 32 px, and only within the main thread's image
+    /// gate (p03-rendering-121): a 512 px file (1 MiB of pixels) is not decoded there, so a row with only that file
+    /// shows the default extension icon, as Chrome's does before the extension's icon is loaded.
+    @Test func anExtensionRowDecodesItsFilesAtTheMenuSizeWithinTheMainThreadGate() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "menu-icons-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        func file(_ side: Int) throws -> String {
+            let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
+                                                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                                    bytesPerRow: 0, bitsPerPixel: 0))
+            let url = folder.appending(path: "\(side).png")
+            try #require(rep.representation(using: .png, properties: [:])).write(to: url)
+            return url.path
+        }
+        let (small, medium, large) = (try file(16), try file(128), try file(512))
+
+        let both = BrowserContextMenuImages.make(.image(oneX: small, twoX: medium))
+        #expect(both.size == NSSize(width: 16, height: 16))
+        #expect(both.representations.map(\.pixelsWide).sorted() == [16, 32], "the 128 px file decoded at the 2x size")
+        let oneFile = BrowserContextMenuImages.make(.image(oneX: small, twoX: large))
+        #expect(oneFile.representations.map(\.pixelsWide) == [16], "the 512 px file was decoded in the menu's turn")
+        let none = BrowserContextMenuImages.make(.image(oneX: large, twoX: large))
+        #expect(MenuIconPixels(none) == MenuIconPixels(BrowserContextMenuImages.make(.defaultExtension)))
+    }
 }
 
 /// An image's alpha drawn into a 32 x 32 px square: two images that draw the same pixels match.

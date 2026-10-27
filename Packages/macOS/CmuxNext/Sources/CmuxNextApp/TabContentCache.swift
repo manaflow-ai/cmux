@@ -33,7 +33,8 @@ final class TabContentCache {
     /// Given to every terminal session this cache makes: the windows' frame-aligned pointer input (feature
     /// `terminalPointerFrames`); nil: each pointer event reaches Ghostty at once.
     let terminalPointerFrames: FrameInputCoalescers?
-    let mainWork: MainWorkScheduler, work: BackgroundWork
+    /// `extensionActionIcons`: the extension toolbar icons every browser tab's chrome shows, decoded once for all tabs.
+    let mainWork: MainWorkScheduler, work: BackgroundWork, extensionActionIcons: ExtensionActionIcons
     var terminals: [String: TerminalEntry] = [:] { didSet { pageRequests.services?.crashKeys?.noteTerminals(terminals.count) } }
     var browsers: [String: BrowserEntry] = [:] {
         didSet {
@@ -216,7 +217,7 @@ final class TabContentCache {
          terminalPointerFrames: FrameInputCoalescers? = nil, work: BackgroundWork, mainWork: MainWorkScheduler,
          deadlines: MainDeadlineScheduler, appEvents: AppEvents, imageCaches: ImageCacheShares = .legacy,
          gpuResidency: (any TerminalGPUResidency)? = nil, webKitProcessReuse: WebKitProcessReuse? = nil) {
-        (self.imageCaches, self.work) = (imageCaches, work)
+        (self.imageCaches, self.work, extensionActionIcons) = (imageCaches, work, ExtensionActionIcons(work: work, mainWork: mainWork))
         previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable)
         internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy)
         pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes, contents: .onlyCopy)
@@ -454,7 +455,8 @@ final class TabContentCache {
         (page as? CEFTab)?.devToolsObserver = self
         let incognito = chromium.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
-                                 history: incognito?.history ?? history(for: page.profileID), work: work, mainWork: mainWork, node: node(for: key))
+                                 history: incognito?.history ?? history(for: page.profileID), work: work, mainWork: mainWork, node: node(for: key),
+                                 actionIcons: extensionActionIcons)
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         mount(entry, as: key)
         return entry

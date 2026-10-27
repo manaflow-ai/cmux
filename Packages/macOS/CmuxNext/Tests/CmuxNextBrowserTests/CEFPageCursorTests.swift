@@ -1,5 +1,8 @@
 import AppKit
 @testable import CmuxNextBrowser
+#if DEBUG || CMUX_BLOCKING_CHECKS
+@testable import CmuxNextCompat
+#endif
 import Testing
 
 /// Task 045 of plans/cmux-next/chrome-parity/p01-process.md: a page's cursor reaches cmux as
@@ -47,6 +50,25 @@ import Testing
         let cursor = CEFPageCursor.custom(png: image, scale: 2, hotspotX: 6, hotspotY: 9).makeCursor()
         #expect(cursor.image.size == NSSize(width: 32, height: 16))
         #expect(cursor.hotSpot == NSPoint(x: 3, y: 4.5))
+    }
+
+    /// A cursor image decodes in its change's turn only within the main thread's image gate (p03-rendering-121):
+    /// 128 DIPs at 2x (256 px) shows; a 512 px image (128 DIPs at 4x, 1 MiB of pixels) shows the arrow, with no
+    /// cpu-intensive site on the main thread.
+    @Test func aCursorImagePastTheMainThreadImageGateIsTheArrow() async throws {
+        let fits = CEFPageCursor.custom(png: try png(width: 256, height: 256), scale: 2, hotspotX: 0, hotspotY: 0)
+        let past = CEFPageCursor.custom(png: try png(width: 512, height: 512), scale: 4, hotspotX: 0, hotspotY: 0)
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        let table = BlockingViolationTable(mode: .record)
+        let (shown, refused) = BlockingViolationTable.$scoped.withValue(table) { (fits.makeCursor(), past.makeCursor()) }
+        await table.flush()
+        #expect(table.sites.filter { $0.kind == .cpuIntensive }.isEmpty, "a cursor decoded past the gate: \(table.sites)")
+        #else
+        let (shown, refused) = (fits.makeCursor(), past.makeCursor())
+        #endif
+        #expect(shown !== NSCursor.arrow)
+        #expect(shown.image.size == NSSize(width: 128, height: 128))
+        #expect(refused === NSCursor.arrow)
     }
 
     /// The shim sends the arrow for an image it cannot encode; cmux does the same for one it cannot read.

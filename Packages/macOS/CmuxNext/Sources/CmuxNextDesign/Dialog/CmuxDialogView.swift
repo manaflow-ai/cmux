@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextIcons
 public import CmuxNextDesignTokens
 
 /// The one cmux dialog view: an overlay panel (Liquid Glass, opaque under
@@ -171,8 +172,13 @@ public final class CmuxDialogView: NSView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         let contentWidth = CmuxDialogMetrics.width - padding * 2
 
-        if let data = spec.icon, let image = blockingNSImage(data) {
-            let icon = NSImageView(image: image)
+        // decode: in the dialog's build (it shows in this turn), at 2x of its 40 pt, only within
+        // IconAssetDecode.mainThreadPixels (256 x 256 px): an extension prompt's icon is Chromium's 128 px one
+        // (ExtensionInstallPrompt loads it at EXTENSION_ICON_LARGE, chrome/browser/extensions/extension_install_prompt.cc).
+        let iconPixels = Int(CmuxDialogMetrics.iconSize * 2)
+        if let data = spec.icon, let bitmap = IconAssetDecode.thumbnail(data, types: IconAssetDecode.bitmapTypes, maxPixelSize: iconPixels,
+                                                                       pixelLimit: IconAssetDecode.mainThreadPixels) {
+            let icon = NSImageView(image: IconAssetDecode.image(bitmap, points: CmuxDialogMetrics.iconSize))
             icon.translatesAutoresizingMaskIntoConstraints = false
             icon.widthAnchor.constraint(equalToConstant: CmuxDialogMetrics.iconSize).isActive = true
             icon.heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.iconSize).isActive = true

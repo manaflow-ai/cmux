@@ -44,6 +44,9 @@ public protocol OnboardingServices: AnyObject {
     /// The icon of each browser in `browsers` (its installed app's, else the app at its usual place), read off the
     /// main thread; a browser with no app is left out.
     func browserIcons(_ browsers: [(browser: ImportBrowser, app: URL?)]) async -> [ImportBrowser: NSImage]
+    /// The profile pictures at `files`, each read and decoded off the main thread to pixels at 2x of `points` on its
+    /// longer side, so the row that shows one decodes nothing; a file that does not read or decode is left out.
+    func profileAvatars(_ files: [URL], points: CGFloat) async -> [URL: NSImage]
 
     // Computer use
     /// The helper app's grants, or nil when this build has no computer use.
@@ -61,6 +64,7 @@ public extension OnboardingServices {
     func importTargets() async -> [ImportTargetChoice] { [] }
     func earlierImportTargets() async -> [String: String] { [:] }
     func browserIcons(_ browsers: [(browser: ImportBrowser, app: URL?)]) async -> [ImportBrowser: NSImage] { [:] }
+    func profileAvatars(_ files: [URL], points: CGFloat) async -> [URL: NSImage] { [:] }
 }
 
 /// A cmux browser profile an import row can go into.

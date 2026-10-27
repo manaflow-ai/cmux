@@ -47,6 +47,8 @@ public final class ImportStepModel {
     public private(set) var sources: [BrowserSource] = []
     /// The browsers' icons, read off the main thread after detection; a row shows the browser symbol until its lands.
     public private(set) var browserIcons: [ImportBrowser: NSImage] = [:]
+    /// The profiles' pictures by file, read and decoded off the main thread after the icons; a row shows none until its lands.
+    public private(set) var profileAvatars: [URL: NSImage] = [:]
     /// Browsers on this Mac whose profile folder has no grant yet (nothing in it was read).
     public private(set) var awaitingAccess: [ImportBrowser] = []
     /// The open panel is up for the browser being explained.
@@ -240,16 +242,10 @@ public final class ImportStepModel {
             let icons = await services.browserIcons(shown)
             guard !Task.isCancelled else { return }
             browserIcons = icons
+            let avatars = await services.profileAvatars(profiles.compactMap(\.avatar), points: ImportProfileRow.avatarSide)
+            guard !Task.isCancelled else { return }
+            profileAvatars = avatars
         }
-    }
-
-    /// Edge leads, stable before its channels (the browser people most
-    /// often come from on a work Mac); the rest keep detection order.
-    nonisolated static func edgeFirst(_ sources: [BrowserSource]) -> [BrowserSource] {
-        let edge: [ImportBrowser] = [.edge, .edgeBeta, .edgeDev, .edgeCanary]
-        let edges = sources.filter { edge.contains($0.browser) }
-            .sorted { (edge.firstIndex(of: $0.browser) ?? 0) < (edge.firstIndex(of: $1.browser) ?? 0) }
-        return edges + sources.filter { !edge.contains($0.browser) }
     }
 
     public func isSelected(_ profile: BrowserSourceProfile) -> Bool { selectedProfiles.contains(profile.id) }
