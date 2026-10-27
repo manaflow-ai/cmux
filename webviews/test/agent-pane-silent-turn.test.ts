@@ -21,7 +21,7 @@ const record = (steps: Step[], from = 1) =>
 type Recorded = ReturnType<typeof record>[number];
 
 /// A daemon over a fake socket: attach answers with `history`; `push` sends live events.
-function fakeDaemon(history: Recorded[]) {
+function fakeDaemon(history: Recorded[], details: Record<string, unknown> = {}) {
   let socket: any;
   const session = {
     sessionId: CHAT,
@@ -30,6 +30,7 @@ function fakeDaemon(history: Recorded[]) {
     harness: "opencode",
     family: "opencode",
     status: "running",
+    ...details,
   };
   const lastSeq = () => history.at(-1)?.seq ?? 0;
   const answer = (method: string) => {
@@ -149,6 +150,26 @@ test("a silence replayed from a turn that already ended is not drawn", async () 
   try {
     await until(() => snapshot?.connection === "connected", "the attach");
     expect(snapshot.silentTurn).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
+test("an attach in the middle of a turn uses the summary start when its event is paged out", async () => {
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "old prompt" }]]), {
+    turn: { turnId: "t2", startedAt: START + 30_000 },
+  });
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.isWorking).toBe(true);
+    expect(snapshot.turnStartedAtMs).toBe(START + 30_000);
   } finally {
     client.close();
   }
