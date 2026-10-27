@@ -51,13 +51,18 @@ else
   printf '#!/usr/bin/env bash\necho "%s"\n' "$TMP/cache" > "$TMP/scripts/cef-cache-root.sh"
   cat > "$TMP/scripts/build-cef-shim.sh" <<STUB
 #!/usr/bin/env bash
-mkdir -p "$TMP/shim"; : > "$TMP/shim/libcmux_cef_shim.dylib"; : > "$TMP/shim/cmux-cef-helper"; printf k > "$TMP/shim/.build-key"
+mkdir -p "$TMP/shim/libcmux_cef_shim.dylib.dSYM/Contents/Resources/DWARF"; : > "$TMP/shim/libcmux_cef_shim.dylib"; : > "$TMP/shim/cmux-cef-helper"; printf k > "$TMP/shim/.build-key"
 echo "$TMP/shim"
 STUB
   chmod +x "$TMP/scripts/"*.sh
   out=$(env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" ARCHS=arm64 TARGET_BUILD_DIR="$TMP/build" WRAPPER_NAME=app.app \
     PRODUCT_NAME=app PRODUCT_BUNDLE_IDENTIFIER=test.app DERIVED_FILE_DIR="$TMP/derived" CMUX_NEXT_SKIP_UBLOCK=1 \
     /bin/bash "$TMP/scripts/embed-cef.sh" 2>&1) || { printf 'embed-cef.sh failed:\n%s\n' "$out" >&2; exit 1; }
+  # An instrumented shim's dSYM (build-cef-shim.sh) goes beside the app, never into the signed bundle.
+  [[ -d "$TMP/build/app-libcmux_cef_shim.dylib.dSYM/Contents/Resources/DWARF" ]] ||
+    { echo "the shim's dSYM was not put beside the app" >&2; exit 1; }
+  [[ ! -e "$TMP/build/app.app/Contents/Frameworks/libcmux_cef_shim.dylib.dSYM" ]] ||
+    { echo 'the shim dSYM went into the app bundle' >&2; exit 1; }
   lib="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries/libvk_swiftshader.dylib"
   syms=$(nm -a "$lib")
   grep -qE ' T _?vk_icdGetInstanceProcAddr$' <<<"$syms" || { printf 'the exported symbol is gone:\n%s\n' "$syms" >&2; exit 1; }

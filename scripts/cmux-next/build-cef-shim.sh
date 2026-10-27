@@ -24,8 +24,9 @@
 #
 # CMUX_CEF_SHIM_SANITIZE=address|thread|undefined (or address,undefined)
 # builds an instrumented libcmux_cef_shim.dylib for lab apps, under its own
-# key and directory. Inside an Xcode build the shim takes the app's own
-# sanitizer (ENABLE_ADDRESS_SANITIZER, ENABLE_THREAD_SANITIZER,
+# key and directory, with its DWARF in <output>/libcmux_cef_shim.dylib.dSYM
+# (embed-cef.sh puts it in the build's dSYM folder). Inside an Xcode build
+# the shim takes the app's own sanitizer (ENABLE_ADDRESS_SANITIZER, ENABLE_THREAD_SANITIZER,
 # ENABLE_UNDEFINED_BEHAVIOR_SANITIZER, which scripts/reload.sh --config
 # asan|tsan|ubsan sets) and refuses any other value: an instrumented shim
 # needs the app to load its runtime. check-cef-shim-sanitizer.sh (run by
@@ -116,7 +117,10 @@ key="$(
   } | shasum -a 256 | awk '{print $1}'
 )"
 FINAL_DIR="$CACHE_DIR/$(basename "$CEF_DIR")-${sanitize_tag:+$sanitize_tag-}${key:0:16}"
-complete() { [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" && -f "$1/warnings.json" ]]; }
+complete() {
+  [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" && -f "$1/warnings.json" ]] &&
+    { [[ -z "$SANITIZE" ]] || [[ -d "$1/libcmux_cef_shim.dylib.dSYM" ]]; }
+}
 if complete "$FINAL_DIR"; then
   echo "$FINAL_DIR"
   exit 0
@@ -189,6 +193,12 @@ if [[ -n "$SANITIZE" ]]; then shim_link=(-fsanitize="$SANITIZE" -Xlinker -rpath 
   "$OUT_DIR/obj/shim/shim_permissions.mm.o" "$OUT_DIR/obj/shim/shim_helper_host.mm.o" \
   "$OUT_DIR/obj/shim/shim_file_dialog.mm.o" "$OUT_DIR/obj/shim/shim_tracing.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc
+# The instrumented shim's -g DWARF stays in obj/ (the dylib keeps only a debug
+# map to it, and obj/ goes below): collect it into a dSYM, kept in the output
+# directory, so its sanitizer reports symbolize to file:line.
+if [[ -n "$SANITIZE" ]]; then
+  dsymutil "$OUT_DIR/libcmux_cef_shim.dylib" -o "$OUT_DIR/libcmux_cef_shim.dylib.dSYM"
+fi
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
   -o "$OUT_DIR/cmux-cef-helper" \

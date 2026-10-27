@@ -141,6 +141,12 @@ if (( ${#shim_archs[@]} == 2 )); then
     lipo -create "$arm_shim/libcmux_cef_shim.dylib" "$x86_shim/libcmux_cef_shim.dylib" -output "$shim_tmp/libcmux_cef_shim.dylib"
     lipo -create "$arm_shim/cmux-cef-helper" "$x86_shim/cmux-cef-helper" -output "$shim_tmp/cmux-cef-helper"
     chmod +x "$shim_tmp/cmux-cef-helper"
+    # An instrumented shim's dSYM (build-cef-shim.sh): one bundle, its DWARF lipo-merged.
+    dwarf="libcmux_cef_shim.dylib.dSYM/Contents/Resources/DWARF/libcmux_cef_shim.dylib"
+    if [[ -f "$arm_shim/$dwarf" && -f "$x86_shim/$dwarf" ]]; then
+      cp -R "$arm_shim/libcmux_cef_shim.dylib.dSYM" "$shim_tmp/"
+      lipo -create "$arm_shim/$dwarf" "$x86_shim/$dwarf" -output "$shim_tmp/$dwarf"
+    fi
     printf '%s' "$universal_key" > "$shim_tmp/.build-key"
     /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$shim_tmp" "$shim_out" 2>/dev/null || rm -rf "$shim_tmp"
   fi
@@ -286,6 +292,18 @@ copy_if_changed() {
   cp "$1" "$2"
 }
 copy_if_changed "$shim_out/libcmux_cef_shim.dylib" "$frameworks/libcmux_cef_shim.dylib"
+# An instrumented shim's dSYM goes beside the app's own (Xcode's dSYM folder),
+# not into the bundle, whose signature seals Contents/Frameworks as code.
+shim_dsym="${DWARF_DSYM_FOLDER_PATH:-$TARGET_BUILD_DIR}/${WRAPPER_NAME%.app}-libcmux_cef_shim.dylib.dSYM"
+if [[ -d "$shim_out/libcmux_cef_shim.dylib.dSYM" ]]; then
+  if ! (( binaries_current )) || [[ ! -d "$shim_dsym" ]]; then
+    rm -rf "$shim_dsym"
+    mkdir -p "$(dirname "$shim_dsym")"
+    cp -R "$shim_out/libcmux_cef_shim.dylib.dSYM" "$shim_dsym"
+  fi
+else
+  rm -rf "$shim_dsym"
+fi
 
 # 3. Helper apps. CEF derives the variant names from the base helper name.
 min_os="${MACOSX_DEPLOYMENT_TARGET:-14.0}"

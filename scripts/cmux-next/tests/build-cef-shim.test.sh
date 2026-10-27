@@ -5,6 +5,7 @@
 # - warnings.json counts the compile's warnings once each (a header's warning seen by two sources is one).
 # - CMUX_CEF_SHIM_SANITIZE builds under another key and directory; only the shim's own sources and its
 #   link are instrumented, never the helper or the wrapper.
+# - The instrumented shim's DWARF is kept in a dSYM (dsymutil before obj/ goes); a plain build has none.
 # - Inside an Xcode build the shim takes the app's sanitizer and refuses another one.
 # - A bundle whose shim loads a sanitizer runtime its main executable does not is refused.
 #
@@ -58,6 +59,12 @@ cat > "$bin/libtool" <<'STUB'
 #!/usr/bin/env bash
 while (( $# )); do [[ "$1" == -o ]] && { : > "$2"; exit 0; }; shift; done
 STUB
+cat > "$bin/dsymutil" <<'STUB'
+#!/usr/bin/env bash
+printf 'dsymutil %s\n' "$*" >> "$STUB_LOG"
+while (( $# )); do [[ "$1" == -o ]] && { mkdir -p "$2/Contents/Resources/DWARF"; exit 0; }; shift; done
+exit 1
+STUB
 printf '#!/usr/bin/env bash\necho 4\n' > "$bin/sysctl"
 chmod +x "$bin"/*
 
@@ -97,6 +104,8 @@ wrapper="$(call_for /libcef_dll/./wrapper/a.cc)"
 [[ "$wrapper" != *-fstack-protector-strong* && "$wrapper" != *-Wunsafe-buffer-usage* ]] ||
   fail "the wrapper got the shim's own flags (the Chromium host links it with \`common\`): $wrapper"
 ! calls | grep -q -- -fsanitize || fail "a plain build passed -fsanitize"
+! calls | grep -q '^dsymutil ' || fail "a plain build ran dsymutil"
+[[ ! -e "$plain/libcmux_cef_shim.dylib.dSYM" ]] || fail "a plain build published a dSYM"
 [[ -f "$plain/warnings.json" && -f "$plain/warnings.log" ]] || fail "no warnings.json or warnings.log in $plain"
 [[ "$(json "$plain/warnings.json" 'd["total"], d["unsafe_buffer_usage"], d["sanitize"]')" == "(2, 1, 'none')" ]] ||
   fail "warnings.json: $(cat "$plain/warnings.json")"
@@ -120,6 +129,11 @@ ok CMUX_CEF_SHIM_SANITIZE=address; asan="$out"
 [[ " $(call_for libcmux_cef_shim.dylib) " == *" -fsanitize=address -Xlinker -rpath -Xlinker @loader_path "* ]] ||
   fail "the asan shim's link does not load the runtime"
 [[ "$(call_for /cmux-cef-helper)" != *-fsanitize* ]] || fail "the helper's link loads a sanitizer runtime"
+# -g's DWARF is in obj/, which the build deletes: a dSYM keeps it, published with the shim.
+[[ "$(grep '^dsymutil ' "$work/calls.$runs")" == \
+  "dsymutil $cache/.building."*"/libcmux_cef_shim.dylib -o $cache/.building."*"/libcmux_cef_shim.dylib.dSYM" ]] ||
+  fail "the asan shim's DWARF is not collected into a dSYM: $(calls)"
+[[ -d "$asan/libcmux_cef_shim.dylib.dSYM/Contents/Resources/DWARF" ]] || fail "the asan shim was published without its dSYM"
 [[ "$(json "$asan/warnings.json" 'd["sanitize"]')" == address ]] || fail "warnings.json does not name the sanitizer"
 
 # 4. Two sanitizers, in any order, are one variant; vptr stays off (no RTTI).
