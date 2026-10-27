@@ -602,7 +602,7 @@ impl Hub {
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile) {
             #[cfg(debug_assertions)]
-            self.take_off_seam();
+            self.take_off_seam().await;
             // Reopened before it is taken, so the pooled start's Ready lands on an open session.
             if let Err(e) = self.reopen_to_start(session, stops) {
                 super::pool::end_pooled(pooled).await;

@@ -874,6 +874,39 @@ async fn a_pinned_pooled_agent_taken_as_an_off_comes_and_goes_ends() {
     );
 }
 
+/// MDM forces `sessions.allowFullAccess` off (review 3 of #26035): as above, but the pooled agent's
+/// full access is only the mode its `session/new` answered (its argv pins none), which the chat
+/// has only once the take absorbs that answer. The off's teardown runs before that, and the unset
+/// right after; the agent still ends, or the chat's start is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_agent_in_full_access_by_its_new_answer_taken_as_an_off_comes_and_goes_ends() {
+    let mut fakeb = profile("b");
+    fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
+    fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
+    let daemon = Daemon::with_fakeb("fatakenew", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert!(fakeb_ready(&warmed), "{warmed}");
+    let pooled = daemon.pool_records().into_iter().next().expect("a pooled agent");
+    let harness_pid = pooled["harness_pid"].as_i64().expect("its harness pid");
+    std::fs::write(home.join("take-off"), "wait").unwrap();
+    let created = rpc
+        .raw(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb"}}}),
+        )
+        .await;
+    let refused = created["error"]["data"]["reason"] == "full_access_off";
+    let id = created["result"]["sessionId"].as_str();
+    assert!(refused || id.is_some_and(|id| taken(&daemon, id)), "not the take: {created}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a pooled agent in full access by its session/new ran on after an off came and went as a chat took it: {created}"
+    );
+}
+
 /// MDM forces `sessions.allowFullAccess` off (#23322, review 76): a pooled agent that reports full
 /// access while a chat claims it, out of both the ready and the claimed entries, is not handed to
 /// the chat, though MDM's off is unset before the chat takes it.

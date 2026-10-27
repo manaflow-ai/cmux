@@ -1038,15 +1038,20 @@ impl Hub {
 
     /// Debug builds only: while the file `ACPMUX_TEST_POOL_TAKE_OFF_FILE` names exists, MDM's off
     /// is pushed and then unset as a chat takes the pooled agent it claimed, past the take's
-    /// checks (review 69 of #23322).
-    pub(super) fn take_off_seam(self: &Arc<Self>) {
+    /// checks (review 69 of #23322). "wait" in it: both pushes end before the take goes on, so the
+    /// off's teardown runs before the chat has what the agent's `session/new` answered.
+    pub(super) async fn take_off_seam(self: &Arc<Self>) {
         let Some(file) = std::env::var_os("ACPMUX_TEST_POOL_TAKE_OFF_FILE") else { return };
-        if std::path::Path::new(&file).exists() {
-            let hub = self.clone();
-            tokio::spawn(async move {
-                hub.apply_full_access_push(Some(false)).await;
-                hub.apply_full_access_push(None).await;
-            });
+        let Ok(text) = std::fs::read_to_string(&file) else { return };
+        let hub = self.clone();
+        let pushes = async move {
+            hub.apply_full_access_push(Some(false)).await;
+            hub.apply_full_access_push(None).await;
+        };
+        if text.trim() == "wait" {
+            pushes.await;
+        } else {
+            tokio::spawn(pushes);
         }
     }
 
