@@ -4,8 +4,9 @@ import AppKit
 import Testing
 
 /// The sidebar list keeps AppKit's responsive scrolling (p03-rendering-110): its scroll view opts back in,
-/// and a trackpad gesture reaches `super` only once ``ScrollAxisLatch`` rails it vertical, so a horizontal
-/// swipe (and its momentum) stays the paging's and never becomes AppKit's to track.
+/// and a trackpad gesture reaches `super` only once ``ScrollAxisLatch`` rails it vertical (or it ends too
+/// short to show an axis), then whole from its `mayBegin`, so a horizontal swipe (and its momentum) stays
+/// the paging's and never becomes AppKit's to track.
 @MainActor
 @Suite(.serialized)
 struct SidebarResponsiveScrollingTests {
@@ -41,38 +42,67 @@ struct SidebarResponsiveScrollingTests {
         #expect(sidebar.scrollView.horizontalScrollElasticity == .none)
     }
 
-    @Test func aVerticalGestureIsHeldUntilItsFirstPointsThenTheListsWithItsMomentum() {
-        var latch = ScrollAxisLatch()
-        #expect(latch.route(phase: nil, touchDown: true, deltaX: 0, deltaY: 0) == .hold, "fingers down: not AppKit's yet")
-        #expect(latch.route(phase: .began, touchDown: false, deltaX: 0, deltaY: -1) == .hold)
-        #expect(latch.route(phase: .changed, touchDown: false, deltaX: 1, deltaY: -3) == .list, "4 pt mostly down: vertical")
-        #expect(latch.route(phase: .changed, touchDown: false, deltaX: 30, deltaY: 0) == .list, "railed: a sideways drift stays the list's")
-        #expect(latch.route(phase: .ended, touchDown: false, deltaX: 0, deltaY: 0) == .list)
-        #expect(latch.route(phase: .momentum, touchDown: false, deltaX: 0, deltaY: -8) == .list)
+    @Test func aVerticalGestureReachesTheListWholeFromItsTouchDownOnceItShowsItsAxis() {
+        var latch = ScrollAxisLatch<String>()
+        #expect(latch.route("mayBegin", phase: nil, touchDown: true, deltaX: 0, deltaY: 0) == .hold, "fingers down: not AppKit's yet")
+        #expect(latch.route("began", phase: .began, touchDown: false, deltaX: 0, deltaY: -1) == .hold)
+        #expect(latch.route("changed1", phase: .changed, touchDown: false, deltaX: 1, deltaY: -3) == .list(["mayBegin", "began", "changed1"]),
+                "4 pt mostly down: vertical, and the list gets the gesture from its start, in order")
+        #expect(latch.route("changed2", phase: .changed, touchDown: false, deltaX: 30, deltaY: 0) == .list(["changed2"]),
+                "railed: a sideways drift stays the list's")
+        #expect(latch.route("ended", phase: .ended, touchDown: false, deltaX: 0, deltaY: 0) == .list(["ended"]))
+        #expect(latch.route("momentum", phase: .momentum, touchDown: false, deltaX: 0, deltaY: -8) == .list(["momentum"]))
         #expect(latch.axis == .vertical)
     }
 
     @Test func aHorizontalGestureAndItsMomentumNeverReachTheList() {
-        var latch = ScrollAxisLatch()
-        #expect(latch.route(phase: .began, touchDown: false, deltaX: -3, deltaY: 0) == .hold)
-        #expect(latch.route(phase: .changed, touchDown: false, deltaX: -3, deltaY: 1) == .horizontal)
-        #expect(latch.route(phase: .changed, touchDown: false, deltaX: 0, deltaY: -40) == .horizontal, "railed horizontal")
-        #expect(latch.route(phase: .ended, touchDown: false, deltaX: 0, deltaY: 0) == .horizontal)
-        #expect(latch.route(phase: .momentum, touchDown: false, deltaX: -12, deltaY: 0) == .horizontal)
-        // The next gesture decides again.
-        #expect(latch.route(phase: .began, touchDown: false, deltaX: 0, deltaY: 5) == .list)
+        var latch = ScrollAxisLatch<String>()
+        #expect(latch.route("mayBegin", phase: nil, touchDown: true, deltaX: 0, deltaY: 0) == .hold)
+        #expect(latch.route("began", phase: .began, touchDown: false, deltaX: -3, deltaY: 0) == .hold)
+        #expect(latch.route("changed1", phase: .changed, touchDown: false, deltaX: -3, deltaY: 1) == .horizontal, "its held start is dropped")
+        #expect(latch.route("changed2", phase: .changed, touchDown: false, deltaX: 0, deltaY: -40) == .horizontal, "railed horizontal")
+        #expect(latch.route("ended", phase: .ended, touchDown: false, deltaX: 0, deltaY: 0) == .horizontal)
+        #expect(latch.route("momentum", phase: .momentum, touchDown: false, deltaX: -12, deltaY: 0) == .horizontal)
+        // The next gesture decides again, with nothing of this one held.
+        #expect(latch.route("next", phase: .began, touchDown: false, deltaX: 0, deltaY: 5) == .list(["next"]))
     }
 
-    @Test func aDiagonalGestureIsTheListsAndATapScrollsNothing() {
-        var diagonal = ScrollAxisLatch()
-        #expect(diagonal.route(phase: .began, touchDown: false, deltaX: 4, deltaY: 3) == .list, "not twice as wide as tall")
-        var tap = ScrollAxisLatch()
-        #expect(tap.route(phase: nil, touchDown: true, deltaX: 0, deltaY: 0) == .hold)
-        #expect(tap.route(phase: .began, touchDown: false, deltaX: 1, deltaY: 1) == .hold)
-        #expect(tap.route(phase: .ended, touchDown: false, deltaX: 0, deltaY: 0) == .hold)
-        #expect(tap.axis == .undecided)
-        var phaseless = ScrollAxisLatch()
-        #expect(phaseless.route(phase: nil, touchDown: false, deltaX: 0, deltaY: -2) == .list, "outside a gesture: the list's")
+    @Test func aShortScrollAndATapStillReachTheList() {
+        var diagonal = ScrollAxisLatch<String>()
+        #expect(diagonal.route("began", phase: .began, touchDown: false, deltaX: 4, deltaY: 3) == .list(["began"]), "not twice as wide as tall")
+        var short = ScrollAxisLatch<String>()
+        #expect(short.route("mayBegin", phase: nil, touchDown: true, deltaX: 0, deltaY: 0) == .hold)
+        #expect(short.route("began", phase: .began, touchDown: false, deltaX: 0, deltaY: -1) == .hold)
+        #expect(short.route("changed", phase: .changed, touchDown: false, deltaX: 0, deltaY: -2) == .hold)
+        #expect(short.route("ended", phase: .ended, touchDown: false, deltaX: 0, deltaY: 0) == .list(["mayBegin", "began", "changed", "ended"]),
+                "3 pt never shows an axis: the gesture is the list's when it ends")
+        #expect(short.axis == .vertical)
+        var tap = ScrollAxisLatch<String>()
+        #expect(tap.route("mayBegin", phase: nil, touchDown: true, deltaX: 0, deltaY: 0) == .hold)
+        #expect(tap.route("cancelled", phase: .ended, touchDown: false, deltaX: 0, deltaY: 0) == .list(["mayBegin", "cancelled"]),
+                "a tap shows and hides the overlay scroller as before")
+        var stale = ScrollAxisLatch<String>()
+        _ = stale.route("lost", phase: nil, touchDown: true, deltaX: 0, deltaY: 0)
+        _ = stale.route("mayBegin", phase: nil, touchDown: true, deltaX: 0, deltaY: 0)
+        #expect(stale.route("ended", phase: .ended, touchDown: false, deltaX: 0, deltaY: 0) == .list(["mayBegin", "ended"]),
+                "a new touch-down drops a gesture whose end never came")
+        var phaseless = ScrollAxisLatch<String>()
+        #expect(phaseless.route("free", phase: nil, touchDown: false, deltaX: 0, deltaY: -2) == .list(["free"]), "outside a gesture: the list's")
+    }
+
+    @Test func aShortVerticalGestureStillMovesTheClip() throws {
+        let list = Self.sidebar().scrollView
+        // Mid-list, so a scroll either way moves the clip rather than bounce at an edge.
+        list.contentView.scroll(to: NSPoint(x: 0, y: 200))
+        list.reflectScrolledClipView(list.contentView)
+        let origin = list.contentView.bounds.origin
+        try #require(origin.y == 200, "60 rows overflow a 400 pt list")
+        list.scrollWheel(with: try Self.event(phase: .mayBegin))
+        list.scrollWheel(with: try Self.event(dy: -1, phase: .began))
+        list.scrollWheel(with: try Self.event(dy: -2, phase: .changed))
+        #expect(list.contentView.bounds.origin == origin, "held until the gesture shows its axis or ends")
+        list.scrollWheel(with: try Self.event(phase: .ended))
+        #expect(list.contentView.bounds.origin != origin, "the held 3 pt reach the list when the gesture ends")
     }
 
     @Test func aSwipeOverTheListPagesOneToOneAndKeepsTheClipStill() throws {
