@@ -77,10 +77,10 @@ public struct CmuxNextApp {
         GhosttyRuntime.initializeLibrary()
         // The launch's second thread: the one-thread steps above count from the watchdog's creation.
         watchdog.start(measuringSinceCreation: true)
-        // Pure launch work (action catalog, symbols, displays) overlaps AppKit's start; the registry takes the catalog.
+        // Pure launch work (action catalog, symbols, displays, icons) overlaps AppKit's start; the registry takes the catalog.
         watchdog.startupStep("main.warmup")
         let actionCatalog = ActionCatalogLaunch()
-        LaunchWarmup.start(catalog: actionCatalog)
+        LaunchWarmup().start(catalog: actionCatalog)
         DebugTimings.markLaunch("main.warmup_started")
         watchdog.startupStep("main.lanes")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.

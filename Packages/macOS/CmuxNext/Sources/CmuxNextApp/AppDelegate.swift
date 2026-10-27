@@ -18,6 +18,7 @@ import CmuxNextPalette
 import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -176,10 +177,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.services = services
         controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,
                                              work: launchReads.work, mainWork: mainWork)  // p08-startup-019: on a lane
-        TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
+        TooltipPresenter.shared.follow(appEvents: services.appEvents, deadlines: .on(services.mainDeadlines))  // the app's one observer and wake-up queue
+        CmuxToastCenter.shared.deadlines = .on(services.mainDeadlines)  // toasts' times are classed deadlines, behind input
         BrowserExternalApps.shared.queries = services.workspaceQueries  // a page's app links ask Launch Services on the system lane
-        // Frame rate classes (p03-rendering-013): links at their clients' rate, loops at 30 Hz.
-        let rateClasses = services.features.isEnabled(.frameRateClasses)
+        let rateClasses = services.features.isEnabled(.frameRateClasses)  // links at their clients' rate, loops at 30 Hz (p03-rendering-013)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
         DesignSettings.shared.loopsFollowFrameRate = rateClasses
         services.startEnergy()  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
@@ -308,8 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups), rendererSharing: services.features.isEnabled(.cmuxPageRendererSharing))
         // The shared chunks into memory on the files lane, so WebKit page views get them in one turn (p13-webui-093).
         WebBundleOverlay.shared.readBundledShared(on: services.work)
-        let spareAfterFirstTab = services.features.isEnabled(.chromiumSpareAfterFirstTab)
-        services.cache.cef.spareAfterFirstTab = { spareAfterFirstTab }
+        services.configureChromiumSpares()
         services.cache.cef.setAdBlockerAtFirstTab(services.features.isEnabled(.chromiumAdBlockerAtFirstTab))
         // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
         // the statics forward to it for page views not yet made through `webUI.open`
@@ -398,9 +398,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LaunchServicePosts.browserFollows(historyDaemonSync: { [weak services] in services?.history.startDaemonSync(settings: settings) },
                                           locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
         // The file watches and the diagnostic toasts; the launch read is applied above, and the start reloads once.
+        let diagnosticPresenter = SettingsDiagnosticToastPresenter(events: services.appEvents, toasts: .shared)
         // A diagnostic's Show in Settings follows the same availability as the page and `openSettings`.
-        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services, events = services.appEvents] in
-            settings?.start(announcingDiagnosticsOn: events,
+        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services, diagnosticPresenter] in
+            settings?.start(announcingDiagnostics: diagnosticPresenter,
                             availability: { [weak services] in services?.settingsAvailability ?? SettingsAvailability() })
         }
         AppProcessRoot.shared.hangReports?.recordUserWrites(of: settings)  // the person's own consent, from the first write on

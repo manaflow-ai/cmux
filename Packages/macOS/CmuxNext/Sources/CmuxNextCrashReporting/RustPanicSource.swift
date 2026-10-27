@@ -91,6 +91,9 @@ public struct RustPanicSource: Sendable, Equatable {
         case .holder: self = .holder
         case .terminalHost: self = .terminalHost
         case .acpmux: self = .acpmux
+        case .agentHost: self = .agentHost
+        case .appHost: self = .appHost
+        case .browserHost: self = .browserHost
         case .app, .chromiumHost, .cli: return nil
         }
     }

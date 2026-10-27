@@ -19,9 +19,10 @@ fn path(ctx: &Context<'_>, mutating: bool) -> Result<std::path::PathBuf> {
 
 fn output(value: Value) -> Output {
     let messages = messages::current();
-    let human = match value["state"].as_str() {
+    let human = match value.get("state").and_then(Value::as_str) {
         Some("paired") => {
-            format!("{} {}\n", messages.paired, value["host"].as_str().unwrap_or_default())
+            let host = value.get("host").and_then(Value::as_str).unwrap_or_default();
+            format!("{} {host}\n", messages.paired)
         }
         Some("pending") => format!("{}\n", messages.pending),
         Some("indeterminate") => format!("{}\n", messages.indeterminate),
