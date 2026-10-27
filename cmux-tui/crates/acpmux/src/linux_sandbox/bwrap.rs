@@ -1,8 +1,7 @@
 //! Bubblewrap mount/namespace plan. Not wired to remote spawns until G2.
 //! This layer alone is insufficient: the seccomp supervisor and network
 //! proxy must also be installed before a remote command may run.
-//! Mount-alias rejection lands separately; this staged plan must not enable
-//! Linux remote spawns until that layer is installed.
+//! Linux remote spawns stay refused until G2 installs all enforcement layers.
 #![allow(dead_code)] // Staged API: G1/G2 supply the production callers.
 
 use std::ffi::CString;
@@ -28,6 +27,7 @@ pub(crate) const LINUX_READ_DENIES: &[&str] = &[
     ".claude/.credentials.json",
 ];
 
+mod aliases;
 mod home;
 #[cfg(test)]
 use home::{denied_paths, home_view};
@@ -240,13 +240,29 @@ fn outside_view(paths: &[PathBuf], home: &Path) -> Result<Vec<String>, String> {
 
 /// Caller supplies explicit denied paths parsed by `rules::WritePolicy`.
 /// The returned descriptors must be inherited by bwrap with CLOEXEC cleared.
-/// No spawn is wired yet; alias checks are still required.
+/// Caller supplies fresh mountinfo; mount IDs are resolved here in the keeper.
 /// Validation loops stop after the fixed roots and supplied deny list.
 pub(crate) fn plan(
     paths: &Paths,
     read_denies: &[PathBuf],
+    mountinfo: &str,
     cmd_prefix: &[String],
 ) -> Result<BwrapPlan, String> {
+    plan_with_mount_id(paths, read_denies, mountinfo, cmd_prefix, aliases::resolved_mount_id)
+}
+
+fn plan_with_mount_id(
+    paths: &Paths,
+    read_denies: &[PathBuf],
+    mountinfo: &str,
+    cmd_prefix: &[String],
+    mut mount_id: impl FnMut(&Path) -> Result<u64, String>,
+) -> Result<BwrapPlan, String> {
+    // Refuse automount triggers before resolving any guarded path.
+    let preflight = aliases::guarded_aliases(&[], mountinfo);
+    if !preflight.is_empty() {
+        return Err(preflight.join("; "));
+    }
     let memory = paths.claude_project.join("memory");
     let writable = [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project];
     for path in [&paths.home, &memory].into_iter().chain(writable) {
@@ -262,6 +278,28 @@ pub(crate) fn plan(
         if denied.iter().chain(outside.iter()).any(|d| root.starts_with(d) || d.starts_with(root)) {
             return Err(format!("writable root overlaps read denial: {}", root.display()));
         }
+    }
+    let mut protected = vec![memory];
+    for path in denied.iter().chain(outside.iter()) {
+        match fs::canonicalize(path) {
+            Ok(target) => {
+                protected.push(path.clone());
+                protected.push(target);
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => protected.push(path.clone()),
+            Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
+        }
+    }
+    let mut trees = Vec::new();
+    for path in &protected {
+        trees.push((path.as_path(), mount_id(path)?, false));
+    }
+    for path in writable {
+        trees.push((path.as_path(), mount_id(path)?, true));
+    }
+    let aliases = aliases::guarded_aliases(&trees, mountinfo);
+    if !aliases.is_empty() {
+        return Err(aliases.join("; "));
     }
     let mut home = home_view_pinned(&paths.home, denied, Some(&snapshot))?;
     let outside = outside_view(outside, &paths.home)?;
@@ -439,6 +477,47 @@ mod tests {
         }
     }
 
+    #[test]
+    fn plan_refuses_bind_mounts_under_each_writable_root() {
+        let fixture = Fixture::new();
+        let paths = fixture.create_paths();
+        for root in [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project] {
+            // The source is separate from memory and read denials, so only
+            // the writable-folder mount check can reject this alias.
+            let point = root.join("cache");
+            let encode = |p: &Path| p.to_str().unwrap().replace(' ', "\\040");
+            let info = format!(
+                "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 {} {} rw - ext4 root rw\n",
+                encode(&root.join(".git/hooks")),
+                encode(&point)
+            );
+            let error =
+                plan_with_mount_id(&paths, &[], &info, &strings(&["true"]), |_| Ok(1)).unwrap_err();
+            assert!(
+                error.contains(&format!(
+                    "{} is also visible at {}",
+                    root.join(".git/hooks").display(),
+                    point.display()
+                )),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn plan_refuses_memory_alias() {
+        let fixture = Fixture::new();
+        let paths = fixture.create_paths();
+        let memory = paths.claude_project.join("memory");
+        let info = format!(
+            "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 {} /alias rw - ext4 root rw\n",
+            memory.display()
+        );
+        let error =
+            plan_with_mount_id(&paths, &[], &info, &strings(&["true"]), |_| Ok(1)).unwrap_err();
+        assert!(error.contains("also visible at /alias"), "{error}");
+    }
+
     fn real_probe() -> bool {
         match probe(Path::new("/usr/bin/bwrap")) {
             Ok(()) => true,
@@ -494,7 +573,14 @@ mod tests {
             mounts.iter().collect::<BTreeSet<_>>().len(),
             "view={view:?} denied={denied:?}"
         );
-        let (args, _fds) = plan(&p, &[], &strings(&["true"])).unwrap();
+        let (args, _fds) = plan_with_mount_id(
+            &p,
+            &[],
+            "1 0 8:1 / / rw - ext4 root rw\n",
+            &strings(&["true"]),
+            |_| Ok(1),
+        )
+        .unwrap();
         let rebuilt = args.iter().position(|s| s == "--tmpfs").unwrap();
         let writable = args.iter().position(|s| s == "--bind-fd").unwrap();
         assert!(
@@ -529,7 +615,13 @@ mod tests {
         let script = "echo ready; read -r go; if [ -e \"$1\" ]; then echo 'late credential visible' >&2; exit 49; fi";
         let command =
             strings(&["/bin/sh", "-c", script, "late-secret", credential.to_str().unwrap()]);
-        let (args, fds) = plan(&p, &[p.home.join(".ssh"), p.home.join(".aws")], &command).unwrap();
+        let (args, fds) = plan(
+            &p,
+            &[p.home.join(".ssh"), p.home.join(".aws")],
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &command,
+        )
+        .unwrap();
         let mut command = tokio::process::Command::new("/usr/bin/bwrap");
         inherit_fds(&mut command, &fds);
         let mut child = command
@@ -795,7 +887,13 @@ mod tests {
         fs::write(secret.join("marker"), "denied-marker").unwrap();
         let command =
             strings(&["/bin/sh", "-c", "cat -- \"$1/marker\"", "swap", allowed.to_str().unwrap()]);
-        let (args, fds) = plan(&p, std::slice::from_ref(&secret), &command).unwrap();
+        let (args, fds) = plan(
+            &p,
+            std::slice::from_ref(&secret),
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &command,
+        )
+        .unwrap();
         fs::rename(&allowed, f.0.join("held-allowed")).unwrap();
         std::os::unix::fs::symlink(&secret, &allowed).unwrap();
         let mut child = tokio::process::Command::new("/usr/bin/bwrap");
@@ -841,8 +939,13 @@ mod tests {
         let f = Fixture::new();
         let mut p = f.create_paths();
         p.home = PathBuf::from(std::env::var_os("HOME").expect("HOME is set on the runner"));
-        let (args, _fds) = plan(&p, &profile_read_denies(&p), &strings(&["true"]))
-            .expect("HOME planner accepts the runner filesystem");
+        let (args, _fds) = plan(
+            &p,
+            &profile_read_denies(&p),
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &strings(&["true"]),
+        )
+        .expect("HOME planner accepts the runner filesystem");
         assert!(args.iter().any(|arg| arg == "--tmpfs"));
     }
 
@@ -1049,7 +1152,13 @@ case "$bad_ipv6_route" in '') ;; *) fail 48 "non-loopback IPv6 route: observed=<
             .map(|path| path.to_str().unwrap().to_owned()),
         );
         command.extend([FILE_MARKER.to_owned(), DIRECTORY_MARKER.to_owned()]);
-        let (args, fds) = plan(&p, &profile_read_denies(&p), &command).unwrap();
+        let (args, fds) = plan(
+            &p,
+            &profile_read_denies(&p),
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &command,
+        )
+        .unwrap();
         let mut child = tokio::process::Command::new(bwrap);
         inherit_fds(&mut child, &fds);
         child
