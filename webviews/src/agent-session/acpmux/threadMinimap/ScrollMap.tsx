@@ -173,9 +173,17 @@ export function ScrollMap({
         Math.max(0, layout.totalHeight - node.clientHeight),
       );
     const to = target();
-    animateScroll(node, target, reducedMotion() ? 0 : jumpDuration(to - node.scrollTop), JUMP_CURVE, undefined, {
-      explicit: true,
-    });
+    animateScroll(
+      node,
+      target,
+      reducedMotion() ? 0 : jumpDuration(to - node.scrollTop),
+      JUMP_CURVE,
+      undefined,
+      undefined,
+      {
+        explicit: true,
+      },
+    );
   };
   /// Centers the view on rail point `y`: at once while scrubbing, else on the jump's curve.
   const seek = (y: number, smooth: boolean) => {
@@ -185,7 +193,10 @@ export function ScrollMap({
     if (!smooth || reducedMotion()) {
       stopScroll(node);
       node.scrollTop = to;
-    } else animateScroll(node, () => to, jumpDuration(to - node.scrollTop), JUMP_CURVE, undefined, { explicit: true });
+    } else
+      animateScroll(node, () => to, jumpDuration(to - node.scrollTop), JUMP_CURVE, undefined, undefined, {
+        explicit: true,
+      });
   };
   const point = (y: number) => {
     const at = keyOf(marks[markAt(marks, y) ?? -1]);

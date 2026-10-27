@@ -396,8 +396,8 @@ github_api() {
 # commit has tree <key>, nothing when the runs list has none, or "unknown" when
 # the runs list cannot be read (rate limit, network, an unparsable body): a
 # caller that fails fast on "no publisher" must not read a failed read as none.
-# A commit missing locally is fetched once (depth 1, best effort); one it
-# cannot read does not count.
+# A commit missing locally is fetched once (best effort; depth 1 only in a
+# shallow clone, so a full clone stays full); one it cannot read does not count.
 active_publisher_for_key() {
   local key="$1" body candidate depth=()
   body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || {
@@ -414,10 +414,12 @@ assert isinstance(runs, list) and all(isinstance(r, dict) and isinstance(r.get("
   while read -r candidate; do
     [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
     # A fleet step's origin may be a local warm checkout or the controller's depot, which lack other
-    # commits: fall back to the public repository (2026-10-25: a same-tree run went unseen).
+    # commits: fall back to the public repository (2026-10-25: a same-tree run went unseen). The
+    # fallback takes the same depth rule: --depth=1 there made a full clone shallow, and a shallow
+    # clone skips the unpushed-commit refusal (refuse_unpushed_source).
     git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null \
       || git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$candidate" 2>/dev/null \
-      || git -C "$repo_root" fetch -q --no-tags --depth=1 "${CMUX_TUI_PUBLIC_GIT_URL:-https://github.com/${GITHUB_REPOSITORY:-manaflow-ai/cmux}.git}" "$candidate" 2>/dev/null \
+      || git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} "${CMUX_TUI_PUBLIC_GIT_URL:-https://github.com/${GITHUB_REPOSITORY:-manaflow-ai/cmux}.git}" "$candidate" 2>/dev/null \
       || { echo "note: cannot read active run commit ${candidate:0:12} to compare its tree" >&2; continue; }
     if [[ "$(tree_key "$candidate" 2>/dev/null)" == "$key" ]]; then echo "$candidate"; return 0; fi
   done < <(python3 -c '
