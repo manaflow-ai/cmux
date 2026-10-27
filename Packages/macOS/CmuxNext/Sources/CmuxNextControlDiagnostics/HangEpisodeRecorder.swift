@@ -3,6 +3,7 @@ import Dispatch
 public import Foundation
 import MachO
 import CmuxNextCompat
+import CmuxNextControl
 
 /// Writes one text file per main-thread hang episode (a stall past the watchdog's hang
 /// threshold, ``HangEpisodeTracker``), so the next freeze diagnoses itself:

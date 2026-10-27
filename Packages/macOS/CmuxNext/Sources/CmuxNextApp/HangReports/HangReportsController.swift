@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
-import CmuxNextControl
+import CmuxNextControlDiagnostics
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextHangReports

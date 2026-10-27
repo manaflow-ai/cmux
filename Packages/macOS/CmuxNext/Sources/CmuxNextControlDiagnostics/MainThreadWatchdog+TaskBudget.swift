@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxNextWakeups
 import Darwin
 import Foundation
+import CmuxNextControl
 
 extension MainThreadWatchdog {
     /// The environment variable that turns on the task diagnostics mode (``recordsTaskBudgets(environment:)``).

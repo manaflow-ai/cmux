@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxNextControl
 
 /// One other thread's stack at the moment a main-thread hang was reported.
 public struct ThreadSample: Sendable {

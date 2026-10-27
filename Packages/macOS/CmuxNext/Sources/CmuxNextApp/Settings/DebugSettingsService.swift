@@ -8,7 +8,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextChiefViews
 import CmuxNextCompat
-import CmuxNextControl
+import CmuxNextControlDiagnostics
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextFeed

@@ -1,4 +1,5 @@
 @testable import CmuxNextControl
+@testable import CmuxNextControlDiagnostics
 import Darwin
 import Testing
 

@@ -1,6 +1,6 @@
 import AppKit
 import class CmuxNextAgentPane.AgentPaneLaunchTimings
-import CmuxNextControl
+import CmuxNextControlDiagnostics
 import protocol CmuxNextAgentPane.PaneFirstPaintGated
 import CmuxNextDesign
 import CmuxNextLaunch

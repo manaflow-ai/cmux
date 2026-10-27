@@ -1,4 +1,5 @@
 @testable import CmuxNextControl
+@testable import CmuxNextControlDiagnostics
 import CmuxNextCompat
 import CmuxNextMetrics
 import CmuxNextTrace

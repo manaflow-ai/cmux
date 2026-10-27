@@ -931,7 +931,7 @@
       "class": "diagnostics",
       "note": "Main-thread watchdog stall threshold (default 50 ms); changes what is recorded, not the work.",
       "sites": [
-        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/MainThreadWatchdog.swift:45", "kind": "use", "cond": "", "release": true}
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControlDiagnostics/MainThreadWatchdog.swift:47", "kind": "use", "cond": "", "release": true}
       ]
     },
     "CMUX_NEXT_HOSTED_CHIEF_COPY": {
@@ -1003,8 +1003,8 @@
       "class": "diagnostics",
       "note": "Task budget diagnostics: one cross-thread wake per main task while set; no bench runs with it.",
       "sites": [
-        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/MainThreadWatchdog+TaskBudget.swift:9", "kind": "constant", "cond": "", "release": true},
-        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/MainThreadWatchdog+TaskBudget.swift:20", "kind": "via taskDiagnosticsVariable", "cond": "", "release": true}
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControlDiagnostics/MainThreadWatchdog+TaskBudget.swift:10", "kind": "constant", "cond": "", "release": true},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControlDiagnostics/MainThreadWatchdog+TaskBudget.swift:21", "kind": "via taskDiagnosticsVariable", "cond": "", "release": true}
       ]
     },
     "CMUX_NEXT_MANAGED_PREFS_FILE": {

@@ -90,7 +90,7 @@ public struct AppSymbolMap: Sendable {
 
     /// The running executable's `LC_UUID` (nil when it has none) and load address, the address of its Mach-O
     /// header; nil when dyld lists no image.
-    static func executableImage() -> (uuid: UUID?, loadAddress: UInt)? {
+    package static func executableImage() -> (uuid: UUID?, loadAddress: UInt)? {
         // SAFETY: image 0 is the main executable, which dyld loads first and never unloads, so its header stays
         // mapped; imageUUID reads only inside its load commands (FunctionStarts' note).
         guard let header = unsafe _dyld_get_image_header(0) else { return nil }

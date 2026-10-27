@@ -21,7 +21,7 @@ secrets or terminal content.
 
 ## Hangs
 
-`MainThreadWatchdog` (`CmuxNextControl/Diagnostics`) records every main-thread
+`MainThreadWatchdog` (`CmuxNextControlDiagnostics`) records every main-thread
 stall over 50 ms with a stack sample and logs it under the `hangs` category. The
 control socket exposes the ring buffer as `debug.hangs` and the main-actor work
 queue as `debug.queue`; `scripts/cmux-next/bench_cli_storm.py` is a client.

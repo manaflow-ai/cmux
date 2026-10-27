@@ -37,23 +37,23 @@ public struct HangFrame: Sendable, Hashable {
 }
 
 /// One main-thread stall longer than the watchdog threshold, or one busy
-/// window (CPU with no input, animation or output; ``BusyWatchdog``).
+/// window (CPU with no input, animation or output; `BusyWatchdog`).
 public struct HangRecord: Sendable, Hashable {
     public enum Kind: String, Sendable, Hashable {
         case stall, busy
         /// A scheduled main-thread task that ran past its class's per-frame budget
-        /// (``MainThreadWatchdog/overBudget``); its details name the task and class.
+        /// (``MainThreadHangReporting/overBudget``); its details name the task and class.
         case overBudget = "over_budget"
         /// A scheduled main-thread task still running past its class's hang deadline
-        /// (``MainThreadWatchdog/taskHangs``, ``MainTaskBoard/hangScopeNanos(_:)``): its details name the
+        /// (``MainThreadHangReporting/taskHangs``, ``MainTaskBoard/hangScopeNanos(_:)``): its details name the
         /// task's owner, class, posting location and turn, and its duration is how long it had run when sampled.
         case taskHang = "task_hang"
         /// A hang-watch scope on another thread still running `HangWatch.hangAfterBudget` (2 s) past
-        /// its budget (``MainThreadWatchdog/threadHangs``); its details name the scope, the thread and
+        /// its budget (``MainThreadHangReporting/threadHangs``); its details name the scope, the thread and
         /// the crash keys, and its duration is how far past the budget it was when sampled.
         case hang
         /// A hang-watch scope on another thread running past its budget, not yet a ``hang``
-        /// (``MainThreadWatchdog/threadJanks``): no stack.
+        /// (``MainThreadHangReporting/threadJanks``): no stack.
         case jank
     }
 
@@ -95,7 +95,7 @@ public struct HangRecord: Sendable, Hashable {
 }
 
 /// Main-thread work gaps of 100 ms and up and of 250 ms and up since launch or the last reset
-/// (``MainThreadWatchdog/stallCounts``): the Nightly responsiveness readout of `debug.hangs`.
+/// (``MainThreadHangReporting/stallCounts``): the Nightly responsiveness readout of `debug.hangs`.
 ///
 /// 100 ms is Chrome's jank threshold for a UI-thread task
 /// (`content/browser/scheduler/responsiveness/calculator.cc`, `kJankThreshold`); 250 ms is the
@@ -143,7 +143,7 @@ public final class HangLog: Sendable {
     }
 
     @discardableResult
-    func append(startUptimeNanos: UInt64, duration: Duration, cpu: Duration = .zero, addresses: [UInt],
+    package func append(startUptimeNanos: UInt64, duration: Duration, cpu: Duration = .zero, addresses: [UInt],
                 kind: HangRecord.Kind = .stall, details: [String: JSONValue] = [:]) -> HangRecord {
         state.withLock { state in
             let record = HangRecord(sequence: state.nextSequence, kind: kind, startUptimeNanos: startUptimeNanos, duration: duration,

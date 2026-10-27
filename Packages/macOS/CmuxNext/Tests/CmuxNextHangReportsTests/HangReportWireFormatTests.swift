@@ -63,7 +63,7 @@ struct HangReportWireFormatTests {
 
     // MARK: Active seconds and the main-thread histograms (p12-perf-process-043)
 
-    /// `MainTurnHistogram.edgesNanos` (CmuxNextControl): 50 µs times 1.2 per edge, then 10 s.
+    /// `MainTurnHistogram.edgesNanos` (CmuxNextControlDiagnostics): 50 µs times 1.2 per edge, then 10 s.
     static let turnEdgesNanos: [UInt64] = {
         var edges: [UInt64] = []
         var edge = 50_000.0

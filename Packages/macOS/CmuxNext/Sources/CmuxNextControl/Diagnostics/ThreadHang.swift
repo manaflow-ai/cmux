@@ -1,9 +1,9 @@
 public import CmuxNextTrace
 
 /// One watched thread still inside its hang-watch scope ``HangWatch/hangAfterBudget`` past its budget, as the
-/// monitor hands it to ``MainThreadWatchdog/onThreadHang`` (p09-observability-068): the registration, the thread
+/// monitor hands it to `MainThreadWatchdog.onThreadHang` (p09-observability-068): the registration, the thread
 /// that ran the scope, how far past its budget it was and that thread's stack, sampled by its Mach port
-/// (``ThreadStackSampler``) while the scope still ran.
+/// (`ThreadStackSampler`) while the scope still ran.
 public struct ThreadHang: Sendable, Equatable {
     /// The registration's catalog name (``HangWatch/registerThread(_:name:)``, ``HangWatch/registerLane(_:)``).
     public let name: String

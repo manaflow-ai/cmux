@@ -7,6 +7,7 @@ import CmuxNextMetrics
 import CmuxNextSettings
 import CmuxNextTrace
 import CmuxNextWakeups
+public import CmuxNextControl
 
 /// Records every main-thread stall longer than `threshold` (default 50 ms)
 /// with a stack sample, into a ring buffer (`debug.hangs`).

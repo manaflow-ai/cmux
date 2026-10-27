@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextWakeups
 import CoreFoundation
 @testable import CmuxNextControl
+@testable import CmuxNextControlDiagnostics
 import Testing
 
 /// The off-main half of the per-action budget: the ledger's Release counters, and the Debug log

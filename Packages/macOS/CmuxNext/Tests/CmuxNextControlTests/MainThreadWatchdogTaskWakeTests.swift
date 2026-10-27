@@ -1,4 +1,5 @@
 @testable import CmuxNextControl
+@testable import CmuxNextControlDiagnostics
 import CmuxNextWakeups
 import CoreFoundation
 import Darwin

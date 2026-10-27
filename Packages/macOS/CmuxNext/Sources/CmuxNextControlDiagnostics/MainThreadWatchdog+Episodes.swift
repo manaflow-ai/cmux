@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextTrace
 import CmuxNextWakeups
+import CmuxNextControl
 
 extension MainThreadWatchdog {
     /// Writes one file per hang episode (``HangEpisodeRecorder``): the main thread's stack at

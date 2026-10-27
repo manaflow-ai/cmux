@@ -136,7 +136,7 @@
     "CmuxNextChromiumRuntime": 1,
     "CmuxNextCloud": 1,
     "CmuxNextCompat": 11,
-    "CmuxNextControl": 2,
+    "CmuxNextControlDiagnostics": 2,
     "CmuxNextCrashReporting": 4,
     "CmuxNextDaemon": 2,
     "CmuxNextDesign": 4,

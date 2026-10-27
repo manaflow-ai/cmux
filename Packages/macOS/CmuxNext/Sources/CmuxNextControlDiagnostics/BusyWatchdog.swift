@@ -4,6 +4,7 @@ public import Darwin
 import Foundation
 import os
 import CmuxNextCompat
+public import CmuxNextControl
 
 /// Records a "busy" entry in the `debug.hangs` ring buffer when the main
 /// thread, the whole process, or a helper process (Chromium) uses CPU above

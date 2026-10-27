@@ -41,6 +41,7 @@
     "CmuxNextChromiumRuntime": {"layer": "service"},
     "CmuxNextChromiumWarmup": {"layer": "service", "plan": "depend on BrowserCore, not Browser"},
     "CmuxNextControl": {"layer": "service"},
+    "CmuxNextControlDiagnostics": {"layer": "domain", "plan": "service once JSONValue leaves CmuxNextSettings (the Settings split): its records name Settings' JSONValue, as Control's do", "note": "CmuxNextControl's Darwin-only watchdogs and stack sampler, above Control, which reads them through MainThreadHangReporting (p15-oracle-136)"},
     "CmuxNextBrowserHistory": {"layer": "service", "plan": "depend on BrowserCore, not Browser"},
     "CmuxNextBrowserAutomation": {"layer": "service", "plan": "depend on BrowserCore, not Browser"},
     "CmuxNextBrowserHost": {"layer": "service", "plan": "depend on BrowserCore, not Browser"},

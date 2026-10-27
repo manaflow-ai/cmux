@@ -9,7 +9,7 @@ import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCloud
 import CmuxNextCompat
-import CmuxNextControl
+import CmuxNextControlDiagnostics
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost

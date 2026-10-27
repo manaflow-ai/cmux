@@ -2,6 +2,7 @@ public import CmuxNextSettings
 public import CmuxNextWakeups
 import CmuxNextCompat
 import os
+import CmuxNextControl
 
 /// Hang scopes per class (plans/cmux-next/chrome-parity/p06-scheduler.md, "Attribution"): Chrome's
 /// `HangWatcher` (base/threading/hang_watcher.h) gives each `WatchHangsInScope` a deadline and reports a

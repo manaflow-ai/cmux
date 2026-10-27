@@ -6,6 +6,7 @@ public import CmuxNextTrace
 public import CmuxNextWakeups
 import Darwin
 import os
+public import CmuxNextControl
 
 /// The hang watch's monitor on the main-thread watchdog's thread (p02-threads-016, p09-observability 067):
 /// it adds no thread and no timer. The watchdog thread's kqueue wait is bounded by the slot table's next

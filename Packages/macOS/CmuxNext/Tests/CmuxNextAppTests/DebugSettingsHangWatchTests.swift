@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 @testable import CmuxNextControl
+@testable import CmuxNextControlDiagnostics
 import class CmuxNextDaemon.DaemonStore // only the store: the whole module makes JSONValue ambiguous (CmuxNextSettings has one too)
 import CmuxNextDesignTokens
 import CmuxNextPages

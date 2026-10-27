@@ -15,7 +15,7 @@
   ],
   "repeats": 1,
   "seconds": 900,
-  "needs": ["debug:debug.hangs", "file:Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/MainTurnHistogram.swift"],
+  "needs": ["debug:debug.hangs", "file:Packages/macOS/CmuxNext/Sources/CmuxNextControlDiagnostics/MainTurnHistogram.swift"],
   "owner": "Performance Lead",
   "component": "Scheduler>MainThread"
 }

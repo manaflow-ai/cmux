@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextControl
+import CmuxNextControlDiagnostics
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSettingsWindow

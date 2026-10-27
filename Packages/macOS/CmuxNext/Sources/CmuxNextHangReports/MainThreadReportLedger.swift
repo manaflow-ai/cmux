@@ -3,7 +3,7 @@ public import Foundation
 
 /// The main-thread part of the next report (p12-perf-process-043): the active time
 /// (``ActiveTimeLedger``) and what the watchdog's main-turn and input-queueing histograms counted
-/// since the last queued report. The histograms (`MainTurnHistogram` in CmuxNextControl) count from
+/// since the last queued report. The histograms (`MainTurnHistogram` in CmuxNextControlDiagnostics) count from
 /// launch, so a report sends the difference from the read the last queued report ended at, as
 /// Chrome's `HistogramSnapshotManager` sends each upload's `SnapshotDelta`
 /// (base/metrics/histogram_snapshot_manager.cc): the server adds reports, so a count goes once.

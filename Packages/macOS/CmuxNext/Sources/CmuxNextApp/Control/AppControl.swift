@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserImport
-import CmuxNextControl
+import CmuxNextControlDiagnostics
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextEnergy

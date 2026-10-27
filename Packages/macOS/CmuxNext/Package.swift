@@ -71,6 +71,9 @@ import Foundation
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon, InputCore, Oracle (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
 //     InputBudget/ folds input latency batches off main)
+//   CmuxNextControlDiagnostics -> Control (re-exported), Compat, Wakeups, Settings, Trace, Metrics, Signposts, InputCore (the main-thread
+//     and busy watchdogs, the hang monitor, the Mach stack sampler; Control reads them through MainThreadHangReporting;
+//     p15-oracle.md section H, task 136)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
@@ -384,6 +387,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteLocalhostService",
                 "CmuxNextBridge",
                 "CmuxNextControl",
+                "CmuxNextControlDiagnostics",
                 "CmuxNextSettings",
                 "CmuxNextSettingsWindow",
                 "CmuxNextCloud",
@@ -2140,10 +2144,21 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: daemonSwiftSettings
         ),
+        // CmuxNextControl's Darwin-only diagnostics: the main-thread watchdog (run-loop observers, kqueue alarm, hang
+        // episodes, task budgets and hang scopes), the busy watchdog, the hang monitor of other threads' scopes, the
+        // turn histograms and field metrics, and the Mach stack sampler with its users. Apart so Control names no
+        // Mach or CFRunLoop type and reads the watchdog through MainThreadHangReporting
+        // (plans/cmux-next/chrome-parity/p15-oracle.md section H, task 136). It re-exports CmuxNextControl.
+        .target(
+            name: "CmuxNextControlDiagnostics",
+            dependencies: ["CmuxNextControl", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextSettings", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
+                           "CmuxNextInputCore"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextControlTests",
             // Signposts: BurstTraceRingTests reads the burst.event catalog name and the burst category bit.
-            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextOracle", "CmuxNextFeatures", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextControlDiagnostics", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextOracle", "CmuxNextFeatures", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // Settings and palette agent CLI updates (moved out of CmuxNextApp/AgentHarnesses):
@@ -2178,6 +2193,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextChromiumWarmup",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
+                "CmuxNextControlDiagnostics",
                 "CmuxNextCookieImport",
                 "CmuxNextCopyMode",
                 "CmuxNextCrashReporting",

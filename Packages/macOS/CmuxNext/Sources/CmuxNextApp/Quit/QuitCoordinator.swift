@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextCompat
-import CmuxNextControl
+import CmuxNextControlDiagnostics
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures

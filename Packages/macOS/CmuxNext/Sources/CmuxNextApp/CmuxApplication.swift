@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextBrowser
-import CmuxNextControl
+import CmuxNextControlDiagnostics
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextWakeups
