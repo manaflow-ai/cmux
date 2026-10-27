@@ -1477,11 +1477,14 @@ jobs:
     permissions:
       contents: read
       actions: read
+    # A hit counts only once this run holds the helper artifact; a failed
+    # step here is a miss, so this job never stops the helper job.
     outputs:
-      hit: ${{ steps.reuse.outputs.hit }}
+      hit: ${{ steps.upload.outcome == 'success' && 'true' || 'false' }}
     steps:
       - name: Checkout reuse script
         if: inputs.nightly_next_unsigned_run == ''
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -1505,7 +1508,9 @@ jobs:
         run: echo "ghostty-cli-helper-build=$BUILD_SHA"
 
       - name: Upload reused Ghostty CLI helper
+        id: upload
         if: steps.reuse.outputs.hit == 'true'
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-ghostty-cli-helper
@@ -1630,6 +1635,8 @@ jobs:
           path: nightly-helper/ghostty
           if-no-files-found: error
           retention-days: 1
+          # A reuse upload that failed part-way may have left the name taken.
+          overwrite: true
 
       # cmux-next release source archive: Ghostty at its submodule revision and
       # every Zig package of the build, so the MPL-2.0 source offer for Ghostty's
