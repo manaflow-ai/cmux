@@ -33,10 +33,10 @@
 # daemon. Main's promote job ignores a request that does not move forward.
 #
 # Usage: request-nightly-next.sh --repo <owner/repo> (--sha <sha> --release-compile-green | --tree-ready <sha>)
-# Run from a checkout whose HEAD is <sha>. Needs GH_TOKEN with actions: write
-# (and actions: read for --tree-ready). Exit 0 when a commit was requested or
+# Run from a checkout whose HEAD is <sha>. Needs GH_TOKEN with actions: write.
+# Exit 0 when a commit was requested or
 # none is ready yet, 2 on bad usage, 1 on an API failure.
-# Env: CMUX_NIGHTLY_NEXT_RUN_WINDOW (default 99, one page) recent push runs searched;
+# Env: CMUX_NIGHTLY_NEXT_RUN_WINDOW (default 99) recent first-parent commits searched;
 # CMUX_NIGHTLY_NEXT_MAX_REFUSED (default 5) unpromotable candidates passed over.
 set -euo pipefail
 
@@ -192,25 +192,31 @@ if [[ "$mode" == release-compile-green ]]; then
   exit 0
 fi
 
-# 2. --tree-ready: the newest push run on feat-cmux-next whose commit
-# descends from nightly-next and has this tree key, whatever its Release
-# compile says (above). Runs are newest first;
-# promotion only moves forward. The lower bound is nightly-next, not <sha>: the
-# tree's publisher can be newer than the green commit whose compile request
-# found the tree unpublished (2e420aa7a9 compiled green at 10:21Z on 2026-10-14
-# while a newer push published its tree, and the newer push's own compile was
-# replaced), and that green commit must not be lost. Without nightly-next in
-# this history the bound falls back to <sha>. One fetch of the branch's recent history covers every
-# candidate (a fetch per commit took over 5 minutes in run 37820762809); a
-# commit it does not reach is older than the lower bound or off the branch.
-# Depth-limited only in a shallow checkout: in a full clone --depth writes
-# .git/shallow and truncates history for every worktree sharing it.
+# 2. --tree-ready: the newest feat-cmux-next commit, by first-parent history,
+# that descends from nightly-next and has this tree key, whatever its Release
+# compile says (above). Candidates come from git, not from cmux-next.yml push
+# runs: a push that started no run (a bot or GITHUB_TOKEN push such as a base
+# autofix, or a commit outside cmux-next.yml's paths) is a candidate like any
+# other, and the run list proved nothing more than "on feat-cmux-next", which
+# the fetched branch does. Newest first; promotion only moves forward. The
+# lower bound is nightly-next, not <sha>: the tree's publisher can be newer
+# than an earlier commit with the same tree (2026-10-14), and that commit must
+# not be lost. Without nightly-next in this history the bound falls back to
+# <sha>. One fetch of the branch's recent history covers every candidate (a
+# fetch per commit took over 5 minutes in run 37820762809). Depth-limited
+# only in a shallow checkout: in a full clone --depth writes .git/shallow and
+# truncates history for every worktree sharing it. When the fetch fails, the
+# local feat-cmux-next branch, else <sha> alone, is the history.
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth="$((window * 4))")
-git fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin refs/heads/feat-cmux-next 2>/dev/null \
-  || echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
-# One page holds the window (at most 99): paginating walked every push run ever made.
-runs="$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"
+tip=""
+if git fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin refs/heads/feat-cmux-next 2>/dev/null; then
+  tip="$(git rev-parse FETCH_HEAD)"
+else
+  echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
+  tip="$(git rev-parse --verify -q refs/heads/feat-cmux-next^{commit} 2>/dev/null || true)"
+fi
+[[ -n "$tip" ]] || tip="$sha"
 lower="$sha"
 if [[ -n "$promoted" ]] && git cat-file -e "$promoted^{commit}" 2>/dev/null; then
   lower="$promoted"
@@ -218,10 +224,9 @@ fi
 refused=0
 max_refused="${CMUX_NIGHTLY_NEXT_MAX_REFUSED:-5}"
 [[ "$max_refused" =~ ^[1-9][0-9]?$ ]] || { echo "error: CMUX_NIGHTLY_NEXT_MAX_REFUSED must be 1 to 99" >&2; exit 2; }
-while read -r run_id run_sha; do
-  [[ "$run_id" =~ ^[0-9]+$ && "$run_sha" =~ ^[0-9a-f]{40}$ ]] || continue
+while read -r run_sha; do
+  [[ "$run_sha" =~ ^[0-9a-f]{40}$ ]] || continue
   if [[ "$run_sha" != "$sha" ]]; then
-    git cat-file -e "$run_sha^{commit}" 2>/dev/null || continue
     git merge-base --is-ancestor "$lower" "$run_sha" 2>/dev/null || continue
     if run_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$run_sha" 2>/dev/null)"; then
       :
@@ -249,15 +254,5 @@ while read -r run_id run_sha; do
     echo "not promoting: the $refused newest commits with tree $key are not promotable (see above)"
     exit 0
   fi
-done < <(python3 -c '
-import json, sys
-seen = set()
-data = json.loads(sys.stdin.read())
-for page in data if isinstance(data, list) else [data]:
-    for run in page.get("workflow_runs", []):
-        sha = run.get("head_sha")
-        if run.get("head_branch") == "feat-cmux-next" and run.get("event") == "push" and sha not in seen:
-            seen.add(sha)
-            print(run["id"], sha)
-' <<<"$runs" | head -n "$window")
+done < <({ git rev-list --first-parent -n "$window" "$tip" ^"$lower" 2>/dev/null || true; echo "$sha"; } | awk '!seen[$0]++')
 echo "not promoting: no recent feat-cmux-next push with tree $key is promotable yet"
