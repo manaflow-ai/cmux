@@ -347,23 +347,24 @@ public struct CloudMachineConfig: Equatable, Sendable {
                 fd = os.open(SECRETS_FILE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             except OSError:
                 return []
-            with os.fdopen(fd) as f:
+            with os.fdopen(fd, "rb") as f:
                 st = os.fstat(f.fileno())
                 if not stat.S_ISREG(st.st_mode) or st.st_size > 4 << 20:
                     return []
-                text = f.read()
+                # Bytes as they are (a CR stays a CR, any byte round-trips), so each value masks as setup prints it.
+                text = f.read().decode("utf-8", "surrogateescape")
             # Every value, however short (`cmux cloud secret set` takes 8 characters and up; a shorter one was
             # written by hand), as the file holds it too (a setup that prints the file prints that form), each
             # line of one that spans lines, and whole any line no `export NAME='…'` covers (a hand-written form).
             values, rest, at = set(), [], 0
-            for m in re.finditer(r"^export [A-Za-z_][A-Za-z0-9_]*='((?:[^']|'\\'')*)'[ \t]*$", text, re.M):
+            for m in re.finditer(r"^export [A-Za-z_][A-Za-z0-9_]*='((?:[^']|'\\'')*)'[ \t\r]*$", text, re.M):
                 rest.append(text[at:m.start()])
                 at = m.end()
                 for form in (m.group(1).replace("'\\''", "'"), m.group(1)):
                     values |= {form} | {line.strip() for line in form.splitlines()}
             for chunk in rest + [text[at:]]:
                 values |= {line.strip() for line in chunk.splitlines()}
-            return sorted({v.encode() for v in values if v}, key=len, reverse=True)
+            return sorted({v.encode("utf-8", "surrogateescape") for v in values if v}, key=len, reverse=True)
 
 
         class Masked:
