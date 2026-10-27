@@ -60,7 +60,7 @@ import Testing
     @Test func unexplainedCPURecordsABusyWindow() async throws {
         let log = HangLog()
         let activity = ExpectedActivity()
-        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), processThreshold: 0.05, logBusy: false),
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), windowLeeway: .zero, processThreshold: 0.05, logBusy: false),
                                     log: log, ledger: WakeupLedger(), activity: activity)
         let running = Flag()
         _ = spin(for: .seconds(2), while: running)
@@ -79,7 +79,7 @@ import Testing
     /// (client id 7), and a third has another renderer and is not named.
     @Test func aBusyRendererNamesEveryTabItServes() async throws {
         let log = HangLog()
-        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), mainThreadThreshold: 100, processThreshold: 100,
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), windowLeeway: .zero, mainThreadThreshold: 100, processThreshold: 100,
                                                          helperThreshold: 0.05, logBusy: false),
                                     log: log, ledger: WakeupLedger(), activity: ExpectedActivity())
         let me = getpid()
@@ -105,7 +105,7 @@ import Testing
     /// tab pid names it, and the tab source is not read.
     @Test func aBusyHelperThatIsNotATabRendererNamesNoTabs() async throws {
         let log = HangLog()
-        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), mainThreadThreshold: 100, processThreshold: 100,
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), windowLeeway: .zero, mainThreadThreshold: 100, processThreshold: 100,
                                                          helperThreshold: 0.05, logBusy: false),
                                     log: log, ledger: WakeupLedger(), activity: ExpectedActivity())
         let me = getpid()
@@ -133,7 +133,7 @@ import Testing
     @Test func aBusyRendererWithNoOtherWakeGivesOneWindowAndOneRecord() async throws {
         let log = HangLog()
         let ledger = WakeupLedger()
-        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(200), mainThreadThreshold: 100, processThreshold: 100,
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(200), windowLeeway: .zero, mainThreadThreshold: 100, processThreshold: 100,
                                                          helperThreshold: 0.05, logBusy: false),
                                     log: log, ledger: ledger, activity: ExpectedActivity())
         let me = getpid()
@@ -157,7 +157,7 @@ import Testing
     /// Without a tab source a busy helper's record is as before: its kind, no tabs.
     @Test func withoutATabSourceABusyHelperNamesNoTabs() async throws {
         let log = HangLog()
-        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), mainThreadThreshold: 100, processThreshold: 100,
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), windowLeeway: .zero, mainThreadThreshold: 100, processThreshold: 100,
                                                          helperThreshold: 0.05, logBusy: false),
                                     log: log, ledger: WakeupLedger(), activity: ExpectedActivity())
         let me = getpid()
@@ -174,7 +174,7 @@ import Testing
     @Test func cpuDuringInputIsExpected() async throws {
         let log = HangLog()
         let activity = ExpectedActivity()
-        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), processThreshold: 0.05, logBusy: false),
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(400), windowLeeway: .zero, processThreshold: 0.05, logBusy: false),
                                     log: log, ledger: WakeupLedger(), activity: activity)
         let running = Flag()
         _ = spin(for: .seconds(2), while: running)
@@ -190,7 +190,7 @@ import Testing
     @Test func withoutAWakeWatchingStopsAfterOneWindow() async throws {
         let log = HangLog()
         let ledger = WakeupLedger()
-        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(200), mainThreadThreshold: 100,
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(200), windowLeeway: .zero, mainThreadThreshold: 100,
                                                          processThreshold: 100, helperThreshold: 100, logBusy: false),
                                     log: log, ledger: ledger, activity: ExpectedActivity())
         watchdog.noteAwake()

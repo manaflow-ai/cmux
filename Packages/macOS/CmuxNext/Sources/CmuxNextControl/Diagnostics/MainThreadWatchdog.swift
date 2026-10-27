@@ -6,7 +6,7 @@ import CmuxNextCompat
 import CmuxNextMetrics
 import CmuxNextSettings
 import CmuxNextTrace
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Records every main-thread stall longer than `threshold` (default 50 ms)
 /// with a stack sample, into a ring buffer (`debug.hangs`).
@@ -207,16 +207,19 @@ public final class MainThreadWatchdog: Sendable {
     #endif
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
-    public convenience init(configuration: Configuration = Configuration()) {
-        self.init(configuration: configuration, uptime: { MainThreadWatchdog.now() })
+    /// - Parameter wakeUps: The main thread's deadline queue (`MainWorkScheduler.wakeUps`), which ends each
+    ///   busy window (``BusyWatchdog``).
+    public convenience init(configuration: Configuration = Configuration(), wakeUps: MainWakeUpQueue? = nil) {
+        self.init(configuration: configuration, uptime: { MainThreadWatchdog.now() }, wakeUps: wakeUps)
     }
 
-    init(configuration: Configuration, uptime: @escaping @Sendable () -> UInt64, fieldMetrics: MainThreadFieldMetrics = MainThreadFieldMetrics()) {
+    init(configuration: Configuration, uptime: @escaping @Sendable () -> UInt64, fieldMetrics: MainThreadFieldMetrics = MainThreadFieldMetrics(),
+         wakeUps: MainWakeUpQueue? = nil) {
         self.configuration = configuration
         self.fieldMetrics = fieldMetrics
         self.uptime = uptime
         self.log = HangLog(capacity: configuration.capacity)
-        self.busy = BusyWatchdog(log: log)
+        self.busy = BusyWatchdog(log: log, wakeUps: wakeUps)
         self.thresholdNanos = UInt64(clamping: max(configuration.threshold.wholeMilliseconds, 1)).saturatingMultiplication(1_000_000)
         self.sampleAfterNanos = thresholdNanos / 5 * 3 + thresholdNanos % 5 * 3 / 5
         self.hangNanos = Self.nanos(configuration.hangThreshold)

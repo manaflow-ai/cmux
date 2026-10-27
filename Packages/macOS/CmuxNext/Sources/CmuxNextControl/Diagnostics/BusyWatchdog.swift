@@ -16,23 +16,33 @@ import CmuxNextCompat
 /// tabs on one renderer are all named. Nothing here waits for the main thread.
 ///
 /// It is demand-driven: a window opens when the main run loop wakes
-/// (``noteAwake()``) and ends with one ``DemandTimer`` deadline; a new window
-/// opens at once only if the app was awake before that deadline. An idle app
-/// therefore costs nothing, and a steadily busy app one check per window.
+/// (``noteAwake()``) and ends with one ``DemandTimer`` deadline on the main
+/// thread's ``MainWakeUpQueue``, `.flexibleNoSooner` with
+/// ``Configuration/windowLeeway`` (10 s) of leeway, so the end rides another
+/// main wake when there is one (a `PostDelayedTask` with
+/// `subtle::DelayPolicy::kFlexibleNoSooner`, base/task/delay_policy.h). Shares
+/// are judged over the real elapsed time from the window's start to its close.
+/// A new window opens at once only if the app was awake before the window's
+/// nominal end; the fire's own wake comes after it and never counts. An idle
+/// app therefore costs nothing, and a steadily busy app one check per 10-20 s.
 /// A spin on a background thread that never wakes the main thread is seen
 /// only in the window after the last main-thread wake.
 public final class BusyWatchdog: Sendable {
     public struct Configuration: Sendable {
+        /// The shortest window: its end never fires sooner.
         public var window: Duration
+        /// How long after ``window`` the end may wait for another main wake to ride.
+        public var windowLeeway: Duration
         /// CPU share of one core (1.0 = 100%) above which a window is busy.
         public var mainThreadThreshold: Double
         public var processThreshold: Double
         public var helperThreshold: Double
         public var logBusy: Bool
 
-        public init(window: Duration = .seconds(10), mainThreadThreshold: Double = 0.3, processThreshold: Double = 0.5,
-                    helperThreshold: Double = 0.5, logBusy: Bool = ControlService.isDebugBuild) {
+        public init(window: Duration = .seconds(10), windowLeeway: Duration = .seconds(10), mainThreadThreshold: Double = 0.3,
+                    processThreshold: Double = 0.5, helperThreshold: Double = 0.5, logBusy: Bool = ControlService.isDebugBuild) {
             self.window = window
+            self.windowLeeway = windowLeeway
             self.mainThreadThreshold = mainThreadThreshold
             self.processThreshold = processThreshold
             self.helperThreshold = helperThreshold
@@ -63,6 +73,12 @@ public final class BusyWatchdog: Sendable {
     private let sampler: Mutex<ThreadStackSampler?> = Mutex(nil)
     private let measuring = Atomic<Bool>(false)
     private let awakeDuringWindow = Atomic<Bool>(false)
+    /// The open window's nominal end (uptime ns): only a wake before it keeps the watch going.
+    private let windowEnd = Atomic<UInt64>(0)
+    /// Uptime ns, the clock of the window and of the wake queue's deadlines.
+    private let uptime: @Sendable () -> UInt64
+    /// Runs the close off the main thread, which the close samples (``poolThread``; tests run it inline).
+    private let offMain: @Sendable (@escaping @Sendable () -> Void) -> Void
     private let window: Mutex<Window?> = Mutex(nil)
     private let timer: DemandTimer
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
@@ -83,15 +99,38 @@ public final class BusyWatchdog: Sendable {
         var startNanos: UInt64
     }
 
-    public init(configuration: Configuration = Configuration(), log: HangLog, ledger: WakeupLedger = .shared,
-                activity: ExpectedActivity = .shared, clock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameters:
+    ///   - clock: What the window end sleeps on when there is no `wakeUps`.
+    ///   - wakeUps: The main thread's deadline queue (`MainWorkScheduler.wakeUps`), which ends each window; nil
+    ///     sleeps the end on `clock` and runs it on the main actor.
+    public convenience init(configuration: Configuration = Configuration(), log: HangLog, ledger: WakeupLedger = .shared,
+                            activity: ExpectedActivity = .shared, clock: any Clock<Duration> = ContinuousClock(),
+                            wakeUps: MainWakeUpQueue? = nil) {
+        self.init(configuration: configuration, log: log, ledger: ledger, activity: activity, clock: clock, wakeUps: wakeUps,
+                  uptime: WakeupLedger.systemUptime, offMain: Self.poolThread)
+    }
+
+    /// The seam initializer: `uptime` must be the clock of `wakeUps` (tests pass the queue's fake uptime) and
+    /// `offMain` runs the close (tests run it inline).
+    init(configuration: Configuration, log: HangLog, ledger: WakeupLedger, activity: ExpectedActivity,
+         clock: any Clock<Duration>, wakeUps: MainWakeUpQueue?, uptime: @escaping @Sendable () -> UInt64,
+         offMain: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void) {
         self.configuration = configuration
         self.log = log
         self.ledger = ledger
         self.activity = activity
+        self.uptime = uptime
+        self.offMain = offMain
         self.helpers = Mutex(HelperSource(list: { [] }, tabs: nil))
-        self.timer = DemandTimer(owner: "BusyWatchdog.window", clock: clock, ledger: ledger)
+        self.timer = DemandTimer(owner: Self.windowOwner, policy: .flexibleNoSooner, clock: clock, ledger: ledger,
+                                 energy: wakeUps?.energy, wakeUps: wakeUps)
     }
+
+    /// The ledger owner of each window end.
+    static let windowOwner = "BusyWatchdog.window"
+
+    /// Runs `work` on a pool thread: a `Task` made in a nonisolated context does not run on the main actor.
+    static let poolThread: @Sendable (@escaping @Sendable () -> Void) -> Void = { work in _ = Task { work() } }
 
     /// Sets the thread whose CPU and stack are watched (call on the main thread).
     public func watchCurrentThread() {
@@ -123,10 +162,10 @@ public final class BusyWatchdog: Sendable {
         return source()
     }
 
-    /// The main run loop woke. Cheap: one atomic store, plus opening a
-    /// window when none is open.
+    /// The main run loop woke. Cheap: an uptime read and two atomics, plus
+    /// opening a window when none is open.
     public func noteAwake() {
-        awakeDuringWindow.store(true, ordering: .relaxed)
+        if uptime() < windowEnd.load(ordering: .acquiring) { awakeDuringWindow.store(true, ordering: .relaxed) }
         guard measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         openWindow()
     }
@@ -138,17 +177,29 @@ public final class BusyWatchdog: Sendable {
         for helper in helperList {
             if let usage = ProcessUsage.sample(helper.pid) { sampled[helper.pid] = (helper: helper, usage: usage) }
         }
+        let startNanos = uptime()
         let start = Window(process: ProcessUsage.sample(getpid()), mainCPUNanos: mainCPUNanos(), activity: activity.total,
-                           helpers: sampled, startNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
+                           helpers: sampled, startNanos: startNanos)
         window.withLock { $0 = start }
-        timer.schedule(after: configuration.window) { [weak self] in self?.closeWindow() }
+        let windowNanos = UInt64(clamping: configuration.window.wholeMilliseconds).saturatingMultiplication(1_000_000)
+        windowEnd.store(startNanos.saturatingAddition(windowNanos), ordering: .releasing)
+        timer.scheduleOnMain(after: configuration.window, tolerance: configuration.windowLeeway) { [weak self] in
+            self?.endWindow()
+        }
+    }
+
+    /// The window's deadline fired (on the main thread when the end is on the wake queue). The close samples the
+    /// main thread's stack, which the main thread cannot do to itself, so it runs off it.
+    private func endWindow() {
+        offMain { [weak self] in self?.closeWindow() }
     }
 
     func closeWindow() {
         guard let start = window.withLock({ window in defer { window = nil }; return window }) else { return }
-        // The window ends at its deadline: a wake the close itself causes does not keep the watch going.
+        // Only a wake before the nominal end counts: the fire's own wake and one the close itself causes do not
+        // keep the watch going. The shares use the real elapsed time, up to window + leeway.
         let stayAwake = awakeDuringWindow.load(ordering: .relaxed)
-        let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        let now = uptime()
         let wall = Double(max(now &- start.startNanos, 1))
         let quiet = activity.total == start.activity
         if quiet {
