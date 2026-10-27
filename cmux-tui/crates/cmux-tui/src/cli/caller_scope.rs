@@ -47,7 +47,8 @@ pub(in crate::cli) fn is_placed(caller: &Value) -> bool {
 }
 
 /// Rewrites the selectors of `params`, top down. `current` starts in the
-/// caller's place and `focused` switches to the person's; each takes that
+/// caller's place and `focused` switches to the person's (while the
+/// selectors above it are the person's objects too); each takes that
 /// place's id at its level while every selector above it is in the same
 /// place (or absent). Below an object of another place, or where the place
 /// names no object at that level, the daemon's `current` is sent: the
@@ -59,12 +60,22 @@ pub(in crate::cli) fn apply(
     focus: Option<&Value>,
 ) {
     let mut place = caller;
-    for (field, prefix) in LEVELS {
+    for (index, (field, prefix)) in LEVELS.into_iter().enumerate() {
         let Some(value) = params.get(field).and_then(Value::as_str).map(str::to_owned) else {
             continue;
         };
         if value == FOCUSED {
-            place = focus;
+            // The person's place only below parents that are in it: a
+            // focused pane is never sent under another workspace.
+            let parents_focused = |focus: &&Value| {
+                LEVELS[..index].iter().all(|(above, _)| match params.get(*above) {
+                    Some(Value::String(id)) => {
+                        focus.get(*above).and_then(Value::as_str) == Some(id)
+                    }
+                    _ => true,
+                })
+            };
+            place = focus.filter(parents_focused);
         } else if value != CURRENT {
             // The place's own object, by id or a unique prefix of it.
             let names = |own: &str| {
@@ -98,4 +109,35 @@ pub(in crate::cli) fn unresolved(detail: &str) -> Value {
         "details": {},
         "retryable": true,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn focused_follows_the_focus_only_below_its_own_parents() {
+        let caller = json!({"workspace": "ws_own", "screen": "screen_own", "pane": "pane_own"});
+        let focus =
+            json!({"workspace": "ws_front", "screen": "screen_front", "pane": "pane_front"});
+        let place = |params: Value| {
+            let mut params = params.as_object().cloned().unwrap();
+            apply(&mut params, Some(&caller), Some(&focus));
+            Value::Object(params)
+        };
+        assert_eq!(
+            place(json!({"workspace": "focused", "pane": "focused"})),
+            json!({"workspace": "ws_front", "pane": "pane_front"})
+        );
+        // Below the caller's workspace the focused pane is not there: the
+        // daemon's active pane of that workspace.
+        assert_eq!(
+            place(json!({"workspace": "current", "pane": "focused"})),
+            json!({"workspace": "ws_own", "pane": "current"})
+        );
+        assert_eq!(
+            place(json!({"workspace": "ws_front", "pane": "focused"})),
+            json!({"workspace": "ws_front", "pane": "pane_front"})
+        );
+    }
 }

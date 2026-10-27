@@ -83,6 +83,11 @@ pub(in crate::cli) enum Resolve {
     /// `system.identify` reports). `current` stays the focused object when
     /// no caller is known or the request routes to another session.
     Caller,
+    /// A terminal tab with no place, created from a person's terminal
+    /// ([`terminal_caller_place`]): `workspace`, `screen` and `pane` become
+    /// the caller's own. Without a caller on this route the request names no
+    /// place, the daemon's default (which can create a workspace).
+    CallerPlace,
     /// `field` names a state record (room or group) by id or exact name; a
     /// unique name becomes that record's id.
     StateName { field: &'static str, list: ResourceOperation },
