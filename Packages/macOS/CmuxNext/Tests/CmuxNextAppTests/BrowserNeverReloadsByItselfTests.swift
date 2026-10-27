@@ -114,4 +114,64 @@ import Testing
         #expect(!rig.isHibernated(key), "a crashed page was discarded")
         #expect(rig.services.cache.browsers[key]?.tab === page)
     }
+
+    /// An agent takes the page's lease while the discard probe takes its picture (the replan the
+    /// lease starts skips a probing page): the page stays, even for Hibernate Tab.
+    @Test func aLeaseTakenDuringTheProbeKeepsThePage() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        rig.hibernation.pressureDidChange(.normal)
+        let page = try await rig.page("leased", body: "<p>driven</p>")
+        let key = page.id.rawValue
+        let hibernation = rig.hibernation
+        var captured = false
+        hibernation.capture = { @MainActor _ in
+            captured = true
+            hibernation.noteLease(key, held: true)
+            return nil
+        }
+        _ = try await rig.hide(page)
+        #expect(hibernation.hibernateNow(key) == nil)
+        try await rig.until("the probe ended") { captured && !hibernation.probing.contains(key) }
+        #expect(!rig.isHibernated(key), "a page an agent holds was discarded")
+        #expect(rig.exemption(key) == .agentLease)
+        #expect(rig.services.cache.browsers[key]?.tab === page)
+        // Asked again while the lease is held: refused at once.
+        #expect(hibernation.hibernateNow(key) == .agentLease)
+        hibernation.noteLease(key, held: false)
+    }
+
+    /// Shown and hidden again while its discard probe ran: the probe is dropped, and the page it
+    /// thawed freezes again (before, the hide's replan skipped the probing page and the dropped
+    /// probe planned nothing, so it stayed thawed until some later event).
+    @Test func aPageShownAndHiddenDuringItsProbeFreezesAgain() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: 0.2))
+        rig.hibernation.pressureDidChange(.normal)
+        let recorder = NeighborTabsWakeTests.Recorder()
+        let page = try await rig.page("flipped", body: "<p>flip</p>")
+        let key = page.id.rawValue
+        rig.hibernation.freezer = { tab in tab.id.rawValue == key ? recorder : nil }
+        let hibernation = rig.hibernation
+        let cache = rig.services.cache
+        let pane = rig.pane
+        var flipped = false
+        hibernation.capture = { @MainActor _ in
+            if !flipped {
+                flipped = true
+                cache.present(key, by: pane, presence: .visible)
+                cache.withdraw(key, by: pane)
+            }
+            return nil
+        }
+        _ = try await rig.hide(page)
+        try await rig.until("the page froze") { hibernation.frozen.contains(key) }
+        #expect(hibernation.hibernateNow(key) == nil)
+        try await rig.until("the probe was dropped") { flipped && !hibernation.probing.contains(key) }
+        #expect(!rig.isHibernated(key))
+        #expect(cache.phase(of: key) == .mountedHidden)
+        try await rig.until("the thawed page froze again") { hibernation.frozen.contains(key) }
+        #expect(recorder.calls.suffix(2) == [false, true])
+    }
 }

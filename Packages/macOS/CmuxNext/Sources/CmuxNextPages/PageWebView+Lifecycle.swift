@@ -45,12 +45,20 @@ extension PageWebView {
         contentProcessTerminated()
     }
 
-    /// The page's web content process ended (either engine): reload unless it keeps crashing.
+    /// The page's web content process ended (either engine): reload unless it keeps crashing or
+    /// its host shows the crash notice instead (``reloadsAfterCrash``). Logged at error level
+    /// either way, with what follows.
     func contentProcessTerminated() {
         loaded = false
         router.reset()
+        guard reloadsAfterCrash else {
+            logger.error("page \(self.descriptor.id, privacy: .public) web content ended; no automatic reload (the crash notice offers Reload)")
+            onCrash?(self, false)
+            return
+        }
         let reloading = crashReloads.shouldReload(at: now())
         if reloading {
+            logger.error("page \(self.descriptor.id, privacy: .public) web content ended; reloading automatically cause=renderer-exit")
             reloadPage()
         } else {
             logger.error("page \(self.descriptor.id, privacy: .public) keeps crashing; not reloaded")

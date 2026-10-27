@@ -45,8 +45,7 @@ public final class AgentPaneView: NSView {
     let dictation: AgentPaneDictation
     /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
     var dictationKey = AgentPaneDictationKey()
-    var crashReloads = PageCrashReloads()
-    /// Shown instead of reloading once the page keeps crashing.
+    /// Shown when the page's web content ends (it never reloads by itself).
     var crashNotice: NSView?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: ChromeLabel?

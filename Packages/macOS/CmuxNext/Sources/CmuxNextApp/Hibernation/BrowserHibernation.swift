@@ -71,6 +71,11 @@ final class BrowserHibernation {
     var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
     /// Pages a discard probe is asking now.
     private(set) var probing: Set<String> = []
+    /// Pages the person discarded (Hibernate Tab): only a show or a wake restores them, never a
+    /// neighbor or hover prewarm.
+    private(set) var discardedByUser: Set<String> = []
+    /// Why a prewarm restores a page (`neighbor`, `hover`), read by the restore's log.
+    var prewarmCauses: [String: String] = [:]
     /// Hidden pages whose `beforeunload` asked, once, right before a discard: they stay until shown,
     /// and their handlers do not run again on every replan (each run is the page's own unload logic
     /// on a page that lives on).
@@ -262,6 +267,7 @@ final class BrowserHibernation {
         exemptions[key] = nil
         probeKeptAt[key] = nil
         askedBeforeUnload.remove(key)
+        discardedByUser.remove(key)
         noteFocus(key, at: .now)
     }
 
@@ -300,6 +306,8 @@ final class BrowserHibernation {
         prepared[key] = nil
         probing.remove(key)
         askedBeforeUnload.remove(key)
+        discardedByUser.remove(key)
+        prewarmCauses[key] = nil
         exemptions[key] = nil
         frozen.remove(key)
         freezeProbing.remove(key)
@@ -342,7 +350,7 @@ final class BrowserHibernation {
         thaw(key, prewarm: true)
         if cache.lifecycle.phase(key) == .hibernated {
             // Justified delay: a dwell, not a poll; the next hover change cancels it.
-            hoverDwell.schedule(after: Self.hoverDwellDelay) { @MainActor [weak self] in self?.warm(key) }
+            hoverDwell.schedule(after: Self.hoverDwellDelay) { @MainActor [weak self] in self?.warm(key, cause: "hover") }
         }
         replan()
     }
@@ -366,20 +374,34 @@ final class BrowserHibernation {
             hiddenAt[key] = now
             if exemptions[key] == .neighbor { exemptions[key] = nil }
         }
-        for key in joined { warm(key) }
+        for key in joined { warm(key, cause: "neighbor") }
         if replans { replan() }
     }
 
-    /// Wakes a hidden page early: thaws a frozen one, restores a hibernated one
-    /// in the background (the lifecycle keeps it hidden until selected).
-    private func warm(_ key: String) {
+    /// Wakes a hidden page early: thaws a frozen one, and restores a hibernated one in the
+    /// background (the lifecycle keeps it hidden until selected) only when `mayPrewarmRestore`.
+    private func warm(_ key: String, cause: String) {
         guard let cache else { return }
         thaw(key, prewarm: true)
-        if cache.lifecycle.phase(key) == .hibernated {
-            cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
-            prewarmedCount += 1
-            cache.trace(key, "prewarmed (restore)")
+        guard cache.lifecycle.phase(key) == .hibernated else { return }
+        guard mayPrewarmRestore(key) else {
+            cache.trace(key, "prewarm restore skipped (\(cause))")
+            return
         }
+        // A restore loads the page again: logged with its cause, as every non-user reload is.
+        logger.notice("prewarm restore \(key, privacy: .public) cause=\(cause, privacy: .public)")
+        prewarmCauses[key] = cause
+        cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
+        prewarmedCount += 1
+        cache.trace(key, "prewarmed (restore)")
+    }
+
+    /// Whether a neighbor or hover may restore hibernated page `key` before it shows. A restore
+    /// reloads the page, so a page the person discarded (Hibernate Tab) restores only when shown or
+    /// woken, and with no `browser.hibernation` written (no automatic discards) no discarded page
+    /// restores early at all.
+    func mayPrewarmRestore(_ key: String) -> Bool {
+        setting.isEnabled && setting.discardsAutomatically && !discardedByUser.contains(key)
     }
 
     /// Seconds until the hover grace of `key` ends; nil when it is not hovered (or it ended).
@@ -393,8 +415,9 @@ final class BrowserHibernation {
 
     // MARK: Planning
 
-    /// Hibernates every due page and arms one deadline for the next.
-    func replan() {
+    /// Hibernates every due page and arms one deadline for the next. `freezeOnly` plans the
+    /// freezes alone (a probe that kept a page: planning its discard again would ask it at once).
+    func replan(freezeOnly: Bool = false) {
         guard let cache else { return }
         let now = ContinuousClock.now
         var graceEnds: Double?
@@ -427,6 +450,7 @@ final class BrowserHibernation {
             }
             return facts
         }
+        guard !freezeOnly else { return replanFreeze(candidates) }
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
         exemptions.merge(plan.exemptions) { $1 }
         if !plan.due.isEmpty { refreshMemoryIfNeeded() }
@@ -557,6 +581,8 @@ final class BrowserHibernation {
         guard let cache, let entry = cache.browsers[key], cache.lifecycle.phase(key) == .mountedHidden else { return .disabled }
         let facts = candidate(key, entry: entry, hiddenFor: 0)
         guard facts.canRestore else { return .unsupported }
+        // An agent holds its lease: its next call would find no page.
+        guard !facts.hasAgentLease else { exemptions[key] = .agentLease; return .agentLease }
         guard !facts.showsFormSubmission else { exemptions[key] = .formSubmission; return .formSubmission }
         prepare(key, user: true, cause: "user")
         return nil
@@ -598,6 +624,9 @@ final class BrowserHibernation {
             switch self.discardCheck(key, tab: tab, generation: generation, user: user) {
             case .stale:
                 cache.trace(key, "hibernate probe dropped (stale)")
+                // The probe thawed the page, and a hide meanwhile (shown, then hidden again) replanned
+                // without it: plan again so a page still hidden freezes.
+                self.replan()
                 return
             case .keep(let reason):
                 // The page's own answer (form input, audio) is the reason it reports, else why the
@@ -614,6 +643,9 @@ final class BrowserHibernation {
             if let exemption {
                 self.exemptions[key] = exemption
                 self.probeKeptAt[key] = .now
+                // The probe thawed it and the replans meanwhile skipped it: its freeze is planned
+                // again (not its discard, which would ask the page again at once).
+                self.replan(freezeOnly: true)
                 return
             }
             // Its renderer ended while the probe ran: it keeps the crash notice.
@@ -622,6 +654,7 @@ final class BrowserHibernation {
                 return
             }
             self.prepared[key] = (state, snapshot, cause)
+            if user { self.discardedByUser.insert(key) } else { self.discardedByUser.remove(key) }
             cache.applyLifecycle(cache.lifecycle.send(.hibernate(key)))
         }
     }
@@ -666,6 +699,9 @@ final class BrowserHibernation {
     private func discardCheck(_ key: String, tab: any BrowserTab, generation: UInt64, user: Bool) -> DiscardCheck {
         guard let cache, cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
               cache.lifecycle.phase(key) == .mountedHidden else { return .stale }
+        // An agent took the page's lease while the probe ran (`noteLease` skips a probing page's
+        // plan): a leased page is never discarded, not even by Hibernate Tab.
+        if leased.contains(key) { return .keep(.agentLease) }
         if user { return .go }
         // The setting changed while the probe ran: an automatic discard started under a timeout
         // the person has since removed (or turned off) does not happen.
