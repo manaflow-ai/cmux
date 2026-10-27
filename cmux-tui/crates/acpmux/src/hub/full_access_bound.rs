@@ -229,8 +229,13 @@ impl Hub {
     /// A mode reported with or without declared modes counts the same (`mode`). A subagent's
     /// update is not the session's own: the tap marks it
     /// (`SubagentTree::annotate`) only for a thread that is not the session's own, as `on_update`
-    /// skips it live.
-    /// None when the log could not be read.
+    /// skips it live. An update a load replays (`.replay`) counts, as `on_update` writes it too; a
+    /// fork's answer describes the new chat, so it does not (review 62).
+    ///
+    /// The read is strict (review 62): it starts at the newest `host_started` and needs every
+    /// record from there, one `seq` after another (`Hub::append` numbers them so). None when the
+    /// log could not be read, has no `host_started`, or lost a record since (a torn or malformed
+    /// line, a failed append): what the host reported is then unknown.
     fn reported_by_left_host(&self, session: &Session) -> Option<FullAccessView> {
         use crate::rpc::method;
         let own = session.meta().agent_session_id;
@@ -243,13 +248,20 @@ impl Hub {
             method::SESSION_NEW,
             method::SESSION_LOAD,
             method::SESSION_RESUME,
-            method::SESSION_FORK,
             method::SESSION_SET_MODE,
             method::SESSION_SET_CONFIG_OPTION,
         ];
-        let mut kinds =
-            vec!["host_started", "current_mode_update", "config_option_update", "response"];
-        kinds.extend(requests);
+        let mut start = None;
+        let found = self.store.scan_kinds(&session.id, &["host_started"], &mut |e| {
+            if e.dir == "mux" {
+                start = Some(e.seq);
+            }
+            true
+        });
+        let Some(start) = start.filter(|_| found.is_ok()) else {
+            tracing::warn!(session = %session.id, "its left host's start is not in its log");
+            return None;
+        };
         // Debug builds only: `ACPMUX_TEST_LEFT_HOST_SCAN_FAILS` makes this read fail before it reads
         // anything, as an unreadable log does, so the daemon's integration tests can drive that
         // path. Release builds have no seam.
@@ -261,15 +273,27 @@ impl Hub {
             if fails {
                 return Err(anyhow::anyhow!("the log could not be read"));
             }
-            self.store.scan_kinds(&session.id, &kinds, visit)
+            self.store.scan(&session.id, start.saturating_sub(1), visit)
         };
+        let mut next = start;
+        let mut lost = false;
         let scanned = scan(&mut |e: crate::store::EventRecord| {
+            if e.seq != next {
+                lost = true;
+                return false;
+            }
+            next += 1;
             let its_own = || {
                 e.msg.pointer("/params/_meta/acpmux/subagent").is_none()
                     || e.msg.pointer("/params/sessionId").and_then(Value::as_str) == own.as_deref()
             };
             let text = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_owned);
-            match (e.dir.as_str(), e.kind.as_str()) {
+            let kind = match e.kind.as_str() {
+                "current_mode_update.replay" => "current_mode_update",
+                "config_option_update.replay" => "config_option_update",
+                kind => kind,
+            };
+            match (e.dir.as_str(), kind) {
                 ("mux", "host_started") => {
                     (modes, mode, options) = (None, None, None);
                     asked.clear();
@@ -341,6 +365,10 @@ impl Hub {
         });
         if let Err(e) = scanned {
             tracing::warn!(session = %session.id, "its left host's log could not be read back: {e:#}");
+            return None;
+        }
+        if lost {
+            tracing::warn!(session = %session.id, seq = next, "its left host's log lost a record");
             return None;
         }
         Some(FullAccessView {
