@@ -11,10 +11,14 @@
 //!
 //! - **Priorities.** A sequence has a [`SequencePriority`] for life. Each
 //!   priority has its own fixed workers (input 2, control the cores minus
-//!   two, utility 2, background 1), started on demand and never more, as
-//!   Chrome keeps separate foreground and background thread groups
+//!   two, visible 2, utility 2, background 1), started on demand and never
+//!   more, as Chrome keeps separate foreground and background thread groups
 //!   (base/task/thread_pool/thread_pool_impl.cc). A worker runs only its
-//!   priority's sequences, so bulk work never takes a control worker.
+//!   priority's sequences, so bulk work never takes a control worker. The
+//!   visible workers run, at the request class, the streams a person
+//!   watches whose turns read SQLite or a store: Chrome runs a
+//!   `USER_VISIBLE` + `MayBlock()` task in its foreground group, never in
+//!   the background one (base/task/task_traits.h).
 //! - **Fairness.** A worker runs one task of a sequence, then puts the
 //!   sequence at the back of its priority's ready queue: a long sequence
 //!   never starves the others (base/task/thread_pool/thread_group_impl.cc
@@ -78,8 +82,12 @@ use super::connection_scheduler::REQUEST_THREAD_QOS;
 /// (Chrome's `kMaxNumberOfWorkers`, 256).
 pub(super) const MAX_COMPENSATING_WORKERS: usize = 256;
 
+/// How many [`SequencePriority`] values there are.
+const PRIORITIES: usize = 5;
+
 /// A sequence's priority (the schema `priority`: input, control, bulk,
-/// background). It picks the workers that run the sequence.
+/// background; and visible, the person-watched streams that may block). It
+/// picks the workers that run the sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(
     not(test),
@@ -90,7 +98,11 @@ pub(crate) enum SequencePriority {
     Input,
     /// A connection's control sequence: requests, their replies and events.
     Control,
-    /// Bulk transfers (snapshots, scrollback).
+    /// Streams and waits a person watches whose turns may block on SQLite
+    /// or a store (`session.events`, `conversation.events`, a person's
+    /// `terminal.wait`): request class, blocking allowed, compensated.
+    Visible,
+    /// Bulk transfers (snapshots, scrollback, journal replays).
     Utility,
     /// Work nobody waits for.
     Background,
@@ -99,14 +111,16 @@ pub(crate) enum SequencePriority {
 impl SequencePriority {
     /// Every priority, highest first.
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 4] = [Self::Input, Self::Control, Self::Utility, Self::Background];
+    pub(crate) const ALL: [Self; PRIORITIES] =
+        [Self::Input, Self::Control, Self::Visible, Self::Utility, Self::Background];
 
     const fn index(self) -> usize {
         match self {
             Self::Input => 0,
             Self::Control => 1,
-            Self::Utility => 2,
-            Self::Background => 3,
+            Self::Visible => 2,
+            Self::Utility => 3,
+            Self::Background => 4,
         }
     }
 
@@ -115,6 +129,7 @@ impl SequencePriority {
         match self {
             Self::Input => "mux-seq-input",
             Self::Control => "mux-seq-control",
+            Self::Visible => "mux-seq-visible",
             Self::Utility => "mux-seq-utility",
             Self::Background => "mux-seq-background",
         }
@@ -124,7 +139,7 @@ impl SequencePriority {
     /// PL-qos exception row raises it (p05-ipc-080).
     const fn qos(self) -> ThreadQos {
         match self {
-            Self::Input | Self::Control => REQUEST_THREAD_QOS,
+            Self::Input | Self::Control | Self::Visible => REQUEST_THREAD_QOS,
             Self::Utility => ThreadType::Utility.qos(),
             Self::Background => ThreadType::Background.qos(),
         }
@@ -132,6 +147,8 @@ impl SequencePriority {
 
     /// Input and control workers are request threads: blocking is
     /// disallowed for their life, as on `spawn_request_thread`'s threads.
+    /// Visible workers run at the same class but may block: each blocking
+    /// site notes itself, so a blocked turn starts a temporary worker.
     const fn is_request_class(self) -> bool {
         matches!(self, Self::Input | Self::Control)
     }
@@ -140,14 +157,15 @@ impl SequencePriority {
 /// How many workers each priority keeps at most, blocked tasks aside.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PoolConfig {
-    workers: [usize; 4],
+    workers: [usize; PRIORITIES],
 }
 
 impl PoolConfig {
-    /// Input 2, control the available cores minus two (at least 2), utility
-    /// 2, background 1 (p05-ipc.md, task 073).
+    /// Input 2, control the available cores minus two (at least 2), visible
+    /// 2, utility 2, background 1 (p05-ipc.md, task 073; visible
+    /// p01-process-204).
     pub(crate) fn for_cores(cores: usize) -> Self {
-        Self { workers: [2, cores.saturating_sub(2).max(2), 2, 1] }
+        Self { workers: [2, cores.saturating_sub(2).max(2), 2, 2, 1] }
     }
 
     /// [`Self::for_cores`] of this machine.
@@ -238,6 +256,8 @@ struct SequenceState {
     running: bool,
     /// Its handle dropped: removed once it has nothing left to run.
     released: bool,
+    /// Its delayed tasks not due yet, still in the priority's heap.
+    delayed: usize,
 }
 
 impl SequenceState {
@@ -301,10 +321,10 @@ struct PoolState {
     sequences: HashMap<u64, SequenceState>,
     fences: HashMap<u64, FenceState>,
     next_id: u64,
-    ready: [VecDeque<u64>; 4],
+    ready: [VecDeque<u64>; PRIORITIES],
     /// Delayed tasks per priority, earliest due on top.
-    delayed: [BinaryHeap<DelayedTask>; 4],
-    workers: [Workers; 4],
+    delayed: [BinaryHeap<DelayedTask>; PRIORITIES],
+    workers: [Workers; PRIORITIES],
     shut_down: bool,
 }
 
@@ -312,7 +332,7 @@ pub(super) struct Shared {
     config: PoolConfig,
     spawner: WorkerSpawner,
     state: Mutex<PoolState>,
-    work: [Condvar; 4],
+    work: [Condvar; PRIORITIES],
     /// Times an idle worker woke (posts and spurious returns).
     wakeups: AtomicU64,
     /// Workers started over the pool's life.
@@ -353,7 +373,7 @@ impl SequencedPool {
                     next_id: 1,
                     ready: Default::default(),
                     delayed: Default::default(),
-                    workers: [Workers::default(); 4],
+                    workers: [Workers::default(); PRIORITIES],
                     shut_down: false,
                 }),
                 work: Default::default(),
@@ -382,6 +402,7 @@ impl SequencedPool {
                 cap,
                 running: false,
                 released: false,
+                delayed: 0,
             },
         );
         Sequence { shared: self.shared.clone(), id, priority }
@@ -427,6 +448,18 @@ impl SequencedPool {
     #[cfg(test)]
     pub(crate) fn total_workers(&self) -> usize {
         self.shared.lock().workers.iter().map(|workers| workers.live).sum()
+    }
+
+    /// Live sequences: a handle holds each, or it still has tasks to run.
+    #[cfg(test)]
+    pub(crate) fn sequence_count(&self) -> usize {
+        self.shared.lock().sequences.len()
+    }
+
+    /// Delayed tasks not due yet, every priority.
+    #[cfg(test)]
+    pub(crate) fn delayed_count(&self) -> usize {
+        self.shared.lock().delayed.iter().map(BinaryHeap::len).sum()
     }
 
     /// Times an idle worker woke up, over the pool's life.
@@ -547,18 +580,23 @@ impl Sequence {
 
     /// Queues `task` to join this sequence once `delay` passed: it then
     /// runs behind every task posted before that instant. It counts against
-    /// no cap while it waits, and is dropped unrun when the sequence is gone
-    /// by then. Like [`Self::post`], it is refused ([`PostError::NoWorker`])
-    /// when no worker of the priority is live and none could start.
+    /// no cap while it waits, and is dropped unrun, and taken out of the
+    /// heap, when the sequence is removed before it is due. Like
+    /// [`Self::post`], it is refused ([`PostError::NoWorker`]) when no worker
+    /// of the priority is live and none could start.
     pub(crate) fn post_delayed<F>(&self, delay: Duration, task: F) -> Result<(), PostError>
     where
         F: FnOnce() + Send + 'static,
     {
         let index = self.priority.index();
         let mut state = self.shared.lock();
-        if state.shut_down || !state.sequences.contains_key(&self.id) {
+        if state.shut_down {
             return Err(PostError::ShutDown);
         }
+        let Some(sequence) = state.sequences.get_mut(&self.id) else {
+            return Err(PostError::ShutDown);
+        };
+        sequence.delayed += 1;
         let order = state.next_id;
         state.next_id += 1;
         let delayed = DelayedTask {
@@ -584,6 +622,9 @@ impl Sequence {
         // It is the earliest, so the heap's top: nothing else moved.
         let taken = state.delayed[index].pop();
         debug_assert!(taken.as_ref().is_some_and(|delayed| delayed.order == order));
+        if let Some(sequence) = state.sequences.get_mut(&self.id) {
+            sequence.delayed -= 1;
+        }
         drop(state);
         // The task drops outside the lock: its captures may take other locks.
         drop(taken);
@@ -617,9 +658,10 @@ impl Drop for Sequence {
             }
             None => false,
         };
-        if remove {
-            state.sequences.remove(&self.id);
-        }
+        let purged = if remove { remove_sequence(&mut state, self.id) } else { Vec::new() };
+        drop(state);
+        // Outside the lock: a purged task's captures may take other locks.
+        drop(purged);
     }
 }
 
@@ -839,9 +881,11 @@ impl Shared {
             }
             end_task_block(self, priority);
             state = self.lock();
-            let callbacks = finish_task(&mut state, id);
-            if !callbacks.is_empty() {
+            let Finished { callbacks, purged } = finish_task(&mut state, id);
+            if !callbacks.is_empty() || !purged.is_empty() {
                 drop(state);
+                // Outside the lock: a purged task's captures may take other locks.
+                drop(purged);
                 for then in callbacks {
                     if catch_unwind(AssertUnwindSafe(then)).is_err() {
                         eprintln!("cmux: a {} fence callback panicked", priority.thread_name());
@@ -872,6 +916,7 @@ impl Shared {
                 orphans.push(delayed.task);
                 continue;
             };
+            sequence.delayed -= 1;
             sequence.tasks += 1;
             sequence.items.push_back(Item::Task(delayed.task));
             if !sequence.running && sequence.tasks == 1 {
@@ -912,13 +957,21 @@ fn take_task(state: &mut PoolState, id: u64) -> Option<Task> {
     }
 }
 
+/// What [`finish_task`] hands back to run or drop without the lock.
+#[derive(Default)]
+struct Finished {
+    /// Fence callbacks that came due.
+    callbacks: Vec<Task>,
+    /// The delayed tasks of the sequence it removed.
+    purged: Vec<DelayedTask>,
+}
+
 /// Ends sequence `id`'s running task: passes the fences behind it, puts the
 /// sequence back in its ready queue when it has a task left, and removes it
-/// when its handle is gone and it is empty. Returns the fence callbacks
-/// that came due, to run without the lock.
-fn finish_task(state: &mut PoolState, id: u64) -> Vec<Task> {
+/// when its handle is gone and it is empty.
+fn finish_task(state: &mut PoolState, id: u64) -> Finished {
     let mut passed = Vec::new();
-    let Some(sequence) = state.sequences.get_mut(&id) else { return Vec::new() };
+    let Some(sequence) = state.sequences.get_mut(&id) else { return Finished::default() };
     sequence.running = false;
     while let Some(Item::Fence(fence)) = sequence.items.front() {
         passed.push(*fence);
@@ -932,9 +985,7 @@ fn finish_task(state: &mut PoolState, id: u64) -> Vec<Task> {
     if has_task {
         state.ready[priority.index()].push_back(id);
     }
-    if remove {
-        state.sequences.remove(&id);
-    }
+    let purged = if remove { remove_sequence(state, id) } else { Vec::new() };
     let mut callbacks = Vec::new();
     for fence in passed {
         let due = match state.fences.get_mut(&fence) {
@@ -948,7 +999,26 @@ fn finish_task(state: &mut PoolState, id: u64) -> Vec<Task> {
             callbacks.push(fence.then);
         }
     }
-    callbacks
+    Finished { callbacks, purged }
+}
+
+/// Removes sequence `id` and takes its delayed tasks out of its priority's
+/// heap, for the caller to drop without the lock. Left there, a task posted
+/// with a long delay (a wait's deadline) would keep its heap entry until it
+/// is due although its sequence ended long before, as Chrome sweeps
+/// canceled delayed tasks instead of keeping them to their due time
+/// (base/task/sequence_manager/task_queue_impl.cc,
+/// `DelayedIncomingQueue::SweepCancelledTasks`).
+fn remove_sequence(state: &mut PoolState, id: u64) -> Vec<DelayedTask> {
+    let Some(sequence) = state.sequences.remove(&id) else { return Vec::new() };
+    if sequence.delayed == 0 {
+        return Vec::new();
+    }
+    let heap = &mut state.delayed[sequence.priority.index()];
+    let (purged, kept): (Vec<DelayedTask>, Vec<DelayedTask>) =
+        std::mem::take(heap).into_vec().into_iter().partition(|task| task.sequence == id);
+    *heap = BinaryHeap::from(kept);
+    purged
 }
 
 #[cfg(test)]

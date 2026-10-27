@@ -558,7 +558,8 @@ pub(super) fn start_session_journal_stream(
         end: None,
         wakes: Vec::new(),
     };
-    // A replay is bulk work nobody types into: utility priority.
+    // A replay is bulk work nobody types into: utility priority. Its page
+    // reads note `sqlite`, so a read that blocks starts a temporary worker.
     let pump = stream.bind(SequencePriority::Utility, source, |source, wake| {
         // The stream compares the ring's epoch while it follows the shared
         // ring, and the journal's while it reads behind it on its own reader.

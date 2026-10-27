@@ -24,8 +24,10 @@
 //!
 //! Lifetime: the pump keeps itself alive the way a thread does. Its stop
 //! interrupt's waker holds it, posted tasks hold it, and so does a room
-//! waker the connection holds; sources hold it weakly. When the drain is
-//! done the pump fires its stop interrupt, which drops that waker.
+//! waker the connection holds; sources and delayed turns hold it weakly.
+//! When the drain is done the pump fires its stop interrupt, which drops
+//! that waker, and the pump's sequence goes with its last strong holder,
+//! taking a delayed turn not due yet out of the pool with it.
 
 use cmux_threads::sync::Mutex;
 use std::sync::Arc;
@@ -158,11 +160,19 @@ impl Drop for AttachPump {
 pub(crate) struct PumpTimer<'a>(&'a Arc<PumpInner>);
 
 impl PumpTimer<'_> {
-    /// A turn after `delay`; an earlier wake runs one sooner as well.
+    /// A turn after `delay`; an earlier wake runs one sooner as well. It
+    /// holds the pump weakly: a drain that ended before then (a wait that
+    /// matched long before its deadline) leaves no pump, sequence or
+    /// delayed task behind, as Chrome binds a delayed task to a `WeakPtr`
+    /// that the ended owner invalidates (base/memory/weak_ptr.h).
     pub(crate) fn wake_after(&self, delay: Duration) {
-        let inner = self.0.clone();
+        let pump = Arc::downgrade(self.0);
         // A shut-down pool runs nothing again; the view ends with it.
-        let _ = self.0.sequence.post_delayed(delay, move || run(&inner));
+        let _ = self.0.sequence.post_delayed(delay, move || {
+            if let Some(inner) = pump.upgrade() {
+                run(&inner);
+            }
+        });
     }
 
     /// A wake for the connection to hold while it has no room for the

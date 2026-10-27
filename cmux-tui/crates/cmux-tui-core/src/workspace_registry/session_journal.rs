@@ -166,8 +166,11 @@ pub(crate) struct TerminalOutputRecordsWindow {
     pub(crate) truncated: bool,
 }
 
-/// A short-lived WAL reader owned by one subscriber thread. It never shares
-/// the registry writer connection or its mutex.
+/// A short-lived WAL reader owned by one subscriber (a thread, or a stream
+/// drain on the sequenced pool). It never shares the registry writer
+/// connection or its mutex. Each page read notes `sqlite` at its caller: a
+/// read waits on the file (a large page, a WAL writer holding it), so a
+/// pool worker that runs it starts a temporary one meanwhile.
 pub(crate) struct SessionJournalReader {
     pub(super) connection: Connection,
 }
@@ -201,38 +204,46 @@ impl SessionJournalReader {
         Ok(Self { connection })
     }
 
+    #[track_caller]
     pub(crate) fn after(&self, sequence: u64, limit: usize) -> anyhow::Result<SessionJournalPage> {
+        let _ = crate::request_path::note(crate::request_path::BlockingKind::Sqlite);
         query_session_journal_after(&self.connection, sequence, limit)
     }
 
     /// The resource events after `revision`, read on this reader's own
     /// read-only connection (no registry lock). `generation` is the
     /// registry's, which never changes while it is open.
+    #[track_caller]
     pub(crate) fn resource_events_after(
         &self,
         generation: &str,
         revision: u64,
     ) -> anyhow::Result<ResourceEventPage> {
+        let _ = crate::request_path::note(crate::request_path::BlockingKind::Sqlite);
         resource_store::query_resource_events_after(&self.connection, generation, revision)
     }
 
     /// [`WorkspaceRegistry::session_journal_without_output_after`] on this
     /// reader's own read-only connection (no registry lock).
+    #[track_caller]
     pub(crate) fn without_output_after(
         &self,
         sequence: u64,
         through: u64,
         limit: usize,
     ) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
+        let _ = crate::request_path::note(crate::request_path::BlockingKind::Sqlite);
         query_session_journal_without_output_after(&self.connection, sequence, through, limit)
     }
 
+    #[track_caller]
     pub(crate) fn after_subjects(
         &self,
         sequence: u64,
         limit: usize,
         subjects: &[JournalSubject],
     ) -> anyhow::Result<SessionJournalSubjectPage> {
+        let _ = crate::request_path::note(crate::request_path::BlockingKind::Sqlite);
         query_session_journal_after_subjects(&self.connection, sequence, limit, subjects)
     }
 

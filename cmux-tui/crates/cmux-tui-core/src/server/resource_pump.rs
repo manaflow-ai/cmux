@@ -37,6 +37,24 @@ use crate::Mux;
 use crate::resource::StreamPublicId;
 use crate::surface::AttachLifecycle;
 
+/// The priority of a stream or wait a person watches whose turns may block
+/// (SQLite pages, a store): the visible workers, at the request class. With
+/// `daemonRequestQos` on, an automation request's runs on the utility
+/// workers instead, as its request runs at utility: Chrome posts a task at
+/// the priority of the work it serves (base/task/task_traits.h), and the
+/// person's work goes before automation.
+pub(super) fn watched_priority(mux: &Mux) -> SequencePriority {
+    let automation = matches!(
+        crate::event_cause::EventCause::current(),
+        crate::event_cause::EventCause::Automation
+    );
+    if mux.request_qos().enabled() && automation {
+        SequencePriority::Utility
+    } else {
+        SequencePriority::Visible
+    }
+}
+
 /// A source's ready hook: the pump's wake, shareable among several sources
 /// of one stream (the journal stream follows two epochs).
 pub(super) type ReadyWake = Arc<dyn Fn() + Send + Sync>;

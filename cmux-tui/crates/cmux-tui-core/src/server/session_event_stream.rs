@@ -7,11 +7,12 @@ use super::OutboundStream;
 use super::ResourceWorkerPermit;
 use super::attach_lifecycle::attach_pump::{PumpTimer, Step};
 use super::register_resource_outbound;
-use super::resource_pump::{ResourceOut, ResourceSource, ResourceStart, StreamItem};
+use super::resource_pump::{
+    ResourceOut, ResourceSource, ResourceStart, StreamItem, watched_priority,
+};
 use super::resource_session_snapshot;
 use super::resource_stream_end;
 use super::resource_stream_id;
-use super::sequenced_pool::SequencePriority;
 use crate::Mux;
 use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
@@ -280,11 +281,13 @@ pub(super) fn start_session_event_stream(
         end: None,
         journal: None,
     };
-    // Its page reads are SQLite, which the request workers (input,
-    // control) may not block on: the utility workers run it, and a read
-    // that blocks starts a temporary one. Its items still share the reply
-    // FIFO (the outbound stream rides the control sequence).
-    let pump = stream.bind(SequencePriority::Utility, source, |source, wake| {
+    // The app's session mirror: a person watches it, but its page reads
+    // are SQLite, which the request workers (input, control) may not block
+    // on. The visible workers run it at the request class, and each page
+    // read notes `sqlite`, so a read that blocks starts a temporary worker.
+    // Its items still share the reply FIFO (the outbound stream rides the
+    // control sequence).
+    let pump = stream.bind(watched_priority(&mux), source, |source, wake| {
         source.journal = Some(mux.on_journal_event(move || wake()));
     });
     if pump.start().is_err() {

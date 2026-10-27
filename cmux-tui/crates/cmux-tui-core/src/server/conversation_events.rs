@@ -14,8 +14,9 @@ use super::{EventsStart, owner_error};
 use crate::conversation_store::ConversationEvent;
 use crate::resource_router::ParsedResourceRequest;
 use crate::server::attach_lifecycle::attach_pump::{PumpTimer, Step as Next};
-use crate::server::resource_pump::{ResourceOut, ResourceSource, ResourceStart, StreamItem};
-use crate::server::sequenced_pool::SequencePriority;
+use crate::server::resource_pump::{
+    ResourceOut, ResourceSource, ResourceStart, StreamItem, watched_priority,
+};
 use crate::server::{
     MessageWriter, Mux, MuxEvent, ResourceError, ResourceOperation, register_resource_outbound,
     resource_stream_end, resource_stream_id,
@@ -147,10 +148,12 @@ pub(super) fn start(mux: Arc<Mux>, client: u64, writer: MessageWriter, mut start
         first_sequence: 1,
         initial: initial.into_iter().collect(),
     };
-    // Its membership checks read the conversation store, which the request
-    // workers (input, control) may not block on: the utility workers run it.
+    // The agent pane's live events: a person watches them, but membership
+    // checks read the conversation store, which the request workers (input,
+    // control) may not block on. The visible workers run it at the request
+    // class.
     let pump = stream.bind(
-        SequencePriority::Utility,
+        watched_priority(&mux),
         EventsSource { stream: start, end: None },
         |source, wake| {
             source.stream.events.on_ready(move || wake());

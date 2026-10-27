@@ -2,10 +2,17 @@
 //! Resource streams hold no thread per stream (p01-process-204): 24
 //! `terminal.attach` views, two `session.events` and two
 //! `session.journal.subscribe` subscriptions and four `terminal.wait`s on one
-//! connection of a real daemon socket add no more threads than the
-//! sequenced pool's workers, and every stream still delivers. As threads
-//! (`mux-resource-terminal-attach`, `-session-events`, `-session-journal`,
-//! `-terminal-wait`) they added 32.
+//! connection of a real daemon socket add no daemon thread, and every
+//! stream still delivers. As threads (`mux-resource-terminal-attach`,
+//! `-session-events`, `-session-journal`, `-terminal-wait`) they added 32.
+//!
+//! One stream of each kind runs before the baseline, so the lazily started
+//! threads (the pool's first worker of each priority) are in it. On Linux
+//! the test then reads every thread's name: no thread outside the pool is
+//! added, no `mux-resource-*` thread exists, and each priority the streams
+//! use keeps at most its fixed workers, whatever the stream count. Where
+//! names cannot be read (macOS), the total may grow only by the second
+//! worker of the three priorities the streams use.
 //!
 //! This file holds one test, so its process count is not shared with other
 //! tests.
@@ -20,9 +27,34 @@ use serde_json::{Value, json};
 const VIEWS: usize = 24;
 const SUBSCRIPTIONS: usize = 4;
 const WAITS: usize = 4;
-/// The pool's workers the streams can start: input (2) and utility (2),
-/// plus control workers a burst of requests can start.
-const THREAD_BUDGET: usize = 6;
+/// The pool workers the streams run on, with each priority's fixed count
+/// (`PoolConfig::for_cores`): views on input, `session.events` and waits on
+/// visible, journal replays on utility. A control worker serves the
+/// requests that open them, a burst of which may start more of those.
+const STREAM_WORKERS: [(&str, usize); 3] =
+    [("mux-seq-input", 2), ("mux-seq-visible", 2), ("mux-seq-utility", 2)];
+/// The names of the per-stream threads these streams used to hold (Linux
+/// truncates a thread name to 15 bytes).
+#[cfg(target_os = "linux")]
+const PER_STREAM_THREADS: [&str; 3] = ["mux-resource-", "mux-snapshot-at", "mux-attach-noti"];
+
+/// The names of this process's threads, sorted.
+#[cfg(target_os = "linux")]
+fn thread_names() -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir("/proc/self/task")
+        .expect("/proc/self/task")
+        .filter_map(|task| std::fs::read_to_string(task.ok()?.path().join("comm")).ok())
+        .map(|name| name.trim_end().to_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// The names in `names` that are not sequenced-pool workers.
+#[cfg(target_os = "linux")]
+fn outside_pool(names: &[String]) -> Vec<String> {
+    names.iter().filter(|name| !name.starts_with("mux-seq-")).cloned().collect()
+}
 
 /// Threads of this process.
 #[cfg(target_os = "linux")]
@@ -157,15 +189,36 @@ fn resource_streams_and_waits_add_no_thread_each() {
         })
         .collect();
     let mut connection = Connection::open(&socket);
-    connection.request(
-        "warm",
-        "session.events",
-        with(session(), json!({"stream_id": stream_id(999)})),
-    );
-    let warm = connection.response("warm");
-    assert_eq!(warm["ok"], true, "{warm}");
-    connection.item(&stream_id(999), "snapshot");
+    // One stream of each kind first: the threads they start lazily are in
+    // the baseline. Its terminal is not one of the measured views.
+    let warm_terminal = mux
+        .new_workspace_as(&Actor::Daemon, None, Some((80, 24)))
+        .expect("terminal")
+        .terminal_public_id()
+        .expect("terminal id")
+        .to_string();
+    let warm_streams = [
+        ("warm-attach", "terminal.attach", json!({"terminal": warm_terminal})),
+        ("warm-events", "session.events", json!({})),
+        (
+            "warm-journal",
+            "session.journal.subscribe",
+            json!({"filter": {"kinds": ["workspace.*"]}}),
+        ),
+    ];
+    for (offset, (id, operation, extra)) in warm_streams.iter().enumerate() {
+        let extra = with(extra.clone(), json!({"stream_id": stream_id(900 + offset)}));
+        connection.request(id, operation, with(session(), extra));
+        let response = connection.response(id);
+        assert_eq!(response["ok"], true, "{response}");
+    }
+    connection.item(&stream_id(900), "snapshot");
+    connection.item(&stream_id(901), "snapshot");
+    let warm_wait = with(session(), json!({"terminal": warm_terminal, "pattern": "never-printed"}));
+    connection.request("warm-wait", "terminal.wait", warm_wait);
     let before = settled_threads();
+    #[cfg(target_os = "linux")]
+    let names_before = thread_names();
 
     for (index, terminal) in terminals.iter().enumerate() {
         let params = with(session(), json!({"terminal": terminal, "stream_id": stream_id(index)}));
@@ -198,12 +251,41 @@ fn resource_streams_and_waits_add_no_thread_each() {
     }
     let after = settled_threads();
     eprintln!("resource streams: {before} -> {after} threads");
-    assert!(
-        after.saturating_sub(before) <= THREAD_BUDGET,
-        "{VIEWS} views, {SUBSCRIPTIONS} subscriptions and {WAITS} waits added {} threads \
-         ({before} -> {after})",
-        after.saturating_sub(before)
-    );
+    #[cfg(target_os = "linux")]
+    {
+        let names = thread_names();
+        eprintln!(
+            "pool workers: {:?}",
+            names.iter().filter(|name| name.starts_with("mux-seq-")).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            outside_pool(&names),
+            outside_pool(&names_before),
+            "{VIEWS} views, {SUBSCRIPTIONS} subscriptions and {WAITS} waits added threads \
+             outside the sequenced pool"
+        );
+        for prefix in PER_STREAM_THREADS {
+            assert!(
+                !names.iter().any(|name| name.starts_with(prefix)),
+                "a per-stream {prefix}* thread runs: {names:?}"
+            );
+        }
+        for (worker, fixed) in STREAM_WORKERS {
+            let count = names.iter().filter(|name| *name == worker).count();
+            assert!(count <= fixed, "{count} {worker} threads, over its {fixed} fixed workers");
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        // Each priority the streams use may start its second worker.
+        let budget = STREAM_WORKERS.iter().map(|(_, fixed)| fixed - 1).sum::<usize>();
+        assert!(
+            after.saturating_sub(before) <= budget,
+            "{VIEWS} views, {SUBSCRIPTIONS} subscriptions and {WAITS} waits added {} threads \
+             ({before} -> {after})",
+            after.saturating_sub(before)
+        );
+    }
 
     // Every stream still runs: the last view's terminal echoes as a patch,
     // a new workspace reaches the session event streams, and a wait sees

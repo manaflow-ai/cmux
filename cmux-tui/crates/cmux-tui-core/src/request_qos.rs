@@ -102,7 +102,10 @@ impl RequestQos {
     /// is its stack size in bytes, `None` for the platform default.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "terminal.wait, its last caller, is a pool observer (p01-process-204)")
+        expect(
+            dead_code,
+            reason = "terminal.wait, its last caller, is a pool observer (p01-process-204)"
+        )
     )]
     pub(crate) fn spawn_helper<F, T>(
         self,
@@ -128,7 +131,6 @@ impl RequestQos {
 
 /// The class a request's one-shot helper thread starts at
 /// ([`RequestQos::spawn_helper`]): the request dispatcher's.
-#[cfg_attr(not(test), expect(dead_code, reason = "used only by RequestQos::spawn_helper"))]
 pub(crate) const REQUEST_HELPER_QOS: cmux_threads::ThreadQos =
     crate::thread_qos::ThreadType::Interactive.qos();
 

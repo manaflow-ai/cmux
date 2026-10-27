@@ -570,6 +570,50 @@ fn control_workers_are_request_threads() {
     assert_eq!(name.as_deref(), Some("mux-seq-control"));
 }
 
+/// Visible workers run at the request class but may block: a person's
+/// stream reads its SQLite pages there, and the read's note starts a
+/// temporary worker, so another visible sequence is not held behind it.
+#[test]
+fn visible_workers_run_at_the_request_class_and_compensate_a_sqlite_read() {
+    let classes = Arc::new(Mutex::new(Vec::new()));
+    let seen = classes.clone();
+    let default = WorkerSpawner::default();
+    let spawner = WorkerSpawner::new(move |name, qos, body| {
+        seen.lock().unwrap().push((name, qos));
+        (default.0)(name, qos, body)
+    });
+    let pool = SequencedPool::with_spawner(
+        PoolConfig::for_cores(4).with_workers(SequencePriority::Visible, 1),
+        spawner,
+    );
+    let first = pool.sequence(SequencePriority::Visible);
+    let second = pool.sequence(SequencePriority::Visible);
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let (blocked_tx, blocked_rx) = mpsc::channel();
+    first
+        .post(move || {
+            let disallowed = cmux_threads::blocking::is_blocking_disallowed();
+            note(BlockingKind::Sqlite);
+            blocked_tx.send(disallowed).unwrap();
+            let _ = release_rx.recv();
+        })
+        .unwrap();
+    assert!(!blocked_rx.recv_timeout(WAIT).unwrap(), "visible workers may block");
+    let (ran_tx, ran_rx) = mpsc::channel();
+    second.post(move || ran_tx.send(()).unwrap()).unwrap();
+    ran_rx.recv_timeout(WAIT).expect("a temporary worker runs it while the read waits");
+    release_tx.send(()).unwrap();
+    eventually("the temporary worker exits", || {
+        pool.worker_count(SequencePriority::Visible) == 1 && first.is_idle()
+    });
+    let classes = classes.lock().unwrap();
+    assert!(!classes.is_empty());
+    assert!(
+        classes.iter().all(|(name, qos)| *name == "mux-seq-visible" && *qos == REQUEST_THREAD_QOS),
+        "{classes:?}"
+    );
+}
+
 /// A dropped pool refuses posts.
 #[test]
 fn a_dropped_pool_refuses_posts() {
@@ -580,13 +624,13 @@ fn a_dropped_pool_refuses_posts() {
 }
 
 /// The machine config: input 2, control the cores minus two (at least 2),
-/// utility 2, background 1.
+/// visible 2, utility 2, background 1.
 #[test]
 fn the_config_follows_the_cores() {
     let config = PoolConfig::for_cores(10);
     let workers: Vec<usize> =
         SequencePriority::ALL.iter().map(|priority| config.workers(*priority)).collect();
-    assert_eq!(workers, [2, 8, 2, 1]);
+    assert_eq!(workers, [2, 8, 2, 2, 1]);
     assert_eq!(PoolConfig::for_cores(2).workers(SequencePriority::Control), 2);
 }
 
@@ -639,6 +683,42 @@ fn a_delayed_task_of_a_dropped_sequence_is_dropped_unrun() {
     drop(sequence);
     // The sender drops with the task: the channel disconnects, nothing ran.
     assert_eq!(rx.recv_timeout(WAIT), Err(mpsc::RecvTimeoutError::Disconnected));
+}
+
+/// A sequence removed before its delayed task is due takes the task out of
+/// the pool at once, whether its handle drops while it is idle or while its
+/// last task runs: a long delay (a wait's deadline) keeps no heap entry
+/// after its sequence ended, and the task's captures drop then.
+#[test]
+fn a_removed_sequence_takes_its_long_delayed_task_out_of_the_pool() {
+    let pool = pool(PoolConfig::for_cores(4));
+    let baseline = pool.sequence_count();
+    let idle = pool.sequence(SequencePriority::Utility);
+    let other = pool.sequence(SequencePriority::Utility);
+    let (idle_tx, idle_rx) = mpsc::channel::<()>();
+    let (other_tx, _other_rx) = mpsc::channel::<()>();
+    idle.post_delayed(Duration::from_secs(3600), move || idle_tx.send(()).unwrap()).unwrap();
+    other.post_delayed(Duration::from_secs(3600), move || other_tx.send(()).unwrap()).unwrap();
+    assert_eq!(pool.delayed_count(), 2);
+    drop(idle);
+    assert_eq!(idle_rx.recv_timeout(WAIT), Err(mpsc::RecvTimeoutError::Disconnected));
+    assert_eq!(pool.delayed_count(), 1, "only the dropped sequence's task goes");
+
+    // Dropped from inside its own running task: removed when the task ends.
+    let running = Arc::new(Mutex::new(Some(pool.sequence(SequencePriority::Utility))));
+    let (running_tx, running_rx) = mpsc::channel::<()>();
+    let handle = running.lock().unwrap();
+    let sequence = handle.as_ref().unwrap();
+    sequence.post_delayed(Duration::from_secs(3600), move || running_tx.send(()).unwrap()).unwrap();
+    let slot = running.clone();
+    sequence.post(move || drop(slot.lock().unwrap().take())).unwrap();
+    drop(handle);
+    assert_eq!(running_rx.recv_timeout(WAIT), Err(mpsc::RecvTimeoutError::Disconnected));
+    eventually("the ended sequence is removed", || pool.sequence_count() == baseline + 1);
+    assert_eq!(pool.delayed_count(), 1);
+    drop(other);
+    assert_eq!(pool.delayed_count(), 0);
+    assert_eq!(pool.sequence_count(), baseline);
 }
 
 /// A delayed post that no worker of its priority could ever promote is

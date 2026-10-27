@@ -7,11 +7,10 @@ use super::MessageWriter;
 use super::ResourceWaitCancellation;
 use super::ResourceWorkerPermit;
 use super::attach_lifecycle::attach_pump::{AttachDrain, AttachPump, PumpTimer, Turn};
-use super::resource_pump::ReadyWake;
+use super::resource_pump::{ReadyWake, watched_priority};
 use super::resource_terminal_surface;
 use super::resource_wait_install_error;
 use super::send_resource_response;
-use super::sequenced_pool::SequencePriority;
 use crate::Mux;
 use crate::mux::{ResourceWaitWake, TerminalExitWatch};
 use crate::panic_free::JsonFields;
@@ -288,13 +287,16 @@ enum WaitState {
 /// as long as the wait lasts: each turn registers its wakes, reads the
 /// terminal and returns; output, the exit, cancellation, the connection's
 /// close and the one deadline post the next turn.
+///
+/// Fields drop in declaration order: the wait's watches and its worker
+/// permit go before `registration`, whose drop reports the wait finished.
 struct TerminalWaitDrain {
-    registration: ResourceWaitWorkerGuard,
+    state: WaitState,
     _worker_permit: ResourceWorkerPermit,
+    hook: ReadyWake,
     writer: MessageWriter,
     operation: ResourceOperation,
-    hook: ReadyWake,
-    state: WaitState,
+    registration: ResourceWaitWorkerGuard,
 }
 
 impl TerminalWaitDrain {
@@ -380,16 +382,17 @@ pub(super) fn start_resource_wait(
         }
     };
     // Off the echo path and off the control workers a `request.cancel` may
-    // wait on while this wait ends.
+    // wait on while this wait ends; a person's wait at the request class,
+    // as its helper thread ran.
     let response_id = id.clone();
-    let pump = AttachPump::new(&mux.sequenced_pool, SequencePriority::Utility);
+    let pump = AttachPump::new(&mux.sequenced_pool, watched_priority(&mux));
     pump.install(Box::new(TerminalWaitDrain {
-        registration: ResourceWaitWorkerGuard { mux, client, request_id: id, canceled },
+        state: WaitState::Start(Box::new(request)),
         _worker_permit: worker_permit,
+        hook: Arc::new(pump.hook()),
         writer: writer.clone(),
         operation,
-        hook: Arc::new(pump.hook()),
-        state: WaitState::Start(Box::new(request)),
+        registration: ResourceWaitWorkerGuard { mux, client, request_id: id, canceled },
     }));
     // A refused start drops the drain, whose registration releases the wait.
     match pump.start() {

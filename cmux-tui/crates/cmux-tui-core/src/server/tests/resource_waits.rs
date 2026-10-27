@@ -936,6 +936,98 @@ fn concurrent_terminal_close_settles_unbounded_connection_wait_exit() {
     disconnect_client(&mux, client, false);
 }
 
+/// A wait with a long timeout that ends early (its terminal closes, or it
+/// is canceled) leaves no pool sequence and no delayed deadline task behind:
+/// the deadline holds the wait's pump weakly, and the ended sequence takes
+/// its delayed task out of the pool. A client looping such waits would
+/// otherwise grow the pool's sequences and delayed heap until each deadline.
+#[test]
+fn long_timeout_waits_that_end_early_leave_no_sequence_or_deadline_in_the_pool() {
+    let mux = test_mux();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let pool = &mux.sequenced_pool;
+    for round in 0..2 {
+        let create = resource_request(
+            &format!("create-for-long-wait-{round}"),
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some(&format!("create-for-long-wait-{round}")),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let sequences_before = pool.sequence_count();
+        let wait_id = format!("long-timeout-wait-{round}");
+        let wait = resource_request(
+            &wait_id,
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "timeout_ms":"3600000",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let armed_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id) != 1
+            || pool.delayed_count() != 1
+        {
+            assert!(Instant::now() < armed_deadline, "long wait did not arm its deadline");
+            std::thread::yield_now();
+        }
+        if round == 0 {
+            let close = resource_request(
+                "close-during-long-wait",
+                "terminal.close",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "terminal":terminal_id,
+                }),
+                Some("close-during-long-wait"),
+            );
+            assert!(handle_connection_message(&mux, client, &close, &writer, &scheduler));
+            let responses = [pop_json(&outbound), pop_json(&outbound)];
+            assert!(responses.iter().any(|response| response["id"] == wait_id.as_str()));
+        } else {
+            let cancel = resource_request(
+                "cancel-long-wait",
+                "request.cancel",
+                json!({"request_id":wait_id}),
+                None,
+            );
+            assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+            assert_eq!(pop_json(&outbound)["result"], json!({"canceled":true}));
+        }
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_wait_admission.active() != 0
+            || pool.sequence_count() != sequences_before
+            || pool.delayed_count() != 0
+        {
+            assert!(
+                Instant::now() < cleanup_deadline,
+                "round {round}: the ended wait kept {} sequences over {sequences_before} and \
+                 {} delayed tasks",
+                pool.sequence_count().saturating_sub(sequences_before),
+                pool.delayed_count(),
+            );
+            std::thread::yield_now();
+        }
+    }
+    disconnect_client(&mux, client, false);
+}
+
 #[test]
 fn disconnect_cancels_unbounded_terminal_waits_and_releases_worker_capacity() {
     let mux = test_mux();
