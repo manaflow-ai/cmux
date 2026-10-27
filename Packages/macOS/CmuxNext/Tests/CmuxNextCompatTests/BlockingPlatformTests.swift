@@ -125,7 +125,7 @@ private nonisolated func callPosixSeams(_ path: String) {
     _ = unsafe blockingUnlink(path)
 }
 
-/// Spawns `/bin/true` through the priority form of the spawn seam with no attributes, then reaps it.
+/// Spawns `/usr/bin/true` through the priority form of the spawn seam with no attributes, then reaps it.
 ///
 /// - Returns: The spawn's status (0 when it started) or -1 when its arguments could not be made, and the child's
 ///   exit status folded in: a child that did not exit 0 makes it nonzero.
@@ -133,8 +133,8 @@ private nonisolated func spawnTrue(_ priority: MayBlockPriority) -> Int32 {
     var pid = pid_t()
     // SAFETY: the argument list lives for the closure, posix_spawn copies it into the child before it returns, and
     // `pid` is a local the seam writes once.
-    let spawned = unsafe withCStringList(["/bin/true"]) { argv in
-        unsafe blockingPosixSpawn(&pid, "/bin/true", nil, nil, argv, nil, priority: priority)
+    let spawned = unsafe withCStringList(["/usr/bin/true"]) { argv in
+        unsafe blockingPosixSpawn(&pid, "/usr/bin/true", nil, nil, argv, nil, priority: priority)
     } ?? -1
     guard spawned == 0 else { return spawned }
     var status: Int32 = 0
