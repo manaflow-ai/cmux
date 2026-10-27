@@ -4,6 +4,40 @@ use super::exit_reason::explains_exit;
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// What the agent of `session` is sent for `blocks`: model-sized copies of its large images
+/// (`model_copies.rs`), then [`acp_prompt_blocks`]. No copy is made, or kept, for a turn a remote
+/// device controls: it is read from this machine's disk as the prompt's sender, who was local.
+pub(super) async fn agent_blocks(
+    hub: &Hub,
+    session: &Session,
+    blocks: &[Value],
+) -> Result<Vec<Value>, RpcError> {
+    let web = || session.turn().is_some_and(|t| t.control == Control::Web);
+    if web() {
+        return acp_prompt_blocks(session, blocks);
+    }
+    let family = session.meta().family;
+    let copied = crate::model_copies::add(&session.id, family.as_deref(), blocks).await;
+    // Tests only: a Stop or a remote device comes while the copies are made.
+    #[cfg(test)]
+    {
+        let seam = hub.copy_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some((arrived, release)) = seam {
+            let _ = arrived.send(());
+            let _ = release.await;
+        }
+    }
+    #[cfg(not(test))]
+    let _ = hub;
+    acp_prompt_blocks(session, if web() { blocks } else { &copied })
+}
+
+/// A prompt not written to its agent: a Stop came while its model-sized copies were made.
+pub(super) fn stopped_before_prompt() -> RpcError {
+    RpcError::new(-32000, "the turn was stopped before this prompt reached the agent")
+        .with_data(json!({"reason": "stopped"}))
+}
+
 /// ACP v1 does not define a `document` content block. Claude's translator can
 /// turn our internal document block into Anthropic's native document. Strict
 /// ACP adapters (including Codex) instead get a stable workspace file and a
@@ -469,12 +503,39 @@ impl Hub {
                 json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate}),
             )
             .seq;
+        // The prompt as the agent gets it, before the checks below: making its model-sized copies
+        // may take a moment, in which a Stop or a remote device may come (`model_copies.rs`).
+        let cancels = session.cancels.load(Ordering::SeqCst);
+        let wire = agent_blocks(self, session, &blocks).await;
+        let stopped = session.cancels.load(Ordering::SeqCst) != cancels
+            || session.stops.load(Ordering::SeqCst) != stops;
         let control = {
             let mut turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(t) = turn.as_mut() {
                 t.turn_seq = turn_seq;
             }
             turn.as_ref().map_or(control, |t| t.control)
+        };
+        let wire = match wire {
+            // A remote device took the turn meanwhile: the prompt goes without copies.
+            Ok(_) if control == Control::Web => acp_prompt_blocks(session, &blocks),
+            wire => wire,
+        };
+        let wire = match wire {
+            Ok(wire) if !stopped => wire,
+            Ok(_) => {
+                let e = stopped_before_prompt();
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+                self.forum_turn_end(session, &told, false);
+                drop(guard);
+                return Err(e);
+            }
+            Err(e) => {
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+                self.forum_turn_end(session, &told, false);
+                drop(guard);
+                return Err(e);
+            }
         };
         // The remote floor fired before the prompt went out (a mode write
         // in the gap): the prompt is not sent. After this point the floor's
@@ -507,7 +568,7 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
+            json!({"sessionId": agent_sid, "prompt": wire}),
             &turn_id,
             false,
             || {
@@ -608,20 +669,29 @@ impl Hub {
                         // Its start read the chat ready: the turn runs on.
                         self.set_status(session, SessionStatus::Running);
                         if let Some(sid2) = session.meta().agent_session_id {
+                            // A Stop while its copies were made: not written (as the first).
+                            let cancels = session.cancels.load(Ordering::SeqCst);
+                            let wire = agent_blocks(self, session, &blocks).await?;
+                            let stopped = session.cancels.load(Ordering::SeqCst) != cancels
+                                || session.stops.load(Ordering::SeqCst) != stops;
                             // Like the first prompt: Stop's and a stalled turn's forced end
                             // (`cancel.rs`, `stalled_turn.rs`) end it too.
-                            result = super::steer_end::agent_prompt_hook(
-                                session,
-                                &child2,
-                                json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
-                                &turn_id,
-                                false,
-                                || {
-                                    drop(family_gate);
-                                    self.watch_stalled_turn(session, None)
-                                },
-                            )
-                            .await;
+                            result = if stopped {
+                                Err(stopped_before_prompt())
+                            } else {
+                                super::steer_end::agent_prompt_hook(
+                                    session,
+                                    &child2,
+                                    json!({"sessionId": sid2, "prompt": wire}),
+                                    &turn_id,
+                                    false,
+                                    || {
+                                        drop(family_gate);
+                                        self.watch_stalled_turn(session, None)
+                                    },
+                                )
+                                .await
+                            };
                         }
                     }
                     (Err(e2), _) => result = Err(e2),

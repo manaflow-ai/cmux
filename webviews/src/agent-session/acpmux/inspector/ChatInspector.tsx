@@ -51,7 +51,7 @@ import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { paneHeader, transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
@@ -85,6 +85,7 @@ import {
 import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./OutputsSection";
 import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
+import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks } from "./WorkflowTasks";
@@ -171,11 +172,9 @@ export const inspectorShown = ({
 /// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell.
 const SIDE_PANEL = ":scope > .acpmux-artifact";
 
-/// The Inspector starts below the visible header and the Left placement row. Right uses the
-/// original header slot, so it keeps the original inset.
-export function inspectorTopOffset(tabRowHeight: number, environmentRowVisible: boolean): string {
-  const headerTop = tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
-  return environmentRowVisible ? `calc(${headerTop} + var(--ui-row-height))` : headerTop;
+/// The Inspector starts right below the header: the pane's tab row when the header is in it.
+export function inspectorTopOffset(tabRowHeight: number): string {
+  return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
 }
 
 /// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: from the top of its highest
@@ -268,6 +267,7 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  onSetRunningLimit,
   workflows,
   onOpenFolder,
   onSaveEnvironment,
@@ -318,6 +318,8 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// `_acpmux/subsession/limits` (direct.ts setRunningLimit): chat `sessionId`'s running limit.
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
   workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
@@ -443,6 +445,7 @@ export function useChatInspector({
         registry={registry}
         subagents={subagents}
         sessions={sessions}
+        onSetRunningLimit={onSetRunningLimit}
         workflows={workflows}
         revealed={revealed}
         onRevealed={clearRevealed}
@@ -490,6 +493,7 @@ function InspectorPresence({
   registry,
   subagents,
   sessions,
+  onSetRunningLimit,
   workflows,
   revealed,
   onRevealed,
@@ -528,6 +532,7 @@ function InspectorPresence({
     onOpen: (id: string) => void;
   };
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
   workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
   revealed?: { section: InspectorSectionId; at: number };
@@ -561,14 +566,7 @@ function InspectorPresence({
   // the chat (one ResizeObserver on the dock, disconnected when it no longer does or the panel goes).
   const dockHeight = useDockHeight(shell, drawn && overChat);
   const tabRowHeight = useTabRow().height;
-  // Left's machine · folder chip occupies its own row below the header/tab row. Keep the Inspector
-  // below it while open so the card never covers the chip; Right preserves the original header slot,
-  // and connection warnings, Off, or covered views remove that row.
-  const environmentRowVisible =
-    display.environmentPlacement === "left" &&
-    Boolean(snapshot.summary?.cwd || snapshot.summary?.branch) &&
-    !paneHeader(snapshot).status;
-  const inspectorTop = inspectorTopOffset(tabRowHeight, environmentRowVisible);
+  const inspectorTop = inspectorTopOffset(tabRowHeight);
   // The overlay handoff is a layout assist, not panel motion. Set the placement marker before the
   // shift so the overlay transition is disabled for the one frame where flex layout takes the panel's
   // room; otherwise the old overlay shift would animate back and briefly move the chat right again.
@@ -678,6 +676,7 @@ function InspectorPresence({
         workflows={scope ? undefined : workflows?.list}
         onStopWorkflow={workflows?.onStop}
         onOpenSession={sessions?.onOpen}
+        onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
         onRevealed={onRevealed}
         onStopProcess={onStopProcess}
@@ -859,6 +858,7 @@ export function ChatInspector({
   workflows = [],
   onStopWorkflow,
   onOpenSession,
+  onSetRunningLimit,
   revealed,
   onRevealed,
   onStopProcess,
@@ -911,6 +911,8 @@ export function ChatInspector({
   /// The chats the agent started, listed under Subagents.
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
+  /// Sets or drops the chat's running limit (SubagentLimitStepper.tsx); without it the limit only reads.
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs): they head Background tasks, and leave Subagents.
   workflows?: readonly WorkflowSummary[];
   onStopWorkflow?: (id: string) => Promise<unknown>;
@@ -993,6 +995,19 @@ export function ChatInspector({
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
   const runningTasks = commands.filter((command) => command.state === "running").length;
+  // Subagents shows only for a chat that has had subagents or sub-sessions, or whose running limit
+  // someone set (its own, an ancestor's, the workspace's or the settings'): a chat that never used
+  // them, at acpmux's default, shows nothing.
+  const limits = summary?.subsessionLimits;
+  const limitSet =
+    limits !== undefined && limits.maxRunningSource !== undefined && limits.maxRunningSource !== "default";
+  const chatId = summary?.sessionId;
+  // A chat on another machine: its sub-sessions live on that machine's acpmux, which takes the
+  // limit only from its own person, so the line only reads.
+  const setRunningLimit =
+    onSetRunningLimit && chatId && !summary?.peer
+      ? (maxRunning: number | null, from?: number) => onSetRunningLimit(chatId, maxRunning, from)
+      : undefined;
   const progress = !known && agent ? subagentProgress(t, language, agent) : [];
   const value = (text: string) => <span className="acpmux-chat-inspector-section__value">{text}</span>;
   const glance = layout === "glance";
@@ -1095,7 +1110,7 @@ export function ChatInspector({
   // A workflow Background tasks lists (Labs) is not a Subagents row too.
   const workflowIds = new Set(workflows.map((workflow) => workflow.id));
   const listedAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
-  const subagentsSection = listedAgents.length + sessions.length > 0 && (
+  const subagentsSection = (listedAgents.length + sessions.length > 0 || limitSet) && (
     <InspectorSection
       id="subagents"
       title={t("summary.subagents")}
@@ -1103,13 +1118,16 @@ export function ChatInspector({
       onOpenChange={fold("subagents")}
       meta={value(subagentCounts(t, listedAgents, waiting, sessions))}
     >
-      <SubagentsSection
-        agents={listedAgents}
-        waiting={waiting}
-        onOpen={onOpenSubagent}
-        sessions={sessions}
-        onOpenSession={onOpenSession}
-      />
+      <SubagentLimitStepper chatId={chatId} limits={limits} sessions={sessions} onSet={setRunningLimit} />
+      {listedAgents.length + sessions.length > 0 && (
+        <SubagentsSection
+          agents={listedAgents}
+          waiting={waiting}
+          onOpen={onOpenSubagent}
+          sessions={sessions}
+          onOpenSession={onOpenSession}
+        />
+      )}
     </InspectorSection>
   );
   // The dev servers are background commands too: their rows head the one Background tasks section

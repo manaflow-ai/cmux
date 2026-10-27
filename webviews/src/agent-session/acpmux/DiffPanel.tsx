@@ -30,6 +30,7 @@ import { ChatFindBar } from "./conversation/ChatFindBar";
 import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
 import { useT } from "./i18n";
+import { fileKind, missingTests, orderByKind } from "../../fileKinds";
 import { GitToolbarButtons, GitWriteBar } from "./changes/GitActions";
 import type { GitWriteOp, WriteKeys } from "./changes/gitWrite";
 import { useGitWrite } from "./changes/useGitWrite";
@@ -56,6 +57,81 @@ function store(key: string, value: string) {
 
 type Tool = "collapse" | "wrap" | "split" | "tree";
 
+/// `path` with its `.` and `..` steps applied; undefined when a relative path steps above its start.
+function resolved(path: string): string | undefined {
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part !== "..") parts.push(part);
+    else if (parts.length > 0) parts.pop();
+    else if (!path.startsWith("/")) return undefined;
+  }
+  return (path.startsWith("/") ? "/" : "") + parts.join("/");
+}
+
+/// `path` with macOS's /private spelling of /tmp, /var and /etc read as the short one: acpmux's
+/// canonical path names the real one (/private/tmp/repo) where the chat's folder may not (/tmp/repo).
+function unaliased(path: string): string {
+  return path.replace(/^\/private(?=\/(?:tmp|var|etc)(?:\/|$))/, "");
+}
+
+/// The path a file's kind (fileKinds.ts) is read from, so a folder above the project never names it
+/// (a repository under `~/tests/` is not all tests): a git scope's from the repository's top; a
+/// turn's from the chat's folder `root`, as its display path drops the folder its files share (one
+/// file under `tests/` shows as `helpers.py`). A turn's path is matched under either spelling
+/// acpmux recorded, and /private/tmp is /tmp on either side (`unaliased`). A turn's file outside
+/// that folder, or with no folder known, is read by its name alone.
+export function kindPath(scope: ChangeScope, file: TurnFile, root: string | undefined): string {
+  if (scope !== "lastTurn") return file.displayPath;
+  const real = root && resolved(root);
+  const top = real && unaliased(real);
+  for (const spelling of [file.canonical, file.path]) {
+    if (!spelling) continue;
+    // A relative path is the agent's, under its folder.
+    const full = spelling.startsWith("/") ? resolved(spelling) : resolved(top ? `${top}/${spelling}` : spelling);
+    const path = full && unaliased(full);
+    if (!path) continue;
+    // A relative path is under the chat's folder only when that folder is known.
+    if (!path.startsWith("/")) {
+      if (top) return path;
+      continue;
+    }
+    if (top && path.startsWith(top === "/" ? "/" : `${top}/`)) return path.slice(top === "/" ? 1 : top.length + 1);
+  }
+  return file.path.slice(file.path.lastIndexOf("/") + 1);
+}
+
+/// `path` as an absolute path: a relative one is the agent's, under the chat's folder `root`, and
+/// /private/tmp reads as /tmp (`unaliased`).
+function absolute(path: string, root: string | undefined): string | undefined {
+  const top = root && resolved(root);
+  const full = path.startsWith("/") ? resolved(path) : top ? resolved(`${top}/${path}`) : undefined;
+  return full && unaliased(full);
+}
+
+/// The one name a file has under every spelling: its absolute path (canonical first), else its path.
+function fileIdentity(file: TurnFile, root: string | undefined): string {
+  for (const spelling of [file.canonical, file.path]) {
+    const full = spelling === undefined ? undefined : absolute(spelling, root);
+    if (full) return full;
+  }
+  return file.path;
+}
+
+/// The listed file `path` names, by its path or canonical path, as written or resolved from the
+/// chat's folder: a tool call's relative path opens the view, then the loaded checkpoint lists
+/// the same file by its absolute path. `path` itself when no listed file is it.
+export function listedPath(files: readonly TurnFile[], path: string, root: string | undefined): string {
+  const exact = files.find((file) => file.path === path || file.canonical === path);
+  if (exact) return exact.path;
+  const wanted = absolute(path, root);
+  if (!wanted) return path;
+  const match = files.find((file) =>
+    [file.path, file.canonical].some((spelling) => spelling !== undefined && absolute(spelling, root) === wanted),
+  );
+  return match?.path ?? path;
+}
+
 export function bindDiffPanelEscape(panel: HTMLElement, onClose: () => void): () => void {
   const ownerDocument = panel.ownerDocument;
   const ownerWindow = ownerDocument.defaultView;
@@ -78,6 +154,7 @@ export function bindDiffPanelEscape(panel: HTMLElement, onClose: () => void): ()
 export function DiffPanel({
   files: turnFiles,
   initialPath,
+  root,
   onClose,
   source,
   onOpenFile,
@@ -94,6 +171,8 @@ export function DiffPanel({
 }: {
   files: TurnFile[];
   initialPath?: string;
+  /// The chat's folder: a Last turn file's kind is read from its path in it (`kindPath`).
+  root?: string;
   onClose: () => void;
   source?: ChangesSource;
   /// Asks the host to open a changed file; rejects with the host's reason when it can't.
@@ -104,7 +183,7 @@ export function DiffPanel({
   /// Tool-call files remain the source of revert patches when Last turn is showing a checkpoint.
   reviewFiles?: TurnFile[];
   /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
-  turn?: { source: "checkpoint" | "tools"; note?: string };
+  turn?: { source: "checkpoint" | "tools"; note?: string; partial?: true };
   /// The palette's Commit or Push (`agentPane.git.*`): each new nonce opens the commit form or
   /// pushes, as the toolbar's buttons do.
   gitIntent?: { op: GitWriteOp; nonce: number };
@@ -146,7 +225,12 @@ export function DiffPanel({
     onGitIntentHandled?.();
   }, [gitIntent, git, commitOpen, onGitIntentHandled]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
-  const files = scope === "lastTurn" ? turnFiles : scopeFiles;
+  // The delineated diff, as the diff viewer and the pull request card read a change
+  // (fileKinds.ts): code first, then tests, mocks, docs, evals and generated files.
+  const files = useMemo(
+    () => [...orderByKind(scope === "lastTurn" ? turnFiles : scopeFiles, (file) => kindPath(scope, file, root))],
+    [scope, turnFiles, scopeFiles, root],
+  );
   const threadsByPath = useMemo(() => {
     const byPath = new Map<string, ReviewThread[]>();
     for (const thread of threads ?? []) byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread]);
@@ -186,10 +270,55 @@ export function DiffPanel({
       : load.state === "loaded"
         ? "empty"
         : load.state;
+  // Code changed and no test did: the pull request card's warning, in its words. Not when the
+  // host left files out (a partial git answer or checkpoint): an omitted file may be the test.
+  const partial =
+    scope === "lastTurn"
+      ? turn?.partial === true
+      : load.state === "loaded" &&
+        ((load.changeSet.filesOmitted ?? 0) > 0 || (load.changeSet.untrackedSkipped ?? 0) > 0);
+  const noTests = !scopeState && !partial && missingTests(files.map((file) => ({ path: kindPath(scope, file, root) })));
   const [layout, setLayout] = useState<DiffLayout>(() => (stored(LAYOUT_KEY) === "split" ? "split" : "unified"));
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
   const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  // Generated files and lockfiles start folded, as the diff viewer defers them; the reader opens
+  // one from its header or the tree. Each file folds once, so one the reader opened stays open,
+  // and the file the view was opened on is never folded.
+  // A file is remembered by its absolute path, so the checkpoint's absolute spelling of a file a
+  // tool call named relatively is the same file: it does not fold again, and a fold or an open the
+  // reader chose moves to the new spelling.
+  const generated = useMemo(() => {
+    const seen = new Set<string>();
+    return files
+      .filter((file) => fileKind(kindPath(scope, file, root)) === "generated")
+      .map((file) => ({ path: file.path, id: fileIdentity(file, root) }))
+      .filter((file) => !seen.has(file.id) && Boolean(seen.add(file.id)));
+  }, [files, scope, root]);
+  // Each generated file's identity, with the path the list last named it by.
+  const [folded, setFolded] = useState<ReadonlyMap<string, string>>(() => new Map());
+  // The file the view was opened on, as the list names it now (a tool call's relative path, then
+  // the checkpoint's absolute one).
+  const openedPath = initialPath === undefined ? undefined : listedPath(files, initialPath, root);
+  const changed = generated.filter((file) => folded.get(file.id) !== file.path);
+  if (changed.length > 0) {
+    const next = new Map(folded);
+    const fold: string[] = [];
+    const moved: [string, string][] = [];
+    for (const file of changed) {
+      const before = folded.get(file.id);
+      next.set(file.id, file.path);
+      if (before !== undefined) moved.push([before, file.path]);
+      else if (file.path !== openedPath) fold.push(file.path);
+    }
+    setFolded(next);
+    setCollapsed((current) => {
+      const out = new Set(current);
+      for (const [before, after] of moved) if (out.delete(before)) out.add(after);
+      for (const path of fold) out.add(path);
+      return out;
+    });
+  }
   const [viewed, setViewed] = useState<ReadonlySet<string>>(() => new Set());
   const [selected, setSelected] = useState<string | undefined>(initialPath ?? files[0]?.path);
   const body = useRef<HTMLDivElement>(null);
@@ -247,15 +376,27 @@ export function DiffPanel({
     };
   }, []);
   const onPainted = useStableCallback(() => {
-    if (revealing.current) reveal(revealing.current);
+    if (revealing.current) reveal(listedPath(files, revealing.current, root));
+  });
+  // The file the view opens on shows, even one folded as generated, under the path the list
+  // names it by (a relative tool path opens a checkpoint's absolute one).
+  const openInitial = useStableCallback((path: string) => {
+    const listed = listedPath(files, path, root);
+    setCollapsed((current) => {
+      if (!current.has(listed)) return current;
+      const next = new Set(current);
+      next.delete(listed);
+      return next;
+    });
+    reveal(listed);
   });
   // Focus moves into the view, so keys reach it and a screen reader announces it.
   useEffect(() => {
     back.current?.focus();
     // Another file opened in the open view: later paints keep it in view, not the first one.
     revealing.current = initialPath;
-    if (initialPath) reveal(initialPath);
-  }, [initialPath]);
+    if (initialPath) openInitial(initialPath);
+  }, [initialPath, openInitial]);
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer
   // or the file filter.
   const panel = useRef<HTMLElement>(null);
@@ -459,6 +600,7 @@ export function DiffPanel({
             stopRevealing();
             setScope(next);
             setCollapsed(new Set());
+            setFolded(new Map());
             setViewed(new Set());
             setSelected(undefined);
             latestOpen.current += 1;
@@ -500,9 +642,10 @@ export function DiffPanel({
           </button>
         </div>
       )}
-      {(branch || skipped > 0 || turnNote) && (
+      {(branch || skipped > 0 || turnNote || noTests) && (
         <div className="acpmux-diff-notes">
           {turnNote && <output className="acpmux-turn-note">{turnNote}</output>}
+          {noTests && <output className="acpmux-diff-no-tests">{t("prCard.noTestsWhy")}</output>}
           {branch && (
             <div className="acpmux-branch-row">
               <BranchPill branch={branch.branch} base={branch.base} />
@@ -552,6 +695,7 @@ export function DiffPanel({
                   <EditBlock
                     key={`${file.path}\u0000${edit.toolId}\u0000${index}`}
                     file={file}
+                    kind={fileKind(kindPath(scope, file, root))}
                     edit={edit}
                     index={index}
                     layout={layout}

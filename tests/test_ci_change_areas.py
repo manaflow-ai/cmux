@@ -4125,7 +4125,7 @@ def product_runner_output(key: str) -> str:
     # so it takes pr_gui_runner before the root label:
     # pr_runner_pool.gui_label() of the same owned pick, so the same Xcode.
     gui = "inputs.pr_gui_runner || "
-    return ("${{ (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
+    return ("${{ (github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + gui + "needs.macos-compile-admission.outputs.runner }}")
 
 
@@ -5155,7 +5155,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     assert "vars.MACOS_RUNNER_PR" not in package_block
     assert (
         "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && "
-        "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+        "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
         "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
         "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
@@ -5168,7 +5168,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
 
     release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
     assert (
-        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
         "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
     ) in release_block
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block

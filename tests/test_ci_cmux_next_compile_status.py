@@ -96,15 +96,12 @@ class StatusMapping(unittest.TestCase):
             with self.subTest(reply=reply):
                 code, posts, _ = self.run_step(reply)
                 self.assertEqual(code == 0, ok)
-                # Each state goes out under the context and, for the transition, its previous name.
                 self.assertEqual([(post["state"], post["context"]) for post in posts],
-                                 [("pending", "cmux-next/compile"), ("pending", "cmux-next/linux-compile"),
-                                  (state, "cmux-next/compile"), (state, "cmux-next/linux-compile")])
+                                 [("pending", "cmux-next/compile"), (state, "cmux-next/compile")])
 
     def test_a_failure_links_the_compile_log(self):
         _, posts, _ = self.run_step(self.reply("fail"))
         self.assertEqual(posts[-1]["target_url"], "https://github.com/manaflow-ai/cmux/actions/runs/9")
-        self.assertEqual(posts[-2]["target_url"], posts[-1]["target_url"])
         # A link elsewhere is not trusted: the run itself.
         _, posts, _ = self.run_step(self.reply("fail", log_url="https://evil.example/x"))
         self.assertEqual(posts[-1]["target_url"], "https://github.com/run/1")
@@ -123,12 +120,12 @@ class StatusMapping(unittest.TestCase):
         step = next(step for step in job()["steps"] if "run" in step)
         self.assertIn("timeout \"$left\" curl", step["run"])
         self.assertIn("WAIT_SECONDS:-2400", step["run"])
-        # The deadline starts before the pending post, and the terminal post (per context 3 tries of 30 s, 2 waits
-        # of 10 s; two contexts) fits after it: 40 min + 220 s, inside the step's 50, the job's 55 and the token's 60.
+        # The deadline starts before the pending post, and the terminal post (3 tries of 30 s, 2 waits
+        # of 10 s) fits after it: 40 min + 110 s, inside the step's 50, the job's 55 and the token's 60.
         run = step["run"]
         self.assertLess(run.index("deadline=$((SECONDS"), run.index("post pending"))
         self.assertIn("timeout 110 curl -sS --fail-with-body", run)
-        self.assertLessEqual(2400 + 2 * 110, step["timeout-minutes"] * 60 - 300)
+        self.assertLessEqual(2400 + 110, step["timeout-minutes"] * 60 - 300)
         self.assertLessEqual(step["timeout-minutes"], job()["timeout-minutes"])
         self.assertLess(job()["timeout-minutes"], 60)
 
