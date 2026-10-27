@@ -64,7 +64,7 @@ export function EnvironmentCard({
       ) : (
         head && <ProjectRow project={head} where={where} checked onPick={onPick} />
       )}
-      {!current && !noProject && projects.length === 0 && onBrowse && (
+      {!current && !noProject && local.length === 0 && onBrowse && (
         // On a clean install there are no recent folders to show. Put the native folder picker
         // in the card so choosing the first project is one click instead of a menu hunt.
         <button type="button" className="nt-stage-row" data-action="browse-project" onClick={onBrowse}>

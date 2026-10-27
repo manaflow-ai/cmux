@@ -7,7 +7,8 @@ import type { NewTabScreen } from "./NewTabScreen";
 const props: ComponentProps<typeof NewTabScreen> = {
   snapshot: noChat([], { catalog: [] }),
   home: "/Users/you",
-  projects: [],
+  cwd: "/Users/you",
+  projects: [{ cwd: "/Users/you", label: "you" }],
   knownProjects: null,
   onAsk: () => {},
   onOpen: () => {},

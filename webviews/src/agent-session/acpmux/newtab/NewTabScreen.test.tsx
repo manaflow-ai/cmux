@@ -102,49 +102,23 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   expect(container.querySelector('.acpmux-newtab-plus [data-value="attach"]')).toBeTruthy();
 });
 
-test("an empty New chat action opens harness setup when no harness is installed", async () => {
-  let opened = 0;
-  const unregister = registerHarnessesPage(() => {
-    opened += 1;
-  });
-  try {
-    await act(async () => {
-      root!.render(
-        <NewTabScreen
-          snapshot={noChat([], { catalog: [] })}
-          onAsk={() => {}}
-          onOpen={() => {}}
-          onSearch={() => {}}
-          onShell={() => {}}
-          onJump={() => {}}
-          onOpenSession={() => {}}
-          onShowAll={() => {}}
-        />,
-      );
-    });
-
-    const create = container.querySelector<HTMLButtonElement>('[data-create="chat"]');
-    expect(create).toBeTruthy();
-    await act(async () => create!.click());
-    expect(opened).toBe(1);
-  } finally {
-    unregister();
-  }
-});
+const firstRunProps = {
+  snapshot: noChat([], { catalog: [] }),
+  onAsk: () => {},
+  onOpen: (_url: string) => {},
+  onSearch: (_text: string) => {},
+  onShell: () => {},
+  onJump: () => {},
+  onOpenSession: () => {},
+  onShowAll: () => {},
+};
 
 test("a fresh New Tab exposes the no-project path in its environment card", async () => {
   let browsed = 0;
   await act(async () => {
     root!.render(
       <NewTabScreen
-        snapshot={noChat()}
-        onAsk={() => {}}
-        onOpen={() => {}}
-        onSearch={() => {}}
-        onShell={() => {}}
-        onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
+        {...firstRunProps}
         onBrowseProject={async () => {
           browsed += 1;
           return undefined;
@@ -175,15 +149,9 @@ test.each(["", "Implement a todo list"])("Return without a harness opens setup f
     await act(async () => {
       root!.render(
         <NewTabScreen
-          snapshot={noChat([], { catalog: [] })}
+          {...firstRunProps}
           onPromptTyped={(text) => typed.push(text)}
-          onAsk={() => {}}
-          onOpen={() => {}}
           onSearch={(text) => searches.push(text)}
-          onShell={() => {}}
-          onJump={() => {}}
-          onOpenSession={() => {}}
-          onShowAll={() => {}}
         />,
       );
     });
@@ -206,18 +174,7 @@ test.each(["keyboard", "pointer"])("an explicit %s search still works without a 
   });
   try {
     await act(async () => {
-      root!.render(
-        <NewTabScreen
-          snapshot={noChat([], { catalog: [] })}
-          onAsk={() => {}}
-          onOpen={() => {}}
-          onSearch={(text) => searches.push(text)}
-          onShell={() => {}}
-          onJump={() => {}}
-          onOpenSession={() => {}}
-          onShowAll={() => {}}
-        />,
-      );
+      root!.render(<NewTabScreen {...firstRunProps} onSearch={(text) => searches.push(text)} />);
     });
     const field = await typePrompt("Implement a todo list");
     const search = dom!.window.document.querySelector<HTMLElement>('.nt-row[data-type="search"]');
@@ -247,18 +204,7 @@ test("Return on a typed address still opens it without a harness", async () => {
   });
   try {
     await act(async () => {
-      root!.render(
-        <NewTabScreen
-          snapshot={noChat([], { catalog: [] })}
-          onAsk={() => {}}
-          onOpen={(url) => urls.push(url)}
-          onSearch={() => {}}
-          onShell={() => {}}
-          onJump={() => {}}
-          onOpenSession={() => {}}
-          onShowAll={() => {}}
-        />,
-      );
+      root!.render(<NewTabScreen {...firstRunProps} onOpen={(url) => urls.push(url)} />);
     });
     const field = await typePrompt("https://example.com/");
     await press(field, "Enter");

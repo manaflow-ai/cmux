@@ -25,6 +25,11 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   const CHAT = "0190a000-0000-7000-8000-0000000000c1";
   const PROJECT = "/Users/you/src/atlas";
   const DRAFT = "Implement a todo list from this screenshot";
+  type FirstRunWindow = Window & {
+    cmuxWebSwap: { hold(): string | null };
+    finishFirstRunImage(): void;
+    firstRunChatCalls: { method: string; params: Record<string, unknown> }[];
+  };
   const START = Date.UTC(2026, 9, 12, 9, 0, 0);
   const session = {
     sessionId: CHAT,
@@ -202,7 +207,8 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.addInitScript(
       ({ endpoint, project }) => {
-        const newTab = { kind: "agent", template: "default", home: "/Users/you", projects: [] };
+        const home = "/Users/you";
+        const newTab = { kind: "agent", template: "default", cwd: home, home, projects: [] };
         Object.assign(window, {
           __cmuxNewTabContext: newTab,
           webkit: {
@@ -252,17 +258,27 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     await page.locator(".nt-field").waitFor();
     // Wait for the actual no-harness chip; the page may mount before the catalog arrives.
     await page.locator(".acpmux-add-harness").waitFor();
+    // An inherited home folder is not a saved project: the clean card must still offer Browse.
+    expect(await page.locator('[data-action="browse-project"]').isVisible()).toBe(true);
     return page;
   }
 
-  async function prepareDraft(page: Page, noProject: boolean) {
+  async function prepareDraft(page: Page, noProject: boolean, pendingImage = false) {
     await page
       .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
       .click();
     await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
     const field = page.locator(".nt-field");
     await field.fill(DRAFT);
-    await field.evaluate(async (target) => {
+    await field.evaluate(async (target, pendingImage) => {
+      if (pendingImage) {
+        const post = Worker.prototype.postMessage;
+        Worker.prototype.postMessage = function (message) {
+          if (message?.kind !== "prepare") return post.call(this, message);
+          Worker.prototype.postMessage = post;
+          Object.assign(window, { finishFirstRunImage: () => post.call(this, message) });
+        };
+      }
       const canvas = document.createElement("canvas");
       canvas.width = 8;
       canvas.height = 8;
@@ -271,9 +287,11 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       const data = new DataTransfer();
       data.items.add(new File([blob], "first-chat.png", { type: "image/png" }));
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    }, pendingImage);
     const image = page.locator(".acpmux-attachment-image img");
-    await image.waitFor();
+    if (pendingImage)
+      await page.waitForFunction(() => typeof (window as FirstRunWindow).finishFirstRunImage === "function");
+    else await image.waitFor();
     return { field, image };
   }
 
@@ -303,6 +321,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       await page.locator(".acpmux-harnesses-close").waitFor();
       expect(await field.isVisible()).toBe(false);
       expect(await image.isVisible()).toBe(false);
+      expect(await page.evaluate(() => (window as FirstRunWindow).cmuxWebSwap.hold())).toMatch(/^newtab\./);
       await page.locator(".acpmux-harnesses-close").click();
       await field.waitFor();
       expect(await field.inputValue()).toBe(DRAFT);
@@ -315,10 +334,15 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     }
   });
 
-  test.each([false, true])("Start Chat after setup sends the draft and image with noProject=%s", async (noProject) => {
+  const starts = [
+    [false, false],
+    [true, false],
+    [false, true],
+  ];
+  test.each(starts)("Start Chat keeps project choice %s and pending image %s", async (noProject, pendingImage) => {
     const page = await firstRunPage();
     try {
-      await prepareDraft(page, noProject);
+      const { field } = await prepareDraft(page, noProject, pendingImage);
       await page.locator('[data-create="chat"]').click();
       const claude = page.locator('[data-harness-row="claude"]');
       await page.locator('[data-harness-row="claude"][data-harness-status="notInstalled"]').waitFor();
@@ -335,16 +359,15 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
           };
       });
       await claude.locator(".acpmux-harness-action").click();
+      if (pendingImage) {
+        await field.waitFor();
+        expect(await page.evaluate(() => (window as FirstRunWindow).firstRunChatCalls)).toEqual([]);
+        await page.evaluate(() => (window as FirstRunWindow).finishFirstRunImage());
+      }
       await page.waitForFunction(() =>
-        (window as unknown as { firstRunChatCalls: { method: string }[] }).firstRunChatCalls.some(
-          (call) => call.method === "chat.send",
-        ),
+        (window as FirstRunWindow).firstRunChatCalls.some((call) => call.method === "chat.send"),
       );
-      const calls = await page.evaluate(
-        () =>
-          (window as unknown as { firstRunChatCalls: { method: string; params: Record<string, unknown> }[] })
-            .firstRunChatCalls,
-      );
+      const calls = await page.evaluate(() => (window as FirstRunWindow).firstRunChatCalls);
       expect(calls.map((call) => call.method)).toEqual(["chat.new", "chat.send"]);
       expect(calls[0]!.params).toEqual(
         noProject ? { harness: "claude", noProject: true } : { harness: "claude", cwd: PROJECT },

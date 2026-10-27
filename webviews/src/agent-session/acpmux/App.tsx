@@ -474,6 +474,7 @@ import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
+import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -5431,11 +5432,21 @@ function AcpmuxPane() {
   // Add harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   const setupContinuation = useRef<((harness: string) => void) | undefined>(undefined);
+  const setupStart = useRef<{ harness: string; resume: (harness: string) => void } | undefined>(undefined);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
   useEffect(() => {
     setupContinuation.current = undefined;
+    setupStart.current = undefined;
     setHarnessesOpen(false);
   }, [snapshot.sessionId]);
+  useEffect(() => {
+    if (harnessesOpen) return;
+    const start = setupStart.current;
+    setupStart.current = undefined;
+    // Child effects reconnect first, including the attachment waiter's scope effect. Queueing
+    // the send before revealing Activity would let that effect discard the pending send.
+    start?.resume(start.harness);
+  }, [harnessesOpen]);
   // A chat it starts, and a login it runs, go to the chat's folder (a new chat's start folder).
   const harnessFolder = snapshot.summary?.cwd ?? startFolder;
   const retryHarness = pickerCatalog.harnesses.find(
@@ -6231,6 +6242,7 @@ function AcpmuxPane() {
         ? undefined
         : registerHarnessesPage(() => {
             setupContinuation.current = undefined;
+            setupStart.current = undefined;
             setHarnessesOpen(true);
           }),
     [quick],
@@ -8244,6 +8256,9 @@ function AcpmuxPane() {
     (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
+  // Activity disconnects the hidden page's draft/attachment/choice holds during setup. Keep
+  // the reload hold in the parent until the page is visible and its own effects reconnect.
+  useWebSwapHold(showNewTab && harnessesOpen ? "newtab.setup" : null);
   const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
   const commandRevision = clientSnapshot.sessions.find((session) => session.sessionId === commandSession);
   const readSessionCommands = useCallback(
@@ -9491,6 +9506,7 @@ function AcpmuxPane() {
       refreshCatalog={pickerState.refresh}
       onClose={() => {
         setupContinuation.current = undefined;
+        setupStart.current = undefined;
         setHarnessesOpen(false);
       }}
       {...(setupContinuation.current
@@ -9498,13 +9514,14 @@ function AcpmuxPane() {
             onStartChat: (harness: string) => {
               const resume = setupContinuation.current;
               setupContinuation.current = undefined;
+              setupStart.current = resume ? { harness, resume } : undefined;
               setHarnessesOpen(false);
-              resume?.(harness);
             },
           }
         : {})}
       onStart={() => {
         setupContinuation.current = undefined;
+        setupStart.current = undefined;
         setHarnessesOpen(false);
         setNewTab(undefined);
       }}
