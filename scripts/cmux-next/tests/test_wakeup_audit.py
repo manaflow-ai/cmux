@@ -179,6 +179,27 @@ class WakeupAuditTests(unittest.TestCase):
         in_test = self.line_of(lib, "recv_timeout(Duration::from_millis(1))")
         self.assertNotIn((in_test, "recv-timeout"), hits)
 
+    def test_rust_checked_sync_wrappers_are_hits_at_their_callers(self) -> None:
+        # p14-energy-077m: the cmux_threads::checked::sync free functions set no timeout of their own.
+        rel = "cmux-tui/crates/demo/src/checked_callers.rs"
+        write(self.root, rel, """\
+            use std::time::Duration;
+            pub fn wait(rx: &std::sync::mpsc::Receiver<u8>) {
+                let _ = cmux_threads::checked::sync::recv_timeout(rx, Duration::from_secs(1));
+                checked::sync::sleep(Duration::from_millis(25));
+                sync::sleep(Duration::ZERO); // wakeup-allow: bounded one yield
+            }
+            fn sleep(duration: Duration) {}
+            pub fn local() { my::sleep(Duration::ZERO); }
+            """)
+        hits = {(h["line"], h["rule"]): h["status"] for h in self.audit.at("demo/src/checked_callers.rs",
+                                                                            "--lang", "rust")}
+        self.assertEqual(hits, {
+            (self.line_of(rel, "sync::recv_timeout("), "recv-timeout"): "hit",
+            (self.line_of(rel, "from_millis(25)"), "thread-sleep"): "hit",
+            (self.line_of(rel, "Duration::ZERO); // wakeup-allow"), "thread-sleep"): "escaped",
+        })
+
     def test_rust_test_only_module_files_tests_and_benches_are_skipped(self) -> None:
         files = {h["file"] for h in self.audit.hits("--lang", "rust")}
         for skipped in ("pathed_tests.rs", "deeper.rs", "tests/nested.rs", "support.rs", "tests/integration.rs",

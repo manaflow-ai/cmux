@@ -144,17 +144,18 @@ def swift_wakeup_rules(repo: Path) -> list[Rule]:
     ]
 
 
-# Rust: definitions (`fn wait_timeout(`) are not calls.
+# Rust: definitions (`fn wait_timeout(`) are not calls. cmux_threads::checked::sync wraps recv_timeout and sleep
+# as free functions; the rules match their callers (`sync::recv_timeout(`, `sync::sleep(`), where the timeout is set.
 _NOT_DEF = r"(?<!fn )"
 RUST_RULES = [
     Rule("recv-timeout", "timed channel receive (wait for the message; a deadline only for a one-shot timeout)",
-         re.compile(r"\.recv_timeout\("), literal="recv_timeout("),
+         re.compile(r"(?:\.|\bsync::)recv_timeout\("), literal="recv_timeout("),
     Rule("tokio-sleep", "async sleep (await the event; wake::deadline or MaintenanceClock for time)",
          re.compile(_NOT_DEF + r"(?:\btokio::time::|\btime::|(?<![\w:.]))sleep\("), literal="sleep("),
     Rule("wait-timeout", "timed wait on a condvar or child (wait for the event)",
          re.compile(_NOT_DEF + r"\bwait_timeout\("), literal="wait_timeout("),
     Rule("thread-sleep", "thread sleep (block on the event; a deadline for a one-shot timeout)",
-         re.compile(r"\bthread::sleep\("), literal="thread::sleep("),
+         re.compile(r"\b(?:thread|sync)::sleep\("), literal="::sleep("),
     Rule("read-timeout", "socket read timeout (block on readiness; it wakes the reader on every timeout)",
          re.compile(r"(?:\.|\b\w+::)set_read_timeout\((?!(?:\s*self\s*,)?\s*None\s*\))"), literal="set_read_timeout("),
     Rule("try-wait", "child exit polled with try_wait (wait for NOTE_EXIT / pidfd)",

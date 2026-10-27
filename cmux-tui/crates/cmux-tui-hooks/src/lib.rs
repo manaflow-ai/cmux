@@ -2711,6 +2711,7 @@ fn lock_codex_config(lock_path: &Path) -> Option<fs::File> {
             Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
                 // Lock contention, not synchronization: flock has no
                 // wait-with-timeout, so poll at a short interval to a deadline.
+                // wakeup-allow: bounded only while another process holds the codex config lock, at most CODEX_CONFIG_LOCK_WAIT (15 s)
                 cmux_threads::checked::sync::sleep(Duration::from_millis(25));
             }
             Err(_) => return None,

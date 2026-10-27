@@ -179,7 +179,7 @@ pub mod sync {
         timeout: Duration,
     ) -> Result<T, RecvTimeoutError> {
         assert_blocking_allowed(BlockingKind::Recv);
-        // wakeup-allow: deadline the caller's own timed receive, passed through; the caller owns the timeout
+        // wakeup-allow: deadline the caller's own timed receive, passed through; the audit judges each `sync::recv_timeout(` caller
         receiver.recv_timeout(timeout)
     }
 
@@ -253,7 +253,7 @@ pub mod sync {
     #[track_caller]
     pub fn sleep(duration: Duration) {
         assert_blocking_allowed(BlockingKind::Sleep);
-        // wakeup-allow: deadline the caller's own sleep, passed through; the caller owns the duration
+        // wakeup-allow: deadline the caller's own sleep, passed through; the audit judges each `sync::sleep(` caller
         std::thread::sleep(duration);
     }
 }

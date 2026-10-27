@@ -133,9 +133,11 @@ impl ImagePasteStore {
         let mut state = self.shared.state.lock().unwrap();
         let now = Instant::now();
         Self::reap(&mut state, now);
-        // A paste finds leftovers of a process that died since the last scan.
-        if state.next_recovery.is_none()
-            && state.recovery.as_ref().is_some_and(|recovery| recovery.stale(now))
+        // A paste scans now when the last scan is stale or none completed: it
+        // finds leftovers of a process that died since, and retries a
+        // namespace that could not be opened, ahead of any later deadline.
+        if state.recovery.as_ref().is_some_and(|recovery| recovery.wants_scan(now))
+            && state.next_recovery.is_none_or(|due| due > now)
         {
             state.next_recovery = Some(now);
             self.shared.changed.notify_one();

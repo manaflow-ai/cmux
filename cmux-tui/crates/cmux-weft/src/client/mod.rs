@@ -665,11 +665,16 @@ async fn deliver_inbound(shared: Arc<Shared>, mut inbound: mpsc::Receiver<relay_
     }
 }
 
+/// Follows the coordinator's netmap by long poll: idle, one request per
+/// `coord::LONG_POLL` (allowed_periodic `WeftNode.netmap`). Each return also
+/// keeps the relay sessions alive, so an idle node has this one wakeup.
 async fn follow_netmap(shared: Arc<Shared>) {
     let mut failures = 0u32;
     loop {
         let since = read(&shared.netmap).version;
-        match shared.fetch_netmap(Some(since)).await {
+        let fetched = shared.fetch_netmap(Some(since)).await;
+        shared.pool.keepalive();
+        match fetched {
             Ok(netmap) => {
                 failures = 0;
                 let relays_changed = read(&shared.netmap).relays != netmap.relays;

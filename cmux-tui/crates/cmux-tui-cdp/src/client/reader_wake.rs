@@ -66,12 +66,17 @@ impl ReaderWake {
             libc::pollfd { fd: socket.as_raw_fd(), events: libc::POLLIN, revents: 0 },
             libc::pollfd { fd: self.rx.as_raw_fd(), events: libc::POLLIN, revents: 0 },
         ];
-        let timeout_ms = retry.map_or(-1, |retry| {
-            i32::try_from(retry.as_nanos().div_ceil(1_000_000)).unwrap_or(i32::MAX)
-        });
+        let retry_ms = retry
+            .map(|retry| i32::try_from(retry.as_nanos().div_ceil(1_000_000)).unwrap_or(i32::MAX));
         loop {
-            // SAFETY: `fds` is a valid array of two pollfd for the call.
-            let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout_ms) };
+            let ready = if let Some(retry_ms) = retry_ms {
+                // wakeup-allow: bounded the event backlog retry, only while the consumer's event channel is full
+                // SAFETY: `fds` is a valid array of two pollfd for the call.
+                unsafe { libc::poll(fds.as_mut_ptr(), 2, retry_ms) }
+            } else {
+                // SAFETY: `fds` is a valid array of two pollfd for the call.
+                unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) }
+            };
             if ready >= 0 {
                 break;
             }

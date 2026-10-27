@@ -307,6 +307,9 @@ struct Inner {
     timeout: Duration,
     /// Wakes the reader thread for a queued command or a close.
     reader: ReaderWaker,
+    /// The reader's socket reads, so a test can show an idle reader sleeps.
+    #[cfg(test)]
+    reader_reads: AtomicU64,
 }
 
 struct PendingCall {
@@ -606,6 +609,8 @@ impl CdpClient {
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(30),
                 reader,
+                #[cfg(test)]
+                reader_reads: AtomicU64::new(0),
             }),
         };
         client.spawn_reader(ws, outbound_rx, reader_wake, events)?;
@@ -1509,7 +1514,7 @@ fn reader_loop(
         }
         if !readable {
             drop(inner);
-            // wakeup-allow: bounded the retry only while the consumer's event channel is full; untimed otherwise
+            // A timed retry only while the consumer's event channel is full.
             let retry = backlog.then_some(EVENT_BACKLOG_RETRY);
             match wake.wait(ws.get_ref(), retry) {
                 Ok(socket) => readable = socket,
@@ -1523,6 +1528,8 @@ fn reader_loop(
             }
             continue;
         }
+        #[cfg(test)]
+        inner.reader_reads.fetch_add(1, Ordering::Relaxed);
         let message = ws.read();
         match message {
             Ok(Message::Text(text)) => handle_text(&inner, &text),
@@ -2230,10 +2237,12 @@ mod tests {
     }
 
     /// p14-energy-077m: the reader sleeps on the socket, not on a 20 ms read
-    /// timeout. A command queued while it sleeps reaches the browser at once,
-    /// and the client's drop ends the reader (the browser sees the close).
+    /// timeout. An idle connection reads nothing for 500 ms (the 20 ms loop
+    /// read about 25 times), a command queued while it sleeps reaches the
+    /// browser at once, and the client's drop ends the reader (the browser
+    /// sees the close).
     #[test]
-    fn an_idle_reader_wakes_for_a_command_and_ends_with_the_client() {
+    fn an_idle_reader_sleeps_wakes_for_a_command_and_ends_with_the_client() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let (request_tx, request_rx) = channel();
@@ -2257,6 +2266,13 @@ mod tests {
             CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
         // Let the reader go idle in its wait.
         thread::sleep(Duration::from_millis(100));
+        let reads = client.inner.reader_reads.load(Ordering::Relaxed);
+        thread::sleep(Duration::from_millis(500));
+        assert_eq!(
+            client.inner.reader_reads.load(Ordering::Relaxed),
+            reads,
+            "an idle reader read the socket with nothing on it"
+        );
         client.detach_from_target_detached("session-1").unwrap();
         assert_eq!(
             request_rx.recv_timeout(Duration::from_secs(2)).unwrap().as_deref(),

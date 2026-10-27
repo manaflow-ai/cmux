@@ -36,7 +36,11 @@ use crate::types::{
     RotateRequest, SelfView,
 };
 
-/// How long a netmap request waits for a change.
+/// How long a netmap request waits for a change. Each node asks again at
+/// once, so an idle node polls at this period: `WeftNode.netmap` in
+/// scripts/cmux-next/idle-budget.json `allowed_periodic`. Its relay sessions'
+/// keepalive pings ride on the poll's return, so this period also bounds
+/// their silence under the Fly proxy's idle limit.
 pub const LONG_POLL: Duration = Duration::from_secs(25);
 /// Relay ticket lifetime. Clients refresh their netmap well inside it.
 pub const TICKET_LIFETIME_MS: u64 = 10 * 60 * 1000;

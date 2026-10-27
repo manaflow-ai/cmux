@@ -143,7 +143,8 @@
     {"owner": "GitHubFeedSource.refresh", "period_s": 120, "why": "GitHub has no push for the feed; task 066 stops it while no feed surface shows"},
     {"owner": "DeviceHubSocket.ping", "period_s": 30, "why": "PROTOCOL.md keepalive of the device hub, only on a socket silent both ways for the interval (any frame re-arms it), 10% leeway; a socket with traffic sends none"},
     {"owner": "ModelRouterLease.renewal", "period_s": 510, "why": "the local model relay's bearer expires with the Stack access token (10 min); one flexible prefer-early DemandTimer 90 s before exp, only while signed in with acpmux"},
-    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"}
+    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"},
+    {"owner": "WeftNode.netmap", "period_s": 25, "why": "a weft mesh node (the standalone `weft up` binary, not linked into the app or the daemon) follows the coordinator's netmap by long poll: the coordinator holds each request up to LONG_POLL (25 s, under the Fly proxy's idle limit) and the node asks again at once; the poll also carries the relay ticket and the node's last-seen. The relay sessions have no timer: each poll's return pings a session silent for 15 s, so an idle node wakes once per poll. A push channel from the coordinator would remove the poll (not built)"}
   ],
   "assertions_allowed_when": ["sessions.keepAwake", "phone.keepAwake"]
 }

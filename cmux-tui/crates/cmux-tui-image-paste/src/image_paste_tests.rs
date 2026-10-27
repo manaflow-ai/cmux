@@ -1,5 +1,9 @@
 use super::*;
+use crate::image_paste_file::ImagePasteFile;
+use crate::image_paste_recovery::{ImagePasteRecovery, RESCAN_AFTER};
+use crate::image_paste_storage::ImagePasteStorage;
 use std::fs;
+use std::os::unix::fs::DirBuilderExt;
 use std::sync::Arc;
 use std::sync::mpsc;
 
@@ -220,4 +224,84 @@ fn cloud_image_paste_already_removed_file_does_not_hold_storage_forever() {
     store.cancel(&owner(), ID).unwrap();
     assert!(store.shared.state.lock().unwrap().uploads.is_empty());
     assert!(!path.parent().unwrap().exists());
+}
+
+/// A private temporary parent for a recovery namespace, removed on drop.
+struct RecoveryRoot(std::path::PathBuf);
+
+impl RecoveryRoot {
+    fn new() -> Self {
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).unwrap();
+        let suffix: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let path = std::env::temp_dir().join(format!("image-store-recovery-test-{suffix}"));
+        fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+        Self(path)
+    }
+
+    fn storage(&self) -> ImagePasteStorage {
+        ImagePasteStorage::at(&self.0).unwrap()
+    }
+}
+
+impl Drop for RecoveryRoot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Waits (bounded) until the worker's recovery state satisfies `done`.
+fn recovery_reaches(store: &ImagePasteStore, done: impl Fn(&ImagePasteRecovery) -> bool) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if store.shared.state.lock().unwrap().recovery.as_ref().is_some_and(&done) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+/// p14-energy-077m: a namespace that could not be opened at start and opens
+/// later is used at once: the refused paste starts the scan, not the open
+/// retry's backoff (30 s doubling to 10 min).
+#[test]
+fn a_paste_retries_a_namespace_that_could_not_be_opened() {
+    let root = RecoveryRoot::new();
+    let storage = root.storage();
+    let namespace = storage.root().to_owned();
+    fs::remove_dir(&namespace).unwrap();
+    let store = ImagePasteStore::with_recovery(Some(ImagePasteRecovery::at(storage)));
+    assert!(!store.shared.state.lock().unwrap().recovery.as_ref().unwrap().ready);
+    fs::DirBuilder::new().mode(0o700).create(&namespace).unwrap();
+    assert_eq!(
+        store.begin(owner(), ID, "image/png", PNG.len()).unwrap_err().to_string(),
+        "image-storage-unavailable"
+    );
+    assert!(recovery_reaches(&store, |recovery| recovery.ready), "the paste did not start a scan");
+    store.begin(owner(), ID, "image/png", PNG.len()).unwrap();
+}
+
+/// p14-energy-077m: while a kept receipt schedules the next scan far ahead, a
+/// paste after RESCAN_AFTER still scans at once and counts the leftovers of a
+/// process that died since.
+#[test]
+fn a_paste_after_rescan_after_counts_new_leftovers_while_a_receipt_is_kept() {
+    let root = RecoveryRoot::new();
+    let kept = ImagePasteFile::create_in(&root.storage(), "png").unwrap();
+    kept.abandon_for_test();
+    let store = ImagePasteStore::with_recovery(Some(ImagePasteRecovery::at(root.storage())));
+    {
+        let state = store.shared.state.lock().unwrap();
+        assert_eq!(state.recovery.as_ref().unwrap().retained_count, 1);
+        assert!(state.next_recovery.unwrap() > Instant::now() + RESCAN_AFTER);
+    }
+    let leftover = ImagePasteFile::create_in(&root.storage(), "png").unwrap();
+    leftover.abandon_for_test();
+    store.shared.state.lock().unwrap().recovery.as_mut().unwrap().age(RESCAN_AFTER);
+    store.begin(owner(), ID, "image/png", PNG.len()).unwrap();
+    assert!(
+        recovery_reaches(&store, |recovery| recovery.retained_count == 2),
+        "the paste did not rescan while a receipt was kept"
+    );
 }

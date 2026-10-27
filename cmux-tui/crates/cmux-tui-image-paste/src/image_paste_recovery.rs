@@ -2,10 +2,11 @@
 //!
 //! Nothing rescans on a period (p14-energy-077m). A complete scan schedules
 //! the next one at the earliest receipt it kept (when that entry expires and
-//! frees its capacity); a new upload asks for a rescan when the last complete
-//! one is older than [`RESCAN_AFTER`], so leftovers of a process that died
-//! later are found by the next paste. Only a namespace that cannot be opened
-//! retries on its own, backing off.
+//! frees its capacity); a new upload starts a scan at once when the last
+//! complete one is older than [`RESCAN_AFTER`] or none completed, so leftovers
+//! of a process that died later are found by the next paste and a namespace
+//! that opens again is used by the next paste. Without a paste, a namespace
+//! that cannot be opened retries on its own, backing off.
 
 use std::collections::HashSet;
 use std::fs::ReadDir;
@@ -46,6 +47,24 @@ impl ImagePasteRecovery {
     pub(crate) fn stale(&self, now: Instant) -> bool {
         self.completed
             .is_none_or(|completed| now.saturating_duration_since(completed) >= RESCAN_AFTER)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn at(storage: ImagePasteStorage) -> Self {
+        Self { storage: Some(storage), ..Default::default() }
+    }
+
+    /// Moves the last complete scan `by` into the past.
+    #[cfg(test)]
+    pub(crate) fn age(&mut self, by: Duration) {
+        self.completed = self.completed.and_then(|completed| completed.checked_sub(by));
+    }
+
+    /// Whether a new upload should start a scan now: none is in progress, and
+    /// none completed yet (the namespace could not be opened) or the last one
+    /// is stale.
+    pub(crate) fn wants_scan(&self, now: Instant) -> bool {
+        self.entries.is_none() && self.stale(now)
     }
 
     /// Scans one batch. The wait until the next batch is due, or `None` when
