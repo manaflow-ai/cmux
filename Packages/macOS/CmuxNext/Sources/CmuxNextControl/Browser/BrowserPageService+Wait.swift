@@ -16,13 +16,17 @@ extension BrowserPageService {
 
     func waitAndCaptureMethods() -> [ControlMethod] {
         let engine = engine
+        let guards = loginGuards
         let allowsUnsafeCapture = allowsUnsafeCapture
         return [
             .async("browser.page.wait") { call in
                 let tab = try Self.tab(call)
                 let condition = try Self.waitCondition(call)
                 let timeoutMs = try Self.waitTimeout(call)
-                try await Self.waitUntil(engine, tab, condition, timeoutMs: timeoutMs, method: call.method)
+                // `--function` is the agent's own script: guarded like `eval` (``BrowserLoginGuards``).
+                var scripted: BrowserLoginGuards?
+                if case .function = condition { scripted = guards }
+                try await Self.waitUntil(engine, tab, condition, timeoutMs: timeoutMs, method: call.method, guards: scripted)
                 var result = Self.base(tab)
                 result["waited"] = true
                 return .object(result)
@@ -93,7 +97,7 @@ extension BrowserPageService {
     /// an engine error; the wait then starts again in the new page, spaced
     /// by ``Backoff``, for the rest of the time.
     static func waitUntil(_ engine: any BrowserPageEngine, _ tab: Tab, _ condition: BrowserPageScripts.WaitCondition,
-                          timeoutMs: Int, method: String) async throws {
+                          timeoutMs: Int, method: String, guards: BrowserLoginGuards? = nil) async throws {
         let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
         var backoff = Backoff(initial: .milliseconds(50), maximum: .milliseconds(500))
         var lastError: String?
@@ -106,8 +110,10 @@ extension BrowserPageService {
             let started = ContinuousClock.now
             do {
                 // The page's own timer ends the wait; this bounds an engine that never answers.
-                let value = try await ControlDeadline.shared.run(method: method, deadline: .now + .milliseconds(chunk) + .seconds(1)) {
-                    try await Self.run(engine, .evaluateAsync(BrowserPageScripts.waitScript(condition, timeoutMs: chunk)), tab)
+                let value = try await Self.guardedAgentScript(engine, tab, guards) {
+                    try await ControlDeadline.shared.run(method: method, deadline: .now + .milliseconds(chunk) + .seconds(1)) {
+                        try await Self.run(engine, .evaluateAsync(BrowserPageScripts.waitScript(condition, timeoutMs: chunk)), tab)
+                    }
                 }["value"]
                 if value?["met"]?.boolValue == true { return }
                 lastError = value?["error"]?.stringValue ?? lastError

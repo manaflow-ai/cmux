@@ -59,8 +59,11 @@ enum AppBrowserPage {
         if let refusal = agentURLRefusal(operation, target: target, page: page) { throw refusal }
         if needsLiveBrowser(operation) { try await ensureBrowser(page) }
         // No extension rule here: every agent may drive every tab, in any
-        // profile (#24413). Saved passwords never fill in an agent-driven tab
-        // (`markAgentDriven` above), and the per-tab lease coordinates agents.
+        // profile (#24413). The browser's saved passwords never fill in an agent-driven tab
+        // (`markAgentDriven` above), and the per-tab lease coordinates agents. The one login an
+        // agent tab gets is `browser.page.fill_login`: only a Secure Store login the person added
+        // for that site, only into an agent-profile tab whose document no agent script has run
+        // on, and agent scripts are refused on that document afterwards (`BrowserLoginGuards`).
         switch operation {
         case .navigate:
             if let target { page.load(target) }
@@ -75,6 +78,16 @@ enum AppBrowserPage {
             _ = await awaitPendingNavigation(page, within: actionWait)
             do {
                 let value = try await page.evaluate(script, world: .page, gesture: .agent)
+                return ["value": await json(value)]
+            } catch {
+                throw ControlError(code: "js_error", message: String(describing: error))
+            }
+        case .evaluateIsolated(let script):
+            // cmux's own script (the Secure Store fill and its document guard): the isolated world,
+            // no user gesture, after the page's first load as `evaluate`.
+            _ = await awaitPendingNavigation(page, within: actionWait)
+            do {
+                let value = try await page.evaluate(script, world: .isolated, gesture: .cmux)
                 return ["value": await json(value)]
             } catch {
                 throw ControlError(code: "js_error", message: String(describing: error))
@@ -118,7 +131,7 @@ enum AppBrowserPage {
     /// ``BrowserNativeInputs``; navigation and `state` do not need it.
     static func needsLiveBrowser(_ operation: BrowserPageOperation) -> Bool {
         switch operation {
-        case .evaluate, .evaluateAsync, .screenshot, .cookies, .upload: true
+        case .evaluate, .evaluateAsync, .evaluateIsolated, .screenshot, .cookies, .upload: true
         case .navigate, .back, .forward, .reload, .state, .input: false
         }
     }

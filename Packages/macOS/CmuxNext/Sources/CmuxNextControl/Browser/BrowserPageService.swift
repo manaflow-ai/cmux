@@ -18,6 +18,8 @@ public struct BrowserPageService: Sendable {
     /// The person's Secure Store logins by host, for `browser.page.fill_login`; nil (tests, hosts
     /// without a store) answers `no_saved_login`.
     let logins: BrowserPageLogins?
+    /// Which documents an agent scripted and which hold a filled login (``BrowserLoginGuards``).
+    let loginGuards = BrowserLoginGuards()
     /// `browser.agentMouse.*` as it is now, read per click.
     let agentMouse: @Sendable () async -> AgentMouseSetting.Value
     /// Test-only seam for the direct pixel-capture contract. Production leaves this false because
@@ -56,6 +58,7 @@ public struct BrowserPageService: Sendable {
     public func install(on router: ControlRouter) {
         let engine = engine
         let leases = leases
+        let guards = loginGuards
         let register: ([ControlMethod]) -> Void = { router.register($0.map(self.leasing)) }
         func page(_ name: String, _ operation: @escaping @Sendable (ControlCall) throws -> BrowserPageOperation) -> ControlMethod {
             .async("browser.page.\(name)") { call in
@@ -83,15 +86,17 @@ public struct BrowserPageService: Sendable {
             .async("browser.page.eval") { call in
                 let script = try Self.string(call, "script")
                 let tab = try Self.tab(call)
+                // The agent's own script: never on a document holding a filled login, and the
+                // document it runs on takes no login afterwards.
+                try await Self.beginAgentScript(engine, tab, guards)
                 let value: JSONValue
                 do {
-                    // Objects WebKit cannot return (DOMRect, Map, …) go through toJSON.
-                    value = try await Self.run(engine, .evaluate(BrowserPageScripts.jsonSafe(script)), tab)
-                } catch let error as ControlError where error.code == "js_error" && error.message.contains("SyntaxError") {
-                    // The wrapper reports what the script throws, so this is a
-                    // parse failure: nothing ran. Statements, not an expression.
-                    value = try await Self.run(engine, .evaluate(script), tab)
+                    value = try await Self.evaluateAgentScript(engine, script, tab)
+                } catch {
+                    await Self.endAgentScript(engine, tab, guards)
+                    throw error
                 }
+                await Self.endAgentScript(engine, tab, guards)
                 if let thrown = value["value"]?[BrowserPageScripts.thrownKey]?.stringValue {
                     throw ControlError(code: "js_error", message: thrown)
                 }
@@ -157,6 +162,19 @@ public struct BrowserPageService: Sendable {
             var result: [String: JSONValue] = Self.base(tab)
             result["value"] = value["value"] ?? .null
             return .object(result)
+        }
+    }
+
+    /// An agent's `eval` script: as an expression through ``BrowserPageScripts/jsonSafe(_:)``,
+    /// else (a parse failure: nothing ran) as statements.
+    private static func evaluateAgentScript(_ engine: any BrowserPageEngine, _ script: String, _ tab: Tab) async throws -> JSONValue {
+        do {
+            // Objects WebKit cannot return (DOMRect, Map, …) go through toJSON.
+            return try await run(engine, .evaluate(BrowserPageScripts.jsonSafe(script)), tab)
+        } catch let error as ControlError where error.code == "js_error" && error.message.contains("SyntaxError") {
+            // The wrapper reports what the script throws, so this is a
+            // parse failure: nothing ran. Statements, not an expression.
+            return try await run(engine, .evaluate(script), tab)
         }
     }
 

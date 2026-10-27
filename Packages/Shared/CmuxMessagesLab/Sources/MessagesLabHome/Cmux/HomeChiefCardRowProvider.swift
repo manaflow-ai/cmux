@@ -44,7 +44,7 @@ final class HomeChiefCardRowProvider: TranscriptCustomRowProvider {
     static func part(_ card: ChiefCard, media: HomeMapping.Media, context: HomeChiefCardContext) -> Part {
         let payload = Payload(card: card, picture: card.image.flatMap { media($0.hash) },
                               chosen: card.choices.filter(context.chosen.contains),
-                              added: card.kind == .signIn && card.site.map { context.stored.contains($0.lowercased()) } == true)
+                              added: card.kind == .signIn && card.site.map(context.holds) == true)
         guard installed != nil, let custom = custom(payload) else { return .text(HomeChiefCards.text(payload), runs: []) }
         return .custom(custom)
     }
@@ -105,6 +105,24 @@ enum HomeChiefCardAction: Equatable {
 struct HomeChiefCardContext: Hashable {
     var chosen: Set<String> = []
     var stored: Set<String> = []
+
+    /// Whether the Secure Store holds a login `site` (a card's host) uses: as
+    /// `ChiefSecureStore.credential(forHost:)` matches, the stored site itself or a parent domain of
+    /// it (a card for `www.linkedin.com` shows Added when `linkedin.com` is saved).
+    func holds(_ site: String) -> Bool {
+        guard let host = Self.normalized(site) else { return false }
+        return stored.contains { stored in
+            guard let stored = Self.normalized(stored) else { return false }
+            return host == stored || host.hasSuffix("." + stored)
+        }
+    }
+
+    /// Lowercased with a trailing dot dropped; nil when empty.
+    private static func normalized(_ name: String) -> String? {
+        var name = name.trimmingCharacters(in: .whitespaces).lowercased()
+        if name.hasSuffix(".") { name.removeLast() }
+        return name.isEmpty ? nil : name
+    }
 }
 
 /// The cards' words and the chips' derivation.

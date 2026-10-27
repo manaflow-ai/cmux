@@ -19,6 +19,8 @@ import Testing
         }
 
         func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
+            // cmux's document probe around a `--function` wait (BrowserLoginGuards): one document.
+            if case .evaluateIsolated = operation { return ["value": ["document": "1", "opener": false]] }
             let index = calls.withLock { calls in
                 calls.append(operation)
                 return calls.count - 1

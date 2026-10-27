@@ -10,7 +10,27 @@ import Foundation
 /// fields never). A two-step login shows only the username: it is filled alone when it says it
 /// is one. The document is walked with its open shadow roots and same-origin frames, in tree order.
 extension BrowserPageScripts {
-    /// The attribute the fill leaves on the last field it filled, for ``submitLogin``.
+    /// The document's name for ``BrowserLoginGuards``, run in cmux's isolated world: its time
+    /// origin (page scripts cannot change what the isolated world reads), and whether another
+    /// window opened it (an opener's script could reach into it). Answers `{document, opener}`.
+    static let documentProbe = """
+        (() => { let t = null; try { t = performance.timeOrigin; } catch (_) {} \
+        return { document: (typeof t === 'number' && isFinite(t) && t > 0) ? String(t) : null, opener: !!window.opener }; })()
+        """
+
+    /// The checks every login script makes first, in its own world: still `document` (no
+    /// navigation since the probe), still `host`, still https.
+    private static func loginPreamble(host: String, document: String) -> String {
+        """
+        let cmuxDoc = null; try { cmuxDoc = String(performance.timeOrigin); } catch (_) {}
+        if (cmuxDoc !== \(literal(document)) || String(location.hostname || '').toLowerCase() !== \(literal(host.lowercased()))) {
+          return { value: { username: false, password: false, reason: 'navigated' } };
+        }
+        if (location.protocol !== 'https:') { return { value: { username: false, password: false, reason: 'not_https' } }; }
+        """
+    }
+
+    /// The attribute the fill leaves on the last field it filled, for ``submitLogin(host:document:)``.
     static let loginMark = "data-cmux-login"
 
     /// `cmuxLoginShown(el)` and `cmuxLoginFields()` → `{user, pass}` (either may be null).
@@ -54,16 +74,14 @@ extension BrowserPageScripts {
         };
         """
 
-    /// Fills `username` and `password` into the login fields of a page on `host` (the top
-    /// document's host, checked again here so a page that navigated away gets nothing). Answers
+    /// Fills `username` and `password` into the login fields of `document` (``documentProbe``) on
+    /// `host` over https, all checked again here so a page that moved gets nothing. It runs in
+    /// cmux's isolated world, so a page-world hook on the value setter never sees the values. Answers
     /// `{value: {username, password, reason?}, at}`: which fields it filled (booleans only, never
     /// a value) and the last field's rect, always marked secret. The values ride only in this
     /// script; nothing echoes them.
-    static func fillLogin(host: String, username: String, password: String) -> String {
-        wrap(measure + loginFields + """
-        if (String(location.hostname || '').toLowerCase() !== \(literal(host.lowercased()))) {
-          return { value: { username: false, password: false, reason: 'navigated' } };
-        }
+    static func fillLogin(host: String, document: String, username: String, password: String) -> String {
+        wrap(measure + loginFields + loginPreamble(host: host, document: document) + """
         const found = cmuxLoginFields();
         if (!found.user && !found.pass) { return { value: { username: false, password: false, reason: 'no_login_field' } }; }
         const put = (el, next) => {
@@ -85,11 +103,13 @@ extension BrowserPageScripts {
         """)
     }
 
-    /// Submits the form of the field ``fillLogin(host:username:password:)`` filled last, in a
+    /// Submits the form of the field ``fillLogin(host:document:username:password:)`` filled last, in a
     /// later task than the fill so a framework sees the new values first: its sign-in (or next)
     /// submit button, else the form itself, else a sign-in button near the field, else Enter on
-    /// the field. Answers `{value: true}` when it pressed or submitted something.
-    static let submitLogin = wrap(deepQuery + loginFields + """
+    /// the field. Answers `{value: true}` when it pressed or submitted something. The same checks as
+    /// the fill come first (a moved page answers `{value: {reason}}`, not true).
+    static func submitLogin(host: String, document: String) -> String {
+        wrap(deepQuery + loginFields + loginPreamble(host: host, document: document) + """
         const el = cmuxDeep(document, '[\(loginMark)]', 0);
         if (!el) { return { value: false }; }
         el.removeAttribute('\(loginMark)');
@@ -112,4 +132,5 @@ extension BrowserPageScripts {
         key('keydown'); key('keypress'); key('keyup');
         return { value: false };
         """)
+    }
 }

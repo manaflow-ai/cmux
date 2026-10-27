@@ -49,7 +49,10 @@ password) or `oauth` (a "Sign in with ..." page).
      what it filled (`filled`, `username_filled`, `password_filled`,
      `submitted`). A two-step login fills the user name first
      (`password_filled: false`): run it again on the password page.
-     `reason: "no_saved_login"` means nothing is saved for that site yet.
+     `reason: "no_saved_login"` means nothing is saved for that site yet;
+     `scripted_page` means you ran `eval` (or `wait --function`) on this
+     page: navigate to the login page again, then fill. It fills only your
+     own tab, and `eval` on the filled page is refused (`login_filled`).
      Then continue the task.
 - Never import cookies or sign-ins from another browser without the
   user's Allow (`cmux browser import-cookies ... --reason`).

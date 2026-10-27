@@ -20,13 +20,13 @@ import WebKit
                               backing: .buffered, defer: false)
         private var loaded: CheckedContinuation<Void, Never>?
 
-        func load(_ html: String) async {
+        func load(_ html: String, scheme: String = "https") async {
             _ = NSApplication.shared
             window.contentView = webView
             webView.navigationDelegate = self
             await withCheckedContinuation { done in
                 loaded = done
-                webView.loadHTMLString(html, baseURL: URL(string: "https://\(BrowserPageLoginScriptTests.host)/"))
+                webView.loadHTMLString(html, baseURL: URL(string: "\(scheme)://\(BrowserPageLoginScriptTests.host)/"))
             }
         }
 
@@ -48,16 +48,32 @@ import WebKit
         func value(_ id: String) async throws -> String? {
             try await read("document.getElementById('\(id)').value").stringValue
         }
+
+        /// A page expression's value, evaluated in an isolated content world as cmux's own login
+        /// scripts run (`BrowserPageOperation.evaluateIsolated`).
+        func readIsolated(_ expression: String) async throws -> JSONValue {
+            let text = try await webView.evaluateJavaScript("JSON.stringify(\(expression))", in: nil,
+                                                            contentWorld: .world(name: "cmux-login-test")) as? String
+            guard let data = text?.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return .null }
+            return JSONValue(foundation: object) ?? .null
+        }
+
+        /// The document's name as the probe gives it.
+        func document() async throws -> String {
+            try #require(try await readIsolated(BrowserPageScripts.documentProbe)["document"]?.stringValue)
+        }
     }
 
-    private func page(_ body: String) async -> Page {
+    private func page(_ body: String, scheme: String = "https") async -> Page {
         let page = Page()
-        await page.load("<!doctype html><html><body style=\"font: 14px sans-serif\">\(body)</body></html>")
+        await page.load("<!doctype html><html><body style=\"font: 14px sans-serif\">\(body)</body></html>", scheme: scheme)
         return page
     }
 
     private func fill(_ page: Page, host: String = host) async throws -> JSONValue {
-        let answer = try await page.read(BrowserPageScripts.fillLogin(host: host, username: Self.username, password: Self.password))
+        let script = BrowserPageScripts.fillLogin(host: host, document: try await page.document(), username: Self.username, password: Self.password)
+        let answer = try await page.readIsolated(script)
         let text = String(describing: answer)
         #expect(!text.contains(Self.username) && !text.contains(Self.password), "the answer names no value")
         return answer
@@ -80,7 +96,7 @@ import WebKit
         #expect(try await page.value("p") == Self.password)
         #expect(try await page.value("search") == "")
         #expect(try await page.value("q") == "")
-        let submitted = try await page.read(BrowserPageScripts.submitLogin)
+        let submitted = try await page.readIsolated(BrowserPageScripts.submitLogin(host: Self.host, document: try await page.document()))
         #expect(submitted["value"] == true)
         #expect(try await page.read("window.sent") == ["u": .string(Self.username), "p": .string(Self.password)])
     }
@@ -98,7 +114,7 @@ import WebKit
         #expect(answer["value"]?["password"] == false)
         #expect(try await page.value("id") == Self.username)
         #expect(try await page.value("hiddenpw") == "", "a hidden password field is never filled")
-        #expect(try await page.read(BrowserPageScripts.submitLogin)["value"] == true)
+        #expect(try await page.readIsolated(BrowserPageScripts.submitLogin(host: Self.host, document: try await page.document()))["value"] == true)
         #expect(try await page.read("window.sent") == true)
     }
 
@@ -149,5 +165,50 @@ import WebKit
         let shadow = "document.getElementById('host').shadowRoot"
         #expect(try await page.read("\(shadow).getElementById('u').value") == .string(Self.username))
         #expect(try await page.read("\(shadow).getElementById('p').value") == .string(Self.password))
+    }
+
+    @Test func aPlainHttpPageGetsNothingEvenOnTheRightHost() async throws {
+        let page = await page("<form><input id=\"u\" type=\"email\"><input id=\"p\" type=\"password\"></form>", scheme: "http")
+        let answer = try await fill(page)
+        #expect(answer["value"]?["reason"] == "not_https")
+        #expect(try await page.value("u") == "")
+        #expect(try await page.value("p") == "")
+    }
+
+    @Test func anotherDocumentNameGetsNothing() async throws {
+        let page = await page("<form><input id=\"u\" type=\"email\"><input id=\"p\" type=\"password\"></form>")
+        let script = BrowserPageScripts.fillLogin(host: Self.host, document: "12.5", username: Self.username, password: Self.password)
+        #expect(try await page.readIsolated(script)["value"]?["reason"] == "navigated")
+        #expect(try await page.value("p") == "")
+    }
+
+    /// The blocker the isolated world closes: a page-world hook on the value setter (what an
+    /// agent's eval could plant) never sees the values the fill sets.
+    @Test func aPageWorldSetterHookNeverSeesTheValues() async throws {
+        let page = await page("""
+        <form><input id="u" type="email" autocomplete="username"><input id="p" type="password"></form>
+        <script>
+          window.caught = [];
+          const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+          Object.defineProperty(HTMLInputElement.prototype, 'value', { configurable: true,
+            get() { return d.get.call(this); }, set(v) { window.caught.push(v); d.set.call(this, v); } });
+        </script>
+        """)
+        let answer = try await fill(page)
+        #expect(answer["value"]?["password"] == true)
+        #expect(try await page.read("window.caught") == [])
+        #expect(try await page.value("p") == Self.password, "the page itself still reads the field")
+    }
+
+    @Test func theProbeNamesTheDocumentAndANavigationRenamesIt() async throws {
+        let first = await page("<p>one</p>")
+        let name = try await first.document()
+        #expect(Double(name) != nil)
+        #expect(try await first.document() == name, "the same document keeps its name")
+        // A page-world override of the time origin does not reach the isolated world.
+        _ = try await first.read("(() => { Object.defineProperty(Performance.prototype, 'timeOrigin', { get() { return 42; } }); return 1; })()")
+        #expect(try await first.document() == name)
+        let second = await page("<p>two</p>")
+        #expect(try await second.document() != name)
     }
 }

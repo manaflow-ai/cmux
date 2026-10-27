@@ -73,6 +73,20 @@ import Testing
         #expect(state.storedSites == ["linkedin.com"], "the state keeps sites lowercased")
     }
 
+    /// As `ChiefSecureStore.credential(forHost:)` matches: a saved parent domain covers the card's host.
+    @Test func signInShowsAddedWhenAParentDomainIsSaved() {
+        let context = HomeChiefCardContext(stored: ["linkedin.com"])
+        #expect(context.holds("www.linkedin.com"))
+        #expect(context.holds("LinkedIn.com."))
+        #expect(!context.holds("evillinkedin.com"), "a suffix that is not a parent domain")
+        #expect(!context.holds("com"))
+        #expect(!HomeChiefCardContext(stored: ["www.linkedin.com"]).holds("linkedin.com"), "a child site does not cover its parent")
+        var card = Self.signIn
+        card.site = "www.linkedin.com"
+        let part = HomeChiefCardRowProvider.part(card, media: { _ in nil }, context: context)
+        #expect(Self.payload(part)?.added == true)
+    }
+
     // MARK: Clicks (the layout the drawing used)
 
     @Test func openBrowserIsTheBottomButton() throws {

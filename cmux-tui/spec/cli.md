@@ -707,7 +707,10 @@ login the person saved in the app's Secure Store for the tab's site into the pag
 and password fields; `--submit` then submits the form. It is a write verb (on `right`, the
 agent's own tab or a handed-over one). The answer is `{filled, site, username_filled,
 password_filled, submitted}` and never contains the username or password; with no saved login
-it is `{filled: false, site: null, reason: "no_saved_login"}`.
+it is `{filled: false, site: null, reason: "no_saved_login"}`. It fills only an agent-profile tab
+over https, only a document no agent script (`eval`, `wait --function`) ran on (else `reason:
+"scripted_page"`), and afterwards those scripts are refused on that document (error code
+`login_filled`) until it navigates.
 
 Terminal and sidebar attachments stream styled render snapshots and patches.
 Browser attachments stream browser state and frames. Public attachments never
