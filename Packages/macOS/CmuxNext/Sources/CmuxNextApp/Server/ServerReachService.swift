@@ -342,7 +342,7 @@ final class ServerReachService {
         guard machines.server(reach.machineID) == nil else { return }
         let session = ServerMachineSession(reach: reach, binary: binary, paths: paths, environment: SSHService.environment,
                                            localIdentity: { [machines] in machines.local.identity }, cli: cli,
-                                           mainWork: mainWork)
+                                           mainWork: mainWork, deadlines: machines.local.deadlines, appEvents: machines.local.appEvents)
         session.daemon.workTracker = machines.local.workTracker
         // The overlay ended: re-read the link (`link show` checks its pid
         // and socket), so a crashed link with a stale link.json falls back.
