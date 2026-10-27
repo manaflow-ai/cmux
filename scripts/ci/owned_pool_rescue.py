@@ -725,12 +725,14 @@ def signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
 
 def gated_signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime, first_seen: Mapping[Any, dt.datetime],
                         workflow_text: str | None) -> Look | None:
-    """signing_stall(), with Look "stalled" turned into "watch" unless every unfinished signing job's runs-on in
-    `workflow_text` takes its alternate label on a re-run (sign_stall_gate())."""
+    """signing_stall(), with Look "stalled" turned into "watch" unless the runs-on in `workflow_text` of every
+    covered job of the run takes its alternate label on a re-run (sign_stall_gate())."""
     stall = signing_stall(jobs, now, first_seen)
     if stall is None or stall.action != "stalled":
         return stall
-    keys = sorted({key for job in jobs if job.get("status") != "completed" for key in [sign_job_key(job)] if key})
+    # Every covered job of the run, finished or not: a re-run of failed jobs also re-runs a signing job that
+    # failed or was cancelled, and that one must take its alternate label too.
+    keys = sorted({key for job in jobs for key in [sign_job_key(job)] if key})
     missing = sign_stall_gate(workflow_text, keys)
     if missing:
         return Look("watch", f"{stall.reason}, but the runs-on of {', '.join(missing)} at the run's head takes no "

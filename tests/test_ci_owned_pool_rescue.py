@@ -3309,6 +3309,19 @@ class NightlySigningStall(unittest.TestCase):
                 api.cancel(RUN_ID, before_send=stop)
         self.assertNotIn("send:POST", order)
 
+    def test_a_finished_signing_job_the_re_run_repeats_is_gated_too(self):
+        # The legacy signer already failed: the re-run of failed jobs repeats it, so its runs-on must have the
+        # alternate as well, or nothing is rescued.
+        now = START + dt.timedelta(seconds=60 + rescue.SIGN_STALL_SECONDS)
+        stalled = dict(job("build-sign-notarize-nightly (arm64)", labels=[BLACKSMITH], created=60), id=4)
+        failed = dict(job("sign-nightly-identity-legacy", status="completed", labels=[BLACKSMITH], runner="bs"),
+                      id=5, conclusion="failure")
+        only_arm64 = SIGN_WORKFLOW.split("  sign-nightly-identity-legacy:")[0]
+        self.assertEqual(rescue.gated_signing_stall([stalled, failed], now, {}, SIGN_WORKFLOW).action, "stalled")
+        look = rescue.gated_signing_stall([stalled, failed], now, {}, only_arm64)
+        self.assertEqual(look.action, "watch")
+        self.assertIn("sign-nightly-identity-legacy", look.reason)
+
     def test_every_retry_inside_request_keeps_the_guard(self):
         import inspect
         import re as re_module
