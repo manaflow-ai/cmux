@@ -31,7 +31,7 @@ nonisolated enum SectionFlow {
     static func mode(_ section: LayoutSection, look: SectionsLookVariant) -> Mode? {
         // Pinned workspaces are rows whatever a stored document says: a grid saved before
         // 2026-10-26 drew them as square tiles (user: "look like normal workspaces").
-        if section.id == SidebarLayoutDocument.pinnedSectionID { return nil }
+        if section.id.rawValue == SidebarDocStore.pinnedSection { return nil }
         switch section.arrangement.layout {
         case .inline: return .inline(iconsOnly: false)
         case .grid: return .grid(columns: section.arrangement.columns)
