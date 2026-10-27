@@ -1,12 +1,15 @@
 # Opt-in hang reports from cmux NEXT Nightly
 
-Status: design and v1, 2026-10-23. Owner: PL-telemetry (Performance Lead). Branch `feat-cmux-next`
-(app), `main` (web route, table, script).
+Status: design and v1, 2026-10-23. Schema 3 (input latency, blocking sites, thread hangs, field data) is
+written and stays behind the feature `hangReportsSchema3` until the server accepts it (section 4).
+Owner: PL-telemetry (Performance Lead). Branch `feat-cmux-next` (app), `main` (web route, table, script).
 Lawrence (2026-10-23): "collect opt-in hang reports from nightly users. Make sure to redact privacy
 stuff."
 
 Related: `perf-lead.md` (the lab numbers these reports check in the field),
 `hang-reports-privacy-policy-DRAFT.md` (the privacy policy change; legal step, not published),
+`chrome-parity/p09-observability.md` (sections 3D to 3F: field histograms, hang watch, crash reports),
+`trace.md` (the black-box rings that schema 3's `blackbox[]` reads),
 `CmuxNextControl/Diagnostics/MainThreadWatchdog.swift` (the in-process detector),
 `CmuxNextCrashReporting` (Sentry crash reports: a separate, opt-out channel this does not change).
 
@@ -58,6 +61,9 @@ Related: `perf-lead.md` (the lab numbers these reports check in the field),
 | MetricKit `MXSignpostMetric` | duration histograms and hitch ratio of allowlisted Release intervals (below) | none: aggregated by the OS |
 | `MainThreadWatchdog` (in process) | each finished stall over 50 ms into a duration histogram; the stacks of the 8 longest stalls of 250 ms and more; each 2 s hang's stack | one lock and a few integer adds per finished stall, on the stall's own end; nothing while the app is idle |
 | `InputLatencyReporter` field report (in process, p04-input-010; schema 3) | input latency histograms per kind, target, entrypoint, presentation source and display (refresh rate, whether it varies); Chrome's scroll jank counts | while on, a second `InputLatencyLedger` folds the same closed-slot batches on the reporter's utility reader; nothing on the main thread, nothing while idle |
+| `MetricsStore` (CmuxNextMetrics, p09-observability-052, 053; schema 3) | the catalog histograms recorded since the last queued report, as bucket deltas; the stability counts; each earlier launch's unsent samples under that launch's profile | a record is 3 relaxed atomic adds into a per-launch `MAP_SHARED` file; the report reads the delta and folds earlier files on the `hang-reports.field-data` executor, off main |
+| Trace black boxes (CmuxNextTrace and Rust cmux-trace rings, p09-observability-063; schema 3) | at most 512 records of the app, daemon, holder and host rings, taken once per report at a hang of 1 s or more or a key frame over 50 ms | the trigger is one more check under the collector's lock; the rings are read off main |
+| `HangWatch` (p09-observability-066 to 068; schema 3) | a watched thread or lane still in its scope 2 s past its deadline: the thread's name and kind and its stack | the hang monitor samples the thread on the watchdog thread; nothing while no scope is late |
 
 `MXAppLaunchDiagnostic` is iOS only (`API_UNAVAILABLE(macos)` in the macOS 26 SDK): launch on
 the Mac is the launch metric histograms plus watchdog stalls during launch.
@@ -119,7 +125,7 @@ URLs, host names, tokens and environment text, and check that no planted string 
 encoded report, that third-party frames lose their name, UUID and offset, and that the scanner
 refuses a report that carries one.
 
-## 4. Wire format (schema 2; schema 3 adds blocking sites)
+## 4. Wire format (schema 2; schema 3 adds input latency, blocking sites, thread hangs and field data)
 
 `POST https://cmux.com/api/hang-reports`, `content-type: application/json`, body at most 64 KiB,
 user agent `cmux-hang-reports/1`. Answers: `204` stored (or a duplicate `reportId`), `400`
@@ -276,6 +282,89 @@ Schema 3 also adds `counts.userBlockingWaitP99Ms` (p02-threads-123,
 launch, one of `0-1`, `1-2`, `2-4`, `4-8`, `8-16`, `16-32`, `32-64`, `64+` (milliseconds,
 `CoarseCounts.waitLabels`). The schema-3 decoder must list it as an optional closed literal set
 before a build sends schema 3; a schema-2 report never has it.
+
+### Schema 3: thread hangs (p09-observability-068)
+
+The hang watch (threading-model.md, "Hang watch") adds one `hangs[]` entry for a watched thread or lane
+that is still in its scope 2 s after its deadline. It is at most one entry per registration name per
+report interval:
+
+```json
+{"source": "hangwatch", "kind": "hang", "durationMs": 2100,
+ "thread": {"name": "terminal.feed", "kind": "lane"},
+ "frames": [{"image": "cmux NEXT Nightly", "uuid": "3F0C...", "offset": 4096}, {"image": "other"}]}
+```
+
+`durationMs` is the time past the deadline when the monitor took the stack. `thread.name` is the
+registration's catalog name (a `StaticString` in the code, never a person's text), and `thread.kind` is a
+`HangWatch.ThreadKind` case name (`main`, `io`, `lane`, `renderer`, `pool`, `control`, ...), else `other`.
+`thread` is present only when `source` is `hangwatch` (`HangReport.WireSchema.carriesThreadHangs`).
+
+### Schema 3: field data (p09-observability-063)
+
+Schema 3 also carries the field data of chrome-parity section 3D: the catalog histograms, the stability
+counts, the merged black box, and the samples of earlier launches. Chrome sends the same parts in a UMA
+log: histogram deltas (base/metrics/histogram_snapshot_manager.cc), stability counts with their
+denominators (components/metrics/stability_metrics_helper.cc), and each earlier run's file as its own log
+with that run's profile (components/metrics/file_metrics_provider.cc). The keys are snake_case:
+
+```json
+{
+  "histograms": [
+    {"name": "key.frame.terminal", "unit": "us", "buckets": [[30, 412], [31, 96], [36, 2]],
+     "count": 510, "sum": 2958000, "max": 10000000}
+  ],
+  "stability": {"launch": 1, "active_seconds": 5400, "unclean_exit": {"killed": 1},
+                "child_exit": {"daemon": {"clean": 1}}, "daemon_unresponsive": {"terminal_io": 1}},
+  "blackbox": [
+    {"t_us": 0, "process": "app", "name": "action.commit", "phase": "B", "arg0": 3},
+    {"t_us": 1200, "process": "daemon", "name": "daemon.request", "phase": "E"}
+  ],
+  "launch_sections": [
+    {"id": "1b4e28ba-2fa1-4d3b-a3f5-ef19f2c0d6a1",
+     "profile": {"version": "0.70.0", "build": "2123456789012", "channel": "nightly", "os": "26.1",
+                 "build_day": "2026-10-26"},
+     "histograms": [], "stability": {"launch": 1, "unclean_exit": {"crash": 1}}}
+  ]
+}
+```
+
+- `histograms[]`: at most 32 histograms, the ones with the most samples. Each one has at most 24
+  non-empty buckets as `[index, count]` pairs. `name` is a `HistogramID` of this build's catalog: a
+  report decoded from disk with another name is refused. `unit` (`us`, `ms`, `kib`, `count`, `pct`, `enum`)
+  and `max` (the layout's ceiling, or the value count of an enumeration) give the bucket layout. With more
+  than 24 buckets, `count` and `sum` are those of the kept buckets, and the rest goes in a later report.
+  A report sends only the samples since the last queued report. A sample is marked as sent only when its
+  report is queued.
+- `stability{}`: only the non-zero counts. `launch` and `active_seconds` are the denominators.
+  `unclean_exit` is by `HistogramID.UncleanExit` (`crash`, `system_shutdown`, `killed`, `fatal_hang`),
+  `child_exit` by process kind and then exit kind, and `daemon_unresponsive` by the method class of the
+  daemon's last request. The body cap never cuts it.
+- `blackbox[]`: at most 512 records, oldest first. The app, daemon, holder and terminal host rings are
+  merged by time (`process` names the ring's role). The collector takes them once per report: at the first
+  hang of 1 s or more (`HangReportCollector.blackBoxHangMs`), or the first key frame over 50 ms
+  (`blackBoxKeyFrameMicros`). `TraceBlackBoxUpload` keeps catalog names and numbers only. It drops every
+  record of the key category, every per-input record (`cef.host_input`, `remote.input`, `remote.present`,
+  `frame.present_estimate`), every PTY hop and every flow record (`s`, `f`). So no report can show the
+  time between two keys (p09-observability-128). A quit saves the black box beside the watchdog
+  aggregate, so the next launch's report has it.
+- `launch_sections[]`: at most one per report. At launch the app folds each earlier launch's metrics file
+  off main (`MetricsLaunchFold`). The section's `id` is a UUID-shaped digest of that launch's id, so the
+  launch's pid, start time and boot session never leave the Mac. The server counts a section that comes
+  twice only once. The app deletes the launch's file only after the server took the report.
+- Body cap: 48 KiB for schema 3 (`HangReport.WireSchema.maxBodyBytes`). The cut order is: the black box (the
+  oldest records first), then the input latency, then the launch sections, then the histograms with the
+  fewest samples, then the shortest hangs, CPU exceptions and intervals. The stability counts stay.
+
+**Server first.** The server's schema 3 decoder is `web/services/hangReports/wireSchema3.ts` and
+`fieldData.ts` (p09-observability-064). It has the same limits (up to 8 launch sections). It does not
+refuse a report for a name or label that it does not know. It drops the histogram, stability key,
+black-box record or label, counts it, and stores the count with the report as `dropped`. Only a bad
+shape gets `400`. A body over 64 KiB gets `413`. The optional `catalog_version` (1 to 65535) names
+the client's histogram catalog; the client does not send it yet. `web/scripts/hang-reports-histograms.ts`
+(read only) prints p50, p95 and p99 per name, app version and day. The client writes schema 3 only when
+the feature `hangReportsSchema3` (owner PL-telemetry, default off on every channel) is on: turn it on only
+after the server change is deployed. `HangReport.WireSchema.deployed` stays `v2` until then.
 
 ## 5. Server
 

@@ -1,6 +1,9 @@
 # One timeline across every cmux process (`scripts/cmux-next/trace.py`)
 
 Status: tool landed (cmux-4f PL-trace, 2026-10-23). Not a CI gate. Owner of the script: the Performance Lead.
+Release builds record the same processes with no DEBUG knob and no relaunch: see
+[Release tracing: `cmux trace`](#release-tracing-cmux-trace). Owner of the Release trace: PL-trace
+([OWNERS.md](OWNERS.md)).
 
 The goal is a trace like Chrome's Perfetto traces. One command records a scenario, and one file shows
 every cmux process on one time axis. With that file, "why did this lag" takes minutes to answer.
@@ -262,6 +265,90 @@ select s.name, sum(s.dur) / 1e6 as ms from slice s join thread_track tt on s.tra
 Classes: `lock` (mutex, unfair lock, dispatch_sync, semaphore), `daemon` (the app's daemon client),
 `cef` (the Chromium pump and the shim), `windowserver` (Core Animation commit, SkyLight), `xpc`, `io`,
 `ghostty`, `other`.
+
+## Release tracing: `cmux trace`
+
+Status: the CLI (p09-observability-021), the daemon's `trace-start`, `trace-stop` and `trace-status`
+(p09-observability-015), the Perfetto exporter (022) and `trace.py record --release` (023) are on
+perf/chrome-parity. The app's `trace.start`, `trace.stop` and `trace.status` (020, risk:high), Chromium tracing in
+Release (051) and the recording indicator (133) are not yet. Until 020 lands, the app does not know the
+methods: `cmux trace record`, `start`, `stop` and `status` end with exit code 5 (`method_not_found`).
+`cmux trace export` works.
+
+Chrome's model: every process writes trace events into its own buffer from its start, and one tracing
+session turns more categories on in all of them (`TraceLog`, services/tracing/perfetto/consumer_host.cc).
+cmux does the same with the ring of "Release trace ring v1" below:
+
+- **Black box, always on.** Every process writes the black-box categories (bits 0-8: `action`, `key`,
+  `switch`, `create`, `cef`, `launch`, `daemon`, `hang`, `crash`) into a small ring from its first
+  instruction. The ring moves into a file off the main thread: `<role>-<pid>.blackbox.cmxtrace` in the app's
+  trace folder (`~/Library/Logs/<bundle id>/trace`). A holder writes into `<socket>.trace` beside its socket
+  in `/tmp/cmux-hd-<uid>`. A crashed process's ring decodes. A hang report (schema 3 `blackbox[]`) and the
+  next-launch crash event read these rings. They keep no key, per-key PTY or flow record
+  (`TraceBlackBoxUpload`).
+- **Recording, on request.** `trace.start` turns on more categories and moves each process to its
+  recording ring, `<role>-<pid>.recording.cmxtrace` in that process's own trace folder (the daemon's is
+  `<state root>/trace`). `trace.stop` moves each process back to its black box and replies with the path of
+  each recording ring. A trace point writes one record, into whichever ring is active, never two.
+- **No path, no command.** The caller names categories only. Each process picks its own folder. The app
+  and the daemon refuse a remote relay or WebSocket client. A daemon with no state root (`--ephemeral`)
+  refuses a start.
+
+### Commands
+
+```bash
+cmux trace record --seconds N --out DIR [--categories LIST] [--keys] [--chromium]
+cmux trace start [--categories LIST] [--keys] [--chromium] [--seconds-cap N]
+cmux trace stop
+cmux trace status
+cmux trace export --in DIR [--out FILE]
+```
+
+- `record` starts a recording, waits N seconds (1 to 590; Ctrl-C stops early), and stops it. Then it copies
+  each recording ring that the stop reply names to `DIR/rings/`, and Chromium's JSON to
+  `DIR/chromium-trace.json`. It writes `DIR/manifest.json` and exports `DIR/trace.perfetto-trace`. DIR must
+  be new or empty. Perfetto's `perfetto_cmd` works the same way (src/perfetto_cmd/perfetto_cmd.cc).
+- `start` asks for a cap (`--seconds-cap`, at most 600 s; `record` asks for N + 10 s). At the cap, the app
+  stops a recording that nobody stopped.
+- `stop` prints each process's ring path. `status` prints whether a recording runs, and the state and bytes
+  of each process.
+- `export` writes the Perfetto trace again from a recorded DIR (default `DIR/trace.perfetto-trace`).
+- `--categories` takes the category names of the table below; a wrong name fails before anything starts.
+  The default is every recording category. `key` needs `--keys`.
+- `--keys` records a flow for each key press (section "Key-press flows"). It is off by default. While secure
+  keyboard entry is on or a password prompt shows, the key category stays off, also in a recording.
+- `--chromium` also records Chromium's own trace (task 051).
+- `--json` prints the reply as JSON.
+
+When `trace.start` gets no answer (a timeout, a dropped connection), `record` sends `trace.stop`. If that
+fails too, the error says when the cap stops the recording. A failed stop also names the time to the cap.
+Exit codes: 1 the app refused or a local step failed (a copy, the export), 2 a usage error (also a DIR that is
+not empty), 3 no answer from the app, 5 an app without the trace methods.
+
+### What starts and what is recorded
+
+1. The app (task 020) sets its category flags, opens its recording ring off the main thread and swaps to it.
+   It sends `trace-start {categories, keys}` to its daemon, and starts Chromium tracing when `chromium` is
+   true.
+2. The daemon starts its own recording, then forwards the call to the holder (only on a link with the
+   TRACE_CONTROL capability), to each live terminal host that advertises trace control, and to acpmux. It
+   waits at most 3 s for all of them. It asks no more processes when their recording rings would pass
+   128 MiB together; the reply marks the others `over_total_cap`. One call runs at a time.
+3. The reply lists each process: role, pid, state, recording path and bytes, or why it did not record
+   (`untraced`, `over_total_cap`, an error).
+
+Ring sizes per role are in "Sizes by role" below: a recording ring holds about 1M records in the app and the
+daemon, 254K in the holder, acpmux and the Chromium host, and 16K in a terminal host.
+
+### Open it
+
+Open `DIR/trace.perfetto-trace` at https://ui.perfetto.dev. The exporter writes native Perfetto protobuf: one
+process per ring with its role, each thread's B/E slices and instants, AB/AE pairs as async tracks, flows
+as arrows, and one clock snapshot per machine. Read it as in "How to read it" above.
+
+`trace.py record --release` runs `cmux trace record --keys` (with `--chromium` unless `--no-cef`) inside a
+scenario instead of the DEBUG knobs. `trace.py export DIR` reads every `*.cmxtrace` in DIR, `DIR/rings` and
+`DIR/flows`, each ring once.
 
 ## Release trace ring: category bits
 

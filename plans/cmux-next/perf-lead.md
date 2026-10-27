@@ -196,6 +196,17 @@ push), and writes its before/after table into this file's section 5.
   <= 8.3 ms and p99 <= 16.7 ms at 120 Hz, light and STRESS. Design:
   [input-pipeline-DESIGN.md](input-pipeline-DESIGN.md); spec and task table:
   [chrome-parity/p04-input.md](chrome-parity/p04-input.md).
+- **PL-trace** (chrome-parity program p09-observability, 2026-10-27): the Release trace. One clock and
+  one 32-byte record in Swift, Rust and C; a black box in every process; `trace.start` and `cmux trace`
+  with no relaunch; one Perfetto trace per key press across the app, daemon, holder, hosts, Ghostty and
+  Chromium. Owns CmuxNextTrace, cmux-trace and `cmux trace` ([OWNERS.md](OWNERS.md)). Red row: 5 (key to
+  frame), read per hop. Doc: [trace.md](trace.md).
+- **PL-telemetry** (opt-in hang reports since 2026-10-23; p09-observability since 2026-10-27): field
+  histograms (CmuxNextMetrics, `cmux metrics`), the hang watch in every process (`HangWatch`,
+  cmux-hang-watch; threading-model.md's "Hang watch" column), crash keys and hang reports schema 3. Owns
+  those targets ([OWNERS.md](OWNERS.md)). Target: 0 idle wakes from the hang watch, and a hang report for a
+  hung thread in every process. Docs: [hang-reports-DESIGN.md](hang-reports-DESIGN.md),
+  [chrome-parity/p09-observability.md](chrome-parity/p09-observability.md).
 
 Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 
