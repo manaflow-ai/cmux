@@ -17,7 +17,8 @@ public protocol ChromiumHostSupervising: AnyObject {
     /// Runs `ended` on the main thread each time a host this supervisor started ends (a crash, a
     /// kill, a quit), before a restarted host attaches: what cmux showed of that host (its widgets)
     /// goes with it, as Chrome's browser drops a dead GPU process's state when
-    /// `GpuProcessHost::OnProcessCrashed` runs (content/browser/gpu/gpu_process_host.cc).
+    /// `GpuProcessHost::OnProcessCrashed` runs (content/browser/gpu/gpu_process_host.cc). Their order
+    /// with ``ChromiumHostExitReporting/onHostEnded`` is not part of this contract (task 091).
     func observeHostEnds(_ ended: @escaping @MainActor () -> Void)
 }
 

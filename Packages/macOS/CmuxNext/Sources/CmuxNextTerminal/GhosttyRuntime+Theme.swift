@@ -70,7 +70,7 @@ extension GhosttyRuntime {
             selectionForeground: Self.color(config, "selection-foreground"),
             cursor: Self.color(config, "cursor-color"),
             backgroundOpacity: backgroundOpacity,
-            backgroundBlur: Int(blur)
+            backgroundBlur: Int(truncatingIfNeeded: blur)
         )
     }
 

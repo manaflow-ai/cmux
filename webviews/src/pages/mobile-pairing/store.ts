@@ -4,6 +4,9 @@
 import type { PageClient } from "../shared/pageClient";
 import { ACTION_RUN, MobilePairingOps, PairingActions, type MobilePairingStatus } from "./types";
 
+/** The page name its saved state carries (pageState.ts). */
+export const MOBILE_PAIRING_PAGE = "mobile-pairing";
+
 export interface MobilePairingSnapshot {
   status?: MobilePairingStatus;
   loading: boolean;
