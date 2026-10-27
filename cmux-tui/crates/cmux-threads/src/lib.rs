@@ -30,9 +30,10 @@
 //! behavior (Chrome's base/task/thread_pool).
 //!
 //! [`sync`] channels (std `mpsc`, and `crossbeam_channel` behind the
-//! `crossbeam` feature) carry their producer's QoS in Debug: a blocking
-//! receive on a higher-QoS thread records a `priority-inversion` site.
-//! Release sends the plain value.
+//! `crossbeam` feature) know their producer: a blocking receive on a
+//! higher-QoS thread raises the producer for the wait (macOS; Linux counts
+//! it) and, in Debug, records a `priority-inversion` site. Release sends the
+//! plain value.
 //!
 //! Tokio runtimes are built with [`tokio::builder`] (feature `tokio`): their
 //! threads are named, registered and set to the runtime's QoS, and
