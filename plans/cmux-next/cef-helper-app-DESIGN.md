@@ -9,8 +9,10 @@ the "not now" in [browser-isolation.md](browser-isolation.md). Paths: `S/` = `Pa
 
 Since 2026-10-25 the work runs as the Chrome-parity program p01-process ([chrome-parity/p01-process.md](chrome-parity/p01-process.md)),
 which replaces section 7's slices: the input wire is a shared-memory ring with a Mach-port doorbell (task 041) beside the
-control socket (task 012), the shim is a generated remote shim (tasks 010-015), and host mode (the feature
-`cefHelperHost`) goes on in DEV with task 100 and in NIGHTLY only with task 104. Threads in host mode: section 3.8.
+control socket (task 012), the shim is a generated remote shim (tasks 010-015), and host mode (the host backend
+`BrowserBackend.host`: the features `cefHelperHost` and `chromiumHostTabs` both on, Debug builds only today,
+`BrowserHostTunables.backend`; `cefHelperHost` alone only enables the debug.chromium_host page and keeps every tab
+in process) goes on in DEV with task 100 and in NIGHTLY only with task 104. Threads in host mode: section 3.8.
 Status 2026-10-27 and numbers: perf-lead.md fault F2 and its "Process-model baseline" section.
 
 ## 1. Goal
@@ -191,7 +193,10 @@ emulation in process is not a substitute: the page view then has no text input c
 
 ### 3.8 Threads in host mode (p01-process)
 
-In host mode cmux's main thread is **not** Chromium's UI thread. Chromium's browser UI thread is the host's main
+Host mode is the host backend (`BrowserBackend.host`, `BrowserHostTunables.backend`): the features `cefHelperHost` and
+`chromiumHostTabs` both on, Debug builds only today. With `cefHelperHost` alone only the debug.chromium_host page uses
+the host; every tab stays in process, so main stays the CEF UI thread and runs the pump. In host mode cmux's main
+thread is **not** Chromium's UI thread. Chromium's browser UI thread is the host's main
 thread (`CrBrowserMain`, in `CefRunMessageLoop`), as in Chrome, where the browser process's main thread is the UI
 thread (`content/browser/browser_main_runner_impl.cc`). The app runs no `CefDoMessageLoopWork` pump in host mode
 (task 034), and with tasks 101 and 102 it maps no CEF framework and keeps the in-process code behind the in-process

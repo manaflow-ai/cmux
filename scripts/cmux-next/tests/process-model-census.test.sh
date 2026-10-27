@@ -248,8 +248,8 @@ assert sorted(m["name"] for m in doc["qos_mismatch"]) == ["holder-link", "mux-co
 EOF
 
 # The repo's doc registers the process model's threads (p01-process-103): the Chromium Host's own threads with
-# their QoS, the terminal host's echo threads, the daemon's child-exit watchers and its other named threads, and
-# a planned label (vt-pool-v-<N>) before it lands. A host thread at another class than its row is a mismatch.
+# their QoS, the terminal host's echo and client-control threads, the daemon's child-exit watchers and fallback
+# reapers, its app-server and browser-surface threads, and a planned label (vt-pool-v-<N>) before it lands. A host thread at another class than its row is a mismatch.
 host="$tmp/host"
 mkdir -p "$host"
 cat > "$host/ps.txt" <<EOF
@@ -262,14 +262,18 @@ printf '%s\n' $'140\tuser-interactive\tCrBrowserMain' $'140\tuser-interactive\tc
   $'140\tuser-initiated\tcom.cmuxterm.chromium-host.control' $'140\tdefault\tChrome_IOThread' \
   $'120\tuser-interactive\tterminal-host-pty' $'120\tuser-interactive\tterminal-host-client-input' \
   $'102\tutility\tcmux-child-exit' $'102\tdefault\tcmux-process-exit' $'102\tdefault\tbrowser-runtime-events' \
-  $'102\tdefault\tpty-custody' $'102\tuser-initiated\tvt-pool-v-0' > "$host/threads.txt"
+  $'102\tdefault\tpty-custody' $'102\tuser-initiated\tvt-pool-v-0' \
+  $'120\tuser-initiated\tterminal-host-client-control' $'102\tutility\tterminal-host-reaper' \
+  $'102\tutility\tholder-reaper' $'102\tdefault\tcmux-app-server-w:web' $'102\tdefault\tcmux-app-server-e:web' \
+  $'102\tdefault\tbrowser-surface-7-worker' $'102\tdefault\tbrowser-surface-7-events' \
+  $'102\tdefault\tbrowser-surface-7-bootstrap' > "$host/threads.txt"
 printf '{"bundle": "%s", "tag": "t1"}\n' "$B" > "$host/session.json"
 python3 -I "$CENSUS" --from "$host" --json --check-thread-doc > "$tmp/host.json" \
   || { echo "FAIL: the process model's threads must pass the repo's doc" >&2; cat "$tmp/host.json" >&2; exit 1; }
 python3 -I - "$tmp/host.json" <<'EOF'
 import json, sys
 doc = json.load(open(sys.argv[1]))["thread_doc"]
-assert doc["judged"] == 9 and doc["unlisted"] == [] and doc["qos_mismatch"] == [], doc
+assert doc["judged"] == 17 and doc["unlisted"] == [] and doc["qos_mismatch"] == [], doc
 EOF
 sed $'s/^140\tuser-interactive\tcom.cmuxterm.chromium-host.input$/140\tdefault\tcom.cmuxterm.chromium-host.input/' \
   "$host/threads.txt" > "$host/threads.next" && mv "$host/threads.next" "$host/threads.txt"
