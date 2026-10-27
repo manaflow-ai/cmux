@@ -1,14 +1,11 @@
-import { randomUUID, randomBytes, createHash } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { randomBytes, createHash } from "node:crypto";
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
-import { cloudRuntimes, cloudVms, runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
+import { cloudVms, runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
 import {
-  DEFAULT_LEASE_TTL_MS,
   DEFAULT_ATTACH_TICKET_TTL_MS,
-  DEFAULT_TERMINAL_RETENTION_MS,
   MAX_ARTIFACT_BYTES,
   MAX_EVENT_PAYLOAD_BYTES,
-  TERMINAL_CLEANUP_LEASE_MS,
   assertArtifactDigest,
   isArtifactDigest,
   jsonByteLength,
@@ -21,9 +18,10 @@ import {
   type RunEventKind,
   type RunStatus,
 } from "./model";
-import { redactReceiptText, redactReceiptValue, SANDBOX_HANDLE_KEYS, SANDBOX_SCRUBBED_FROM_KEY, sandboxPayloadDigest } from "./sandbox";
+import { redactReceiptText, SANDBOX_SCRUBBED_FROM_KEY, sandboxPayloadDigest } from "./sandbox";
 import { lockAttempt, lockRun, nextSequence, now, RunArtifactConflictError, RunAttachTargetUnavailableError, RunAttachTicketExpiredError, RunAttachTicketNotFoundError, RunAttachTicketReplayError, RunAttemptNotFoundError, RunEventConflictError, RunIdempotencyConflictError, RunLeaseConflictError, RunNotFoundError, RunPayloadTooLargeError, type RunQueryDb, SERVER_EVENT_ID_PREFIX, terminalRetentionMs } from "./repository/shared";
 import { sandboxAttemptHandles } from "./repository/sandboxVms";
+import { checkLease, findLiveLease, type LeaseInput } from "./repository/lease";
 
 export type RunSource = { readonly repository?: string; readonly ref?: string; readonly commit?: string; readonly archiveDigest?: string };
 export type RunSnapshot = {
@@ -321,216 +319,6 @@ export async function listRunEvents(input: {
     }
     return { events, nextSequence: rows.length > limit ? events.at(-1)?.sequence ?? null : null, environment: (run.environment ?? "persistent") as RunEnvironment, handles };
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
-}
-
-export type AttemptLease = {
-  readonly attempt: typeof runAttempts.$inferSelect;
-  readonly leaseToken: string;
-  readonly leaseGeneration: number;
-  readonly leaseExpiresAt: Date;
-};
-
-export async function claimAttemptLease(input: {
-  readonly runId: string;
-  readonly attemptId: string;
-  readonly workerId: string;
-  readonly ttlMs?: number;
-}): Promise<AttemptLease> {
-  const ttlMs = Math.max(5_000, Math.min(input.ttlMs ?? DEFAULT_LEASE_TTL_MS, 15 * 60_000));
-  const nowAt = now();
-  const expiresAt = new Date(nowAt.getTime() + ttlMs);
-  const token = randomUUID();
-  return cloudDb().transaction(async (tx) => {
-    const run = (await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, input.runId)).for("update").limit(1))[0];
-    if (!run || run.status === "cancelling" || run.status === "cancelled" || run.status === "succeeded" || run.status === "failed") {
-      throw new RunLeaseConflictError("run is not accepting new attempt leases");
-    }
-    const rows = await tx.update(runAttempts).set({
-    status: "leased",
-    leaseToken: token,
-    leaseGeneration: sql`${runAttempts.leaseGeneration} + 1`,
-    leaseExpiresAt: expiresAt,
-    updatedAt: nowAt,
-    }).where(and(
-    eq(runAttempts.id, input.attemptId),
-    eq(runAttempts.runId, input.runId),
-    or(
-      eq(runAttempts.status, "queued"),
-      and(
-        inArray(runAttempts.status, ["leased", "running"]),
-        or(isNull(runAttempts.leaseExpiresAt), lt(runAttempts.leaseExpiresAt, nowAt)),
-      ),
-    ),
-    )).returning();
-    const attempt = rows[0];
-    if (!attempt) throw new RunLeaseConflictError("attempt is already leased or does not exist");
-    await tx.update(runs).set({ status: "running", updatedAt: nowAt }).where(and(eq(runs.id, input.runId), eq(runs.status, "queued")));
-    return { attempt, leaseToken: token, leaseGeneration: attempt.leaseGeneration, leaseExpiresAt: expiresAt };
-  });
-}
-
-export async function renewAttemptLease(input: {
-  readonly runId: string;
-  readonly attemptId: string;
-  readonly leaseToken: string;
-  readonly leaseGeneration: number;
-  readonly ttlMs?: number;
-}): Promise<AttemptLease> {
-  const nowAt = now();
-  const expiresAt = new Date(nowAt.getTime() + Math.max(5_000, Math.min(input.ttlMs ?? DEFAULT_LEASE_TTL_MS, 15 * 60_000)));
-  const attempt = (await cloudDb().update(runAttempts).set({
-    leaseExpiresAt: expiresAt,
-    updatedAt: nowAt,
-  }).where(and(
-    eq(runAttempts.id, input.attemptId),
-    eq(runAttempts.runId, input.runId),
-    eq(runAttempts.leaseToken, input.leaseToken),
-    eq(runAttempts.leaseGeneration, input.leaseGeneration),
-    inArray(runAttempts.status, ["leased", "running"]),
-    gt(runAttempts.leaseExpiresAt, nowAt),
-  )).returning())[0];
-  if (!attempt) throw new RunLeaseConflictError("stale or expired attempt lease");
-  return { attempt, leaseToken: input.leaseToken, leaseGeneration: input.leaseGeneration, leaseExpiresAt: expiresAt };
-}
-
-/** Persist the provider handles before a worker starts streaming terminal events. */
-export async function recordAttemptProviderHandle(input: {
-  readonly runId: string;
-  readonly attemptId: string;
-  readonly leaseToken: string;
-  readonly leaseGeneration: number;
-  readonly providerVmId: string;
-  readonly providerWorkspaceId: string;
-  readonly providerTerminalId: string;
-}): Promise<typeof runAttempts.$inferSelect> {
-  const db = cloudDb();
-  return db.transaction(async (tx) => {
-    await lockRun(tx, input.runId);
-    await lockAttempt(tx, input.runId, input.attemptId);
-    await checkLease(tx, input);
-    const attempt = (await tx.update(runAttempts).set({
-      providerVmId: input.providerVmId,
-      providerWorkspaceId: input.providerWorkspaceId,
-      providerTerminalId: input.providerTerminalId,
-      updatedAt: now(),
-    }).where(and(
-      eq(runAttempts.id, input.attemptId),
-      eq(runAttempts.runId, input.runId),
-      eq(runAttempts.leaseToken, input.leaseToken),
-      eq(runAttempts.leaseGeneration, input.leaseGeneration),
-    )).returning())[0];
-    if (!attempt) throw new RunLeaseConflictError("stale or expired attempt lease");
-    return attempt;
-  });
-}
-
-/** Keep a provider VM around after a terminal event so the terminal can be attached. */
-export async function scheduleAttemptRetention(input: {
-  readonly runId: string;
-  readonly attemptId: string;
-  readonly leaseToken: string;
-  readonly leaseGeneration: number;
-  readonly providerVmId?: string;
-  readonly retentionMs?: number;
-}): Promise<typeof runAttempts.$inferSelect> {
-  const retentionMs = Math.max(0, Math.min(input.retentionMs ?? DEFAULT_TERMINAL_RETENTION_MS, 60 * 60_000));
-  const attempt = (await cloudDb().update(runAttempts).set({
-    ...(input.providerVmId ? { providerVmId: input.providerVmId } : {}),
-    terminalRetainUntil: new Date(Date.now() + retentionMs),
-    cleanupLeaseToken: null,
-    cleanupLeaseExpiresAt: null,
-    leaseToken: null,
-    leaseExpiresAt: null,
-    updatedAt: now(),
-  }).where(and(
-    eq(runAttempts.id, input.attemptId),
-    eq(runAttempts.runId, input.runId),
-    eq(runAttempts.leaseToken, input.leaseToken),
-    eq(runAttempts.leaseGeneration, input.leaseGeneration),
-    inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
-  )).returning())[0];
-  if (attempt) return attempt;
-  if (input.providerVmId) {
-    const orphan = await adoptFencedAttemptVm({ ...input, providerVmId: input.providerVmId });
-    if (orphan) return orphan;
-  }
-  throw new RunLeaseConflictError("stale or expired attempt lease");
-}
-
-/**
- * A cancel (or a replacement lease) can fence a worker while its createVm is
- * still in flight. That worker then learns the VM id only after it can no
- * longer write, so no row would point at the VM and the reaper would never
- * destroy it. Record the id for immediate cleanup, but only when no lease ever
- * stored a VM for this attempt: then nothing else owns the VM (the create is
- * idempotent per attempt), and a VM the reaper already destroyed and cleared
- * is never handed back to it. The fenced worker's other state is not written.
- *
- * A retention deadline alone does not mean a VM exists: a replacement lease
- * that fails the attempt before creating one also sets it. Adoption therefore
- * ignores the deadline and keys "nothing to reap" on the VM id and on the
- * journal, and it journals the adopted id itself so that a VM it handed to the
- * reaper, once destroyed and cleared, cannot be adopted a second time. A
- * terminal status means no live lease owns the attempt, and a promoted VM is
- * always recorded on the row or in the journal, so neither can be adopted.
- */
-async function adoptFencedAttemptVm(input: {
-  readonly runId: string;
-  readonly attemptId: string;
-  readonly leaseGeneration: number;
-  readonly providerVmId: string;
-}): Promise<typeof runAttempts.$inferSelect | undefined> {
-  return cloudDb().transaction(async (tx) => {
-    // Same lock order as ingestRunEvent, which allocates journal sequences.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.runId}, 0))`);
-    await lockRun(tx, input.runId);
-    await lockAttempt(tx, input.runId, input.attemptId);
-    const nowAt = now();
-    const adopted = (await tx.update(runAttempts).set({
-      providerVmId: input.providerVmId,
-      terminalRetainUntil: nowAt,
-      cleanupLeaseToken: null,
-      cleanupLeaseExpiresAt: null,
-      updatedAt: nowAt,
-    }).where(and(
-      eq(runAttempts.id, input.attemptId),
-      eq(runAttempts.runId, input.runId),
-      gt(runAttempts.leaseGeneration, input.leaseGeneration),
-      inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
-      isNull(runAttempts.providerVmId),
-      isNull(runAttempts.cleanupLeaseToken),
-      sql`not exists (select 1 from run_events where run_events.attempt_id = ${input.attemptId} and run_events.payload->>'providerVmId' is not null)`,
-    )).returning())[0];
-    if (!adopted) return undefined;
-    await tx.insert(runEvents).values({
-      runId: input.runId,
-      attemptId: input.attemptId,
-      sequence: await nextSequence(tx, input.runId),
-      externalId: `provider-vm-adopted:${input.leaseGeneration}`,
-      kind: "attempt.heartbeat",
-      payload: { providerVmId: input.providerVmId, adoptedFromLeaseGeneration: input.leaseGeneration },
-    });
-    return adopted;
-  });
-}
-
-type LeaseInput = { readonly runId: string; readonly attemptId: string; readonly leaseToken: string; readonly leaseGeneration: number };
-
-async function findLiveLease(db: RunQueryDb, input: LeaseInput): Promise<typeof runAttempts.$inferSelect | undefined> {
-  return (await db.select().from(runAttempts).where(and(
-    eq(runAttempts.id, input.attemptId),
-    eq(runAttempts.runId, input.runId),
-    eq(runAttempts.leaseToken, input.leaseToken),
-    eq(runAttempts.leaseGeneration, input.leaseGeneration),
-    inArray(runAttempts.status, ["leased", "running"]),
-    gt(runAttempts.leaseExpiresAt, now()),
-  )).limit(1))[0];
-}
-
-async function checkLease(db: RunQueryDb, input: LeaseInput): Promise<typeof runAttempts.$inferSelect> {
-  const attempt = await findLiveLease(db, input);
-  if (!attempt) throw new RunLeaseConflictError("stale or expired attempt lease");
-  return attempt;
 }
 
 type LeaseWriter = { readonly writerLeaseGeneration: number | null; readonly writerLeaseTokenHash: string | null };
@@ -863,55 +651,6 @@ export async function forceFinalizeRunCancellation(runId: string, userId: string
   });
 }
 
-export type ExpiredAttemptCleanup = {
-  readonly attempt: typeof runAttempts.$inferSelect;
-  readonly userId: string;
-  readonly billingTeamId: string | null;
-  readonly environment: string;
-  readonly cleanupLeaseToken: string;
-};
-
-/** Claim expired VM rows for a bounded provider reaper. Claims are recoverable. */
-export async function claimExpiredAttemptCleanups(input: { readonly limit?: number; readonly now?: Date; readonly runId?: string } = {}): Promise<ExpiredAttemptCleanup[]> {
-  const nowAt = input.now ?? now();
-  const limit = Math.max(1, Math.min(input.limit ?? 20, 100));
-  return cloudDb().transaction(async (tx) => {
-    const candidates = await tx.select({
-      attempt: runAttempts,
-      userId: runs.userId,
-      billingTeamId: runs.billingTeamId,
-      environment: runs.environment,
-    }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId))
-      .leftJoin(cloudRuntimes, eq(cloudRuntimes.id, runAttempts.runtimeId)).where(and(
-      inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
-      isNotNull(runAttempts.providerVmId),
-      ...(input.runId ? [eq(runAttempts.runId, input.runId)] : []),
-      // Every launched attempt has its own ephemeral runtime (dogfood.ts); a promoted attempt's VM
-      // belongs to a persistent runtime now, so only that one is never reaped.
-      or(isNull(runAttempts.runtimeId), eq(cloudRuntimes.runtimeKind, "ephemeral")),
-      isNotNull(runAttempts.terminalRetainUntil),
-      lte(runAttempts.terminalRetainUntil, nowAt),
-      or(isNull(runAttempts.cleanupLeaseExpiresAt), lt(runAttempts.cleanupLeaseExpiresAt, nowAt)),
-    )).orderBy(asc(runAttempts.terminalRetainUntil)).limit(limit).for("update", { of: runAttempts });
-    const claimed: ExpiredAttemptCleanup[] = [];
-    for (const candidate of candidates) {
-      const token = randomUUID();
-      const attempt = (await tx.update(runAttempts).set({
-        cleanupLeaseToken: token,
-        cleanupLeaseExpiresAt: new Date(nowAt.getTime() + TERMINAL_CLEANUP_LEASE_MS),
-        // Once the reaper owns a sandbox's VM its receipt is final, whatever the destroy does.
-        ...(candidate.environment === "sandboxed" ? { leaseToken: null } : {}),
-        updatedAt: nowAt,
-      }).where(and(
-        eq(runAttempts.id, candidate.attempt.id),
-        or(isNull(runAttempts.cleanupLeaseExpiresAt), lt(runAttempts.cleanupLeaseExpiresAt, nowAt)),
-      )).returning())[0];
-      if (attempt) claimed.push({ attempt, userId: candidate.userId, billingTeamId: candidate.billingTeamId, environment: candidate.environment, cleanupLeaseToken: token });
-    }
-    return claimed;
-  });
-}
-
 /**
  * The name an artifact's event shows: as given for a persistent Run; for a sandboxed Run, redacted
  * like its receipt (token shapes and the attempt's own handles), since events are served as stored.
@@ -923,117 +662,6 @@ async function artifactEventName(tx: RunQueryDb, input: { readonly runId: string
   // A sandbox's receipt serves the digest as is, so it must be one.
   if (!isArtifactDigest(input.digest)) throw new RunArtifactConflictError("artifact digest is invalid");
   return redactReceiptText(input.name, await sandboxAttemptHandles(tx, row.run, row.attempt));
-}
-
-/**
- * Before cleanup clears a sandbox attempt's provider handles, take them out of every stored text
- * that could name them (the receipt's reply, the attempt's error, artifact names), so nothing
- * stored needs the handles again and the handles themselves are kept nowhere.
- */
-
-/** An event payload with every handle-named value and every handle in its text replaced. */
-function scrubEventPayload(value: unknown, handles: readonly string[]): Record<string, unknown> {
-  const scrub = (item: unknown, key?: string): unknown => {
-    if (key && SANDBOX_HANDLE_KEYS.has(key) && item != null) return "[redacted]";
-    if (typeof item === "string") return handles.reduce((text, handle) => text.split(handle).join("[redacted]"), item);
-    if (Array.isArray(item)) return item.map((child) => scrub(child));
-    if (item && typeof item === "object") return Object.fromEntries(Object.entries(item).map(([childKey, child]) => [childKey, scrub(child, childKey)]));
-    return item;
-  };
-  return (scrub(value ?? {}) ?? {}) as Record<string, unknown>;
-}
-
-async function scrubSandboxHandles(attemptId: string, cleanupLeaseToken: string): Promise<void> {
-  const runId = (await cloudDb().select({ runId: runAttempts.runId }).from(runAttempts).where(eq(runAttempts.id, attemptId)).limit(1))[0]?.runId;
-  if (!runId) return;
-  await cloudDb().transaction(async (tx) => {
-    // The same lock order as event ingestion and the outcome write: advisory, run, attempt.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${runId}, 0))`);
-    await lockRun(tx, runId);
-    await lockAttempt(tx, runId, attemptId);
-    const row = (await tx.select({ attempt: runAttempts, run: runs }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(and(
-      eq(runAttempts.id, attemptId),
-      eq(runAttempts.cleanupLeaseToken, cleanupLeaseToken),
-      eq(runs.environment, "sandboxed"),
-    )).limit(1))[0];
-    if (!row) return;
-    const handles = await sandboxAttemptHandles(tx, row.run, row.attempt);
-    if (handles.length === 0) return;
-    const receipt = row.run.receipt;
-    if (receipt) {
-      const scrub = (value: unknown) => (typeof value === "string" ? redactReceiptText(value, handles) : value ?? null);
-      await tx.update(runs).set({ receipt: { ...receipt, reply: scrub(receipt.reply), error: scrub(receipt.error) } }).where(eq(runs.id, row.run.id));
-    }
-    if (row.attempt.error) {
-      await tx.update(runAttempts).set({ error: redactReceiptText(row.attempt.error, handles) }).where(eq(runAttempts.id, attemptId));
-    }
-    // The Run journal names handles too (a started event's providerVmId, an adoption's). Their
-    // values become `[redacted]`: the keys stay, so "this attempt had a VM" still reads the same.
-    for (const event of await tx.select({ id: runEvents.id, payload: runEvents.payload }).from(runEvents).where(eq(runEvents.attemptId, attemptId))) {
-      const payload = scrubEventPayload(event.payload, handles);
-      if (JSON.stringify(payload) !== JSON.stringify(event.payload)) {
-        // The first scrub records the payload as sent, so the worker's retry of it still matches.
-        const scrubbedFrom = event.payload?.[SANDBOX_SCRUBBED_FROM_KEY] ?? sandboxPayloadDigest(event.payload);
-        await tx.update(runEvents).set({ payload: { ...payload, [SANDBOX_SCRUBBED_FROM_KEY]: scrubbedFrom } }).where(eq(runEvents.id, event.id));
-      }
-    }
-    if (row.run.error) {
-      await tx.update(runs).set({ error: redactReceiptText(row.run.error, handles) }).where(eq(runs.id, row.run.id));
-    }
-    for (const artifact of await tx.select({ id: runArtifacts.id, name: runArtifacts.name, mediaType: runArtifacts.mediaType, uri: runArtifacts.uri, metadata: runArtifacts.metadata }).from(runArtifacts).where(eq(runArtifacts.attemptId, attemptId))) {
-      const scrubbed = redactReceiptText(artifact.name, handles);
-      // Names are unique per attempt: a scrubbed name that collides keeps a suffix from the id.
-      const name = scrubbed === artifact.name ? scrubbed : `${scrubbed}~${artifact.id.slice(0, 8)}`;
-      const mediaType = redactReceiptText(artifact.mediaType, handles) === artifact.mediaType ? artifact.mediaType : "application/octet-stream";
-      const uri = redactReceiptText(artifact.uri, handles);
-      const metadata = redactReceiptValue(artifact.metadata, handles) as Record<string, unknown>;
-      const metadataChanged = JSON.stringify(metadata) !== JSON.stringify(artifact.metadata);
-      if (name !== artifact.name || mediaType !== artifact.mediaType || uri !== artifact.uri || metadataChanged) {
-        await tx.update(runArtifacts).set({ name, mediaType, uri, metadata }).where(eq(runArtifacts.id, artifact.id));
-      }
-      // The artifact's event carries a copy of its name: it ends up the same as the row's.
-      await tx.update(runEvents).set({ payload: sql`jsonb_set(${runEvents.payload}, '{name}', ${JSON.stringify(name)}::jsonb)` }).where(and(
-        eq(runEvents.attemptId, attemptId),
-        eq(runEvents.externalId, `artifact-${artifact.id}`),
-        sql`${runEvents.payload}->>'name' is distinct from ${name}`,
-      ));
-    }
-  });
-}
-
-export async function finishAttemptCleanup(input: {
-  readonly attemptId: string;
-  readonly cleanupLeaseToken: string;
-  readonly succeeded: boolean;
-}): Promise<void> {
-  if (input.succeeded) await scrubSandboxHandles(input.attemptId, input.cleanupLeaseToken);
-  await cloudDb().update(runAttempts).set(input.succeeded ? {
-    providerVmId: null,
-    providerWorkspaceId: null,
-    providerTerminalId: null,
-    // Nothing writes for this attempt after its VM is gone (a late sandbox outcome is fenced on it).
-    leaseToken: null,
-    terminalRetainUntil: null,
-    cleanupLeaseToken: null,
-    cleanupLeaseExpiresAt: null,
-    updatedAt: now(),
-  } : {
-    cleanupLeaseToken: null,
-    cleanupLeaseExpiresAt: null,
-    updatedAt: now(),
-  }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.cleanupLeaseToken, input.cleanupLeaseToken)));
-}
-
-/** Keep a cleanup obligation but retry it later, so one row that can't be destroyed now doesn't head every batch. */
-export async function deferAttemptCleanup(input: { readonly attemptId: string; readonly cleanupLeaseToken: string; readonly delayMs: number }): Promise<void> {
-  await cloudDb().update(runAttempts).set({
-    // The reaper owned the VM: the launcher's lease writes nothing more, deferred or not.
-    leaseToken: null,
-    terminalRetainUntil: new Date(Date.now() + input.delayMs),
-    cleanupLeaseToken: null,
-    cleanupLeaseExpiresAt: null,
-    updatedAt: now(),
-  }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.cleanupLeaseToken, input.cleanupLeaseToken)));
 }
 
 export async function waitForRun(runId: string, userId: string, waitMs = 0): Promise<RunSnapshot> {
@@ -1048,6 +676,10 @@ export async function waitForRun(runId: string, userId: string, waitMs = 0): Pro
 export { RunIdempotencyConflictError, RunNotFoundError, RunAttemptNotFoundError, RunLeaseConflictError, RunPayloadTooLargeError, RunArtifactConflictError, RunEventConflictError, RunAttachTicketNotFoundError, RunAttachTicketExpiredError, RunAttachTicketReplayError, RunAttachTargetUnavailableError } from "./repository/shared";
 export { cloudVmRowLive, sandboxVmOwnedByAttempt, confirmSandboxVmDestroyed } from "./repository/sandboxVms";
 export { recordSandboxOutcome, failAbandonedSandboxAttempts } from "./repository/sandboxAttempts";
+export { claimAttemptLease, renewAttemptLease, recordAttemptProviderHandle, scheduleAttemptRetention } from "./repository/lease";
+export type { AttemptLease } from "./repository/lease";
+export { claimExpiredAttemptCleanups, finishAttemptCleanup, deferAttemptCleanup } from "./repository/cleanup";
+export type { ExpiredAttemptCleanup } from "./repository/cleanup";
 
 // Promotion idempotency is persisted against the existing terminal attempt
 // row; this re-export keeps the Run repository as the composition entrypoint
