@@ -175,11 +175,6 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         # writes ./status.json.
         set -u
         d=$(cd "$(dirname "$0")" && pwd)
-        # start.lock, exclusive, until `running` is out: a machine-config apply holds it shared for its whole
-        # run, so a runner scheduled late never begins beside an apply (it waits for the apply to end).
-        { [ -f "$d/start.lock" ] && [ ! -L "$d/start.lock" ]; } || exit 1
-        exec 7<"$d/start.lock"
-        flock -w 10800 7 || exit 1
         # One runner at a time; a start while this one runs says `running`.
         exec 9>"$d/lock"
         flock -n 9 || exit 0
@@ -198,10 +193,17 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
           printf '{"state":"%s","exit_code":%s,"script_sha256":"%s","start_sha256":"%s","repo":%s,"at":%s}\n' "$1" "$2" "$sum" "$key" "$repo" "$(date +%s)" >"$d/status.json.tmp" &&
             mv -f "$d/status.json.tmp" "$d/status.json"
         }
+        # A runner that comes a minute or more after its start's `starting` does not run: a machine-config apply
+        # waits that long for a start whose runner never came (with `alive` free), then applies, and a bootstrap
+        # never runs beside it. Checked once `alive` is held, which the apply sees from then on.
+        at=$(sed -n 's/^{"state":"starting".*"at":\([0-9]*\)}$/\1/p' "$d/status.json" 2>/dev/null)
+        if [ -n "$at" ] && [ $(( $(date +%s) - at )) -ge 60 ]; then
+          printf '== cmux bootstrap %s: its runner came %ss after the start; start it again\n' "$key" "$(( $(date +%s) - at ))" >>"$d/bootstrap.log"
+          status failed 75; exit 75
+        fi
         # Not its locks: a daemon the repo step or the script leaves running must not keep them held after this runner ends.
         repo_step() { "$d/repo" >>"$d/bootstrap.log" 2>&1 </dev/null 8>&- 9>&-; }
         status running null
-        exec 7<&-
         [ -f "$d/env" ] && . "$d/env"
         cd "$HOME" 2>/dev/null || cd /
         printf '== cmux bootstrap %s at %s\n' "$key" "$(date -u +%FT%TZ)" >>"$d/bootstrap.log"

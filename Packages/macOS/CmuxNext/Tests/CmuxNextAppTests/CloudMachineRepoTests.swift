@@ -148,9 +148,10 @@ struct CloudMachineRepoTests {
         let fresh = try #require(start.range(of: #"-lt 60 ]; then as_u rm -rf "$s" || true; echo running"#))
         #expect(held.lowerBound < fresh.lowerBound && fresh.lowerBound < moved.lowerBound,
                 "an earlier start's runner that has not taken over yet keeps its files")
-        let gate = try #require(runner.range(of: "flock -w 10800 7")), own = try #require(runner.range(of: #"exec 9>"$d/lock""#))
-        let running = try #require(runner.range(of: "status running null\nexec 7<&-")), first = try #require(runner.range(of: "repo_step\n"))
-        #expect(gate.lowerBound < own.lowerBound && running.upperBound < first.lowerBound,
-                "a runner begins only under start.lock, never beside a machine-config apply, and lets it go once `running` is out")
+        let alive = try #require(runner.range(of: "flock 8\n")), late = try #require(runner.range(of: "-ge 60 ]; then"))
+        let running = try #require(runner.range(of: "status running null"))
+        #expect(alive.upperBound < late.lowerBound && late.lowerBound < running.lowerBound && runner.contains("status failed 75; exit 75"),
+                "a runner a minute late (an apply may have stopped waiting) does not run, checked while it holds `alive`")
+        #expect(!runner.contains("start.lock"), "the runner never waits on start.lock, which an apply holds while it waits for the runner")
     }
 }
