@@ -232,12 +232,13 @@
         "invariants",
         "switches",
         "cli",
-        "mcp"
+        "mcp",
+        "reply"
       ]
     },
     "facetPointer": {
       "type": "string",
-      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches|cli|mcp)(/([^~/]|~[01])*)*$",
+      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches|cli|mcp|reply)(/([^~/]|~[01])*)*$",
       "description": "JSON pointer into a snapshot, starting with a facet name."
     },
     "stepRef": {
@@ -322,7 +323,10 @@
       "additionalProperties": false,
       "required": ["outcome"],
       "properties": {
-        "outcome": {"enum": ["ok", "error"]},
+        "outcome": {
+          "enum": ["ok", "error", "any"],
+          "description": "any: a resource.call mutation whose outcome depends on the state a generated sequence reached (a walk move, scripts/cmux-next/oracle/gen_walks.py). The step passes with either; its reply (ok with replayed, or the typed error) is the reply facet of its settled checkpoint, so a differential run compares it. receipt names the kind an ok reply gives."
+        },
         "error": {
           "type": "string",
           "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$",
@@ -351,7 +355,11 @@
       "dependentRequired": {"resultExcept": ["result"]},
       "if": {"properties": {"outcome": {"const": "error"}}},
       "then": {"required": ["error"]},
-      "else": {"not": {"anyOf": [{"required": ["error"]}, {"required": ["errorDetails"]}]}}
+      "else": {
+        "not": {"anyOf": [{"required": ["error"]}, {"required": ["errorDetails"]}]},
+        "if": {"properties": {"outcome": {"const": "any"}}},
+        "then": {"not": {"anyOf": [{"required": ["result"]}, {"required": ["noReceiptReason"]}]}}
+      }
     },
     "expectMutation": {
       "description": "I1: a mutation gives exactly one receipt or one typed error. An ok outcome names its receipt or says why none exists; an error outcome has its typed error and no receipt.",
@@ -362,7 +370,11 @@
           {"required": ["noReceiptReason"], "not": {"required": ["receipt"]}}
         ]
       },
-      "else": {"not": {"anyOf": [{"required": ["receipt"]}, {"required": ["noReceiptReason"]}]}}
+      "else": {
+        "if": {"properties": {"outcome": {"const": "any"}}},
+        "then": {"required": ["receipt"]},
+        "else": {"not": {"anyOf": [{"required": ["receipt"]}, {"required": ["noReceiptReason"]}]}}
+      }
     },
     "waitFor": {
       "type": "object",
@@ -486,6 +498,11 @@
         {
           "$comment": "Only a mutating resource.call ends a process on purpose.",
           "if": {"required": ["ends"]},
+          "then": {"required": ["op"], "properties": {"op": {"const": "resource.call"}, "readOnly": {"const": false}}}
+        },
+        {
+          "$comment": "Only a resource.call mutation has an any outcome: its reply facet records what it gave.",
+          "if": {"required": ["expect"], "properties": {"expect": {"required": ["outcome"], "properties": {"outcome": {"const": "any"}}}}},
           "then": {"required": ["op"], "properties": {"op": {"const": "resource.call"}, "readOnly": {"const": false}}}
         },
         {

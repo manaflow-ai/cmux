@@ -136,6 +136,7 @@ normalize selftest (`app_environment_rewrite_matches`) and `OracleTerminalsFacet
 | `terminal.screen.read` | cmux-tui resource API (`TerminalScreenResult.text`) | the input of `terminals.list[].last24Sha256` |
 | `cli` | the shipped `cmux` binary, run by `scripts/cmux-next/oracle/driver_cli.py` (task 048) | `cli`: a cli step's exit code, stdout (open) and typed error, in its settled checkpoint |
 | `mcp` | `cmux mcp serve --all-tools` over stdio, run by `scripts/cmux-next/oracle/driver_mcp.py` (task 209) | `mcp`: an mcp step's tool-error flag, result (open) and typed error, in its settled checkpoint |
+| `resource.call` | the reply of a resource.call step with expect outcome `any` (a walk move), read by `scripts/cmux-next/oracle/driver_daemon.py` (task 098) | `reply`: ok with the receipt's replayed flag, or the typed error code, in its settled checkpoint |
 
 Facets that pass a method result through keep that method's wire keys and shape, so a pointer maps one to one:
 `topology` is the whole `snapshot.get` result (path `/`), `daemon.session` is `ResourceSnapshot`. The capture
