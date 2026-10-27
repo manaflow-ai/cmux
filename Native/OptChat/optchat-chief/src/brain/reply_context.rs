@@ -20,9 +20,9 @@ use super::Brain;
 /// The marker of a reply whose target is not among the recent messages.
 pub const REPLY_EARLIER: &str = "(reply to an earlier message)";
 
-/// Characters of a target's text kept for its quote: enough that the
-/// flattened quote still fills `REPLY_QUOTE` and shows it was cut.
-const QUOTE_KEEP: usize = optchat_core::REPLY_QUOTE * 4;
+/// Characters of a target's flattened text kept for its quote: one past
+/// `REPLY_QUOTE`, so the quote still shows it was cut.
+const QUOTE_KEEP: usize = optchat_core::REPLY_QUOTE + 1;
 
 /// The recent messages of the Chief conversation by id: seq and the head of
 /// the text. Holds the last `PAGE` noted.
@@ -39,7 +39,13 @@ impl Recent {
         let quote: String = if message.retracted_at.is_some() {
             String::new()
         } else {
-            message_text(message).chars().take(QUOTE_KEEP).collect()
+            message_text(message)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .chars()
+                .take(QUOTE_KEEP)
+                .collect()
         };
         if self
             .by_id
