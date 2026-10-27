@@ -96,18 +96,28 @@ impl AsyncPty {
         let raw = master
             .as_raw_fd()
             .ok_or_else(|| std::io::Error::other("PTY master has no file descriptor"))?;
+        // SAFETY: `master` keeps `raw` open for the call; F_DUPFD_CLOEXEC takes an int, no pointer,
+        // and returns a new descriptor or -1.
         let duplicated = unsafe { libc::fcntl(raw, libc::F_DUPFD_CLOEXEC, 0) };
         if duplicated < 0 {
             return Err(std::io::Error::last_os_error());
         }
+        // SAFETY: `duplicated` is the fresh descriptor this function owns; F_GETFL takes no pointer
+        // argument.
         let flags = unsafe { libc::fcntl(duplicated, libc::F_GETFL) };
         if flags < 0
+            // SAFETY: `duplicated` is the fresh descriptor this function owns; F_SETFL takes an int
+            // flag set, no pointer.
             || unsafe { libc::fcntl(duplicated, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
         {
             let error = std::io::Error::last_os_error();
+            // SAFETY: `duplicated` is still owned only here (no OwnedFd took it yet), so this is
+            // its only close.
             let _ = unsafe { libc::close(duplicated) };
             return Err(error);
         }
+        // SAFETY: `duplicated` is a fresh descriptor from F_DUPFD_CLOEXEC that nothing else owns;
+        // the OwnedFd takes its sole ownership.
         let fd = unsafe { OwnedFd::from_raw_fd(duplicated) };
         Ok(Arc::new(Self { fd: AsyncFd::new(fd)? }))
     }
@@ -116,6 +126,8 @@ impl AsyncPty {
         loop {
             let mut ready = self.fd.readable().await?;
             match ready.try_io(|fd| {
+                // SAFETY: `fd` owns the descriptor for the call and `buffer` is a live, writable
+                // slice of the length passed; read writes at most that many bytes.
                 let read = unsafe {
                     libc::read(fd.get_ref().as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len())
                 };
@@ -133,8 +145,8 @@ impl AsyncPty {
         while !remaining.is_empty() {
             let mut ready = self.fd.writable().await?;
             match ready.try_io(|fd| {
-                // SAFETY: `remaining` is a live slice of `remaining.len()`
-                // bytes, and `write` only reads it during the call.
+                // SAFETY: `fd` owns the descriptor for the call and `remaining` is a live slice of
+                // `remaining.len()` bytes; write only reads it during the call.
                 let written = unsafe {
                     libc::write(
                         fd.get_ref().as_raw_fd(),
@@ -868,6 +880,7 @@ impl Drop for PendingPtyChild {
         let Some(mut child) = self.child.take() else { return };
         #[cfg(unix)]
         if let Some(pid) = self.pid.and_then(|pid| i32::try_from(pid).ok()) {
+            // SAFETY: kill takes integers only and touches no memory.
             if unsafe { libc::kill(-pid, libc::SIGKILL) } != 0 {
                 let _ = child.kill();
             }
@@ -911,9 +924,11 @@ impl Drop for PendingProcessGuard {
         if let Some(pid) = self.pid.and_then(|pid| i32::try_from(pid).ok()) {
             let target = if self.signal_process_group { -pid } else { pid };
             if let Some(process_target) = &self.target {
+                // SAFETY: kill takes integers only and touches no memory.
                 let _ =
                     process_target.signal_if_live(|| unsafe { libc::kill(target, libc::SIGKILL) });
             } else {
+                // SAFETY: kill takes integers only and touches no memory.
                 let _ = unsafe { libc::kill(target, libc::SIGKILL) };
             }
         }
@@ -1076,7 +1091,7 @@ impl ProcessManager {
         let cwd_directory = {
             let unix_root = root.unix_root();
             let canonical = cwd.clone();
-            tokio::task::spawn_blocking(move || {
+            cmux_blocking::spawn_blocking(move || {
                 unix_root.pinned_directory_for_canonical_path(&canonical)
             })
             .await
@@ -1096,7 +1111,7 @@ impl ProcessManager {
         #[cfg(unix)]
         {
             let verifier = cwd_directory.try_clone()?;
-            tokio::task::spawn_blocking(move || verifier.verify_identity("process cwd"))
+            cmux_blocking::spawn_blocking(move || verifier.verify_identity("process cwd"))
                 .await
                 .map_err(|error| {
                 RpcError::new("internal", format!("process cwd verification task failed: {error}"))
@@ -1659,7 +1674,7 @@ impl ProcessManager {
             #[cfg(not(unix))]
             {
                 let mut writer = writer;
-                let mut write = tokio::task::spawn_blocking(move || {
+                let mut write = cmux_blocking::spawn_blocking(move || {
                     let result = writer.write_all(&bytes).and_then(|()| {
                         if send_control_d {
                             writer.write_all(&[4])?;
@@ -2056,7 +2071,9 @@ async fn wait_for_process_completions(
 ) -> bool {
     tokio::time::timeout(
         timeout,
-        futures_util::future::join_all(completions.iter().map(|completion| completion.wait())),
+        futures_util::future::join_all(
+            completions.iter().map(Arc::as_ref).map(ProcessCompletion::wait),
+        ),
     )
     .await
     .is_ok()
@@ -2537,6 +2554,7 @@ fn signal_record(record: &ProcessRecord, signal: ProcessSignal) -> Result<(), Rp
             pid
         };
         let target = if record.signal_process_group { -signal_pid } else { signal_pid };
+        // SAFETY: kill takes integers only and touches no memory.
         unsafe { libc::kill(target, native) }
     }) else {
         return Ok(());

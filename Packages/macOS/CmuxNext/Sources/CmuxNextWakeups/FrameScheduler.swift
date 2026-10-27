@@ -120,7 +120,8 @@ public final class FrameScheduler: NSObject {
     weak var starvation: RenderStarvationGuard?
     /// The late period the guard saw since ``lastTick`` (stale once it moves).
     var starvationPeriod: RenderStarvationGuard.Period?
-    var closeObserver: MainActorObservation?
+    /// Lets go of it when its window closes (window schedulers only): a ``WindowEvents`` subscription.
+    var closeObserver: EventSubscription?
     /// Moves it to its window's new display when the window changes screen (window schedulers only).
     var screenFamily: WindowScreenFamily?
     /// When the frame of its last tick is shown (nil before the first tick after subscribing).
@@ -392,15 +393,17 @@ public final class FrameScheduler: NSObject {
                          targetTimestamp: target, sequence: frames)
     }
 
-    /// The frame-locked clients, every frame: the input stage first (the window's
-    /// FrameInputCoalescer), so the frame clients see this frame's input. Clients activated during
-    /// this frame tick next frame.
+    /// The frame-locked clients, every frame: the input stage first (the window's input coalescers),
+    /// then the frame clients, so they see this frame's input. A frame client the input stage
+    /// activated (a ghost spring a trailing move woke) ticks in this frame too, as Blink dispatches
+    /// rAF-aligned input before the frame's animation callbacks (`WidgetBase::BeginMainFrame`,
+    /// `third_party/blink/renderer/platform/widget/widget_base.cc`). Clients a frame client
+    /// activates tick next frame.
     func deliverFrameLocked(_ tick: FrameTick) { // perf-hot: 0.5ms frame-tick (every frame)
-        let ticking = clients.values.filter(\.isActive)
-        for client in ticking where client.workClass == .input {
+        for client in clients.values.filter({ $0.isActive && $0.workClass == .input }) {
             fire(client, tick)
         }
-        for client in ticking where client.workClass == .frame {
+        for client in clients.values.filter({ $0.isActive && $0.workClass == .frame }) {
             fire(client, tick)
         }
     }

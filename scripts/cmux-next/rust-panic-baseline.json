@@ -542,7 +542,7 @@
    "indexing_slicing": 0,
    "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 90,
+   "arithmetic_side_effects": 89,
    "cast_possible_truncation": 10
   },
   "cmux-remote-browser": {
@@ -741,14 +741,14 @@
    "cast_possible_truncation": 1
   },
   "cmux-tui-core": {
-   "unwrap_used": 1039,
-   "expect_used": 173,
-   "panic": 2,
-   "unreachable": 24,
+   "unwrap_used": 807,
+   "expect_used": 139,
+   "panic": 0,
+   "unreachable": 20,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 1047,
-   "string_slice": 52,
+   "indexing_slicing": 850,
+   "string_slice": 32,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 830,
    "cast_possible_truncation": 89

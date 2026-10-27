@@ -19,32 +19,28 @@ struct LogLineParser {
             return Self.ansi?.stringByReplacingMatches(in: line, range: NSRange(line.startIndex..., in: line), withTemplate: "") ?? line
         }
         var events: [ErrorEvent] = []
-        var index = 0
-        while index < lines.count {
-            let line = lines[index]
-            index += 1
+        var rest = ArraySlice(lines)
+        while let line = rest.popFirst() {
             let range = NSRange(line.startIndex..., in: line)
             let date = Self.date(in: line) ?? Date()
             if let match = Self.panic?.firstMatch(in: line, range: range),
-               let frameRange = Range(match.range(at: 1), in: line), let restRange = Range(match.range(at: 2), in: line) {
-                var message = String(line[restRange]).trimmingCharacters(in: .whitespaces)
-                if message.isEmpty, index < lines.count {
-                    message = lines[index].trimmingCharacters(in: .whitespaces)
-                    index += 1
+               let frame = match.capture(1, in: line), let tail = match.capture(2, in: line) {
+                var message = tail.trimmingCharacters(in: .whitespaces)
+                if message.isEmpty, let next = rest.popFirst() {
+                    message = next.trimmingCharacters(in: .whitespaces)
                 }
                 events.append(ErrorEvent(source: source, level: .fault, message: "panic: \(message)",
-                                         topFrame: String(line[frameRange]), context: ["file": file], date: date))
+                                         topFrame: frame, context: ["file": file], date: date))
                 continue
             }
             guard let match = Self.level?.firstMatch(in: line, range: range),
-                  let levelRange = Range(match.range(at: 1), in: line) else { continue }
-            let word = line[levelRange]
+                  let word = match.capture(1, in: line), let after = match.text(after: 1, in: line) else { continue }
             let level: ErrorLevel = switch word {
             case "WARN", "WARNING": .warning
             case "ERROR": .error
             default: .fault
             }
-            let message = line[levelRange.upperBound...].trimmingCharacters(in: CharacterSet(charactersIn: " :]-\t"))
+            let message = after.trimmingCharacters(in: CharacterSet(charactersIn: " :]-\t"))
             events.append(ErrorEvent(source: source, level: level, message: message.isEmpty ? line : message,
                                      context: ["file": file], date: date))
         }
@@ -53,11 +49,11 @@ struct LogLineParser {
 
     private static func date(in line: String) -> Date? {
         guard let match = timestamp?.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
-              let range = Range(match.range(at: 1), in: line) else { return nil }
+              let stamp = match.capture(1, in: line) else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: String(line[range])) { return date }
+        if let date = formatter.date(from: stamp) { return date }
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: String(line[range]))
+        return formatter.date(from: stamp)
     }
 }
