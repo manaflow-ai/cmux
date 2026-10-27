@@ -7765,14 +7765,14 @@ jobs:
           retention-days: 7
 
   publish-release-notes:
-    # Its own group, not publish-nightly's (a queued notes job would replace a
-    # waiting publish). Notes jobs stay serialized against each other and each
-    # skips unless the live feed serves its build. If an older build's notes
-    # pass that check and a newer publish lands before they write, the newer
-    # build's own notes job queues behind them in this group and writes last.
+    # Still publish-nightly's group: the notes writes (notes/index.json and the
+    # rest) have no compare-and-swap, so only this lock keeps an older build's
+    # checked notes from landing after a newer publish. Leaving it needs that
+    # compare-and-swap first (a late older notes job would otherwise replace a
+    # newer one's pending notes and its writes would win).
     needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client]
     concurrency:
-      group: release-notes-${{ needs.decide.outputs.release_tag }}
+      group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}

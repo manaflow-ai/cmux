@@ -28,7 +28,7 @@ SHARED_NIGHTLY_GROUPS = {
     "await-release-surface-ack": "nightly-next-promote-ack",
     "publish-nightly": "release-publish-",
     "republish-nightly-deltas": "release-",
-    "publish-release-notes": "release-notes-",
+    "publish-release-notes": "release-publish-",
     "publish-nightly-identity-legacy": "nightly-next-legacy-identity-publish",
     # The release's mutable names only; the uploads (publish-nightly-next-github) have no group.
     "publish-nightly-next-github-names": "nightly-next-github-names",
@@ -84,6 +84,11 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
 # would cancel a waiting publish (2026-10-27 nightly path audit). Publishes stay serialized against
 # each other in their own group.
 PUBLISH_JOBS = {"publish-nightly"}
+# Writers that still need the publish lock because their writes have no compare-and-swap. Each entry
+# is a known eviction risk to remove once its writes are made safe without the lock.
+KEEPS_PUBLISH_LOCK = {
+    "publish-release-notes": "notes/index.json and the other notes objects are written unconditionally",
+}
 
 
 def test_a_publish_never_shares_a_group_with_a_non_publish_job() -> None:
@@ -111,7 +116,7 @@ def test_a_publish_never_shares_a_group_with_a_non_publish_job() -> None:
     assert deltas == ("release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
                       "${{ needs.decide.outputs.release_tag }}"), deltas
     for name, job in jobs.items():
-        if name in PUBLISH_JOBS or name == "republish-nightly-deltas" or not group_of(job):
+        if name in PUBLISH_JOBS or name in KEEPS_PUBLISH_LOCK or name == "republish-nightly-deltas" or not group_of(job):
             continue
         assert family(group_of(job)) not in publish_families, (
             f"nightly.yml {name} shares a publish job's concurrency group {group_of(job)!r}: "

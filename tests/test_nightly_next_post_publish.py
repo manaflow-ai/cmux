@@ -65,7 +65,8 @@ if "CHANNEL_FEED_BASE/appcast-arm64.xml" not in delta or "live_build != NIGHTLY_
 if "if: steps.current.outputs.current == 'true'" not in notes_publish:
     failures.append("publish-release-notes must skip stale notes after a newer publication")
 for writer, group in (
-    ("publish-release-notes", "release-notes-${{ needs.decide.outputs.release_tag }}"),
+    # Notes keep the publish lock: their writes have no compare-and-swap.
+    ("publish-release-notes", "release-publish-${{ needs.decide.outputs.release_tag }}"),
     # nightly-next: its own group (the feed write is a compare-and-swap); classic and RC keep the publish lock.
     ("republish-nightly-deltas", "release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
                                  "${{ needs.decide.outputs.release_tag }}"),
