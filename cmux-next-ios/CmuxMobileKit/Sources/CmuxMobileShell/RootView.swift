@@ -80,6 +80,8 @@ public struct RootView: View {
     /// The account whose preferences are live (`AccountPreferences`); sign-out
     /// puts them away under it.
     @State private var accountUserID: String?
+    /// A pairing code opened while signed out: applied once the account's live data starts.
+    @State private var heldInvite: PairInvite?
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
@@ -193,6 +195,11 @@ public struct RootView: View {
             accountUserID = id
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
+        // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
+        .onOpenURL { url in
+            guard let invite = PairInvite(url: url) else { return }
+            if let live { live.accept(invite) } else { heldInvite = invite }
+        }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
         .task(id: auth.isSignedIn) {
@@ -325,6 +332,10 @@ public struct RootView: View {
         auth.willSignOut = AccountSignOut().willSignOut { await PushRegistration.shared.unregister() }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
+        if let invite = heldInvite {
+            heldInvite = nil
+            coordinator.accept(invite)
+        }
     }
 
     #if DEBUG
