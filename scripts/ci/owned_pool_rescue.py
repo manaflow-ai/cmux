@@ -1510,6 +1510,18 @@ class GitHub:
             return None
         return snapshot
 
+    def code_shas(self, names: Sequence[str]) -> dict[str, str]:
+        """The git blob shas of `names` in MAIN_BRANCH's scripts/ci (one request: the directory listing)."""
+        listing = self.request("GET", f"/contents/{CODE_DIRECTORY}?ref={MAIN_BRANCH}")
+        found = {str(item.get("name")): str(item.get("sha") or "") for item in listing or []
+                 if isinstance(item, Mapping)}
+        return {name: found.get(name, "") for name in names}
+
+    def dispatch_sweeper(self) -> None:
+        """Start a sweeper on MAIN_BRANCH's code. It queues in the sweeper concurrency group until this one exits."""
+        self.request("POST", f"/actions/workflows/{RESCUE_WORKFLOW_FILE}/" + "dispatches", own_token=True,
+                     body={"ref": MAIN_BRANCH})
+
     def has_artifact(self, run_id: int, prefix: str, pages: int = 5) -> bool:
         """Whether the run uploaded an artifact whose name starts with `prefix`."""
         for page in range(1, pages + 1):
@@ -2606,12 +2618,59 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
     return target
 
 
+# A sweeper runs the code main had when it started for up to SWEEP_SECONDS. Every CODE_CHECK_TICKS ticks it
+# compares that code (this script and the scripts/ci modules it imports) with main's; once main's differs it
+# hands over early, as at SWEEP_SECONDS: no new adoptions, the rescues under way finish, and a fresh sweeper
+# (dispatched, or the cron's pending one) starts on the new code. Run 40488669087 (2026-10-27) kept rescuing
+# DEV daily runs with the code #26047 replaced for 3 hours after it merged.
+CODE_DIRECTORY = "scripts/ci"
+CODE_FILES = ("owned_pool_rescue.py", "pr_runner_pool.py", "simple_pool_picker.py", "owned_pool_sources.py",
+              "ui_tests_dispatch.py")
+CODE_CHECK_TICKS = 5
+RESCUE_WORKFLOW_FILE = "ci-owned-pool-rescue.yml"
+
+
+def blob_sha(data: bytes) -> str:
+    """Git's blob id for `data`, as the contents API reports it."""
+    import hashlib
+
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def running_code_shas(directory: Path | None = None) -> dict[str, str]:
+    """The blob shas of CODE_FILES as this process loaded them ("" for one that is missing)."""
+    root = directory or Path(__file__).resolve().parent
+    shas: dict[str, str] = {}
+    for name in CODE_FILES:
+        try:
+            shas[name] = blob_sha((root / name).read_bytes())
+        except OSError:
+            shas[name] = ""
+    return shas
+
+
+def code_changed(client: Any, running: Mapping[str, str], log: Callable[[str], None]) -> list[str]:
+    """CODE_FILES whose blob on main differs from the running one; [] when unchanged or unreadable."""
+    reader = getattr(client, "code_shas", None)
+    if reader is None:
+        return []
+    try:
+        current = reader(CODE_FILES)
+    except Exception as error:  # noqa: BLE001 - a failed check must never end the sweep; the next one decides
+        log(f"could not read main's {CODE_DIRECTORY} ({type(error).__name__}: {error}); next check")
+        return []
+    if not any(current.values()):
+        return []  # an empty listing says nothing about the code
+    return sorted(name for name in CODE_FILES if (current.get(name) or "") != (running.get(name) or ""))
+
+
 def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | None,
           now: Callable[[], dt.datetime], log: Callable[[str], None],
           sweep_seconds: int = SWEEP_SECONDS, tick_seconds: float = SWEEP_TICK_SECONDS,
           wait: Callable[[float], None] = time.sleep, light_retry: bool = False,
-          side_seconds: int | None = None) -> dict[str, int]:
-    """Watch every marked run until `sweep_seconds` pass. Returns outcome counts."""
+          side_seconds: int | None = None, running_code: Mapping[str, str] | None = None) -> dict[str, int]:
+    """Watch every marked run until `sweep_seconds` pass, or main's code changes (code_changed()).
+    Returns outcome counts."""
     # The sweeper's own listings raise on a rate limit as before (a failed read is tried next
     # tick); only the watch threads, which cancel and re-run, wait (RESCUE_GRACE_SECONDS has room).
     if hasattr(client, "no_rate_limit_waits"):
@@ -2701,7 +2760,15 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         watching[run_id] = thread
         return True
 
+    code = dict(running_code_shas() if running_code is None else running_code)
+    replaced: list[str] = []
+    looks = 0
     while (now() - started).total_seconds() < sweep_seconds:
+        if looks % CODE_CHECK_TICKS == 0:
+            replaced = code_changed(client, code, log)
+            if replaced:
+                break
+        looks += 1
         oldest = now() - dt.timedelta(seconds=SWEEP_MAX_AGE_SECONDS)
         # The picker's marker first: a run with both is watched the ordinary way.
         # Refusals-only runs are listed before the re-runs, which inherit the mark.
@@ -2760,6 +2827,16 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         # Below BUDGET_FLOOR a tick every IDLE_POLL_SECONDS; spent, the next one after the reset.
         pause = client.pace(tick_seconds) if hasattr(client, "pace") else tick_seconds
         wait(min(pause, max(tick_seconds, sweep_seconds - (now() - started).total_seconds())))
+    if replaced:
+        log(f"main's {', '.join(replaced)} changed since this sweeper started; handing over to a sweeper on the "
+            "new code")
+        with lock:
+            outcomes["code changed"] = outcomes.get("code changed", 0) + 1
+        try:
+            # It waits in the sweeper concurrency group (never cancel-in-progress) until this one exits.
+            client.dispatch_sweeper()
+        except Exception as error:  # noqa: BLE001 - the cron's next sweeper starts on the new code anyway
+            log(f"could not start a sweeper ({type(error).__name__}: {error}); the cron's next one takes over")
     log("handing over: stopping watches; rescues under way finish")
     stopping.set()
     # One grace for all of them: a rescue started before the stop settles

@@ -2761,6 +2761,24 @@ class SweepAPI:
         return self.runs[run_id]
 
 
+class CodeSweepAPI(SweepAPI):
+    """A SweepAPI whose main changes the rescue script after `changes_after` code checks."""
+
+    def __init__(self, *args, changes_after=None, fails=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.checks, self.changes_after, self.fails, self.dispatched = 0, changes_after, fails, 0
+
+    def code_shas(self, names):
+        self.checks += 1
+        if self.fails:
+            raise urllib.error.URLError("down")
+        changed = self.changes_after is not None and self.checks > self.changes_after
+        return {name: ("new" if changed and name == "owned_pool_rescue.py" else "old") for name in names}
+
+    def dispatch_sweeper(self):
+        self.dispatched += 1
+
+
 def listed(run_id, **overrides):
     run = dict(event(id=run_id)["workflow_run"])
     run.update(overrides)
@@ -2781,6 +2799,65 @@ class Sweeper(unittest.TestCase):
                                     now=clock.now, log=lambda text: None, sweep_seconds=ticks * 60,
                                     tick_seconds=60, wait=clock.sleep)
         return sorted(watched), outcomes
+
+    def code_sweep(self, api, *, ticks=30, follow=None):
+        clock, watched = Clock(), []
+
+        def fake_follow(client, target, **kwargs):
+            watched.append(target.run_id)
+            return follow(kwargs) if follow else "stopped: the run finished"
+        running = {name: "old" for name in rescue.CODE_FILES}
+        with unittest.mock.patch.object(rescue, "follow", fake_follow):
+            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
+                                    log=lambda text: None, sweep_seconds=ticks * 60, tick_seconds=60,
+                                    wait=clock.sleep, running_code=running)
+        return clock, watched, outcomes
+
+    def test_hands_over_once_main_s_code_changes(self):
+        api = CodeSweepAPI([listed(1)], picker=[1], changes_after=1)
+        clock, watched, outcomes = self.code_sweep(api)
+        # Checked at the first tick and every CODE_CHECK_TICKS after; the second check sees the change.
+        self.assertEqual(api.checks, 2)
+        self.assertLess(clock.seconds, (rescue.CODE_CHECK_TICKS + 1) * 60)
+        self.assertEqual(outcomes.get("code changed"), 1)
+        self.assertEqual(api.dispatched, 1)
+        self.assertEqual(watched, [1])
+
+    def test_unchanged_or_unreadable_code_keeps_sweeping(self):
+        for api in (CodeSweepAPI([], changes_after=None), CodeSweepAPI([], fails=True)):
+            clock, _, outcomes = self.code_sweep(api, ticks=12)
+            self.assertNotIn("code changed", outcomes)
+            self.assertEqual(api.dispatched, 0)
+            self.assertGreaterEqual(clock.seconds, 12 * 60)
+            self.assertEqual(api.checks, 3)  # ticks 0, 5 and 10
+
+    def test_a_rescue_under_way_finishes_through_a_code_handover(self):
+        # The watch sleeps through `sleep` (raises Stopping at handover); a rescue paces itself with
+        # `rescue_sleep`, which never raises, so a cancel it started is followed by its re-run.
+        finished = []
+
+        def follow(kwargs):
+            for _ in range(3):
+                kwargs["rescue_sleep"](60)  # rescue under way: not interrupted by the handover
+            finished.append(True)
+            return "done"
+        # A change seen at the very first check adopts nothing.
+        api = CodeSweepAPI([listed(1)], picker=[1], changes_after=0)
+        _, watched, _ = self.code_sweep(api, follow=follow)
+        self.assertEqual((watched, api.dispatched), ([], 1))
+        api = CodeSweepAPI([listed(1)], picker=[1], changes_after=1)
+        _, watched, outcomes = self.code_sweep(api, follow=follow)
+        self.assertEqual(watched, [1])
+        self.assertEqual(finished, [True])
+        self.assertEqual(outcomes.get("done"), 1)
+
+    def test_running_code_shas_match_git(self):
+        import subprocess
+        shas = rescue.running_code_shas()
+        for name in rescue.CODE_FILES:
+            expected = subprocess.run(["git", "hash-object", str(ROOT / "scripts/ci" / name)], capture_output=True,
+                                      text=True, check=True).stdout.strip()
+            self.assertEqual(shas[name], expected, name)
 
     def test_watches_each_marked_run_once(self):
         runs = [listed(1),
