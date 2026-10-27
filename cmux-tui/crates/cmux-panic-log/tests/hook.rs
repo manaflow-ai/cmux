@@ -2,6 +2,8 @@
 //! caller's fields and the panicking thread's open trace scopes, and the
 //! previous hook still runs.
 
+#![cfg(feature = "json")]
+
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Waker};
