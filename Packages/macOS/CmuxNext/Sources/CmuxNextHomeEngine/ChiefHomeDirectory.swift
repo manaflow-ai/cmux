@@ -73,13 +73,25 @@ public actor ChiefHomeDirectory {
     func warm(host: String, sessionIds: [String], fallback: any AgentPaneHostProviding) async throws {
         guard let own = await ownAcpmux(of: host) else { return try await fallback.warm(sessionIds: sessionIds) }
         let home = own.home
-        let owned = try await work.run(.userVisible, mayBlock: .files) { home.hostRuns }
+        var owned = try await work.run(.userVisible, mayBlock: .files) { home.hostRuns }
         try Task.checkCancellation()
-        if !owned { launchHomes.insert(host) }
+        // Fence the unlocked census through the daemon start. If a Chief acquires the home
+        // between the census and this point, fail closed into its attaching host.
+        let ownership: ChiefMigration.HostLock?
+        if owned {
+            ownership = nil
+        } else if let lock = ChiefMigration.HostLock(path: home.root.appendingPathComponent("state/host.lock")) {
+            ownership = lock
+        } else {
+            owned = true
+            ownership = nil
+        }
         let tag = "optchat-chief:" + host.dropFirst(ChiefHome.tabHostPrefix.count)
         let router = AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting,
                                               chiefEnvironment: own.environment, sessionsHome: home.acpmuxHome, parentTag: tag)
+        defer { ownership?.release() }
         try await router.warm(sessionIds: sessionIds)
+        if !owned, await own.starting.hasWarmedSessions { launchHomes.insert(host) }
     }
 
     /// Ends only older homes warmed by this launch, and only while no other build owns the home.

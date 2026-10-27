@@ -73,6 +73,18 @@ public nonisolated enum ChiefHostStop {
         _ = await AcpmuxQuit.endAgents(environment, keep: endSessionsKeep)
     }
 
+    /// Ends a legacy daemon only while this app owns the Chief home's lock. The lock is held
+    /// through the RPC and daemon exit so a replacement Chief cannot appear between the check
+    /// and shutdown.
+    @concurrent public static func endLegacyAcpmuxIfOwned(home: ChiefHome, bundledBin: URL?, waitForShutdown: Bool = false) async -> AcpmuxQuit.EndResult? {
+        guard !home.usesAppAcpmux,
+              let ownership = ChiefMigration.HostLock(path: home.root.appendingPathComponent("state/host.lock")) else { return nil }
+        defer { ownership.release() }
+        let environment = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBin,
+                                                    environment: ["ACPMUX_HOME": home.acpmuxHome.path])
+        return await AcpmuxQuit.endAgents(environment, keep: .nothing, waitForShutdown: waitForShutdown)
+    }
+
     /// Whether `pid` runs an `optchat-chief` executable.
     public static func isChiefHost(_ pid: pid_t) -> Bool {
         let path = executablePath(pid)
