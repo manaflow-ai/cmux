@@ -46,8 +46,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// False: the bands never scroll; the list shrinks instead (to a
     /// minimum of three rows).
     public var pinnedBandsScroll: Bool
-    /// Whether the workspace list expands each workspace into its tab rows. On by default
-    /// (Lawrence 2026-10-27: "show everything by default"); off hides every workspace's tabs.
+    /// Whether the workspace list expands each workspace into its tab rows. Off by default
+    /// (https://github.com/manaflow-ai/cmux/issues/26384): plain workspace rows; Settings >
+    /// Appearance > Sidebar > Show Workspace Tabs turns it on.
     public var showWorkspaceTabs: Bool
     /// `sidebar.groupByComputer`: one workspace section per computer, each
     /// under its header. Off (the default) shows one list of workspaces with
@@ -137,7 +138,7 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var style: SidebarLayoutStyle = .standard
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
-                pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = true) {
+                pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {
         self.look = look
         self.topBandMaxShare = topBandMaxShare
         self.bottomBandMaxShare = bottomBandMaxShare

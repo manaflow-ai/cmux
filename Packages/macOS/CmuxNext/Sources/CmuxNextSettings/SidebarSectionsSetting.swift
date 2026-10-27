@@ -158,7 +158,8 @@ public nonisolated enum SidebarSectionsSetting {
                           title: SettingsText.keyed("settings.sidebar.showWorkspaceTabs", "Show Workspace Tabs"),
                           help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
-                          keywords: ["sidebar", "workspace", "tabs"])
+                          keywords: ["sidebar", "workspace", "workspaces", "tabs", "panes", "under", "beneath", "nested",
+                                     "expand", "list", "tree", "disclosure"])
     }
 
     /// Projects, which its header's menu hides (Leo 2026-10-06). All chats has

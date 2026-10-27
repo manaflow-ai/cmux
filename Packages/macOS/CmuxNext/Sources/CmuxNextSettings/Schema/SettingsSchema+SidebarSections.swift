@@ -7,6 +7,9 @@ nonisolated enum SidebarSectionSettingsSchema {
         let sidebar = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         let share = SettingNumber(SidebarSectionsPreferences.shareRange, step: 0.05, unit: .fraction)
         return [
+            // First in the Sidebar card: off by default, so the row that brings each
+            // workspace's tabs back is the first one a person sees (#26384).
+            SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
             SidebarSurfaceSetting.descriptor(group: sidebar),
             SettingDescriptor(
                 SidebarBorderSetting.borderPath, section: .appearance, group: sidebar,
@@ -58,7 +61,6 @@ nonisolated enum SidebarSectionSettingsSchema {
                 kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.pinnedBandsScroll),
                 keywords: ["sidebar", "sections", "pinned", "scroll"]
             ),
-            SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
             SidebarSectionsSetting.showChatsDescriptor(group: sidebar),
             SidebarSectionsSetting.sessionTreeDescriptor(group: sidebar),
         ] + SidebarSectionsSetting.sectionDescriptors(group: sidebar) + [
