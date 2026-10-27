@@ -36,7 +36,8 @@ every-action sweep).
 
 --blocking-report=trap (the default, RUN-12): CMUX_BLOCKING_TRAP=1 and CMUX_BLOCKING_TRAP_POOL=1 at every launch; the
 run exits BLOCKING_EXIT (5) unless every launch was read in trap mode with 0 traps, 0 sites, 0 overflow and no exit
-or quit on SIGTRAP. --blocking-report=record files the sites (MQ-10) and never exits on them. Either mode exits
+or quit on SIGTRAP, and the fault log ran the whole run (without it the sites after each read are not checked).
+--blocking-report=record files the sites (MQ-10) and never exits on them. Either mode exits
 STEP_EXIT (3) when a step failed (and the blocking verdict is clean). On a non-zero exit the report goes into the step
 log (lifecycle.md, then one LIFECYCLE-REPORT line of JSON): the controller returns --artifact files only for a step
 that passes.
@@ -145,21 +146,34 @@ class BlockingLog:
     """`log stream` of the detector's fault lines (BLOCKING_LOG_PREDICATE), read on a thread into `sites`
     [(pid, site)] and kept in `path`. Not live where there is no `log` (Linux, a test): `error` says why."""
 
-    def __init__(self, path):
+    ATTACHED = "Filtering the log data"  # log stream's first line once its predicate is in place
+
+    def __init__(self, path, popen=subprocess.Popen):
         self.path, self.process, self.thread, self.error, self.live = path, None, None, None, False
+        self.popen = popen
         self.sites, self.lines, self.pids = [], 0, set()
 
     def start(self):
         import threading
         try:
             self.handle = open(self.path, "w")
-            self.process = subprocess.Popen(["/usr/bin/log", "stream", "--style", "ndjson", "--predicate",
-                                             BLOCKING_LOG_PREDICATE], stdout=subprocess.PIPE,
-                                            stderr=subprocess.DEVNULL, text=True)
+            self.process = self.popen(["/usr/bin/log", "stream", "--style", "ndjson", "--predicate",
+                                       BLOCKING_LOG_PREDICATE], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                      text=True)
         except OSError as error:
             self.error = str(error)
             return self
-        self.process.stdout.readline()  # the filter line: attached
+        first = self.process.stdout.readline()
+        if not first.startswith(self.ATTACHED) or self.process.poll() is not None:
+            # A refused predicate or a missing privilege: log prints why (stderr is merged) and exits.
+            self.error = f"log stream did not attach: {first.strip()[:200] or 'no output'}"
+            if self.process.poll() is None:
+                self.process.kill()
+            self.process.wait(timeout=10)
+            self.process = None
+            self.handle.close()
+            return self
+        self.handle.write(first)
         self.live = True
         self.thread = threading.Thread(target=self.read, daemon=True)
         self.thread.start()
@@ -186,6 +200,10 @@ class BlockingLog:
     def stop(self):
         if not self.process:
             return
+        code = self.process.poll()
+        if code is not None:  # it ended before the run did: the fault lines after that are lost
+            self.live = False
+            self.error = f"log stream exited during the run (code {code})"
         self.process.send_signal(signal.SIGINT)  # our own log stream child: it flushes and exits
         try:
             self.process.wait(timeout=20)
@@ -308,8 +326,7 @@ class Sweep:
             if bench.process is not None:
                 self.read_blocking()  # an exit (a trap at launch) is kept unread with its status
                 if bench.process.poll() is None:
-                    bench.process.terminate()  # our own child: it never answered
-                    bench.process.wait(timeout=QUIT_S)
+                    stop_child(bench.process)  # our own child: it never answered (a hung main thread ignores TERM)
                 self.launches[-1]["exit"] = self.reads[-1]["quit_exit"] = bench.process.poll()
                 self.save_read(self.reads[-1])
             return False
@@ -446,12 +463,7 @@ class Sweep:
             exited = self.wait(lambda: self.bench.process.poll() is not None, QUIT_S)
             code = self.exit_code()
             if not exited:
-                self.bench.process.terminate()  # our own child only
-                try:
-                    self.bench.process.wait(timeout=QUIT_S)
-                except subprocess.TimeoutExpired:
-                    self.bench.process.kill()
-                    self.bench.process.wait(timeout=10)
+                stop_child(self.bench.process)  # our own child only
             ok = bool(exited) and code == 0
             row = {"step": step, "launch": self.launch_name, "ok": ok, "seconds": round(self.clock() - began, 2),
                    "detail": {"reply": reply, "exit": code if exited else f"still running after {QUIT_S:g} s"}}
@@ -473,6 +485,17 @@ class Sweep:
             return {"stage": staged, "relaunch": self.rpc("debug.updater", {"action": "relaunch"}, timeout=10)}
         action = "quitEndSessions" if step == "quit-end" else "quitKeepSessions"
         return self.rpc("action.run", {"action": action, "args": {}, "focus": False, "origin": "script"}, timeout=10)
+
+
+def stop_child(process):
+    """End our own launched app: TERM (the app's normal quit), then KILL when it has not exited after QUIT_S (a
+    hung main thread never handles the TERM)."""
+    process.terminate()
+    try:
+        process.wait(timeout=QUIT_S)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
 
 
 def error_of(reply):
@@ -497,8 +520,12 @@ def report_of(sweep, mode, traps, log_report, env):
     reads = sweep.reads + unread_sites(sweep.reads, sweep.log.sites)
     partial = bool(sweep.skip)
     section = blocking_section(mode, reads, traps, partial=partial, sweep="lifecycle")
-    if mode == "record" and not log_report["live"]:
-        section["note"] = f"no fault log ({log_report['error']}): quit-path sites are not filed"
+    if not log_report["live"]:
+        section["note"] = f"no fault log ({log_report['error']}): sites after each launch's read are not filed"
+        run12 = section.get("run12")
+        if run12 is not None:  # the quits and the update relaunch were not checked: no RUN-12 coverage
+            run12["problems"].append(f"no fault log ({log_report['error']}): sites after each read are not checked")
+            run12["clean"] = False
     return {"env": env, "mode": mode, "partial": partial, "skipped": sorted(sweep.skip), "launches": sweep.launches,
             "steps": sweep.rows, "failed_steps": [r["step"] for r in sweep.rows if not r["ok"]],
             "log_stream": log_report, "blocking": section}

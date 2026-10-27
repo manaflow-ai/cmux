@@ -16,7 +16,7 @@ its daemon and Chromium helpers, and the detector's table and fault lines. No ap
 
 Run: python3 -I scripts/cmux-next/tests/test_lifecycle_sweep.py
 """
-import contextlib, importlib.util, io, json, os, signal, sys, tempfile, types, unittest
+import contextlib, importlib.util, io, json, os, signal, subprocess, sys, tempfile, types, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.dirname(HERE)
@@ -44,20 +44,28 @@ class Clock:
 
 
 class FakeProcess:
+    """`hung`: a main thread that hangs, so the app never answers and ignores SIGTERM (QuitSignal runs on main)."""
+
     def __init__(self, pid):
-        self.pid, self.code = pid, None
+        self.pid, self.code, self.hung = pid, None, False
+        self.signals = []
 
     def poll(self):
         return self.code
 
     def terminate(self):
-        if self.code is None:
+        self.signals.append("TERM")
+        if self.code is None and not self.hung:
             self.code = -signal.SIGTERM
 
     def kill(self):
-        self.terminate()
+        self.signals.append("KILL")
+        if self.code is None:
+            self.code = -signal.SIGKILL
 
     def wait(self, timeout=None):
+        if self.code is None:
+            raise subprocess.TimeoutExpired("cmux DEV lifecycle", timeout)
         return self.code
 
 
@@ -70,7 +78,7 @@ class World:
         self.calls, self.kills, self.envs, self.fresh = [], [], [], []
         self.next_pid, self.process, self.daemon = 1000, None, None
         self.renderers, self.sites, self.log = [], [], None
-        self.launch_index = 0
+        self.launch_index, self.processes = 0, []
 
     def pid(self):
         self.next_pid += 1
@@ -92,9 +100,14 @@ class World:
             def launch(self, timeout, on_start):
                 world.launch_index += 1
                 fail = world.behavior.get("launch_fails")
+                hangs = world.behavior.get("launch_hangs")
                 self.process = FakeProcess(world.pid())
                 world.process = self.process
+                world.processes.append(self.process)
                 on_start(self.process)
+                if hangs and hangs(world.launch_index):
+                    self.process.hung = True  # bench_launch's deadline passes; the process is left running
+                    raise SystemExit("bench-launch: no window answered debug.windows in 180 s")
                 if fail and fail(world.launch_index):
                     self.process.code = SIGTRAP_EXIT
                     raise SystemExit("bench-launch: exited (code -5)")
@@ -131,6 +144,8 @@ class World:
         self.calls.append((method, params))
         if self.process is None or self.process.code is not None:
             return {"error": "connection refused", "unreachable": True}
+        if self.process.hung:
+            return {"error": "timed out", "unreachable": True}
         if method == "debug.daemon":
             return {"connection": "connected", "pid": self.daemon} if self.daemon else {"connection": "disconnected"}
         if method == "debug.blocking":
@@ -157,11 +172,31 @@ class World:
 
 
 class FakeLog:
-    def __init__(self):
-        self.pids, self.sites = set(), []
+    def __init__(self, live=True, error=None):
+        self.pids, self.sites, self.live, self.error = set(), [], live, error
 
     def report(self):
-        return {"live": True, "error": None, "sites": len(self.sites)}
+        return {"live": self.live, "error": self.error, "sites": len(self.sites)}
+
+
+class FakeLogStream:
+    """`log stream` as BlockingLog starts it: its merged output lines and whether it has exited."""
+
+    def __init__(self, lines, code=None):
+        self.stdout, self.code, self.killed = io.StringIO("".join(lines)), code, False
+
+    def poll(self):
+        return self.code
+
+    def kill(self):
+        self.killed, self.code = True, -signal.SIGKILL
+
+    def send_signal(self, signum):
+        if self.code is None:
+            self.code = 0
+
+    def wait(self, timeout=None):
+        return self.code
 
 
 class FakeStress:
@@ -190,11 +225,11 @@ class FakeTeardown:
         self.ended += 1
 
 
-def run_sweep(world, mode="trap", skip=(), traps=()):
+def run_sweep(world, mode="trap", skip=(), traps=(), log=None):
     world.quit_faults = []
     out = tempfile.mkdtemp(prefix="lifecycle-test-")
     opts = types.SimpleNamespace(app=APP, tag="lifecycle", blocking_report=mode, skip=list(skip), settle=0.5, app_env=[])
-    clock, log, teardown = Clock(), FakeLog(), FakeTeardown()
+    clock, log, teardown = Clock(), log or FakeLog(), FakeTeardown()
     sweep = lc.Sweep(opts, out, world.make_bench, teardown, FakeStress, log, world.rpc_at, table=world.table,
                      kill=world.kill, sleep=clock.sleep, clock=clock)
     with contextlib.redirect_stdout(io.StringIO()):
@@ -302,6 +337,23 @@ class LifecycleRunTests(unittest.TestCase):
         self.assertEqual(sweep.reads[0]["quit_exit"], 6)
         self.assertEqual(lc.exit_status(report), lc.STEP_EXIT)
 
+    def test_a_launch_that_never_answers_and_ignores_term_is_killed_and_the_run_still_reports(self):
+        # A hung main thread never handles the SIGTERM: the sweep kills it, then goes on to the next launch.
+        world = World(launch_hangs=lambda index: index == 1)
+        sweep, report, teardown, out = run_sweep(world)
+        hung = world.processes[0]
+        self.assertEqual(hung.signals, ["TERM", "KILL"])
+        self.assertEqual(sweep.reads[0]["quit_exit"], -signal.SIGKILL)
+        self.assertEqual([l["name"] for l in report["launches"]], ["cold", "warm", "after-update"])
+        self.assertIn("launch-cold", report["failed_steps"])
+        self.assertIn("launch-after-update", [r["step"] for r in report["steps"] if r["ok"]])
+        self.assertFalse(report["blocking"]["run12"]["clean"])
+        self.assertEqual(lc.exit_status(report), lc.BLOCKING_EXIT)
+        self.assertEqual(teardown.ended, 1)
+        lc.write_report(report, out)
+        for name in ("lifecycle.json", "lifecycle.md", "blocking-tasks.json"):
+            self.assertTrue(os.path.exists(os.path.join(out, name)), name)
+
 
 class LifecycleBlockingTests(unittest.TestCase):
     def test_a_site_in_a_read_fails_run12_and_is_filed_under_the_lifecycle_sweeps_id(self):
@@ -334,6 +386,43 @@ class LifecycleBlockingTests(unittest.TestCase):
         self.assertNotIn("run12", report["blocking"])  # a record run's sites are its output
         self.assertEqual(lc.exit_status(report), 0)
         self.assertTrue(all(e["CMUX_BLOCKING_TRAP"] == "0" for e in world.envs))
+
+    def test_a_trap_run_without_its_fault_log_is_not_clean(self):
+        # The sites after each read (the quits, the update relaunch) are only in the fault log: no log, no RUN-12.
+        world = World()
+        _, report, _, out = run_sweep(world, log=FakeLog(live=False, error="log stream exited during the run (code 1)"))
+        run12 = report["blocking"]["run12"]
+        self.assertFalse(run12["clean"])
+        self.assertIn("no fault log (log stream exited during the run (code 1))", "; ".join(run12["problems"]))
+        self.assertEqual(lc.exit_status(report), lc.BLOCKING_EXIT)
+        lc.write_report(report, out)
+        with open(os.path.join(out, "lifecycle.md")) as f:
+            self.assertIn("RUN-12: NOT clean", f.read())
+
+    def test_a_log_stream_that_exits_at_once_is_not_live(self):
+        out = tempfile.mkdtemp(prefix="lifecycle-log-")
+        refused = FakeLogStream(["log: Must be admin to run 'stream' command\n"], code=64)
+        log = lc.BlockingLog(os.path.join(out, "blocking.log"), popen=lambda *a, **k: refused).start()
+        self.assertFalse(log.live)
+        self.assertIn("did not attach: log: Must be admin", log.report()["error"])
+        silent = FakeLogStream([], code=1)
+        log = lc.BlockingLog(os.path.join(out, "blocking.log"), popen=lambda *a, **k: silent).start()
+        self.assertEqual((log.live, log.report()["error"]), (False, "log stream did not attach: no output"))
+        log.stop()  # nothing to stop
+
+    def test_a_log_stream_that_attaches_is_live_until_it_exits_on_its_own(self):
+        out = tempfile.mkdtemp(prefix="lifecycle-log-")
+        stream = FakeLogStream(['Filtering the log data using "subsystem == x"\n'])
+        log = lc.BlockingLog(os.path.join(out, "blocking.log"), popen=lambda *a, **k: stream).start()
+        self.assertTrue(log.live)
+        log.stop()
+        self.assertEqual(log.report(), {"live": True, "error": None, "sites": 0})
+        died = FakeLogStream(['Filtering the log data using "subsystem == x"\n'])
+        log = lc.BlockingLog(os.path.join(out, "blocking.log"), popen=lambda *a, **k: died).start()
+        died.code = 1  # it stopped mid-run
+        log.stop()
+        self.assertFalse(log.report()["live"])
+        self.assertIn("exited during the run (code 1)", log.report()["error"])
 
     def test_a_fault_line_from_another_process_is_not_a_site(self):
         log = lc.BlockingLog("/dev/null")
