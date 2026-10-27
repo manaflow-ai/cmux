@@ -435,6 +435,15 @@ fn executable(denies: &[PathBuf], writable: &[PathBuf]) -> Result<(OwnedFd, Path
     }
     Ok((fd, exe))
 }
+// Red-stage pidfd seams; the fix wires these into the relay after spawn.
+#[allow(dead_code)]
+fn open_pidfd(_pid: u32) -> io::Result<OwnedFd> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "pidfd signaling not wired"))
+}
+#[allow(dead_code)]
+fn signal_pidfd(_fd: RawFd, _number: libc::c_int) -> io::Result<()> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "pidfd signaling not wired"))
+}
 /// Stops on the child-exit cancellation token, closed signal stream, or
 /// forwarding error. Only the unreaped direct child's PID is signalled.
 async fn forward_signals(pid: u32, signals: [Signal; 3], stop: CancellationToken) -> Result<i32> {
@@ -969,6 +978,25 @@ mod tests {
         assert!(validate_notify_fd(event.as_raw_fd()).is_err());
         let socket: OwnedFd = TcpListener::bind("127.0.0.1:0").unwrap().into();
         assert!(validate_notify_fd(socket.as_raw_fd()).is_err());
+    }
+
+    #[tokio::test]
+    async fn pidfd_signal_after_reap_is_esrch() {
+        let mut child = Command::new("/bin/cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let pinned = open_pidfd(child.id().unwrap());
+        drop(child.stdin.take());
+        tokio::time::timeout(Duration::from_secs(5), child.wait()).await.unwrap().unwrap();
+        let pinned = pinned.expect("relay must pin the child before any reap");
+        // A queued termination delivered after reap must address only this dead child.
+        assert_eq!(
+            signal_pidfd(pinned.as_raw_fd(), libc::SIGTERM).unwrap_err().raw_os_error(),
+            Some(libc::ESRCH)
+        );
     }
 
     #[tokio::test]

@@ -114,6 +114,7 @@ for name in .git/hooks/x sub/CLAUDE.md .claude/settings.json; do
   if (printf escaped > "$name") 2>/dev/null; then echo "allowed $name"; fail=1; fi
 done
 printf ordinary > ok || exit 71
+if mv ok sub/CLAUDE.md 2>/dev/null; then echo 'allowed persistence rename'; fail=1; fi
 [ "$fail" = 0 ] || exit 72
 printf 'persistence held\n'
 "#,

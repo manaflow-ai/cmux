@@ -1418,7 +1418,14 @@ mod endpoint_tests {
     #[test]
     fn linux_identity_covers_every_enforcement_source() {
         let names: Vec<_> = linux_identity_sources().into_iter().map(|(name, _)| name).collect();
-        for name in ["supervisor.rs", "supervisor/locking.rs", "lookup.rs", "rules.rs"] {
+        for name in [
+            "supervisor.rs",
+            "supervisor/locking.rs",
+            "lookup.rs",
+            "rules.rs",
+            "bwrap/home.rs",
+            "supervisor/mutations.rs",
+        ] {
             assert!(names.contains(&name), "missing {name} from Linux profile identity");
         }
     }
