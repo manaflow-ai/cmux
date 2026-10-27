@@ -58,7 +58,7 @@ final class BrowserHibernation {
     /// pressure, so a page does not close under a script or between two calls of one task.
     static let agentGrace: Double = 30
     /// History and snapshot captured by the probe, used by the `release` effect.
-    private var prepared: [String: (state: BrowserRestoreState, snapshot: HibernationSnapshots.Picture?)] = [:]
+    private var prepared: [String: (state: BrowserRestoreState, snapshot: PurgeablePicture?)] = [:]
     /// Hibernated pages' pictures, sized by the cache's `ImageCacheShares`, and their wakes (`debug.surfaces`).
     let snapshots: HibernationSnapshots
     var wakeLog = HibernationWakes()
@@ -90,6 +90,11 @@ final class BrowserHibernation {
     /// Remote desktop and remote browser tabs (`BrowserStreamedPage`) hibernate to their last frame
     /// (feature `memoryDiscardRemoteTabs`, set by the App); off, they count as pages that cannot restore.
     var discardsStreamedPages = false
+    /// A hidden Chromium page whose out-of-process frame crashed is discarded (``subframeDidCrash(_:)``, feature
+    /// `memoryDiscardCrashedSubframes`, set by the App before pages mount); off, it keeps its sad frame.
+    var discardsCrashedSubframes = false
+    /// Pages with a crashed frame: the document generation it crashed in (a new document has none).
+    var crashedSubframes: [String: UInt64] = [:]
     var frozenGrowth = FrozenGrowthRule()
     let growthDeadline: MainDeadline
     /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
@@ -227,7 +232,7 @@ final class BrowserHibernation {
         hoverDwell = MainDeadline(owner: "BrowserNeighborHover", workClass: .background, scheduler: deadlines)
         mainWork = deadlines.work
         mainDeadlines = deadlines
-        snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes)
+        snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes, allocator: cache.imageCaches.pictureAllocator)
         self.energy = energy
         energySaver = energy.policy.pageSaver
         self.memory = memory
@@ -362,6 +367,7 @@ final class BrowserHibernation {
         hiddenAt[key] = now()
         watchActivity(key, tab)
         replan()
+        discardCrashedSubframe(key)
     }
 
     func tabDidShow(_ key: String) {
@@ -435,6 +441,7 @@ final class BrowserHibernation {
         snapshots.remove(key)
         wakeLog.forget(key)
         activity.forget(key)
+        crashedSubframes[key] = nil
     }
 
     // MARK: Neighbors
@@ -728,7 +735,7 @@ final class BrowserHibernation {
 
     /// Probes the page, captures its history and snapshot, then hibernates it if it is still hidden
     /// with the same generation. `.external` is the person's Hibernate Tab, which asks the page nothing.
-    private func prepare(_ key: String, for reason: DiscardReason) {
+    func prepare(_ key: String, for reason: DiscardReason) {
         let user = reason == .external
         guard let cache, let entry = cache.browsers[key], let source = entry.tab as? any BrowserHibernationSource,
               let generation = cache.lifecycle.record(key)?.generation, probing.insert(key).inserted else { return }
@@ -753,12 +760,12 @@ final class BrowserHibernation {
                 let doubted = probe.answered ? self?.probeHistory.record(probe, for: key) ?? false : self?.probeHistory.doubted(key) ?? true
                 // A timeout or pressure discard reads the pressure of the answer's turn.
                 exemption = self.flatMap { probe.keepReason($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting,
-                                                            for: reason == .frozenWithGrowingMemory ? reason : HibernationPlanner.discardReason(at: $0.pressure),
+                                                            for: reason == .proactive || reason == .urgent ? HibernationPlanner.discardReason(at: $0.pressure) : reason,
                                                             doubted: doubted) }
                 mayAsk = probe.unloadHandler
             }
             // A page that stays needs no picture (each replan probes it again); a cmux page saves its view state too.
-            let (snapshot, viewState): (HibernationSnapshots.Picture?, BrowserAppPageState?) = exemption == nil
+            let (snapshot, viewState): (PurgeablePicture?, BrowserAppPageState?) = exemption == nil
                 ? (await self?.snapshot(tab, key: key), await (tab as? any BrowserAppPage)?.saveViewState()) : (nil, nil)
             guard let self else { return }
             // The page's beforeunload handlers run last, only when nothing else keeps it, still hidden
@@ -853,17 +860,6 @@ final class BrowserHibernation {
 // `PageDiscardingHelper`'s order (page_discarding_helper.cc). The browser hibernation is one owner
 // (its tabs); the agent chats and the cmux page lifecycle are the others (`urgentDiscardOwners`).
 extension BrowserHibernation: UrgentDiscardOwner {
-    /// Ranks every owner's hidden pages once and lets the first go (``UrgentDiscardRanker/run(_:)``):
-    /// a browser tab through its probe, a chat after its wake state, a page at once. Every owner's own
-    /// paced discards then wait one of its pace intervals.
-    func urgentPass() {
-        guard let cache else { return }
-        lastUrgentPass = urgentRanker.run([self] + urgentDiscardOwners())
-        for candidate in lastUrgentPass.discards {
-            cache.trace(candidate.key, "discard (\(DiscardReason.urgent.rawValue), ranked \(candidate.kind.rawValue))")
-        }
-    }
-
     /// The paced passes discard no tab for one critical pace interval from now: the critical event's
     /// discard is the urgent pass's.
     func holdPacedDiscards() {
