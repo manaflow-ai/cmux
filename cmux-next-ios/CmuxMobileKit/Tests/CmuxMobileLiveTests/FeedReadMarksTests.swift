@@ -36,4 +36,17 @@ import Testing
         reopened.insert(item("a"), atTop: true)
         #expect(reopened.item(id: "a")?.isRead == true)
     }
+
+    /// Mark All Notifications as Read: every event in one write, kept across a relaunch.
+    @Test func markAllReadReadsEveryEventAndKeepsIt() {
+        let url = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-read-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let marks = FeedReadMarks(url: url)
+        let store = FeedStore(items: [item("a"), item("b"), item("c")], readMarks: marks)
+        store.markRead("b")
+        store.markAllRead()
+        #expect(store.items.allSatisfy(\.isRead))
+        let reopened = FeedStore(items: [item("a"), item("b"), item("c")], readMarks: marks)
+        #expect(reopened.items.allSatisfy(\.isRead))
+    }
 }

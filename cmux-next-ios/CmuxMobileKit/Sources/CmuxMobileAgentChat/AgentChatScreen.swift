@@ -40,6 +40,32 @@ public final class AgentChatSurface {
     public var parityRoute: AgentParityRoute?
     /// The session's artifacts browser (a sheet).
     public var showArtifacts = false
+    /// Find in Chat while its bar is up (nil: closed).
+    public var find: AgentChatFind?
+    /// Each searchable block's top in the transcript's content coordinates (Find in Chat
+    /// scrolls to its current match). Written as rows lay out; never observed.
+    @ObservationIgnored var findAnchors: [String: CGFloat] = [:]
+    /// Asks the find bar's field for the keyboard (it takes it when the bar opens).
+    var findFieldFocused = false
+
+    /// Find in Chat: opens the bar with its field focused (the composer gives the keyboard up).
+    public func openFind() {
+        if find == nil { find = AgentChatFind() }
+        composerFocused = false
+        findFieldFocused = true
+    }
+
+    /// Done: the bar closes and the marks go.
+    public func closeFind() {
+        find = nil
+        findFieldFocused = false
+    }
+
+    /// Scrolls the transcript to the find bar's current match.
+    func revealFindMatch() {
+        guard let block = find?.currentBlock, let top = findAnchors[block] else { return }
+        scroller?.scrollTranscript(toContentY: top, animated: !UIAccessibility.isReduceMotionEnabled)
+    }
     public let artifacts = ArtifactsBrowserState()
     // DEBUG demo hooks for the parity screens (the screens act on them through their own paths).
     var demoCheckpointRestore: String?
@@ -244,6 +270,8 @@ public struct AgentChatScreen: View {
                     .disabled(!AgentChatSurface.hasAgentEdits(store))
                 AgentParityMenuItems(store: store, surface: surface)
                 Button("Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
+                Button("Find in Chat…", systemImage: "magnifyingglass") { surface.openFind() }
+                    .disabled(store.turns.isEmpty)
                 if !store.modes.isEmpty {
                     Section("Mode") {
                         Picker("Mode", selection: Binding(get: { store.currentModeID ?? "" }, set: { store.setMode($0) })) {
@@ -356,6 +384,14 @@ public struct AgentChatTranscript: View {
         // UIKit owns the safe areas and the keyboard (the controller docks
         // the stack to the keyboard layout guide).
         .ignoresSafeArea()
+        // Find in Chat's bar, under the header (a tab's status bar inset, or the pushed bar).
+        .overlay(alignment: .top) {
+            if let find = surface.find {
+                AgentChatFindBar(find: find, surface: surface, store: store)
+                    .padding(.top, (topInset ?? 0) + 4)
+                    .transition(.opacity)
+            }
+        }
         // The soft top edge under the status bar or bar is the controller's TopFadeView.
         .navigationDestination(item: $surface.diffRoute) { route in
             Group {
@@ -430,6 +466,7 @@ struct AgentChatTurns: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
+        .coordinateSpace(.named(AgentChatFindBar.contentSpace))
     }
 }
 
@@ -671,6 +708,7 @@ struct TurnView: View {
             // Replayed history (the transcript on open, a reattach's catch-up) is drawn in
             // place; only what arrives live animates in.
             UserBubble(turn: turn, isLast: isLast) { store.send(prompt: $0) }
+                .findBlock(AgentChatFind.promptKey(turn.id), surface: surface)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .transition(.asymmetric(insertion: store.isReplayed(turn.id) ? .identity
                     : .offset(y: 24).combined(with: .scale(scale: 0.96)).combined(with: .opacity), removal: .opacity))
@@ -715,6 +753,7 @@ struct TurnView: View {
             // (one still streaming when the chat opened streams on without the block fade).
             StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLastRow,
                               animatesBlocks: !store.isReplayed(row.id))
+                .findBlock(row.id, surface: surface)
         case .thought(_, let text):
             ThoughtRow(text: text, isLive: turn.status == .running && isLastRow)
         case .tool(let call):

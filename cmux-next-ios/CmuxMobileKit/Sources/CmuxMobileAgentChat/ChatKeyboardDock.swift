@@ -20,6 +20,9 @@ enum ChatDockPlacement {
 @MainActor
 protocol ChatTranscriptScrolling: AnyObject {
     func scrollTranscript(toTop: Bool, animated: Bool)
+    /// Find in Chat: brings content y `y` (the transcript's own coordinates) under the header
+    /// and the find bar, and stops following the newest turn.
+    func scrollTranscript(toContentY y: CGFloat, animated: Bool)
 }
 
 /// The agent chat transcript as a UIKit scroll view with a keyboard-docked
@@ -598,7 +601,22 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     func scrollTranscript(toTop: Bool, animated: Bool) {
         surface.following = !toTop
         view.layoutIfNeeded()
-        let target = toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset
+        scroll(to: toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset, animated: animated)
+    }
+
+    /// Room the find bar takes under the header (its 44 pt row and its margins).
+    static let findBarClearance: CGFloat = 64
+
+    func scrollTranscript(toContentY y: CGFloat, animated: Bool) {
+        surface.following = false
+        view.layoutIfNeeded()
+        let headerBottom = topInset ?? view.safeAreaInsets.top
+        let wanted = y - headerBottom - Self.findBarClearance
+        let target = CGPoint(x: 0, y: min(max(-scrollView.contentInset.top, wanted), max(-scrollView.contentInset.top, bottomOffset.y)))
+        scroll(to: target, animated: animated)
+    }
+
+    private func scroll(to target: CGPoint, animated: Bool) {
         if animated {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a
             // blank band and stale fragments for ~300 ms). Cut to one screen short of the

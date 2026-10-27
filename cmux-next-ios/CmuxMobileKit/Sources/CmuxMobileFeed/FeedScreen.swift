@@ -16,6 +16,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var swipe = FeedSwipeCoordinator()
     /// Why Clear All Notifications failed, shown once.
     @State private var clearFailure: String?
+    /// Why Mark All Notifications as Read failed on a Mac, shown once.
+    @State private var markFailure: String?
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     @Environment(AppStore.self) private var appStore
     #if DEBUG
@@ -49,13 +51,18 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 sidebarItem
-                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store, clearFailure: $clearFailure) }
+                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store, clearFailure: $clearFailure, markFailure: $markFailure) }
             }
             .agentChatDestinations()
             .alert("Couldn't clear notifications", isPresented: Binding(get: { clearFailure != nil }, set: { if !$0 { clearFailure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(clearFailure ?? "")
+            }
+            .alert("Couldn't mark notifications as read", isPresented: Binding(get: { markFailure != nil }, set: { if !$0 { markFailure = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(markFailure ?? "")
             }
         }
         .onAppear {
@@ -274,6 +281,8 @@ private struct FeedFilterMenu: View {
     @Bindable var store: FeedStore
     /// Why Clear All Notifications failed (the screen's alert).
     @Binding var clearFailure: String?
+    /// Why Mark All Notifications as Read failed (the screen's alert).
+    @Binding var markFailure: String?
     @Environment(AppStore.self) private var appStore
 
     var body: some View {
@@ -282,6 +291,21 @@ private struct FeedFilterMenu: View {
                 ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
             }
             .pickerStyle(.inline)
+            // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
+            // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
+            Section {
+                Button("Mark All Notifications as Read", systemImage: "checkmark.circle") {
+                    store.markAllRead()
+                    guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
+                    Task {
+                        do { _ = try await mark() } catch {
+                            markFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                        }
+                    }
+                }
+                .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
+                .accessibilityIdentifier("feed.markAllRead")
+            }
             if let clear = FeedRouting.shared.clearAllNotifications {
                 // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
                 Section {

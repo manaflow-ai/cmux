@@ -100,6 +100,7 @@ let package = Package(
         .target(name: "CmuxMobileWorkspaces", dependencies: [
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileBrowserStream",
             .product(name: "CmuxTabsKit", package: "CmuxTabsKit"),
+            .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
         ]),
         // Home: the Messages-style conversation list and the Chief chat over CmuxConversation.
         .target(name: "CmuxMobileChief", dependencies: [

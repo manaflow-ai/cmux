@@ -99,6 +99,24 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         try await resource(client, "notification.clear", [:], key: "cmux-next-ios-notification-clear")
     }
 
+    /// The Mac's Mark All Notifications as Read (`markAllNotificationsRead`): each tab whose
+    /// notification is unread is read with `ack-tab-notifications`, as the Mac's handler acks
+    /// every unread tab. Its notifications stay in the ledger (Clear All removes them).
+    public func markAllNotificationsRead(on macID: String) async throws -> Int {
+        let client = try daemonClient(macID)
+        let surfaces = Self.unreadNotificationSurfaces(sync.tree)
+        for surface in surfaces {
+            try await run(client, "ack-tab-notifications", ["surface": surface])
+        }
+        if !surfaces.isEmpty { _ = try? await sync.listNow() }
+        return surfaces.count
+    }
+
+    /// Every tab the Mac shows with an unread notification, in surface order.
+    nonisolated static func unreadNotificationSurfaces(_ tree: DaemonTree?) -> [Int] {
+        (tree?.notificationMarkers ?? [:]).filter(\.value.unread).map(\.key).sorted()
+    }
+
     // MARK: Lines
 
     func daemonClient(_ macID: String) throws -> DaemonClient {

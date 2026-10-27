@@ -16,7 +16,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     let sync: WorkspaceSync
     private let link: LinkController
     /// Starts the agent session behind a new agent tab (nil: no agent tabs).
-    private weak var acpmux: AcpmuxHub?
+    weak var acpmux: AcpmuxHub?
 
     /// The capabilities each Mac's `version` service reported (nil: not known yet).
     public var capabilities: @MainActor (String) -> Set<String>? = { _ in nil }

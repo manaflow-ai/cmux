@@ -46,10 +46,15 @@ public struct WorkspaceScreen: View {
     private let director = WorkspaceDemoDirector.shared
     #endif
 
+    /// Shows another workspace in this one's place (the Chats list's Open in New Workspace).
+    private let openWorkspace: (@MainActor (Workspace) -> Void)?
+
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
-                creator: WorkspaceCreator? = nil, startsInGrid: Bool = false) {
+                creator: WorkspaceCreator? = nil, startsInGrid: Bool = false,
+                openWorkspace: (@MainActor (Workspace) -> Void)? = nil) {
         makeSource = { WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator) }
         _showsGrid = State(initialValue: startsInGrid)
+        self.openWorkspace = openWorkspace
     }
 
     private var source: WorkspaceTabsSource { holder.source(makeSource) }
@@ -77,8 +82,13 @@ public struct WorkspaceScreen: View {
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
             .background(InteractivePopEnabler())
+            // Search Agent Chats: the Mac's chats, pushed over the workspace (swipe back returns).
+            .navigationDestination(isPresented: Binding(get: { source.showsAgentChats }, set: { source.showsAgentChats = $0 })) {
+                AgentChatsScreen(source: source)
+            }
             .onAppear {
                 source.exit = { dismiss() }
+                source.openWorkspace = openWorkspace
                 source.opened()
                 #if DEBUG
                 if CommandLine.arguments.contains("-cmux-mobile-toast-demo") { source.showDemoToast() }

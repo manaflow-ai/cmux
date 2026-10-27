@@ -196,6 +196,13 @@ public enum WorkspaceIcon {
 public protocol NotificationClearing: AnyObject {
     func canClearNotifications(on macID: String) -> Bool
     func clearAllNotifications(on macID: String) async throws
+    /// Mark All Notifications as Read: every tab the Mac shows unread is read
+    /// (`ack-tab-notifications`); returns how many.
+    func markAllNotificationsRead(on macID: String) async throws -> Int
+}
+
+extension NotificationClearing {
+    public func markAllNotificationsRead(on macID: String) async throws -> Int { 0 }
 }
 
 extension AppStore {
