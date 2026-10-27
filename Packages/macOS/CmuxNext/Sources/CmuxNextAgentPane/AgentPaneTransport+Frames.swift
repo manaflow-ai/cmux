@@ -232,6 +232,7 @@ extension AgentPaneTransport {
     }
 
     private func finishFirst() {
+        guard !pending.isEmpty else { return }
         let entry = pending.removeFirst()
         entry.reply(entry.firstError)
     }

@@ -37,17 +37,18 @@ public final class PreviousRunCrashEvidence: Sendable {
         public var processStartUnixMicros: UInt64?
         /// The folder of its black box and crash-key page.
         public var traceDirectory: String
-        /// Its crash path's `run.crashkeys` line (moved aside at this launch); nil when there is none.
-        public var crashPathKeysFile: String?
+        /// Its crash path's `run.crashkeys` record, which this launch's run-marker read took before this run's crash
+        /// path got the file; nil when there is none.
+        public var crashPathKeys: CrashKeys?
         /// The process kind in the files' names.
         public var role: TraceRing.Role
 
         public init(pid: UInt32, processStartUnixMicros: UInt64?, traceDirectory: String,
-                    crashPathKeysFile: String? = nil, role: TraceRing.Role = .app) {
+                    crashPathKeys: CrashKeys? = nil, role: TraceRing.Role = .app) {
             self.pid = pid
             self.processStartUnixMicros = processStartUnixMicros
             self.traceDirectory = traceDirectory
-            self.crashPathKeysFile = crashPathKeysFile
+            self.crashPathKeys = crashPathKeys
             self.role = role
         }
 
@@ -129,16 +130,13 @@ public final class PreviousRunCrashEvidence: Sendable {
         return time.timeIntervalSince1970 >= Double(start / 1_000_000)
     }
 
-    /// Reads `run`'s crash-key page, its crash path's line and, with `blackBox`, its black box. Blocking file work.
+    /// Reads `run`'s crash-key page and, with `blackBox`, its black box, and adds its crash path's keys. Blocking file work.
     public static func read(_ run: Run, blackBox: Bool) -> Files {
         let directory = run.traceDirectory + "/"
         let page = CrashKeyPage.read(atPath: directory + CrashKeyPage.fileName(role: run.role, pid: run.pid))
             .flatMap { run.owns(pid: $0.identity.pid, processStartUnixMicros: $0.identity.processStartUnixMicros) ? $0 : nil }
-        let crashPath = run.crashPathKeysFile
-            .flatMap { try? String(blockingContentsOfFile: $0, encoding: .utf8) }
-            .flatMap { CrashKeys(record: $0) }
         var tags = page?.tags ?? [:]
-        tags.merge(crashPath?.tags ?? [:]) { pageValue, _ in pageValue }
+        tags.merge(run.crashPathKeys?.tags ?? [:]) { pageValue, _ in pageValue }
         guard blackBox else { return Files(tags: tags) }
         let ring = (try? Data(blockingContentsOf: URL(filePath: directory + TraceRingFile.fileName(role: run.role, pid: run.pid))))
             .flatMap { TraceRing.Image(bytes: [UInt8]($0)) }

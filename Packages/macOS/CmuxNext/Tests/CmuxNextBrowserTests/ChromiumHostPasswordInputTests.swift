@@ -226,7 +226,7 @@ extension ChromiumHostSessionTests {
         _ = NSApplication.shared
         let calls = ChromiumHostPasswordInputTests.SwitchCalls()
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: .borderless,
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false

@@ -169,10 +169,9 @@ import Testing
                                        TraceRing.CatalogName(id: 2, kind: 1, category: 1, text: "key.frame")])
         for index in 0 ..< 30 { ring.write(name: index % 2 == 0 ? 1 : 2, phase: .instant, timestamp: 100 + UInt64(index)) }
         try Data(ring.image()).write(to: URL(filePath: directory + "/" + TraceRingFile.fileName(role: .app, pid: pid)))
-        let keysFile = directory + "/run.crashkeys.previous"
-        try Data("crash_keys daemon_epoch=3\n".utf8).write(to: URL(filePath: keysFile))
+        let crashPathKeys = try #require(CrashKeys(record: "crash_keys daemon_epoch=3\n"))
         let run = PreviousRunCrashEvidence.Run(pid: pid, processStartUnixMicros: Self.start, traceDirectory: directory,
-                                               crashPathKeysFile: keysFile)
+                                               crashPathKeys: crashPathKeys)
 
         let files = PreviousRunCrashEvidence.read(run, blackBox: true)
         #expect(files.tags["crash_key.daemon_pid"] == "77")

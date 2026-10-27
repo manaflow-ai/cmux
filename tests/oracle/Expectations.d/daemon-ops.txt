@@ -52,3 +52,10 @@ p15-oracle-245 [ new ] daemon-ops/terminal-viewport-scroll-error [ Failure ]
 p15-oracle-246 daemon-ops/terminal-viewport-scroll-ok [ Skip ]
 p15-oracle-064 daemon-ops/workspace-agent-folder-set-ok [ Skip ]
 # END scripts/cmux-next/oracle/gen_daemon_ops.py
+# The holder arm: the idle holder outlives the teardown (p15-oracle-245), as in every terminal case above.
+p15-oracle-245 [ new ] daemon-ops/terminal-holder-crash-new [ Failure ]
+# The per-terminal host arm: a host that dies while its parser is inside an escape sequence is not replaced on
+# its running shell, as cmux-tui/spec/terminal-host.md says it is ("no replacement host: terminal-host adoption
+# failed: ... did not send an initial snapshot"): the daemon logs a host loss and respawns the shell.
+p15-oracle-340 [ old ] daemon-ops/terminal-holder-crash-old/abort [ Failure ]
+p15-oracle-340 [ old ] daemon-ops/terminal-holder-crash-old/kill [ Failure ]

@@ -9,6 +9,7 @@
 // three rows (`home.chiefPetEnabled`, `home.chiefPetMascot`, `home.chiefBubbleStyle`), so SectionView
 // leaves them out of the group list; search, the palette and `cmux settings` still reach them.
 import { useRef, useState } from "react";
+import { CHIEF_BUBBLE_STYLE, CHIEF_PET_ENABLED, CHIEF_PET_MASCOT } from "../cardRows";
 import { useRowState, useStore, type RowState } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -23,12 +24,6 @@ import mascotMachineBlue from "../../../agent-session/acpmux/mascots/ChiefMascot
 import mascotMoon from "../../../agent-session/acpmux/mascots/ChiefMascotMoon.png";
 import mascotMoonBlue from "../../../agent-session/acpmux/mascots/ChiefMascotMoonBlue.png";
 import mascotFox from "../../../agent-session/acpmux/mascots/ChiefMascotFox.png";
-
-export const CHIEF_PET_ENABLED = "home.chiefPetEnabled";
-export const CHIEF_PET_MASCOT = "home.chiefPetMascot";
-export const CHIEF_BUBBLE_STYLE = "home.chiefBubbleStyle";
-/** The rows this card draws in place of their group. */
-export const CHIEF_PET_ROWS: ReadonlySet<string> = new Set([CHIEF_PET_ENABLED, CHIEF_PET_MASCOT, CHIEF_BUBBLE_STYLE]);
 
 /** The characters in the setting's order (`HomeChiefPetSetting.mascots`), with their art. Imported,
  * not `new URL(..., import.meta.url)`: the shipped page is one self-contained index.html whose CSP

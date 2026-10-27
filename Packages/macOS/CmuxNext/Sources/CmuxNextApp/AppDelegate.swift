@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextInput
 import CmuxNextLaunch
+import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextWebUpdates
 import CmuxNextPalette
@@ -45,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Cleanup deferred until startup completes (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
     /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
-    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
+    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, frames: TerminalLaunchFrames, wake: AgentPaneRelaunchWake)
     /// cmux-next.json and the managed layers, read on the files lane since `main` (p08-startup 025).
     private let settingsRead: SettingsController.PendingLaunchRead
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
@@ -84,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?, features: FeatureList? = nil,
          startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, settingsRead: SettingsController.PendingLaunchRead,
-         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, frames: TerminalLaunchFrames, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         (self.environment, self.launchReads, self.settingsRead) = (environment, launchReads, settingsRead)
         (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
         (self.wireStats, self.features) = (wireStats, features)
@@ -140,11 +141,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // The rest runs with main()'s settings read, now or when it lands (the startup's main hop, unbudgeted):
         // no wait, no frame in the defaults (p08-startup 025). The launch marks end where the launch work ends.
-        settingsRead.whenRead(hop: .userVisible, startup: order.startup, take: { [logger] read in
+        settingsRead.whenRead(hop: .userVisible, startup: order.startup, take: { [logger, features] read in
             DebugTimings.markLaunch("dfl.settings_wait")  // the read in hand: at once warm, after the disk cold
             if let failure = read.bootstrapFailure { logger.error("cmux-next config bootstrap failed: \(failure, privacy: .public)") }
             // cmux.json's appearance goes on the Ghostty overrides; the first config builds with them on a files lane and the launch goes on when it lands (p02-threads-129).
             TerminalThemeSetting.prime(read.snapshot)
+            // The Kitty image budget per screen before the first config builds: with memorySmallAppStores sized from this Mac's memory (p07-memory-083).
+            GhosttyRuntime.shared.setImageStorageBytesPerScreen(GhosttyImageStorageBudget.startingBytes(memoryBudget: SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface, sizedFromMemory: features?.isEnabled(.memorySmallAppStores) == true))
         }, then: { [self] read in GhosttyRuntime.shared.start(loadingOn: GhosttyLaneConfigLoader(work: launchReads.work, mainWork: mainWork)) { [self] in finishLaunching(settings: read, launchStart: launchStart) } })
     }
 
@@ -159,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
-                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
+                                   launchImages: launchReads.images, terminalLaunchFrames: launchReads.frames, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
                                    launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys,
                                    features: features)
         AppProcessRoot.shared.adopt(services)
@@ -212,15 +215,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The terminal key path's input-source switch keys, read off main now and on each activation.
         GhosttyRuntime.shared.inputSources.start(runner: services.work)
         GhosttyRuntime.shared.traceHook.deliverGPUCompletions(on: services.mainWork, to: FrameScheduler.appDisplays.presents)
-        GhosttyRuntime.shared.followEnergySaver(on: services.mainWork)
+        GhosttyRuntime.shared.attach(to: services.mainWork, holdsHiddenActions: services.features.isEnabled(.terminalHiddenActionHold))
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
         DebugTimings.markLaunch("dfl.settings")
-        MainMenu.install(registry: services.registry, blocking: services.blocking, on: order.startup)  // critical `MainMenu.make`
+        MainMenu.install(registry: services.registry, blocking: services.blocking, decidedKey: services.decidedKey, on: order.startup)  // critical `MainMenu.make`
         DebugTimings.markLaunch("dfl.menu")
         HandlerCoverage.verifyAtLaunch(services.registry)  // every handler is bound by now; Debug builds only
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, on: services.mainWork)
+        launchSettle.dropLaunchReads(frames: services.terminalLaunchFrames, pages: services.launchImages, features: services.features, images: launchImageHold)  // p07-memory-083
         daemonPrompts = DaemonPrompts.start(services)
         services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
         services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
@@ -235,15 +239,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services?.crashRecovery.showRestartNotice(on: controller.window)
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
-        services.windows.onFirstWindow = { [weak services] _ in
+        services.windows.onFirstWindow = { [weak services, startup = order.startup] _ in
             #if DEBUG || CMUX_BENCH_HOOKS
             if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
             #endif
             // An App Store request made while no window existed shows in this window (S22).
             if let apps = services?.apps, apps.isStoreWaiting { Task { @MainActor in apps.windowDidShowContent() } }
             // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
-            if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts {
-                Task { @MainActor in await RecoveryNotice.show(store: drafts, in: window) }
+            if let services, let window = services.windows.active?.window {
+                RecoveryNotice.post(store: services.recoveryDrafts, in: window, on: startup, work: services.work, mainWork: services.mainWork)
             }
             CATransaction.setMainCompletion { [weak self] in
                 DebugTimings.markLaunch("first_window_frame_committed")
@@ -308,8 +312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .activity(let type, let webpageURL): _ = services.externalOpen.continueActivity(type: type, webpageURL: webpageURL)
             }
         }
-        // The registered launch work ends the implicit ref. The first window is made in this turn
-        // (`restoreWhenLoaded`), so its commit ends the first-frame ref; a launch that shows none
+        // The registered launch work ends the implicit ref. The first window is made in this turn, or
+        // on the launch snapshot read's end (`restoreWhenLoaded`), so its commit ends the first-frame ref; a launch that shows none
         // completes at the scheduler's failsafe, with reason `failsafe`.
         order.startup.finishRegistration()
         DebugTimings.markLaunch("did_finish_launching_end")

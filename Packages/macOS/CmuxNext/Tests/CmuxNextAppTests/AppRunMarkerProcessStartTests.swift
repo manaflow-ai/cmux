@@ -31,6 +31,22 @@ struct AppRunMarkerProcessStartTests {
         #expect(run.processStart == nil)
     }
 
+    /// The launch read writes this process's start into the run's marker, so the next launch can match the files.
+    @Test func theLaunchReadStoresThisProcessStart() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "process-start-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let launch = AppRunMarker.prepareLaunch(directory: directory, now: Date(), bootSession: nil)
+        if launch.signalDescriptor >= 0 { close(launch.signalDescriptor) }
+        if launch.keysDescriptor >= 0 { close(launch.keysDescriptor) }
+        #expect(launch.failure == nil)
+        #expect(launch.marker.processStart != nil)
+        #expect(launch.marker.processStart == AppRunMarker.currentProcessStart())
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let decoded = try decoder.decode(PreviousRun.self, from: AppRunMarker.encode(launch.marker))
+        #expect(decoded.processStart == launch.marker.processStart)
+    }
+
     @Test func theProcessStartIsTheRingHeadersValue() {
         let start = AppRunMarker.currentProcessStart()
         #expect(start != nil)
