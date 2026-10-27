@@ -37,8 +37,10 @@ enum RecordedDictationInput {
             let tolerance = WakeLeeway.window(delay: pace).tolerance
             while !Task.isCancelled, let buffer = reader.next(frames) { // wakeup-allow: debug clip playback, ends with the clip or the session
                 meter?.record(buffer)
-                ingest(buffer, AVAudioTime(sampleTime: position, atRate: sampleRate))
+                let start = position
                 position += AVAudioFramePosition(buffer.frameLength)
+                // The last use of `buffer` here: `ingest` moves it to the conversion worker.
+                ingest(buffer, AVAudioTime(sampleTime: start, atRate: sampleRate))
                 // wakeup-allow: debug clip playback paced like a microphone tap (about 12 per second while dictating)
                 try? await Task.sleep(for: pace, tolerance: tolerance)
             }
@@ -57,8 +59,9 @@ extension SpeechAnalyzerDictationTranscriber {
     }
 }
 
-/// One reader per playback; only the playback task touches it.
-private final class RecordedFileReader: @unchecked Sendable {
+/// One reader per playback. Not Sendable: ``RecordedDictationInput/play(_:meter:ingest:)``
+/// sends it into the playback task, the only code that touches it after that.
+private final class RecordedFileReader {
     private let file: AVAudioFile
     let sampleRate: Double
 

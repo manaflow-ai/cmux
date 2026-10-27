@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "mcpCatalogHost",
+  "owner": "PL-memory",
+  "description": "Every agent chat's cmux MCP server becomes a small stdio relay to one shared cmux MCP host per app build, which keeps the app's action catalog once instead of once per agent; the host exits 5 minutes after its last agent leaves.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "daemon",
+  "params": [],
+  "stories": ["acpmux-overhead"],
+  "sticky": false,
+  "runtimeMutable": false
+}

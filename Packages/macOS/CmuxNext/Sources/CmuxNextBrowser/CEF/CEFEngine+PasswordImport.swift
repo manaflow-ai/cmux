@@ -36,7 +36,7 @@ extension CEFEngine {
         try await startRuntime(trigger: "passwordImport")
         guard let shim = runtime.shim, runtime.canImportPasswords, shim.passwordReplaceAvailable() == 1 else { throw BrowserTabError.closed }
         let reply = try await runtime.profileWrite(profile, label: "password replace", timeout: CEFRuntime.passwordImportTimeout) { path, id in
-            let started = shim.replacePasswords(path, id, UnsafeRawPointer(rows.rows), Int32(rows.count))
+            let started = shim.replacePasswords(path, id, rows)
             rows.copied()
             return started
         }

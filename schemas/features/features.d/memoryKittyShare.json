@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryKittyShare",
+  "owner": "PL-memory",
+  "description": "Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by visibility: a terminal on screen keeps its grant, hidden ones get the rest, least recently shown lose images first; critical pressure clears decoded pixel copies.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "daemon",
+  "params": [],
+  "stories": ["pane-stress"],
+  "sticky": false,
+  "runtimeMutable": false
+}

@@ -17,6 +17,11 @@ package struct NeighborTabs {
         panes[pane] = (order, selected)
     }
 
+    /// The pane whose strip lists `key`, nil when no recorded pane does.
+    package func pane(listing key: String) -> ObjectIdentifier? {
+        panes.first { $0.value.order.contains(key) }?.key
+    }
+
     package mutating func remove(_ pane: ObjectIdentifier) {
         panes[pane] = nil
         offScreen.remove(pane)
@@ -59,9 +64,9 @@ package struct NeighborTabs {
         return keys
     }
 
-    /// The radius in effect: the setting, or 0 under memory pressure or in Low Power Mode.
-    package static func radius(setting: Int, pressure: MemoryPressureLevel, lowPower: Bool) -> Int {
-        guard pressure == .normal, !lowPower else { return 0 }
+    /// The radius in effect: the setting, or 0 under memory pressure or Energy Saver.
+    package static func radius(setting: Int, pressure: MemoryPressureLevel, energySaver: Bool) -> Int {
+        guard pressure == .normal, !energySaver else { return 0 }
         return max(0, min(setting, BrowserHibernationSetting.neighborRadiusRange.upperBound))
     }
 }

@@ -59,7 +59,7 @@
       "args": {
         "method": "pane.rename",
         "params": {
-          "name": "oracle"
+          "name": "left"
         },
         "idempotencyKey": "pane-rename-ok.call"
       },
@@ -71,7 +71,42 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the pane's name is set"
+    },
+    {
+      "id": "named",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/panes/0/name",
+        "equals": "left",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.rename",
+        "params": {
+          "name": "left"
+        },
+        "idempotencyKey": "pane-rename-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

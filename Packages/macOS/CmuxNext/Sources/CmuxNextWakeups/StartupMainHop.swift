@@ -27,6 +27,7 @@ public struct StartupMainHop: Sendable {
     public static var userVisible: StartupMainHop {
         StartupMainHop { work in
             // task-owner: one hop to main; the scheduler owns what it queues there
+            // main-hop-allow: the startup scheduler's own hop to main; it carries the scheduler's queue, so it cannot be posted on it
             Task(priority: WorkPriority.userVisible.taskPriority) { @MainActor in work() }
         }
     }

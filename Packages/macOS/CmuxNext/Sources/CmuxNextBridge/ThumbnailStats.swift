@@ -16,7 +16,7 @@ public struct ThumbnailStats: Equatable, Sendable {
 
     /// Computes the stats on a background task.
     public static func measure(_ image: CGImage) async -> ThumbnailStats? {
-        await Task.detached(priority: .utility) { measured(image) }.value
+        await Task.detached(priority: Task.currentPriority) { measured(image) }.value
     }
 
     public nonisolated static func measured(_ image: CGImage) -> ThumbnailStats? {

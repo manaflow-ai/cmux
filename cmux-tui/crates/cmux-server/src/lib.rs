@@ -21,6 +21,8 @@
 //! Health exposes a one-shot deadline, services start through the service
 //! manager, and `pg_ctl -w` waits on Postgres's own readiness.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 pub mod access;
 pub mod cli;
 pub mod cloud_http;

@@ -62,6 +62,12 @@ public final class ChiefMemoryInspectorModel {
         self.confirmDelete = confirmDelete
     }
 
+    /// The first read: ``reload()`` when the memory was never read (or the read failed), else nothing.
+    public func readFirst() async {
+        guard status == nil, !busy else { return }
+        await reload()
+    }
+
     /// Reads the counts, the view, the change list and the opened node again.
     public func reload() async {
         await run {

@@ -60,16 +60,22 @@ extension ScreenContentView {
             return stripPoint(local, docked: docked).flatMap { stripChildHit($0, besides: nil) }
         }
         let inner = stripContainer.convert(local, from: self)
-        let zooming = zoomMotion.pane.flatMap { context.hosts[$0] }.flatMap { $0.superview === stripContainer ? $0 : nil }
+        let zooming = zoomMotion.pane.flatMap { context.hosts[$0] }.flatMap { $0.isDescendant(of: stripContainer) ? $0 : nil }
         if let zooming, let hit = zooming.hitTest(inner) { return hit }
         guard !docked, stripContainer.range.contains(local) else { return nil }
         return stripChildHit(inner, besides: zooming)
     }
 
     /// The front-most of the strip container's views drawn at `inner` (its coordinates), leaving out `skipped`,
-    /// a zoom's covered hosts and the dividers on a spring.
-    private func stripChildHit(_ inner: CGPoint, besides skipped: PaneHostView?) -> NSView? {
-        for child in stripContainer.subviews.reversed() where !child.isHidden && child !== skipped {
+    /// a zoom's covered hosts and the dividers on a spring. A row's or scroll area's container is walked the
+    /// same way (its coordinates are the strip container's), inside its clip.
+    private func stripChildHit(_ inner: CGPoint, besides skipped: PaneHostView?, in container: NSView? = nil) -> NSView? {
+        for child in (container ?? stripContainer).subviews.reversed() where !child.isHidden && child !== skipped {
+            if let nested = child as? ScrollerPanContainerView {
+                guard !nested.clipsSubviews || nested.frame.contains(inner) else { continue }
+                if let hit = stripChildHit(inner, besides: skipped, in: nested) { return hit }
+                continue
+            }
             if let host = child as? PaneHostView, covered.contains(host.pane) { continue }
             if let divider = child as? DividerHandleView, isSpringing(divider) { continue }
             if let hit = child.hitTest(inner) { return hit }

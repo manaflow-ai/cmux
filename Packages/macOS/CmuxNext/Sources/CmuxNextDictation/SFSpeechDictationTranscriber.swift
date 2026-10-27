@@ -21,6 +21,7 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     /// callback that must append buffers inline — an actor hop would add
     /// suspension points to a real-time path. The lock guards one reference
     /// with short, non-blocking critical sections.
+    // crash-allow: SFSpeechAudioBufferRecognitionRequest is not Sendable, yet it is the Speech framework's cross-thread audio inbox (Apple's SpokenWord sample appends to it from the tap thread); every access here (replace, append, endAudio) runs under `lock`, and the actor only hands the same request to the recognizer.
     private final class RequestBox: @unchecked Sendable {
         private let lock = OSAllocatedUnfairLock() // lock-allow: realtime audio tap, os_unfair_lock donates
         // Guarded by `lock`; only touched inside withLock-style sections.

@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 // `sidebar.style` = rail (plans/cmux-next/minimal-sidebar.md): while closed the container is the
 // rail's few points wide and shows `railView`; resting the pointer on it opens the full sidebar at
@@ -28,15 +29,15 @@ extension SidebarContainerView {
         apply()
     }
 
-    /// Adds the rail over the panel and its hover cards (init).
-    func mountRail() {
+    /// Adds the rail over the panel and its hover cards (init); the rail follows the model through `mainWork`.
+    func mountRail(on mainWork: MainWorkScheduler) {
         railView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(railView)
         NSLayoutConstraint.activate([
             railView.leadingAnchor.constraint(equalTo: leadingAnchor), railView.trailingAnchor.constraint(equalTo: trailingAnchor),
             railView.topAnchor.constraint(equalTo: topAnchor), railView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        railView.bind(model)
+        railView.bind(model, on: mainWork)
         railView.cards = railCards
         railCards.rail = railView
         railCards.coordinator = { [weak self] in self?.sidebarView.hoverCards }

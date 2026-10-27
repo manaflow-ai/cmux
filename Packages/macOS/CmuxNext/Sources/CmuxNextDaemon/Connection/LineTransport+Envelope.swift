@@ -45,6 +45,12 @@ extension LineTransport {
             case streamID = "stream_id"
         }
 
+        /// The routing fields alone (``LineRouteScan/envelope``); a reply that is not `ok:true` is
+        /// decoded whole for its error fields.
+        init(id: UInt64?, ok: Bool?, event: String?, type: String?, streamID: String?, cause: String?) {
+            (self.id, self.ok, self.event, self.type, self.streamID, self.cause) = (id, ok, event, type, streamID, cause)
+        }
+
         private struct ResourceError: Decodable {
             var code: String?
             var message: String?

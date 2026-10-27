@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextPhone
@@ -44,7 +45,8 @@ extension AppServices {
     /// with the administrator's policy and the machine create confirmation already in place.
     var cloud: CloudService {
         if let cloudIfBuilt { return cloudIfBuilt }
-        let cloud = CloudService(machines: machines, auth: cloudAuth, mainWork: mainWork, work: work)
+        let cloud = CloudService(machines: machines, auth: cloudAuth, mainWork: mainWork, work: work, deadlines: mainDeadlines,
+                                 appEvents: appEvents, workspaceEvents: workspaceEvents, deviceID: environment.cloudDeviceID)
         cloudIfBuilt = cloud
         cloud.applyPolicy(disabled: cloudPolicyDisabled)
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
@@ -56,7 +58,7 @@ extension AppServices {
     /// (``feedIfBuilt`` stays nil until then) with the `feed.github` setting already applied.
     var feed: FeedService {
         if let feedIfBuilt { return feedIfBuilt }
-        let feed = FeedService(auth: cloudAuth, deadlines: mainDeadlines, showcase: environment.showcase, acpmuxEnvironment: QuitAgents.environment(self))
+        let feed = FeedService(auth: cloudAuth, deadlines: mainDeadlines, work: work, appEvents: appEvents, workspaceEvents: workspaceEvents, energy: mainWork.energy, pausesHiddenPoll: features.isEnabled(.hiddenPollPause), bundleID: environment.launch.bundleID, showcase: environment.showcase, acpmuxEnvironment: QuitAgents.environment(self))
         feedIfBuilt = feed
         if let feedGitHub { feed.configureGitHub(enabled: feedGitHub.enabled, pollIntervalSeconds: feedGitHub.pollIntervalSeconds) }
         return feed
@@ -110,7 +112,7 @@ extension AppServices {
                     newChatPicks: { [weak self] in NewChatPicks(lastAgent: self?.newTabChoices.agent, picks: self?.newTabChoices.picks) },
                     chief: { [weak self] in if let owner = self?.home.chief { IPhoneHostService.ChiefPlacement(session: owner.home.session, socket: await owner.socketPath()) } else { nil } },
                     surfaceHosts: phoneSurfaceHosts(),
-                    settings: { [weak self] in self?.settings },
+                    settings: { [weak self] in self?.settings }, deadlines: mainDeadlines, appEvents: appEvents,
                     bundleID: environment.launch.bundleID, computerName: { await MacName().computerName() })
         iphone.pairWindow = { [weak self] in self?.windows.active?.window }
         iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,
@@ -119,41 +121,49 @@ extension AppServices {
         home.cloudDidStart()
     }
 
-    /// The registry context, the model router, phone access and team reloads follow the account (``cloudContext``).
+    /// The registry context, the model router, phone access and team reloads follow the account (``cloudContext``):
+    /// a ``ServiceObservation`` in the background class (its apply writes the registry, the router and phone access,
+    /// which must follow while no window shows). Setting ``cloudContext`` marks Cloud started before the wiring in
+    /// ``startCloudNow()``, so the first apply is one posted task after that wiring, as before.
     private func followCloudContext() {
         let cloud = cloud, machines = machines
-        // task-owner: AppServices.cloudContext, cancelled by stopCloud() at quit; event-driven (Observation)
-        cloudContext = Task { [weak self] in
-            var account: (user: String, team: String)?
-            var routerUser: String??
-            for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
-                guard let self else { return }
-                self.cloudContextDidChange()
-                // The local model relay follows the signed-in user (ModelRouterLease).
-                let user = state.0 ? state.2 : nil
-                if routerUser != .some(user) {
-                    routerUser = .some(user)
-                    self.modelRouter?.accountChanged(user)
-                }
-                // Phone access follows the account: start after sign-in, restart on a user or team switch,
-                // stop on sign-out. A switch of the active team also reloads the team's machines and accounts.
-                let current = state.0 ? state.2.flatMap { user in state.3.map { (user: user, team: $0) } } : nil
-                guard current?.user != account?.user || current?.team != account?.team else { continue }
-                // task-owner: one machine-list reload; CloudService reconciles.
-                if let before = account, before.user == current?.user { Task { await cloud.refresh() }; self.accounts.model.refresh() }
-                account = current
-                if let auth = CloudMobileAuth(auth: cloud.auth) {
-                    self.mobile.start(auth: auth, launch: self.environment.launch, daemon: self.daemon)
-                } else {
-                    self.mobile.stop()
-                }
+        var account: (user: String, team: String)?
+        var routerUser: String??
+        let facts: @MainActor () -> CloudContextFacts = {
+            (signedIn: cloud.isSignedIn, machines: machines.cloud.count, user: cloud.auth.user?.id, team: cloud.auth.teamID)
+        }
+        let follow: @MainActor (CloudContextFacts) -> Void = { [weak self] state in
+            guard let self, let context = cloudContext, !context.isCancelled else { return }
+            cloudContextDidChange()
+            // The local model relay follows the signed-in user (ModelRouterLease).
+            let user = state.signedIn ? state.user : nil
+            if routerUser != .some(user) {
+                routerUser = .some(user)
+                modelRouter?.accountChanged(user)
+            }
+            // Phone access follows the account: start after sign-in, restart on a user or team switch,
+            // stop on sign-out. A switch of the active team also reloads the team's machines and accounts.
+            let current = state.signedIn ? state.user.flatMap { user in state.team.map { (user: user, team: $0) } } : nil
+            guard current?.user != account?.user || current?.team != account?.team else { return }
+            if let before = account, before.user == current?.user {
+                cloud.refreshOffMain()  // CloudService reconciles
+                accounts.model.refresh()
+            }
+            account = current
+            if let auth = CloudMobileAuth(auth: cloud.auth, mainWork: mainWork) {
+                mobile.start(auth: auth, launch: environment.launch, daemon: daemon)
+            } else {
+                mobile.stop()
             }
         }
+        // The init's own apply finds no `cloudContext` yet and does nothing.
+        cloudContext = ServiceObservation(.background, owner: "AppServices.cloudContext", on: mainWork, read: facts, apply: follow)
+        mainWork.post(.background, owner: "AppServices.cloudContext") { follow(facts()) }
     }
 
     /// The phone host replica follows `settings` and the signed-in account (from the Cloud start on).
     func followHostReplica(_ settings: SettingsController) {
-        cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil })
+        cloud.hostReplica.follow(settings, local: machines.local, on: mainWork, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil })
     }
 
     /// At quit: ends the Cloud start's follow, Cloud and its machines' connections. Builds nothing when Cloud never started.

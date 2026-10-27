@@ -29,6 +29,31 @@
   ],
   "steps": [
     {
+      "id": "observe",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "project.observe",
+        "params": {
+          "source": "oracle",
+          "entries": [
+            {
+              "path": "/srv/oracle-project",
+              "last_used_ms": "1"
+            }
+          ]
+        },
+        "idempotencyKey": "project-remove-ok.observe"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,7 +63,7 @@
       "args": {
         "method": "project.remove",
         "params": {
-          "path": "$CASE_ROOT/oracle"
+          "path": "/srv/oracle-project"
         },
         "idempotencyKey": "project-remove-ok.call"
       },
@@ -50,7 +75,31 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the source still reports the project, so it is hidden, not deleted"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "project.remove",
+        "params": {
+          "path": "/srv/oracle-project"
+        },
+        "idempotencyKey": "project-remove-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
@@ -59,8 +108,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.path is a fixed placeholder, not a fixture object; git/_tuning.json tunes it"
   ]
 }

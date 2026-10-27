@@ -61,6 +61,12 @@ final class IncognitoWorkspaceLedger {
         LaunchRead(on: work, shutdown: .blockShutdown, dropped: .unknown) { read(url) }
     }
 
+    /// ``startLaunchRead(at:on:)`` in `sequence`: what is posted to it later (the app: the settings read, whose
+    /// landing builds the launch window) starts only once the leftovers are known.
+    static func startLaunchRead(at url: URL, in sequence: WorkSequence) -> LaunchRead<Leftovers> {
+        LaunchRead(in: sequence, shutdown: .blockShutdown, dropped: .unknown) { read(url) }
+    }
+
     nonisolated private struct Document: Codable, Sendable {
         var workspaces: [String]
     }

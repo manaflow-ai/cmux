@@ -105,6 +105,31 @@
         "settled"
       ],
       "note": "with a sidebar plugin configured, the view starts at 80x24"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar_view.ensure",
+        "params": {
+          "cols": 80,
+          "rows": 24
+        },
+        "idempotencyKey": "sidebar-view-ensure-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
