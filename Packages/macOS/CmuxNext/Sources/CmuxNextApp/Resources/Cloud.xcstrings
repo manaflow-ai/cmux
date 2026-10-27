@@ -18306,6 +18306,33 @@
           }
         }
       }
+    },
+    "cloud.cli.machineConfigUnreadable": {
+      "comment": "cmux cloud new-machine / apply-machine-config: the --machine-config file can't be used. %@ is its path.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Can't use the machine config %@: it must be a readable file of at most 64 KB."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン構成 %@ を使用できません。64 KB 以下の読み取り可能なファイルである必要があります。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Maschinenkonfiguration %@ kann nicht verwendet werden: Sie muss eine lesbare Datei von höchstens 64 KB sein."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible d’utiliser la configuration de machine %@ : il doit s’agir d’un fichier lisible de 64 Ko au plus."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se puede usar la configuración de máquina %@: debe ser un archivo legible de 64 KB como máximo."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر استخدام إعداد الجهاز %@: يجب أن يكون ملفًا قابلًا للقراءة لا يزيد حجمه على 64 كيلوبايت."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 구성 %@을(를) 사용할 수 없습니다. 64KB 이하의 읽을 수 있는 파일이어야 합니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法使用机器配置 %@：它必须是不超过 64 KB 的可读文件。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法使用機器設定 %@：它必須是不超過 64 KB 的可讀檔案。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Konfiguracija mašine %@ se ne može koristiti: mora biti čitljiva datoteka od najviše 64 KB."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinkonfigurationen %@ kan ikke bruges: den skal være en læsbar fil på højst 64 KB."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile usare la configurazione della macchina %@: deve essere un file leggibile di al massimo 64 KB."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចប្រើការកំណត់រចនាសម្ព័ន្ធម៉ាស៊ីន %@ បានទេ៖ វាត្រូវតែជាឯកសារដែលអាចអានបាន ទំហំមិនលើស 64 KB។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kan ikke bruke maskinkonfigurasjonen %@: den må være en lesbar fil på høyst 64 KB."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie można użyć konfiguracji maszyny %@: musi to być czytelny plik o rozmiarze co najwyżej 64 KB."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não é possível usar a configuração da máquina %@: ela deve ser um arquivo legível de no máximo 64 KB."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не удаётся использовать конфигурацию машины %@: это должен быть читаемый файл размером не более 64 КБ."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ใช้การกำหนดค่าเครื่อง %@ ไม่ได้: ต้องเป็นไฟล์ที่อ่านได้ ขนาดไม่เกิน 64 KB"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%@ makine yapılandırması kullanılamıyor: en fazla 64 KB boyutunda okunabilir bir dosya olmalıdır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдається використати конфігурацію машини %@: це має бути файл для читання розміром не більше 64 КБ."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể dùng cấu hình máy %@: tệp phải đọc được và không quá 64 KB."}}
+      }
     }
   },
   "version": "1.0"

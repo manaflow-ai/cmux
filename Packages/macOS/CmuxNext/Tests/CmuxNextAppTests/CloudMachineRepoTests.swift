@@ -128,6 +128,12 @@ struct CloudMachineRepoTests {
         creation.noteBootstrap(CloudMachineBootstrap.Outcome(status: "running"))
         #expect(!CloudCreationFlow.needsBootstrap(creation), "a start the machine took is not sent twice")
         #expect(!CloudCreationFlow.needsBootstrap(CloudMachineCreation(windowID: nil)), "no bootstrap asked")
+        var configured = CloudMachineRequest()
+        configured.machineConfig = CloudMachineConfig(contents: nil)
+        let applying = CloudMachineCreation(windowID: nil, request: configured)
+        #expect(CloudCreationFlow.needsBootstrap(applying) && !CloudCreationFlow.needsScript(applying), "a machine config alone still gets its apply")
+        applying.noteMachineConfig(CloudMachineBootstrap.Outcome(status: "started"))
+        #expect(!CloudCreationFlow.needsBootstrap(applying), "an apply the machine took is not sent twice")
     }
 
     @Test func theRunnerClonesFirstAndRetriesAfterAScriptThatSetsUpGitHub() throws {

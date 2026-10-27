@@ -55,13 +55,14 @@ extension CloudHandlers {
 
     // MARK: cloud new-machine with options
 
-    /// The invocation's `name`, `size`, `persistent`, `bootstrap`, `bootstrapScript` and `repo`. Reads no
+    /// The invocation's `name`, `size`, `persistent`, `bootstrap`, `bootstrapScript`, `machineConfig` and `repo`. Reads no
     /// file: the script is loaded off the main thread before the create.
     static func newMachineRequest(_ invocation: ActionInvocation) throws -> CloudMachineRequest {
         // A text flag given with no value (`--bootstrap-script` last on the line) arrives as `true`:
         // refuse it rather than make a machine without what was asked.
-        for name in ["name", "size", "bootstrap", "bootstrapScript", "repo"] where invocation[name] != nil && invocation[name]?.stringValue == nil {
+        for name in ["name", "size", "bootstrap", "bootstrapScript", "machineConfig", "repo"] where invocation[name] != nil && invocation[name]?.stringValue == nil {
             switch name {
+            case "machineConfig": throw ActionFailure(message: CloudStrings.machineConfigUnreadable("--machine-config"))
             case "size": throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(createSizes.keys.sorted().joined(separator: ", ")))
             case "name": throw ActionFailure(message: CloudStrings.laneNeedsName)
             case "repo": throw ActionFailure(message: CloudStrings.repoUnrecognized)
@@ -84,9 +85,12 @@ extension CloudHandlers {
         if kind == "lane" || path != nil {
             // A script alone runs as a plain bootstrap; `lane` also names the lane host.
             guard let path, !path.isEmpty else { throw ActionFailure(message: CloudStrings.bootstrapScriptRequired) }
-            // A quoted `~/boot.sh` reaches the app unexpanded.
-            request.bootstrapPath = path == "~" || path.hasPrefix("~/") ? NSHomeDirectory() + String(path.dropFirst()) : path
+            request.bootstrapPath = expandingHome(path)
             request.bootstrapKind = kind == "lane" ? .lane : .plain
+        }
+        if let config = invocation["machineConfig"]?.stringValue {
+            guard !config.isEmpty else { throw ActionFailure(message: CloudStrings.machineConfigUnreadable(config)) }
+            request.machineConfigPath = expandingHome(config)
         }
         if request.bootstrapKind == .lane, request.name == nil { throw ActionFailure(message: CloudStrings.laneNeedsName) }
         if let spec = invocation["repo"]?.stringValue {
@@ -102,6 +106,21 @@ extension CloudHandlers {
         return request
     }
 
+    /// A quoted `~/boot.sh` reaches the app unexpanded.
+    static func expandingHome(_ path: String) -> String {
+        path == "~" || path.hasPrefix("~/") ? NSHomeDirectory() + String(path.dropFirst()) : path
+    }
+
+    /// The `machine_config` answer of a start (``CloudMachineConfig``): its status and how to read it.
+    static func machineConfigAnswer(_ outcome: CloudMachineBootstrap.Outcome, machineID: String) -> ActionResultValue {
+        var answer: [String: ActionResultValue] = [
+            "status": .string(outcome.status), "status_file": .string(CloudMachineConfig.statusPath), "log": .string(CloudMachineConfig.logPath),
+            "check": .string("cmux cloud file-read --target machine:\(machineID) --path \(CloudMachineConfig.statusPath)"),
+        ]
+        if let reason = outcome.reason { answer["reason"] = .string(reason) }
+        return .object(answer)
+    }
+
     /// Loads the bootstrap script before anything is created (an unreadable script costs no
     /// machine), starts the creation (its progress shows like any New Cloud Machine), then runs
     /// the bootstrap on the machine the server returned. Answers the machine's facts, the
@@ -114,6 +133,9 @@ extension CloudHandlers {
             var request = request
             do { request.script = try await request.loadScript(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
                 throw ActionFailure(message: CloudStrings.bootstrapScriptUnreadable(unreadable.path))
+            }
+            do { request.machineConfig = try await request.loadMachineConfig(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
+                throw ActionFailure(message: CloudStrings.machineConfigUnreadable(unreadable.path))
             }
             let creation = flow.start(in: window, existing: nil, request: request)
             if case .failed(let reason)? = await settledCreation(creation, in: creations) { throw ActionFailure(message: "new Cloud machine: \(reason)") }
@@ -132,6 +154,9 @@ extension CloudHandlers {
                 // lands later in the status file's `repo`, which `check` reads.
                 fields["repo"] = .object(["spec": .string(repo.spec), "url": .string(repo.url), "dir": .string("~/" + repo.directory),
                                           "check": bootstrap["check"] ?? .string("none")])
+            }
+            if request.machineConfig != nil, let outcome = creation.machineConfig {
+                fields["machine_config"] = machineConfigAnswer(outcome, machineID: session.machineID)
             }
             var enrollment = newMachineEnrollment(request, session.machine)
             if request.persistent, session.machine.idlePauseMinutes != 0 {
@@ -206,10 +231,17 @@ extension CloudHandlers {
                     windows.claim(workspaceID: id, in: state, select: false)
                 }
             },
-            // The bootstrap goes with the machine, so a Retry starts it too while it has not started.
+            // The bootstrap and the machine config go with the machine, so a Retry starts each too while it
+            // has not started.
             bootstrap: { creation, session in
-                guard let script = creation.request.script else { return }
-                creation.noteBootstrap(await script.start(name: creation.request.name, on: CloudMachineBootstrap.Machine(api: cloud.api.pinningTeam(creation.request.team), machineID: session.machineID)))
+                let machine = CloudMachineBootstrap.Machine(api: cloud.api.pinningTeam(creation.request.team), machineID: session.machineID)
+                if let script = creation.request.script, CloudCreationFlow.needsScript(creation) {
+                    creation.noteBootstrap(await script.start(name: creation.request.name, on: machine))
+                }
+                // After the bootstrap's start: the applier waits for its lock, so a --repo clone is there first.
+                if let config = creation.request.machineConfig, CloudCreationFlow.needsMachineConfig(creation) {
+                    creation.noteMachineConfig(await config.apply(on: machine))
+                }
             }
         )
     }
