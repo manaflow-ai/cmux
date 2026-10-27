@@ -1,0 +1,191 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "accessibility-and-narrow",
+  "suite": "journeys",
+  "title": "Drive tabs, splits, focus moves, the sidebar and the palette from the keyboard in a narrow window with motion off, then at full width",
+  "journey": "accessibility-and-narrow",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 800, "height": 900}},
+  "fixture": {"seed": "journey-accessibility-and-narrow-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one 800 x 900 pt window, one workspace, one terminal tab",
+    "ui.animations.enabled is false (the bench launch's default)"
+  ],
+  "requires": ["actions", "keys", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "motion-off",
+      "op": "settle",
+      "waitFor": {"pointer": "/settings/motion/enabled", "equals": false, "maxMs": 5000},
+      "settleMaxMs": 5000,
+      "note": "every later wait completes with no animation running: motion cannot hide or delay a completion"
+    },
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "layout", "ax", "settings"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "new-tab",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["ctrl+`"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 5000},
+      "checkpoint": ["turn", "settled"]
+    },
+    {
+      "id": "split-right",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+d"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/focus/windows/0/model/pane", "predicate": "changed", "maxMs": 10000},
+      "checkpoint": ["turn", "settled"],
+      "note": "two panes side by side in 800 pt"
+    },
+    {
+      "id": "split-narrow",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "layout", "ax"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "focus-left",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+opt+left"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/focus/windows/0/model/pane", "predicate": "changed", "maxMs": 5000},
+      "checkpoint": ["turn", "settled"]
+    },
+    {
+      "id": "focus-right",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+opt+right"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/focus/windows/0/model/pane", "predicate": "changed", "maxMs": 5000},
+      "checkpoint": ["turn", "settled"]
+    },
+    {
+      "id": "focus-sidebar",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["ctrl+cmd+e"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/focus/windows/0/responder", "equals": "sidebar", "maxMs": 5000},
+      "checkpoint": ["turn", "settled"],
+      "note": "Focus Sidebar: the sidebar's rows take the keyboard"
+    },
+    {
+      "id": "sidebar-focused",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "ax"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "leave-sidebar",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["escape"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "Escape hands the keyboard back from the sidebar itself; no catalog action runs"},
+      "waitFor": {"pointer": "/focus/windows/0/responder", "equals": "content", "maxMs": 5000},
+      "note": "the keyboard returns to the pane it left"
+    },
+    {
+      "id": "open-palette",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+shift+p"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/open", "equals": true, "maxMs": 5000},
+      "checkpoint": ["turn", "settled"]
+    },
+    {
+      "id": "palette-down",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "commandPaletteNext"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/selectedIndex", "predicate": "changed", "maxMs": 5000},
+      "note": "Next Item, the action Down runs in the open palette (PaletteKeyMap); debug.key would reach the shell window, not the palette panel"
+    },
+    {
+      "id": "palette-down-again",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "commandPaletteNext"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/selectedIndex", "predicate": "changed", "maxMs": 5000},
+      "note": "a second row down in the narrow palette"
+    },
+    {
+      "id": "palette-narrow",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "overlays", "ax"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "dismiss-palette",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "paletteKey.escape"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/open", "equals": false, "maxMs": 5000},
+      "note": "Palette: Clear or Close, the action Escape runs in the open palette: with an empty query it closes; the focus returns to the right pane"
+    },
+    {
+      "id": "zoom-wide",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "zoomWindow"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/windows/list/0/frame/width", "predicate": "changed", "maxMs": 5000},
+      "note": "Zoom: the same window at the screen's full width"
+    },
+    {
+      "id": "wide",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "layout", "ax"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "zoom-back",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "zoomWindow"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/windows/list/0/frame/width", "predicate": "changed", "maxMs": 5000}
+    },
+    {
+      "id": "narrow-again",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "layout", "ax"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "every step completes with ui.animations.enabled false: no wait depends on an animation ending",
+    "the ax facet keeps every control a key reached (the tabs, both panes, the sidebar rows, the palette rows) at 800 pt and at full width, with the same roles and label keys",
+    "the focused AX element follows each focus move, the sidebar focus and the palette, and returns to the right pane after each dismiss",
+    "the layout's split ratio and the focused pane are the same at narrow-again as at palette-narrow's pane: the zoom changes sizes, not structure",
+    "every mutation has one receipt or one typed error (I1)",
+    "the turn checkpoint of each key step is a prefix of its settled checkpoint (I3)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "VoiceOver speech output: the ax facet reads the AX tree, not what VoiceOver says",
+    "keys pressed inside the open palette panel: debug.key reaches the shell window, so the palette's own actions (Next Item, Clear or Close) stand for Down and Escape",
+    "the system Reduce Motion switch: the driver applies only the viewport (environment), so motion is off through ui.animations.enabled",
+    "the normal 1440 pt width: the P0 journeys run there, and the ax suite records all three widths"
+  ]
+}

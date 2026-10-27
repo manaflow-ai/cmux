@@ -243,6 +243,46 @@ std::vector<int32_t> HostMirrors::TabsFor(uint16_t op, const MirrorEvent& event)
   return tabs;
 }
 
+bool HostMirrors::KeyMatches(const std::vector<control::Field>& key, const std::vector<control::Field>& named,
+                             uint32_t wildcards) {
+  size_t next = 0;
+  for (size_t i = 0; i < key.size(); ++i) {
+    if (i < 32 && ((wildcards >> i) & 1u) != 0) continue;
+    if (next >= named.size() || !(named[next] == key[i])) return false;
+    ++next;
+  }
+  return next == named.size();
+}
+
+bool HostMirrors::Refresh(HostContext& ctx, uint16_t op, const std::vector<control::Field>& named,
+                          uint32_t wildcards) const {
+  const Producer* producer = ProducerOf(op);
+  if (producer == nullptr) return false;
+  if (producer->key == Key::kHost) {
+    TlvReader r{std::vector<control::Field>()};
+    ProduceMirror(ctx, op, r);
+    return true;
+  }
+  auto refresh = [&](int32_t browser) {
+    TlvWriter key;
+    key.I32(browser);
+    if (producer->key == Key::kTabIcon) key.I32(kExtActionIconPixels);
+    if (!KeyMatches(key.fields(), named, wildcards)) return;
+    TlvReader r(key.Take());
+    ProduceMirror(ctx, op, r);
+  };
+  // A named tab (go_back's [browser_id]) costs that tab; a `*` tab (ext_set_enabled's) every open one.
+  if ((wildcards & 1u) == 0) {
+    if (!named.empty() && named[0].type == control::Type::kI32) {
+      const auto browser = static_cast<int32_t>(named[0].integer);
+      if (tabs_.count(browser)) refresh(browser);
+    }
+    return true;
+  }
+  for (const auto& entry : tabs_) refresh(entry.first);
+  return true;
+}
+
 bool HostMirrors::Produce(HostContext& ctx, uint16_t op, const MirrorEvent& event) const {
   const Producer* producer = ProducerOf(op);
   if (producer == nullptr) return false;

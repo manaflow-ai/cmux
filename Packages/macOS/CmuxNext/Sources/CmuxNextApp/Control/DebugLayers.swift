@@ -34,6 +34,32 @@ enum DebugLayers {
         return .object(fields)
     }
 
+    /// `debug.overlay`: per main window, how often the overlay host re-added its panel above a page
+    /// window per main run loop turn (event cycle) since the last `{reset: true}` (`reorders`,
+    /// `event_cycles`, `reorders_per_event`); the top level has the largest `reorders_per_event`. With
+    /// pages in the view tree (`page_surface: "views"`) nothing re-adds a page window, so it stays 0
+    /// (p01-process-223). `order_checks` counts the window notices that checked the order.
+    static func overlay(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
+        let layers = services.windows.controllers.compactMap { ($0.window as? ShellWindow)?.overlayLayer }
+        if params["reset"]?.boolValue == true { layers.forEach { $0.resetOverlayStats() } }
+        return .object([
+            "windows": .array(layers.map { overlay($0) }),
+            "reorders_per_event": .number(layers.map(\.reordersPerEvent).max() ?? 0),
+        ])
+    }
+
+    static func overlay(_ layer: WindowOverlayLayer) -> JSONValue {
+        .object([
+            "window_number": .number(Double(layer.window.windowNumber)),
+            "page_surface": .string(layer.pageSurface == .views ? "views" : "child_windows"),
+            "placement": .string(layer.placement.rawValue),
+            "reorders": .number(Double(layer.reordersSinceReset)),
+            "event_cycles": .number(Double(layer.eventCyclesSinceReset)),
+            "reorders_per_event": .number(layer.reordersPerEvent),
+            "order_checks": .number(Double(layer.orderCheckCount)),
+        ])
+    }
+
     /// `frame_sources: true`: what ticks with no FrameScheduler client in the
     /// app's windows and their child windows, per owner view: infinite Core
     /// Animation loops and playing video layers (``RenderStats/loopingAnimations(in:)``).
@@ -119,6 +145,7 @@ enum DebugLayers {
                 "presentation": .string(entry.tab.presentation == .childWindow ? "child_window" : "in_view"),
                 "content_in_window": .bool(content.window === window),
             ]
+            // visibility-walk-allow: the report checks AppKit's own view state against the page windows; a node would hide the mismatch it looks for
             if entry.tab.presentation == .childWindow, content.window === window, !content.isHiddenOrHasHiddenAncestor {
                 // The page window must cover the host view exactly, in
                 // screen coordinates, whatever moved the window.
@@ -167,9 +194,15 @@ enum DebugLayers {
             "interactive_rects_in_window": .array(layer.interactiveRects.map(rect)),
             "divider_areas_in_window": .array(layer.dividerAreas.map { rect($0.rect) }),
             "sidebar_resize_area_in_window": layer.sidebarResizeArea.map { rect($0.rect) } ?? .null,
-            "divider_catchers_in_window": .array(layer.catchers.framesInWindow.sorted { $0.key < $1.key }.map { rect($0.value) }),
-            "divider_catcher_updates": .number(Double(layer.catchers.panelUpdates)),
+            "divider_catchers_in_window": .array((layer.catchers?.framesInWindow ?? [:]).sorted { $0.key < $1.key }.map { rect($0.value) }),
+            "divider_catcher_updates": .number(Double(layer.catchers?.panelUpdates ?? 0)),
+            "page_windows_take_mouse": .bool(layer.pageWindowsTakeMouse),
             "reorders": .number(Double(layer.reorderCount)),
+            "order_checks": .number(Double(layer.orderCheckCount)),
+            "page_surface": .string(layer.pageSurface == .views ? "views" : "child_windows"),
+            // p03-rendering-052: overlays in the window's own top layer, and whether a panel was ever made.
+            "overlay_top_layer_in_window": .bool(WindowOverlayHost.existingHost(for: window)?.isTopLayerInWindow == true),
+            "overlay_panel_made": .bool(WindowOverlayHost.existingHost(for: window)?.madePanel != nil),
             "child_window_violations": .array(ChildWindowPolicy.violations.map(JSONValue.string)),
             "pages_in_sync": .bool(pagesInSync),
             "rings_in_sync": .bool(ringsInSync),
@@ -193,16 +226,22 @@ enum DebugLayers {
         let contextIdGetter = #selector(getter: QuartzLayerHostingSPI.contextId)
         let rootLayerGetter = #selector(getter: QuartzLayerHostingSPI.layer)
         guard let host = firstLayerHost(layer), host.responds(to: contextIdGetter) else { return nil }
-        let id = unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
+        // SAFETY: an @objc protocol existential is the object pointer alone, so the cast changes no layout;
+        // only `contextId`, which `responds(to:)` proved the layer implements, is sent through it.
+        let id = unsafe unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
+        // SAFETY: `+allContexts` is answered (checked first) and returns an autoreleased NSArray at +0, so
+        // taking it unretained is its ownership; the cast to [NSObject] copies it into a Swift array.
         guard id != 0, let contextClass: AnyClass = NSClassFromString("CAContext"),
               (contextClass as AnyObject).responds(to: #selector(QuartzLayerHostingSPI.allContexts)),
-              let contexts = (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
+              let contexts = unsafe (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
                   .takeUnretainedValue() as? [NSObject] else { return nil }
         for context in contexts {
             // Two checks, not one `&&`: its autoclosure would capture the non-Sendable context.
             guard context.responds(to: contextIdGetter) else { continue }
             guard context.responds(to: rootLayerGetter) else { continue }
-            let spi = unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
+            // SAFETY: as for the host: the existential is the object pointer, and only `contextId` and `layer`,
+            // both proved answered just above, are sent through it.
+            let spi = unsafe unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
             guard spi.contextId == id else { continue }
             return layerHostCount(spi.layer)
         }
@@ -289,7 +328,7 @@ enum DebugLayers {
 
     private static func role(of child: NSWindow, layer: WindowOverlayLayer) -> String {
         if child === layer.overlayPanel { return "overlay" }
-        if WindowOverlayLayer.isContent(child) { return "content" }
+        if WindowOverlayLayer.isContent(child, of: layer.window) { return "content" }
         return "panel"
     }
 

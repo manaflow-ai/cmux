@@ -1,0 +1,21 @@
+{
+  "id": "webviews-chat-load-daemon",
+  "tier": "linux",
+  "description": "Chat-load daemon stage (perf100, daemon_bench.py): a real acpmux daemon opens 100-, 1,000- and 10,000-turn fixture chats the way the agent pane does and pages back to the first message; wall, CPU, read bytes and peak memory per open and per scroll, and the daemon's RSS.",
+  "command": ["webviews/scripts/agent-pane/chat-load/run.sh"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "web\\.chat_load\\.daemon\\.t[0-9]+\\.(open|scroll)\\.(wall|cpu)", "unit": "ms", "better": "lower"},
+    {"name": "web\\.chat_load\\.daemon\\.t[0-9]+\\.(open|scroll)\\.(read|peak_extra|bytes)", "unit": "bytes", "better": "lower"},
+    {"name": "web\\.chat_load\\.daemon\\.t[0-9]+\\.scroll\\.pages", "unit": "count", "better": "lower"},
+    {"name": "web\\.chat_load\\.daemon\\.rss", "unit": "bytes", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 600,
+  "needs": ["file:webviews/scripts/agent-pane/chat-load/daemon_bench.py", "file:scripts/perf-lab/bench_results.py"],
+  "owner": "PL-acpmux",
+  "component": "Agents>ChatLoad",
+  "not_measurable": "run.sh takes ACPMUX_BIN OUT_DIR, not the runner's --app --tag --out, and the Linux runner builds no acpmux binary at the measured commit; run it by hand with PERF_RESULT_DIR set."
+}

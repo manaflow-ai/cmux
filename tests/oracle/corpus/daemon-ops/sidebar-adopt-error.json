@@ -38,7 +38,15 @@
       "args": {
         "method": "sidebar.adopt",
         "params": {
-          "refs": {}
+          "refs": [
+            {
+              "session_id": "oracle-remote",
+              "workspace_id": "ws_0123456789abcdef0123456789abcdef"
+            }
+          ],
+          "to": {
+            "section": "sec_oracle_missing"
+          }
         },
         "idempotencyKey": "sidebar-adopt-error.call"
       },
@@ -50,7 +58,7 @@
         "before",
         "settled"
       ],
-      "note": "refs breaks its catalog type (value must be an array); the daemon's catalog check refuses it"
+      "note": "the sidebar reducer refuses it (unknown_section) and writes nothing: the target section does not exist"
     }
   ],
   "invariants": [

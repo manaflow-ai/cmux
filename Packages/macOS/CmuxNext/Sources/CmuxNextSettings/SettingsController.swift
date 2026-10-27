@@ -1,6 +1,9 @@
 public import CmuxNextActions
 public import CmuxNextDesign
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 public import Observation
 
@@ -85,7 +88,7 @@ public final class SettingsController {
     private struct LoadWaiter {
         let token: UUID
         let count: Int
-        let continuation: CheckedContinuation<Void, Never>
+        let continuation: OnceContinuation<Void, OnceContinuationError>
     }
 
     /// Everything a load depends on; an unchanged input skips the apply.
@@ -110,14 +113,28 @@ public final class SettingsController {
         self.managedWatchFiles = managedWatchFiles
     }
 
+    /// Applies the launch's read as the first load, on the calling thread, with no file call and no
+    /// watch, so the first window draws in the file's appearance while ``start(announcingDiagnostics:)``
+    /// waits until after the first frame (p08-startup-079; Chrome applies the profile's read
+    /// preferences before the first window and arms the file watchers later). Nothing without a
+    /// launch read or after the first load.
+    public func adoptLaunchRead() {
+        guard loadCount == 0, let launch = launchRead else { return }
+        launchRead = nil
+        adopt(launch.loaded)
+    }
+
     /// Loads the file now (the launch's read when the controller was made with one: no file call
     /// on this thread) and starts watching it; the watches are armed off this thread, then reload
-    /// once. `announcingDiagnostics`: the app also tells the person about a value it ignores
-    /// (`SettingsDiagnosticToasts`); tests leave it off.
-    public func start(announcingDiagnostics: Bool = false) {
+    /// once. After ``adoptLaunchRead()`` it only arms the watches and reloads once off this
+    /// thread, so an edit made since the launch read applies. `announcingDiagnostics`: the app
+    /// also tells the person about a value it ignores (`SettingsDiagnosticToasts`), sending them
+    /// to its Settings row only while `availability` says the page draws it; tests leave it off.
+    public func start(announcingDiagnostics: Bool = false,
+                      availability: @escaping @MainActor () -> SettingsAvailability = { SettingsAvailability() }) {
         guard watcher == nil else { return }
         if announcingDiagnostics, diagnosticToasts == nil {
-            let toasts = SettingsDiagnosticToasts(registry: applier.registry)
+            let toasts = SettingsDiagnosticToasts(registry: applier.registry, availability: availability)
             diagnosticToasts = toasts
             toasts.follow(self)
         }
@@ -154,9 +171,10 @@ public final class SettingsController {
         guard loadCount < count, !Task.isCancelled else { return }
         let token = UUID()
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A dropped waiter returns as a loaded or cancelled one does.
+            _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 if Task.isCancelled || loadCount >= count {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } else {
                     loadWaiters.append(LoadWaiter(token: token, count: count, continuation: continuation))
                 }
@@ -168,7 +186,7 @@ public final class SettingsController {
 
     private func resumeWaiter(_ token: UUID) {
         guard let index = loadWaiters.firstIndex(where: { $0.token == token }) else { return }
-        loadWaiters.remove(at: index).continuation.resume()
+        loadWaiters.remove(at: index).continuation.resume(returning: ())
     }
 
     // MARK: - Writing
@@ -348,6 +366,6 @@ public final class SettingsController {
         loadCount += 1
         let ready = loadWaiters.filter { $0.count <= loadCount }
         loadWaiters.removeAll { $0.count <= loadCount }
-        ready.forEach { $0.continuation.resume() }
+        ready.forEach { $0.continuation.resume(returning: ()) }
     }
 }

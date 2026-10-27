@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The DevTools message id rule of the shim (`cmux_cef_shim.h`): raw sends
@@ -58,6 +59,24 @@ public nonisolated struct CEFDevToolsRawMessage {
         var j = i
         while j < p.count, p[j] != UInt8(ascii: ","), p[j] != UInt8(ascii: "}"), p[j] != UInt8(ascii: "]"), !isSpace(p[j]) { j += 1 }
         return j == i ? nil : j
+    }
+
+    /// The top-level "sessionId" of a message; parsed only when the message names one (most
+    /// commands go to the page's own flat session).
+    public static func sessionID(in json: String) -> String? {
+        guard json.contains("\"sessionId\""),
+              let object = (try? JSONSerialization.blockingJSONObject(with: Data(json.utf8))) as? [String: Any] else { return nil }
+        return object["sessionId"] as? String
+    }
+
+    /// The CDP error reply with `id` in session `sessionID` (nil: the browser session), as Chromium
+    /// answers a command it cannot dispatch (`DevToolsSession::DispatchProtocolMessage`,
+    /// content/browser/devtools/devtools_session.cc). Every relay that answers for Chromium uses it.
+    public static func errorReply(id: Int, sessionID: String?, text: String) -> String? {
+        var reply: [String: Any] = ["id": id, "error": ["code": -32000, "message": text]]
+        if let sessionID { reply["sessionId"] = sessionID }
+        guard let data = try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys]) else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// The top-level "id" of any message (raw or not), nil as `topLevelID`.

@@ -10,9 +10,7 @@ use std::ffi::c_void;
 use std::io;
 use std::ptr;
 
-use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, LocalFree,
-};
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, HANDLE, LocalFree};
 use windows_sys::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
     SE_KERNEL_OBJECT, SE_OBJECT_TYPE,
@@ -61,8 +59,11 @@ pub struct NamedJob {
     name: String,
 }
 
-// SAFETY: a kernel handle; the calls made on it are thread-safe.
+// SAFETY: a kernel handle is valid on every thread of the process, and
+// NamedJob owns it alone until drop.
 unsafe impl Send for NamedJob {}
+// SAFETY: `&NamedJob` only reaches IsProcessInJob and AssignProcessToJobObject,
+// which Windows documents as safe to call concurrently on one job handle.
 unsafe impl Sync for NamedJob {}
 
 impl Drop for NamedJob {
@@ -104,14 +105,14 @@ impl NamedJob {
         let wname = wide(name);
         // SAFETY: valid attributes and name for the call.
         let handle = unsafe { CreateJobObjectW(&attributes, wname.as_ptr()) };
-        let created_error = unsafe { GetLastError() };
+        let created_error = io::Error::last_os_error();
         // SAFETY: the descriptor the conversion allocated.
         unsafe { LocalFree(descriptor as _) };
         if handle.is_null() {
             return Err(io::Error::last_os_error());
         }
         let job = Self { handle, name: name.to_owned() };
-        if created_error == ERROR_ALREADY_EXISTS {
+        if created_error.raw_os_error() == Some(ERROR_ALREADY_EXISTS as i32) {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 format!("job {name} already exists"),
@@ -169,7 +170,9 @@ pub(super) fn current_user_sid_string() -> io::Result<String> {
         }
         // SAFETY: a NUL-terminated string the call allocated.
         let len = (0..).take_while(|&i| unsafe { *text.add(i) } != 0).count();
+        // SAFETY: `text` holds `len` initialized u16s before its NUL, alive until LocalFree.
         let value = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, len) });
+        // SAFETY: ConvertSidToStringSidW allocated `text` with LocalAlloc; nothing reads it after.
         unsafe { LocalFree(text as _) };
         Ok(value)
     })
@@ -189,6 +192,7 @@ fn with_current_user_sid<R>(f: impl FnOnce(*mut c_void) -> io::Result<R>) -> io:
     let ok = unsafe {
         GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), size, &mut size)
     };
+    // SAFETY: `token` was opened above and is not used after this.
     unsafe { CloseHandle(token) };
     if ok == 0 {
         return Err(io::Error::last_os_error());
@@ -220,6 +224,7 @@ pub fn owned_by_current_user(handle: HANDLE, kind: SE_OBJECT_TYPE) -> io::Result
     }
     // SAFETY: `owner` points into `descriptor`, alive until LocalFree.
     let same = with_current_user_sid(|ours| Ok(unsafe { EqualSid(owner, ours) } != 0));
+    // SAFETY: GetSecurityInfo allocated `descriptor`; `owner` is not read after this.
     unsafe { LocalFree(descriptor as _) };
     same
 }

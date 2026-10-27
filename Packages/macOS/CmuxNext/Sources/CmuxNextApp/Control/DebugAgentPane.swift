@@ -3,10 +3,9 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
-import ObjectiveC
-import WebKit
 
 /// `debug.agent_pane` (DEBUG builds): performance measurement of the React
 /// agent pane through the page's `window.cmuxAcpmuxDebug`, the counterpart
@@ -24,7 +23,7 @@ import WebKit
 /// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
 /// daemon), `load_run` (`seconds`, `chunk_chars`, `chunk_ms`, `tool_every`, `scroll_speed`,
 /// `scroll_depth`: a full-speed stream into it while the transcript scrolls, with every frame's
-/// work; webviews loadDebug.ts), `typing_stats` (`raw` adds every key),
+/// work; webviews loadDebug.ts), `typing_stats` (`raw` adds every key's times),
 /// `reset_typing`, `close_menus`, `open_menu` (`label`: opens that composer menu, such as
 /// `Model` or `Mode`, through the same path as a click, for automation and
 /// captures), `acp_log` (the page's acpmux wire log and its stats; `limit`
@@ -87,10 +86,10 @@ enum DebugAgentPane {
         case let .failure(failure): return .object(["error": .string(failure.message), "agent_panes": .array(failure.panes.map(JSONValue.string))])
         }
         let action = params["action"]?.stringValue ?? ""
-        keepRenderingWhenCovered(view.webView)
+        view.page.keepRenderingWhenCovered()
         actAsUser(action, gestures: view.model.transport.gestures)
         if action == "pid" {
-            guard let pid = WebContentProcess.identifier(of: view.webView) else {
+            guard let pid = view.page.webKitEngine.flatMap({ WebContentProcess.identifier(of: $0) }) else {
                 return .object(["pane": .string(pane), "error": .string("no WebContent process")])
             }
             return .object(["pane": .string(pane), "pid": .number(Double(pid))])
@@ -151,7 +150,7 @@ enum DebugAgentPane {
             // The page as its engine draws it (`AgentPaneView.pageSnapshot`), PNG at `path`: a window
             // snapshot draws no web content, and a build host may have no screen recording.
             let path = params["path"]?.stringValue ?? NSTemporaryDirectory() + "agent-pane-\(pane).png"
-            guard let image = await view.pageSnapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+            guard let image = await view.pageSnapshot()?.bestCGImage,
                   case let rep = NSBitmapImageRep(cgImage: image),
                   let png = rep.representation(using: .png, properties: [:]),
                   (try? png.write(to: URL(fileURLWithPath: path))) != nil else {
@@ -270,14 +269,6 @@ enum DebugAgentPane {
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
         }
-    }
-
-    /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it.
-    private static func keepRenderingWhenCovered(_ webView: WKWebView) {
-        let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
-        guard let method = class_getInstanceMethod(WKWebView.self, selector) else { return }
-        typealias SetEnabled = @convention(c) (AnyObject, Selector, Bool) -> Void
-        unsafeBitCast(method_getImplementation(method), to: SetEnabled.self)(webView, selector, false)
     }
 
     /// The page function's positional arguments, as Foundation values.

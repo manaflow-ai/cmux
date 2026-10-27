@@ -9,7 +9,7 @@ import Testing
 /// SocketWriterQoSTests checks the daemon writer, the other queue of p02-threads-030.
 @Suite(.serialized) struct LocalPTYQoSTests {
     @Test func theWriteQueueRunsAtUserInteractive() throws {
-        let io = try LocalPTYTerminalIO(shell: "/bin/sh", workingDirectory: "/", environment: ["PS1": ""])
+        let io = try LocalPTYTerminalIO(shell: "/bin/sh", workingDirectory: "/", environment: ["PS1": ""], installedTerminfo: false)
         defer { io.terminate() }
 
         #expect(io.writeQueueQoS == .userInteractive)

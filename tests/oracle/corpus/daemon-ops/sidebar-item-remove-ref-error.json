@@ -38,7 +38,10 @@
       "args": {
         "method": "sidebar.item.remove_ref",
         "params": {
-          "ref": []
+          "ref": {
+            "kind": "app",
+            "value": "cmux/oracle-missing"
+          }
         },
         "idempotencyKey": "sidebar-item-remove-ref-error.call"
       },
@@ -50,7 +53,7 @@
         "before",
         "settled"
       ],
-      "note": "ref breaks its catalog type (value must be an object); the daemon's catalog check refuses it"
+      "note": "the sidebar reducer refuses it (unknown_item) and writes nothing: no item shows the ref"
     }
   ],
   "invariants": [

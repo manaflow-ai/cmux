@@ -38,8 +38,10 @@ nonisolated enum NativeCaretAccessory {
             defer { done = true }
             return !done
         }) else { return false }
-        let existing = class_getInstanceMethod(NSTextView.self, selector)
-        let earlier: Getter? = existing.map { unsafeBitCast(method_getImplementation($0), to: Getter.self) }
+        // SAFETY: `preferredTextAccessoryPlacement` returns an NSInteger and takes no argument, so its IMP is
+        // (self, _cmd) -> Int, the Getter signature; the cast changes no argument or return layout.
+        let existing = unsafe class_getInstanceMethod(NSTextView.self, selector)
+        let earlier: Getter? = unsafe existing.map { unsafe unsafeBitCast(method_getImplementation($0), to: Getter.self) }
         let sel = selector
         let answer: @convention(block) (NSTextView) -> Int = { view in
             // AppKit asks on the main thread; anywhere else keeps the earlier answer.
@@ -48,11 +50,14 @@ nonisolated enum NativeCaretAccessory {
             }
             return earlier?(view, sel) ?? NSTextCursorAccessoryPlacement.unspecified.rawValue
         }
-        let imp = imp_implementationWithBlock(answer)
-        if let existing, let types = method_getTypeEncoding(existing) {
-            _ = class_replaceMethod(NSTextView.self, sel, imp, types)
+        // SAFETY: `answer` takes (self) and returns Int, the block form of the Getter IMP; the type encoding
+        // is the existing method's (a C string the runtime owns for the class's life) or "q@:", NSInteger
+        // from (id, SEL), which matches it. The runtime copies the block and the encoding.
+        let imp = unsafe imp_implementationWithBlock(answer)
+        if let existing, let types = unsafe method_getTypeEncoding(existing) {
+            _ = unsafe class_replaceMethod(NSTextView.self, sel, imp, types)
         } else {
-            _ = class_replaceMethod(NSTextView.self, sel, imp, "q@:")
+            _ = unsafe class_replaceMethod(NSTextView.self, sel, imp, "q@:")
         }
         return true
     }

@@ -1,0 +1,7 @@
+{
+  "chief": {
+    "reactionClassifier": {
+      "model": "claude-haiku-5-5"
+    }
+  }
+}

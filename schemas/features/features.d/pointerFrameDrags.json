@@ -2,7 +2,7 @@
   "$schema": "../features.schema.json",
   "name": "pointerFrameDrags",
   "owner": "PL-motion-cef",
-  "description": "Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.",
+  "description": "Resize edges (pane dividers, column and row edges, both sidebars, the DevTools divider), canvas pane drags and pans and the strip scrollbar thumb move on a display frame's first drag event and once more at the frame, to the latest point; every drag event still counts toward the release velocity.",
   "defaults": { "dev": false, "nightly": false, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",

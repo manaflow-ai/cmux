@@ -49,6 +49,45 @@
       }
     },
     {
+      "id": "fx-room",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "room.create",
+        "params": {
+          "name": "oracle"
+        },
+        "idempotencyKey": "room-unpin-ok.fx-room"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "pin",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "room.pin",
+        "params": {
+          "room": "$step:fx-room#/value/id"
+        },
+        "idempotencyKey": "room-unpin-ok.pin"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -69,7 +108,30 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "unpins the fixture workspace that the step before pinned in the fixture room"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "room.unpin",
+        "params": {},
+        "idempotencyKey": "room-unpin-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

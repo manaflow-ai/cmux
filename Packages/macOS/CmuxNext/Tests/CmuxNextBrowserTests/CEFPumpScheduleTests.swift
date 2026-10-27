@@ -65,6 +65,38 @@ import Testing
         #expect(timer.armed == nil, "armed \(String(describing: timer.armed)) after a long pass with no request")
     }
 
+    /// p14-energy-037: from the first fork API built on cef-cmux 066b083f (API 26, layer hosting, whose
+    /// first commit has 066b083f as its parent) a pass runs at most the switch's 2 ms, no longer than
+    /// one deadline-queue fire. The API 24 and 25 builds (the cmux.28 pin, the API 25 keychain line)
+    /// lack that commit and keep CEF's 10 ms.
+    @MainActor
+    @Test func forksThatHonourTheSwitchRunAtMostTwoMilliseconds() {
+        #expect(CEFPumpSchedule.pumpTimeSliceSwitchForkAPI == CEFLayerHosting.forkAPI)
+        for forkAPI: Int32 in [26, 27, 32] {
+            let slice = CEFPumpSchedule.timeSlice(forkAPI: forkAPI)
+            #expect(slice > 0 && slice <= 0.002, "fork API \(forkAPI): \(slice) s")
+            #expect(slice <= MainWakeUpQueue.fireBudget / .seconds(1))
+        }
+        for forkAPI: Int32 in [7, 24, 25] {
+            #expect(CEFPumpSchedule.timeSlice(forkAPI: forkAPI) == 0.010, "fork API \(forkAPI)")
+        }
+    }
+
+    /// A 3 ms pass used the whole slice of a fork that honours the switch (it may have left work), not
+    /// the 10 ms of one that does not.
+    @MainActor
+    @Test(arguments: [(Int32(26), 1), (Int32(32), 1), (Int32(25), 0), (Int32(24), 0)])
+    func aLongPassIsJudgedAgainstTheForksSlice(forkAPI: Int32, longRuns: Int) {
+        let timer = CEFPumpCrossThreadGateTests.Timer()
+        let clock = CEFPumpCrossThreadGateTests.Clock()
+        let pump = CEFMessagePump(work: { clock.seconds += 0.003 }, timer: timer,
+                                  timeSlice: CEFPumpSchedule.timeSlice(forkAPI: forkAPI), clock: { clock.seconds },
+                                  ledger: WakeupLedger())
+        pump.start()
+        timer.fire()
+        #expect(pump.stats.longWorkRuns == longRuns)
+    }
+
     /// A fire inside a running pass (a nested run loop) is deferred, and the
     /// pump runs again on the next run loop pass.
     @Test func aReenteredFireRunsAfterThePass() throws {
@@ -92,7 +124,7 @@ import Testing
     /// The table of the absolute path: Chromium's run time and leeway are the wake as sent, with no
     /// whole-millisecond truncation (7.9 ms stays 7.9 ms) and no 36 ms rule (Chromium's own policy
     /// came with the leeway); a precise one is exact.
-    struct AbsoluteCase: Sendable {
+    nonisolated struct AbsoluteCase: Sendable {
         /// The run time after now, ns.
         var after: Int64
         var leeway: Int64
@@ -101,7 +133,7 @@ import Testing
         var tolerance: TimeInterval
     }
 
-    static let absoluteTable = [
+    nonisolated static let absoluteTable = [
         AbsoluteCase(after: 7_900_000, leeway: 8_000_000, precise: false, tolerance: 0.008),
         AbsoluteCase(after: 7_900_000, leeway: 8_000_000, precise: true, tolerance: 0),
         AbsoluteCase(after: 7_900_000, leeway: 0, precise: true, tolerance: 0),

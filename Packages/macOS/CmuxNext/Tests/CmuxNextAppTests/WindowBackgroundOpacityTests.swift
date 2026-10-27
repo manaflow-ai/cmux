@@ -13,6 +13,9 @@ import Testing
 /// slider's preview and its write) and turns Material into the explicit choice that matches
 /// Ghostty's blur; resetting Opacity returns both rows to Ghostty.
 @MainActor @Suite(.serialized) struct WindowBackgroundOpacityTests {
+    /// Where the terminal setting hears app notices: held for the whole test (its AppEvents hold it weakly).
+    private let center = NotificationCenter()
+
     /// The page's own writes: the bundled Settings page with a real gesture.
     static let gesture = PageCallContext(page: "cmux.settings", userGesture: true)
     static let opacityKey = "appearance.backgroundOpacity"
@@ -64,7 +67,7 @@ import Testing
         // The config files' own values, as `GhosttyRuntime.loadConfig` records them.
         GhosttyConfigBackground.loaded = GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur)
         ThemeScope.app.store.apply(ThemeBridge.input(colors))
-        let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        let terminal = TerminalThemeSetting.testing(backdropScope: ThemeScope(level: .room), center: center)
         terminal.reload = { ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
         terminal.follow(settings)
 

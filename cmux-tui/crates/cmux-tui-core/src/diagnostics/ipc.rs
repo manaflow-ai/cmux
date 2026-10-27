@@ -146,7 +146,8 @@ impl IpcStats {
         self.bad_message.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// `writer`, with each `write` call (one syscall on a socket) counted
+    /// `writer`, with each `write` or `write_vectored` call (one syscall on
+    /// a socket) counted
     /// and timed against [`WRITE_STALL_THRESHOLD`].
     pub fn counted<'a, W: Write + ?Sized>(&'a self, writer: &'a mut W) -> CountedWrite<'a, W> {
         CountedWrite { stats: self, inner: writer }
@@ -236,14 +237,30 @@ pub struct CountedWrite<'a, W: Write + ?Sized> {
     inner: &'a mut W,
 }
 
-impl<W: Write + ?Sized> Write for CountedWrite<'_, W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let started = Instant::now();
-        let written = self.inner.write(buf);
+impl<W: Write + ?Sized> CountedWrite<'_, W> {
+    /// One write call that began at `started`, a stall when it took
+    /// [`WRITE_STALL_THRESHOLD`] or longer.
+    fn count_call(&self, started: Instant) {
         self.stats.write_syscalls.fetch_add(1, Ordering::Relaxed);
         if started.elapsed() >= WRITE_STALL_THRESHOLD {
             self.stats.write_stalls.fetch_add(1, Ordering::Relaxed);
         }
+    }
+}
+
+impl<W: Write + ?Sized> Write for CountedWrite<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let started = Instant::now();
+        let written = self.inner.write(buf);
+        self.count_call(started);
+        written
+    }
+
+    /// Forwarded whole, so a socket gathers the buffers in one `writev`.
+    fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+        let started = Instant::now();
+        let written = self.inner.write_vectored(bufs);
+        self.count_call(started);
         written
     }
 

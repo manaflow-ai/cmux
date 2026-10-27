@@ -41,9 +41,28 @@ Phases (each prints PERF-RENDERERS lines):
 The run stops (exit 1) when the first tab or 3 tabs in a row show no title in time (the .test
 mapping is not active: not a Debug or bench dev build), and exits 1 when any tab was not timed.
 
-Usage (a fleet GUI mini, never a laptop; a tagged DEV build):
+The app starts through bench_launch.BenchApp (the lab's bench env, a scratch config, an empty
+saved session for the tag) and ends with its tag. new_tab_ms percentiles (p50/p95/p99) are
+scripts/perf-lab/perf_stats.py's (linear interpolation). --out FILE.json is the report; --out DIR
+(the lab runner's folder) also gets one cmux-perf-result/v1 file per series through
+BenchApp.record (browser_engine_bench_report.py, `renderer_sharing.*`, story renderer-sharing)
+and the report as DIR/bench-renderer-sharing.json.
+
+--engine webkit benches WebKit browser tabs instead (p07-memory-088): the bench turns the
+webKitSameSiteProcesses feature on (--no-webkit-sharing leaves it off) and opens openBrowser.webkit
+tabs on siteN.<--webkit-host-suffix> (default localhost, which macOS resolves to loopback; WebKit
+takes no host-resolver-rules). WebKit shares no process below the limit, so the check is exact:
+each tab starts its own WebContent process while fewer than the limit run or no process holds its
+site yet, and joins one of its site after that (webkit_expected_processes); a process never holds
+two sites. The limit is --renderer-limit (passed to the app as CMUX_NEXT_BENCH_WEBKIT_RENDERER_LIMIT,
+Debug and bench builds of development bundles), else the app's budget (chromium_renderer_limit).
+No result-v1 files: the renderer-sharing story's series are Chromium's.
+
+Usage (a fleet GUI mini, never a laptop; a tagged DEV build, Debug or bench config):
   bench_renderer_sharing.py --app BUNDLE [--tabs 100] [--sites 20] [--heap-mb 20] [--settle 30] [--agent-cdp]
-      [--renderer-limit N] [--out FILE.json]
+      [--renderer-limit N] [--out FILE.json | --out DIR]
+  bench_renderer_sharing.py --app BUNDLE --engine webkit [--tabs 60] [--sites 10] [--renderer-limit N]
+      [--no-webkit-sharing] [--webkit-host-suffix localhost]
 """
 from __future__ import annotations
 
@@ -53,7 +72,6 @@ import json
 import os
 import re
 import resource
-import shutil
 import signal
 import statistics
 import subprocess
@@ -62,8 +80,10 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import bench_memory as bm  # noqa: E402  (launch, App, sample, end_bundle, wait_gone)
+import bench_memory as bm  # noqa: E402  (App, sample, end_bundle, note_child_launch)
 import bench_power as bp  # noqa: E402  (rpc, wipe_state)
+import browser_engine_bench_report as results  # noqa: E402
+from bench_launch import BenchApp, tag_of  # noqa: E402
 
 PAGE = """<!doctype html><html><head><meta charset=utf-8><title>site {site} tab {tab}</title></head><body>
 <h1>Renderer sharing bench: site {site}, tab {tab}</h1>{article}
@@ -111,14 +131,14 @@ def wait_title(sock: str, tab: str, expected: str, seconds: float) -> float | No
     return None
 
 
-def renderer_map(sock: str) -> dict:
-    """{renderer pid: [tab ids]} from the app's `resources` report (the hover cards' numbers)."""
+def renderer_map(sock: str, tab_kind: str = "chromium") -> dict:
+    """{renderer pid: [tab ids]} of the `tab_kind` tabs from the app's `resources` report (the hover cards' numbers)."""
     report = bp.rpc(sock, "resources", {"interval_ms": 100}, timeout=20)
     if report.get("error"):
         return {"error": report["error"]}
     owners: dict[int, list[str]] = {}
     for tab in report.get("tabs") or []:
-        if tab.get("kind") != "chromium":
+        if tab.get("kind") != tab_kind:
             continue
         for process in tab.get("processes") or []:
             if process.get("role") in (None, "renderer"):
@@ -126,11 +146,6 @@ def renderer_map(sock: str) -> dict:
     for process in (report.get("shared") or {}).get("processes") or []:
         owners.setdefault(int(process["pid"]), [])
     return {"owners": owners, "report": report}
-
-
-def percentile(values, q):
-    values = sorted(v for v in values if v is not None)
-    return values[min(len(values) - 1, int(len(values) * q))] if values else None
 
 
 def chrome_soft_limit(memory_gb: float) -> int:
@@ -147,6 +162,13 @@ SAME_SITE_MAIN_FRAME_THRESHOLD = 2
 # The fork API with cmux-process-reuse-per-renderer-devtools (CEFForkFeatures.rendererPathsForkAPI).
 RENDERER_PATHS_FORK_API = 29
 AGENT_SESSION = "rsharing-agent"
+# What each engine's tabs are: the action that opens one, the `resources` tab kind and the sampled process kind.
+ENGINES = {
+    "chromium": {"action": "openBrowser.chromium", "tab_kind": "chromium", "process_kind": "cef-renderer"},
+    "webkit": {"action": "openBrowser.webkit", "tab_kind": "webkit", "process_kind": "webkit-webcontent"},
+}
+# The app feature that lets same-site WebKit tabs share a process above the limit (WebKitProcessReuse).
+WEBKIT_FEATURE = "webKitSameSiteProcesses"
 
 
 def host_socket(rows, bundle: str) -> str | None:
@@ -268,6 +290,67 @@ def site_sharing(owners: dict, site_of: dict, agent_tab: str | None, limit: int,
     }
 
 
+def webkit_expected_processes(site_order, limit: int, sharing: bool = True) -> int:
+    """The WebKit tab processes WebKitProcessReuse leaves after tabs of the sites in `site_order` open one after another:
+    a tab starts its own process while fewer than `limit` run or no process holds its site yet, else it joins one of
+    its site. Without sharing, one per tab."""
+    if not sharing:
+        return len(site_order)
+    processes, seen = 0, set()
+    for site in site_order:
+        if processes < limit or site not in seen:
+            processes += 1
+        seen.add(site)
+    return processes
+
+
+def webkit_sharing(owners: dict, opened, limit: int, sharing: bool) -> dict:
+    """WebKit's per-process sites, checked exactly (WebKit shares nothing on its own): the bench tabs' processes are
+    webkit_expected_processes of the open order, and no process holds two sites. `opened` is the report's opened rows
+    ({tab, site}) in open order. The keys are site_sharing's, so the report and its lines read the same."""
+    site_of = {row["tab"]: row["site"] for row in opened}
+    per_renderer: dict = {}
+    for renderer, tabs in owners.items():
+        counts: dict = {}
+        for tab in tabs:
+            if tab in site_of:
+                counts[site_of[tab]] = counts.get(site_of[tab], 0) + 1
+        if counts:
+            per_renderer[renderer] = counts
+    mixed = sum(1 for counts in per_renderer.values() if len(counts) > 1)
+    expected = webkit_expected_processes([row["site"] for row in opened], limit, sharing)
+    violations = []
+    if mixed:
+        violations.append(f"{mixed} WebKit processes hold tabs of two sites")
+    if len(per_renderer) != expected:
+        violations.append(f"{len(per_renderer)} WebKit tab processes, expected {expected} "
+                          f"({'same-site sharing from' if sharing else 'no sharing, limit'} {limit})")
+    return {
+        "tab_renderers": len(per_renderer),
+        "renderers": len(per_renderer),
+        "renderer_limit": limit,
+        "below_limit": len(per_renderer) < limit,
+        "shared_layout_renderers": expected,
+        "max_same_site_main_frames": max((max(counts.values()) for counts in per_renderer.values()), default=0),
+        "shared_renderers": sum(1 for counts in per_renderer.values() if sum(counts.values()) > 1),
+        "mixed_site_renderers": mixed,
+        "unshared_sites": [],
+        "agent_renderer_tabs": None,
+        "violations": violations,
+    }
+
+
+def webkit_limit(memory_report, chrome_limit: int, forced: int | None) -> int:
+    """The limit WebKitProcessReuse runs with: --renderer-limit (the app takes it too), else the app's budget
+    (SubsystemBudget.chromiumRendererLimit), else Chrome's own."""
+    if forced:
+        return forced
+    budget = ((memory_report.raw.get("budget") or {}) if memory_report else {}).get("chromium_renderer_limit")
+    if isinstance(budget, (int, float)) and not isinstance(budget, bool) and budget > 0:
+        return int(budget)
+    return chrome_limit
+
+
 def fork_api(cef) -> int | None:
     """The running fork's API, which `debug.cef` names under `windows.fork_api`."""
     value = (cef.get("windows") or {}).get("fork_api") if isinstance(cef, dict) else None
@@ -306,7 +389,7 @@ def renderer_limit(memory_report, chrome_limit: int, forced: int | None, switche
     return chrome_limit
 
 
-def main():
+def parse(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
     parser.add_argument("--tabs", type=int, default=100)
@@ -317,9 +400,38 @@ def main():
     parser.add_argument("--cef-switches", default="", help="more Chromium switches, colon-separated (Debug builds only)")
     parser.add_argument("--agent-cdp", action=argparse.BooleanOptionalAction, default=False,
                         help="keep an agent's CDP session on the first tab (sharing with DevTools attached)")
-    parser.add_argument("--renderer-limit", type=int, help="check the sharing rules below this renderer count")
-    parser.add_argument("--out")
-    args = parser.parse_args()
+    parser.add_argument("--renderer-limit", type=int, help="check the sharing rules below this renderer count "
+                                                           "(--engine webkit: also the app's limit)")
+    parser.add_argument("--engine", choices=sorted(ENGINES), default="chromium", help="the browser engine of the tabs")
+    parser.add_argument("--webkit-sharing", action=argparse.BooleanOptionalAction, default=True,
+                        help=f"--engine webkit: turn {WEBKIT_FEATURE} on (off: one process per tab)")
+    parser.add_argument("--webkit-host-suffix", default="localhost",
+                        help="--engine webkit: the sites are siteN.<suffix>, which must resolve to this Mac")
+    parser.add_argument("--out", help="the report file (.json), or the lab runner's folder for the result-v1 files "
+                                      "and bench-renderer-sharing.json")
+    parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
+    parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    args = parser.parse_args(argv)
+    if args.engine == "webkit" and args.agent_cdp:
+        parser.error("--agent-cdp drives a Chromium tab; it does not apply to --engine webkit")
+    if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
+        parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
+    return args
+
+
+def new_tab_summary(times):
+    """The report's `new_tab_ms` row over the timed tabs: p50/p95/p99 (perf_stats.pct, whole ms), max, mean, timed."""
+    return {"p50": results.pct(times, 0.5, None), "p95": results.pct(times, 0.95, None),
+            "p99": results.pct(times, 0.99, None),
+            "max": max(times) if times else None, "mean": round(statistics.mean(times)) if times else None,
+            "timed": len(times)}
+
+
+def main(argv=None):
+    args = parse(argv)
+    report_path, results_dir = results.out_paths(args.out, "bench-renderer-sharing.json")
     if sys.platform != "darwin":
         raise SystemExit("bench-renderer-sharing: macOS only (run it on a fleet GUI mini)")
     memory_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30
@@ -332,7 +444,6 @@ def main():
         stopping["signal"] = True
         raise KeyboardInterrupt
 
-    signal.signal(signal.SIGTERM, terminate)
     _Handler.heap_mb = args.heap_mb
     port = serve()
     # No colon inside a switch: CMUX_NEXT_CEF_EXTRA_SWITCHES is colon-separated, so the rule maps
@@ -345,33 +456,52 @@ def main():
     # The mapping goes through the bench list, which a bench build reads too; any other switch is
     # for diagnosis and only a Debug build takes it.
     extra = {"CMUX_NEXT_BENCH_CEF_SWITCHES": rules}
+    webkit = args.engine == "webkit"
+    if webkit and args.renderer_limit:
+        extra["CMUX_NEXT_BENCH_WEBKIT_RENDERER_LIMIT"] = str(args.renderer_limit)
+    engine = ENGINES[args.engine]
+    host_suffix = args.webkit_host_suffix if webkit else "test"
     if switches[1:]:
         extra["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join(switches[1:])
     # The fleet worker finds every process of the step by this marker, also those the app starts.
     if os.environ.get("CI_JOB_DIR"):
         extra["CI_JOB_DIR"] = os.environ["CI_JOB_DIR"]
-    pid, sock, scratch = bm.launch(bundle, config, extra)
+    bench = BenchApp(bundle, out=results_dir, env=extra, config=config, window=(40, 40, 1400, 900),
+                     build_config=args.build_config, perf_session=args.session,
+                     local_features={WEBKIT_FEATURE: args.webkit_sharing} if webkit else None)
+    bm.note_child_launch()  # the app is this script's child (bench_memory.webkit_is_apps)
+    try:
+        bench.launch()
+    except BaseException:
+        bench.stop()
+        raise
+    # After the launch: its teardown's SIGTERM handler would replace this one, and the finally below needs to know
+    # a cancelled step (seconds before SIGKILL) to take the fast path.
+    signal.signal(signal.SIGTERM, terminate)
+    pid, sock = bench.process.pid, bench.socket
     limit = chrome_soft_limit(memory_gb)
-    report = {"app": bundle, "tabs": args.tabs, "sites": args.sites, "heap_mb": args.heap_mb, "memory_gb": round(memory_gb, 1),
+    report = {"app": bundle, "engine": args.engine, "tabs": args.tabs, "sites": args.sites, "heap_mb": args.heap_mb, "memory_gb": round(memory_gb, 1),
               "chrome_soft_limit": limit, "switches": switches, "opened": [], "new_tab_ms": [], "agent": None}
     agent = None
     status = 0
     try:
         app = bm.App(bundle, sock)
-        print(f"PERF-RENDERERS-MACHINE memory_gb={memory_gb:.1f} chrome_soft_limit={limit} tabs={args.tabs} sites={args.sites}", flush=True)
-        cef = bp.rpc(sock, "debug.cef") or {}
-        if cef.get("unavailable") or cef.get("fallback"):
-            raise SystemExit(f"bench-renderer-sharing: Chromium is not available: {json.dumps(cef)[:400]}")
-        report["fork_api"] = fork_api(cef)
-        report["process_reuse_per_renderer_devtools"] = reuse_switch(cef)
-        print(f"PERF-RENDERERS-FORK fork_api={report['fork_api']} "
-              f"process_reuse_per_renderer_devtools={report['process_reuse_per_renderer_devtools']}", flush=True)
+        print(f"PERF-RENDERERS-MACHINE engine={args.engine} memory_gb={memory_gb:.1f} chrome_soft_limit={limit} "
+              f"tabs={args.tabs} sites={args.sites}", flush=True)
+        if not webkit:
+            cef = bp.rpc(sock, "debug.cef") or {}
+            if cef.get("unavailable") or cef.get("fallback"):
+                raise SystemExit(f"bench-renderer-sharing: Chromium is not available: {json.dumps(cef)[:400]}")
+            report["fork_api"] = fork_api(cef)
+            report["process_reuse_per_renderer_devtools"] = reuse_switch(cef)
+            print(f"PERF-RENDERERS-FORK fork_api={report['fork_api']} "
+                  f"process_reuse_per_renderer_devtools={report['process_reuse_per_renderer_devtools']}", flush=True)
         missed = 0
         for index in range(args.tabs):
             site = index % args.sites
-            url = f"http://site{site}.test:{port}/{index}"
+            url = f"http://site{site}.{host_suffix}:{port}/{index}"
             started = time.monotonic()
-            response = app.action("openBrowser.chromium", focus=True, url=url)
+            response = app.action(engine["action"], focus=True, url=url)
             created = [item for item in response.get("created", []) if str(item).startswith("tab_")]
             if response.get("error") or not created:
                 print(f"   open {url}: {response.get('error') or response}", file=sys.stderr)
@@ -391,22 +521,27 @@ def main():
                     print(f"PERF-RENDERERS-AGENT tab={tab} session={agent['session']}", flush=True)
             if (index == 0 and missed) or missed >= 3:
                 raise SystemExit(f"bench-renderer-sharing: tab {index} did not open or show its title within {args.load_timeout} s "
-                                 "(is this a Debug or bench dev build, so the .test mapping applies?)")
+                                 + (f"(does siteN.{host_suffix} resolve to this Mac?)" if webkit
+                                    else "(is this a Debug or bench dev build, so the .test mapping applies?)"))
             if index % 10 == 9:
                 print(f"PERF-RENDERERS-OPEN tabs={index + 1} last_new_tab_ms={report['new_tab_ms'][-1] if report['new_tab_ms'] else None}", flush=True)
         time.sleep(args.settle)  # test script: let the pages and their renderers settle
         sample = bm.sample(pid, bundle, "settled", 1)
-        mapping = renderer_map(sock)
-        renderers = [row for row in sample["processes"] if row["kind"] == "cef-renderer"]
+        mapping = renderer_map(sock, engine["tab_kind"])
+        renderers = [row for row in sample["processes"] if row["kind"] == engine["process_kind"]]
         owners = mapping.get("owners") or {}
         sharing = [len(owners.get(row["pid"], [])) for row in renderers]
         times = [t for t in report["new_tab_ms"] if t is not None]
         kinds = sample["kinds"]
         shared = ((mapping.get("report") or {}).get("shared") or {}).get("processes") or []
         site_of = {row["tab"]: row["site"] for row in report["opened"]}
-        checked_limit = renderer_limit(bm.MemoryReport.read(app), limit, args.renderer_limit, switches[1:])
-        sites = site_sharing(owners, site_of, agent["tab"] if agent else None, checked_limit, len(renderers),
-                             require_sharing=bool(agent))
+        if webkit:
+            checked_limit = webkit_limit(bm.MemoryReport.read(app), limit, args.renderer_limit)
+            sites = webkit_sharing(owners, report["opened"], checked_limit, args.webkit_sharing)
+        else:
+            checked_limit = renderer_limit(bm.MemoryReport.read(app), limit, args.renderer_limit, switches[1:])
+            sites = site_sharing(owners, site_of, agent["tab"] if agent else None, checked_limit, len(renderers),
+                                 require_sharing=bool(agent))
         if agent and report["process_reuse_per_renderer_devtools"] is not True:
             sites["violations"].insert(0, "the app did not pass cmux-process-reuse-per-renderer-devtools "
                                           f"(fork API {report['fork_api']}; it needs {RENDERER_PATHS_FORK_API} and the shim's "
@@ -420,8 +555,7 @@ def main():
             "tabs_per_renderer": {str(n): sharing.count(n) for n in sorted(set(sharing))},
             "max_tabs_in_one_renderer": max(sharing) if sharing else 0,
             "shared_mb": round(sum(p.get("memory_bytes", 0) for p in shared) / 2**20, 1),
-            "new_tab_ms": {"p50": percentile(times, 0.5), "p95": percentile(times, 0.95), "max": max(times) if times else None,
-                           "mean": round(statistics.mean(times)) if times else None, "timed": len(times)},
+            "new_tab_ms": new_tab_summary(times),
             "kinds": {k: {"n": v["count"], "footprint_mb": v["footprint_mb"]} for k, v in kinds.items()},
             "sites": sites,
         }
@@ -432,7 +566,8 @@ def main():
               f"app_footprint_mb={result['app_footprint_mb']} total_footprint_mb={result['total_footprint_mb']} "
               f"shared_mb={result['shared_mb']} tabs_per_renderer={json.dumps(result['tabs_per_renderer'])} "
               f"max_tabs_in_one_renderer={result['max_tabs_in_one_renderer']} new_tab_p50_ms={result['new_tab_ms']['p50']} "
-              f"new_tab_p95_ms={result['new_tab_ms']['p95']} new_tab_max_ms={result['new_tab_ms']['max']}", flush=True)
+              f"new_tab_p95_ms={result['new_tab_ms']['p95']} new_tab_p99_ms={result['new_tab_ms']['p99']} "
+              f"new_tab_max_ms={result['new_tab_ms']['max']}", flush=True)
         for kind, entry in result["kinds"].items():
             print(f"PERF-RENDERERS-KIND kind={kind} n={entry['n']} footprint_mb={entry['footprint_mb']}")
         print(f"PERF-RENDERERS-SITES agent_cdp={bool(agent)} renderer_limit={sites['renderer_limit']} "
@@ -447,6 +582,10 @@ def main():
         if len(times) < args.tabs:
             print(f"bench-renderer-sharing: only {len(times)} of {args.tabs} tabs were timed", file=sys.stderr)
             status = 1
+        if results_dir and not webkit:  # a finished run; a tab that never opened is a missed one
+            attempts = report["new_tab_ms"] + [None] * (args.tabs - len(report["new_tab_ms"]))
+            report["results_v1"] = results.record_all(bench, results.renderer_sharing_series(
+                attempts, result["renderers"], result["tab_renderers"], sample, session=args.session))
     finally:
         # A cancelled step has seconds before SIGKILL: end the bundle's processes at once.
         if agent and agent.get("socket") and not stopping["signal"]:
@@ -454,17 +593,12 @@ def main():
                 host_cli(bundle, agent["socket"], sock, "close", "--session", AGENT_SESSION, timeout=20)
             except Exception as error:  # noqa: BLE001  the app's quit below ends the session too
                 print(f"   agent close: {error}", file=sys.stderr)
-        if not stopping["signal"]:
-            try:
-                bm.App(bundle, sock).run("quit")
-                bm.wait_gone(pid, 20)
-            except Exception as error:  # noqa: BLE001  the quit failed; the processes are ended below
-                print(f"   quit: {error}", file=sys.stderr)
-        bm.end_bundle(bundle)
-        if args.out:
-            with open(args.out, "w") as handle:
+        if stopping["signal"]:
+            bm.end_bundle(bundle)
+        bench.stop()  # quits the app (when it still runs) and ends its tag
+        if report_path:
+            with open(report_path, "w") as handle:
                 json.dump(report, handle, indent=1)
-        shutil.rmtree(scratch, ignore_errors=True)
         bp.wipe_state(bundle)
     sys.exit(status)
 

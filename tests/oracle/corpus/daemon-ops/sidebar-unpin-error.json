@@ -38,7 +38,9 @@
       "args": {
         "method": "sidebar.unpin",
         "params": {
-          "items": {}
+          "items": [
+            "itm_home"
+          ]
         },
         "idempotencyKey": "sidebar-unpin-error.call"
       },
@@ -50,7 +52,7 @@
         "before",
         "settled"
       ],
-      "note": "items breaks its catalog type (value must be an array); the daemon's catalog check refuses it"
+      "note": "the sidebar reducer refuses it (no_machine) and writes nothing: an app item has no machine section to go back to"
     }
   ],
   "invariants": [
@@ -59,8 +61,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.items[0] is a fixed placeholder, not a fixture object; sidebar/_tuning.json tunes it"
   ]
 }

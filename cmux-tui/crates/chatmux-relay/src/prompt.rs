@@ -5,7 +5,7 @@ use std::io::Write as _;
 
 pub async fn prompt_line(question: &str) -> String {
     let question = question.to_owned();
-    tokio::task::spawn_blocking(move || {
+    cmux_blocking::spawn_blocking(move || {
         print!("{question}");
         let _ = std::io::stdout().flush();
         let mut line = String::new();

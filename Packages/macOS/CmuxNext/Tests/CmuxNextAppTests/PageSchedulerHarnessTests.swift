@@ -12,7 +12,7 @@ import Testing
 /// The p06-scheduler rule 9 harness for the owners task 309 moved (CmuxNextApp/{Pages, InternalPages,
 /// NewTab, Viewers}): a page host's reply waits on its hidden tab's queue and runs once on show, and goes
 /// with a closed tab; a store with no window still closes a gone pane's page tabs, one frame later and never
-/// inside the open; the update surface sends its first value in its posted task; the agent page retirer and the
+/// inside the open; the update surface sends its first value in its posted task; the page retirer and the
 /// file change watch run on their deadlines; a quit flush stops waiting for a dead page at its deadline.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct PageSchedulerHarnessTests {
     // MARK: Page host replies (PageTabReplies)
@@ -119,16 +119,14 @@ import Testing
 
     // MARK: Deadlines
 
-    @Test func theAgentPageRetirerTearsDownAt500Milliseconds() throws {
+    @Test func thePageRetirerTearsDownAt500Milliseconds() {
         let rig = MainDeadlineRig()
-        let retirer = AgentPageRetirer(deadlines: rig.deadlines)
-        let file = try #require(AgentPageAppTestRoot.page)
-        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentTabsTestHost(),
-                                              gestures: .testing()))
-        retirer.retire(page)
-        #expect(retirer.pendingCount == 1, "the teardown ran in the close's turn")
+        let retirer = PageRetirer(deadlines: rig.deadlines)
+        var closed = 0
+        retirer.retire(NSView()) { closed += 1 }
+        #expect(retirer.count == 1 && closed == 0, "the teardown ran in the close's turn")
         rig.fireAndRun()
-        #expect(retirer.pendingCount == 0, "the teardown did not run at its deadline")
+        #expect(retirer.count == 0 && closed == 1, "the teardown did not run at its deadline")
         #expect(rig.elapsed >= 0.5 && rig.elapsed < 0.55, "the teardown ran at \(rig.elapsed) s, not 500 ms")
     }
 
@@ -184,10 +182,6 @@ import Testing
     }
 
     // MARK: Helpers
-
-    private actor NoHost: AgentPaneHostProviding {
-        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
-    }
 
     private static func store() -> DaemonStore {
         let store = DaemonStore()

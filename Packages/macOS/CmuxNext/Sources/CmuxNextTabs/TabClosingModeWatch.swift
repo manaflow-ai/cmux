@@ -122,7 +122,7 @@ import CmuxNextWakeups
             exitTimer.cancel()
         } else {
             let delay = strip.metrics.chrome.closingModeExitDelay
-            exitTimer.scheduleIfIdle(after: .milliseconds(Int((delay * 1000).rounded()))) { @MainActor [weak self] in
+            exitTimer.scheduleOnMainIfIdle(after: .milliseconds(Int((delay * 1000).rounded()))) { [weak self] in
                 self?.exit()
             }
         }

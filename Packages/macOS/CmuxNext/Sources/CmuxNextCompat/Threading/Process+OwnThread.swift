@@ -9,22 +9,22 @@ extension Process {
     /// Chromium launches children the same way, on a launcher thread of its own, never the UI thread
     /// (content/browser/child_process_launcher_helper.cc). The child runs at `qos` too.
     ///
-    /// `child` hands the configured process (pipes, `terminationHandler` set) to the thread; it
-    /// captures the process's Sendable owner, never the process itself. Only that thread touches the
-    /// process from then on, so an owner that must stop the child records the pid `launched` reports
-    /// and signals that pid, never the `Process`. Once the spawn runs, the termination handler reports
+    /// `child` makes and configures the process (pipes, `terminationHandler` set) on the new thread;
+    /// it captures the process's Sendable owner, never a `Process`. Only that thread touches the
+    /// process, so an owner that must stop the child records the pid `launched` reports and signals
+    /// that pid, never the `Process`. Once the spawn runs, the termination handler reports
     /// the exit. When the spawn fails, `failed` runs on that thread and neither `launched` nor the
     /// termination handler runs.
     ///
     /// ```swift
-    /// Process.runOnOwnThread(qos: .utility, name: "cmux.server-helper.fix", { [self] in process },
+    /// Process.runOnOwnThread(qos: .utility, name: "cmux.server-helper.fix", { [self] in makeProcess() },
     ///                        launched: { [self] pid in record(pid) }, failed: { error in fail(error) })
     /// ```
     ///
     /// - Parameters:
     ///   - qos: The thread's and the child's quality of service (never `.userInteractive`).
     ///   - name: The thread's name (it shows in samples and traces).
-    ///   - child: Returns the process to start, on the new thread.
+    ///   - child: Makes and returns the process to start, on the new thread.
     ///   - launched: Runs with the child's pid on that thread right after the spawn.
     ///   - failed: Runs with the launch error when the process cannot start.
     public static func runOnOwnThread(qos: QualityOfService, name: String, _ child: @escaping @Sendable () -> Process,

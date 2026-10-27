@@ -120,6 +120,7 @@ final class AddMachineHostView: NSView {
         backdrop = OverlaySurfaceView(material: material)
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         for view in [backdrop, wash] {
             view.frame = bounds
             view.autoresizingMask = [.width, .height]
@@ -156,6 +157,7 @@ final class AddMachineHostView: NSView {
         resolveColors()
     }
 
+    // visibility-walk-allow: the glass tint, the wash's layer color and the card's colors of a floating card that exists only while it is open over a shown window; nothing hidden to defer
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         resolveColors()
