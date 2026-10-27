@@ -1424,6 +1424,24 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: two surfaces with one font share the texture; atlas growth reaches every user (generation number).
 - Test phase: bench_memory.py per-terminal memory lower; instant-new-surfaces-bench.py not worse.
 - Size L.
+- Fork state (2026-10-27): ghostty-next branch `cp/p03-rendering-087`, commit ee4a66a43, on 080's 612a8ff99.
+  `src/renderer/AtlasTexture.zig` (new) is a refcounted texture per atlas with a generation (Skia's
+  `GrDrawOpAtlas` atlas generation): growth makes a new texture and every frame of every surface moves to it on
+  its next sync; the old texture goes with its last reference. `font.SharedGrid.textures` holds them, synced
+  under the grid lock held exclusively, so a changed atlas uploads once for all surfaces (before: once into each
+  of the 3 frames of each surface). Metal shares them (`atlas_textures_per_device`); OpenGL contexts share no
+  objects, so each OpenGL renderer keeps its own. `metal/Device.zig` owns the one MTLCommandQueue (max 1024
+  command buffers), as ANGLE's `DisplayMtl` does. No C API change; the gitlink is not moved (task 079 lands it
+  after 080). Linux: `zig build test -Dapp-runtime=none` passes with the OpenGL renderer compiled; Metal code is
+  compiled and the "one command queue per device" test runs only on the fleet.
+- Fork state, review fixes (2026-10-27): ghostty-next commit 338323476 on ee4a66a43. (1) The Metal upload is no
+  longer a CPU `replaceRegion` into a texture that frames in flight sample: `Metal.uploadAtlasTexture` blits
+  from a staging buffer in a command buffer committed on the device's one queue, so it runs after every frame
+  committed before it and before every frame committed after it (commit order plus Metal hazard tracking), as
+  Skia defers atlas uploads into the flush (`GrOpFlushState::doUpload`). Atlas textures are `private` storage.
+  `uploaded` is published only after the upload is submitted. (2) The sync takes the grid lock shared, as glyph
+  lookups do; each `AtlasTexture` has its own `std.Io.Mutex` for `current`/`generation`/`uploaded`, so one
+  surface's upload no longer stops text work on other surfaces.
 
 #### p03-rendering-088 Renderer QoS by visibility
 - Files: `ghostty-next/src/renderer/Thread.zig`, `src/termio/Termio.zig`, `plans/cmux-next/threading-model.md`.
