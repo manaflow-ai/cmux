@@ -229,6 +229,19 @@ newer head. A superseded run that has not finished (a refusal at the watch's
 end, or a stuck job with no reserved runner) is cancelled, not re-run, so the
 newer run starts; a build waiting on its reserved runner never gets that far.
 
+nightly-next's signing jobs, and the jobs that verify, recover or follow them
+(NIGHTLY_SIGN_ALTERNATES), stay on Blacksmith macOS. One queued there with no
+runner past the Blacksmith stall time (simple_pool_picker's
+BLACKSMITH_STALL_MINUTES) is moved by a re-run of failed jobs, whose attempt 2
+takes the alternate label nightly_sign_runner.py picked on attempt 1. GitHub
+re-runs jobs only in a finished run, so this cancels the run first, which a
+started nightly allows only when it loses no work: every other job of the run
+has finished and no runner has taken the stalled jobs (signing_stall()). While
+any other job is still running or queued the rescue only logs and looks again.
+It acts only on attempt 1, and only when the run's own nightly.yml has the
+attempt-2 alternate in the job's runs-on (sign_stall_gate()); otherwise the
+re-run would queue on the same label.
+
 A job stuck with no runner is not rescued while another job of its run is
 running on a persistent runner, whatever the workflow: the rescue cancels the
 whole run, which would move that job to Blacksmith too (#16463). The stuck
@@ -334,6 +347,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import (  # noqa: E402
     MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, RUNNER_LABEL_PREFIX, nightly_dedicated, parse_queue_rounds, persistent)
 import owned_pool_sources  # noqa: E402
+from simple_pool_picker import BLACKSMITH_STALL_MINUTES  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
@@ -644,6 +658,86 @@ def started_dev_compile(jobs: Sequence[Mapping[str, Any]]) -> str | None:
             if DEV_LABEL.fullmatch(str(label)):
                 return str(label)
     return None
+
+
+# nightly-next's Blacksmith macOS jobs (nightly.yml on feat-cmux-next): the signing jobs, which hold the release
+# keys, and the jobs that verify, recover or follow them. On 2026-10-27 build-sign-notarize-nightly and
+# sign-nightly-identity-legacy sat 16 minutes (10:58 to 11:14Z) on a starved blacksmith-6vcpu-macos-26 in run
+# 40489472569. From attempt 2 on, each job's runs-on reads `github.run_attempt > 1 && needs.<job>.outputs.<name>`:
+# an alternate macOS 26 label nightly_sign_runner.py picked on attempt 1 (#26171), which a re-run of failed
+# jobs keeps. Each job maps to its jobs-API name (a matrix leg adds ` (arm64)`) and that expression. The rescue
+# acts on a job only when the run's own nightly.yml has the expression in the job's runs-on
+# (sign_stall_gate()); without it a re-run would queue on the same stalled label, so the job is left alone.
+_SIGN_ALTERNATE = "github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate"
+_RECOVERY_ALTERNATE = "github.run_attempt > 1 && needs.find-nightly-next-recovery.outputs.sign_alternate"
+_LEGACY_ALTERNATE = "github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate"
+NIGHTLY_SIGN_ALTERNATES: dict[str, tuple[str, str]] = {
+    "build-sign-notarize-nightly": ("build-sign-notarize-nightly", _SIGN_ALTERNATE),
+    "verify-signed-nightly": ("Verify signed nightly app", _SIGN_ALTERNATE),
+    "verify-final-dmg-nightly": ("Verify final nightly DMG", _SIGN_ALTERNATE),
+    "generate-nightly-deltas": ("generate-nightly-deltas", _SIGN_ALTERNATE),
+    "recover-nightly-next-notarization": ("recover-nightly-next-notarization", _RECOVERY_ALTERNATE),
+    "verify-recovered-nightly-next": ("verify-recovered-nightly-next", _RECOVERY_ALTERNATE),
+    "sign-nightly-identity-legacy": ("sign-nightly-identity-legacy", _LEGACY_ALTERNATE),
+    "verify-nightly-identity-legacy": ("verify-nightly-identity-legacy", _LEGACY_ALTERNATE),
+}
+BLACKSMITH_MACOS_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+(?:-[a-z0-9]+)*")
+# simple_pool_picker.blacksmith_stalled()'s rule: a Blacksmith job with no runner this long is on a stalled label.
+SIGN_STALL_SECONDS = BLACKSMITH_STALL_MINUTES * 60
+
+
+def sign_job_key(job: Mapping[str, Any]) -> str | None:
+    """The NIGHTLY_SIGN_ALTERNATES job a jobs-API job is, if any."""
+    name = str(job.get("name") or "")
+    return next((key for key, (shown, _) in NIGHTLY_SIGN_ALTERNATES.items()
+                 if name == shown or name.startswith(shown + " (")), None)
+
+
+def signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
+                  first_seen: Mapping[Any, dt.datetime] | None = None) -> Look | None:
+    """nightly-next's signing jobs (NIGHTLY_SIGN_ALTERNATES) queued on Blacksmith macOS past SIGN_STALL_SECONDS
+    with no runner, or None.
+
+    GitHub re-runs jobs only in a finished run, so moving a queued job means cancelling the run first,
+    and a started nightly is never cancelled for a slow runner. A cancel here loses no work only when
+    every other job of the run has finished: then the run holds nothing but the stalled jobs, which no
+    runner has taken. So Look "stalled" (cancel, then re-run failed jobs, so only those jobs run again)
+    needs both. Anything else still in progress or queued (the other signing job included, until it
+    stalls too) gives Look "watch": the next look decides again.
+    """
+    seen = first_seen or {}
+    stalled = [job for job in jobs if sign_job_key(job) and waiting_for_runner(job)
+               and any(BLACKSMITH_MACOS_LABEL.fullmatch(str(label)) for label in job.get("labels") or [])
+               and queued_seconds(job, now, seen.get(job.get("id"))) >= SIGN_STALL_SECONDS]
+    if not stalled:
+        return None
+    names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stalled))
+    label = next(str(label) for label in stalled[0].get("labels") or [] if BLACKSMITH_MACOS_LABEL.fullmatch(str(label)))
+    busy = sorted(str(job.get("name") or job.get("id")) for job in jobs
+                  if job.get("status") != "completed" and not any(job is other for other in stalled))
+    if busy:
+        return Look("watch", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
+                             f"stall time, but {', '.join(busy)} not finished; cancelling the run would lose that "
+                             "work, so it is not rescued on this look", waiting=True)
+    return Look("stalled", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
+                           "stall time, and every other job of the run has finished")
+
+
+def sign_stall_gate(workflow_text: str | None, keys: Sequence[str]) -> list[str]:
+    """The jobs among `keys` whose runs-on in `workflow_text` lacks their attempt-2 alternate label expression
+    (NIGHTLY_SIGN_ALTERNATES). Fails closed: a missing or unreadable file, or a missing job, counts."""
+    if not workflow_text:
+        return sorted(keys)
+    try:
+        spec = owned_pool_sources._load(workflow_text).get("jobs") or {}
+    except Exception:  # noqa: BLE001 - an unparseable file, or no PyYAML, takes no re-run
+        return sorted(keys)
+    missing = []
+    for key in keys:
+        runs_on = str((spec.get(key) or {}).get("runs-on") or "") if isinstance(spec.get(key), Mapping) else ""
+        if NIGHTLY_SIGN_ALTERNATES[key][1] not in runs_on:
+            missing.append(key)
+    return sorted(missing)
 
 
 def waiting_for_runner(job: Mapping[str, Any]) -> bool:
@@ -1753,16 +1847,49 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     on_persistent = False
     picker_marker: bool | None = None
     first_seen: dict[Any, dt.datetime] = {}
+    sign_seen: dict[Any, dt.datetime] = {}
+    sign_said = ""
+    sign_text: list[str | None] = []  # the run's workflow file, read once a signing job stalls
     while True:
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        if target.late_owned_jobs and target.attempt == 1:
+            # nightly-next's signing jobs on a stalled Blacksmith macOS label (signing_stall()).
+            seen_at = now()
+            for job in jobs:
+                if sign_job_key(job) and waiting_for_runner(job):
+                    sign_seen.setdefault(job.get("id"), seen_at)
+            stall = signing_stall(jobs, seen_at, sign_seen)
+            if stall is not None and stall.action == "stalled":
+                if not sign_text:
+                    try:
+                        sign_text.append(read(lambda: api.workflow_file(target.path, target.head_sha), sleep, log))
+                    except READ_ERRORS as error:
+                        log(f"could not read {target.path} at {target.head_sha[:12]} ({error})")
+                        sign_text.append(None)
+                keys = sorted({key for job in jobs if job.get("status") != "completed"
+                               for key in [sign_job_key(job)] if key})
+                sign_gate = sign_stall_gate(sign_text[0], keys)
+                if sign_gate:
+                    stall = Look("watch", f"{stall.reason}, but the runs-on of {', '.join(sign_gate)} in "
+                                          f"{target.path} at {target.head_sha[:12]} takes no alternate label on a "
+                                          "re-run, so a re-run would queue on the same label; not rescued")
+                else:
+                    log(f"look {looks}: {stall.reason}")
+                    return "stalled", stall.reason
+            if stall is not None and stall.reason != sign_said:
+                sign_said = stall.reason
+                log(f"look {looks}: {stall.reason}")
         if not on_persistent and target.side:
             # No picker: a job that asks for an owned label is the choice. A
             # gated job (cloud-machine-tests) appears once its Linux gate ends.
             if any(job_pool(job) for job in jobs):
                 on_persistent = True
                 log("a side-lane job asked for a persistent pool")
-            elif run_finished(jobs):
+            elif run_finished(jobs) and not (target.late_owned_jobs and read(
+                    lambda: api.run(target.run_id), sleep, log).get("status") != "completed"):
+                # nightly-next's signing jobs appear only once the jobs they need finish (signing_stall()), so
+                # its watch ends with the run, not with the jobs listed so far.
                 return "stop", "no job of the run asked for a persistent pool"
             elif not jobs and read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed":
                 # A pending run cancelled before any job (a newer nightly took its place).
@@ -2125,6 +2252,25 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     return f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool"
 
 
+def rescue_stalled_signing(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
+                           sleep: Callable[[float], None], log: Callable[[str], None],
+                           deadline: dt.datetime | None) -> str:
+    """Cancel a nightly-next run whose only unfinished jobs are signing jobs stalled on Blacksmith macOS, then
+    re-run its failed jobs: only those jobs (and what needs them) run again, on their alternate label.
+
+    The jobs are read again first, so a job that started or a sibling that came back since the watch's look
+    leaves the run alone (signing_stall()), and rescue() reads the run's attempt and status before it cancels.
+    """
+    jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+    look = signing_stall(jobs, now())
+    if look is None or look.action != "stalled":
+        return f"not rescued: {look.reason if look else 'no signing job is stalled any more'}"
+    result = rescue(api, target, now=now, sleep=sleep, log=log, failed_only=True, deadline=deadline, refused=False)
+    if result.startswith("re-ran the failed jobs"):
+        result += "; its signing jobs take their alternate macOS label on that attempt"
+    return result
+
+
 def gave_up(target: Target, error: BaseException) -> str:
     """The give-up line; for a nightly an error annotation, since its run may now sit cancelled.
 
@@ -2255,6 +2401,10 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     first_budget = effective_seconds + queue_extra
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
                             log=log, deadline=deadline, floor_seconds=effective_seconds)
+    if outcome == "stalled":
+        log(f"stalled: {reason}")
+        log(rescue_stalled_signing(client, target, now=clock, sleep=rescue_sleep, log=log, deadline=rescue_deadline))
+        return "done"
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}"
     if target.refusals_only and outcome == "rescue":
