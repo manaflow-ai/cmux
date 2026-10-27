@@ -34,17 +34,11 @@ struct TerminalKeyBar: View {
                                 KeyCap(key: key, model: model)
                             }
                         }
-                        .onGeometryChange(for: Bool.self) { [pinnedWidth] proxy in
-                            // The scroll view runs under the pinned keys (its leading bar
-                            // is a safe-area inset, not a frame edge): what is visible
-                            // starts after them.
-                            let visible = proxy.bounds(of: .scrollView).map { bounds in
-                                var rect = bounds
-                                rect.origin.x += pinnedWidth
-                                rect.size.width = max(0, rect.width - pinnedWidth)
-                                return rect
-                            }
-                            return KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: visible)
+                        .onGeometryChange(for: Bool.self) { proxy in
+                            // Measured on iOS 26.5: the scroll view's visible bounds already
+                            // start after its leading bar (the pinned keys), so a key under
+                            // them reads as clipped with no offset here.
+                            KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
                         } action: { visible in
                             if visible { clipped.remove(key) } else { clipped.insert(key) }
                         }
