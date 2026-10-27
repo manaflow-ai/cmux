@@ -36,5 +36,11 @@ struct PageContextMenuGestureTests {
         #expect(view.recentUserGestureEvent(now: chosenAt) == chosenAt)
         // The router sees the fresh host value for the setting call following the native reply.
         #expect(view.router.userGestureEvent?() == chosenAt)
+
+        let cancelled = Task { @MainActor in view.finishContextMenu("scrollToBottomOnSend", at: chosenAt + 31) }
+        cancelled.cancel()
+        let stale = await cancelled.value
+        #expect(stale["picked"] == .null)
+        #expect(view.recentUserGestureEvent(now: chosenAt + 31) == nil)
     }
 }
