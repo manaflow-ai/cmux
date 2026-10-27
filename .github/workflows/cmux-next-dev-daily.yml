@@ -360,6 +360,10 @@ jobs:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          # The only Blacksmith label verify and tip-dmg-build fall back to (their
+          # runs-on; test_cmux_next_dev_tip_feed.py keeps the three equal). Free
+          # room on another label (macOS 15) is none for them.
+          BLACKSMITH_LABELS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
         run: |
           set -uo pipefail
           pick() {
@@ -371,6 +375,7 @@ jobs:
               --owned "$POOL_OWNED" \
               --owned-slots "$OWNED_SLOTS" \
               --pr-xcode-app "$PR_XCODE_APP" \
+              --blacksmith-labels "$BLACKSMITH_LABELS" \
               "${@:2}"
           }
           # Two machines free: verify and tip-dmg-build both take the owned
