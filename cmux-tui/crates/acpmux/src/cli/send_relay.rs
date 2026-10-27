@@ -137,7 +137,7 @@ pub(crate) fn relay(
 }
 
 /// `acpmux send` to a target nobody here resolves, with a relay configured: run it, print what
-/// it printed and exit with its status.
+/// it printed and exit with its status (a refusal is an error that exits with it).
 pub(crate) fn send(
     config: &SendRelay,
     session: &str,
@@ -167,7 +167,11 @@ pub(crate) fn send(
     }
     let _ = std::io::stdout().flush();
     if done.status != 0 {
-        std::process::exit(done.status);
+        let refused =
+            format!("the send relay refused the message for {session:?} (exit {})", done.status);
+        return Err(AppError::new(Code::Runtime, "relay_refused", refused)
+            .with_exit(done.status)
+            .into());
     }
     Ok(())
 }
