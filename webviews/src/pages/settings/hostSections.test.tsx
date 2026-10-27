@@ -257,7 +257,13 @@ test("a machine row picks its color and Automatic takes the pick back", async ()
 
 test("a Cloud machine cmux made has its Dedicated agent machine switch; other machines have none", async () => {
   const page = await renderPage({ path: "/settings/machines" });
-  const cloud = { id: "cloud:vm_1", title: "sample-vm", subtitle: null, active: true, vm_host: { on: true, busy: false, error: null } };
+  const cloud = {
+    id: "cloud:vm_1",
+    title: "sample-vm",
+    subtitle: null,
+    active: true,
+    vm_host: { on: true, busy: false, error: null },
+  };
   expect(page.container.querySelector("[data-machine-vm-host]")).toBeNull();
   await act(async () => {
     page.provider.setHost({ ...page.provider.host, machines: [...page.provider.host.machines, cloud] });
@@ -283,6 +289,8 @@ test("a Cloud machine cmux made has its Dedicated agent machine switch; other ma
     });
   });
   await settle();
-  expect(page.container.querySelector('[data-machine-vm-host] [role="alert"]')?.textContent).toBe("vmHost stays off here");
+  expect(page.container.querySelector('[data-machine-vm-host] [role="alert"]')?.textContent).toBe(
+    "vmHost stays off here",
+  );
   page.unmount();
 });

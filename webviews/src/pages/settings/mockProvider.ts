@@ -234,7 +234,9 @@ export class MockSettingsProvider {
         this.setHost({
           ...this.host,
           machines: this.host.machines.map((r) =>
-            r.id === params.id && r.vm_host ? { ...r, vm_host: { ...r.vm_host, on: params.on === true, error: null } } : r,
+            r.id === params.id && r.vm_host
+              ? { ...r, vm_host: { ...r.vm_host, on: params.on === true, error: null } }
+              : r,
           ),
         });
         return {};
