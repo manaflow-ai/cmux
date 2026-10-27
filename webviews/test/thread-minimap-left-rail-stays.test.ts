@@ -125,8 +125,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
                   clearOfColumn: width >= 800,
                   distance: width >= 800 ? 4 : -6,
                 };
-          const pushedExpected =
-            width <= 800 ? { shown: false } : expected;
+          const pushedExpected = width <= 800 ? { shown: false } : expected;
           expect({ closed: where(closed), open: where(open), pushed: where(pushed) }).toEqual({
             closed: expected,
             open: expected,
