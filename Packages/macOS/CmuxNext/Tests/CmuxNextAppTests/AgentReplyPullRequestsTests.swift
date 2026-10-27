@@ -10,6 +10,8 @@ import Testing
 /// records each ask.
 @MainActor
 struct AgentReplyPullRequestsTests {
+    /// A scheduler of the test's own: the reads' answers land on it.
+    private static var mainWork: MainWorkScheduler { MainWorkScheduler(budget: MainFrameBudget()) }
     private static let url = URL(string: "https://github.com/o/r/pull/7")!
     private static let other = URL(string: "https://github.com/o/r/pull/8")!
     private static let view = #"{"url":"https://github.com/o/r/pull/7","number":7,"title":"Retry","state":"OPEN","isDraft":true,"author":{"login":"octocat"},"statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}]}"#
@@ -71,9 +73,30 @@ struct AgentReplyPullRequestsTests {
         #expect(read.checks == .init(state: "passing", passed: 1, total: 1))
     }
 
+    /// Rule 9 (p06-scheduler.md): a reply's prefetch lands as one `background` task and a card's read as one
+    /// `visible` task on the app's scheduler, both named in its owners ledger. Before, each landed in an
+    /// unattributed main-actor resume, so the board had no row for them.
+    @Test func eachReadLandsAsOneClassedTaskOnTheScheduler() async throws {
+        let gh = try Self.rig()
+        let board = MainTaskBoard(ledger: MainOwnerLedger(capacity: 64, folding: .manual))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()),
+                                                  mainWork: MainWorkScheduler(budget: MainFrameBudget(board: board)),
+                                                  freshness: .zero)
+        pullRequests.register([Self.url])
+        #expect(await pullRequests.read(Self.url)?.number == 7)
+        let prefetch = try #require(board.ownerSnapshot().owners.first { $0.owner == "AgentReplyPullRequests.read" },
+                                    "the answers landed outside the scheduler: no owner row")
+        #expect(prefetch.workClass == .background)
+        #expect(prefetch.tasks == 1, "one read landed as \(prefetch.tasks) tasks")
+        // Stale at once (freshness zero): a card's read lands as a visible task.
+        #expect(await pullRequests.read(Self.url)?.number == 7)
+        let classes = Set(board.ownerSnapshot().owners.filter { $0.owner == "AgentReplyPullRequests.read" }.map(\.workClass))
+        #expect(classes.contains(.visible), "a card's read did not land as a visible task: \(classes)")
+    }
+
     @Test func asksOnceAMinute() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), mainWork: Self.mainWork)
         #expect(await pullRequests.read(Self.url)?.number == 7)
         #expect(await pullRequests.read(Self.url)?.number == 7)
         #expect(Self.calls(gh) == 1)
@@ -83,7 +106,7 @@ struct AgentReplyPullRequestsTests {
     /// called GitHub. A card reads the cache and says how old it is; it never waits on gh.
     @Test func aCardReadsTheCacheAndNeverWaits() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), mainWork: Self.mainWork)
         // Nothing read yet: the answer is empty and comes back at once.
         #expect(pullRequests.answer(Self.url).pullRequest == nil)
         #expect(await pullRequests.read(Self.url)?.number == 7)
@@ -100,7 +123,7 @@ struct AgentReplyPullRequestsTests {
     /// card goes on showing the pull request with its age instead of an error.
     @Test func aFailedReadKeepsTheLastGoodAnswer() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()),
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), mainWork: Self.mainWork,
                                                   freshness: .zero, retry: .zero)
         #expect(await pullRequests.read(Self.url)?.number == 7)
         let good = pullRequests.answer(Self.url).fetchedAt
@@ -117,7 +140,7 @@ struct AgentReplyPullRequestsTests {
     /// full of pull request links must cost GitHub one call, not one per link.
     @Test func aReplysLinksAreOneBatchedRead() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), mainWork: Self.mainWork)
         pullRequests.register([Self.url, Self.other, Self.url])
         #expect(await pullRequests.read(Self.url)?.number == 7)
         #expect(await pullRequests.read(Self.other)?.number == 8)
@@ -209,7 +232,7 @@ struct AgentReplyPullRequestsTests {
     /// request at once, so dropping one per read left ``AgentReplyPullRequests/maximumKept`` behind.
     @Test func manyRepliesLeaveTheCacheAtItsBound() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), mainWork: Self.mainWork)
         // Twenty requests of a full bound each, through a cache that keeps 200.
         let size = AgentReplyPullRequests.maximumRegistered
         for reply in 0..<20 {
@@ -226,7 +249,7 @@ struct AgentReplyPullRequestsTests {
     /// links are prefetched per request, and the rest are read if and when a card opens.
     @Test func oneHostRequestPrefetchesAtMostItsBound() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), mainWork: Self.mainWork)
         let bound = AgentReplyPullRequests.maximumRegistered
         let many = (1...(bound + 10)).compactMap { URL(string: "https://github.com/o/r/pull/\($0)") }
         pullRequests.register(many)
@@ -245,7 +268,7 @@ struct AgentReplyPullRequestsTests {
     /// two calls to GitHub for a page instead of one call per card.
     @Test func everyLinkOfOneHostRequestIsPrefetched() async throws {
         let gh = try Self.rig()
-        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()))
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh, processes: AsyncProcess()), mainWork: Self.mainWork)
         let whole = (1...AgentPaneReplyRequest.maximumInspect).compactMap {
             URL(string: "https://github.com/o/r/pull/\($0)")
         }

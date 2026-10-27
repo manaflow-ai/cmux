@@ -390,7 +390,7 @@ public final class BrowserChromeView: NSView {
         reportFinishedLoad(state)
         progressLine.set(progress: state.progress, visible: loading)
 
-        pageStatus.render(state)
+        pageStatus.render(tab: tab)
 
         setToolbarHidden(state.isContentFullscreen || isOmnibarHidden)
         updateOcclusion()
