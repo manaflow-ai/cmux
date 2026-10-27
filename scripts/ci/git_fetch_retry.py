@@ -39,6 +39,8 @@ LOW_SPEED_SECONDS = 60
 # Seconds to wait before try 2 and try 3.
 BACKOFF_SECONDS = (10, 30)
 TIMEOUT_EXIT = 124
+# Seconds between SIGTERM and SIGKILL for a try's process group.
+KILL_GRACE_SECONDS = 10
 
 
 def low_speed_command(command: Sequence[str]) -> list[str]:
@@ -101,17 +103,38 @@ def run_once(command: Sequence[str], timeout: float) -> int:
     try:
         return process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(process.pid, sig)
-            except ProcessLookupError:
-                break
-            try:
-                process.wait(timeout=10)
-                break
-            except subprocess.TimeoutExpired:
-                continue
-        return TIMEOUT_EXIT
+        pass
+    # SIGTERM the whole group, give it a grace period, then SIGKILL whatever of the group is
+    # left, whether or not the leader has exited: a child that ignored SIGTERM must not keep
+    # writing into the repository while the cleanup and the next try run.
+    signal_group(process.pid, signal.SIGTERM)
+    try:
+        process.wait(timeout=KILL_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
+    signal_group(process.pid, signal.SIGKILL)
+    process.wait()
+    deadline = time.monotonic() + KILL_GRACE_SECONDS
+    while group_alive(process.pid) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return TIMEOUT_EXIT
+
+
+def signal_group(pgid: int, sig: int) -> None:
+    try:
+        os.killpg(pgid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def run(command: Sequence[str], *, tries: int, timeout: float, repo: Path,

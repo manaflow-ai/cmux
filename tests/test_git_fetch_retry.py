@@ -111,6 +111,26 @@ class RunOnce(unittest.TestCase):
             self.assertEqual(status, retry.TIMEOUT_EXIT)
             self.assertLess(time.monotonic() - started, 15)
 
+    def test_a_child_that_ignores_sigterm_is_killed_before_run_once_returns(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            marker = Path(temp) / "child-survived"
+            child = (f"import os, signal, time\n"
+                     f"if os.fork() == 0:\n"
+                     f"    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                     f"    time.sleep(4)\n"
+                     f"    open({str(marker)!r}, 'w').close()\n"
+                     f"else:\n"
+                     f"    time.sleep(30)\n")
+            original = retry.KILL_GRACE_SECONDS
+            retry.KILL_GRACE_SECONDS = 1
+            try:
+                status = retry.run_once([sys.executable, "-c", child], timeout=1)
+            finally:
+                retry.KILL_GRACE_SECONDS = original
+            self.assertEqual(status, retry.TIMEOUT_EXIT)
+            time.sleep(4)
+            self.assertFalse(marker.exists())
+
     def test_the_exit_status_passes_through(self) -> None:
         self.assertEqual(retry.run_once(["sh", "-c", "exit 3"], timeout=10), 3)
 
@@ -128,14 +148,54 @@ class Workflow(unittest.TestCase):
         doc = yaml.safe_load(WORKFLOW.read_text())
         step = next(s for s in doc["jobs"]["build-nightly-app"]["steps"] if s.get("name") == WARM_STEP)
         script = step["run"]
-        wrapped = "python3 scripts/ci/git_fetch_retry.py --tries 3 --timeout 600 -- \\\n"
+        self.assertEqual(step["env"]["WORKFLOW_SHA"], "${{ github.sha }}")
+        # The helper is taken from the workflow commit into RUNNER_TEMP, before anything touches the clone.
+        self.assertIn('fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"', script)
+        self.assertLess(script.index('git show "$WORKFLOW_SHA:scripts/ci/git_fetch_retry.py"'),
+                        script.index("git -c protocol.version=2 fetch"))
+        self.assertIn('python3 "$fetch_retry" --tries 3 --timeout 600 --repo "$GITHUB_WORKSPACE" -- "$@"', script)
         for command in ('git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"',
                         "git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force"
                         " --depth=1 --recursive"):
             with self.subTest(command=command):
-                self.assertIn(wrapped + "  " + command, script)
+                self.assertIn("retry " + command, script)
                 # Never also run bare.
                 self.assertEqual(script.count(command), 1)
+
+    def test_the_retry_wrapper_runs_from_a_fresh_workspace(self) -> None:
+        # Extract the helper-fetch lines and the retry function and run them where the workspace has no
+        # script and the workflow commit is not local: the cp/curl fallbacks must not abort under set -e.
+        doc = yaml.safe_load(WORKFLOW.read_text())
+        step = next(s for s in doc["jobs"]["build-nightly-app"]["steps"] if s.get("name") == WARM_STEP)
+        script = step["run"]
+        start = script.index('fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"')
+        end = script.index("started=$SECONDS")
+        with tempfile.TemporaryDirectory() as temp:
+            workspace, runner_temp = Path(temp) / "ws", Path(temp) / "tmp"
+            workspace.mkdir()
+            runner_temp.mkdir()
+            subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+            body = ("set -euo pipefail\ncurl() { return 7; }\n" + script[start:end]
+                    + 'retry git status --short\necho done\n')
+            env = {**os.environ, "RUNNER_TEMP": str(runner_temp), "GITHUB_WORKSPACE": str(workspace),
+                   "GITHUB_REPOSITORY": "o/r", "WORKFLOW_SHA": "0" * 40}
+            result = subprocess.run(["bash", "-c", body], cwd=workspace, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("unavailable; running git once", result.stdout)
+            self.assertTrue(result.stdout.strip().endswith("done"))
+            # With the helper in the workflow commit's objects, it is used.
+            (workspace / "scripts/ci").mkdir(parents=True)
+            (workspace / "scripts/ci/git_fetch_retry.py").write_text((ROOT / "scripts/ci/git_fetch_retry.py").read_text())
+            subprocess.run(["git", "-C", str(workspace), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(workspace), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"],
+                           check=True)
+            sha = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"], check=True, capture_output=True,
+                                 text=True).stdout.strip()
+            (workspace / "scripts/ci/git_fetch_retry.py").unlink()
+            result = subprocess.run(["bash", "-c", body], cwd=workspace, env={**env, "WORKFLOW_SHA": sha},
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("unavailable", result.stdout)
 
 
 if __name__ == "__main__":

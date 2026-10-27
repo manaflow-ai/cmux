@@ -2010,6 +2010,7 @@ jobs:
         env:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+          WORKFLOW_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad build sha: $BUILD_SHA" >&2; exit 1; }
@@ -2026,9 +2027,22 @@ jobs:
           # and locks are removed before the next (scripts/ci/git_fetch_retry.py). Run 40466772597
           # hung here for 62 min, then died with "early EOF". Measured on owned minis (25 runs,
           # 2026-10-26/27): 0-6 s warm, 194 s at most cold, so 600 s per try, 3 tries.
+          # The kept clone holds an earlier build, so the helper comes from the workflow commit,
+          # into RUNNER_TEMP where the checkout and clean below cannot remove it: from the local
+          # objects, else raw.githubusercontent.com (bounded), else the clone's own copy.
+          fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"
+          rm -f "$fetch_retry"
+          git show "$WORKFLOW_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null \
+            || curl -fsS --max-time 30 --retry 3 --retry-all-errors -o "$fetch_retry" \
+              "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$WORKFLOW_SHA/scripts/ci/git_fetch_retry.py" \
+            || cp scripts/ci/git_fetch_retry.py "$fetch_retry" 2>/dev/null \
+            || rm -f "$fetch_retry"
+          retry() {
+            if [ -s "$fetch_retry" ]; then python3 "$fetch_retry" --tries 3 --timeout 600 --repo "$GITHUB_WORKSPACE" -- "$@"
+            else echo "::warning title=warm checkout::git_fetch_retry.py unavailable; running git once, unbounded"; "$@"; fi
+          }
           started=$SECONDS
-          python3 scripts/ci/git_fetch_retry.py --tries 3 --timeout 600 -- \
-            git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
+          retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
           echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
@@ -2036,8 +2050,7 @@ jobs:
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
           started=$SECONDS
-          python3 scripts/ci/git_fetch_retry.py --tries 3 --timeout 600 -- \
-            git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
+          retry git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
           echo "updated submodules in $((SECONDS - started)) s"
           # A hosted runner starts with clean submodules; drop what earlier runs left.
           git submodule foreach -q --recursive 'git clean -ffdxq && git reset -q --hard'
