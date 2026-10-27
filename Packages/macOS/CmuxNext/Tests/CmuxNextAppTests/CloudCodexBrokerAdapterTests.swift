@@ -232,6 +232,28 @@ done
         #expect(await files.read("vm", CloudCodexBroker.accessPath) == nil)
     }
 
+    @Test func confirmedDeletionReleasesFailedCleanupForFutureVMs() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await adapter.run(machineID: "deleted", scope: scope, confirmed: true) { _ in true }
+        await files.pause()
+        adapter.setAvailable(false)
+        await adapter.scopeDidChange()
+        adapter.setAvailable(true)
+        await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) {
+            try await adapter.run(machineID: "new", scope: scope, confirmed: true) { _ in true }
+        }
+        await adapter.machineWasDeleted("deleted", scope: scope)
+        #expect(!adapter.pendingCleanup.contains("deleted"))
+        await files.resume()
+        try await adapter.run(machineID: "new", scope: scope, confirmed: true) { _ in true }
+        #expect(await files.read("new", CloudCodexBroker.accessPath) != nil)
+        await adapter.shutdown()
+    }
+
     @Test func scopeSwitchCancelsPendingPromptWithoutDelivery() async throws {
         let (root, launch) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
