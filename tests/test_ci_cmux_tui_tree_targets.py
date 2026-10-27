@@ -35,9 +35,17 @@ class TreeTargets(unittest.TestCase):
         for job in TREE_JOBS:
             with self.subTest(job=job):
                 block = all_jobs[job]
-                for artifact in ARTIFACTS:
-                    self.assertRegex(block, rf"(?m)^\s+name: {re.escape(artifact)}$",
-                                     f"{job} does not download {artifact}")
+                # One merged pattern is deliberately used for the fast path:
+                # it transfers every Unix companion in one action, including
+                # the three tree gates below. Keep accepting the explicit
+                # names for older repair branches.
+                if "pattern: cmux-tui-*-*" in block:
+                    self.assertIn("merge-multiple: true", block,
+                                  f"{job} must merge the patterned artifacts")
+                else:
+                    for artifact in ARTIFACTS:
+                        self.assertRegex(block, rf"(?m)^\s+name: {re.escape(artifact)}$",
+                                         f"{job} does not download {artifact}")
 
     def test_tree_publishers_read_the_companion_list_from_the_publisher(self) -> None:
         all_jobs = jobs(WORKFLOW.read_text(encoding="utf-8"))

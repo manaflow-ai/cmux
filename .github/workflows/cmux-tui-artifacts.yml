@@ -1455,8 +1455,8 @@ jobs:
     # PR runs of this workflow only validate the build. Only the refs the
     # artifacts environment admits publish; a dispatch from any other branch
     # is a green build-only run (publish-ref-notice says how to publish).
-    if: ${{ !cancelled() && needs.build-ok.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
-    needs: build-ok
+    if: ${{ always() && !cancelled() && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.publish-tree-commit.result == 'success') && needs.build-ok.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    needs: [build-ok, tree-preflight, publish-tree-commit]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # 15 minutes of work, plus the hour the attestation retry may wait for the API budget.
     timeout-minutes: 75
@@ -2299,6 +2299,173 @@ jobs:
               --artifact-base-url "https://files.cmux.com/chatmux-relay/latest"
           fi
 
+  # Publish the commit-addressed cmux-tui prefix before the broader publish
+  # pass. The tree publisher consumes this write-once manifest and byte set;
+  # relays, legacy aliases, attestations, and the Windows companion continue
+  # in the full publish job below.
+  publish-tree-commit:
+    environment: artifacts
+    name: publish tree commit artifacts
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    needs: [tree-preflight, build-ok]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download the Unix cmux-tui artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cmux-tui-*-*
+          path: assets/cmux-tui
+          merge-multiple: true
+
+      - name: Exclude non-Unix cmux-tui artifacts
+        run: |
+          set -euo pipefail
+          find assets/cmux-tui -maxdepth 1 -type f -name '*-pc-windows-gnu*' -delete
+
+      - name: Build the commit manifest
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/build-cmux-tui-manifest.py \
+            --commit "$GITHUB_SHA" \
+            --directory assets/cmux-tui \
+            --commit-time "$(git show -s --format=%cI "$GITHUB_SHA")" \
+            --server-url "$GITHUB_SERVER_URL" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --output assets/cmux-tui/manifest.json
+
+      - name: Attest the tree commit binaries
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          github-token: ${{ github.token }}
+          subject-path: |
+            assets/cmux-tui/cmux-tui-*
+            assets/cmux-tui/manifest.json
+          push-to-registry: false
+
+      - name: Publish the write-once commit prefix
+        id: publish_commit
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          prefix="cmux-tui/$GITHUB_SHA"
+          cache_control="public, max-age=31536000, immutable"
+          adopt_wait="${CMUX_R2_ADOPT_WAIT_SECONDS:-480}"
+          upload() {
+            local file="$1" status=0
+            python3 scripts/ci/upload-r2-object.py \
+              --write-once --conflict-exit-code 75 \
+              --file "$file" --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+              --key "$prefix/$(basename "$file")" \
+              --cache-control "$cache_control" || status=$?
+            return "$status"
+          }
+          manifest_ready() {
+            curl -fsSL --proto '=https' --retry "$((adopt_wait / 15))" --retry-all-errors --retry-delay 15 \
+              --retry-max-time "$adopt_wait" --connect-timeout 20 --max-time 60 \
+              "https://files.cmux.com/$prefix/manifest.json?conflict=$GITHUB_RUN_ID-$1" \
+              -o /dev/null
+          }
+          conflict=false
+          for file in assets/cmux-tui/*; do
+            [[ -f "$file" ]] || continue
+            [[ "$(basename "$file")" == manifest.json ]] && continue
+            status=0
+            upload "$file" || status=$?
+            if [[ "$status" == 75 ]]; then
+              conflict=true
+              break
+            fi
+            [[ "$status" == 0 ]] || exit "$status"
+          done
+          if [[ "$conflict" == false ]]; then
+            status=0
+            upload assets/cmux-tui/manifest.json || status=$?
+            if [[ "$status" == 75 ]]; then
+              echo "Another run owns the commit prefix; its immutable manifest is ready."
+              exit 0
+            fi
+            [[ "$status" == 0 ]] || exit "$status"
+            exit 0
+          fi
+
+          # A concurrent publisher writes binaries before manifest.json. Give
+          # it time to finish; the changing query avoids a cached 404 at the
+          # public edge. If it stopped midway, the repair pass below adopts
+          # every immutable object it did write and fills the rest.
+          if manifest_ready "bounded"; then
+            echo "Another run owns the commit prefix; the immutable manifest is ready."
+            exit 0
+          fi
+
+          echo "The previous publisher stopped before manifest.json; completing its immutable prefix."
+          for file in assets/cmux-tui/*; do
+            [[ -f "$file" ]] || continue
+            [[ "$(basename "$file")" == manifest.json ]] && continue
+            status=0
+            upload "$file" || status=$?
+            if [[ "$status" == 75 ]]; then
+              # upload-r2-object has confirmed that the immutable object is
+              # present but differs. Adopt those bytes before rebuilding the
+              # manifest; a later publication must describe what the prefix
+              # actually serves.
+              curl -fsSL --proto '=https' --retry 5 --retry-all-errors --retry-delay 5 \
+                --connect-timeout 20 --max-time 300 \
+                "https://files.cmux.com/$prefix/$(basename "$file")?adopt=$GITHUB_RUN_ID" \
+                -o "$file"
+            else
+              [[ "$status" == 0 ]] || exit "$status"
+            fi
+          done
+          python3 scripts/ci/build-cmux-tui-manifest.py \
+            --commit "$GITHUB_SHA" \
+            --directory assets/cmux-tui \
+            --commit-time "$(git show -s --format=%cI "$GITHUB_SHA")" \
+            --server-url "$GITHUB_SERVER_URL" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --output assets/cmux-tui/manifest.json
+          echo "reconciled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Re-attest adopted commit binaries
+        if: steps.publish_commit.outputs.reconciled == 'true'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          github-token: ${{ github.token }}
+          subject-path: |
+            assets/cmux-tui/cmux-tui-*
+            assets/cmux-tui/manifest.json
+          push-to-registry: false
+
+      - name: Publish adopted commit manifest
+        if: steps.publish_commit.outputs.reconciled == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/upload-r2-object.py \
+            --write-once --conflict-exit-code 75 \
+            --file assets/cmux-tui/manifest.json \
+            --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+            --key "cmux-tui/$GITHUB_SHA/manifest.json" \
+            --cache-control "public, max-age=31536000, immutable"
+
   # The Windows pass of publish (the same steps): this commit's
   # cmux-tui-windows/<sha>/ prefix, once build-windows is done. The prefixes the
   # first pass wrote are write-once, so this pass keeps them as published.
@@ -2520,7 +2687,7 @@ jobs:
   publish-tree:
     environment: artifacts
     name: publish tree-addressed cmux-tui
-    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    if: ${{ !cancelled() && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.publish-tree-commit.result == 'success') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     # Independent of the daemon tests on every ref (chief 2026-10-13, hq-11;
     # cx-y0nf2): their macOS runner queues up to ~1 h, and every dev build
     # waited for the tree. A published tree does not mean the daemon tests
@@ -2536,7 +2703,10 @@ jobs:
     # feat-cmux-next tip of 2026-10-14 published a tree while 12 daemon-test
     # jobs queued for the one promote runner
     # (tests/test_cmux_tui_feat_publish_order.py).
-    needs: [tree-preflight, build-ok, publish]
+    # The tree is the nightly hand-off. It only needs the required cmux-tui
+    # build artifacts; the commit-addressed publish (relays, legacy aliases,
+    # and attestations) continues in parallel and is not a nightly gate.
+    needs: [tree-preflight, build-ok, publish-tree-commit]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A slow companion fetch may take its retries (fetch below).
     timeout-minutes: 30
@@ -2560,25 +2730,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download the macOS arm64 cmux-tui
+      # Download every Unix cmux-tui companion in one transfer. The tree
+      # publisher no longer waits for the separate commit publish job, so a
+      # new tree can be assembled entirely from this run's immutable build
+      # artifacts while relays and legacy aliases publish in parallel.
+      - name: Download the Unix cmux-tui artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: cmux-tui-aarch64-apple-darwin
+          pattern: cmux-tui-*-*
           path: assets/tree
-
-      # Linux daemon mode fetches the musl daemon and app host by tree key
-      # (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target).
-      - name: Download the Linux x86_64 cmux-tui
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: cmux-tui-x86_64-unknown-linux-musl
-          path: assets/tree
-
-      - name: Download the Linux arm64 cmux-tui
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: cmux-tui-aarch64-unknown-linux-musl
-          path: assets/tree
+          merge-multiple: true
 
       # GPUI's Windows daemon mode fetches the Windows daemon by tree key
       # (pin-cmux-tui.sh fetch on Git Bash, or CMUX_TUI_TREE_TARGET). The
@@ -2642,7 +2803,6 @@ jobs:
           # 40 MB (run 40376958903). curl retries timeouts and 5xx, never a 404,
           # so the source.json absence check below still fails at once.
           fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 300 --retry 3 --retry-delay 10 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
-          fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
           mkdir -p tree
           if fetch "$base/source.json" tree/source.json 2>/dev/null; then
             source_args=(--source-file tree/source.json)
@@ -2654,9 +2814,11 @@ jobs:
             done
           else
             source_commit="$GITHUB_SHA"
-            # The commit's published binaries, not this run's: an earlier run
-            # may have published this commit (the publish job keeps that
-            # publication), and a rebuild's bytes differ from its manifest.
+            # publish-tree-commit writes the full commit manifest and its
+            # immutable binaries before this job starts. Always consume that
+            # write-once publication, so the tree and commit prefix cannot
+            # name different bytes.
+            fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
             for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions); do
               fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/$asset" "assets/tree/$asset"
             done

@@ -115,6 +115,7 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
         "needs.tree-preflight.outputs.daemon_tests": daemon_tests,
         "needs.tree-preflight.outputs.tree_ready": "false",
         "needs.build-ok.result": "success",
+        "needs.publish-tree-commit.result": "success",
         "needs.publish.result": "success",
     }
     if daemon_result is not None:
@@ -187,6 +188,8 @@ def main():
             _check(not starting, f"{event} on a pin ref never publishes ({starting})")
     for name in tree_publishers:
         _check(DAEMON not in all_needs(all_jobs, name), f"{name} does not need the daemon tests")
+        _check("publish" not in all_needs(all_jobs, name),
+               f"{name} does not wait for the broader commit publish")
         _check("cmux-tui-mark-daemon-tested.sh" not in str(all_jobs[name]["steps"]),
                f"{name} never writes the daemon-tests marker")
         _check('"daemonTests": "separate"' in str(all_jobs[name]["steps"]),
@@ -261,6 +264,44 @@ def main():
            and windows_pass(all_jobs["publish-windows"])
            and "needs.build-windows.outputs.windows_built == 'true'" in str(all_jobs["publish-windows"]["if"]),
            "publish-windows runs publish's own steps, only for a Windows build that uploaded its artifact")
+
+    fast_commit = all_jobs["publish-tree-commit"]
+    _check("build-ok" in needs(fast_commit) and "tree-preflight" in needs(fast_commit),
+           "the fast commit publication follows the tree build")
+    _check("build-cmux-tui-manifest.py" in str(fast_commit["steps"]),
+           "the fast commit publication writes the complete manifest")
+    fast_download = next(step for step in fast_commit["steps"]
+                         if step.get("name") == "Download the Unix cmux-tui artifacts")
+    _check(fast_download.get("with", {}).get("merge-multiple") is True,
+           "the fast commit publication merges Unix artifacts in one download")
+    _check("pc-windows-gnu" in str(fast_commit["steps"]),
+           "the fast commit publication removes the separately uploaded Windows artifact")
+    _check("publish-tree-commit" in needs(all_jobs["publish-tree"]),
+           "tree publication follows the write-once commit manifest")
+    _check("publish-tree-commit" not in needs(all_jobs["publish-tree-windows"]),
+           "the later Windows tree pass does not add a nightly gate")
+
+    # Two same-commit publishers can race: binaries arrive before the
+    # write-once manifest, and an interrupted winner leaves a partial prefix.
+    # Keep the loser bounded while the winner finishes, then make a later run
+    # adopt existing immutable bytes, fill missing objects, and rebuild the
+    # manifest before its second attestation.
+    commit_publish = next(step for step in fast_commit["steps"]
+                          if step.get("id") == "publish_commit")
+    commit_script = commit_publish["run"]
+    _check("manifest_ready" in commit_script and "CMUX_R2_ADOPT_WAIT_SECONDS" in commit_script,
+           "a commit conflict waits with a bounded manifest retry")
+    _check("--retry-all-errors" in commit_script and "?adopt=$GITHUB_RUN_ID" in commit_script,
+           "an incomplete commit prefix adopts immutable objects after a conflict")
+    _check("its immutable manifest is ready" in commit_script,
+           "a manifest-only immutable conflict is accepted after matching binaries")
+    _check("build-cmux-tui-manifest.py" in commit_script and
+           'echo "reconciled=true" >> "$GITHUB_OUTPUT"' in commit_script,
+           "an adopted commit prefix rebuilds its manifest for re-attestation")
+    reattest = next(step for step in fast_commit["steps"]
+                    if step.get("name") == "Re-attest adopted commit binaries")
+    _check("steps.publish_commit.outputs.reconciled == 'true'" in reattest["if"],
+           "adopted bytes receive a second attestation before manifest publication")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

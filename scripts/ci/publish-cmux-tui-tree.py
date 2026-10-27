@@ -13,6 +13,7 @@ opaque build outputs and are never executed here.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import os
@@ -350,26 +351,33 @@ def publish_tree(
 
     with tempfile.TemporaryDirectory(prefix="cmux-tui-tree-") as temporary:
         temporary_dir = Path(temporary)
+        upload_files: list[tuple[Path, str]] = []
         for name, digest in {**digests, **windows_digests}.items():
             binary = assets_dir / name
+            checksum = temporary_dir / f"{name}.sha256"
+            checksum.write_text(f"{digest}  {name}\n")
+            upload_files.extend(((binary, name), (checksum, f"{name}.sha256")))
+
+        # The source object stays first and completion.json stays last, but
+        # binary/checksum objects are independent immutable writes. Upload
+        # them together so a tree's required companions do not serialize on
+        # the R2 round-trip (the old loop was the second-longest tree leg).
+        def upload_file(item: tuple[Path, str]) -> None:
+            file, name = item
             _upload(
                 uploader,
-                binary,
+                file,
                 endpoint_url=endpoint_url,
                 bucket=bucket,
                 key=f"{prefix}/{name}",
                 cache_control=cache,
             )
-            checksum = temporary_dir / f"{name}.sha256"
-            checksum.write_text(f"{digest}  {name}\n")
-            _upload(
-                uploader,
-                checksum,
-                endpoint_url=endpoint_url,
-                bucket=bucket,
-                key=f"{prefix}/{name}.sha256",
-                cache_control=cache,
-            )
+
+        workers = min(8, max(1, len(upload_files)))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="cmux-tree-upload") as pool:
+            futures = [pool.submit(upload_file, item) for item in upload_files]
+            for future in as_completed(futures):
+                future.result()
 
         def write_completion(
             name: str, binaries: dict[str, str], commit: str = source_commit
