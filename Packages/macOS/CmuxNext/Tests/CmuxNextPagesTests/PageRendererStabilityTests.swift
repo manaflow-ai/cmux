@@ -26,7 +26,7 @@ struct PageRendererStabilityTests {
     }
 
     private func host(_ stability: RendererStability?) -> WebUIHost {
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never)
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never)
         host.rendererStability = stability
         return host
     }

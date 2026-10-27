@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 public import Foundation
@@ -80,8 +81,11 @@ extension AgentPaneView {
     func receiveContextMenuReport(_ body: Any?) {
         if let anchor = AgentPaneContextMenu.popUpAnchor(report: body) {
             let target = AgentPaneMessageTarget(report: body)
-            // task-owner: one menu per More press, after the page's message returns; it ends when the menu closes
-            Task { @MainActor [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor) }
+            // The menu opens after the page's message callback returns (Chrome posts a context menu's show the same
+            // way, RenderViewContextMenuMac::Show), from a run-loop callout and not inside a scheduler task: its
+            // tracking loop then lets the scheduler's turns keep running, and they never re-enter a running drain.
+            // main-hop-allow: menu tracking must start from a run-loop callout (MainRunLoopBlock), outside the scheduler's drain
+            MainRunLoopBlock.perform { [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor) }
             return
         }
         messageMenuTarget = AgentPaneMessageTarget(report: body)
