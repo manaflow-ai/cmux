@@ -129,6 +129,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case popupMenu(browser: Int32, token: Int64, popup: ChromiumHostPopupMenu?)
     /// Chromium closed that popup before cmux answered (POPUP_MENU_HIDE): its menu closes with no answer.
     case popupMenuHidden(browser: Int32, token: Int64)
+    /// A print the page started (`window.print()`) that the host stopped before Chromium's print preview
+    /// (PAGE_PRINT; host mode, only after `cmux_remote_shim_set_page_prints(1)`): cmux prints the page and
+    /// ends `request`, which lets the page's `window.print()` return (``ChromiumHostPagePrints``).
+    case pagePrint(browser: Int32, request: Int64)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -206,6 +210,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 58: self = .popupMenu(browser: browser, token: a, popup: ChromiumHostPopupMenu(json: s1))
         case 59: self = .popupMenuHidden(browser: browser, token: a)
         case 60: self = ChromiumHostSuggestionEvent(request: request, a: a, b: b, s1: s1).map { Self.pageView(browser: browser, .suggestions($0)) } ?? .unknown(kind: kind)
+        case 61: self = a != 0 ? .pagePrint(browser: browser, request: a) : .unknown(kind: kind)
         default: self = .unknown(kind: kind)
         }
     }
@@ -226,7 +231,7 @@ extension CEFShimEvent {
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
              .fileDialog(let b, _, _, _, _), .pageView(let b, _),
-             .pageMessage(let b, _, _, _), .widgetGone(let b, _), .popupMenu(let b, _, _), .popupMenuHidden(let b, _):
+             .pageMessage(let b, _, _, _), .widgetGone(let b, _), .popupMenu(let b, _, _), .popupMenuHidden(let b, _), .pagePrint(let b, _):
             b
         case .widgetContext(let context):
             context.owner

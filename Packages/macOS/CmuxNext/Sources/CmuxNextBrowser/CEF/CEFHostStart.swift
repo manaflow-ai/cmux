@@ -37,8 +37,9 @@ final class CEFHostStart {
     /// Page file choosers answered by cmux's pickers (feature `chromiumHostFileDialogs`,
     /// `CEFRuntime.fileDialogAsked`); nil leaves Chromium's own panel.
     let files: ChromiumHostFiles?
-    /// File > Print… of a page prints it to PDF in the host and shows cmux's print panel (feature
-    /// `chromiumHostPrint`, task p01-process-065; `BrowserPagePrint`); nil leaves Chromium's print preview.
+    /// File > Print… of a page, and the page's own `window.print()`, print it to PDF in the host and show
+    /// cmux's print panel (feature `chromiumHostPrint`, task p01-process-065; `BrowserPagePrint`); nil
+    /// leaves Chromium's print preview.
     var pagePrints: ChromiumHostPagePrints?
     /// The attached host's page resizes (`CEFRuntime.hostPageResizes()`), made on first use; a new host starts with none.
     var pageResizes: ChromiumHostResizeFence?
@@ -93,6 +94,8 @@ final class CEFHostStart {
         (remote, mapsClientIDs, acksWheels, hostGone) = (host.remote, host.mapsClientIDs, host.acksWheels, false)
         // Once per attach, before initialize: a preinit op, which the remote shim replays to every later host.
         if startsAttach, drawsSuggestions { host.shim.suggestions.setEvents(1) }
+        // Kept by the remote shim for the session: every later host gets it at its attach.
+        if startsAttach, let pagePrints { pagePrints.hostAttached(host.remote) }
         return outcome
     }
 

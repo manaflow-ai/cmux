@@ -186,6 +186,24 @@ ForkInputCalls ResolveForkInputCalls(const std::string& framework_binary) {
   return calls;
 }
 
+// The fork's print request hook (host_print.h, task p01-process-065), a fork
+// item after API 31; both nullptr when the fork does not have it.
+struct ForkPrintCalls {
+  cmux_host::SetPrintRequestHandlerFn set_print_request_handler = nullptr;
+  cmux_host::EndPrintRequestFn print_request_end = nullptr;
+};
+
+// After cmux_shim_load, as ResolveForkInputCalls. Both or neither.
+ForkPrintCalls ResolveForkPrintCalls(const std::string& framework_binary) {
+  ForkPrintCalls calls;
+  void* image = dlopen(framework_binary.c_str(), RTLD_NOLOAD | RTLD_LAZY);
+  if (!image) return calls;
+  auto set = reinterpret_cast<cmux_host::SetPrintRequestHandlerFn>(dlsym(image, "cmux_set_print_request_handler"));
+  auto end = reinterpret_cast<cmux_host::EndPrintRequestFn>(dlsym(image, "cmux_print_request_end"));
+  if (set && end) calls = {set, end};
+  return calls;
+}
+
 // A task for CefPostTask(TID_UI): the default UI queue, for a fork without
 // the user-input queue. A task CEF refuses or drops is freed unrun.
 class UITask : public CefTask {
@@ -489,6 +507,7 @@ int main(int argc, char* argv[]) {
     return cmux_host::kExitForkAPI;
   }
   const ForkInputCalls fork_input = ResolveForkInputCalls(binary);
+  const ForkPrintCalls fork_print = ResolveForkPrintCalls(binary);
   if (!cmux_shim_prepare_application()) {
     fprintf(stderr, "cmux-chromium-host: NSApp does not implement CefAppProtocol\n");
     return cmux_host::kExitInitialize;
@@ -529,6 +548,8 @@ int main(int argc, char* argv[]) {
   // print preview would be a host window.
   cmux_host::CefPdfPrinter pdf_printer;
   host.SetPdfPrinter(&pdf_printer);
+  // A page's own window.print() comes to cmux the same way once cmux asks (kOpPagePrints), on a fork with the hook.
+  host.SetPagePrintHook(fork_print.set_print_request_handler, fork_print.print_request_end);
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then
   // no frame comes and cmux stamps no ordered op with an input seq.

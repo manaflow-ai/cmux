@@ -146,6 +146,17 @@ CMUX_REMOTE_EXPORT int cmux_remote_shim_print_to_pdf(int browser_id, double pape
 // when it carried none, outside a callback, or once taken. A region the callback does not take
 // is closed when it returns.
 CMUX_REMOTE_EXPORT int cmux_remote_shim_take_reply_region(void);
+// Main thread. With `enabled` 1, a print a page starts (window.print()) comes to cmux as
+// CMUX_SHIM_PAGE_PRINT (browser, a = the request) instead of opening Chromium's print preview in
+// the host (kOpPagePrints, ChromiumHost/src/host_print.h, task p01-process-065); 0 restores the
+// preview. Kept for the session: every later host gets it at its attach. 1 when the attached
+// host takes page prints (its HELLO listed kPagePrintsHelloName); 0 before its HELLO (the op
+// waits for it), with no host attached, or on a host without the fork's hook.
+CMUX_REMOTE_EXPORT int cmux_remote_shim_set_page_prints(int enabled);
+// Main thread. Ends page print `request` (CMUX_SHIM_PAGE_PRINT's a): its page's window.print()
+// returns. Send it once cmux's print panel for it ended, or at once when none can show. 1 when
+// sent; 0 when the host it came from is gone (the request went with it).
+CMUX_REMOTE_EXPORT int cmux_remote_shim_page_print_end(int64_t request);
 
 }  // extern "C"
 

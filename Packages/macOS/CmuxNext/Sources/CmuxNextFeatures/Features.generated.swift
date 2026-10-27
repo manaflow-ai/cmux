@@ -265,12 +265,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// In host mode, File > Print of a Chromium page prints it to PDF in the Chromium host and shows cmux's print panel on the page's window, instead of Chromium's print preview opening in the host.
+    /// In host mode, File > Print of a Chromium page and the page's own window.print() print it to PDF in the Chromium host and show cmux's print panel on the page's window, instead of Chromium's print preview opening in the host.
     public static let chromiumHostPrint = Feature(
         index: 15,
         name: "chromiumHostPrint",
         owner: "PL-cef-layer",
-        description: "In host mode, File > Print of a Chromium page prints it to PDF in the Chromium host and shows cmux's print panel on the page's window, instead of Chromium's print preview opening in the host.",
+        description: "In host mode, File > Print of a Chromium page and the page's own window.print() print it to PDF in the Chromium host and show cmux's print panel on the page's window, instead of Chromium's print preview opening in the host.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,

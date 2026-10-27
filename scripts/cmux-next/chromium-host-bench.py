@@ -133,8 +133,8 @@ popup and a side panel, each shown by cmux from the host's layer context (`debug
 chromiumHostWidgets on and two test extensions, then the autofill and password rows (chromium_host_suggestions.py,
 p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
 chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064, 065):
-file picker, certificate error, beforeunload, renderer hang and print (the host's PDF in cmux's print panel, never
-Chromium's print preview), each answered by cmux while the host is never frontmost and shows no window, with features
+file picker, certificate error, beforeunload, renderer hang and print (the host's PDF in cmux's print panel for File >
+Print and for the page's own window.print(), never Chromium's print preview), each answered by cmux while the host is never frontmost and shows no window, with features
 chromiumHostFileDialogs and chromiumHostPrint on.
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G

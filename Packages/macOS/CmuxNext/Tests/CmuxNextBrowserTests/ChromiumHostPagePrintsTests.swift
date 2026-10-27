@@ -9,7 +9,8 @@ import Testing
 /// Task p01-process-065 (feature `chromiumHostPrint`, ``ChromiumHostPagePrints``): File > Print… of a
 /// host page asks the host for its PDF at the print panel's paper, and the REPLY's sealed region becomes
 /// the PDF cmux prints; a page that did not print, a gone host or a gone window shows no panel and leaks
-/// no descriptor. The host's side (the op, its region with the REPLY) is
+/// no descriptor. A page's own window.print() (PAGE_PRINT) prints the same way and its request ends only
+/// when the panel ends, or at once when no panel can show. The host's side (the op, its region with the REPLY) is
 /// ChromiumHost/tests/host_print_test.cpp.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct ChromiumHostPagePrintsTests {
     @Test func aPrintAsksTheHostAtThePanelsPaper() async throws {
@@ -90,6 +91,72 @@ import Testing
 
         #expect(prints.report == CEFHostPagePrintReport(asked: 1, printed: 0, shown: 0, failed: 1, showing: false))
         #expect(PrintSpy.takes == 1, "the failure's turn still asked for (and found no) region")
+    }
+
+    /// The host's attach turns page prints on, so a page's own window.print() comes to cmux (PAGE_PRINT).
+    @Test func theAttachTurnsPagePrintsOn() async throws {
+        let (runtime, prints) = try await PrintHarness.hostRuntime()
+
+        prints.hostAttached(try #require(runtime.hostStart?.remote))
+
+        #expect(PrintSpy.calls == ["set_page_prints 1"])
+    }
+
+    /// A page's window.print() prints as File > Print… does, and its request ends (the page's
+    /// window.print() returns) only when the panel ends.
+    @Test func aPagePrintEndsWhenItsPanelEnds() async throws {
+        let panels = PanelRecorder()
+        let (runtime, prints) = try await PrintHarness.hostRuntime(panels)
+        let window = PrintHarness.window()
+
+        prints.pageAsked(1 << 40, browser: 7, on: window, runtime: runtime)
+
+        #expect(PrintSpy.calls.first?.hasPrefix("print_to_pdf 7 ") == true, "the host prints the page to PDF")
+        let pdf = Array(PrintHarness.onePagePDF.utf8)
+        PrintSpy.region = try #require(PrintHarness.region(pdf))
+        try PrintHarness.deliver(try #require(PrintSpy.tokens.last), PrintHarness.reply(1, Int64(pdf.count)))
+        #expect(panels.windows.first === window, "the panel shows on the page's window")
+        #expect(PrintSpy.ends.isEmpty, "the page's window.print() waits while the panel shows")
+
+        panels.endAll()
+
+        #expect(PrintSpy.ends == [1 << 40], "the panel's end ends the request")
+        #expect(prints.report == CEFHostPagePrintReport(asked: 1, printed: 1, shown: 1, failed: 0, showing: false,
+                                                       pageAsked: 1, pageEnded: 1))
+    }
+
+    /// A page print with no panel to show ends at once or with its PDF: the page's window.print() never
+    /// waits for good.
+    @Test func aPagePrintWithNoPanelEnds() async throws {
+        let (runtime, prints) = try await PrintHarness.hostRuntime()
+
+        prints.pageAsked(3, browser: 7, on: nil, runtime: runtime)
+        #expect(PrintSpy.ends == [3] && PrintSpy.tokens.isEmpty, "a page with no window: ended at once, nothing printed")
+
+        prints.pageAsked(4, browser: 7, on: PrintHarness.window(), runtime: runtime)
+        try PrintHarness.deliver(try #require(PrintSpy.tokens.last), PrintHarness.reply(0, 0))
+        #expect(PrintSpy.ends == [3, 4], "a page that did not print: ended with its REPLY")
+
+        PrintSpy.printResult = 0
+        prints.pageAsked(5, browser: 7, on: PrintHarness.window(), runtime: runtime)
+        #expect(PrintSpy.ends == [3, 4, 5], "a host that cannot print: ended at once")
+
+        PrintSpy.printResult = 1
+        prints.pageAsked(6, browser: 7, on: PrintHarness.window(), runtime: runtime)
+        runtime.hostGone()
+        #expect(PrintSpy.ends == [3, 4, 5, 6], "a host that goes: ended")
+        #expect(prints.report.pageAsked == 4 && prints.report.pageEnded == 4)
+    }
+
+    /// PAGE_PRINT decodes and reaches the page prints through the runtime: a page with no tab ends at once.
+    @Test func aPagePrintEventReachesThePagePrints() async throws {
+        #expect(CEFShimEvent(kind: 61, browser: 7, request: 0, a: 1 << 40, b: 0, s1: "", s2: "") == .pagePrint(browser: 7, request: 1 << 40))
+        #expect(CEFShimEvent(kind: 61, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "") == .unknown(kind: 61), "request 0 is no request")
+        let (runtime, prints) = try await PrintHarness.hostRuntime()
+
+        runtime.dispatch(.pagePrint(browser: 9, request: 12))
+
+        #expect(prints.report.pageAsked == 1 && PrintSpy.ends == [12])
     }
 
     @Test func theReplyIsPrintedAndSize() throws {
@@ -203,7 +270,8 @@ import Testing
 
 /// The remote dylib for these tests: attach says hello at once, set_reply keeps the REPLY sink,
 /// `print_to_pdf` records its call, makes the next token current and answers ``printResult``, and
-/// `take_reply_region` hands over ``region`` once. Every other function returns 0.
+/// `take_reply_region` hands over ``region`` once, `set_page_prints` records its call and
+/// `page_print_end` its request in ``ends``. Every other function returns 0.
 nonisolated enum PrintSpy {
     static let abi = "print-spy-abi"
     // crash-allow: test-only spy state, read and written on the main thread by a serialized suite and the C stand-ins it calls there
@@ -219,6 +287,8 @@ nonisolated enum PrintSpy {
     // crash-allow: test-only spy state (see lastToken)
     nonisolated(unsafe) static var takes = 0
     // crash-allow: test-only spy state (see lastToken)
+    nonisolated(unsafe) static var ends: [Int64] = []
+    // crash-allow: test-only spy state (see lastToken)
     nonisolated(unsafe) static var replySink: (context: UnsafeMutableRawPointer?, reply: CEFRemoteShim.ReplyFn?)?
     // crash-allow: a C string made once and never freed, read only
     nonisolated(unsafe) private static let abiCString = strdup(abi)
@@ -230,6 +300,7 @@ nonisolated enum PrintSpy {
         printResult = 1
         region = -1
         takes = 0
+        ends = []
         replySink = nil
     }
 
@@ -257,6 +328,14 @@ nonisolated enum PrintSpy {
             defer { PrintSpy.region = -1 }
             return PrintSpy.region
         }
+        let setPagePrints: ChromiumHostPagePrints.Calls.SetPagePrintsFn = { enabled in
+            PrintSpy.calls.append("set_page_prints \(enabled)")
+            return 1
+        }
+        let endPagePrint: ChromiumHostPagePrints.Calls.EndPagePrintFn = { request in
+            PrintSpy.ends.append(request)
+            return 1
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
         case "cmux_shim_abi_id": unsafeBitCast(abiID, to: UnsafeMutableRawPointer.self)
@@ -266,6 +345,8 @@ nonisolated enum PrintSpy {
         case "cmux_remote_shim_last_reply_token": unsafeBitCast(lastReplyToken, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_print_to_pdf": unsafeBitCast(printToPDF, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_take_reply_region": unsafeBitCast(takeRegion, to: UnsafeMutableRawPointer.self)
+        case "cmux_remote_shim_set_page_prints": unsafeBitCast(setPagePrints, to: UnsafeMutableRawPointer.self)
+        case "cmux_remote_shim_page_print_end": unsafeBitCast(endPagePrint, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }

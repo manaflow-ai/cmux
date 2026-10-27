@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""chromium_host_native_ui_dialogs.py, the page dialog rows of chromium-host-bench.py --native-ui (p01-process-064),
-against a fake app: the file picker's choice and cancel, the beforeunload question's Cancel and Leave, the hang
-card's Wait and Exit page, and the host check (never frontmost, no visible window). A correct app passes those rows;
-an app with no cmux picker, one whose picker loses the chosen path, a host that shows a window or comes to the
-front, and a close that does not ask each fail the row they break. Runs anywhere (no app, no openssl needed: the
+"""chromium_host_native_ui_dialogs.py, the page dialog rows of chromium-host-bench.py --native-ui (p01-process-064,
+065), against a fake app: the file picker's choice and cancel, the beforeunload question's Cancel and Leave, the hang
+card's Wait and Exit page, File > Print and the page's own window.print() through cmux's print panel, and the host
+check (never frontmost, no visible window). A correct app passes those rows; an app with no cmux picker, one whose
+picker loses the chosen path, a host that shows a window or comes to the front, a close that does not ask, a page
+whose window.print() never reaches cmux (Chromium's preview in the host) and one whose window.print() returns before
+its panel ended each fail the row they break. Runs anywhere (no app, no openssl needed: the
 certificate row is covered by the live bench only).
 Run: python3 -I scripts/cmux-next/tests/test_chromium_host_native_ui_dialogs.py"""
 import os, sys, tempfile, unittest
@@ -18,10 +20,17 @@ APP_PID, HOST_PID = 100, 200
 class FakeApp:
     """The app as the rows see it. `picker` False: no cmux picker (host_file_dialogs null); `drops_path`: a choice
     reaches the page with no file; `host_window`: the host shows a window; `host_front`: the host is frontmost;
-    `closes_at_once`: a person's close closes the tab with no question."""
+    `closes_at_once`: a person's close closes the tab with no question; `panel` False: no cmux print panel
+    (host_print null); `page_preview`: the page's window.print() opens Chromium's preview in the host, never cmux's
+    panel; `page_returns_early`: it reaches cmux's panel but returns at once, before the panel ends."""
 
-    def __init__(self, picker=True, drops_path=False, host_window=False, host_front=False, closes_at_once=False):
+    def __init__(self, picker=True, drops_path=False, host_window=False, host_front=False, closes_at_once=False,
+                 panel=True, page_preview=False, page_returns_early=False):
         self.picker, self.drops_path, self.closes_at_once = picker, drops_path, closes_at_once
+        self.panel, self.page_preview, self.page_returns_early = panel, page_preview, page_returns_early
+        self.prints = {"asked": 0, "printed": 0, "shown": 0, "failed": 0, "showing": False, "page_asked": 0,
+                       "page_ended": 0}
+        self.page_waiting = False
         self.host_window, self.host_front = host_window, host_front
         self.title, self.page = "", None
         self.asked = self.answered = self.waiting = 0
@@ -56,7 +65,8 @@ class FakeApp:
             self.tabs.add(tab)
             self.focused = tab
             self.title = {"native-ui-file.html": "file probe", "native-ui-unload.html": "unload probe",
-                          "native-ui-hang.html": "hang probe"}.get(os.path.basename(self.page), "")
+                          "native-ui-hang.html": "hang probe",
+                          "native-ui-print.html": "print probe"}.get(os.path.basename(self.page), "")
             return {"created": [tab]}
         if method == "debug.cef":
             if "file_dialog_choose" in params and self.waiting:
@@ -65,8 +75,15 @@ class FakeApp:
                     self.chosen = [os.path.basename(p) for p in params["file_dialog_choose"]]
             if params.get("file_dialog_cancel") and self.waiting:
                 self.waiting, self.answered, self.cancels = 0, self.answered + 1, self.cancels + 1
+            if params.get("print_cancel") and self.prints["showing"]:
+                self.prints["showing"] = False
+                if self.page_waiting:
+                    self.end_page_print()
             report = {"asked": self.asked, "answered": self.answered, "waiting": self.waiting} if self.picker else None
-            return {"host_file_dialogs": report}
+            return {"host_file_dialogs": report, "host_print": dict(self.prints) if self.panel else None}
+        if method == "action.run" and params.get("action") == "browserPrint" and self.panel:
+            self.show_panel()
+            return {}
         if method == "debug.mouse":
             if self.title == "file probe" and self.picker:
                 self.asked, self.waiting = self.asked + 1, 1
@@ -74,6 +91,14 @@ class FakeApp:
                 self.title = "unload armed"
             elif self.title == "hang probe":
                 self.unresponsive = True
+            elif self.title == "print probe" and self.page_preview:
+                self.host_window = True
+            elif self.title == "print probe" and self.panel:
+                self.prints["page_asked"] += 1
+                self.page_waiting = True
+                self.show_panel()
+                if self.page_returns_early:
+                    self.end_page_print()
             return {"delivered": 2}
         if method == "debug.focus":
             return {"windows": [{"model": {"resolved_tab": self.focused},
@@ -105,6 +130,16 @@ class FakeApp:
             return {"gone": "1" if self.gone else "0", "unresponsive": "1" if self.unresponsive else "0",
                     "pressed": "1" if pressed else "0", "enginePage": "0", "certificate": "0", "title": self.title}
         return {}
+
+    def show_panel(self):
+        for key in ("asked", "printed", "shown"):
+            self.prints[key] += 1
+        self.prints["showing"] = True
+
+    def end_page_print(self):
+        self.page_waiting = False
+        self.prints["page_ended"] += 1
+        self.title = "print returned"
 
 
 def instant_wait(check, seconds, step=0.1):
@@ -163,6 +198,29 @@ class DialogRowsTests(unittest.TestCase):
         self.assertFalse(dialogs.host_ui_clear(lambda: HOST_PID, lambda: APP_PID, lambda pid: None)["clear"])
         hidden = [{"alpha": 0.0}]
         self.assertTrue(dialogs.host_ui_clear(lambda: HOST_PID, lambda: APP_PID, lambda pid: hidden)["clear"])
+
+    def test_both_prints_go_through_cmuxs_panel(self):
+        rows, ok = run(FakeApp(), rows=("print",))
+        self.assertTrue(ok, rows)
+        self.assertTrue(rows["print"]["menu"]["ok"] and rows["print"]["page"]["returned"], rows)
+
+    def test_no_print_panel_fails_the_print_row_as_not_run(self):
+        rows, ok = run(FakeApp(panel=False), rows=("print",))
+        self.assertFalse(ok)
+        self.assertIn("not_run", rows["print"])
+
+    def test_a_window_print_that_opens_chromiums_preview_fails_the_print_row(self):
+        rows, ok = run(FakeApp(page_preview=True), rows=("print",))
+        self.assertFalse(ok)
+        self.assertTrue(rows["print"]["menu"]["ok"], rows)
+        self.assertIsNone(rows["print"]["page"]["show_ms"])
+        self.assertFalse(rows["print"]["host"]["clear"])
+
+    def test_a_window_print_that_returns_before_its_panel_ends_fails_the_print_row(self):
+        rows, ok = run(FakeApp(page_returns_early=True), rows=("print",))
+        self.assertFalse(ok)
+        self.assertEqual(rows["print"]["page"]["ended_while_showing"], 1)
+        self.assertFalse(rows["print"]["page"]["returned"])
 
     def test_a_row_that_raises_is_that_rows_failure(self):
         app = FakeApp()

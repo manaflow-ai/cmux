@@ -42,6 +42,11 @@
 //                                              browser, f64 paper width and height; answered
 //                                              later with i32 result, i64 size and the PDF's
 //                                              sealed region (task p01-process-065)
+//   kOpPagePrints                               i32 version, i32 enabled: prints the pages
+//                                              start go to cmux (host_print.h); applied after
+//                                              initialize, nothing on a fork without the hook
+//   kOpPagePrintEnd                             i32 version, i64 request: cmux's panel for a
+//                                              page's print ended; its window.print() returns
 //   kOpGeometryStats                            no fields: answered with GeometryStats as
 //                                              i64 frames, applied, unchanged, unplaced
 //                                              (chromium-host-bench.py geometry row)
@@ -73,7 +78,9 @@
 // Messages the host sends:
 //   kOpHello   str kWireID, StrList of the optional exports its shim defines
 //              (and kEnergySaverHelloName when its fork has the saver,
-//              kPrintToPdfHelloName when it prints pages to PDF);
+//              kPrintToPdfHelloName when it prints pages to PDF,
+//              kPagePrintsHelloName when its fork also has the print
+//              request hook);
 //              once, after the MIRRORs whose only refresh is attach
 //   kOpMirror  i32 mirror op, bytes key (EncodeFields), then bytes value
 //              (EncodeFields), or no value: cmux forgets the key
@@ -86,6 +93,8 @@
 //   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
 //              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
 //              kWheelAcksHelloName when the fork has the handler
+//   kOpEvent   CMUX_SHIM_PAGE_PRINT: a print a page started, which cmux
+//              prints and ends with kOpPagePrintEnd (host_print.h)
 //
 // Everything here runs on the host's main thread (Chromium's UI thread), so
 // it holds no lock (p01-process section 4, rule 1).
@@ -329,6 +338,18 @@ class HostContext {
   void SetPdfPrinter(PdfPrinter* printer) { pdf_printer_ = printer; }
   // kOpPrintToPdf ops whose PDF has not come yet.
   size_t prints_in_flight() const { return prints_in_flight_; }
+  // The fork's print request hook (host_print.h), nullptr when it has none.
+  // Before Attach: with both and a printer the HELLO lists
+  // kPagePrintsHelloName, and kOpPagePrints installs OnPagePrint through it.
+  void SetPagePrintHook(SetPrintRequestHandlerFn set, EndPrintRequestFn end) {
+    set_print_request_handler_ = set;
+    end_print_request_ = end;
+  }
+  // The fork's print request handler; ctx is this HostContext. Forwards
+  // CMUX_SHIM_PAGE_PRINT, or ends the request at once when cmux cannot take it.
+  static void OnPagePrint(void* ctx, int browser_id, int64_t request);
+  // Page print requests cmux has not ended.
+  size_t page_prints_waiting() const { return page_prints_.size(); }
 
   // What the shown page count holds (browser_host_main.mm, before Attach):
   // the count goes to it after each kOpBrowserSetPageVisibility, at each
@@ -390,6 +411,11 @@ class HostContext {
   // The REPLY of print `token`: 1 and the region `fd` of `size` bytes, or 0
   // when `fd` is -1. Closes `fd`; nothing goes once the context ended.
   void SendPrinted(uint32_t token, int fd, uint64_t size);
+  // kOpPagePrints and kOpPagePrintEnd: false for a malformed op.
+  bool HandlePagePrints(const control::Message& message);
+  bool HandlePagePrintEnd(const control::Message& message);
+  // True with the fork's hook and a printer: page prints can go to cmux.
+  bool TakesPagePrints() const { return set_print_request_handler_ && end_print_request_ && pdf_printer_; }
   // Keeps `token`'s size for the next op that opens its view (view_sizes_).
   void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
@@ -494,6 +520,12 @@ class HostContext {
   // Held by every print's Done: a Done that runs after this context is gone
   // finds it expired and only closes its region.
   std::shared_ptr<HostContext*> alive_ = std::make_shared<HostContext*>(this);
+  // The fork's print request hook (SetPagePrintHook), whether kOpPagePrints
+  // installed the handler, and the requests waiting for cmux.
+  SetPrintRequestHandlerFn set_print_request_handler_ = nullptr;
+  EndPrintRequestFn end_print_request_ = nullptr;
+  bool page_prints_on_ = false;
+  PagePrintRequests page_prints_;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).

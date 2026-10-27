@@ -13,10 +13,12 @@ the frontmost app and owns no visible window (CGWindowList: a window of the host
                      (`browser.dialog.beforeunload`) asks in the tab, which stays; Cancel keeps it; Leave closes it.
   unresponsive       a page whose click never returns: the pane shows "Page unresponsive" within Chromium's hang
                      delay; Wait hides it; Exit page ends the renderer and the sad tab shows.
-  print              File > Print (`browserPrint`) of a page: the host prints it to PDF and cmux's print panel shows that
-                     PDF as a sheet on the page's window (feature `chromiumHostPrint`; `debug.cef` `host_print`), never
-                     Chromium's print preview; `print_cancel` ends the panel. Without cmux's panel (`host_print` null:
-                     host mode not live, or the feature off) the row says so and fails.
+  print              File > Print (`browserPrint`) of a page, then the page's own window.print() (a click runs it):
+                     each time the host prints the page to PDF and cmux's print panel shows that PDF as a sheet on the
+                     page's window (feature `chromiumHostPrint`; `debug.cef` `host_print`), never Chromium's print
+                     preview; `print_cancel` ends the panel. The page's window.print() comes to cmux as a page print
+                     (`page_asked`) and returns only once its panel ended (`page_ended`, then the page's title). Without
+                     cmux's panel (`host_print` null: host mode not live, or the feature off) the row says so and fails.
 """
 import http.server
 import json
@@ -60,7 +62,9 @@ HANG_PAGE = """<!doctype html><meta charset=utf-8><title>hang probe</title>
 """
 
 PRINT_PAGE = """<!doctype html><meta charset=utf-8><title>print probe</title>
+<body style="margin:0;min-height:100vh">
 <h1>print probe</h1><p>Two pages of text.</p><p style="break-before:page">The second page.</p>
+<script>addEventListener('click', () => { window.print(); document.title = 'print returned'; })</script>
 """
 
 CERT_PAGE = b"<!doctype html><title>certificate probe proceeded</title><p>past the warning"
@@ -256,24 +260,40 @@ def host_print(rpc, **params):
     return (rpc("debug.cef", params) or {}).get("host_print")
 
 
+def print_case(rpc, wait, clear, start, asked):
+    """One print through cmux's panel: `start()` asks for it, and the panel must show for a print that raised
+    `host_print[asked]`; then `print_cancel` ends it. The case's numbers, and `ok` when the panel showed, the host
+    stayed clear, the panel ended and exactly one PDF printed with no failure."""
+    before = host_print(rpc) or {}
+    started = time.time()
+    start()
+    shown = wait(lambda: (lambda p: p if p and p.get("showing") and p.get("shown", 0) > before.get("shown", 0) and
+                          p.get(asked, 0) > before.get(asked, 0) else None)(host_print(rpc)), SHOW_DEADLINE_S)
+    case = {"show_ms": round((time.time() - started) * 1000, 1) if shown else None, "host": clear(), "print": host_print(rpc)}
+    host_print(rpc, print_cancel=True)
+    case["cancelled"] = bool(shown) and bool(wait(lambda: not (host_print(rpc) or {}).get("showing"), 5))
+    after = host_print(rpc) or {}
+    case["printed"] = after.get("printed", 0) - before.get("printed", 0)
+    case["page_ended"] = after.get("page_ended", 0) - before.get("page_ended", 0)
+    case["ended_while_showing"] = (shown or {}).get("page_ended", 0) - before.get("page_ended", 0)
+    case["ok"] = bool(shown) and case["host"]["clear"] and case["cancelled"] and case["printed"] == 1 and \
+        after.get("failed", 0) == before.get("failed", 0)
+    return case
+
+
 def print_row(rpc, wait, page_eval, out, clear):
-    before = host_print(rpc)
-    if before is None:
+    if host_print(rpc) is None:
         return {"ok": False, "not_run": "no cmux print panel: host mode is not live in this build or chromiumHostPrint is off"}
     if not open_page(rpc, wait, page_eval, write_page(out, "native-ui-print.html", PRINT_PAGE), "print probe"):
         return {"ok": False, "error": "the print probe never loaded"}
-    started = time.time()
-    rpc("action.run", {"action": "browserPrint", "origin": "script"})
-    shown = wait(lambda: (lambda p: p if p and p.get("showing") and p.get("shown", 0) > before.get("shown", 0) else None)(
-        host_print(rpc)), SHOW_DEADLINE_S)
-    row = {"show_ms": round((time.time() - started) * 1000, 1) if shown else None, "host": clear(), "print": host_print(rpc)}
-    host_print(rpc, print_cancel=True)
-    row["cancelled"] = bool(shown) and bool(wait(lambda: not (host_print(rpc) or {}).get("showing"), 5))
-    after = host_print(rpc) or {}
-    row["printed"] = after.get("printed", 0) - before.get("printed", 0)
-    row["ok"] = bool(shown) and row["host"]["clear"] and row["cancelled"] and row["printed"] == 1 and \
-        after.get("failed", 0) == before.get("failed", 0)
-    return row
+    menu = print_case(rpc, wait, clear, lambda: rpc("action.run", {"action": "browserPrint", "origin": "script"}), "asked")
+    # The page's own window.print(): a click runs it, and it returns (the title changes) only once its panel ended.
+    page = print_case(rpc, wait, clear, lambda: rpc("debug.mouse", {"target": "page"}), "page_asked")
+    page["returned"] = page["cancelled"] and page["ended_while_showing"] == 0 and page["page_ended"] == 1 and \
+        bool(wait(lambda: page_eval("document.title") == "print returned", 5))
+    page["ok"] = page["ok"] and page["returned"]
+    host = menu["host"] if not menu["host"]["clear"] else page["host"]
+    return {"menu": menu, "page": page, "host": host, "ok": menu["ok"] and page["ok"]}
 
 
 RUNNERS = {"file_picker": file_picker_row, "certificate_error": certificate_row, "beforeunload": beforeunload_row,

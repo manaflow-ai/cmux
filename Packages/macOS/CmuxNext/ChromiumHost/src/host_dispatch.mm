@@ -138,6 +138,7 @@ void HostContext::Attach() {
   if (set_wheel_ack_handler_) exports.push_back(kWheelAcksHelloName);
   if (energy_saver_) exports.push_back(kEnergySaverHelloName);
   if (pdf_printer_) exports.push_back(kPrintToPdfHelloName);
+  if (TakesPagePrints()) exports.push_back(kPagePrintsHelloName);
   TlvWriter hello;
   hello.Str(kWireID);
   hello.StrList(exports.data(), static_cast<int>(exports.size()));
@@ -203,7 +204,7 @@ void HostContext::Handle(control::Message& message) {
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
       } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver ||
-                 message.op == kOpPrintToPdf) {
+                 message.op == kOpPrintToPdf || message.op == kOpPagePrints || message.op == kOpPagePrintEnd) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -250,6 +251,14 @@ void HostContext::Handle(control::Message& message) {
       }
       if (message.op == kOpPrintToPdf) {
         if (!HandlePrintToPdf(message)) Bad("a malformed print to PDF");
+        return;
+      }
+      if (message.op == kOpPagePrints) {
+        if (!HandlePagePrints(message)) Bad("a malformed page prints");
+        return;
+      }
+      if (message.op == kOpPagePrintEnd) {
+        if (!HandlePagePrintEnd(message)) Bad("a malformed page print end");
         return;
       }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
@@ -375,6 +384,41 @@ void HostContext::SendPrinted(uint32_t token, int fd, uint64_t size) {
     Post(std::move(message));
   }
   if (fd >= 0) close(fd);
+}
+
+bool HostContext::HandlePagePrints(const control::Message& message) {
+  const std::optional<bool> enabled = DecodePagePrints(message.fields);
+  if (!enabled) return false;
+  // A host without the hook never listed it, so cmux's shim sends this to no such host.
+  if (!TakesPagePrints() || *enabled == page_prints_on_) return true;
+  if (*enabled) {
+    page_prints_on_ = set_print_request_handler_(&HostContext::OnPagePrint, this) == 1;
+    // The HELLO said page prints come: a refusal is the fork's bug, and the page keeps Chromium's preview.
+    if (!page_prints_on_) fprintf(stderr, "cmux-chromium-host: the fork refused the print request handler\n");
+    return true;
+  }
+  set_print_request_handler_(nullptr, nullptr);
+  page_prints_on_ = false;
+  for (int64_t request : page_prints_.TakeAll()) end_print_request_(request);
+  return true;
+}
+
+bool HostContext::HandlePagePrintEnd(const control::Message& message) {
+  const std::optional<int64_t> request = DecodePagePrintEnd(message.fields);
+  if (!request) return false;
+  // An unknown request ended already: its page closed, or the page prints went off.
+  if (page_prints_.End(*request) && end_print_request_) end_print_request_(*request);
+  return true;
+}
+
+void HostContext::OnPagePrint(void* ctx, int browser_id, int64_t request) {
+  auto* host = static_cast<HostContext*>(ctx);
+  // A request cmux will never end would hold the page's window.print() for good: end it now.
+  if (host->state_ == State::kEnded || !host->page_prints_on_ || !host->page_prints_.Add(request, browser_id)) {
+    if (host->end_print_request_) host->end_print_request_(request);
+    return;
+  }
+  host->ForwardEvent(kEventPagePrint, browser_id, 0, request, 0, "", "");
 }
 
 void HostContext::RememberViewSize(uint64_t token, int32_t width, int32_t height) {
@@ -782,6 +826,7 @@ void HostContext::Forget(int32_t client_id, int chromium_id) {
   client_of_.erase(chromium_id);
   text_input_.Forget(chromium_id);  // the fork ends the watch with the page
   wheel_acks_.Forget(chromium_id);
+  page_prints_.BrowserClosed(chromium_id);  // the fork ends a page's request with it
   for (auto& [op, keys] : watched_) {
     const size_t before = keys.size();
     std::erase_if(keys, [&](const std::vector<control::Field>& key) { return HostMirrors::NamesTab(op, key, client_id); });

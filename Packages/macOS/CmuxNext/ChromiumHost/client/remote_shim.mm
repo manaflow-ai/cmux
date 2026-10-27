@@ -230,6 +230,7 @@ bool SendFenceRight(uint32_t channel, uint32_t fence, uint64_t seq) {
 const char* OptionalExportName(uint16_t op) {
   if (op == cmux_host::kOpEnergySaver) return cmux_host::kEnergySaverHelloName;
   if (op == cmux_host::kOpPrintToPdf) return cmux_host::kPrintToPdfHelloName;
+  if (op == cmux_host::kOpPagePrints || op == cmux_host::kOpPagePrintEnd) return cmux_host::kPagePrintsHelloName;
   for (const OptionalExport& entry : kOptionalExports) {
     if (entry.op == op && op != 0) return entry.name;
   }
@@ -282,6 +283,8 @@ class Runtime {
     // A host starts with the saver off and applies this once initialize returned; it waits for
     // the HELLO, which says whether the host has the saver.
     if (energy_saver_ && energy_saver_->enabled) Route(EnergySaverMessage(*energy_saver_), std::nullopt);
+    // A host starts with Chromium's print preview; this waits for the HELLO, which says whether it has the hook.
+    if (page_prints_) Route(PagePrintsMessage(true), std::nullopt);
     Flush();
     return 1;
   }
@@ -427,6 +430,29 @@ class Runtime {
     return 1;
   }
 
+  // cmux_remote_shim_set_page_prints: kept for every host of the session (the next attach sends it
+  // when on), posted to the attached one when it changes; refused here, as an optional op, by a
+  // host whose HELLO did not list kPagePrintsHelloName. 1 when the attached host's HELLO listed it.
+  int SetPagePrints(int enabled) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    const bool on = enabled != 0;
+    const bool changed = on != page_prints_;
+    page_prints_ = on;
+    if (link_ != Link::kAttached) return 0;
+    if (changed) Route(PagePrintsMessage(on), std::nullopt);
+    return hello_ && HostHasExport(cmux_host::kPagePrintsHelloName) ? 1 : 0;
+  }
+
+  // kOpPagePrintEnd (host_print.h): 1 when sent. 0 for request 0, with no host attached or to a
+  // host without the hook: the request went with that host.
+  int PagePrintEnd(int64_t request) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (request == 0 || link_ != Link::kAttached) return 0;
+    TlvWriter args;
+    cmux_host::WritePagePrintEnd(request, &args);
+    return Post(cmux_host::kOpPagePrintEnd, 0, args) ? 1 : 0;
+  }
+
   // The region of the REPLY being delivered now (the caller owns it), -1 when none.
   int TakeReplyRegion() {
     CMUX_REMOTE_ASSERT_MAIN();
@@ -536,6 +562,12 @@ class Runtime {
     Message message;  // token: a verdict still to ask, 0 once asked
     bool keep = true;  // false: replaced while its verdict was unasked; sent once more, then dropped
   };
+
+  static Message PagePrintsMessage(bool enabled) {
+    TlvWriter args;
+    cmux_host::WritePagePrints(enabled, &args);
+    return MakeMessage(cmux_host::kOpPagePrints, 0, args.Take());
+  }
 
   static Message EnergySaverMessage(const cmux_host::EnergySaver& saver) {
     TlvWriter args;
@@ -832,6 +864,8 @@ class Runtime {
   std::unordered_set<std::string> host_exports_;
   // The app's last Energy Saver state (cmux_shim_set_energy_saver), for the whole session.
   std::optional<cmux_host::EnergySaver> energy_saver_;
+  // The app's last cmux_remote_shim_set_page_prints, for the whole session.
+  bool page_prints_ = false;
   std::unordered_map<uint16_t, void*> policies_;
   uint32_t token_ = 0;
   // The token of the latest PostForReply or answered PostPreinit (0: that call sent nothing).
@@ -969,6 +1003,14 @@ int cmux_remote_shim_print_to_pdf(int browser_id, double paper_width, double pap
 
 int cmux_remote_shim_take_reply_region(void) {
   return R().TakeReplyRegion();
+}
+
+int cmux_remote_shim_set_page_prints(int enabled) {
+  return R().SetPagePrints(enabled);
+}
+
+int cmux_remote_shim_page_print_end(int64_t request) {
+  return R().PagePrintEnd(request);
 }
 
 uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq) {

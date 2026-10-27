@@ -5309,6 +5309,12 @@
       "value": 56,
       "refreshes": [],
       "reason": "Host mode only (task 234): Chromium's ack of one of the page's non-momentum wheels, paired in order with the wheels the host sent (GestureScrollEventAck and DidOverscroll, the fork's cmux_set_wheel_ack_handler). request = the wheel frame's input seq, a = DIPs scrolled in hundredths (x low 32 bits, y high), b = flags (1 scroll update, 2 consumed, 4 overscrolled; overscroll-behavior-x in bits 8-9) low and overscroll x in hundredths high (HOST/src/host_wheel_ack.h). cmux's swipe navigation decides from it (CEFSwipeNavigation)."
+    },
+    {
+      "kind": "CMUX_SHIM_PAGE_PRINT",
+      "value": 61,
+      "refreshes": [],
+      "reason": "Host mode only (task 065), after cmux_remote_shim_set_page_prints(1): a print the page started (window.print(), Chromium's print command on the page) that the fork's cmux_set_print_request_handler stopped before Chromium's print preview opened. browser_id = the page, a = the request. cmux prints the page through kOpPrintToPdf and its print panel, then ends the request with kOpPagePrintEnd, which lets the page's window.print() return (HOST/src/host_print.h; ChromiumHostPagePrints)."
     }
   ],
   "host_mode_rewrites": [

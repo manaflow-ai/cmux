@@ -7,9 +7,9 @@ import WebKit
 /// sheet on the tab's window; Chromium opens its print preview over the page
 /// (`cmux_shim_print`), as the page's own window.print() does. In host mode
 /// with feature `chromiumHostPrint`, the Chromium Host prints the page to PDF
-/// and the same panel shows that PDF on the tab's window
-/// (``ChromiumHostPagePrints``, task p01-process-065): Chromium's preview would
-/// be a window of the host.
+/// and the same panel shows that PDF on the tab's window, for File > Print and
+/// for the page's own window.print() alike (``ChromiumHostPagePrints``, task
+/// p01-process-065): Chromium's preview would be a window of the host.
 public struct BrowserPagePrint {
     let tab: any BrowserTab
 

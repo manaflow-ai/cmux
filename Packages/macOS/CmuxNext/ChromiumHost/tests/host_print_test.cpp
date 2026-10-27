@@ -10,7 +10,15 @@
 //     cmux_remote_shim_print_to_pdf sends only to a host that prints, its REPLY reaches the
 //     reply callback under cmux_remote_shim_last_reply_token, the callback takes the PDF's
 //     sealed region with cmux_remote_shim_take_reply_region and reads the host's bytes, and a
-//     region the callback leaves is closed when it returns.
+//     region the callback leaves is closed when it returns;
+//   - a print the page starts (window.print()): kOpPagePrints installs the fork's print request
+//     handler (after initialize; only on a host whose HELLO lists kPagePrintsHelloName, which needs
+//     the hook and a printer), each request goes to cmux as CMUX_SHIM_PAGE_PRINT under cmux's id,
+//     kOpPagePrintEnd ends it in the fork once, and a request cmux cannot take (page prints off,
+//     past kMaxPagePrintRequests) ends at once; turning page prints off ends the waiting ones, and a
+//     closed page's request is forgotten; end to end, cmux_remote_shim_set_page_prints reaches the
+//     host and every later host of the session, the request reaches cmux's event callback, and
+//     cmux_remote_shim_page_print_end ends it in the fork.
 // Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -60,6 +68,32 @@ struct Shim {
   HostContext* host = nullptr;
   int live = 0;
 } shim;
+
+// The fork's print request hook: what the host installed, and the requests it ended.
+struct Fork {
+  PrintRequestFn fn = nullptr;
+  void* ctx = nullptr;
+  int sets = 0;
+  int set_result = 1;
+  std::vector<int64_t> ended;
+} fork;
+
+int FakeSetPrintRequestHandler(PrintRequestFn fn, void* ctx) {
+  ++fork.sets;
+  fork.fn = fn;
+  fork.ctx = ctx;
+  return fn ? fork.set_result : 1;
+}
+
+int FakeEndPrintRequest(int64_t request) {
+  fork.ended.push_back(request);
+  return 1;
+}
+
+// The fork asks for page `chromium_id`'s print `request` through the installed handler.
+void PageCallsPrint(int chromium_id, int64_t request) {
+  if (fork.fn) fork.fn(fork.ctx, chromium_id, request);
+}
 
 }  // namespace
 
@@ -179,7 +213,7 @@ struct Fixture {
   FakePrinter printer;
   std::unique_ptr<HostContext> host;
 
-  explicit Fixture(bool with_printer = true, bool initialize = true) {
+  explicit Fixture(bool with_printer = true, bool initialize = true, bool hook = false) {
     host = std::make_unique<HostContext>(
         [this](const Message& m) {
           sent.push_back(m);
@@ -190,7 +224,9 @@ struct Fixture {
         delegate, views, nullptr, nullptr);
     shim = Shim();
     shim.host = host.get();
+    fork = Fork();
     if (with_printer) host->SetPdfPrinter(&printer);
+    if (hook) host->SetPagePrintHook(&FakeSetPrintRequestHandler, &FakeEndPrintRequest);
     host->Attach();
     Writer hello;
     hello.Str(kWireID);
@@ -230,6 +266,20 @@ struct Fixture {
       if (m.op == kOpReply && m.reply && m.token == token) return &m;
     }
     return nullptr;
+  }
+  // The CMUX_SHIM_PAGE_PRINT events sent so far, as (browser, request).
+  std::vector<std::pair<int32_t, int64_t>> PagePrints() const {
+    std::vector<std::pair<int32_t, int64_t>> out;
+    for (const Message& m : sent) {
+      if (m.op != kOpEvent) continue;
+      control::TlvReader r(m.fields);
+      const int32_t kind = r.I32();
+      const int32_t browser = r.I32();
+      r.I32();
+      const int64_t a = r.I64();
+      if (r.ok() && kind == kEventPagePrint) out.emplace_back(browser, a);
+    }
+    return out;
   }
   // The reply's (printed, size); (-1, -1) when it is not that shape.
   static std::pair<int32_t, int64_t> Answer(const Message& reply) {
@@ -357,6 +407,155 @@ void DoneAfterTheHostOnlyCloses() {
   Check(!IsOpen(fd), "a PDF made after the host's context went is closed, nothing sent");
 }
 
+// --- prints the page starts -----------------------------------------------------------------
+
+std::vector<control::Field> PagePrintsFields(bool enabled) {
+  Writer w;
+  WritePagePrints(enabled, &w);
+  return w.Take();
+}
+
+std::vector<control::Field> EndFields(int64_t request) {
+  Writer w;
+  WritePagePrintEnd(request, &w);
+  return w.Take();
+}
+
+void PagePrintFieldsRoundTrip() {
+  Check(DecodePagePrints(PagePrintsFields(true)) == std::optional<bool>(true), "page prints on round-trips");
+  Check(DecodePagePrints(PagePrintsFields(false)) == std::optional<bool>(false), "and off");
+  std::vector<control::Field> two = PagePrintsFields(true);
+  two[1].integer = 2;
+  Check(!DecodePagePrints(two), "enabled is 0 or 1");
+  std::vector<control::Field> extra = PagePrintsFields(true);
+  extra.push_back(control::Field::I32(control::kTagValue, 1));
+  Check(!DecodePagePrints(extra), "version 1 with an extra field is refused");
+  extra[0].integer = 2;
+  Check(DecodePagePrints(extra) == std::optional<bool>(true), "a later version's appended field is left");
+  Check(DecodePagePrintEnd(EndFields(int64_t{1} << 40)) == std::optional<int64_t>(int64_t{1} << 40),
+        "an end round-trips its request");
+  Check(!DecodePagePrintEnd(EndFields(0)), "request 0 is refused");
+  std::vector<control::Field> zero = EndFields(5);
+  zero[0].integer = 0;
+  Check(!DecodePagePrintEnd(zero), "version 0 is refused");
+}
+
+void PagePrintRequestsAreBounded() {
+  PagePrintRequests requests;
+  Check(!requests.Add(0, kChromium), "request 0 is not kept");
+  Check(requests.Add(1, kChromium) && !requests.Add(1, kChromium), "a request is kept once");
+  for (int64_t r = 2; r <= static_cast<int64_t>(kMaxPagePrintRequests); ++r) requests.Add(r, 100 + static_cast<int>(r));
+  Check(requests.size() == kMaxPagePrintRequests, "kMaxPagePrintRequests wait");
+  Check(!requests.Add(1000, kChromium), "one past the bound is not kept");
+  requests.BrowserClosed(kChromium);
+  Check(requests.size() == kMaxPagePrintRequests - 1 && !requests.End(1), "a closed page's request is forgotten");
+  Check(requests.End(2) && !requests.End(2), "an end finds its request once");
+  Check(requests.TakeAll().size() == kMaxPagePrintRequests - 2 && requests.size() == 0, "TakeAll empties it");
+}
+
+void HelloSaysItTakesPagePrints() {
+  std::vector<Message> sent;
+  Delegate delegate;
+  Views views;
+  FakePrinter printer;
+  HostContext with([&sent](const Message& m) { sent.push_back(m); return true; }, delegate, views, nullptr, nullptr);
+  with.SetPdfPrinter(&printer);
+  with.SetPagePrintHook(&FakeSetPrintRequestHandler, &FakeEndPrintRequest);
+  with.Attach();
+  Check(Lists(HelloExports(sent), kPagePrintsHelloName), "the hook and a printer: the HELLO lists page prints");
+  sent.clear();
+  HostContext no_printer([&sent](const Message& m) { sent.push_back(m); return true; }, delegate, views, nullptr,
+                         nullptr);
+  no_printer.SetPagePrintHook(&FakeSetPrintRequestHandler, &FakeEndPrintRequest);
+  no_printer.Attach();
+  Check(!Lists(HelloExports(sent), kPagePrintsHelloName), "no printer: no page prints");
+  sent.clear();
+  HostContext no_end([&sent](const Message& m) { sent.push_back(m); return true; }, delegate, views, nullptr, nullptr);
+  no_end.SetPdfPrinter(&printer);
+  no_end.SetPagePrintHook(&FakeSetPrintRequestHandler, nullptr);
+  no_end.Attach();
+  Check(!Lists(HelloExports(sent), kPagePrintsHelloName), "half a hook: no page prints");
+}
+
+// window.print() of the page: to cmux under its id, ended in the fork when cmux ends it, once.
+void APagePrintGoesToCmuxAndEndsOnce() {
+  Fixture f(true, true, true);
+  PageCallsPrint(kChromium, 77);
+  Check(fork.sets == 0 && f.PagePrints().empty(), "until cmux asks, Chromium keeps its preview");
+  f.host->OnMessages({Op(kOpPagePrints, 0, PagePrintsFields(true))});
+  Check(fork.sets == 1 && fork.fn == &HostContext::OnPagePrint && fork.ctx == f.host.get(),
+        "the handler is installed");
+  PageCallsPrint(kChromium, 77);
+  Check(f.PagePrints() == std::vector<std::pair<int32_t, int64_t>>({{kMinted, 77}}), "cmux gets it under its id");
+  Check(fork.ended.empty() && f.host->page_prints_waiting() == 1, "the page waits for cmux");
+  f.host->OnMessages({Op(kOpPagePrints, 0, PagePrintsFields(true))});
+  Check(fork.sets == 1, "on again installs nothing more");
+  f.host->OnMessages({Op(kOpPagePrintEnd, 0, EndFields(77))});
+  Check(fork.ended == std::vector<int64_t>({77}), "cmux's end ends it in the fork");
+  f.host->OnMessages({Op(kOpPagePrintEnd, 0, EndFields(77))});
+  Check(fork.ended.size() == 1 && f.host->page_prints_waiting() == 0, "once");
+  Check(f.delegate.calls == std::vector<std::string>({"initialize"}), "no bad message");
+}
+
+void APagePrintCmuxCannotTakeEndsAtOnce() {
+  Fixture f(true, true, true);
+  f.host->OnMessages({Op(kOpPagePrints, 0, PagePrintsFields(true))});
+  for (int64_t r = 1; r <= static_cast<int64_t>(kMaxPagePrintRequests) + 1; ++r) PageCallsPrint(kChromium, r);
+  Check(f.PagePrints().size() == kMaxPagePrintRequests, "kMaxPagePrintRequests go to cmux");
+  Check(fork.ended == std::vector<int64_t>({static_cast<int64_t>(kMaxPagePrintRequests) + 1}),
+        "the one past the bound ends at once");
+  const PrintRequestFn handler = fork.fn;
+  void* ctx = fork.ctx;
+  fork.ended.clear();
+  f.host->OnMessages({Op(kOpPagePrints, 0, PagePrintsFields(false))});
+  Check(fork.fn == nullptr && fork.sets == 2, "off clears the handler");
+  Check(fork.ended.size() == kMaxPagePrintRequests && f.host->page_prints_waiting() == 0,
+        "and ends every waiting request");
+  fork.ended.clear();
+  handler(ctx, kChromium, 900);  // a request the fork made before it saw the handler go
+  Check(fork.ended == std::vector<int64_t>({900}) && f.PagePrints().size() == kMaxPagePrintRequests,
+        "a request after off ends at once, cmux never sees it");
+}
+
+void AClosedPagesRequestIsForgotten() {
+  Fixture f(true, true, true);
+  f.host->OnMessages({Op(kOpPagePrints, 0, PagePrintsFields(true))});
+  PageCallsPrint(kChromium, 5);
+  HostContext::OnShimEvent(f.host.get(), CMUX_SHIM_BEFORE_CLOSE, kChromium, 0, 0, 0, "", "");
+  Check(f.host->page_prints_waiting() == 0, "the page's close forgets its request");
+  f.host->OnMessages({Op(kOpPagePrintEnd, 0, EndFields(5))});
+  Check(fork.ended.empty(), "the fork ended it with the page: cmux's late end asks it nothing");
+}
+
+void PagePrintsWaitForInitialize() {
+  Fixture f(true, false, true);
+  f.host->OnMessages({Op(kOpPagePrints, 0, PagePrintsFields(true))});
+  Check(fork.sets == 0, "before initialize the handler waits");
+  f.Initialize();
+  Check(fork.sets == 1 && fork.fn != nullptr, "then it is installed");
+}
+
+void ARefusedHandlerSendsCmuxNothing() {
+  Fixture f(true, true, true);
+  fork.set_result = 0;
+  f.host->OnMessages({Op(kOpPagePrints, 0, PagePrintsFields(true))});
+  // A fork that refused never calls it; should it still, the request goes back to Chromium.
+  PageCallsPrint(kChromium, 9);
+  Check(f.PagePrints().empty() && fork.ended == std::vector<int64_t>({9}), "a refused handler sends cmux nothing");
+}
+
+void MalformedPagePrintOpsEndTheHost() {
+  Fixture f(true, true, true);
+  std::vector<control::Field> bad = PagePrintsFields(true);
+  bad[1].integer = 3;
+  f.host->OnMessages({Op(kOpPagePrints, 0, bad)});
+  Check(f.delegate.calls.size() == 2 && f.delegate.calls[1] == "bad a malformed page prints", "a bad enabled is bad");
+  Fixture g(true, true, true);
+  g.host->OnMessages({Op(kOpPagePrintEnd, 0, EndFields(0))});
+  Check(g.delegate.calls.size() == 2 && g.delegate.calls[1] == "bad a malformed page print end",
+        "an end of request 0 is bad");
+}
+
 // --- end to end with the real remote shim ---------------------------------------------------
 
 std::mutex queue_mutex;
@@ -394,6 +593,8 @@ struct Client {
   decltype(&cmux_remote_shim_last_reply_token) last_reply_token;
   decltype(&cmux_remote_shim_print_to_pdf) print_to_pdf;
   decltype(&cmux_remote_shim_take_reply_region) take_reply_region;
+  decltype(&cmux_remote_shim_set_page_prints) set_page_prints;
+  decltype(&cmux_remote_shim_page_print_end) page_print_end;
   decltype(&cmux_shim_initialize) initialize;
 };
 
@@ -420,6 +621,8 @@ Client LoadClient() {
   Bind(library, "cmux_remote_shim_last_reply_token", &c.last_reply_token);
   Bind(library, "cmux_remote_shim_print_to_pdf", &c.print_to_pdf);
   Bind(library, "cmux_remote_shim_take_reply_region", &c.take_reply_region);
+  Bind(library, "cmux_remote_shim_set_page_prints", &c.set_page_prints);
+  Bind(library, "cmux_remote_shim_page_print_end", &c.page_print_end);
   Bind(library, "cmux_shim_initialize", &c.initialize);
   return c;
 }
@@ -457,7 +660,11 @@ void OnReply(void*, uint32_t token, const void* fields, size_t length) {
 }
 
 void OnReady(void*) { ready = true; }
-void OnEvent(void*, int, int, int, int64_t, int64_t, const char*, const char*) {}
+// The CMUX_SHIM_PAGE_PRINT events cmux's event callback got, as (browser, request).
+std::vector<std::pair<int, int64_t>> page_print_events;
+void OnEvent(void*, int kind, int browser, int, int64_t a, int64_t, const char*, const char*) {
+  if (kind == kEventPagePrint) page_print_events.emplace_back(browser, a);
+}
 
 // One host (the real dispatcher, `printer` its printer or none) and the attached remote shim.
 struct World {
@@ -467,12 +674,15 @@ struct World {
   std::unique_ptr<control::Channel> channel;
   std::unique_ptr<HostContext> host;
 
-  explicit World(bool prints) {
+  explicit World(bool prints, bool hook = false) {
     host = std::make_unique<HostContext>([this](const Message& m) { return channel && channel->Send(m); }, delegate,
                                          views, nullptr, nullptr);
     shim = Shim();
     shim.host = host.get();
+    fork = Fork();
+    page_print_events.clear();
     if (prints) host->SetPdfPrinter(&printer);
+    if (hook) host->SetPagePrintHook(&FakeSetPrintRequestHandler, &FakeEndPrintRequest);
     ready = false;
     replies = Replies();
     delegate.resume = [this] { PostTask([this] { host->Resume(); }); };
@@ -539,6 +749,36 @@ void EndToEnd() {
   if (replies.tokens.size() == 3) Check(replies.printed[2] == 0 && replies.regions[2] == -1, "0, no region");
 }
 
+// A page's window.print() end to end: cmux turns page prints on, the fork's request reaches cmux's
+// event callback, cmux's end reaches the fork; a later host of the session gets page prints at its
+// attach, and a host without the hook is never asked.
+void PagePrintsEndToEnd() {
+  {
+    World world(true, true);
+    Check(client.set_page_prints(1) == 1, "a host with the hook takes page prints");
+    Check(PumpUntil([] { return fork.fn != nullptr; }), "the host installs the fork's handler");
+    PageCallsPrint(kChromium, 41);
+    Check(PumpUntil([] { return !page_print_events.empty(); }), "the page's print reaches cmux");
+    if (!page_print_events.empty()) {
+      Check(page_print_events[0] == std::make_pair(kChromium, int64_t{41}), "with the page and the request");
+    }
+    Check(client.page_print_end(41) == 1, "cmux ends it");
+    Check(PumpUntil([] { return !fork.ended.empty(); }) && fork.ended == std::vector<int64_t>({41}),
+          "the fork's request ends: the page's window.print() returns");
+    Check(client.page_print_end(0) == 0, "request 0 sends nothing");
+  }
+  {
+    World next(true, true);
+    Check(PumpUntil([] { return fork.fn != nullptr; }), "the session's next host gets page prints at its attach");
+  }
+  {
+    World without(true, false);
+    Check(client.set_page_prints(1) == 0, "a host without the hook does not take page prints");
+    Check(client.page_print_end(41) == 0, "nor an end");
+  }
+  client.set_page_prints(0);
+}
+
 void AHostThatDoesNotPrintIsNeverAsked() {
   World world(false);
   Check(client.print_to_pdf(kChromium, 8.5, 11) == 0 && client.last_reply_token() == 0,
@@ -556,6 +796,15 @@ int main() {
   MalformedEndsTheHost();
   WaitsForInitialize();
   DoneAfterTheHostOnlyCloses();
+  PagePrintFieldsRoundTrip();
+  PagePrintRequestsAreBounded();
+  HelloSaysItTakesPagePrints();
+  APagePrintGoesToCmuxAndEndsOnce();
+  APagePrintCmuxCannotTakeEndsAtOnce();
+  AClosedPagesRequestIsForgotten();
+  PagePrintsWaitForInitialize();
+  ARefusedHandlerSendsCmuxNothing();
+  MalformedPagePrintOpsEndTheHost();
   client = LoadClient();
   cmux_remote_shim_callbacks callbacks = {};
   callbacks.post_main = &PostMain;
@@ -563,6 +812,7 @@ int main() {
   client.configure(&callbacks);
   AHostThatDoesNotPrintIsNeverAsked();
   EndToEnd();
+  PagePrintsEndToEnd();
   if (failures != 0) {
     std::fprintf(stderr, "%d failure(s)\n", failures);
     return 1;
