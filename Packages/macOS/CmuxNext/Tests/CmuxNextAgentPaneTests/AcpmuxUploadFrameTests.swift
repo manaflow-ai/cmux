@@ -154,7 +154,10 @@ struct AcpmuxUploadFrameTests {
             lastID.withLock { $0 = object?["id"] as? Int ?? 0 }
             completion(true)
             onSend()
-            if !holdReply { reply() }
+            if object?["method"] as? String == "_acpmux/file_put_begin" {
+                let id = lastID.withLock { $0 }
+                incoming.withLock { $0 }?(#"{"id":\#(id),"result":{"uploadId":"u","offset":0}}"#)
+            } else if !holdReply || object?["method"] as? String == "_acpmux/file_put_cancel" { reply() }
         }
         func reply() {
             let id = lastID.withLock { $0 }

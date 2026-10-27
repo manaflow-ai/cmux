@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxNextPagesTestSupport
 @testable import CmuxNextAgentPane
 
 /// The send ticket an upload holds (``AgentPaneUploadSendTicket``): a file of any size, uploaded
@@ -57,6 +58,39 @@ struct AgentPaneUploadSendTicketTests {
         #expect(AgentPaneGestureIntent(gestureParams: mode) == nil, "a mode pick took a chat binding")
         let number: [String: Any] = ["intent": ["method": "session/prompt", "params": ["promptId": "p-1", "sessionId": 7]]]
         #expect(AgentPaneGestureIntent(gestureParams: number) == nil)
+    }
+
+    @Test func nativeUploadRevocationStopsAnUnacknowledgedChunk() async throws {
+        let sent = AsyncStream<Void>.makeStream()
+        let wire = AcpmuxUploadFrameTests.UploadWire(holdReply: true, onSend: { sent.continuation.yield() })
+        let transport = AgentPaneTransport()
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s-1", transport: transport)
+        let socket = AcpmuxPaneSocket(request: URLRequest(url: URL(string: "ws://127.0.0.1")!),
+            wire: wire, limits: transport.limits, options: transport.permissionOptions,
+            sessions: transport.sessions, ids: AcpmuxRequestIds(), signal: {})
+        try await socket.start(timeout: 1)
+        transport.socket = socket
+        transport.current = 1
+        transport.uploadOriginAllowed = true
+        let handler = try #require(AgentPaneView.chromiumUploadHandler(for: model))
+        transport.gestures.record()
+        let ticket = try #require(transport.reserveGesture(intent()))
+        let params: [String: Any] = ["token": "t", "name": "x", "type": "text/plain", "size": 1,
+                                     "sessionId": "s-1", "promptId": "p-1", "ticket": ticket]
+        let chunks = AsyncThrowingStream<Data, any Error> { $0.yield(Data([1])); $0.finish() }
+        let upload = Task { await handler(FakeChromiumPage(), 9, params, chunks) }
+        var events = sent.stream.makeAsyncIterator()
+        _ = await events.next()
+        _ = await events.next()
+        let stopped: Bool? = await PageTestWait.value("upload revocation") { done in
+            Task { done((await upload.value)?["ok"] as? Bool == false) }
+            transport.gestures.clearTickets()
+        }
+        #expect(stopped == true, "revocation waited for the chunk ACK")
+        wire.reply() // A late response must neither resume twice nor authorize the prompt.
+        _ = await upload.value
+        #expect(transport.gestures.ticketCount == 0)
+        socket.close(code: 1000, reason: "", error: nil)
     }
 
     @Test func nativeUploadRequestRequiresTheSendTicket() {
