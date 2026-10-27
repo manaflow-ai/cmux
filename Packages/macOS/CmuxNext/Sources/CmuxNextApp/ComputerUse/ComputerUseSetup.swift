@@ -106,10 +106,9 @@ final class ComputerUseSetup {
          read: @escaping @Sendable (AgentActivitySocketSource.Configuration) async -> Read = { await ComputerUseSetup.socketRead($0) },
          resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.signedHelper,
          openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
-         requestGrant: @escaping @Sendable (AgentActivitySocketSource.Configuration, ComputerUsePermissionPane) async -> Void = {
-             await ComputerUseSetup.socketRequestGrant($0, $1)
-         },
-         restartHelper: @escaping @MainActor () async -> Void = {},
+         requestGrant: @escaping @Sendable (AgentActivitySocketSource.Configuration, ComputerUsePermissionPane) async -> Void
+             = ComputerUseSetup.socketRequestGrant,
+         restartHelper: @escaping @MainActor () async -> Void = ComputerUseSetup.noHelperRestart,
          requestPermission: @escaping @MainActor (ComputerUsePermissionPane) -> Void = { _ in },
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
@@ -220,11 +219,15 @@ final class ComputerUseSetup {
         pane == .screenRecording && accessibility && phase == .ready && driver == .legacy
     }
 
+    /// No helper to restart (tests, and setups built without one). A named function, not a
+    /// closure literal: an async closure default argument is a crash class (crash_ratchet).
+    static func noHelperRestart() async {}
+
     /// One `request_system_permission` to the helper with the host token.
     /// It answers at once and raises the prompt itself; a refusal (an older
     /// helper) only means no prompt.
-    static func socketRequestGrant(_ configuration: AgentActivitySocketSource.Configuration,
-                                   _ pane: ComputerUsePermissionPane) async {
+    nonisolated static func socketRequestGrant(_ configuration: AgentActivitySocketSource.Configuration,
+                                               _ pane: ComputerUsePermissionPane) async {
         let name = switch pane {
         case .accessibility: "accessibility"
         case .screenRecording: "screen_recording"
