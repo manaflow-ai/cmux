@@ -53,7 +53,7 @@ final class LineTransport: Sendable {
 
     /// The transport's routing state (LineTransport+State.swift); the reader's routing reads it
     /// (LineTransport+Route.swift).
-    let state = Mutex(State())
+    let state = Mutex(State(), rank: .daemonLineTransportState)
     private let socket: Mutex<Socket>
     /// Nonblocking, ordered writes (never parks the calling actor's thread); frames go out by ``sendFrame(_:priority:)``.
     let writer: SocketWriter
@@ -110,7 +110,7 @@ final class LineTransport: Sendable {
             child = nil
         }
         Self.sizeBuffers(fd)
-        socket = Mutex(Socket(fd: fd))
+        socket = Mutex(Socket(fd: fd), rank: .daemonLineTransportSocket)
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget,
                               limit: writerLimit, hangs: hangs)
         recorder?.connectionOpened(role, bridged: opened != nil)

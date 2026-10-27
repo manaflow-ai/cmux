@@ -107,9 +107,9 @@ extension AppServices {
     func startHibernationMeasurements() {
         memoryFootprints.start()
         if features.isEnabled(.occludedWindowDiscard), let hibernation = cache.hibernation {
-            hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
+            hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }, workspaceEvents: workspaceEvents, mainWork: mainWork))
         }
-        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies() }
+        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies(workspaceEvents: workspaceEvents, mainWork: mainWork) }
     }
 
     /// Each tab script opened with a live `window.opener` and its opener, by key (`BrowserScriptOpeners`): the opener groups'

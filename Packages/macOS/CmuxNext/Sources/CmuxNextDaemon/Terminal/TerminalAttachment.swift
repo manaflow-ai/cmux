@@ -84,7 +84,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// A class box, so the reader thread's closure can share the mutex (a `Mutex` cannot be copied).
     final class ControlBox: Sendable {
         let value: Mutex<Control>
-        init(input: InputPath) { value = Mutex(Control(input: input)) }
+        init(input: InputPath) { value = Mutex(Control(input: input), rank: .daemonTerminalAttachmentControl) }
     }
 
     private nonisolated var control: ControlBox { sink.control }
