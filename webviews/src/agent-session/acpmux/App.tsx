@@ -7576,14 +7576,28 @@ function AcpmuxPane() {
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
           "chat.handoff.start": async ({ review }) => {
-            const receipt = await client.startHandoff(review as HandoffReviewInput);
+            // Capture the source before starting: a failed target start must return to the
+            // conversation that the person forked, rather than leaving the unprompted target
+            // selected in this pane. The source remains a live daemon session throughout.
             const source = client.handoff.state.record?.source.sessionId;
-            const target = receipt?.targetSessionId;
-            if (!target || !source || client.selectedSession !== target) return receipt;
-            if (await openOwnTab(target)) {
-              if (client.selectedSession === target) await persistSession(await client.select(source));
-            } else await persistSession(target);
-            return receipt;
+            try {
+              const receipt = await client.startHandoff(review as HandoffReviewInput);
+              const target = receipt?.targetSessionId;
+              if (!target || !source || client.selectedSession !== target) return receipt;
+              if (await openOwnTab(target)) {
+                if (client.selectedSession === target) await persistSession(await client.select(source));
+              } else await persistSession(target);
+              return receipt;
+            } catch (error) {
+              if (source && client.selectedSession !== source) {
+                // A draft target has never received a prompt, so discard it and select the
+                // source. If delivery was uncertain, discard refuses and the source is still
+                // selected explicitly; the target remains recoverable by its handoff record.
+                await client.discardHandoff().catch(() => client.select(source));
+                await persistSession(source);
+              }
+              throw error;
+            }
           },
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope, paths, context_lines }) =>
