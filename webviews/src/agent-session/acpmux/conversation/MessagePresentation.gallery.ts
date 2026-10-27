@@ -99,6 +99,21 @@ const snapshot = chat(
     ],
   },
 );
+const receivedPullRequests = chat(
+  [
+    activity(
+      [
+        tool("Bash", "execute", "completed", {
+          command: "gh pr create --title 'Keep transcript actions compact' --body reviewed",
+          output: "https://github.com/example/transcript/pull/41",
+        }),
+      ],
+      5,
+    ),
+    { ...received, steer: undefined, steerPromptId: undefined },
+  ],
+  { sessions: snapshot.sessions },
+);
 
 const openReceived: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="user-12"] .cv-received__toggle'));
@@ -138,6 +153,10 @@ export default agentPaneEntry({
       note: "The selected strip opens to unboxed Markdown while the sender and actions keep their positions.",
       snapshot,
       play: openReceived,
+    },
+    "received-pr-links": {
+      note: "The received row keeps PR links in its own flex line, beside the independently grouped icon buttons.",
+      snapshot: receivedPullRequests,
     },
     "meaning-expanded": {
       note: "One renderer in both directions: recorded file content opens as Markdown, with its shell command kept behind Raw. The review command stays Bash.",

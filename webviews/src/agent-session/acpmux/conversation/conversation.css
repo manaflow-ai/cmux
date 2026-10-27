@@ -2297,13 +2297,6 @@ button.cv-received__name:focus-visible {
 .cv-received__line > .cv-received-actions {
   margin-inline-start: 0;
 }
-.cv-received__actions {
-  display: inline-flex;
-  flex: none;
-}
-.cv-received__actions > .cv-received-actions {
-  margin-inline-start: 0;
-}
 /* Expanded message text shares the transcript's glass instead of adding another boxed bubble. */
 .cv-received__body {
   box-sizing: border-box;

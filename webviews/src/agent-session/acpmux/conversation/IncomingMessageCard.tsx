@@ -34,7 +34,6 @@ import { AgentMessageBody } from "./AgentMessageBody";
 import { AgentMark } from "../../shared/AgentMark";
 import { useSenderIdentity, useSenderPlace } from "../subagents/subsessions";
 import { SenderIdentityLabel } from "../SenderIdentityLabel";
-import { MessageActionRow } from "./MessageActionRow";
 import { useAgentAvatar } from "../agentAvatar";
 import "../subagents/AgentCard.css";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
@@ -313,7 +312,7 @@ export function IncomingMessageLine({
             {status}
           </span>
         )}
-        {actions && <MessageActionRow className="cv-received__actions">{actions}</MessageActionRow>}
+        {actions}
       </div>
       {collapse.present && (
         <div {...collapse.bodyProps}>

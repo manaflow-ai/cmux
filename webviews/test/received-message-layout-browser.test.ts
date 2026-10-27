@@ -59,6 +59,40 @@ await requireBrowserLane("received-message-layout-browser.test.ts", async () => 
 
   for (const colorScheme of ["dark", "light"] as const) {
     for (const width of [760, 360]) {
+      test(`received PR links share the row's flex space at ${width}px in ${colorScheme}`, async () => {
+        const page = await open(width, colorScheme, "received-pr-links");
+        try {
+          const received = page.locator('[data-row-id="user-12"] .cv-received');
+          const dock = received.locator(".acpmux-pr-dock");
+          await dock.waitFor();
+          const layout = await dock.evaluate((node) => {
+            const line = node.closest(".cv-received__line")!;
+            const buttons = line.querySelector(".cv-received-actions")!;
+            const box = node.getBoundingClientRect();
+            const rowBox = line.getBoundingClientRect();
+            const buttonsBox = buttons.getBoundingClientRect();
+            return {
+              direct: node.parentElement === line,
+              buttonsDirect: buttons.parentElement === line,
+              overhang: box.right - rowBox.right,
+              overlap:
+                Math.max(0, Math.min(box.right, buttonsBox.right) - Math.max(box.left, buttonsBox.left)) *
+                Math.max(0, Math.min(box.bottom, buttonsBox.bottom) - Math.max(box.top, buttonsBox.top)),
+              flexShrink: getComputedStyle(node).flexShrink,
+            };
+          });
+          await capture(page, `received-pr-links-${width}-${colorScheme}`);
+          expect(layout.direct).toBe(true);
+          expect(layout.buttonsDirect).toBe(true);
+          expect(layout.flexShrink).toBe("1");
+          expect(layout.overhang).toBeLessThanOrEqual(0.5);
+          expect(layout.overlap).toBeLessThanOrEqual(0.5);
+        } finally {
+          await page.close();
+        }
+      });
+    }
+    for (const width of [760, 360]) {
       test(`received and queued strips keep text clear of actions at ${width}px in ${colorScheme}`, async () => {
         const page = await open(width, colorScheme);
         const queued = page.locator("[data-queued-message]").first();
@@ -168,13 +202,15 @@ await requireBrowserLane("received-message-layout-browser.test.ts", async () => 
             .evaluate((node) => getComputedStyle(node).opacity),
         ).toBe("1");
         await capture(page, `pin-hover-${colorScheme}`);
-        const actionGaps = await received.locator(".cv-received__actions").evaluate((actions) => {
-          const boxes = [...actions.querySelectorAll("button.cv-iconbtn")]
-            .map((button) => button.getBoundingClientRect())
-            .filter((box) => box.width > 0);
-          return boxes.slice(1).map((box, index) => box.left - boxes[index]!.right);
-        });
-        for (const gap of actionGaps) expect(Math.abs(gap)).toBeLessThanOrEqual(0.5);
+        for (const actions of await received.locator(".cv-received-actions").all()) {
+          const actionGaps = await actions.evaluate((group) => {
+            const boxes = [...group.querySelectorAll("button.cv-iconbtn")]
+              .map((button) => button.getBoundingClientRect())
+              .filter((box) => box.width > 0);
+            return boxes.slice(1).map((box, index) => box.left - boxes[index]!.right);
+          });
+          for (const gap of actionGaps) expect(Math.abs(gap)).toBeLessThanOrEqual(0.5);
+        }
         await received.locator('[data-menu="queued-message"]').click();
         await page.getByRole("menuitem", { name: "Send now", exact: true }).waitFor();
         await page.mouse.move(12, 12);
