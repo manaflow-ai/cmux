@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Behavioral tests for scripts/ci/download-run-artifact.py's ranged download.
 
-A local HTTP server serves one blob by byte range and can stall, reset or
-throttle chosen requests, so the tests check that a stalled range fails within
-the read timeout, resumes from the byte it reached against a fresh URL, backs
-off connections on throttling, and gives up on a round with no progress.
+A local HTTP server serves one blob by byte range and can stall, trickle,
+overrun, reset or throttle chosen requests. The tests check outcomes, not wall
+time: a stalled or trickling server holds its response open until the test
+ends, for far longer than the download is allowed to wait, so a download that
+returns at all was ended by its read timeout or deadline.
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ import os
 import socket
 import tempfile
 import threading
-import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -39,6 +39,7 @@ class BlobServer:
         self.requests: list[tuple[str, int, int]] = []
         self.lock = threading.Lock()
         self.release = threading.Event()
+        self.held_open: set[int] = set()
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -64,7 +65,10 @@ class BlobServer:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 if action == "trickle":
-                    # One byte every 0.5 s: never idle for a read timeout, never done.
+                    # One byte every 0.5 s until the test ends: never idle for a
+                    # read timeout, never done.
+                    with server.lock:
+                        server.held_open.add(index)
                     try:
                         for i in range(len(body)):
                             if server.release.wait(0.5):
@@ -74,12 +78,19 @@ class BlobServer:
                     except OSError:
                         pass
                     return
-                if action in ("stall", "reset", "reset-small"):
-                    half = 1024 if action == "reset-small" else len(body) // 2
+                if action in ("stall", "reset", "cut"):
+                    half = 1024 if action == "cut" else len(body) // 2
                     self.wfile.write(body[:half])
                     self.wfile.flush()
+                    if action == "cut":
+                        # A clean close mid-body: the client keeps what arrived.
+                        self.close_connection = True
+                        return
                     if action == "stall":
-                        server.release.wait(30)
+                        # Held open until the test ends.
+                        with server.lock:
+                            server.held_open.add(index)
+                        server.release.wait()
                     else:
                         self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, b"\x01\x00\x00\x00\x00\x00\x00\x00")
                     self.connection.close()
@@ -109,16 +120,16 @@ class DownloadTests(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         dest = os.path.join(tmp, "artifact.zip")
         artifact = {"size_in_bytes": len(BLOB), "archive_download_url": "unused"}
-        started = time.monotonic()
         error = None
         try:
             module.download(artifact, "token", dest, connections, read_timeout, deadline,
                             resolve_url=server.resolve, piece=piece)
         except SystemExit as exit_error:
             error = exit_error
-        elapsed = time.monotonic() - started
         data = Path(dest).read_bytes()
-        return server, data, elapsed, error
+        # The server's stalled responses were still open when download returned.
+        self.assertFalse(server.release.is_set())
+        return server, data, error
 
     def test_plan_ranges_covers_blob_with_pieces_and_one_per_connection(self) -> None:
         for size, connections, piece in [(len(BLOB), 4, 256 * 1024), (12_058_211, 16, 8 << 20), (1, 32, 8 << 20)]:
@@ -133,17 +144,17 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(len(module.plan_ranges(293_091_186, 32, 8 << 20)), 35)
 
     def test_clean_download_matches_blob(self) -> None:
-        server, data, _, error = self.run_download(lambda index, lo: "ok")
+        server, data, error = self.run_download(lambda index, lo: "ok")
         self.assertIsNone(error)
         self.assertEqual(hashlib.sha256(data).digest(), hashlib.sha256(BLOB).digest())
         self.assertEqual(server.resolved, 1)
 
     def test_stalled_range_times_out_fast_and_resumes_with_fresh_url(self) -> None:
-        server, data, elapsed, error = self.run_download(
+        server, data, error = self.run_download(
             lambda index, lo: "stall" if index == 0 else "ok", read_timeout=1.0)
         self.assertIsNone(error)
         self.assertEqual(data, BLOB)
-        self.assertLess(elapsed, 15, "a stalled range must fail within the read timeout, not minutes")
+        self.assertEqual(server.held_open, {0}, "the download finished while the stalled response was still open")
         self.assertEqual(server.resolved, 2, "the retry must use a freshly signed URL")
         first = server.requests[0]
         retry = [r for r in server.requests if r[0].endswith("sig=2")]
@@ -171,7 +182,7 @@ class DownloadTests(unittest.TestCase):
                 return "429"
             return "ok"
 
-        server, data, _, error = self.run_download(behave, connections=8)
+        server, data, error = self.run_download(behave, connections=8)
         self.assertIsNone(error)
         self.assertEqual(data, BLOB)
         self.assertEqual(sizes[0], 8)
@@ -182,44 +193,47 @@ class DownloadTests(unittest.TestCase):
         self.assertTrue(module.is_throttle(socket.timeout()))
         self.assertFalse(module.is_throttle(OSError("range 0-1: HTTP 200, expected 206")))
 
-    def test_round_without_progress_gives_up_quickly(self) -> None:
-        server, _, elapsed, error = self.run_download(lambda index, lo: "429", read_timeout=1.0)
+    def test_round_without_progress_gives_up_after_one_round(self) -> None:
+        server, _, error = self.run_download(lambda index, lo: "429", read_timeout=1.0)
         self.assertIsNotNone(error)
         self.assertIn("unfinished after 1 round", str(error))
-        self.assertLess(elapsed, 15)
+        self.assertEqual(len(server.requests), len(module.plan_ranges(len(BLOB), 4, 256 * 1024)))
+        self.assertEqual(server.resolved, 1, "no retry after a round with no progress")
 
     def test_deadline_ends_a_stalled_download(self) -> None:
-        server, _, elapsed, error = self.run_download(
-            lambda index, lo: "stall", read_timeout=30.0, deadline=2.0)
+        # The read timeout is an hour and the server never finishes, so only
+        # the 2 s deadline, bounding each read, lets the download return.
+        server, _, error = self.run_download(
+            lambda index, lo: "stall", read_timeout=3600.0, deadline=2.0)
         self.assertIsNotNone(error)
-        self.assertLess(elapsed, 12, "no read may outlive the deadline")
+        self.assertEqual(len(server.held_open), 4)
 
     def test_deadline_ends_a_trickling_download(self) -> None:
-        # Each read gets a byte well inside the 30 s read timeout, so only a
-        # deadline re-armed before every read can stop it.
-        server, _, elapsed, error = self.run_download(
-            lambda index, lo: "trickle", connections=2, read_timeout=30.0, deadline=3.0)
+        # Each read gets a byte well inside the hour-long read timeout, so only
+        # a deadline re-armed before every read can stop it.
+        server, _, error = self.run_download(
+            lambda index, lo: "trickle", connections=2, read_timeout=3600.0, deadline=3.0)
         self.assertIsNotNone(error)
-        self.assertLess(elapsed, 15, "the deadline must bound a range that keeps sending")
+        self.assertTrue(server.held_open)
 
     def test_overrun_never_writes_outside_its_range(self) -> None:
-        server, data, _, error = self.run_download(lambda index, lo: "overrun" if index == 0 else "ok")
+        server, data, error = self.run_download(lambda index, lo: "overrun" if index == 0 else "ok")
         self.assertIsNone(error)
         self.assertEqual(data, BLOB)
         self.assertEqual(len(data), len(BLOB))
 
     def test_progress_keeps_retrying_past_ten_rounds(self) -> None:
-        # One range resets after 1 KiB on each of its first twelve requests.
+        # One range is cut off after 1 KiB on each of its first twelve requests.
         seen = {"n": 0}
 
         def behave(index, lo):
             if lo >= 256 * 1024:
                 return "ok"
             seen["n"] += 1
-            return "reset-small" if seen["n"] <= 12 else "ok"
+            return "cut" if seen["n"] <= 12 else "ok"
 
         with patch.object(module.time, "sleep", lambda seconds: None):
-            server, data, _, error = self.run_download(behave, connections=1, deadline=120.0)
+            server, data, error = self.run_download(behave, connections=1, deadline=120.0)
         self.assertIsNone(error)
         self.assertEqual(data, BLOB)
         self.assertGreater(seen["n"], 12)
