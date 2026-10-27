@@ -7,7 +7,7 @@ import Testing
 /// The GitHub poll is a repeating background activity (`NSBackgroundActivityScheduler` in the app,
 /// a fake here, p14-energy-066b): a refresh at start, one per run of the activity, a new activity on a
 /// new interval, and a stop that also stops the refresh that is running. Under Energy Saver the
-/// activity runs every four intervals, and while no window shows it is invalidated (p14-energy-032).
+/// activity runs every four intervals, and while no feed surface shows it is invalidated (p14-energy-032).
 @MainActor
 @Suite struct GitHubFeedSourcePollTests {
     /// Answers notification `n` (ETag `n-<n>`) to the n-th call, records each call's ETag, and
@@ -86,7 +86,7 @@ import Testing
         let deadlines: MainDeadlineRig
         let source: GitHubFeedSource
 
-        init(energy: EnergyPolicySource = EnergyPolicySource(), shown: ShownWindows? = nil) {
+        init(energy: EnergyPolicySource = EnergyPolicySource(), surfaces: ShownWindows? = nil) {
             let (calls, started) = AsyncStream.makeStream(of: Int.self)
             let clock = ManualClock()
             let owner = Owner()
@@ -103,7 +103,7 @@ import Testing
             self.deadlines = deadlines
             let intents = MainIntentBackgroundActivities(activities: activities) { _, intent in await posted.append(intent) }
             source = GitHubFeedSource(owner: owner, client: Client(script: script), interval: .seconds(120),
-                                      energy: energy, shown: shown, activities: intents,
+                                      energy: energy, surfaces: surfaces, activities: intents,
                                       activityIdentifier: GitHubFeedSource.refreshActivityIdentifier(bundleID: "com.cmuxterm.app.next.test"),
                                       deadlines: deadlines.deadlines, clock: clock)
         }
@@ -224,6 +224,67 @@ import Testing
         rig.source.stop()
     }
 
+    /// A run posted before a hide reaches the main thread after the show that followed: the show
+    /// scheduled a new activity, and the old one's intent starts no second refresh. Nor does one
+    /// posted before an Energy Saver edge scheduled the activity anew.
+    @Test(.timeLimit(.minutes(1))) func aRunOfAReplacedActivityStartsNoRefreshAfterAShow() async throws {
+        let shown = ShownWindows()
+        let window = VisibilityNode(root: "window", own: .visible)
+        shown.track(window)
+        let energy = EnergyPolicySource()
+        let rig = Rig(energy: energy, surfaces: shown)
+        rig.source.start()
+        #expect(await rig.nextCall() == 1)
+        await rig.settle()
+        #expect(await rig.activities.fire() == 1, "the activity's run did not post before the hide")
+
+        window.set(.hidden)
+        rig.advance(by: .seconds(600))
+        window.set(.visible)
+        #expect(await rig.nextCall() == 2, "a show past the interval refreshes at once")
+        await rig.settle()
+        let settled = rig.source.runner
+        #expect(rig.posted.run() == 1)
+        #expect(rig.source.runner == settled, "the hidden activity's run refreshed again after the show")
+        #expect(await rig.script.notificationETags.count == 2)
+
+        #expect(await rig.activities.fire() == 1, "the shown activity's run did not post before the saver edge")
+        energy.update(EnergyPolicy(saverReason: .battery))
+        #expect(rig.schedule == [.seconds(480), .seconds(120)])
+        #expect(rig.posted.run() == 1)
+        #expect(rig.source.runner == settled, "the run of the activity the saver replaced refreshed")
+        #expect(await rig.script.notificationETags.count == 2)
+        rig.source.stop()
+    }
+
+    /// The poll follows the feed's own surfaces, not the window: with the window shown and the feed's
+    /// node hidden (no feed tab, panel or sidebar section shows) the activity is invalidated, and the
+    /// feed showing again past the interval refreshes once and schedules it.
+    @Test(.timeLimit(.minutes(1))) func aHiddenFeedSurfaceInAShownWindowInvalidatesTheActivity() async throws {
+        let surfaces = ShownWindows()
+        let window = VisibilityNode(root: "window", own: .visible)
+        let feed = VisibilityNode("feed:sidebar", own: .visible, parent: window)
+        surfaces.track(feed)
+        let rig = Rig(surfaces: surfaces)
+        rig.source.start()
+        #expect(await rig.nextCall() == 1)
+        await rig.settle()
+        #expect(rig.schedule == [.seconds(120), .seconds(30)])
+
+        feed.set(.hidden)
+        #expect(window.isVisible)
+        #expect(rig.activities.live.isEmpty, "a shown window with no feed kept the poll activity")
+        rig.advance(by: .seconds(600))
+        #expect(await rig.script.notificationETags.count == 1, "a refresh ran while no feed showed")
+
+        feed.set(.visible)
+        #expect(await rig.nextCall() == 2, "a feed showing past the interval did not refresh at once")
+        await rig.settle()
+        #expect(rig.schedule == [.seconds(120), .seconds(30)])
+        #expect(await rig.script.notificationETags.count == 2, "a feed show refreshed more than once")
+        rig.source.stop()
+    }
+
     // MARK: p14-energy-032, 066b
 
     /// Under Energy Saver the activity runs every four intervals, and the saver's edges schedule it anew.
@@ -253,7 +314,7 @@ import Testing
         let shown = ShownWindows()
         let window = VisibilityNode(root: "window", own: .visible)
         shown.track(window)
-        let rig = Rig(shown: shown)
+        let rig = Rig(surfaces: shown)
         rig.source.start()
         #expect(await rig.nextCall() == 1)
         await rig.settle()
@@ -307,7 +368,7 @@ import Testing
         let shown = ShownWindows()
         let window = VisibilityNode(root: "window", own: .visible)
         shown.track(window)
-        let rig = Rig(energy: energy, shown: shown)
+        let rig = Rig(energy: energy, surfaces: shown)
         rig.source.start()
         #expect(await rig.nextCall() == 1)
         await rig.settle()
@@ -333,7 +394,7 @@ import Testing
         let shown = ShownWindows()
         let window = VisibilityNode(root: "window", own: .hidden)
         shown.track(window)
-        let rig = Rig(shown: shown)
+        let rig = Rig(surfaces: shown)
         rig.source.start()
         #expect(rig.source.runner == nil, "a hidden start refreshed")
         #expect(rig.activities.scheduled.isEmpty, "a hidden start scheduled the activity")
@@ -350,7 +411,7 @@ import Testing
         let shown = ShownWindows()
         let window = VisibilityNode(root: "window", own: .visible)
         shown.track(window)
-        let rig = Rig(shown: shown)
+        let rig = Rig(surfaces: shown)
         rig.source.start()
         #expect(await rig.nextCall() == 1)
         await rig.settle()

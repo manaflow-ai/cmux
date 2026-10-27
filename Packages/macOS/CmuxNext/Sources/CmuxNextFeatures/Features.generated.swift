@@ -538,12 +538,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due.
+    /// The GitHub feed poll books no next run while no feed surface (page tab, panel, sidebar section) shows, and the web-updates check none while no cmux window shows; each runs once when it shows again if one came due.
     public static let hiddenPollPause = Feature(
         index: 31,
         name: "hiddenPollPause",
         owner: "Performance Lead",
-        description: "The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due.",
+        description: "The GitHub feed poll books no next run while no feed surface (page tab, panel, sidebar section) shows, and the web-updates check none while no cmux window shows; each runs once when it shows again if one came due.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

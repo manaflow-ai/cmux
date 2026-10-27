@@ -9,7 +9,9 @@
 ///
 /// The app's visibility root owns one and tracks each window's node when the window is made. A
 /// closed window's node detaches (it flips to hidden); a released node is dropped at the next
-/// ``track(_:)``. Tests make their own over root nodes.
+/// ``track(_:)``. Tests make their own over root nodes. It counts any nodes it tracks: the feed keeps
+/// one over its surfaces' nodes (page tabs, panel, sidebar sections), so its GitHub poll stops while a
+/// window shows no feed.
 ///
 /// ```swift
 /// let shown = ShownWindows()

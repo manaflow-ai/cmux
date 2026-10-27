@@ -57,6 +57,7 @@ final class FeedPageService: InternalPageProvider {
             // The process runs off the main thread, to its exit or deadline (AcpmuxReplySender).
             await replies.send(session: reply.session, text: reply.text, promptID: reply.promptID, environment: environment)
         }
+        feed.track(host)
         hosts[key] = host
         return host
     }

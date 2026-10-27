@@ -58,7 +58,7 @@ extension AppServices {
     /// (``feedIfBuilt`` stays nil until then) with the `feed.github` setting already applied.
     var feed: FeedService {
         if let feedIfBuilt { return feedIfBuilt }
-        let feed = FeedService(auth: cloudAuth, deadlines: mainDeadlines, work: work, appEvents: appEvents, workspaceEvents: workspaceEvents, energy: mainWork.energy, shown: features.isEnabled(.hiddenPollPause) ? appVisibility.shownWindows : nil, bundleID: environment.launch.bundleID, showcase: environment.showcase, acpmuxEnvironment: QuitAgents.environment(self))
+        let feed = FeedService(auth: cloudAuth, deadlines: mainDeadlines, work: work, appEvents: appEvents, workspaceEvents: workspaceEvents, energy: mainWork.energy, pausesHiddenPoll: features.isEnabled(.hiddenPollPause), bundleID: environment.launch.bundleID, showcase: environment.showcase, acpmuxEnvironment: QuitAgents.environment(self))
         feedIfBuilt = feed
         if let feedGitHub { feed.configureGitHub(enabled: feedGitHub.enabled, pollIntervalSeconds: feedGitHub.pollIntervalSeconds) }
         return feed

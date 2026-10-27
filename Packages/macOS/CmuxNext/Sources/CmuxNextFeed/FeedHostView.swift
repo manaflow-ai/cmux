@@ -33,6 +33,12 @@ public final class FeedHostView: NSView, VisibilityGatedContent {
     /// tab's node drives it; the panel and the sidebar section never follow one.
     public var visibilityGate: VisibilityGatedHostingView? { gate }
 
+    /// This host in the visibility tree (recipe R-hide, ``ViewVisibility``): under its window's node,
+    /// hidden while the host is hidden or in no window. The app polls GitHub only while one feed host's
+    /// node is visible (p14-energy-066b).
+    private let visibility: ViewVisibility
+    public var visibilityNode: VisibilityNode { visibility.node }
+
     /// - Parameters:
     ///   - model: The feed.
     ///   - layoutOverride: Pins a prototype (demos and screenshots); nil follows the Debug Settings switch `feed.layout`.
@@ -44,6 +50,7 @@ public final class FeedHostView: NSView, VisibilityGatedContent {
                 onReportsReply: (@MainActor (ReportReply) async -> Bool)? = nil) {
         self.model = model
         self.surface = surface
+        visibility = ViewVisibility("feed:\(surface)")
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
@@ -85,7 +92,18 @@ public final class FeedHostView: NSView, VisibilityGatedContent {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        visibility.place(in: window)
         resolveColors()
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
     }
 
     public override func viewDidChangeEffectiveAppearance() {
