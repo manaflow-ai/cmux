@@ -971,17 +971,16 @@ class Wiring(unittest.TestCase):
         self.assertIn("admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-", key["run"])
         nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
         job = workflow["jobs"]["seed"]
-        # The nightly cold seed runs on Blacksmith macOS 26 and macOS 15, never a
-        # GitHub-hosted Mac (Leo, 2026-10-27; tests/test_ci_nightly_no_hosted_mac.py),
-        # the same pools the per-push seeder uses, with the same Xcode per macOS version.
+        # The nightly cold seed runs on Blacksmith macOS 26, never a GitHub-hosted
+        # Mac (Leo, 2026-10-27; tests/test_ci_nightly_no_hosted_mac.py) and never
+        # macOS 15 (no nightly job runs there), with the per-push seeder's Xcode.
         self.assertEqual(nightly["runs-on"], "${{ matrix.pool }}")
         schedule = github_context("schedule")
         nightly_pools = [pool if "${{" in pool else f"${{{{ '{pool}' }}}}" for pool in nightly["strategy"]["matrix"]["pool"]]
         self.assertEqual([evaluate(pool, schedule) for pool in nightly_pools],
-                         ["blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-15"])
+                         ["blacksmith-6vcpu-macos-26"])
         for pool, blacksmith in (("blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-26"),
-                                 ("blacksmith-6vcpu-macos-15", "blacksmith-6vcpu-macos-15"),
-                                 ("macos-15", "blacksmith-6vcpu-macos-15")):
+                                 ("macos-26", "blacksmith-6vcpu-macos-26")):
             with self.subTest(pool=pool):
                 self.assertEqual(evaluate(nightly["env"]["CMUX_CI_XCODE_APP"], {**schedule, "matrix": {"pool": pool}}),
                                  evaluate(job["env"]["CMUX_CI_XCODE_APP"], {**schedule, "matrix": {"pool": blacksmith}}))
