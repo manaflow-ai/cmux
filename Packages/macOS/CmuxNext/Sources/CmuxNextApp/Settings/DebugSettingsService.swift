@@ -89,7 +89,7 @@ final class DebugSettingsService: InternalPageProvider {
         fileURL = url
         store.activate(file: url)
         // The Sentry scope names the arm features.list reports, the file's toggles and later changes included.
-        let features = FeatureFlagsPage.report(services.features, tunables: store)
+        let features = FeatureFlagsPage.report(services.features, tunables: store, daemon: services.environment.daemonFeatureHello)
         services.lifetimeFollowers.append(services.crashReporting.reporter.followFeatures(on: services.mainWork) { CrashFeatureScope(features.fieldState) })
         // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
         services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }

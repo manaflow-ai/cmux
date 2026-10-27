@@ -86,6 +86,7 @@ extension BrowserHibernation {
         candidate.hasAgentLease = leased.contains(key)
         candidate.allowsNotifications = (tab as? any BrowserHibernationSource)?.allowsNotifications ?? false
         candidate.hasBackgroundActivity = activity.contains(key)
+        candidate.discardAttempted = discardAttempts.contains(key)
         if let audible {
             // The tab's own media report keeps it with no probe; the end of its sound starts the minute.
             candidate.isAudible = (tab as? any BrowserAudibleReporting)?.isAudible == true
@@ -114,12 +115,19 @@ extension BrowserHibernation {
     /// Whether hidden page `key` would ask before it unloads (`BrowserTab.asksBeforeUnload()`): runs
     /// its handlers once per hidden period; a page that asked, or could not be asked, stays.
     func asksBeforeUnload(_ key: String, _ tab: any BrowserTab) async -> Bool {
-        if askedBeforeUnload.contains(key) { return true }
-        let asks = (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + .seconds(2)) { @MainActor in
+        if discardAttempts.contains(key) { return true }
+        return (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + .seconds(2)) { @MainActor in
             try await tab.asksBeforeUnload()
         }) ?? true
-        if asks { askedBeforeUnload.insert(key) }
-        return asks
+    }
+
+    /// Hidden page `key`'s discard was tried and did not finish (`why`): it stays until shown
+    /// (`DiscardRule.discardAttempted`, Chrome's `DiscardAttemptMarker` of page_discarding_helper.cc), and the
+    /// replan gives its slot to the next candidate now.
+    func discardFailed(_ key: String, _ why: CannotDiscardReason) {
+        discardAttempts.mark(key)
+        cache?.trace(key, "discard attempted (\(why.rawValue))")
+        replan()
     }
 }
 

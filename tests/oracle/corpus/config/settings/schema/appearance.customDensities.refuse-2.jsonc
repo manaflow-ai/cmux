@@ -1,0 +1,10 @@
+{
+  "appearance": {
+    "customDensities": [
+      {
+        "id": "Bad Id",
+        "name": "x"
+      }
+    ]
+  }
+}

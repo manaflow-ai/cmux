@@ -41,10 +41,25 @@
 //! it to a holder of its own build. One process at a time writes a ring:
 //! the holder that owns the terminal (the daemon gives a segment to a new
 //! holder only after the old one's link ended).
+//!
+//! A cold terminal's ring gives its pages back ([`Ring::release_before`]):
+//! the holder moves `oldest` past the bytes no reader needs any more, then
+//! tells the kernel their pages may go, as Chrome's
+//! `base/memory/discardable_shared_memory.cc` does for a purged segment
+//! (`MADV_FREE_REUSABLE` on macOS, `MADV_REMOVE` on Linux). The header keeps
+//! its layout: a reader trusts only `oldest .. end`, so it never reads a
+//! released page.
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
+
+// The offset protocol (publication order, adopted window, loss marker):
+// no `unsafe`, so cmux-tui/verify/loom-ring runs it under loom.
+#[path = "ring_protocol.rs"]
+mod protocol;
+
+use protocol::{Cursor, Snapshot, Words};
 
 /// Header bytes before the data.
 pub const HEADER: usize = 64;
@@ -72,17 +87,20 @@ pub struct Ring {
     /// The mapping: header, then data.
     map: *mut u8,
     map_len: usize,
-    capacity: usize,
     base: u64,
     /// The header's layout: [`LAYOUT`], or [`LAYOUT_NO_OLDEST`] for an
     /// adopted layout 1 segment not upgraded ([`Self::upgrade_layout`]).
     layout: u32,
-    /// The offset of the oldest byte kept; mirrors the header's `oldest`.
-    oldest: u64,
-    /// The offset after the newest byte; mirrors the header's `end`.
-    end: u64,
+    /// The capacity and the kept window `oldest .. end`; mirrors the
+    /// header's words.
+    cursor: Cursor,
     /// The shared segment, `None` for a private ring (no shared memory).
     segment: Option<OwnedFd>,
+    /// A write before this offset may store into a page marked reusable
+    /// ([`Self::release_before`], or a dead holder's before this one adopted
+    /// the segment): it takes its pages back first ([`reuse_pages`]). After
+    /// one whole turn of the ring past the release, every page was taken.
+    reusable_until: Option<u64>,
 }
 
 // SAFETY: the mapping is owned by this value and only reached through
@@ -120,12 +138,11 @@ impl Ring {
         let mut ring = Self {
             map: map.cast(),
             map_len,
-            capacity,
             base,
             layout: LAYOUT,
-            oldest: base,
-            end: base,
+            cursor: Cursor::new(capacity, base, base),
             segment: None,
+            reusable_until: None,
         };
         ring.write_header();
         ring
@@ -148,16 +165,15 @@ impl Ring {
         // Map the header first: the capacity says how much to map.
         let header = map_shared(segment.as_raw_fd(), HEADER)?;
         // SAFETY: the header mapping is HEADER bytes; reads are in bounds.
-        let (magic, layout, capacity, base, end, published_oldest) = unsafe {
+        let (magic, layout, capacity, base, snapshot) = unsafe {
             let bytes = std::slice::from_raw_parts(header, HEADER);
             let magic: [u8; 4] = bytes[..4].try_into().unwrap_or_default();
             let layout = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or_default());
             let capacity = u64::from_le_bytes(bytes[8..16].try_into().unwrap_or_default());
             let base = u64::from_le_bytes(bytes[16..24].try_into().unwrap_or_default());
-            let end = (*header.add(OFF_END).cast::<AtomicU64>()).load(Ordering::Acquire);
-            let oldest = (*header.add(OFF_OLDEST).cast::<AtomicU64>()).load(Ordering::Acquire);
+            let snapshot = Snapshot::load(&header_words(header));
             libc::munmap(header.cast(), HEADER);
-            (magic, layout, capacity, base, end, oldest)
+            (magic, layout, capacity, base, snapshot)
         };
         if magic != MAGIC || (layout != LAYOUT && layout != LAYOUT_NO_OLDEST) {
             return Err(invalid("not a terminal ring segment"));
@@ -165,20 +181,25 @@ impl Ring {
         if capacity == 0 || capacity > MAX_CAPACITY || HEADER as u64 + capacity > size {
             return Err(invalid("bad terminal ring capacity"));
         }
-        if end < base {
-            return Err(invalid("terminal ring ends before its base"));
-        }
-        let kept_by_size = base.max(end.saturating_sub(capacity));
-        // A writer that died inside a write published an `oldest` past the
-        // bytes it was overwriting, possibly past the `end` it never got to
-        // publish: nothing is kept then. Layout 1 published no `oldest`.
-        let oldest =
-            if layout == LAYOUT { published_oldest.clamp(kept_by_size, end) } else { kept_by_size };
-        let capacity = capacity as usize;
-        let map_len = HEADER + capacity;
+        // Layout 1 published no `oldest`.
+        let cursor = snapshot.adopt(capacity as usize, base, layout == LAYOUT).map_err(invalid)?;
+        let map_len = HEADER + cursor.capacity();
         let map = map_shared(segment.as_raw_fd(), map_len)?;
-        let mut ring =
-            Self { map, map_len, capacity, base, layout, oldest, end, segment: Some(segment) };
+        let kept_by_size = base.max(cursor.end().saturating_sub(cursor.capacity() as u64));
+        let mut ring = Self {
+            map,
+            map_len,
+            base,
+            layout,
+            cursor,
+            segment: Some(segment),
+            // Only a released segment keeps less than its size allows
+            // ([`Self::release_before`]; writes give `oldest` back to the
+            // size once they took every released page). A fresh one
+            // (`Self::new`) released nothing: no write pays for a reuse.
+            reusable_until: (layout == LAYOUT && cursor.oldest() > kept_by_size)
+                .then_some(cursor.end() + cursor.capacity() as u64),
+        };
         // This build publishes `oldest` from here on, whatever the layout
         // says (a layout 1 segment's `oldest` word read 0 until then).
         ring.write_header();
@@ -208,25 +229,20 @@ impl Ring {
 
     /// Append output; the oldest bytes drop out past the capacity. The
     /// writer is never blocked.
-    pub fn push(&mut self, mut data: &[u8]) {
-        // Only the last `capacity` bytes of an oversized push can stay: the
-        // stream jumps past the rest. The jump is in `oldest` only (nothing
-        // is kept until the first chunk's `end` is published), so a reader of
-        // a dead writer's segment never sees the skipped offsets as bytes.
-        if data.len() > self.capacity {
-            let skip = data.len() - self.capacity;
-            let start = self.end + skip as u64;
-            self.publish_oldest(start);
-            self.end = start;
-            data = &data[skip..];
-        }
-        while !data.is_empty() {
-            let n = self.writable().len().min(data.len());
-            self.forfeit(n);
-            self.writable()[..n].copy_from_slice(&data[..n]);
-            self.publish(self.end + n as u64);
-            data = &data[n..];
-        }
+    pub fn push(&mut self, data: &[u8]) {
+        let map = self.map;
+        // SAFETY: the mapping lives as long as `self`.
+        let words = unsafe { header_words(map) };
+        let reuse = self.reusable_until.is_some();
+        self.cursor.push(&words, data, |range, bytes| {
+            if reuse {
+                reuse_pages(map, HEADER + range.start, range.len());
+            }
+            // SAFETY: `range` is inside the data area (`Cursor::room`), and
+            // no other slice of the data is live during a push.
+            unsafe { data_mut(map, range) }.copy_from_slice(bytes);
+        });
+        self.end_reuse();
     }
 
     /// Read at most `max` bytes straight into the ring with `read` (given
@@ -237,31 +253,100 @@ impl Ring {
     /// offset the read started at from before `read` runs until after its
     /// end is published ([`interrupted_read`]).
     pub fn read_with(&mut self, max: usize, read: impl FnOnce(&mut [u8]) -> isize) -> isize {
-        let len = self.writable().len().min(max.max(1));
-        let before = self.oldest;
-        self.forfeit(len);
-        self.publish_reading(Some(self.end));
-        let n = read(&mut self.writable()[..len]);
-        if n > 0 {
-            self.publish(self.end + n as u64);
-        }
-        // A short read overwrote less than the room it was offered: the
-        // bytes past it are still whole and kept again.
-        self.publish_oldest(before.max(self.end.saturating_sub(self.capacity as u64)));
-        // After the new end: a holder killed between the two stores left a
-        // `reading` behind its `end`, which names no loss.
-        self.publish_reading(None);
+        let map = self.map;
+        // SAFETY: the mapping lives as long as `self`.
+        let words = unsafe { header_words(map) };
+        let reuse = self.reusable_until.is_some();
+        let n = self.cursor.read_with(&words, max, |range| {
+            if reuse {
+                reuse_pages(map, HEADER + range.start, range.len());
+            }
+            // SAFETY: `range` is inside the data area (`Cursor::room`), and
+            // no other slice of the data is live during the read.
+            read(unsafe { data_mut(map, range) })
+        });
+        self.end_reuse();
         n
+    }
+
+    /// After a write: once the writes went one whole turn of the ring past
+    /// the release, they took every released page back
+    /// ([`Self::reusable_until`]), and the next write needs no syscall.
+    fn end_reuse(&mut self) {
+        if self.reusable_until.is_some_and(|until| self.cursor.end() >= until) {
+            self.reusable_until = None;
+        }
+    }
+
+    /// Drop every byte before `offset` (at most the end) from the ring and
+    /// give the kernel the data pages that hold no kept byte; returns how
+    /// many bytes of pages went. For a cold terminal whose bytes before
+    /// `offset` no reader needs: the daemon parsed them and the holder's
+    /// prologue is past them. `oldest` is published first, so a reader of
+    /// this segment (a holder adopting it after this one died) never trusts
+    /// a released byte. A layout 1 segment releases nothing: a holder that
+    /// knows only layout 1 computes its window from the end and would read
+    /// the released pages as output.
+    pub fn release_before(&mut self, offset: u64) -> usize {
+        if self.layout != LAYOUT {
+            return 0;
+        }
+        // SAFETY: the mapping lives as long as `self`.
+        let words = unsafe { header_words(self.map) };
+        // The new `oldest` is in the segment before a page goes.
+        if !self.cursor.drop_before(&words, offset) {
+            return 0;
+        }
+        let page = page_size();
+        let mut released = 0;
+        for (start, end) in self.unkept_spans() {
+            // Whole pages only: the header page and a page that holds a kept
+            // byte stay.
+            let first = start.next_multiple_of(page);
+            let last = end / page * page;
+            if last > first && discard_pages(self.map, first, last - first, self.segment.is_some())
+            {
+                released += last - first;
+            }
+        }
+        if released > 0 {
+            self.reusable_until = Some(self.cursor.end() + self.cursor.capacity() as u64);
+        }
+        released
+    }
+
+    /// Whether [`Self::release_before`] would drop a byte before `offset`.
+    pub fn can_release_before(&self, offset: u64) -> bool {
+        self.layout == LAYOUT && offset.min(self.cursor.end()) > self.cursor.oldest()
+    }
+
+    /// The spans of the mapping (byte positions from its start) whose data
+    /// bytes are outside `oldest .. end`, in order.
+    fn unkept_spans(&self) -> Vec<(usize, usize)> {
+        let (capacity, oldest) = (self.cursor.capacity(), self.cursor.oldest());
+        let (data, data_end) = (HEADER, HEADER + capacity);
+        let kept = (self.cursor.end() - oldest) as usize;
+        if kept == 0 {
+            return vec![(data, data_end)];
+        }
+        let start = data + (oldest % capacity as u64) as usize;
+        let end = start + kept;
+        if end <= data_end {
+            vec![(data, start), (end, data_end)]
+        } else {
+            // The kept bytes wrap: the free room is between their end and start.
+            vec![(data + (end - data_end), start)]
+        }
     }
 
     /// Offset of the oldest byte kept.
     pub fn oldest(&self) -> u64 {
-        self.oldest
+        self.cursor.oldest()
     }
 
     /// Offset after the newest byte.
     pub fn end(&self) -> u64 {
-        self.end
+        self.cursor.end()
     }
 
     /// Up to `max` bytes from `from` (clamped to the oldest kept byte), with
@@ -277,68 +362,16 @@ impl Ring {
     /// [`Self::read`] without a copy: the offset and the bytes as at most
     /// two slices of the ring's buffer, in order.
     pub fn slices(&self, from: u64, max: usize) -> (u64, &[u8], &[u8]) {
-        let from = from.clamp(self.oldest(), self.end);
-        let take = max.min((self.end - from) as usize);
-        let start = (from % self.capacity as u64) as usize;
-        let first = take.min(self.capacity - start);
+        let (from, head, tail) = self.cursor.window(from, max);
         let data = self.data();
-        (from, &data[start..start + first], &data[..take - first])
+        (from, &data[head], &data[tail])
     }
 
     /// The data area.
     fn data(&self) -> &[u8] {
         // SAFETY: the mapping holds HEADER + capacity bytes for this
         // value's life, and only this process writes it (module docs).
-        unsafe { std::slice::from_raw_parts(self.map.add(HEADER), self.capacity) }
-    }
-
-    /// The free room from `end` to the end of the data area (where the next
-    /// byte goes), never empty.
-    fn writable(&mut self) -> &mut [u8] {
-        let start = (self.end % self.capacity as u64) as usize;
-        // SAFETY: start < capacity, so the slice stays inside the data area.
-        unsafe {
-            std::slice::from_raw_parts_mut(self.map.add(HEADER + start), self.capacity - start)
-        }
-    }
-
-    /// Make every byte before `end` part of the ring: after the data, so a
-    /// reader of a dead holder's segment never sees an unwritten byte.
-    fn publish(&mut self, end: u64) {
-        self.end = end;
-        // SAFETY: OFF_END is an 8-byte aligned u64 inside the page-aligned header.
-        unsafe { (*self.map.add(OFF_END).cast::<AtomicU64>()).store(end, Ordering::Release) };
-    }
-
-    /// Before a write of up to `len` bytes at `end`: drop out of the ring
-    /// every kept byte whose room the write reuses, so a reader of a dead
-    /// holder's segment never trusts a byte the write overwrote.
-    fn forfeit(&mut self, len: usize) {
-        let reused = (self.end + len as u64).saturating_sub(self.capacity as u64);
-        if reused > self.oldest {
-            self.publish_oldest(reused);
-        }
-        // The new `oldest` must be in the segment before the first data
-        // byte is stored over the bytes it dropped.
-        std::sync::atomic::fence(Ordering::SeqCst);
-    }
-
-    /// Store `reading` (the offset a PTY read in flight starts at), and make
-    /// it part of the segment before the kernel takes the first byte from
-    /// the PTY: a holder SIGKILLed inside the read leaves it behind.
-    fn publish_reading(&mut self, at: Option<u64>) {
-        let word = at.map_or(0, |at| at + 1);
-        // SAFETY: OFF_READING is an 8-byte aligned u64 inside the page-aligned header.
-        unsafe { (*self.map.add(OFF_READING).cast::<AtomicU64>()).store(word, Ordering::Release) };
-        std::sync::atomic::fence(Ordering::SeqCst);
-    }
-
-    /// Store `oldest`: before a write that drops bytes, after one that
-    /// kept more than it was offered.
-    fn publish_oldest(&mut self, oldest: u64) {
-        self.oldest = oldest;
-        // SAFETY: OFF_OLDEST is an 8-byte aligned u64 inside the page-aligned header.
-        unsafe { (*self.map.add(OFF_OLDEST).cast::<AtomicU64>()).store(oldest, Ordering::Release) };
+        unsafe { std::slice::from_raw_parts(self.map.add(HEADER), self.cursor.capacity()) }
     }
 
     fn write_header(&mut self) {
@@ -348,11 +381,12 @@ impl Ring {
             header[..4].copy_from_slice(&MAGIC);
             header[4..8].copy_from_slice(&self.layout.to_le_bytes());
             header[OFF_CAPACITY..OFF_CAPACITY + 8]
-                .copy_from_slice(&(self.capacity as u64).to_le_bytes());
+                .copy_from_slice(&(self.cursor.capacity() as u64).to_le_bytes());
             header[OFF_BASE..OFF_BASE + 8].copy_from_slice(&self.base.to_le_bytes());
         }
-        self.publish_oldest(self.oldest);
-        self.publish(self.end);
+        // SAFETY: the mapping lives as long as `self`.
+        let words = unsafe { header_words(self.map) };
+        self.cursor.republish(&words);
     }
 }
 
@@ -361,6 +395,35 @@ impl Drop for Ring {
         // SAFETY: unmaps the mapping this value made.
         unsafe { libc::munmap(self.map.cast(), self.map_len) };
     }
+}
+
+/// The protocol words of the header mapped at `map`.
+///
+/// # Safety
+/// `map` is a live mapping of at least [`HEADER`] bytes for `'a`, page
+/// aligned, so the words at `OFF_END`, `OFF_OLDEST` and `OFF_READING` are
+/// 8-byte aligned.
+unsafe fn header_words<'a>(map: *mut u8) -> Words<'a> {
+    // SAFETY: the caller's contract; each word is an aligned u64 inside the
+    // header that both processes reach only atomically.
+    unsafe {
+        Words {
+            end: &*map.add(OFF_END).cast::<AtomicU64>(),
+            oldest: &*map.add(OFF_OLDEST).cast::<AtomicU64>(),
+            reading: &*map.add(OFF_READING).cast::<AtomicU64>(),
+        }
+    }
+}
+
+/// The data bytes `range` of the ring mapped at `map`, to write.
+///
+/// # Safety
+/// `map` is a live ring mapping of [`HEADER`] + capacity bytes for `'a`,
+/// `range` is inside `0..capacity`, and no other slice of those bytes is
+/// live meanwhile.
+unsafe fn data_mut<'a>(map: *mut u8, range: std::ops::Range<usize>) -> &'a mut [u8] {
+    // SAFETY: the caller's contract.
+    unsafe { std::slice::from_raw_parts_mut(map.add(HEADER + range.start), range.len()) }
 }
 
 /// A new shared ring segment whose next byte has offset `base`: the
@@ -386,8 +449,7 @@ pub fn create_segment(base: u64, capacity: usize) -> io::Result<OwnedFd> {
         header[4..8].copy_from_slice(&LAYOUT.to_le_bytes());
         header[OFF_CAPACITY..OFF_CAPACITY + 8].copy_from_slice(&(capacity as u64).to_le_bytes());
         header[OFF_BASE..OFF_BASE + 8].copy_from_slice(&base.to_le_bytes());
-        (*map.add(OFF_OLDEST).cast::<AtomicU64>()).store(base, Ordering::Release);
-        (*map.add(OFF_END).cast::<AtomicU64>()).store(base, Ordering::Release);
+        Cursor::new(capacity, base, base).republish(&header_words(map));
         libc::munmap(map.cast(), HEADER);
     }
     Ok(segment)
@@ -396,9 +458,9 @@ pub fn create_segment(base: u64, capacity: usize) -> io::Result<OwnedFd> {
 /// The end offset recorded in a ring segment (what its writer published).
 pub fn segment_end(segment: &OwnedFd) -> io::Result<u64> {
     let map = map_shared(segment.as_raw_fd(), HEADER)?;
-    // SAFETY: the header mapping is HEADER bytes; OFF_END is aligned.
+    // SAFETY: the header mapping is HEADER bytes.
     let end = unsafe {
-        let end = (*map.add(OFF_END).cast::<AtomicU64>()).load(Ordering::Acquire);
+        let end = protocol::published_end(&header_words(map));
         libc::munmap(map.cast(), HEADER);
         end
     };
@@ -425,24 +487,67 @@ pub fn interrupted_read(segment: &OwnedFd) -> io::Result<Option<u64>> {
         return Err(invalid("ring segment smaller than its header"));
     }
     let map = map_shared(segment.as_raw_fd(), HEADER)?;
-    // SAFETY: the header mapping is HEADER bytes; OFF_END and OFF_READING
-    // are aligned.
-    let (magic, end, reading) = unsafe {
+    // SAFETY: the header mapping is HEADER bytes.
+    let (magic, interrupted) = unsafe {
         let magic: [u8; 4] = std::slice::from_raw_parts(map, 4).try_into().unwrap_or_default();
-        let end = (*map.add(OFF_END).cast::<AtomicU64>()).load(Ordering::Acquire);
-        let reading = (*map.add(OFF_READING).cast::<AtomicU64>()).load(Ordering::Acquire);
+        let interrupted = protocol::interrupted_read(&header_words(map));
         libc::munmap(map.cast(), HEADER);
-        (magic, end, reading)
+        (magic, interrupted)
     };
     if magic != MAGIC {
         return Err(invalid("not a terminal ring segment"));
     }
-    // `reading` holds the read's start + 1 (0 = none), so `reading > end`
-    // is a read that started at or past `end`. A start past `end` cannot be
-    // written by a holder: a damaged header still names a loss at `end`,
-    // never a silent splice.
-    Ok((reading > end).then_some(end))
+    Ok(interrupted)
 }
+
+fn page_size() -> usize {
+    // SAFETY: sysconf only reads system configuration.
+    usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).unwrap_or(4096).max(1)
+}
+
+/// Let the kernel take `len` bytes of pages at `at` from the mapping `map`
+/// (page aligned): their contents may read as zeros afterwards. True when
+/// the kernel took the advice.
+#[cfg(target_vendor = "apple")]
+fn discard_pages(map: *mut u8, at: usize, len: usize, _shared: bool) -> bool {
+    // MADV_FREE_REUSABLE, not MADV_FREE: the pages leave the task's
+    // footprint at once (Activity Monitor and `phys_footprint` count them
+    // no longer), as in Chrome's DiscardableSharedMemory::Purge.
+    // SAFETY: a page-aligned range inside this ring's live mapping.
+    unsafe { libc::madvise(map.add(at).cast(), len, libc::MADV_FREE_REUSABLE) == 0 }
+}
+
+/// [`discard_pages`] on Linux: `MADV_REMOVE` frees a shared (memfd)
+/// segment's pages, as Chrome's DiscardableSharedMemory::Purge does;
+/// `MADV_DONTNEED` frees a private ring's.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn discard_pages(map: *mut u8, at: usize, len: usize, shared: bool) -> bool {
+    let advice = if shared { libc::MADV_REMOVE } else { libc::MADV_DONTNEED };
+    // SAFETY: a page-aligned range inside this ring's live mapping.
+    unsafe { libc::madvise(map.add(at).cast(), len, advice) == 0 }
+}
+
+#[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
+fn discard_pages(_map: *mut u8, _at: usize, _len: usize, _shared: bool) -> bool {
+    false
+}
+
+/// Take back the pages of the `len` bytes at `at` in the mapping `map`
+/// before a write stores into them: `MADV_FREE_REUSE` on macOS (Chrome's
+/// DiscardableSharedMemory::Lock), so the kernel neither drops a byte
+/// written after it nor leaves the page out of the footprint. Linux needs
+/// nothing: a removed page comes back as a zero page on the write.
+#[cfg(target_vendor = "apple")]
+fn reuse_pages(map: *mut u8, at: usize, len: usize) {
+    let page = page_size();
+    let (first, last) = (at / page * page, (at + len).next_multiple_of(page));
+    // SAFETY: page-aligned; the write's range is inside the mapping, which
+    // is page-rounded by the kernel.
+    unsafe { libc::madvise(map.add(first).cast(), last - first, libc::MADV_FREE_REUSE) };
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn reuse_pages(_map: *mut u8, _at: usize, _len: usize) {}
 
 fn map_shared(fd: RawFd, len: usize) -> io::Result<*mut u8> {
     // SAFETY: maps `len` bytes of a live descriptor read-write and shared.
@@ -484,7 +589,7 @@ fn new_segment() -> io::Result<OwnedFd> {
 /// segment alive and write to it.
 #[cfg(not(target_os = "linux"))]
 fn new_segment() -> io::Result<OwnedFd> {
-    use std::sync::atomic::AtomicU32;
+    use std::sync::atomic::{AtomicU32, Ordering};
     static NEXT: AtomicU32 = AtomicU32::new(0);
     for _ in 0..16 {
         // At most 31 bytes on macOS (PSHMNAMLEN).
@@ -737,6 +842,115 @@ mod tests {
         }
         let adopted = Ring::adopt(segment).unwrap();
         assert_eq!(adopted.read(0, 64), (12, b"23456789".to_vec()));
+    }
+
+    fn pattern(from: u64, len: usize) -> Vec<u8> {
+        (from..from + len as u64).map(|offset| b'a' + (offset % 23) as u8).collect()
+    }
+
+    /// p07-memory-094: a cold ring released before the offset the daemon
+    /// confirmed keeps every byte from there on, at the same offsets, for
+    /// itself and for a holder that adopts its segment after it died; the
+    /// pages it gave back take new output again.
+    #[test]
+    fn a_released_ring_keeps_its_window_and_an_adopter_loses_no_byte() {
+        const CAPACITY: usize = 256 * 1024;
+        let mut ring = Ring::new(0, CAPACITY);
+        let segment = ring.segment().expect("a shared ring").try_clone().unwrap();
+        ring.push(&pattern(0, 200 * 1024));
+        let confirmed = 150 * 1024;
+        let released = ring.release_before(confirmed);
+        assert!(released >= 100 * 1024, "released {released} bytes of pages");
+        assert_eq!((ring.oldest(), ring.end()), (confirmed, 200 * 1024));
+        assert_eq!(ring.read(0, CAPACITY), (confirmed, pattern(confirmed, 50 * 1024)));
+        // Nothing more to release before the same offset.
+        assert!(!ring.can_release_before(confirmed));
+        assert_eq!(ring.release_before(confirmed), 0);
+        drop(ring);
+        // The holder died: its successor continues the segment, no byte lost.
+        let mut adopted = Ring::adopt(segment).unwrap();
+        assert_eq!(adopted.read(0, CAPACITY), (confirmed, pattern(confirmed, 50 * 1024)));
+        // New output wraps over the released pages and reads back whole.
+        adopted.push(&pattern(200 * 1024, CAPACITY));
+        assert_eq!(adopted.read(0, 2 * CAPACITY), (200 * 1024, pattern(200 * 1024, CAPACITY)));
+    }
+
+    /// A write takes pages back ([`reuse_pages`], a syscall per write) only
+    /// where a release gave some away: never in a fresh ring, nor in an
+    /// adopted segment that released nothing, and in a released one until
+    /// the writes took every released page.
+    #[test]
+    fn only_a_released_ring_takes_pages_back_on_a_write() {
+        const CAPACITY: usize = 64 * 1024;
+        let mut fresh = Ring::new(0, CAPACITY);
+        assert_eq!(fresh.reusable_until, None, "a fresh segment released nothing");
+        let segment = fresh.segment().expect("a shared ring").try_clone().unwrap();
+        fresh.push(&pattern(0, CAPACITY + 1000));
+        assert_eq!(fresh.reusable_until, None);
+        drop(fresh);
+        let mut adopted = Ring::adopt(segment).unwrap();
+        assert_eq!(adopted.reusable_until, None, "a dead writer's full ring released nothing");
+        let segment = adopted.segment().expect("a shared ring").try_clone().unwrap();
+        adopted.push(&pattern(CAPACITY as u64 + 1000, 2000));
+        let end = adopted.end();
+        assert!(adopted.release_before(end - 100) > 0);
+        assert_eq!(adopted.reusable_until, Some(end + CAPACITY as u64));
+        drop(adopted);
+        // The dead writer released pages: its successor takes them back.
+        let mut released = Ring::adopt(segment).unwrap();
+        assert_eq!(released.reusable_until, Some(end + CAPACITY as u64));
+        released.push(&pattern(end, CAPACITY));
+        assert_eq!(released.reusable_until, None, "one turn of the ring took every page back");
+        assert_eq!(released.read(0, CAPACITY), (end, pattern(end, CAPACITY)));
+    }
+
+    /// Everything confirmed: every data page but the header's goes, and the
+    /// ring keeps nothing; the next write is whole.
+    #[test]
+    fn a_fully_confirmed_ring_gives_back_every_data_page() {
+        const CAPACITY: usize = 1 << 20;
+        for mut ring in [Ring::new(0, CAPACITY), Ring::private(0, CAPACITY)] {
+            ring.push(&pattern(0, CAPACITY));
+            let released = ring.release_before(u64::MAX);
+            assert!(released >= CAPACITY - 2 * page_size(), "released {released} bytes of pages");
+            assert_eq!((ring.oldest(), ring.end()), (CAPACITY as u64, CAPACITY as u64));
+            ring.push(b"after");
+            assert_eq!(ring.read(0, 64), (CAPACITY as u64, b"after".to_vec()));
+        }
+    }
+
+    /// The pages leave memory: the memfd segment's blocks drop by what the
+    /// ring released.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_released_segment_frees_its_pages() {
+        const CAPACITY: usize = 1 << 20;
+        let mut ring = Ring::new(0, CAPACITY);
+        let segment = ring.segment().expect("a shared ring").try_clone().unwrap();
+        let blocks = || {
+            // SAFETY: zeroed stat is a valid out-buffer for fstat.
+            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+            // SAFETY: fstat of a live descriptor into a live local.
+            assert_eq!(unsafe { libc::fstat(segment.as_raw_fd(), &mut stat) }, 0);
+            stat.st_blocks as usize * 512
+        };
+        ring.push(&pattern(0, CAPACITY));
+        let before = blocks();
+        ring.release_before(CAPACITY as u64);
+        let freed = before - blocks();
+        assert!(freed >= 900 * 1024, "the segment freed {freed} bytes");
+    }
+
+    /// A layout 1 segment continued for an older daemon releases nothing:
+    /// a holder that knows only layout 1 would read released pages.
+    #[test]
+    fn a_layout_1_ring_is_never_released() {
+        let mut ring = Ring::new(0, 64 * 1024);
+        ring.layout = LAYOUT_NO_OLDEST;
+        ring.push(&pattern(0, 64 * 1024));
+        assert!(!ring.can_release_before(64 * 1024));
+        assert_eq!(ring.release_before(64 * 1024), 0);
+        assert_eq!(ring.oldest(), 0);
     }
 
     #[test]
