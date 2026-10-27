@@ -1,0 +1,89 @@
+# guardrails.py (local tier, never CI) runs this on the Rust lines a push adds under cmux-tui/ and Native/.
+# Chrome's rule: a thread that runs tasks never blocks unannounced (base/threading/scoped_blocking_call.h,
+# base/threading/thread_restrictions.h). A tokio worker is such a thread: one blocking call stalls every
+# task queued on it. An awaited call is async and passes; a non-async closure inside the body (the one
+# given to spawn_blocking) is its own context and passes.
+id: rust-async-blocking
+language: rust
+severity: error
+message: "a blocking call in an async body stalls the tokio worker and every task queued on it"
+note: >-
+  Move it to `tokio::task::spawn_blocking`, use the async API (`tokio::fs`, `tokio::process`, `tokio::time::sleep`,
+  an awaited channel), or a cmux-blocking wrapper. Reviewed escape: `// blocking-allow: <the thread and bound>`.
+utils:
+  test-code:
+    any:
+      - kind: mod_item
+        follows:
+          kind: attribute_item
+          regex: '^#\[cfg\((test|all\(test)'
+          stopBy:
+            not:
+              any:
+                - kind: attribute_item
+                - kind: line_comment
+                - kind: block_comment
+      - kind: function_item
+        follows:
+          kind: attribute_item
+          regex: '^#\[(\w+::)*test\b'
+          stopBy:
+            not:
+              any:
+                - kind: attribute_item
+                - kind: line_comment
+                - kind: block_comment
+rule:
+  kind: call_expression
+  any:
+    # Path calls: std sleep, std::fs, std::net connects, executor block_on.
+    - has:
+        field: function
+        regex: >-
+          ^(::)?(std::)?(thread::)?sleep$|^(::)?(std::)?fs::([a-z_]+|File::(open|create))$|^(::)?File::(open|create)$|^(::)?(std::)?(net::)?(TcpStream|TcpListener|UdpSocket)::(connect|connect_timeout|bind)$|(^|::)block_on$
+    # Methods that wait whatever their arguments.
+    - has:
+        field: function
+        kind: field_expression
+        has:
+          field: field
+          regex: '^(blocking_(lock|lock_owned|read|write|recv|send)|block_on|recv_timeout|wait_timeout|wait_timeout_while|wait_while|read_to_end|read_to_string|read_line)$'
+    # Methods that wait when called with no argument (thread join, process wait/output, sync channel recv).
+    - all:
+        - has:
+            field: function
+            kind: field_expression
+            has:
+              field: field
+              regex: '^(join|wait|wait_with_output|output|recv)$'
+        - has:
+            field: arguments
+            regex: '^\(\s*\)$'
+  not:
+    any:
+      - inside:
+          kind: await_expression
+      # A future handed to an awaited call: `timeout(limit, rx.recv()).await`.
+      - inside:
+          kind: arguments
+          inside:
+            kind: call_expression
+            inside:
+              kind: await_expression
+      - inside:
+          matches: test-code
+          stopBy: end
+  inside:
+    any:
+      - kind: async_block
+      - kind: function_item
+        has:
+          kind: function_modifiers
+          regex: '\basync\b'
+      - kind: closure_expression
+        regex: '^async\b'
+    stopBy:
+      any:
+        - kind: function_item
+        - kind: closure_expression
+        - kind: async_block
