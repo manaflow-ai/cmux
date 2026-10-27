@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8791ee3ffadf170eb4381f255f55ef35255fb067702b058a7df39d81d76f2d10. */
+/* cmux-tui mux protocol 12, IR c89aef96a55f05c8f0766be7a5eab45331e14183c98f6973139d83fc2b762325. */
 
 
 import type * as T from "./types.js";
@@ -639,6 +639,12 @@ export type StatusEvent = { event: "status" } & {
   "message": string;
 };
 
+/** Protocol v12; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
+export type StreamEndEvent = { event: "stream-end" } & {
+  "reason": "canceled" | "detached" | "overflow" | "attach_failed";
+  "stream": number;
+};
+
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type SurfaceExitedEvent = { event: "surface-exited" } & {
   /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
@@ -928,6 +934,7 @@ export type KnownCmuxEvent =
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
+  | StreamEndEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
   | SurfaceResizeFailedEvent
@@ -1060,6 +1067,7 @@ export type KnownAttachEvent =
   | ResizedEvent
   | ScrollChangedEvent
   | SizeStateEvent
+  | StreamEndEvent
   | VtStateEvent;
 
 /** Known byte attach events. */
@@ -1072,6 +1080,7 @@ export type KnownByteAttachEvent =
   | ResizedEvent
   | ScrollChangedEvent
   | SizeStateEvent
+  | StreamEndEvent
   | VtStateEvent;
 
 /** Known render attach events. */
@@ -1081,7 +1090,8 @@ export type KnownRenderAttachEvent =
   | RenderDeltaEvent
   | RenderStateEvent
   | ScrollChangedEvent
-  | SizeStateEvent;
+  | SizeStateEvent
+  | StreamEndEvent;
 
 /** Known browser attach events. */
 export type KnownBrowserAttachEvent =
@@ -1090,7 +1100,8 @@ export type KnownBrowserAttachEvent =
   | FrameEvent
   | NotificationEvent
   | OverflowEvent
-  | ScrollChangedEvent;
+  | ScrollChangedEvent
+  | StreamEndEvent;
 
 export type CmuxEvent = KnownCmuxEvent | UnknownEvent;
 export type SubscribeEvent = KnownSubscribeEvent | UnknownEvent;

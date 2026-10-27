@@ -25,14 +25,23 @@ struct PhoneGesture {
         guard let start = normalized(from), let end = normalized(to) else { throw PhoneError.outsideScreen }
         // A gesture's length (input timing the caller chose), not an animation.
         let duration = max(Self.shortestSwipe, seconds.isFinite ? seconds : Self.defaultSwipe)
-        let steps = max(2, Int(duration / 0.016))
+        guard duration <= PhoneInput.longestSwipe else { throw PhoneError.outOfRange(what: "the swipe's seconds") }
+        let steps = try max(2, Self.whole(duration / 0.016))
         var touches = [PhoneTouch(phase: .began, x: start.x, y: start.y, offset: .zero)]
         for step in 1..<steps {
             let t = Double(step) / Double(steps)
+            let offset = try Self.whole(duration * 1_000_000 * t)
             touches.append(PhoneTouch(phase: .moved, x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t,
-                                      offset: .microseconds(Int(duration * 1_000_000 * t))))
+                                      offset: .microseconds(offset)))
         }
-        touches.append(PhoneTouch(phase: .ended, x: end.x, y: end.y, offset: .milliseconds(Int((duration * 1000).rounded()))))
+        let total = try Self.whole((duration * 1000).rounded())
+        touches.append(PhoneTouch(phase: .ended, x: end.x, y: end.y, offset: .milliseconds(total)))
         return touches
+    }
+
+    /// `value` without its fraction; a typed error, not a trap, when no `Int` holds it.
+    private static func whole(_ value: Double) throws -> Int {
+        guard let whole = Int(exactly: value.rounded(.towardZero)) else { throw PhoneError.outOfRange(what: "the swipe's seconds") }
+        return whole
     }
 }

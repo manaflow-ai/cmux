@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8791ee3ffadf170eb4381f255f55ef35255fb067702b058a7df39d81d76f2d10.
+// cmux-tui mux protocol 12, IR c89aef96a55f05c8f0766be7a5eab45331e14183c98f6973139d83fc2b762325.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -740,6 +740,22 @@ pub struct BrowserRuntimeStatusResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserRuntimeStopResult {
     pub stopped: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CancelStreamResultOutcome {
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "ended")]
+    Ended,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelStreamResult {
+    pub outcome: CancelStreamResultOutcome,
+    pub stream: u16,
 }
 
 #[rustfmt::skip]

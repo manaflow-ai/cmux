@@ -37,15 +37,17 @@ extension LineTransport {
     }
 
     /// Routes one message the reader cut: a line by its fields, a frame by its header. Returns why it is a bad
-    /// message, which ends the connection, or nil.
+    /// message, which ends the connection, or nil. After a handled line, `waitForConsumer` runs outside the
+    /// line's hang scope (``LineTransport/start(onCausedEvent:waitForConsumer:onClose:)``).
     func dispatch(_ message: FrameReader.Message, decoder: WireDecoder, outputStream: DaemonWireStats.Recorder?,
-                  onEvent: CausedEventHandler) -> String? {
+                  onEvent: CausedEventHandler, waitForConsumer: (@Sendable () -> Void)?) -> String? {
         switch message {
         case .json(let bytes):
             // An empty line carries nothing.
             guard !bytes.isEmpty else { return nil }
             outputStream?.outputCopied(2 * bytes.count)  // out of the reader as the line, then into its Data
             handle(bytes, decoder: decoder, onEvent: onEvent)
+            waitForConsumer?()
             return nil
         case .frame(let frame):
             return handle(frame, decoder: decoder)

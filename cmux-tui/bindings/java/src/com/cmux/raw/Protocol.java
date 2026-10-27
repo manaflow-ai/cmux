@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "8791ee3ffadf170eb4381f255f55ef35255fb067702b058a7df39d81d76f2d10";
+    public static final String IR_SHA256 = "c89aef96a55f05c8f0766be7a5eab45331e14183c98f6973139d83fc2b762325";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -85,6 +85,7 @@ public final class Protocol {
             case "settings-changed" -> SettingsChangedEvent.fromWire(value);
             case "size-state" -> SizeStateEvent.fromWire(value);
             case "status" -> StatusEvent.fromWire(value);
+            case "stream-end" -> StreamEndEvent.fromWire(value);
             case "surface-exited" -> SurfaceExitedEvent.fromWire(value);
             case "surface-output" -> SurfaceOutputEvent.fromWire(value);
             case "surface-resize-failed" -> SurfaceResizeFailedEvent.fromWire(value);

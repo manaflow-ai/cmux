@@ -68,6 +68,8 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// The framed IPC upgrades the handshake asks for (``DaemonWireUpgrades``); none by default, so the
     /// connection speaks JSON lines whatever the daemon offers.
     public var wireUpgrades = DaemonWireUpgrades.none
+    /// Told each time the connection's quiet-handoff gate parks a wait (a test seam; the default ignores it).
+    var handoffWaits: @Sendable (QuietHandoffGate.Wait) -> Void = { _ in }
 
     public init(
         clientName: String = "cmux-next",
