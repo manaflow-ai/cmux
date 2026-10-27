@@ -11,9 +11,11 @@ import GhosttyNextKit
                           onVSync: @escaping @Sendable (VSyncHub.Tick) -> VSyncHub.Demand) -> (any TerminalVSyncSubscription)?
 }
 
-/// One subscription of a ``TerminalVSyncSource``: arm from any thread, cancel on main.
+/// One subscription of a ``TerminalVSyncSource``: arm from any thread, relink and cancel on main.
 nonisolated protocol TerminalVSyncSubscription: AnyObject, Sendable {
     func arm()
+    /// Replaces its display's link (``VSyncHub/Subscription/relink()``); false when no link could be made.
+    @MainActor func relink() -> Bool
     @MainActor func cancel()
 }
 
@@ -28,7 +30,7 @@ extension VSyncHub: TerminalVSyncSource {
 nonisolated extension VSyncHub.Subscription: TerminalVSyncSubscription {}
 
 /// Paces one Ghostty surface from its display's ``VSyncHub`` thread (ghostty-next external vsync,
-/// p03-rendering-082), so the app runs one display link per display instead of one CVDisplayLink per
+/// p03-rendering-082), so the app runs one display link per display instead of one Ghostty link per
 /// surface (DC1).
 ///
 /// Chrome's form: `components/viz/service/frame_sinks/external_begin_frame_source_mac.cc` registers a
@@ -48,6 +50,12 @@ nonisolated extension VSyncHub.Subscription: TerminalVSyncSubscription {}
 ///   leaves its display's link paused.
 /// - Each armed tick (hub thread) calls `ghostty_surface_vsync`. The first tick after Ghostty said false
 ///   draws nothing and returns ``VSyncHub/Demand/done``, which disarms it.
+/// - A link stops firing after display sleep or a reconfiguration, and the hub rebuilds it only when asked.
+///   So while the surface is armed on a subscription, a stall deadline runs, as ``DisplayClock``'s does for
+///   its schedulers: each ``stallTimeout`` with no tick refreshes the surface once, and after
+///   ``DisplayClock/stallsBeforeRebuild`` in a row it rebuilds the link, or, when no link can be made,
+///   leaves it for the main display's clock or the linkless deadline. Ticks do not touch the deadline; it
+///   reads whether one came.
 /// - ``close()`` runs before `ghostty_surface_free`: no tick reaches the surface after it returns.
 ///   Ghostty's callback reaches the pacer through the surface's ``SurfaceBridge``, which owns it.
 ///
@@ -61,6 +69,9 @@ nonisolated final class TerminalVSync: Sendable {
     /// How often a surface off its own display's clock tries that display again (``DisplayClock``'s stall
     /// timeout, which retries a linkless display as often).
     static let retryInterval: Duration = .milliseconds(100)
+    /// How long an armed subscription may go without a tick before the surface is refreshed anyway
+    /// (``DisplayClock/stallTimeout``, which is main-actor isolated, so the renderer thread cannot read it).
+    static let stallTimeout: Duration = .milliseconds(100)
 
     private struct State {
         /// Ghostty's last `vsync_wanted_cb` value.
@@ -75,6 +86,11 @@ nonisolated final class TerminalVSync: Sendable {
         /// Counts subscriptions: a tick of an earlier one draws nothing.
         var generation: UInt64 = 0
         var closed = false
+        /// A tick, a new subscription or a new wanted edge came since the last stall check, so the link was
+        /// not seen stalled for a whole ``stallTimeout``.
+        var heard = false
+        /// Stall checks in a row that heard nothing on this subscription.
+        var stalls = 0
 
         /// Ticks on its own display's clock, or does not draw: nothing to try again.
         var onOwnClock: Bool { requested == nil || subscribed == requested }
@@ -91,6 +107,8 @@ nonisolated final class TerminalVSync: Sendable {
     private let linklessDeadline: DemandTimer
     /// Tries the surface's own display again while it is off that display's clock (``retryInterval``, main).
     private let retryDeadline: DemandTimer
+    /// Checks that an armed subscription still ticks (``stallTimeout``, main).
+    private let stallDeadline: DemandTimer
     /// The source of the last ``follow(_:source:)``, which a retry subscribes through.
     @MainActor private var source: (any TerminalVSyncSource)?
 
@@ -99,14 +117,16 @@ nonisolated final class TerminalVSync: Sendable {
     ///   - fallback: The display to tick from when the surface's own has no screen.
     ///   - pacingClock: Times the linkless deadline.
     ///   - retryClock: Times the retries of the surface's own display.
-    ///   - ledger: Where both deadlines record their wakeups.
+    ///   - stallClock: Times the stall checks of an armed subscription.
+    ///   - ledger: Where the deadlines record their wakeups.
     init(owner: String = "terminal", fallback: @escaping @Sendable () -> CGDirectDisplayID = { CGMainDisplayID() },
          pacingClock: any Clock<Duration> = ContinuousClock(), retryClock: any Clock<Duration> = ContinuousClock(),
-         ledger: WakeupLedger = .shared) {
+         stallClock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared) {
         self.owner = owner
         self.fallback = fallback
         linklessDeadline = DemandTimer(owner: "TerminalVSync.linkless", policy: .precise, clock: pacingClock, ledger: ledger)
         retryDeadline = DemandTimer(owner: "TerminalVSync.retry", clock: retryClock, ledger: ledger)
+        stallDeadline = DemandTimer(owner: "TerminalVSync.stall", clock: stallClock, ledger: ledger)
     }
 
     /// The source a new surface runs on: `hub`, or nil when the pinned GhosttyNextKit has no external
@@ -143,14 +163,19 @@ nonisolated final class TerminalVSync: Sendable {
 
     // MARK: Renderer thread
 
-    /// Ghostty's `vsync_wanted_cb`: true arms the subscription, or starts the linkless deadline when there
-    /// is none; false lets the next tick stop.
+    /// Ghostty's `vsync_wanted_cb`: true arms the subscription and its stall check, or starts the linkless
+    /// deadline when there is none; false lets the next tick stop.
     func wantedChanged(_ wanted: Bool) {
         let wake = state.withLock { state -> (subscription: (any TerminalVSyncSubscription)?, linkless: Bool) in
+            // A new edge starts the wait for a tick: a check already pending must not count the idle time.
+            if wanted, !state.wanted { state.heard = true }
             state.wanted = wanted
             return wanted ? (state.subscription, state.linkless) : (nil, false)
         }
-        wake.subscription?.arm()
+        if let subscription = wake.subscription {
+            subscription.arm()
+            scheduleStallCheck()
+        }
         if wake.linkless { scheduleLinklessTick() }
     }
 
@@ -203,6 +228,8 @@ nonisolated final class TerminalVSync: Sendable {
             state.requested = requested
             state.subscription = made
             state.subscribed = made == nil ? nil : subscribed
+            state.heard = true
+            state.stalls = 0
             return (old, state.wanted, state.linkless && state.wanted, state.onOwnClock)
         }
         guard let swap else {
@@ -210,7 +237,14 @@ nonisolated final class TerminalVSync: Sendable {
             return
         }
         // Stored before `wanted` was read: an edge that came earlier arms here, a later one arms it itself.
-        if swap.arm { made?.arm() }
+        if let made {
+            if swap.arm {
+                made.arm()
+                scheduleStallCheck()
+            }
+        } else {
+            stallDeadline.cancel()
+        }
         swap.old?.cancel()
         if swap.pace { scheduleLinklessTick() }
         if swap.ownClock { retryDeadline.cancel() } else { scheduleRetry() }
@@ -244,7 +278,68 @@ nonisolated final class TerminalVSync: Sendable {
         old?.cancel()
         linklessDeadline.cancel()
         retryDeadline.cancel()
+        stallDeadline.cancel()
         source = nil
+    }
+
+    // MARK: Stall deadline
+
+    private func scheduleStallCheck() {
+        stallDeadline.scheduleOnMainIfIdle(after: Self.stallTimeout) { [weak self] in self?.checkStall() }
+    }
+
+    /// What one stall check found.
+    private enum StallCheck {
+        /// Not armed on a subscription: the deadline stops until the next wanted edge or armed install.
+        case idle
+        /// A tick, a new subscription or a new wanted edge came in time.
+        case ticking
+        /// No tick came for a whole timeout; `rebuild`: often enough in a row to replace the link.
+        case stalled(any TerminalVSyncSubscription, rebuild: Bool)
+    }
+
+    /// One ``stallTimeout`` after the last check of an armed subscription: a stalled link
+    /// refreshes the surface once and, after ``DisplayClock/stallsBeforeRebuild`` stalls in a row, is rebuilt
+    /// (``DisplayClock``'s rebuild). A link the hub cannot rebuild (no screen) is left: the surface moves to
+    /// the main display's clock or the linkless deadline (``follow(_:source:)``).
+    @MainActor private func checkStall() {
+        let check = state.withLock { state -> StallCheck in
+            guard !state.closed, state.wanted, let subscription = state.subscription else { return .idle }
+            if state.heard {
+                state.heard = false
+                state.stalls = 0
+                return .ticking
+            }
+            state.stalls += 1
+            state.refresh?()
+            let rebuild = state.stalls >= DisplayClock.stallsBeforeRebuild
+            if rebuild { state.stalls = 0 }
+            return .stalled(subscription, rebuild: rebuild)
+        }
+        switch check {
+        case .idle:
+            return
+        case .ticking:
+            scheduleStallCheck()
+        case let .stalled(subscription, rebuild):
+            if !rebuild || subscription.relink() {
+                scheduleStallCheck()
+            } else {
+                leaveDeadLink(subscription)
+            }
+        }
+    }
+
+    /// `dead`'s display has no link and no screen: drop it and subscribe again through ``follow(_:source:)``,
+    /// which tries the surface's own display, then the main display, then paces it on the linkless deadline.
+    @MainActor private func leaveDeadLink(_ dead: any TerminalVSyncSubscription) {
+        let left = state.withLock { state -> (generation: UInt64, requested: CGDirectDisplayID)? in
+            guard !state.closed, state.subscription === dead, let requested = state.requested else { return nil }
+            return (state.generation &+ 1, requested)
+        }
+        guard let left else { return }
+        install(nil, on: nil, requested: left.requested, generation: left.generation)
+        retryOwnDisplay()
     }
 
     // MARK: Hub thread
@@ -255,6 +350,7 @@ nonisolated final class TerminalVSync: Sendable {
             guard !state.closed, state.generation == generation, state.wanted, let refresh = state.refresh else {
                 return .done
             }
+            state.heard = true
             refresh()
             return .more
         }

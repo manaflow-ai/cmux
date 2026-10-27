@@ -1397,7 +1397,11 @@ every task that changes behavior or performance and is not repeated per row.
   (injected clock) while Ghostty wants frames, as Chrome's `DelayBasedTimeSource`. Off its own display's clock it
   tries that display again on every follow and every 100 ms (injected clock). The wanted edge (renderer thread)
   arms it, so wanted edges never reach main; each armed tick calls `ghostty_surface_vsync`, and the first tick after
-  wanted false returns `.done`. `close()` runs before the free, and a tick holds the pacer's `Mutex` across
+  wanted false returns `.done`. While armed on a subscription a stall deadline runs (`DisplayClock.stallTimeout`,
+  injected clock), because the hub rebuilds a link only when asked and no frame scheduler may be on that display: a
+  timeout with no tick refreshes the surface once, `DisplayClock.stallsBeforeRebuild` in a row call
+  `Subscription.relink()`, and a link that cannot be rebuilt is left for the main display's clock or the 60 Hz
+  deadline. `close()` runs before the free, and a tick holds the pacer's `Mutex` across
   `ghostty_surface_vsync` (a notify), so no tick reaches a freed surface. Compiled in only with
   `GHOSTTY_EXTERNAL_VSYNC` (Package.swift, off until the GhosttyNextKit pin carries 082) and used only with a
   `VSyncHub` (feature `vsyncHub`, default off); otherwise each surface keeps Ghostty's own link. Tests:

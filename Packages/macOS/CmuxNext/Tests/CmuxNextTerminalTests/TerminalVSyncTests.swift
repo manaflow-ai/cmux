@@ -121,7 +121,8 @@ import Testing
     @Test func theRetryDeadlineMovesAFallbackSurfaceToItsOwnDisplay() async throws {
         let source = FakeVSyncSource(screens: [1])
         let retryClock = ManualClock()
-        let pacer = TerminalVSync(fallback: { 1 }, pacingClock: ManualClock(), retryClock: retryClock, ledger: WakeupLedger())
+        let pacer = TerminalVSync(fallback: { 1 }, pacingClock: ManualClock(), retryClock: retryClock, stallClock: ManualClock(),
+                                  ledger: WakeupLedger())
         let refreshes = Counter()
         pacer.attach(refresh: { refreshes.add() })
         pacer.wantedChanged(true)
@@ -156,7 +157,8 @@ import Testing
     @Test func aSurfaceWithNoScreenAnywhereIsPacedOnTheLinklessDeadline() async throws {
         let source = FakeVSyncSource(screens: [])
         let pacingClock = ManualClock()
-        let pacer = TerminalVSync(fallback: { 1 }, pacingClock: pacingClock, retryClock: ManualClock(), ledger: WakeupLedger())
+        let pacer = TerminalVSync(fallback: { 1 }, pacingClock: pacingClock, retryClock: ManualClock(), stallClock: ManualClock(),
+                                  ledger: WakeupLedger())
         let (refreshed, refresh) = AsyncStream.makeStream(of: Void.self)
         let refreshes = Counter()
         pacer.attach(refresh: {
@@ -176,6 +178,77 @@ import Testing
             _ = await ticks.next()
             #expect(refreshes.value == expected)
         }
+    }
+
+    /// An armed surface whose link stops ticking (display sleep, a reconfiguration that keeps the display id) with
+    /// no frame scheduler on that display to rebuild it: each stall timeout with no tick refreshes the surface once,
+    /// the ``DisplayClock/stallsBeforeRebuild``-th in a row rebuilds the link, and the surface ticks on the new link.
+    @Test func anArmedSurfaceWhoseLinkStallsStillRefreshesAndRebuildsTheLink() async throws {
+        let source = FakeVSyncSource()
+        let stallClock = ManualClock()
+        let pacer = TerminalVSync(fallback: { 1 }, pacingClock: ManualClock(), retryClock: ManualClock(), stallClock: stallClock,
+                                  ledger: WakeupLedger())
+        let refreshes = Counter()
+        pacer.attach(refresh: { refreshes.add() })
+        pacer.wantedChanged(true)
+        pacer.follow(1, source: source)
+        let subscription = try #require(source.live.first)
+        #expect(subscription.tick() == .more)
+        #expect(refreshes.value == 1)
+        #expect(TerminalVSync.stallTimeout == DisplayClock.stallTimeout, "the surface's stall timeout left the frame clock's")
+
+        // The link ticked in time: the check refreshes nothing.
+        try await stallClock.waitForSleeper()
+        stallClock.advance(by: TerminalVSync.stallTimeout)
+        try await stallClock.waitForSleeper()
+        #expect(refreshes.value == 1, "a check after a tick refreshed the surface")
+        #expect(subscription.relinks == 0)
+
+        // The link stops: each timeout refreshes once; the last one in a row rebuilds the link.
+        for stall in 1...DisplayClock.stallsBeforeRebuild {
+            stallClock.advance(by: TerminalVSync.stallTimeout)
+            try await stallClock.waitForSleeper()
+            #expect(refreshes.value == 1 + stall, "a stalled link left an armed surface with no draw")
+        }
+        #expect(subscription.relinks == 1, "a link that stalled \(DisplayClock.stallsBeforeRebuild) times was not rebuilt")
+        #expect(!subscription.cancelled)
+        #expect(subscription.isArmed)
+        #expect(subscription.tick() == .more, "the surface does not tick on the rebuilt link")
+        #expect(refreshes.value == 2 + DisplayClock.stallsBeforeRebuild)
+    }
+
+    /// A stalled link the hub cannot rebuild (its screen went away under the same display id): the surface leaves it
+    /// for the main display's clock, armed, instead of keeping a subscription that never ticks.
+    @Test func anArmedSurfaceWhoseStalledLinkCannotBeRebuiltMovesToTheMainDisplay() async throws {
+        let source = FakeVSyncSource(screens: [1, 9])
+        let stallClock = ManualClock()
+        let pacer = TerminalVSync(fallback: { 1 }, pacingClock: ManualClock(), retryClock: ManualClock(), stallClock: stallClock,
+                                  ledger: WakeupLedger())
+        let refreshes = Counter()
+        pacer.attach(refresh: { refreshes.add() })
+        pacer.wantedChanged(true)
+        pacer.follow(9, source: source)
+        let stuck = try #require(source.live.first)
+        #expect(stuck.display == 9)
+
+        source.screens = [1]
+        stuck.setCanRelink(false)
+        // The new subscription's grace timeout, then the silent ones up to the rebuild.
+        for _ in 0...DisplayClock.stallsBeforeRebuild {
+            try await stallClock.waitForSleeper()
+            stallClock.advance(by: TerminalVSync.stallTimeout)
+        }
+        try await stallClock.waitForSleeper()
+
+        #expect(stuck.relinks == 1)
+        #expect(stuck.cancelled, "the surface kept a link that could not be rebuilt")
+        let onMain = try #require(source.live.first)
+        #expect(source.live.count == 1)
+        #expect(onMain.display == 1)
+        #expect(onMain.isArmed, "the moved subscription must keep ticking while Ghostty wants frames")
+        #expect(stuck.tick() == .done)
+        #expect(onMain.tick() == .more)
+        #expect(refreshes.value == DisplayClock.stallsBeforeRebuild + 1)
     }
 
     /// Closing (before `ghostty_surface_free`) leaves the hub, and no later tick reaches the surface.
@@ -280,7 +353,8 @@ private nonisolated final class Counter: Sendable {
 
 /// A pacer whose deadlines sleep on clocks no test moves, recording into a private ledger.
 private func makePacer(fallback: CGDirectDisplayID) -> TerminalVSync {
-    TerminalVSync(fallback: { fallback }, pacingClock: ManualClock(), retryClock: ManualClock(), ledger: WakeupLedger())
+    TerminalVSync(fallback: { fallback }, pacingClock: ManualClock(), retryClock: ManualClock(), stallClock: ManualClock(),
+                  ledger: WakeupLedger())
 }
 
 /// A vsync source whose subscriptions the test ticks by hand.
@@ -311,7 +385,7 @@ private final class FakeVSyncSource: TerminalVSyncSource {
 private nonisolated final class FakeSubscription: TerminalVSyncSubscription {
     let display: CGDirectDisplayID
     private let onVSync: @Sendable (VSyncHub.Tick) -> VSyncHub.Demand
-    private let state = Mutex((armed: false, cancelled: false))
+    private let state = Mutex((armed: false, cancelled: false, relinks: 0, canRelink: true))
 
     init(display: CGDirectDisplayID, onVSync: @escaping @Sendable (VSyncHub.Tick) -> VSyncHub.Demand) {
         self.display = display
@@ -320,8 +394,20 @@ private nonisolated final class FakeSubscription: TerminalVSyncSubscription {
 
     var isArmed: Bool { state.withLock { $0.armed } }
     var cancelled: Bool { state.withLock { $0.cancelled } }
+    /// Link rebuilds the pacer asked for.
+    var relinks: Int { state.withLock { $0.relinks } }
+
+    /// Whether a rebuild finds a screen (false: the hub drops the stuck link and makes none).
+    func setCanRelink(_ canRelink: Bool) { state.withLock { $0.canRelink = canRelink } }
 
     func arm() { state.withLock { $0.armed = true } }
+
+    @MainActor func relink() -> Bool {
+        state.withLock { state in
+            state.relinks += 1
+            return state.canRelink
+        }
+    }
 
     @MainActor func cancel() { state.withLock { $0.cancelled = true } }
 
