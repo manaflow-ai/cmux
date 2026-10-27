@@ -54,7 +54,8 @@ public final class BrowserAgentCodeGate: Sendable {
         let key = BrowserLoginGuards.key(profile: profile, origin: site)
         if rawMarked.withLock({ $0.insert(key).inserted }) {
             let guards = guards
-            Task { await guards.markScripted(profile: profile, origins: [site]) }
+            // task-owner: one actor write per newly reached site; ends when the mark is saved
+        Task { await guards.markScripted(profile: profile, origins: [site]) }
         }
         return nil
     }
