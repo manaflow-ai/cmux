@@ -43,19 +43,18 @@ public nonisolated struct CommitBoundaryAudit: Sendable, Hashable {
     /// called: each one makes `action.commit` end before its work. Not late: an observer at the
     /// boundary's own order (the boundary, or a tie whose order CFRunLoop leaves to insertion), the
     /// reviewed system observers that draw and commit nothing (``CommitBoundaryObserver/isReviewedAfterBoundary``),
-    /// and cmux's own timing and heartbeat observers, by address (`AfterCommitObservers`): they are block
-    /// observers, so their callout names nothing. Empty when the boundary is right on this macOS.
+    /// and cmux's own observers whose context says they draw nothing
+    /// (``CommitBoundaryObserver/drawsNothingAfterCommit``). Empty when the boundary is right on this macOS.
     public var late: [CommitBoundaryObserver] {
         observers.filter {
             $0.order > CommitBoundary.order && $0.firesAtTheBoundary && !$0.isReviewedAfterBoundary
-                && !$0.isOwnAfterCommit
+                && !$0.drawsNothingAfterCommit
         }
     }
 
     private static func observers(in description: String) -> Set<CommitBoundaryObserver> {
         let fields = #"(?:activities = (0x[0-9a-fA-F]+),[^{}]*?)?order = (-?\d+), callout = ([^\s(]+)"#
-        guard let regex = try? NSRegularExpression(pattern: fields),
-              let pointer = try? NSRegularExpression(pattern: #"^<CFRunLoopObserver (0x[0-9a-fA-F]+)"#) else { return [] }
+        guard let regex = try? NSRegularExpression(pattern: fields) else { return [] }
         var found: Set<CommitBoundaryObserver> = []
         // One entry per observer: from its `<CFRunLoopObserver` to the next one or the end of its line.
         for entry in description.components(separatedBy: "<CFRunLoopObserver").dropFirst() {
@@ -66,16 +65,9 @@ public nonisolated struct CommitBoundaryAudit: Sendable, Hashable {
                   let orderRange = Range(match.range(at: 2), in: trimmed),
                   let calloutRange = Range(match.range(at: 3), in: trimmed),
                   let order = Int(trimmed[orderRange]) else { continue }
-            let address = pointer.firstMatch(in: trimmed, range: range)
-                .flatMap { Range($0.range(at: 1), in: trimmed) }
-                .flatMap { UInt(trimmed[$0].dropFirst(2), radix: 16) }
             let activities = Range(match.range(at: 1), in: trimmed).flatMap { UInt(trimmed[$0].dropFirst(2), radix: 16) }
-            let observer = CommitBoundaryObserver(order: order, callout: String(trimmed[calloutRange]), activities: activities,
-                                                  dumpText: trimmed, address: address)
-            // Equal entries are one observer listed once per mode, or block observers that print the same:
-            // keep one of cmux's own after-commit observers only while no other equal entry is someone else's.
-            if let index = found.firstIndex(of: observer), !found[index].isOwnAfterCommit { continue }
-            found.update(with: observer)
+            found.insert(CommitBoundaryObserver(order: order, callout: String(trimmed[calloutRange]), activities: activities,
+                                                dumpText: trimmed))
         }
         return found
     }

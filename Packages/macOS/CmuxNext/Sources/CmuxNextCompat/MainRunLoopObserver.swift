@@ -45,7 +45,6 @@ public import Foundation
 /// ```
 public nonisolated final class MainRunLoopObserver {
     private let observer: CFRunLoopObserver
-    private let afterCommit: Bool
 
     /// Adds an observer of `activities` to the main run loop in `mode`, from any thread.
     ///
@@ -62,9 +61,9 @@ public nonisolated final class MainRunLoopObserver {
     ///     with it AppKit's display cycle) included. Default 0.
     ///   - mode: The run loop mode to observe (default `.commonModes`, which includes the
     ///     default mode and the event-tracking mode of menus and drags).
-    ///   - drawsNothingAfterCommit: True for an observer after the commit (`order: .max`) whose
-    ///     handler lays out, displays and commits nothing, so the commit-boundary audit does not
-    ///     count it as late (``AfterCommitObservers``). Default false.
+    ///   - drawsNothingAfterCommit: True for an observer after the commit whose handler lays out,
+    ///     displays and commits nothing, so the commit-boundary audit does not count it as late
+    ///     (``afterCommitObserver(activities:repeats:order:_:)``). Default false.
     ///   - handler: Main-actor work with the stage that called it.
     public init(
         activities: CFRunLoopActivity,
@@ -74,9 +73,8 @@ public nonisolated final class MainRunLoopObserver {
         drawsNothingAfterCommit: Bool = false,
         _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void
     ) {
-        observer = Self.addMainObserver(activities: activities, repeats: repeats, order: order, mode: mode, handler)
-        afterCommit = drawsNothingAfterCommit
-        if afterCommit { AfterCommitObservers.register(observer) }
+        observer = Self.addMainObserver(activities: activities, repeats: repeats, order: order, mode: mode,
+                                        drawsNothingAfterCommit: drawsNothingAfterCommit, handler)
     }
 
     /// Calls `body` once on the main actor, at the main run loop's next stage in `activities`,
@@ -119,12 +117,10 @@ public nonisolated final class MainRunLoopObserver {
     /// Stops observing now and removes the observer from the main run loop (also happens when
     /// the token is released). Safe to call more than once and from any thread.
     public func invalidate() {
-        if afterCommit { AfterCommitObservers.remove(observer) }
         CFRunLoopObserverInvalidate(observer)
     }
 
     deinit {
-        if afterCommit { AfterCommitObservers.remove(observer) }
         CFRunLoopObserverInvalidate(observer)
     }
 
@@ -135,11 +131,20 @@ public nonisolated final class MainRunLoopObserver {
         repeats: Bool,
         order: CFIndex,
         mode: CFRunLoopMode,
+        drawsNothingAfterCommit: Bool = false,
         _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void
     ) -> CFRunLoopObserver {
-        let observer: CFRunLoopObserver = CFRunLoopObserverCreateWithHandler(nil, activities.rawValue, repeats, order) { _, activity in
-            // main-proof: the observer is added only to CFRunLoopGetMain(), whose observers run on the main thread.
-            MainActor.assumeIsolated { handler(activity) }
+        let observer: CFRunLoopObserver
+        if drawsNothingAfterCommit {
+            observer = afterCommitObserver(activities: activities, repeats: repeats, order: order) { activity in
+                // main-proof: the observer is added only to CFRunLoopGetMain(), whose observers run on the main thread.
+                MainActor.assumeIsolated { handler(activity) }
+            }
+        } else {
+            observer = CFRunLoopObserverCreateWithHandler(nil, activities.rawValue, repeats, order) { _, activity in
+                // main-proof: the observer is added only to CFRunLoopGetMain(), whose observers run on the main thread.
+                MainActor.assumeIsolated { handler(activity) }
+            }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, mode)
         return observer

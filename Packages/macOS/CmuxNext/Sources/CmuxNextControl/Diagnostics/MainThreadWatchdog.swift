@@ -251,13 +251,12 @@ public final class MainThreadWatchdog: Sendable {
         let earlyObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, early, true, CFIndex.min) { [weak self] _, activity in
             self?.heartbeat(activity)
         }
-        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, activity in
+        // The late stamp draws nothing: its context says so to the commit-boundary audit.
+        let lateObserver = MainRunLoopObserver.afterCommitObserver(activities: .beforeWaiting, order: CFIndex.max) { [weak self] activity in
             self?.heartbeat(activity)
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), earlyObserver, .commonModes)
         CFRunLoopAddObserver(CFRunLoopGetMain(), lateObserver, .commonModes)
-        // The late stamp draws nothing: the commit-boundary audit does not count it as late.
-        AfterCommitObservers.register(lateObserver)
         let box = ObserverBox([earlyObserver, lateObserver])
         observer.withLock { $0 = box }
         let sampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
@@ -283,10 +282,7 @@ public final class MainThreadWatchdog: Sendable {
     public func stop() {
         guard running.compareExchange(expected: true, desired: false, ordering: .acquiringAndReleasing).exchanged else { return }
         if let box = observer.withLock({ observer in defer { observer = nil }; return observer }) {
-            for runLoopObserver in box.observers {
-                AfterCommitObservers.remove(runLoopObserver)
-                CFRunLoopObserverInvalidate(runLoopObserver)
-            }
+            for runLoopObserver in box.observers { CFRunLoopObserverInvalidate(runLoopObserver) }
         }
         alarm.wake()
     }
