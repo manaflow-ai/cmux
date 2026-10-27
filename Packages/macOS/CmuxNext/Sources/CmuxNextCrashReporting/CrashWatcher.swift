@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 import Foundation
 
@@ -83,12 +84,17 @@ struct CrashWatcher: Sendable {
         case spawn(Int32)
     }
 
-    /// Spawns the watcher for `pid`. The returned write end is close-on-exec and never raises
-    /// SIGPIPE (a write after the watcher ended returns EPIPE). Blocking (`posix_spawn`): call it
-    /// off the main thread.
+    /// The watcher's priority: nobody waits on it until a crash, and its `sample` and SIGKILL then need no
+    /// more than utility. Best effort clamps it at utility, with what it runs (`sample`).
+    static let priority = MayBlockPriority.bestEffort
+
+    /// Spawns the watcher for `pid` at ``priority``. The returned write end is close-on-exec and never
+    /// raises SIGPIPE (a write after the watcher ended returns EPIPE). Blocking (`posix_spawn`):
+    /// ``install(sampleFile:)`` calls it on a ``ChildProcessLauncher``.
     func spawn(watching pid: pid_t) throws(SpawnError) -> Spawned {
         var ends: [Int32] = [-1, -1]
-        guard pipe(&ends) == 0 else { throw .pipe(errno) }
+        // SAFETY: pipe writes two descriptors into the two-element array's storage, live for the call.
+        guard unsafe pipe(&ends) == 0 else { throw .pipe(errno) }
         let (readEnd, writeEnd) = (ends[0], ends[1])
         // The window between pipe() and these calls is the only time a process spawned by another
         // thread without CLOEXEC_DEFAULT could inherit an end (macOS has no pipe2).
@@ -98,10 +104,14 @@ struct CrashWatcher: Sendable {
         defer { close(readEnd) }
 
         var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        defer { posix_spawn_file_actions_destroy(&actions) }
+        // SAFETY (file actions and attributes): each call gets a pointer to the local `actions`, `attributes`,
+        // `none` or `all`, live for the call, and a path literal's NUL-terminated copy; _init sets each object up
+        // before any other use and the defer destroys it exactly once.
+        unsafe posix_spawn_file_actions_init(&actions)
+        defer { unsafe posix_spawn_file_actions_destroy(&actions) }
         for target: Int32 in 0...2 {
-            posix_spawn_file_actions_addopen(&actions, target, "/dev/null", target == 0 ? O_RDONLY : O_WRONLY, 0)
+            // SAFETY: as above (file actions and attributes).
+            unsafe posix_spawn_file_actions_addopen(&actions, target, "/dev/null", target == 0 ? O_RDONLY : O_WRONLY, 0)
         }
         // dup2 onto a different descriptor clears close-on-exec on fd 3; when the pipe's read end
         // is fd 3 itself, dup2(3, 3) would keep it, and the watcher would start with no fd 3.
@@ -111,26 +121,38 @@ struct CrashWatcher: Sendable {
             throw .pipe(errno)
         }
         defer { close(source) }
-        posix_spawn_file_actions_adddup2(&actions, source, 3)
+        // SAFETY: as above (file actions and attributes).
+        unsafe posix_spawn_file_actions_adddup2(&actions, source, 3)
 
         var attributes: posix_spawnattr_t?
-        posix_spawnattr_init(&attributes)
-        defer { posix_spawnattr_destroy(&attributes) }
+        // SAFETY: as above (file actions and attributes).
+        unsafe posix_spawnattr_init(&attributes)
+        defer { unsafe posix_spawnattr_destroy(&attributes) }
         var none = sigset_t(), all = sigset_t()
-        sigemptyset(&none)
-        sigfillset(&all)
-        posix_spawnattr_setsigmask(&attributes, &none)
-        posix_spawnattr_setsigdefault(&attributes, &all)
+        // SAFETY: as above (file actions and attributes).
+        unsafe sigemptyset(&none)
+        // SAFETY: as above (file actions and attributes).
+        unsafe sigfillset(&all)
+        // SAFETY: as above (file actions and attributes).
+        unsafe posix_spawnattr_setsigmask(&attributes, &none)
+        // SAFETY: as above (file actions and attributes).
+        unsafe posix_spawnattr_setsigdefault(&attributes, &all)
         // Its own process group: a terminal's Ctrl-C or a group kill aimed at the app does not end the watcher first.
-        posix_spawnattr_setpgroup(&attributes, 0)
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK
-                                                     | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETPGROUP))
+        // SAFETY: as above (file actions and attributes).
+        unsafe posix_spawnattr_setpgroup(&attributes, 0)
+        // SAFETY: as above (file actions and attributes).
+        unsafe posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK
+                                                            | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETPGROUP))
 
         let arguments = ["/bin/zsh", "-f", "-c", Self.script, "cmux-crash-watcher", String(pid), sampleFile, String(seconds)]
         let environment = ["PATH=/usr/bin:/bin:/usr/sbin:/sbin"]
         var child: pid_t = 0
-        let status = withCStrings(arguments) { argv in
-            withCStrings(environment) { envp in posix_spawn(&child, "/bin/zsh", &actions, &attributes, argv, envp) }
+        // SAFETY: argv and envp are withCStrings' nil-terminated arrays of live copies, used only inside its closures;
+        // `child`, `actions` and `attributes` are locals live for the call (posix_spawn copies them into the child).
+        let status = unsafe withCStrings(arguments) { argv in
+            unsafe withCStrings(environment) { envp in
+                unsafe blockingPosixSpawn(&child, "/bin/zsh", &actions, &attributes, argv, envp, priority: Self.priority)
+            }
         }
         guard status == 0 else {
             close(writeEnd)
@@ -145,30 +167,40 @@ struct CrashWatcher: Sendable {
     static func install(sampleFile: String) {
         let watcher = CrashWatcher(sampleFile: sampleFile)
         let app = getpid()
-        DispatchQueue.global(qos: .utility).async {
-            guard watcherDescriptor < 0, let spawned = try? watcher.spawn(watching: app) else { return }
-            watcherDescriptor = spawned.writeEnd
+        ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.crash-watcher", priority: priority).post {
+            // SAFETY: only this serial launcher queue writes the word, once (see the declaration).
+            guard unsafe watcherDescriptor < 0, let spawned = try? watcher.spawn(watching: app) else { return }
+            // SAFETY: as above.
+            unsafe watcherDescriptor = spawned.writeEnd
         }
     }
 
     /// A crash path began: tells the watcher, which ends the app ``seconds`` later if it still
     /// runs. Async-signal-safe (one `write(2)`); does nothing before ``install(sampleFile:)``.
     static func arm() {
-        let descriptor = watcherDescriptor
+        // SAFETY: one aligned 32-bit load of a word written once at launch (see the declaration).
+        let descriptor = unsafe watcherDescriptor
         guard descriptor >= 0 else { return }
         var byte: UInt8 = 0x63
-        _ = write(descriptor, &byte, 1)
+        // SAFETY: write reads 1 byte, the count given, from `byte`, a local live for the call.
+        _ = unsafe write(descriptor, &byte, 1)
     }
 }
 
 /// Runs `body` with `strings` as a NULL-terminated C string array (argv / envp).
-private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeMutablePointer<CChar>?>?) -> R) -> R {
-    let pointers = strings.map { strdup($0) } + [nil]
-    defer { pointers.forEach { free($0) } }
-    return pointers.withUnsafeBufferPointer { body($0.baseAddress) }
+// SAFETY: @unsafe because the pointers `body` gets are freed when it returns: they must not escape it.
+@unsafe private func withCStrings<R>(_ strings: [String], _ body: ([UnsafeMutablePointer<CChar>?]) -> R) -> R {
+    // SAFETY: strdup copies each Swift string into a NUL-terminated heap string; the defer frees each copy exactly
+    // once, after `body` returns.
+    let pointers = unsafe strings.map { unsafe strdup($0) } + [nil]
+    defer { unsafe pointers.forEach { unsafe free($0) } }
+    return unsafe body(pointers)
 }
 
-// Written once, off the main thread, before any crash path can read it in practice; a signal
-// handler reads it, so a plain global (an Int32 store is atomic on arm64 and x86_64).
-// crash-allow: one aligned Int32 written once at launch, then only read (signal-handler state).
+// Threads: written once at launch on the crash watcher's child-launcher queue (ChildProcessLauncher, one serial
+// queue, which also reads it in its install guard); read by arm() in fatal-signal handlers on whichever thread
+// faulted, and in the uncaught-exception handler. No lock: a signal handler that waits for a lock the interrupted
+// thread holds never returns, and os_unfair_lock is not async-signal-safe; no Atomic: its lazy initializer would run in
+// the handler. So a plain aligned Int32 with a constant initial value (its store is one instruction on arm64 and x86_64).
+// crash-allow: async-signal-safe global, written once on the launcher queue, read by signal handlers (why no lock: above).
 nonisolated(unsafe) private var watcherDescriptor: Int32 = -1

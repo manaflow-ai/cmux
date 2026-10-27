@@ -23,8 +23,9 @@ pub struct Spawned {
 /// shell elsewhere or exiting 127. `open_file_limit` is the soft
 /// `RLIMIT_NOFILE` the child gets back (the one cmux started with, before
 /// the daemon raised its own: programs that use `select(2)` break above
-/// 1024). The holder is single threaded, so `fork` is safe here; the child
-/// only calls async-signal-safe functions before `execve`.
+/// 1024). Only the loop's thread forks; the child only calls
+/// async-signal-safe functions before `execve`, so the holder's other
+/// threads (`mux-hang-watch`, the trace map thread) cannot leave it a lock.
 pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result<Spawned> {
     let argv = c_strings(&request.argv)?;
     if argv.is_empty() {
@@ -67,8 +68,8 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
     set_cloexec(slave.as_raw_fd());
     let (error_read, error_write) = cloexec_pipe()?;
 
-    // SAFETY: single-threaded process; the child path below calls only
-    // async-signal-safe functions and ends in execve or _exit.
+    // SAFETY: the child path below calls only async-signal-safe functions
+    // and ends in execve or _exit.
     let pid = unsafe { libc::fork() };
     if pid < 0 {
         return Err(io::Error::last_os_error());
@@ -116,10 +117,11 @@ const STAGE_EXEC: u8 = b'E';
 
 /// The child after `fork`: new session, the PTY as controlling terminal and
 /// stdio, default signal dispositions, the open-file limit cmux started
-/// with, its directory, then `execve`. Every other descriptor of the holder
-/// is close-on-exec ([`mark_inherited_close_on_exec`] at startup, and each
-/// one it opens later), so the program gets only its PTY. A failure writes
-/// `stage u8, errno i32` to `error` and exits 127.
+/// with, QOS_CLASS_DEFAULT (macOS, [`reset_qos`]), its directory, then
+/// `execve`. Every other descriptor of the holder is close-on-exec
+/// ([`mark_inherited_close_on_exec`] at startup, and each one it opens
+/// later), so the program gets only its PTY. A failure writes `stage u8,
+/// errno i32` to `error` and exits 127.
 unsafe fn child(
     (slave, error): (libc::c_int, libc::c_int),
     open_file_limit: Option<u64>,
@@ -149,6 +151,7 @@ unsafe fn child(
                 libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
             }
         }
+        reset_qos();
         if libc::chdir(cwd.as_ptr()) != 0 {
             report_and_exit(error, STAGE_CHDIR)
         }
@@ -156,6 +159,20 @@ unsafe fn child(
         report_and_exit(error, STAGE_EXEC)
     }
 }
+
+/// macOS: start the shell at QOS_CLASS_DEFAULT, the class of a user child
+/// (`cmux_threads::process`), not the holder thread's class,
+/// which a forked child keeps across `execve` (p02-threads task 223). One
+/// system call on the calling thread, with no lock: safe after `fork`.
+/// Linux children keep the holder's nice value, as before.
+#[cfg(target_vendor = "apple")]
+fn reset_qos() {
+    // SAFETY: plain FFI call on the calling thread.
+    unsafe { libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_DEFAULT, 0) };
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn reset_qos() {}
 
 /// Write `stage` and the current errno to the parent's error pipe, then
 /// `_exit(127)`. Async-signal-safe.
@@ -331,16 +348,5 @@ pub fn resize(master: libc::c_int, cols: u16, rows: u16, px_w: u16, px_h: u16) -
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_bare_program_name_resolves_on_the_requests_path() {
-        let env = vec![b"HOME=/".to_vec(), b"PATH=/nonexistent-cmux-dir:/bin:/usr/bin".to_vec()];
-        let resolved = resolve_program(b"sh", &env, b"/").unwrap();
-        assert!(resolved.to_bytes().ends_with(b"/sh"), "{resolved:?}");
-        assert_eq!(resolve_program(b"/bin/sh", &[], b"/").unwrap().to_bytes(), b"/bin/sh");
-        let missing = resolve_program(b"cmux-no-such-program", &env, b"/").unwrap_err();
-        assert_eq!(missing.kind(), io::ErrorKind::NotFound);
-    }
-}
+#[path = "pty_tests.rs"]
+mod tests;

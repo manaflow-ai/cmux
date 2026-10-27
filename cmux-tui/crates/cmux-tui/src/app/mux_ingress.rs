@@ -211,8 +211,10 @@ pub(super) fn start_ordered_session_inner(
     let worker_titles = mux_titles.clone();
     let worker_start = start.clone();
     let worker_stop = stop.clone();
-    let mux =
-        std::thread::Builder::new().name(format!("mux-events-{generation}")).spawn(move || {
+    let mux = cmux_threads::spawn(
+        format!("mux-events-{generation}"),
+        cmux_tui_core::thread_qos::ThreadType::Interactive.qos(),
+        move || {
             while !worker_start.load(Ordering::Acquire)
                 && !worker_events.cancellation.stop.load(Ordering::Acquire)
             {
@@ -230,7 +232,8 @@ pub(super) fn start_ordered_session_inner(
                 worker_events,
                 worker_titles,
             );
-        })?;
+        },
+    )?;
     Ok((
         session,
         SessionEventWorker { cancellation, start, stop, mux: Some(mux) },

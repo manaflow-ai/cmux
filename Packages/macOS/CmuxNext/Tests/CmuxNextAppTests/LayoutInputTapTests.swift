@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextInput
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// The layout root's routing on the app's input tap (p04-input-019): a live root holds one intercept for scrolls,
@@ -18,7 +19,7 @@ import Testing
 
         init() {
             _ = NSApplication.shared
-            root = LayoutRootView(model: model, contentProvider: provider, input: tap)
+            root = LayoutRootView(model: model, contentProvider: provider, input: tap, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = false
             window.isReleasedWhenClosed = false
             window.orderFrontRegardless()

@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CmuxSafeConcurrency
 import CmuxVNC
 import CoreMedia
 import Foundation
@@ -10,9 +11,12 @@ import ScreenCaptureKit
 /// the hardware encoder), and CGEvent posts the viewer's input as if from
 /// this Mac's own keyboard and mouse. Needs Screen Recording and
 /// Accessibility for the host app.
-// crash-allow: mutable state is behind `lock` and SCStream calls back on its one serial `queue`.
+// Threads: SCStream's sample and error callbacks on the serial `queue`, start/select/stop on the host session's tasks,
+// the display-change callback on the main thread. Not a Mutex<State>: SCDisplay and SCStream are not Sendable, so a
+// checked Mutex could not hand a display or a stream out to the async capture calls that need them after the lock is
+// released; `lock` returns them and those calls run unlocked.
+// crash-allow: every mutable field is read and written only under `lock` (threads and why not a Mutex: above).
 public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
-    // @unchecked: state behind `lock`; SCStream calls back on `queue`.
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "cmux.screen.capture", qos: .userInteractive)
     private let log: @Sendable (String) -> Void
@@ -54,17 +58,28 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     /// and capture the streaming one at its new size (a stream configured for
     /// the old mode can stop delivering frames).
     private func watchDisplays() {
+        // The context is this backend, retained by watchDisplays and released by stop() only
+        // after the callback is removed (on the main thread, where the callbacks run), so a
+        // callback always sees a live backend.
         let callback: CGDisplayReconfigurationCallBack = { _, flags, context in
-            guard !flags.contains(.beginConfigurationFlag), let context else { return }
-            let backend = Unmanaged<ScreenCaptureBackend>.fromOpaque(context).takeUnretainedValue()
+            // SAFETY: Core Graphics hands back the context pointer given at registration.
+            guard !flags.contains(.beginConfigurationFlag), let context = unsafe context else { return }
+            // SAFETY: the context is the +1 backend (ownership above); the unretained read does
+            // not change its count.
+            let backend = unsafe Unmanaged<ScreenCaptureBackend>.fromOpaque(context).takeUnretainedValue()
             backend.recover("displays changed")
         }
         // Registered under the lock, and never after stop(): stop() then always removes it.
         lock.withLock {
-            guard !stopped, reconfiguration == nil else { return }
-            let context = Unmanaged.passRetained(self)
-            reconfiguration = (callback, context)
-            CGDisplayRegisterReconfigurationCallback(callback, context.toOpaque())
+            // SAFETY: reads the stored registration; its context is only released by stop().
+            guard !stopped, unsafe reconfiguration == nil else { return }
+            // SAFETY: the +1 the callback's context holds, released once by stop().
+            let context = unsafe Unmanaged.passRetained(self)
+            // SAFETY: stores the registration stop() removes and releases exactly once.
+            unsafe reconfiguration = (callback, context)
+            // SAFETY: the context pointer is the +1 backend above, live until stop() removes this
+            // callback and only then releases it.
+            _ = unsafe CGDisplayRegisterReconfigurationCallback(callback, context.toOpaque())
         }
     }
 
@@ -123,7 +138,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             return
         }
         if let previous { try? await previous.stopCapture() }
-        input.display = display.frame
+        input.setDisplay(display.frame)
         log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), 60 fps")
     }
 
@@ -152,20 +167,27 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     }
 
     public func stop() {
-        let (stream, reconfiguration) = lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?) in
+        // SAFETY: takes the registration out under the lock, so exactly one stop() gets it.
+        let (stream, reconfiguration) = unsafe lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?) in
             defer {
                 self.stream = nil
                 stopped = true
-                self.reconfiguration = nil
+                // SAFETY: clears the field; the value moved out above.
+                unsafe self.reconfiguration = nil
             }
-            return (self.stream, self.reconfiguration)
+            // SAFETY: moves the registration out; nothing else releases it.
+            return (self.stream, unsafe self.reconfiguration)
         }
-        if let reconfiguration {
+        // SAFETY: the registration this stop() took out, the only one to release it.
+        if let reconfiguration = unsafe reconfiguration {
             // On the main thread, where the callbacks run: none is mid-call when
             // the hold it used is released.
             let release = { @Sendable in
-                CGDisplayRemoveReconfigurationCallback(reconfiguration.callback, reconfiguration.context.toOpaque())
-                reconfiguration.context.release()
+                // SAFETY: removes the callback registered with this context; after it no callback
+                // can receive the context.
+                unsafe CGDisplayRemoveReconfigurationCallback(reconfiguration.callback, reconfiguration.context.toOpaque())
+                // SAFETY: releases the +1 watchDisplays took, once, after the callback is gone.
+                unsafe reconfiguration.context.release()
             }
             if Thread.isMainThread { release() } else { DispatchQueue.main.async(execute: release) }
         }
@@ -176,10 +198,29 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 /// Posts input with CGEvent at the HID level (Accessibility permission):
 /// absolute pointer positions on the streamed display, button transitions
 /// with click counting, wheel scrolling, keys by virtual key code, and text
-/// as Unicode strings.
-// crash-allow: one per backend, driven only by the input channel's callbacks, which libwebrtc delivers one at a time.
-final class EventInjector: @unchecked Sendable {
-    // @unchecked: used from the data channel's callbacks, one at a time.
+/// as Unicode strings. The input channel's callbacks post, and a capture
+/// start (its own task) moves the display, both under `state`.
+final class EventInjector: Sendable {
+    private let state = Mutex(Poster())
+
+    func handle(_ input: ScreenInput) {
+        state.withLock { $0.handle(input) }
+    }
+
+    /// The display pointer positions are on (its frame in global coordinates).
+    func setDisplay(_ frame: CGRect) {
+        state.withLock { $0.display = frame }
+    }
+
+    /// macOS virtual key codes (ANSI layout) by keysym; `shifted` for the
+    /// upper symbol of a key.
+    static func keyCode(for keysym: UInt32) -> (CGKeyCode, Bool)? {
+        Poster.keyCode(for: keysym)
+    }
+}
+
+/// The injector's event source and pointer, button and modifier state.
+private struct Poster {
     var display = CGRect.zero
     private let source = CGEventSource(stateID: .hidSystemState)
     private var buttons: UInt8 = 0
@@ -187,7 +228,7 @@ final class EventInjector: @unchecked Sendable {
     private var lastClick: (time: TimeInterval, button: UInt8, count: Int64) = (0, 0, 0)
     private var flags: CGEventFlags = []
 
-    func handle(_ input: ScreenInput) {
+    mutating func handle(_ input: ScreenInput) {
         switch input.t {
         case "move":
             point = location(input)
@@ -196,7 +237,7 @@ final class EventInjector: @unchecked Sendable {
             point = location(input)
             post(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left))
             post(CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 2,
-                         wheel1: Int32(input.dy ?? 0), wheel2: Int32(input.dx ?? 0), wheel3: 0))
+                         wheel1: input.wheel.dy, wheel2: input.wheel.dx, wheel3: 0))
         case "key":
             guard let keysym = input.k else { return }
             key(keysym, down: input.d ?? true)
@@ -215,11 +256,11 @@ final class EventInjector: @unchecked Sendable {
     }
 
     private func location(_ input: ScreenInput) -> CGPoint {
-        CGPoint(x: display.minX + (input.x ?? 0) * display.width, y: display.minY + (input.y ?? 0) * display.height)
+        input.location(in: display)
     }
 
     /// Moves, then posts a down or up for each button whose state changed.
-    private func setButtons(_ next: UInt8) {
+    private mutating func setButtons(_ next: UInt8) {
         let changed = next ^ buttons
         let held = buttons
         buttons = next
@@ -244,7 +285,7 @@ final class EventInjector: @unchecked Sendable {
         }
     }
 
-    private func key(_ keysym: UInt32, down: Bool) {
+    private mutating func key(_ keysym: UInt32, down: Bool) {
         if let flag = Self.modifierFlags[keysym] {
             if down { flags.insert(flag) } else { flags.remove(flag) }
         }
@@ -261,7 +302,9 @@ final class EventInjector: @unchecked Sendable {
         let utf16 = Array(String(character).utf16)
         for down in [true, false] {
             let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: down)
-            event?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
+            // SAFETY: CGEvent copies stringLength = utf16.count UTF-16 units from the array, which
+            // Swift keeps alive for this call only.
+            unsafe event?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
             event?.flags = flags
             post(event)
         }

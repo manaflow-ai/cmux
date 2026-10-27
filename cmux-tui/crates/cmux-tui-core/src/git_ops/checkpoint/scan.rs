@@ -3,6 +3,7 @@
 //! re-verifies before it publishes), and the untracked and ignored paths.
 //! Every read uses the read runner; nothing here writes.
 
+use cmux_threads::checked::fs as files;
 use std::collections::HashSet;
 use std::fs;
 use std::io;
@@ -14,6 +15,7 @@ use sha2::{Digest, Sha256};
 use super::record::SkipCode;
 use crate::git_ops::Repository;
 use crate::git_ops::run::GitFailure;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 
 /// Listings larger than this cannot be trusted to be complete.
@@ -41,7 +43,7 @@ impl Layout {
             return Err(failed(operation, "git_failed", "git did not name its directories"));
         };
         let canonical = |path: &str| {
-            fs::canonicalize(path)
+            files::canonicalize(path)
                 .map_err(|error| failed(operation, "git_failed", error.to_string()))
         };
         Ok(Self { git_dir: canonical(own)?, common_dir: canonical(common)? })
@@ -75,13 +77,14 @@ pub(super) fn observe(
     let mut entries = Vec::new();
     for record in records(&listing) {
         // `<tag> <mode> <oid> <stage>\t<path>`
-        let Some(tab) = record.iter().position(|byte| *byte == b'\t') else { continue };
-        let header = String::from_utf8_lossy(&record[..tab]).into_owned();
+        let mut parts = record.splitn(2, |byte| *byte == b'\t');
+        let (Some(header), Some(path)) = (parts.next(), parts.next()) else { continue };
+        let header = String::from_utf8_lossy(header).into_owned();
         let fields = header.split(' ').collect::<Vec<_>>();
         let [tag, mode, oid, stage] = fields.as_slice() else {
             return Err(failed(operation, "git_failed", "unexpected ls-files output"));
         };
-        let path = record[tab + 1..].to_vec();
+        let path = path.to_vec();
         let mode_name = if *stage != "0" {
             Some("unresolved stages")
         } else if *tag == "S" {
@@ -232,7 +235,7 @@ pub(super) fn ignored(
 /// absent, or the error that kept it from being read.
 pub(super) fn inspect(root: &Path, relative: &[u8]) -> io::Result<Option<Kind>> {
     let path = join(root, relative);
-    let metadata = match fs::symlink_metadata(&path) {
+    let metadata = match files::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),
@@ -254,19 +257,16 @@ pub(super) fn inspect(root: &Path, relative: &[u8]) -> io::Result<Option<Kind>> 
 /// file or nothing): git then treats the path as deleted. `folders` caches
 /// the folders already seen to be real.
 pub(super) fn behind_a_link(root: &Path, relative: &[u8], folders: &mut HashSet<Vec<u8>>) -> bool {
-    let mut end = 0;
-    while let Some(offset) = relative[end..].iter().position(|byte| *byte == b'/') {
-        end += offset;
-        let prefix = &relative[..end];
+    let slashes = relative.iter().enumerate().filter(|(_, byte)| **byte == b'/');
+    for prefix in slashes.filter_map(|(end, _)| relative.get(..end)) {
         if !folders.contains(prefix) {
-            let real = fs::symlink_metadata(join(root, prefix))
+            let real = files::symlink_metadata(join(root, prefix))
                 .is_ok_and(|metadata| metadata.file_type().is_dir());
             if !real {
                 return true;
             }
             folders.insert(prefix.to_vec());
         }
-        end += 1;
     }
     false
 }
@@ -310,7 +310,7 @@ pub(super) fn join(root: &Path, relative: &[u8]) -> PathBuf {
 }
 
 pub(super) fn link_target(path: &Path) -> io::Result<Vec<u8>> {
-    let target = fs::read_link(path)?;
+    let target = files::read_link(path)?;
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;
@@ -388,22 +388,22 @@ pub(super) fn normalized(error: ResourceError) -> ResourceError {
     }
     let details = &error.details;
     let (Some(code), Some(operation)) =
-        (details["extra"]["code"].as_str(), details["operation"].as_str())
+        (details.field("extra").field("code").as_str(), details.field("operation").as_str())
     else {
         return error;
     };
-    let mut extra = details["extra"].clone();
+    let mut extra = details.field("extra").clone();
     if let Some(fields) = extra.as_object_mut() {
         fields.remove("code");
     }
-    let message = details["reason"].as_str().unwrap_or(code).to_string();
+    let message = details.field("reason").as_str().unwrap_or(code).to_string();
     refused(operation, code, message, extra)
 }
 
 fn unsupported(operation: &'static str, mode: &str, path: Option<&[u8]>) -> ResourceError {
     let mut extra = json!({"mode":mode});
     if let Some(path) = path {
-        extra["path"] = json!(String::from_utf8_lossy(path));
+        extra.insert("path", json!(String::from_utf8_lossy(path)));
     }
     let message = format!("the index uses {mode}, which a checkpoint cannot round-trip yet");
     refused(operation, "unsupported_index", message, extra)

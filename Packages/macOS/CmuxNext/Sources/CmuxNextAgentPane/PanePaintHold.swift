@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Content that draws nothing until its document paints (an agent page is
 /// transparent until then). A pane switching to it keeps what it showed
@@ -26,10 +26,14 @@ public final class PanePaintHold {
     private var holding = false
     private var release: ((NSView) -> Void)?
     private var ended: (() -> Void)?
-    private let deadline: DemandTimer
+    /// The hold's limit: `visible`, since the person waits on the pane it keeps.
+    private let deadline: MainDeadline
 
-    public init(owner: String) {
-        deadline = DemandTimer(owner: owner)
+    /// - Parameters:
+    ///   - owner: The limit's owner on the board.
+    ///   - deadlines: The app's one deadline placer (`AppServices.mainDeadlines`).
+    public init(owner: String, deadlines: MainDeadlineScheduler) {
+        deadline = MainDeadline(owner: owner, workClass: .visible, scheduler: deadlines)
     }
 
     /// Whether `view` replacing `hosted` waits for its first frame. Content
@@ -57,12 +61,13 @@ public final class PanePaintHold {
             host.addSubview(incoming, positioned: .above, relativeTo: outgoing)
         }
         incoming.alphaValue = 0
+        (incoming as? AgentPaneView)?.chatOpen?.mark(.holdBegin)
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.holdBegin, view: incoming)
         #endif
         gated.whenFirstPainted { [weak self] in self?.end(token) }
         // A later hold replaces this deadline; the token keeps it to its own hold.
-        deadline.schedule(after: Self.limit) { @MainActor [weak self] in
+        deadline.schedule(after: Self.limit) { [weak self] in
             self?.end(token)
         }
     }
@@ -104,6 +109,7 @@ public final class PanePaintHold {
         ended?()
         incoming?.alphaValue = 1
         CATransaction.commit()
+        (incoming as? AgentPaneView)?.chatOpen?.mark(.holdEnd)
         #if DEBUG || CMUX_BENCH_HOOKS
         if let incoming { ChatOpenTrace.shared.mark(.holdEnd, view: incoming) }
         #endif

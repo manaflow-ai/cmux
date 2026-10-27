@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 import Foundation
 
 /// Where the hosted cmux sign-in opens (Debug Settings `auth.signInWindow`).
@@ -30,11 +31,12 @@ public nonisolated enum CloudSignInWindow: String, Sendable, CaseIterable {
         }
     }
 
-    /// The default browser's bundle identifier (a Launch Services lookup).
-    @MainActor
-    public static func currentDefaultBrowser() -> String? {
-        guard let probe = URL(string: "https://cmux.com"),
-              let app = NSWorkspace.shared.urlForApplication(toOpen: probe) else { return nil }
-        return Bundle(url: app)?.bundleIdentifier
+    /// The default browser's bundle identifier, asked on the system lane (Launch Services, then the app's
+    /// Info.plist); nil when no app opens https links or it has no identifier.
+    public static func defaultBrowserQuery() -> WorkspaceQuery<String?> {
+        WorkspaceQuery(id: "cloud.defaultBrowser", refreshes: true) { system in
+            guard let probe = URL(string: "https://cmux.com"), let app = system.defaultApplication(toOpen: probe) else { return nil }
+            return Bundle(url: app)?.bundleIdentifier
+        }
     }
 }

@@ -121,6 +121,9 @@ fn plain_ip(addr: SocketAddr) -> IpAddr {
 
 pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     let ready = super::service::take_ready_signal();
+    if let Some(note) = super::service::upgrade_installed_role() {
+        eprintln!("cmux host: {note}");
+    }
     let config = config::load()?;
     if !config.enabled {
         eprintln!("cmux host: remote hosting is disabled (run `cmux host enable`)");

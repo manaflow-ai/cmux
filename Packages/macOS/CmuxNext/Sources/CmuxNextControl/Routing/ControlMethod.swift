@@ -85,6 +85,19 @@ public struct ControlMethod: Sendable {
         return method
     }
 
+    /// The router answers it from the last published snapshot without building a stale one first
+    /// (``readingLastPublished()``).
+    public private(set) var readsLastPublished = false
+
+    /// This method, answered from the last published snapshot: the router does not wait for a stale
+    /// snapshot's build (a main-thread task) first. For a liveness or hang diagnostic (`system.ping`,
+    /// `debug.hangs`) that must answer while the main thread is stalled.
+    public func readingLastPublished() -> ControlMethod {
+        var method = self
+        method.readsLastPublished = true
+        return method
+    }
+
     /// This method, whose body calls `call.progress.begin()` when its work starts.
     public func claimingProgress() -> ControlMethod {
         var method = self
@@ -136,6 +149,7 @@ public struct ControlMethod: Sendable {
         method.limitOverride = limitOverride
         method.workClass = workClass
         method.servesRelease = servesRelease
+        method.readsLastPublished = readsLastPublished
         return method
     }
 

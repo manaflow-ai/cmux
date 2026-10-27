@@ -52,7 +52,9 @@ struct ComposeVoiceSplice: Equatable {
 /// listens; this puts its words at the caret while it listens (each update replaces the last),
 /// commits them as one undo step when the session ends, and takes them out on Esc, leaving the
 /// draft as it was. A key the person types while it listens keeps the words where they are and
-/// stops the session: later words would land in the middle of their typing.
+/// stops the session: later words would land in the middle of their typing. Main actor, as the
+/// field and the controller it edits.
+@MainActor
 final class ComposeVoice {
     weak var controller: ChatController?
     /// The host's engine; nil: no mic button (the field shows Messages' drawn waveform).
@@ -68,16 +70,12 @@ final class ComposeVoice {
     /// The person typed: this session's later words are dropped.
     private var detached = false
     /// Watches the field's undo stack while words show (Edit > Undo comes from the menu, not a key).
-    private var undoWatch: NSObjectProtocol?
+    private var undoWatch: UndoWatch?
 
     /// A session runs (starting, listening or finalizing).
     var isActive: Bool { phase != .idle }
 
     init(controller: ChatController) { self.controller = controller }
-
-    deinit {
-        if let undoWatch { NotificationCenter.default.removeObserver(undoWatch) }
-    }
 
     /// The mic button.
     func toggle() {
@@ -132,9 +130,7 @@ final class ComposeVoice {
         // The shown words register no undo, so the stack's ranges are the draft's without them: an
         // undo first takes the words out (the draft as it was) and stops the session.
         if let undo = field.undoManager {
-            undoWatch = NotificationCenter.default.addObserver(
-                forName: .NSUndoManagerWillUndoChange, object: undo, queue: nil
-            ) { [weak self] _ in self?.undoDuringSession() }
+            undoWatch = UndoWatch(undo) { [weak self] in self?.undoDuringSession() }
         }
     }
 
@@ -153,7 +149,6 @@ final class ComposeVoice {
         defer {
             splice = nil
             detached = false
-            if let undoWatch { NotificationCenter.default.removeObserver(undoWatch) }
             undoWatch = nil
         }
         guard !detached, var splice, let field = controller?.demo?.compose.textView.view else { return }
@@ -209,4 +204,19 @@ final class ComposeVoice {
         let lo = min(range.location, n)
         return NSRange(location: lo, length: min(range.length, n - lo))
     }
+}
+
+/// An undo manager's "will undo" notice for a voice session; the observer goes when this is released.
+private final class UndoWatch {
+    private let token: any NSObjectProtocol
+
+    init(_ undo: UndoManager, _ willUndo: @escaping @MainActor @Sendable () -> Void) {
+        token = NotificationCenter.default.addObserver(forName: .NSUndoManagerWillUndoChange, object: undo, queue: nil) { _ in
+            // Queue nil runs the block on the posting thread; AppKit text editing undoes on the main thread.
+            // main-proof: the field's undo manager posts this from Edit > Undo or Cmd-Z, on the main thread.
+            MainActor.assumeIsolated { willUndo() }
+        }
+    }
+
+    deinit { NotificationCenter.default.removeObserver(token) }
 }

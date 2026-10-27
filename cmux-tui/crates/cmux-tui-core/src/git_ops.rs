@@ -1,7 +1,7 @@
 //! `git.diff`, `git.status`, `git.branches`, `git.files.search` and `git.files.list`: read-only
 //! git reads of the repository a path or a terminal's working directory is in. The session host answers them
-//! without store state; each request runs git on its own connection thread,
-//! bounded by a deadline and output limits. `git.checkpoint.*` captures
+//! without store state; each request runs git on a work item of the System
+//! lane (`answer`), bounded by a deadline and output limits. `git.checkpoint.*` captures
 //! immutable checkpoints through a separate write runner (`checkpoint`).
 //! `git.commit` and `git.push` are the user's own actions and run git in the
 //! user's environment (`user_run`), keyed in the mutation ledger
@@ -21,6 +21,7 @@ mod journal;
 mod list;
 mod mutation;
 mod push;
+mod sequence;
 mod target;
 mod user_run;
 mod worktree;
@@ -35,8 +36,11 @@ use cmux_git::{OpenError, Repository, parse, refs, run, write_run};
 use serde_json::{Value, json};
 
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
+use crate::work_reply::Unanswered;
+pub(crate) use sequence::{Reply, Sequences};
 
 const MAX_SMALL_OUTPUT_BYTES: usize = cmux_git::MAX_SMALL_OUTPUT_BYTES;
 const MAX_STATUS_BYTES: usize = 256 * 1024;
@@ -87,11 +91,69 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
     ) || checkpoint::handles(operation)
 }
 
+/// Answers a git request of `client` through `reply`: the encoded response
+/// envelope, or the error that still needs one (as
+/// [`crate::resource_router::handle_parsed_resource_request`] returns).
+///
+/// Every git operation runs git to completion, so it runs on a work item of
+/// the System lane and `reply` is called there; the request thread returns
+/// at once (Chrome posts blocking work to a MayBlock task runner,
+/// base/task/task_traits.h). A client's git requests run in arrival order,
+/// one at a time (`sequence`). A refused, dropped or panicked item still
+/// answers, each with its own reason.
+pub(crate) fn answer(mux: &Arc<Mux>, client: u64, request: ParsedResourceRequest, reply: Reply) {
+    let operation = request.envelope.operation;
+    debug_assert!(handles(operation));
+    if let Err(reply) = Sequences::submit(mux, client, sequence::Turn { request, reply }) {
+        let message = format!(
+            "this connection already has {} git requests waiting; retry when they answer",
+            sequence::MAX_QUEUED
+        );
+        reply(Err(ResourceError::operation_failed(
+            operation.wire_name(),
+            message,
+            json!({"code":"busy"}),
+        )));
+    }
+}
+
+/// The error of a git request whose work item gave no answer.
+fn unanswered(operation: ResourceOperation, why: Unanswered) -> ResourceError {
+    let (reason, code) = match why {
+        Unanswered::ShuttingDown => ("the daemon is shutting down", "unavailable"),
+        Unanswered::Panicked => {
+            ("internal error: the git operation stopped unexpectedly", "internal")
+        }
+    };
+    ResourceError::operation_failed(operation.wire_name(), reason, json!({"code": code}))
+}
+
+/// The error of an operation the router sent here that git_ops does not
+/// serve (a routing table bug, answered rather than trapped).
+fn unrouted(operation: ResourceOperation) -> ResourceError {
+    let reason = "internal error: the git service does not serve this operation";
+    ResourceError::operation_failed(operation.wire_name(), reason, json!({"code": "internal"}))
+}
+
+/// Operations that change a repository or the checkpoint store.
+fn writes(operation: ResourceOperation) -> bool {
+    !matches!(
+        operation,
+        ResourceOperation::GitDiff
+            | ResourceOperation::GitStatus
+            | ResourceOperation::GitBranches
+            | ResourceOperation::GitFilesSearch
+            | ResourceOperation::GitFilesList
+            | ResourceOperation::GitCheckpointDiff
+            | ResourceOperation::GitCheckpointGet
+            | ResourceOperation::GitCheckpointList
+    )
+}
+
 pub(crate) fn dispatch(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    debug_assert!(handles(request.envelope.operation));
     if checkpoint::handles(request.envelope.operation) {
         return checkpoint::dispatch(mux, request);
     }
@@ -109,7 +171,7 @@ pub(crate) fn dispatch(
         ResourceOperation::GitBranches => "git.branches",
         ResourceOperation::GitFilesSearch => "git.files.search",
         ResourceOperation::GitFilesList => "git.files.list",
-        other => unreachable!("git_ops does not handle {other:?}"),
+        other => return Err(unrouted(other)),
     };
     let directory = target::directory(mux, &request, operation)?;
     let repository = open_repository(&directory, operation)?;
@@ -131,7 +193,7 @@ fn open_repository(directory: &Path, operation: &'static str) -> Result<Reposito
 }
 
 fn status(repository: &Repository) -> Result<Value, ResourceError> {
-    // The operation runs git to completion on this request thread.
+    // git runs to completion here, on a work item (`answer`).
     crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let arguments = [
         "status",
@@ -153,19 +215,19 @@ fn status(repository: &Repository) -> Result<Value, ResourceError> {
         "behind":clamp(headers.behind),
     });
     if let Some(branch) = headers.branch {
-        value["branch"] = json!(branch);
+        value.insert("branch", json!(branch));
     }
     if let Some(head) = headers.head {
-        value["head"] = json!(head);
+        value.insert("head", json!(head));
     }
     if let Some(upstream) = headers.upstream {
-        value["upstream"] = json!(upstream);
+        value.insert("upstream", json!(upstream));
     }
     if let Some((_, base)) = repository.base_branch() {
-        value["base"] = json!(base);
+        value.insert("base", json!(base));
     }
     if let Some(main) = repository.main_checkout() {
-        value["worktree"] = json!({"main_root": main.to_string_lossy()});
+        value.insert("worktree", json!({"main_root": main.to_string_lossy()}));
     }
     Ok(value)
 }
@@ -176,7 +238,7 @@ fn branches(
     repository: &Repository,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
-    // The operation runs git to completion on this request thread.
+    // git runs to completion here, on a work item (`answer`).
     crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let limit = fields.get("limit").and_then(Value::as_u64).unwrap_or(DEFAULT_BRANCH_LIMIT);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
@@ -195,7 +257,7 @@ fn branches(
         "suggested_bases":suggested,
     });
     if let Some(current) = listing.current {
-        value["current"] = json!(current);
+        value.insert("current", json!(current));
     }
     Ok(value)
 }
@@ -209,20 +271,20 @@ fn branch_json(branch: &refs::BranchRef) -> Value {
         "current":branch.current,
     });
     if let Some(upstream) = &branch.upstream {
-        value["upstream"] = json!(upstream);
+        value.insert("upstream", json!(upstream));
     }
     if branch.upstream_gone {
-        value["upstream_gone"] = json!(true);
+        value.insert("upstream_gone", json!(true));
     }
     if let Some(ahead) = branch.ahead {
-        value["ahead"] = json!(ahead);
+        value.insert("ahead", json!(ahead));
     }
     if let Some(behind) = branch.behind {
-        value["behind"] = json!(behind);
+        value.insert("behind", json!(behind));
     }
     if let Some(committed_at) = branch.committed_at.and_then(|seconds| u32::try_from(seconds).ok())
     {
-        value["committed_at"] = json!(committed_at);
+        value.insert("committed_at", json!(committed_at));
     }
     value
 }
@@ -242,3 +304,6 @@ fn not_a_repository(operation: &'static str, directory: &Path) -> ResourceError 
 fn git_failed(operation: &'static str, failure: &GitFailure) -> ResourceError {
     ResourceError::operation_failed(operation, failure.reason(), json!({"code":"git_failed"}))
 }
+
+#[cfg(test)]
+mod tests;

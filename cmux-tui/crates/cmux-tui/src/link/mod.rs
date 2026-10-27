@@ -17,7 +17,9 @@ mod sync_cli;
 #[cfg_attr(not(test), allow(dead_code))]
 mod host_inbound;
 mod inbound;
-#[cfg(target_os = "macos")]
+// Tests build it everywhere so the plist checks run on Linux CI too.
+#[cfg(any(target_os = "macos", test))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod launchd;
 mod lines;
 pub(crate) mod machine_gate;
@@ -142,8 +144,14 @@ fn help_text() -> String {
     format!("{}\n{}", catalog().remote_client.link_help, enrollment::help())
 }
 
+/// The link's runtime: it carries remote sessions the person waits on.
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
-    Ok(tokio::runtime::Builder::new_multi_thread().enable_all().build()?)
+    Ok(cmux_threads::tokio::builder(
+        "cmux-link",
+        cmux_threads::ThreadQos::UserInitiated,
+        cmux_threads::tokio::Flavor::MultiThread,
+    )
+    .build()?)
 }
 
 /// `cmux link <action> ...`.
@@ -344,7 +352,7 @@ fn change_peers(
     let changed = change(&mut pairings)?;
     pairings.save(&state.peers_path())?;
     let reloaded = match ensure::live(&state) {
-        Some(live) => tokio_runtime()?.block_on(reload(&live.socket)),
+        Some(live) => cmux_threads::tokio::block_on(&tokio_runtime()?, reload(&live.socket)),
         None => false,
     };
     print_json(&json!({"ok": true, "changed": changed, "reloaded": reloaded}));
@@ -363,6 +371,10 @@ async fn reload(socket: &Path) -> bool {
 
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let state = state(flags)?;
+    #[cfg(target_os = "macos")]
+    if let Some(note) = launchd::upgrade_installed_role() {
+        eprintln!("cmux link: {note}");
+    }
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
     // `link.status` hashes, the same bytes.
@@ -377,7 +389,10 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served))
+    cmux_threads::tokio::block_on(
+        &tokio_runtime()?,
+        serve(state, session_socket, owner, ready, served),
+    )
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).

@@ -3,8 +3,10 @@ import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFocus
 import CmuxNextFocusUI
@@ -15,6 +17,7 @@ import CmuxNextSidebar
 import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextTerminalFind
+import CmuxNextWakeups
 import CryptoKit
 import Foundation
 
@@ -23,8 +26,14 @@ import Foundation
 /// facet tasks (p15-oracle-027, 033 to 044, 188, 215, 216) add theirs to the list; until then each facet
 /// answers not-comparable with its task. The router adds `topology` itself (OracleTopologyFacet).
 extension AppServices: OracleHost {
-    func makeOracleFacets() -> OracleFacets {
+    func makeOracleFacets() -> OracleFacets { makeOracleFacets(lanes: [AgentLaneStore.shared, AgentLaneStore.chief]) }
+
+    /// - Parameter lanes: The acpmux lane mirrors the agents facet reads a session's lane from, the first that has it
+    ///   (the app's: this Mac's watch, then the Chief home's).
+    func makeOracleFacets(lanes: [AgentLaneStore]) -> OracleFacets {
         OracleFacets([
+            // Each window's focused pane and the input observation's responder, from InputObservationBuilder.
+            InputObservationBuilder.oracleFocusFacet(self),
             // The input check `debug.desync` runs and the window problems `debug.focus` reports, now.
             OracleInvariantsFacet { [weak self] in
                 guard let self, let monitor = input.monitor, let result = monitor.check() else { return nil }
@@ -70,6 +79,43 @@ extension AppServices: OracleHost {
                     AgentLaneStore.shared.needsYou(in: $0, turns: .shared)
                 }
             },
+            // Agent chat tabs with acpmux's lane for their session, and each Home Messages view's conversation.
+            OracleAgentsFacet { [weak self] in
+                self?.oracleAgents { session in lanes.lazy.compactMap { $0.lane(session) }.first }
+            },
+            // The local daemon mirror's terminals in the snapshot's main-actor turn; their screens off the main actor.
+            OracleTerminalsFacet(rewrite: .init(rootVariable: environment.oracleRoot, home: environment.launchHome), hash: Self.oracleSHA256,
+                                 changes: { [terminalScreenChanges] in terminalScreenChanges.subscribe() }) {
+                [weak self] () throws(OracleFacetError) -> [OracleTerminalsFacet.Terminal] in
+                guard let self else { throw OracleFacetError("the app services are gone") }
+                return try oracleTerminals()
+            },
+            // Each reachable page's own store summary (`cmux.page.oracle.state`), with the tab and pane that show it;
+            // the pages signal their changes.
+            OracleWebviewsFacet(changes: { [feed = webUI.oracleChanges] in feed.subscribe() }) {
+                [weak self] () async throws(OracleFacetError) -> OracleWebviewsFacet.Reading in
+                guard let self else { throw OracleFacetError("the app services are gone") }
+                return try await oracleWebviews()
+            },
+            // Child exits by kind: the run this launch follows, Chromium's crash log, and the daemon's loss log.
+            OracleCrashesFacet(app: { [weak self] in
+                guard let self else { return nil }
+                let log = cache.chromium.built?.crashLog, previous = crashRecovery.recovery.previous
+                return OracleCrashesFacet.AppExits(previous: previous.map { .init(signal: $0.signal, raisedException: $0.exception != nil) },
+                                                   tallies: log?.tallies ?? [:], records: log?.records ?? [])
+            }, daemon: { [weak self] () async throws(OracleFacetError) -> [String: Int]? in
+                try await OracleCrashesFacet.daemonChildExits(self?.daemon.connection)
+            }),
+            // Live objects from their owners' tables; Chromium's only once it was built (the read never starts it).
+            OracleLiveObjectsFacet { [weak self] in
+                guard let self, daemon.store.isLoaded else { return nil }
+                return OracleLiveObjectsFacet.Reading(
+                    stores: machines.daemons.map(\.store), cefBrowsers: cache.chromium.built?.liveBrowserCount ?? 0,
+                    pageViews: cache.browsers.count, terminals: cache.terminals.count,
+                    subscriptions: mainWork.observations.snapshot().reduce(0) { $0 + $1.armed }, tasks: mainWork.wakeUps.count)
+            },
+            // Each window's focusable and actionable AX elements, named by localization key.
+            WindowHintTargets.oracleAccessibilityFacet(windows: windows, work: work),
         ])
     }
 
@@ -167,6 +213,18 @@ extension AppServices {
         }
         if let group = CmuxNextSidebar.GroupID(hoverCardTarget: id) { return .group(group.rawValue) }
         return CmuxNextTabs.TabID(hoverCardTarget: id).map { OracleOverlaysFacet.HoverTarget.tab($0.rawValue) }
+    }
+
+    /// The `terminals` facet's main-actor read (p15-oracle-044): the local daemon's terminals, as the facet says. A
+    /// Cloud, SSH or server machine's terminals are not the case's: a reconnecting remote must not fail the snapshot.
+    func oracleTerminals() throws(OracleFacetError) -> [OracleTerminalsFacet.Terminal] {
+        let connection = machines.local.connection
+        return try OracleTerminalsFacet.terminals(in: machines.local.store.workspaces, attach: { [cache] tab in
+            (cache.existingTerminal(tab)?.io).map { view in { @Sendable () -> OracleTerminalsFacet.Attach in view.attachPhase.oracleAttach } }
+        }) { surface throws(OracleFacetError) -> @Sendable () async throws -> String in
+            guard let connection else { throw OracleFacetError("no connection to the local daemon to read surface \(surface.rawValue)") }
+            return { try await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(2)).text }
+        }
     }
 
     nonisolated static func oracleSHA256(_ text: String) -> String {

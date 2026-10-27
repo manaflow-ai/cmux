@@ -9,8 +9,9 @@
 //! and the worktree's own git directory, so a key never follows a path to
 //! another repository.
 
+use crate::panic_free::{JsonFields, utf8_prefix, utf8_suffix};
+use cmux_threads::checked::fs as files;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
@@ -50,7 +51,7 @@ impl Target {
             return Err(refused(operation, "git_failed", message, Value::Null));
         };
         let canonical = |path: &str| {
-            fs::canonicalize(path).map_err(|error| {
+            files::canonicalize(path).map_err(|error| {
                 refused(operation, "git_failed", format!("{path}: {error}"), Value::Null)
             })
         };
@@ -84,7 +85,8 @@ impl Target {
     }
 
     /// Runs `body` while no other `operation` runs in this repository. A
-    /// retry of a running request waits here and then replays its result.
+    /// retry of a running request waits here, outside its lane's count
+    /// (`will_block`), and then replays its result.
     pub(super) fn exclusive<T>(&self, operation: &'static str, body: impl FnOnce() -> T) -> T {
         type Locks = Mutex<HashMap<(PathBuf, &'static str), Arc<Mutex<()>>>>;
         static LOCKS: OnceLock<Locks> = OnceLock::new();
@@ -95,13 +97,14 @@ impl Target {
             .entry((self.common_dir.clone(), operation))
             .or_default()
             .clone();
-        let _held = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let _held =
+            cmux_threads::work::will_block(|| lock.lock()).unwrap_or_else(PoisonError::into_inner);
         body()
     }
 }
 
 /// The key a catalog-validated mutation carries.
-pub(super) fn key(request: &ParsedResourceRequest) -> String {
+pub(super) fn key(request: &ParsedResourceRequest) -> Result<String, ResourceError> {
     super::checkpoint::mutation_key(request)
 }
 
@@ -150,15 +153,8 @@ pub(super) fn output_extra(output: &str) -> Value {
         return json!({"output": output});
     }
     let half = (MAX_STDERR_BYTES - MARKER.len()) / 2;
-    let mut head = half;
-    while !output.is_char_boundary(head) {
-        head -= 1;
-    }
-    let mut tail = output.len() - half;
-    while !output.is_char_boundary(tail) {
-        tail += 1;
-    }
-    json!({"output": format!("{}{MARKER}{}", &output[..head], &output[tail..])})
+    let (head, tail) = (utf8_prefix(output, half), utf8_suffix(output, half));
+    json!({"output": format!("{head}{MARKER}{tail}")})
 }
 
 /// Rewrites a shared git refusal that carries its reason in `extra.code`
@@ -170,7 +166,7 @@ pub(super) fn normalized(error: ResourceError) -> ResourceError {
     }
     let details = &error.details;
     let (Some(code), Some(operation)) =
-        (details["extra"]["code"].as_str(), details["operation"].as_str())
+        (details.field("extra").field("code").as_str(), details.field("operation").as_str())
     else {
         return error;
     };
@@ -204,7 +200,7 @@ pub(super) fn active_hooks(git: &UserGit<'_>, names: &[&str]) -> Vec<String> {
 }
 
 fn executable(path: &Path) -> bool {
-    let Ok(metadata) = fs::metadata(path) else { return false };
+    let Ok(metadata) = files::metadata(path) else { return false };
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

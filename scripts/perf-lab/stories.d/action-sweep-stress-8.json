@@ -1,0 +1,47 @@
+{
+  "id": "action-sweep-stress-8",
+  "tier": "T2",
+  "description": "Every catalog action through its real entrypoint (effective shortcut via debug.key, else action.run), input to committed frame from the action.perform and action.commit signposts, STRESS session (perf-stress-session.py), shard 8 of 8 of the action ids by id hash (every-action-sweep.py --shard 8/8). Nightly (T2): the whole sweep is about 5 h of host time, more than T1's 2 h rounds hold.",
+  "command": [
+    "scripts/cmux-next/every-action-sweep.py",
+    "--sessions",
+    "stress",
+    "--shard",
+    "8/8",
+    "--story",
+    "action-sweep-stress-8"
+  ],
+  "session": "stress",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {
+      "name": "action\\..+\\.stress\\.commit",
+      "unit": "ms",
+      "better": "lower",
+      "target_ref": {
+        "path": "scripts/cmux-next/every-action-sweep.py",
+        "key": "TARGET_COMMIT_MS"
+      }
+    },
+    {
+      "name": "actions\\.over_budget",
+      "unit": "count",
+      "better": "lower"
+    }
+  ],
+  "repeats": 1,
+  "seconds": 1350,
+  "needs": [
+    "debug:debug.key",
+    "debug:debug.frames",
+    "debug:debug.hangs",
+    "debug:debug.closed_ids",
+    "debug:debug.cef",
+    "signpost:actionPerform",
+    "signpost:actionCommit",
+    "file:scripts/cmux-next/perf-stress-session.py"
+  ],
+  "owner": "PL-instant",
+  "component": "Actions>Latency"
+}

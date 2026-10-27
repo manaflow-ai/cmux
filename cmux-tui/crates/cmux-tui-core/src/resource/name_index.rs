@@ -18,15 +18,12 @@ pub fn resolve_name<T: Clone>(
         .into_iter()
         .filter(|(_, name, _)| name.as_deref() == Some(selector))
         .collect::<Vec<_>>();
-    match matches.len() {
-        0 => Err(ResourceError::not_found(kind, selector)),
-        1 => Ok(matches.pop().expect("one match").2),
-        _ => {
-            let mut ids = matches.into_iter().map(|(id, _, _)| id).collect::<Vec<_>>();
-            ids.sort();
-            Err(ResourceError::ambiguous(kind, selector, ids))
-        }
+    if matches.len() > 1 {
+        let mut ids = matches.into_iter().map(|(id, _, _)| id).collect::<Vec<_>>();
+        ids.sort();
+        return Err(ResourceError::ambiguous(kind, selector, ids));
     }
+    matches.pop().map(|(_, _, value)| value).ok_or_else(|| ResourceError::not_found(kind, selector))
 }
 
 #[derive(Debug, Default, Clone)]

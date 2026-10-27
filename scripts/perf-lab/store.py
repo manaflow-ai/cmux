@@ -170,6 +170,45 @@ MIGRATIONS: tuple[Migration, ...] = (
         "ALTER TABLE alert_groups ADD COLUMN holder TEXT",
         "ALTER TABLE alert_groups ADD COLUMN held_at TEXT",
     )),
+    # A run names its attachments by digest (runs.attachments_json). The bytes of the ones ingest finds next to the
+    # results are kept here by that digest, so a reader away from the host that wrote them (the MQ15 queue's
+    # `lab.py queue typecheck --latest`) gets them; a trace stays in R2 (traces).
+    (3, "attachment bytes", (
+        """CREATE TABLE attachments (
+            digest TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            bytes BLOB NOT NULL,
+            stored_at TEXT NOT NULL)""",
+    )),
+    # What each waterfall story run said (harness_alerts.py, task 214): an errored story stores no result row, so
+    # its errors live here, one row per (story, host, batch, status). A pass with results also has its results rows.
+    (4, "story outcomes", (
+        """CREATE TABLE story_outcomes (
+            id INTEGER PRIMARY KEY,
+            story TEXT NOT NULL,
+            host_class TEXT NOT NULL,
+            host TEXT NOT NULL,
+            batch_pos INTEGER NOT NULL,
+            sha TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('pass', 'error', 'env-invalid')),
+            reason TEXT NOT NULL DEFAULT '',
+            recorded_at TEXT NOT NULL,
+            UNIQUE (story, host_class, host, batch_pos, status))""",
+        "CREATE INDEX story_outcomes_by_story ON story_outcomes (story, host_class, batch_pos)",
+    )),
+    # A group made from a field crash signature (stability.py, task 225), not from lab alerts: its kind, its key (one
+    # group per signature, ever) and the field evidence the sheriff judges `fixed` on. The newest release Sentry saw
+    # the signature in, and the newer cmux NEXT releases with sessions that did not crash with it (a JSON list).
+    (5, "field signatures", (
+        """CREATE TABLE field_signatures (
+            group_id INTEGER PRIMARY KEY REFERENCES alert_groups (id),
+            source TEXT NOT NULL CHECK (source IN ('sentry')),
+            signature TEXT NOT NULL,
+            last_release TEXT,
+            clean_releases_json TEXT NOT NULL DEFAULT '[]',
+            checked_at TEXT,
+            UNIQUE (source, signature))""",
+    )),
 )
 
 
@@ -450,6 +489,26 @@ class Store:
             return run_id
 
         return self._write(write)
+
+    def keep_attachment(self, kind: str, data: bytes) -> str:
+        """Keeps DATA under its digest ("sha256:<hex>", perf_result.Attachment's form); a second copy is a no-op."""
+        digest = f"sha256:{hashlib.sha256(data).hexdigest()}"
+        self._write(lambda: self._db.execute(
+            "INSERT INTO attachments (digest, kind, bytes, stored_at) VALUES (?, ?, ?, ?) ON CONFLICT (digest) DO NOTHING",
+            (digest, kind, data, self._now())))
+        return digest
+
+    def attachment(self, digest: str) -> bytes | None:
+        row = self._db.execute("SELECT bytes FROM attachments WHERE digest = ?", (digest,)).fetchone()
+        return None if row is None else bytes(row["bytes"])
+
+    def latest_run(self, story: str, *, kind: str = "waterfall") -> sqlite3.Row | None:
+        """The newest stored run of `story` of `kind`, by mainline commit position, then start time: run_uuid,
+        started_at, attachments_json, sha and commit_pos. None when the store has none."""
+        return self._db.execute(
+            """SELECT u.run_uuid, u.started_at, u.attachments_json, b.sha, b.commit_pos
+               FROM runs u JOIN builds b ON b.id = u.build_id WHERE u.story = ? AND u.kind = ?
+               ORDER BY b.commit_pos DESC, u.started_at DESC, u.id DESC LIMIT 1""", (story, kind)).fetchone()
 
     def run_metrics(self, run_uuid: str) -> dict[str, list[float]]:
         rows = self._db.execute(

@@ -120,7 +120,9 @@ private struct OfflineDownloader: ChromiumRuntimeDownloading, ChromiumRuntimeUnp
     }
     func entries(of archive: URL) async throws(ChromiumRuntimeInstallError) -> [String] { throw .unpack("offline") }
     func unpack(_ archive: URL, into directory: URL) async throws(ChromiumRuntimeInstallError) { throw .unpack("offline") }
-    func check(_ item: URL, teamID: String) async throws(ChromiumRuntimeInstallError) { throw .signature("offline") }
+    func check(_ item: URL, teamID: String, priority: ChromiumRuntimeInstaller.Priority) async throws(ChromiumRuntimeInstallError) {
+        throw .signature("offline")
+    }
     func isUsable(allowsExpensive: Bool) async -> Bool { false }
     func waitUntilUsable(allowsExpensive: Bool) async throws { throw CancellationError() }
 }

@@ -57,8 +57,8 @@ extension TabContentCache {
     /// `Visibility::OCCLUDED`, the pages its panes show get a hidden clock but stay shown, and the
     /// discarder keeps each as its window's active tab (`kActiveTab`, discard_eligibility_policy.cc);
     /// the panes keep no neighbor tabs awake, so those sleep after the timeout. Hiding the shown
-    /// pages themselves at once is p07-memory-097's. Terminals are untouched: their drawing already
-    /// pauses (`WindowDrawPolicy`).
+    /// pages themselves at once is the fork's tab visibility (API 37) or, before it, the freeze of
+    /// `offScreenWindowPageFreeze` (p07-memory-097). Terminals pause their drawing (`WindowDrawPolicy`).
     func windowDidChangeOnScreen(_ window: ObjectIdentifier, offScreen: Bool) {
         guard offScreen ? offScreenWindows.insert(window).inserted : offScreenWindows.remove(window) != nil else { return }
         var panes: [ObjectIdentifier] = []
@@ -111,6 +111,7 @@ extension TabContentCache {
             // Hides first, so a frame never shows two tabs of one pane.
             applyLifecycle(lifecycle.send(render ? .show(key) : .hide(key)))
         }
+        for (key, away) in effects.away { terminals[key]?.session.releasesGPUWhilePaused = away } // after the hides: paused, away lets GPU memory go
         for key in effects.evicted {
             if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key, atOnce: evictsAtOnce) }
             applyLifecycle(lifecycle.send(.released(key)))
@@ -195,6 +196,10 @@ extension TabContentCache {
     }
 
     private func conceal(_ key: String, token: ContentLifecycle<String>.Token) {
+        // First, as `reveal` thaws first: the page lifecycle pictures the page while it still shows, before
+        // anything below tells its engine it is hidden (a hidden page has no frame to picture), and a page
+        // tab's discard cover (`contentDidHide`) then shares that capture (`PageWebView.hideFrame`).
+        pageLifecycle?.tabDidHide(key)
         if let entry = terminals[key] {
             // No picture on a switch: hover and drag render one on demand (`previewImage`), or `evict` keeps one.
             entry.session.isRenderingSuspended = true
@@ -210,7 +215,6 @@ extension TabContentCache {
             entry.tab.setContentVisible(false)
         }
         if !contentOwners.contentDidHide(key, token: token) { hibernation?.tabDidHide(key) }
-        pageLifecycle?.tabDidHide(key)
     }
 
     func trace(_ key: String, _ event: String) {

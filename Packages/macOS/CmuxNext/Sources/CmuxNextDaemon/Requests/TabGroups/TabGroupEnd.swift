@@ -3,7 +3,7 @@ import Foundation
 /// Deletes a group; its tabs stay in place. Result: `{group, surfaces}`.
 public struct UngroupTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
-    public static let command = "ungroup-tab-group"
+    public static let commandName: DaemonCommandName = "ungroup-tab-group"
     public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     public init(group: TabGroupID) { self.group = group }
@@ -18,7 +18,7 @@ public struct UngroupTabGroupRequest: DaemonRequest {
 /// commit; a linked saved group remains. Result: `{group, closed}`.
 public struct CloseTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
-    public static let command = "close-tab-group"
+    public static let commandName: DaemonCommandName = "close-tab-group"
     public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     public var endTerminals: Bool
@@ -27,7 +27,7 @@ public struct CloseTabGroupRequest: DaemonRequest {
         self.endTerminals = endTerminals
     }
 
-    enum CodingKeys: String, CodingKey { case group, endTerminals }
+    enum CodingKeys: String, CodingKey { case group, endTerminals = "end_terminals" }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(group, forKey: .group)

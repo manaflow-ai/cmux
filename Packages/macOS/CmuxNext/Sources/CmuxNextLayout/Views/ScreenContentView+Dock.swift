@@ -22,20 +22,26 @@ extension ScreenContentView {
     /// edge): strip rings and highlights are clipped out of these.
     var coverRects: [CGRect] { PaneArrival.covers(geometry, docks: growingDocks) }
 
-    /// This view's subviews back to front, the strip container's hosts in its place: the order the
-    /// panes draw in.
+    /// This view's subviews back to front, the strip container's hosts in its place and a row's or scroll
+    /// area's container's hosts in its own: the order the panes draw in.
     var stackedSubviews: [NSView] {
-        subviews.flatMap { $0 === stripContainer ? stripContainer.subviews : [$0] }
+        subviews.flatMap { $0 === stripContainer ? Self.stacked(in: stripContainer) : [$0] }
     }
 
-    /// True when `host` is placed by this screen (directly, or in its strip container).
-    func holds(_ host: PaneHostView) -> Bool { host.superview === self || host.superview === stripContainer }
+    private static func stacked(in container: NSView) -> [NSView] {
+        container.subviews.flatMap { $0 is ScrollerPanContainerView ? stacked(in: $0) : [$0] }
+    }
+
+    /// True when `host` is placed by this screen (directly, or in its strip container or one of the
+    /// containers in it).
+    func holds(_ host: PaneHostView) -> Bool { host.superview === self || host.isDescendant(of: stripContainer) }
 
     /// The part of `host` that shows (this view's coordinates; a host's frame is in them in either
     /// parent): its frame cut by its own mask and the strip container's clip. Null when none shows.
     func shownFrame(_ host: PaneHostView) -> CGRect {
         let shown = host.stripShownRect
-        return shown.isEmpty ? .null : shown.offsetBy(dx: host.frame.minX, dy: host.frame.minY)
+        let moved = panTranslation(of: host)
+        return shown.isEmpty ? .null : shown.offsetBy(dx: host.frame.minX + moved.dx, dy: host.frame.minY + moved.dy)
     }
 
     /// For each shown pane host, the parts of shown panes stacked above it
@@ -49,7 +55,7 @@ extension ScreenContentView {
         var covers: [ObjectIdentifier: [CGRect]] = [:]
         var front: [CGRect] = []
         for case let host as PaneHostView in stackedSubviews.reversed() {
-            let frame = host.frame
+            let frame = placedFrame(of: host)
             let overlapping = front.filter { $0.intersection(frame).width > 0.5 && $0.intersection(frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
             guard !host.isHidden && host.alphaValue > 0.99 else { continue }
@@ -63,7 +69,7 @@ extension ScreenContentView {
     /// back to front: what a Chromium page in `host` drawing in its own window leaves out
     /// (`PaneHostView.pageCovers`, which keeps the answer until `coverVersion` changes).
     func panes(inFrontOf host: PaneHostView) -> [CGRect] {
-        let frame = host.frame
+        let frame = placedFrame(of: host)
         var result: [CGRect] = []
         var inFront = false
         func visit(_ view: NSView) {
@@ -76,9 +82,7 @@ extension ScreenContentView {
             let shown = coverFrame(other), shared = shown.intersection(frame)
             if !shared.isNull, shared.width > 0.5, shared.height > 0.5 { result.append(shown) }
         }
-        for view in subviews {
-            if view === stripContainer { stripContainer.subviews.forEach(visit) } else { visit(view) }
-        }
+        stackedSubviews.forEach(visit)
         return result
     }
 
@@ -117,7 +121,9 @@ extension ScreenContentView {
     /// the same input on every frame, and so does one a zoom leaves still under its pane.
     @discardableResult
     func clipToStrip(_ host: PaneHostView, fronts: [CGRect] = [], force: Bool = false) -> Bool {
-        let input = StripClipInput(frame: host.frame, areaWindow: displayedAreaWindow(of: host.pane),
+        // A host in its scroll area's container is clipped by the container (`placeScrollerContainers`).
+        let inAreaContainer = (host.superview as? ScrollerPanContainerView)?.scroller.isArea ?? false
+        let input = StripClipInput(frame: host.frame, areaWindow: inAreaContainer ? nil : displayedAreaWindow(of: host.pane),
                                    stripClip: heldStripClip(of: host, fronts: fronts))
         guard force || host.stripClipInput != input else { return false }
         host.stripClipInput = input
@@ -142,7 +148,7 @@ extension ScreenContentView {
     func heldStripClip(of host: PaneHostView, fronts: [CGRect]) -> CGRect? {
         // A screen with no docked column: the lifted container's frame is the range, and it clips alike.
         guard stripContainer.isLifted, stripContainer.range != stripContainer.frame,
-              host.superview === stripContainer, host.pane != zoomMotion.pane else { return nil }
+              host.isDescendant(of: stripContainer), host.pane != zoomMotion.pane else { return nil }
         var visible = stripContainer.range.intersection(host.frame)
         if visible.isNull { return .zero }
         for front in fronts { visible = visible.remainder(outside: front) }
@@ -163,17 +169,19 @@ extension ScreenContentView {
     /// until the zoom lands (`rank`, `placeStripContainer`).
     var liftsStripContainer: Bool {
         guard let pane = zoomMotion.pane, let host = context.hosts[pane] else { return false }
-        return host.superview === stripContainer
+        return host.isDescendant(of: stripContainer)
     }
 
-    /// Where `pane`'s host sits: in the strip container when it scrolls with the strip, else in this
-    /// view (a dock's pane, a canvas). A host changes parent only when the pane docks or undocks or the
+    /// Where `pane`'s host sits: in the strip container when it scrolls with the strip (in its row's or
+    /// scroll area's container there, `ScreenContentView+Scrollers.swift`), else in this view (a dock's
+    /// pane, a canvas). A host changes parent only when the pane docks or undocks or the
     /// screen becomes or stops being a canvas; never for a zoom (a zoom acts on the focused pane, and
     /// a host taken out of its parent drops the window's first responder, which a terminal hears as
     /// focus out and in): while the screen is zoomed or a zoom is in flight, a host stays where it is.
     func hostParent(for pane: PaneID) -> NSView {
         if zoomed || zoomMotion.pane != nil, let host = context.hosts[pane], holds(host), let parent = host.superview { return parent }
-        return !isCanvas && geometry.scrolls(pane: pane) ? stripContainer : self
+        guard !isCanvas, geometry.scrolls(pane: pane) else { return self }
+        return scrollerContainer(of: pane) ?? stripContainer
     }
 
     /// Clips the strip container to the strip's range (`clip`, `PaneArrival.stripClip`, which follows
@@ -234,6 +242,10 @@ extension ScreenContentView {
         case let backdrop as DockBackdropView:
             return 2 + cornerRank(backdrops.first { $0.value === backdrop }.flatMap { entry in geometry.dock.first { $0.column == entry.key } })
         case is StripScrollbarView: return 9
+        case let container as ScrollerPanContainerView:
+            // Above the strip's other hosts while the pane zooming in it grows over them.
+            guard let pane = zoomMotion.pane, let host = context.hosts[pane] else { return 0 }
+            return host.isDescendant(of: container) ? 10 : 0
         default: return 0
         }
     }
@@ -254,62 +266,43 @@ extension ScreenContentView {
     /// in the window (no detach), so terminal surfaces and page windows are not torn down.
     func ensureStacking() {
         coverVersion &+= 1
+        reconcileScrollerContainers()
         // A zoom's covered panes left `paneFrames`: they stay where they are, under the zooming pane.
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane], holds(host) else { continue }
             let parent = hostParent(for: pane)
             if host.superview !== parent { move(host, to: parent) }
         }
+        // With `motion.renderServer` on, the strip's dividers move with its hosts (`ScreenContentView+StripPan`).
+        let dividersInContainer = dividersInStripContainer
+        stripDividersInContainer = dividersInContainer
+        for (kind, view) in dividerViews {
+            let parent = dividerParent(for: kind, inContainer: dividersInContainer)
+            if view.superview !== parent { parent.addSubview(view) }
+        }
         sortByRank(self)
         sortByRank(stripContainer)
+        for container in scrollerContainers.values { sortByRank(container) }
+        pruneScrollerContainers()
     }
 
-    /// Moves `host` under `parent` (this view or the strip container), giving the window's first
-    /// responder back when it was in the host (a focused pane that docks keeps its keys).
-    func move(_ host: PaneHostView, to parent: NSView) {
+    /// Moves `view` (a host, or a row's or scroll area's container of hosts) under `parent`, giving the
+    /// window's first responder back when it was in `view` (a focused pane that docks, or whose area's
+    /// container changes parent, keeps its keys).
+    func move(_ view: NSView, to parent: NSView) {
         let responder = window?.firstResponder as? NSView
-        let focused = responder.map { $0.isDescendant(of: host) } ?? false
-        parent.addSubview(host)
+        let focused = responder.map { $0.isDescendant(of: view) } ?? false
+        parent.addSubview(view)
         if focused, let responder, window?.firstResponder !== responder { window?.makeFirstResponder(responder) }
     }
 
     private func sortByRank(_ view: NSView) {
         let ranks = view.subviews.enumerated().map { rank($1) * 100_000 + $0 }
         guard ranks != ranks.sorted() else { return }
-        let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(view.subviews.map(ObjectIdentifier.init), ranks)))
-        withExtendedLifetime(table) {
-            view.sortSubviews(compareStacking, context: Unmanaged.passUnretained(table).toOpaque())
-        }
+        StackingTable(ranks: Dictionary(zip(view.subviews.map(ObjectIdentifier.init), ranks), uniquingKeysWith: { first, _ in first })).sort(view)
     }
 
-    /// Clicks inside what a docked column covers go to the docked column
-    /// (its panes, dividers, handle) or to this view, never to a strip pane
-    /// under it (an overlay column's glass shows the strip under it).
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let local = convert(point, from: superview)
-        guard !isHidden, geometry.dock.contains(where: { $0.cover.contains(local) }) else {
-            // A zoom's covered panes have left the layout: a click there goes to this view.
-            let hit = super.hitTest(point)
-            guard !covered.isEmpty, let hit, coveredHost(containing: hit) != nil else { return hit }
-            return self
-        }
-        for view in subviews.reversed() where !view.isHidden && view !== stripContainer {
-            if let host = view as? PaneHostView, geometry.scrolls(pane: host.pane) || covered.contains(host.pane) { continue }
-            if let divider = view as? DividerHandleView, scrolls(divider.kind) { continue }
-            if let hit = view.hitTest(local) { return hit }
-        }
-        return self
-    }
-
-    private func coveredHost(containing view: NSView) -> PaneHostView? {
-        var current: NSView? = view
-        while let candidate = current, candidate !== self {
-            if let host = candidate as? PaneHostView, covered.contains(host.pane) { return host }
-            current = candidate.superview
-        }
-        return nil
-    }
-
+    // memory: fixed computed on each read and kept by no one: one rect per laid-out pane.
     /// Pane frames for directional focus in one logical line: the left
     /// docked column before the strip, the strip in its own space, the right
     /// docked column after the strip's end, so every strip column stays
@@ -342,18 +335,28 @@ extension ScreenContentView {
     }
 }
 
-/// Sort keys for `ensureStacking`, passed through `sortSubviews`' context.
-nonisolated final class StackingTable: Sendable {
+/// Sort keys for `ensureStacking` and the canvas order, lent to `sortSubviews`' comparator for one call.
+nonisolated struct StackingTable {
     let ranks: [ObjectIdentifier: Int]
-    init(ranks: [ObjectIdentifier: Int]) { self.ranks = ranks }
+
+    /// Orders `view`'s subviews by rank. The comparator's context points at a copy of this table that lives
+    /// for the call alone (`sortSubviews` is synchronous), not at an object it would have to keep alive.
+    @MainActor func sort(_ view: NSView) {
+        var table = self
+        // SAFETY: the pointer is valid inside this closure, which `sortSubviews` does not outlive.
+        unsafe withUnsafeMutablePointer(to: &table) { table in
+            // SAFETY: as above; compareStacking only reads through it.
+            unsafe view.sortSubviews(compareStacking, context: UnsafeMutableRawPointer(table))
+        }
+    }
 }
 
-/// `sortSubviews` comparator: reads only the table's immutable ranks.
+/// `sortSubviews` comparator: reads only the ranks of the table ``StackingTable/sort(_:)`` lent it.
 nonisolated func compareStacking(_ a: NSView, _ b: NSView, _ context: UnsafeMutableRawPointer?) -> ComparisonResult {
-    guard let context else { return .orderedSame }
-    let table = Unmanaged<StackingTable>.fromOpaque(context).takeUnretainedValue()
-    let x = table.ranks[ObjectIdentifier(a)] ?? 0
-    let y = table.ranks[ObjectIdentifier(b)] ?? 0
+    // SAFETY: a non-nil context is the StackingTable `sort` lent for the sortSubviews call this runs inside.
+    guard let ranks = unsafe context?.assumingMemoryBound(to: StackingTable.self).pointee.ranks else { return .orderedSame }
+    let x = ranks[ObjectIdentifier(a)] ?? 0
+    let y = ranks[ObjectIdentifier(b)] ?? 0
     return x < y ? .orderedAscending : (x > y ? .orderedDescending : .orderedSame)
 }
 

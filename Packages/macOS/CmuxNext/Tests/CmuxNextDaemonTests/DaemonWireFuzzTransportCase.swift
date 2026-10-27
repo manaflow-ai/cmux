@@ -13,7 +13,7 @@ import Foundation
 /// usable id, if that request is still pending, and is dropped otherwise; an unfinished last line is never
 /// read; EOF fails what is left, as a shutdown once a `daemon-shutdown` event came.
 struct WireFuzzTransportCase {
-    static let command = "fuzz"
+    static let command: DaemonCommandName = "fuzz"
     static let hangLimit: DispatchTimeInterval = .seconds(20)
 
     /// What the transport gave one request.
@@ -28,7 +28,7 @@ struct WireFuzzTransportCase {
             case .success(let response):
                 self = .success(line: [UInt8](response.line), barrier: response.eventBarrier)
             case .failure(let error as DaemonError):
-                if case .command(WireFuzzTransportCase.command, let message, _, _, _) = error {
+                if case .command(WireFuzzTransportCase.command.wire, let message, _, _, _) = error {
                     self = .command(message: message)
                 } else {
                     self = .closed(error)
@@ -113,7 +113,7 @@ struct WireFuzzTransportCase {
         var expected = Expected()
         var control = controlStreams
         var sawShutdown = false
-        // An unterminated last line stays in the splitter.
+        // An unterminated last line stays in the reader.
         let read = terminated ? lines[...] : lines.dropLast()
         for line in read {
             if !line.bytes.isEmpty { expected.linesRead += 1 }
@@ -196,7 +196,7 @@ struct WireFuzzTransportCase {
         // task-owner: one per case; it ends when the reader resolves every slot, at the latest at EOF.
         Task {
             let lines = (0..<requests).map { _ in
-                PipelinedLine(cmd: command) { id in Data(#"{"cmd":"\#(command)","id":\#(id)}"#.utf8) }
+                PipelinedLine(cmd: command) { id in Data(#"{"cmd":"\#(command.wire)","id":\#(id)}"#.utf8) }
             }
             let results = await transport.pipeline(lines, timeout: nil)
             replies.withLock { $0 = results.map(Outcome.init) }
@@ -273,18 +273,21 @@ struct WireFuzzTransportCoverage: Sendable {
 }
 
 /// The reader's line scope (``LineTransport``'s `hangs` seam): it counts each line the reader routed, so the
-/// peer can wait for the reader without polling.
+/// peer can wait for the reader without polling. The writer's `daemon.write` steps share the seam and are
+/// not counted.
 final class WireFuzzRoutedLines: HangWatchScoping {
     private let routed = DispatchSemaphore(value: 0)
+    /// The slot of the reader's `daemon.line` lane; every other lane gets slot 1.
+    private static let lineSlot: UInt32 = 0
 
     func registerLane(_ name: StaticString) -> HangWatch.Registration {
-        HangWatch.Registration(slot: 0, generation: 1)
+        HangWatch.Registration(slot: name.description == "daemon.line" ? Self.lineSlot : 1, generation: 1)
     }
 
     func unregister(_ registration: HangWatch.Registration) {}
 
     func watch<T>(_ registration: HangWatch.Registration, deadline: Duration, _ body: () throws -> T) rethrows -> T {
-        defer { routed.signal() }
+        defer { if registration.slot == Self.lineSlot { routed.signal() } }
         return try body()
     }
 
@@ -375,7 +378,7 @@ final class WireFuzzPeer: Sendable {
                 newlines += buffer.prefix(count).filter { $0 == 0x0A }.count
             }
             // A chunk that ends a line is written only after the reader routed every line before it, so the
-            // reader's read(2) stops at that chunk's end and a cut line waits in its splitter for the next one.
+            // reader's read(2) stops at that chunk's end and a cut line waits in its reader for the next one.
             var waited = 0
             var paced = true
             for (chunk, ended) in zip(chunks, linesEnded) {

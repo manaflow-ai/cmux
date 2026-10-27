@@ -1,0 +1,16 @@
+{
+    "editor": {
+        "quickSuggestions": true
+    },
+    "browser": {
+        "toolbar": {
+            "downloads": true
+        }
+    },
+    "sidebar": {
+        "workspaceRow": null,
+        "workspaceRow": {
+            "working": false
+        }
+    }
+}

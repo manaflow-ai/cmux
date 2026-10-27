@@ -9,15 +9,21 @@ import AppKit
 /// The context menu's palette glyphs as bitmaps (1x and 2x), drawn once and kept: a drawing-handler
 /// image is drawn again by each new palette cell at each open (12 per open, about 3 ms of main-thread
 /// work; menu bench profile). The glyphs do not depend on the appearance (fixed colours).
+/// Main actor: the caches are filled and read only by the menu and the warm-up on the main thread.
+/// memory: fixed the six tapbacks and at most ``glyphLimit`` emoji glyphs (20 pt, 1x and 2x), one picker glyph per
+/// appearance; a full cache keeps only the emoji still in ``RecentEmoji``.
+@MainActor
 enum MenuGlyphs {
     private static var cache: [Reaction.Kind: NSImage] = [:]
+    /// The most glyphs kept: the six tapbacks and the recent emoji (RecentEmoji keeps 16), with room to spare.
+    static let glyphLimit = 32
     static func image(_ kind: Reaction.Kind) -> NSImage {
         if let i = cache[kind] { return i }
         let side = TapbackPickerView.glyphSize
         let img = NSImage(size: NSSize(width: side, height: side))
         for scale in [2, 1] {
             let px = CrashGuard.int(side, in: 1...256) * scale // cmux: no trap
-            guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
+            guard let ctx = CGContext.ownedBitmap(width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: DisplayScale.colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
             else { continue }
             // Flipped, as the drawing handler was (flipped: true).
@@ -36,9 +42,19 @@ enum MenuGlyphs {
             rep.size = img.size
             img.addRepresentation(rep)
         }
+        if cache.count >= glyphLimit { dropOldEmoji() }
         cache[kind] = img
         return img
     }
+    /// The glyphs drawn for emoji no longer in the recent list go (the menu shows only recent ones).
+    private static func dropOldEmoji() {
+        cache = cache.filter { entry in
+            guard case let .emoji(e) = entry.key else { return true }
+            return RecentEmoji.list.contains(e)
+        }
+    }
+    /// Glyphs kept now (tests).
+    static var count: Int { cache.count }
     /// Messages' own tapback art (macOS 27: Messages.app's asset catalog has the six 3D tapback
     /// images, 44 pt, that its context menu draws in the palette row). macOS 26 has none of them:
     /// the drawn glyphs stay there. Read from the system bundle at run time, never copied.
@@ -116,7 +132,7 @@ final class MenuAction: NSMenuItem {
     }
     /// MessagesLab 7518134: the title icons, one per symbol and appearance for the app's life (made
     /// at every open before, inside the menu's open on main). Kept per appearance: labelColor.
-    private static var icons: [String: NSImage] = [:]
+    private static var icons: [String: NSImage] = [:] // memory: fixed one per menu symbol named in code and appearance
     static func icon(_ symbol: String) -> NSImage? {
         let key = "\(symbol)|\(NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])?.rawValue ?? "")"
         if let i = icons[key] { return i }
@@ -128,12 +144,13 @@ final class MenuAction: NSMenuItem {
         let cfg = NSImage.SymbolConfiguration(pointSize: Self.iconPointSize, weight: .medium)
         let sym = glyph.withSymbolConfiguration(cfg) ?? glyph
         let box = NSSize(width: Self.iconAdvance, height: ceil(font.ascender - font.descender))
+        let centerX = Self.iconCenterX
         // Still a drawing handler: AppKit draws it in the menu row's own appearance.
         let icon = NSImage(size: box, flipped: false) { r in
             let s = sym.size
             let y = (r.height - s.height) / 2
             // A wide icon (sticker.badge.plus) starts at the title start, as in Messages, not left of it.
-            sym.draw(in: CGRect(x: max(0, Self.iconCenterX - s.width / 2), y: y, width: s.width, height: s.height))
+            sym.draw(in: CGRect(x: max(0, centerX - s.width / 2), y: y, width: s.width, height: s.height))
             NSColor.labelColor.set()
             CGRect(x: 0, y: 0, width: r.width, height: r.height).fill(using: .sourceAtop)
             return true

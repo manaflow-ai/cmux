@@ -40,7 +40,8 @@
   "x-oracle-id-unpatterned": {
     "surface": "daemon surface handle; only in snapshot.get tabs[].surface, a typed field",
     "agentSession": "acpmux session id; only in typed fields of snapshot.get and the agents facet",
-    "intent": "app intent id; only in the typed intents.pending[].intent"
+    "intent": "app intent id; only in the typed intents.pending[].intent",
+    "conversation": "Home conversation id (the Chief owner's or Cloud's); only in the typed agents.home[].conversation"
   },
   "x-oracle-open-keys": [
     {"key": "^(.+_)?at_ms$|^since_ms$", "x-oracle-time": {"unit": "ms", "epoch": "fixture"}},
@@ -145,7 +146,10 @@
               "crashes",
               "liveObjects",
               "invariants",
-              "switches"
+              "switches",
+              "cli",
+              "mcp",
+              "reply"
             ]
           }
         }
@@ -1888,7 +1892,7 @@
             "method": "debug.oracle.snapshot",
             "path": "/focus",
             "v0": "debug.focus",
-            "provider": "OracleFocusFacet",
+            "provider": "InputObservationBuilder.oracleFocusFacet",
             "task": "p15-oracle-034",
             "from": "InputObservationBuilder.observe"
           },
@@ -1909,6 +1913,7 @@
                       "id",
                       "isKey",
                       "responder",
+                      "responderPane",
                       "layoutFocus",
                       "ghosttyFocused",
                       "childPage",
@@ -1932,12 +1937,24 @@
                         "type": "boolean"
                       },
                       "responder": {
+                        "description": "the classified first responder's kind; its pane is responderPane",
                         "x-oracle-source": {
                           "method": "debug.oracle.snapshot",
                           "path": "/focus/windows/*/responder",
-                          "from": "FocusResponderClassifier.classify(firstResponder)"
+                          "from": "FocusResponderClassifier.classify(firstResponder), the case name"
                         },
-                        "type": "string"
+                        "type": "string",
+                        "enum": ["content", "addressBar", "findBar", "devTools", "sidebar", "sidebarField", "textField", "windowOrNone"]
+                      },
+                      "responderPane": {
+                        "description": "the pane the first responder is in; null for a responder outside every pane",
+                        "x-oracle-source": {
+                          "method": "debug.oracle.snapshot",
+                          "path": "/focus/windows/*/responderPane",
+                          "from": "FocusResponderClassifier.classify(firstResponder), its pane"
+                        },
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "pane"
                       },
                       "layoutFocus": {
                         "x-oracle-source": {
@@ -1955,7 +1972,12 @@
                         "items": {"type": "string", "x-oracle-id-kind": "tab"}
                       },
                       "childPage": {
-                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/childPage"},
+                        "description": "the tab whose Chromium page window has focus; a cmux page's Chromium tab id is mapped to its tab key, so it differs from debug.focus child_window_page (raw page id) for a cmux page",
+                        "x-oracle-source": {
+                          "method": "debug.oracle.snapshot",
+                          "path": "/focus/windows/*/childPage",
+                          "from": "FocusApplier.focusedChildWindowPageID mapped to the tab key"
+                        },
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "tab"
                       },
@@ -1994,12 +2016,32 @@
                             "x-oracle-id-kind": "pane"
                           },
                           "target": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/target"},
-                            "type": "string"
+                            "x-oracle-source": {
+                              "method": "debug.oracle.snapshot",
+                              "path": "/focus/windows/*/model/target",
+                              "from": "String(describing: FocusState.Target)"
+                            },
+                            "type": "string",
+                            "enum": [
+                              "content",
+                              "addressBar",
+                              "findBar",
+                              "devTools",
+                              "sidebar(keyboard: true)",
+                              "sidebar(keyboard: false)",
+                              "sidebarField",
+                              "textField",
+                              "none"
+                            ]
                           },
                           "resolved": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/resolved"},
-                            "type": "string"
+                            "x-oracle-source": {
+                              "method": "debug.oracle.snapshot",
+                              "path": "/focus/windows/*/model/resolved",
+                              "from": "FocusState.Resolved.kind"
+                            },
+                            "type": "string",
+                            "pattern": "^(terminal|browserPage|addressBar|findBar|devTools|agentPage|page|conversation|emptyPane|sidebar|sidebarField|textField|none|overlay:(palette|sheet|rename|groupEditor))$"
                           },
                           "resolvedPane": {
                             "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/resolvedPane"},
@@ -2044,10 +2086,11 @@
                         }
                       },
                       "consistent": {
+                        "description": "no InputInvariants.world violation names this window. Not debug.focus's consistent (layout, W1 and Ghostty only): F, W4, W5, W6 (sheet), W7 and W8 violations count here too. An unsettled window is not inconsistent (settle is debug.oracle.settle and I5), and a violation that names no window (W6 palette, W5 app-wide panel) marks none",
                         "x-oracle-source": {
                           "method": "debug.oracle.snapshot",
                           "path": "/focus/windows/*/consistent",
-                          "from": "InputInvariants over this window"
+                          "from": "InputInvariants.world violations naming this window"
                         },
                         "type": "boolean"
                       }
@@ -3021,22 +3064,23 @@
           ]
         },
         "agents": {
-          "description": "Agent sessions, turns, approvals and draft hashes.",
+          "description": "Each agent chat tab's acpmux session (the store's tab record, acpmux's lane from the app's watch) and the conversation each Home Messages view shows. Hashes only: no prompt, reply, title or draft text.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/agents",
             "v0": null,
             "provider": "OracleAgentsFacet",
             "task": "p15-oracle-043",
-            "from": "agent session store (hashes only)"
+            "from": "agent chat tab records, the acpmux lane mirror, the unsent-draft store and the Home pages (hashes only)"
           },
           "oneOf": [
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["sessions"],
+              "required": ["sessions", "home"],
               "properties": {
                 "sessions": {
+                  "description": "one row per agent chat tab, a new chat with no session yet too",
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions"},
                   "type": "array",
                   "x-oracle-order": "set",
@@ -3046,31 +3090,37 @@
                     "required": ["session", "agent", "state", "turn", "pendingApprovals", "draftSha256", "workspace", "tab"],
                     "properties": {
                       "session": {
+                        "description": "the tab record's acpmux session; null for a new chat before its first prompt",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/session"},
-                        "type": "string",
+                        "type": ["string", "null"],
                         "x-oracle-id-kind": "agentSession"
                       },
                       "agent": {
-                        "description": "claude, codex, ...",
+                        "description": "the harness the tab records (claude, codex, ...), else the lane's; null while unknown",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/agent"},
-                        "type": "string"
+                        "type": ["string", "null"]
                       },
                       "state": {
+                        "description": "acpmux's lane state for the session; unknown with no lane (no session, the watch down, another machine's chat)",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/state"},
-                        "type": "string"
+                        "type": "string",
+                        "enum": ["working", "input", "idle", "failed", "lost", "unknown"]
                       },
                       "turn": {
+                        "description": "acpmux's turnCount for the session; 0 with no lane",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/turn"},
                         "type": "integer",
                         "minimum": 0
                       },
                       "pendingApprovals": {
+                        "description": "acpmux's pendingPermissions for the session; 0 with no lane",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/pendingApprovals"},
                         "type": "integer",
                         "minimum": 0
                       },
                       "draftSha256": {
-                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/draftSha256"},
+                        "description": "sha256 of the composer text the app keeps for a new chat (AgentUnsentDrafts); null when none. A started chat's draft is acpmux's and the page's (webviews facet)",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/draftSha256", "derive": "sha256"},
                         "type": ["string", "null"],
                         "pattern": "^sha256:[0-9a-f]{64}$"
                       },
@@ -3083,6 +3133,37 @@
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/tab"},
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "tab"
+                      }
+                    }
+                  }
+                },
+                "home": {
+                  "description": "each Home Messages view: a window's Home top page, a Home tab, the docked Home",
+                  "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home"},
+                  "type": "array",
+                  "x-oracle-order": "set",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["window", "tab", "conversation"],
+                    "properties": {
+                      "window": {
+                        "description": "the window whose Home top page this is; null for a tab",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home/*/window"},
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "window"
+                      },
+                      "tab": {
+                        "description": "the Home tab or docked Home tab; null for a top page",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home/*/tab"},
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "tab"
+                      },
+                      "conversation": {
+                        "description": "the conversation the view shows (selected in its list); null on New Message, on a docked Home that shows Channels, or before one shows",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home/*/conversation"},
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "conversation"
                       }
                     }
                   }
@@ -3292,7 +3373,7 @@
                               "type": "string"
                             },
                             "labelKey": {
-                              "description": "localization key, never the shown text",
+                              "description": "localization key, never the shown text; \"<ambiguous>\" when the shown text is that of several keys and the element names none; null when it is no app string",
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/ax/windows/*/nodes/*/labelKey"},
                               "type": ["string", "null"]
                             },
@@ -3321,14 +3402,14 @@
           ]
         },
         "crashes": {
-          "description": "Child-process exits since case start, by kind.",
+          "description": "Child-process exits by kind: totals since the app launched (holder: since the daemon owner started; a new owner counts from 0, which I17 reads as a reset). renderer counts each renderer process once, not each tab it hosted. daemon counts the owner ends the app's connection saw without daemon-shutdown (a crash or a kill, not a requested stop). The runner and I17 take the rise between checkpoints.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/crashes",
             "v0": null,
             "provider": "OracleCrashesFacet",
             "task": "p15-oracle-188",
-            "from": "CEFChildProcessMonitor, CrashRecoveryService and holder exit records since case start"
+            "from": "CEFChildProcessMonitor's helper exits (BrowserCrashLog tallies), CrashRecoveryService's previous run, the daemon connection's drops without daemon-shutdown, and the daemon's oracle-state childExits (holders its owner counted ending)"
           },
           "oneOf": [
             {
@@ -3345,37 +3426,45 @@
                     "renderer": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/renderer"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "gpu": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/gpu"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "browser": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/browser"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "utility": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/utility"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "daemon": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/daemon"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "holder": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/holder"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     }
                   }
                 },
                 "exits": {
+                  "description": "the exits the app saw, oldest first; I17 reads the entries past the previous checkpoint's from the raw checkpoint",
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/exits"},
+                  "x-oracle-volatile": {"reason": "process-wide: it lists every exit since the app launched, so it depends on the cases the session ran first; only the counts' rises are per case", "task": "p15-oracle-188"},
                   "type": "array",
                   "x-oracle-order": "sequence",
                   "items": {
@@ -3571,6 +3660,87 @@
                       }
                     }
                   }
+                }
+              }
+            },
+            {"$ref": "#/definitions/notComparable"}
+          ]
+        },
+        "cli": {
+          "description": "The receipt of a cli step (invariant I1), in that step's settled checkpoint: the exit code of its `cmux` call, its stdout and the typed code of a failed call. stdout is open: one JSON value, JSON lines as an array, or the text, with the rules of open objects (ids by x-oracle-id-patterns, x-oracle-open-keys, the path and url rewrites).",
+          "x-oracle-source": {
+            "method": "cli",
+            "path": "/cli",
+            "task": "p15-oracle-048",
+            "from": "the shipped cmux binary run by driver_cli.py (VM: the run SHA's cmux-tui; fleet: CMUX_TAG=<tag> scripts/cmux-debug-cli.sh)"
+          },
+          "type": "object",
+          "required": ["exit", "stdout"],
+          "properties": {
+            "exit": {
+              "x-oracle-source": {"method": "cli", "path": "/cli/exit"},
+              "type": "integer"
+            },
+            "error": {
+              "description": "the code of the JSON error a failed call writes to stderr (`--json`), else cli.failed; present only when exit is not 0",
+              "x-oracle-source": {"method": "cli", "path": "/cli/error"},
+              "type": "string",
+              "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
+            }
+          }
+        },
+        "mcp": {
+          "description": "The receipt of an mcp step (invariant I1), in that step's settled checkpoint: whether the tools/call result is a tool error, the result's structuredContent (its content when it has none), and the typed code of a failed call. result is open, with the rules of open objects (ids by x-oracle-id-patterns, x-oracle-open-keys, the path and url rewrites).",
+          "x-oracle-source": {
+            "method": "mcp",
+            "path": "/mcp",
+            "task": "p15-oracle-209",
+            "from": "`cmux mcp serve --all-tools` over stdio, run by driver_mcp.py (VM: the run SHA's cmux-tui; fleet: the tagged bundle's cmux on the app's socket)"
+          },
+          "type": "object",
+          "required": ["isError", "result"],
+          "properties": {
+            "isError": {
+              "x-oracle-source": {"method": "mcp", "path": "/mcp/isError"},
+              "type": "boolean"
+            },
+            "error": {
+              "description": "the code of the tool error's envelope (structuredContent.error.code), or mcp.rpc_error for a JSON-RPC error; present only when isError is true",
+              "x-oracle-source": {"method": "mcp", "path": "/mcp/error"},
+              "type": "string",
+              "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
+            }
+          }
+        },
+        "reply": {
+          "description": "The reply of a resource.call step whose expect outcome is any (a walk move of scripts/cmux-next/oracle/gen_walks.py), in that step's settled checkpoint: ok with the mutation receipt's replayed flag, or the typed error code. The daemon facet beside it holds the state the call left; the reply's value is left out because the facet shows its objects.",
+          "x-oracle-source": {
+            "method": "resource.call",
+            "path": "/reply",
+            "task": "p15-oracle-098",
+            "from": "the step's reply on the daemon driver's ProtocolConnection (driver_daemon.py)"
+          },
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["outcome"],
+              "properties": {
+                "outcome": {
+                  "x-oracle-source": {"method": "resource.call", "path": "/reply/outcome"},
+                  "type": "string",
+                  "enum": ["ok", "error"]
+                },
+                "replayed": {
+                  "description": "an ok mutation_result's replayed flag: true when the daemon answered from the idempotency record of an earlier call with the same key (I10)",
+                  "x-oracle-source": {"method": "resource.call", "path": "/reply/replayed"},
+                  "type": "boolean"
+                },
+                "error": {
+                  "description": "the typed error code; present only when outcome is error",
+                  "x-oracle-source": {"method": "resource.call", "path": "/reply/error"},
+                  "type": "string",
+                  "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
                 }
               }
             },

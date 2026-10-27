@@ -271,8 +271,7 @@ pub(super) fn socket_path_for(dir: &Path) -> PathBuf {
 fn check_private_file(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::MetadataExt;
     let meta = std::fs::symlink_metadata(path)?;
-    // SAFETY: geteuid has no preconditions.
-    let uid = unsafe { libc::geteuid() };
+    let uid = cmux_tui_core::platform::effective_uid();
     if !meta.file_type().is_file() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
@@ -302,8 +301,7 @@ pub(super) fn open_lock(path: &Path) -> io::Result<std::fs::File> {
 pub(super) fn check_socket_dir(dir: &Path) -> io::Result<()> {
     use std::os::unix::fs::MetadataExt;
     let meta = std::fs::symlink_metadata(dir)?;
-    // SAFETY: geteuid has no preconditions.
-    let uid = unsafe { libc::geteuid() };
+    let uid = cmux_tui_core::platform::effective_uid();
     let refuse = |why: String| Err(io::Error::new(io::ErrorKind::PermissionDenied, why));
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return refuse(format!("the link socket folder {} is not a folder", dir.display()));

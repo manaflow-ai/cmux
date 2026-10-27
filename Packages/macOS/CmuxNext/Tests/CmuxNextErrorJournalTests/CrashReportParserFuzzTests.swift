@@ -302,7 +302,9 @@ import Testing
         // Choice tapes: one per branch of `oneInput`; branch 2 also with each cursor seed picked,
         // alone and behind the log's inode.
         let branches: [[UInt8]] = [[0, 1, 0], [0, 1, 1], [1, 1, 0], [2], [3, 1, 0], [4]]
-        let cursorTapes = Self.cursorSeeds.indices.flatMap { [[2, 1, UInt8($0), 0], [2, 1, UInt8($0), 1]] }
+        let cursorTapes: [[UInt8]] = Self.cursorSeeds.indices.flatMap { index -> [[UInt8]] in
+            [[2, 1, UInt8(index), 0], [2, 1, UInt8(index), 1]]
+        }
         try run.forEachInput(run.corpus(seeds: (branches + cursorTapes).map { Data($0) }), Self.oneInput)
     }
 }
