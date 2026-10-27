@@ -269,6 +269,7 @@ test("a saved SSH environment names the strip and asks on its machine, in its fo
   expect(calls.find((call) => call.method === "chat.send")?.params).toEqual({
     text: "tail the logs",
     expectedSessionId: "session-1",
+    accepted: expect.any(Function),
   });
 });
 
@@ -328,6 +329,7 @@ test("picking another machine acpmux lists starts the chat there", async () => {
   expect(calls.find((call) => call.method === "chat.send")?.params).toEqual({
     text: "tail the logs",
     expectedSessionId: "session-1",
+    accepted: expect.any(Function),
   });
 });
 
@@ -525,4 +527,47 @@ test("a superseded SSH start never sends the retained prompt to a different chat
   await expect(started).rejects.toThrow();
   expect(leaves).toBe(0);
   expect(calls.some((call) => call.method === "chat.send")).toBe(false);
+});
+
+test("a direct start keeps its draft until the first prompt is accepted, including a send preflight refusal", async () => {
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  let left = 0;
+  let refuse: (error: Error) => void = () => {};
+  let finish: () => void = () => {};
+  let accepted: () => void = () => {};
+  const noop = () => {};
+  const actions = newTabScreenActions({
+    callNative: (method, params) =>
+      method === "chat.send"
+        ? new Promise((resolve, reject) => {
+            refuse = reject;
+            finish = () => resolve(undefined);
+            accepted = params!.accepted as () => void;
+          })
+        : Promise.resolve(method === "chat.new" ? "session-1" : undefined),
+    leave: () => {
+      left += 1;
+    },
+    selectSession: noop,
+    showAllChats: noop,
+    runShell: noop,
+  });
+  const pending = Promise.resolve(
+    actions.onAsk("claude", "keep this draft", undefined, undefined, undefined, undefined, { peer: "devbox" }),
+  );
+  await Promise.resolve();
+  expect(left).toBe(0);
+  refuse(new Error("connection changed before send"));
+  await expect(pending).rejects.toThrow("connection changed before send");
+  expect(left).toBe(0);
+  const retry = Promise.resolve(
+    actions.onAsk("claude", "keep this draft", undefined, undefined, undefined, undefined, { peer: "devbox" }),
+  );
+  await Promise.resolve();
+  expect(left).toBe(0);
+  accepted();
+  expect(left).toBe(1);
+  finish();
+  await retry;
+  expect(left).toBe(1);
 });

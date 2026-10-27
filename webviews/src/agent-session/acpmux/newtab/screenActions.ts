@@ -28,7 +28,7 @@ export function newTabScreenActions(deps: {
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
-  startScope?(): () => boolean;
+  startScope?(allowReconnect: boolean): () => boolean;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -36,7 +36,8 @@ export function newTabScreenActions(deps: {
   return {
     onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
-      const current = deps.startScope?.() ?? (() => true);
+      const queuedStart = !!harness && !peer && !noProject;
+      const current = deps.startScope?.(queuedStart) ?? (() => true);
       const cancelled = () => new Error(translate("switch.cancelled"));
       remember(harness);
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
@@ -56,16 +57,23 @@ export function newTabScreenActions(deps: {
           });
           const message = { text, ...(attachments?.length ? { attachments } : {}) };
           const asks = !!text || !!attachments?.length;
-          if (peer) {
+          if (!queuedStart) {
             opened
               .then(async (started) => {
                 if (!current()) throw cancelled();
                 if (!started) throw new Error(translate("switch.noSession"));
+                if (!peer && asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
                 // The send names this start's session; a later selected chat cannot take it.
                 if (asks) {
-                  const sent = callNative("chat.send", { ...message, expectedSessionId: started });
-                  deps.leave();
-                  await sent;
+                  let taken = false;
+                  const accepted = () => {
+                    if (taken || !current()) return;
+                    taken = true;
+                    deps.leave();
+                  };
+                  // Until acpmux takes it, a failed send preflight still belongs to this field.
+                  await callNative("chat.send", { ...message, expectedSessionId: started, accepted });
+                  accepted();
                 } else deps.leave();
               })
               .then(resolve, reject);
