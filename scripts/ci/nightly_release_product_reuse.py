@@ -140,15 +140,20 @@ def prescan(archive: Path) -> None:
 
 
 def fold(name: str) -> str:
-    """A path as a case-insensitive volume (APFS, where the app is unpacked) compares it. Every
-    check below compares folded names, so an archive is refused the same way on every OS."""
+    """A path as a case-insensitive volume (APFS, where the app is unpacked) compares it. The
+    checks below run on exact and on folded names, so an archive is refused when either a
+    case-sensitive or a case-insensitive volume would let it out, on every OS."""
     return name.casefold()
 
 
-def resolve(parts: list[str], links: dict[str, str]) -> None:
+def same(name: str) -> str:
+    return name
+
+
+def resolve(parts: list[str], links: dict[str, str], key=same) -> None:
     """Follow `parts` from the products root through every symlink in the archive (`links` is keyed
-    by folded name); raise Miss when the walk ever leaves the root (a chain like a -> . then
-    b -> a/../..) or loops."""
+    by key(name): exact or folded names); raise Miss when the walk ever leaves the root (a chain
+    like a -> . then b -> a/../..) or loops."""
     position: list[str] = []
     queue = list(parts)
     hops = 0
@@ -162,11 +167,11 @@ def resolve(parts: list[str], links: dict[str, str]) -> None:
             position.pop()
             continue
         name = "/".join(position + [part])
-        if fold(name) in links:
+        if key(name) in links:
             hops += 1
-            if hops > MAX_SYMLINK_HOPS or links[fold(name)].startswith("/"):
+            if hops > MAX_SYMLINK_HOPS or links[key(name)].startswith("/"):
                 raise reuse.Miss(f"the archive's symlink {name!r} loops or is absolute")
-            queue = links[fold(name)].split("/") + queue
+            queue = links[key(name)].split("/") + queue
             continue
         position.append(part)
 
@@ -197,17 +202,19 @@ def safe_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]:
     names = [str(PurePosixPath(member.name)) for member in members]
     if len({fold(name) for name in names}) != len(names):
         raise reuse.Miss("the archive names a member twice (letter case ignored)")
-    links = {fold(str(PurePosixPath(member.name))): member.linkname for member in members if member.issym()}
+    links = {name: member.linkname for member, name in zip(members, names) if member.issym()}
+    folded = {fold(name): link for name, link in links.items()}
     for member, name in zip(members, names):
         parts = name.split("/")
         # pack() adds directories without following links, so nothing is ever stored under one.
         for depth in range(1, len(parts)):
-            if fold("/".join(parts[:depth])) in links:
+            if fold("/".join(parts[:depth])) in folded:
                 raise reuse.Miss(f"the archive member {name!r} lies under a symlink")
         if member.issym():
             if not member.linkname or member.linkname.startswith("/"):
                 raise reuse.Miss(f"the archive's symlink {name!r} is absolute or empty")
             resolve(parts[:-1] + member.linkname.split("/"), links)
+            resolve(parts[:-1] + member.linkname.split("/"), folded, fold)
     return members
 
 

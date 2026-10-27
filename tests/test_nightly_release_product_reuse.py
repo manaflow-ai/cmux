@@ -147,6 +147,11 @@ class Products(unittest.TestCase):
                            ("cmux.app/Contents/B/payload", None, None)],
             "duplicate": [("cmux.app/Contents/x", None, None), ("cmux.app/Contents/x", None, None)],
             "duplicate but for case": [("cmux.app/Contents/x", None, None), ("cmux.app/Contents/X", None, None)],
+            # Exactly named, a loops (a -> B/../a, and B is no link); folded, B is b and the walk
+            # ends inside. Both walks run, so it is refused.
+            "loops only by exact name": [("cmux.app/Contents/deep/deeper/f", None, None),
+                                         ("cmux.app/Contents/a", "B/../a", None),
+                                         ("cmux.app/Contents/b", "deep/deeper", None)],
             "huge pax header": [("cmux.app/Contents/y", None, {"comment": "z" * (nightly.MAX_EXTENSION_HEADER_BYTES + 1)})],
         }
         for index, (label, members) in enumerate(cases.items()):
