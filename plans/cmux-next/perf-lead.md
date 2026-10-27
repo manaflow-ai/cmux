@@ -327,6 +327,21 @@ Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 | 2026-10-26 | p08-startup-069 baseline (partial) | 772cdfc45ac | launch warm and cold, first live terminal frame (24-workspace terminal seed, no agent chat) | warm n 1: 3345 ms since process start; cold n 1 (daemon stopped, file cache NOT purged: cmux19-perf has no `sudo -n purge` right): 3304 ms. The realistic profile cannot be seeded at 772cdfc45ac (`the seeding launch never drew a terminal`), and bench-startup refused its own run 2 (a quit app's Chromium helpers outlive it for a moment); fixed in 0be5a7f962a (one bench-startup invocation per run, the tag's app processes stopped first). For 10 warm runs at this sha see startup-DESIGN.md section 11 (task 072: `main_start` to `first_window_frame_committed` p50 270.6 ms, p95 280.3, cmux22-perf). Same host, macOS, display, sha, config and step as the row above | - |
 | 2026-10-26 | p08-startup-069 baseline (partial) | 772cdfc45ac | not measured at 772cdfc45ac, with the reason | Q6 profile (trace.py launch-warm x5 ran, 280 s): startup-queue read no run, because the traces have no `first_window_frame_committed` or `first_terminal_frame` mark (cause not checked). Q5, Q11, Q12, Q13 live: each stopped at run 1 because `first_terminal_frame` did not arrive in 60 s (the restored focus was not a terminal); 0be5a7f962a waits for `first_window_frame_committed` instead. Even then, Q11-Q13 read `debug.startup`, which has no handler at this sha (`git grep debug.startup 772cdfc45ac` finds none), and Q5 needs a blocking detector, which a `--config bench` build may not have (a `--config bench-checks` build is the input). STRESS x10: the builder's launch waited for `first_content`, which this sha does not send (fixed in 0be5a7f962a). `startup_complete` and `cef.initialize_started`: not sent by this sha. Same host and step as above | - |
 | 2026-10-26 | p08-startup-069 baseline (partial) | 772cdfc45ac | the rerun with the fixed tools | not run: each perf host was under reload.sh's 40 GiB free-home floor when its build started (steps 44d8a88957633f3fa4a8705a cmux22-perf and 4a1527187638a2687e24542d cmux21-perf: 38 GiB free; the worker list showed 30-41 GiB on cmux17-24-perf), and the controller does not allow `CMUX_NEXT_MIN_FREE_GIB` on a ci-step. Rerun the command in the first row when a perf host has 43 GiB or more free (the step's checkout takes about 3 GiB before the check) | - |
+| 2026-10-26 | p08-startup-070 (after numbers, done check 1 of 15) | perf/chrome-parity at `5ac4dd1680c` | 18: warm launch, first frame p50 <= 150 ms, p95 <= 180 ms; startup_complete p50 <= 800 ms | no 069 baseline on the branch; last on record, before the program: first frame 217-263 ms, live tree 351-936 ms at 24 workspaces (#17587) | **not measured** (no fleet GUI run at this sha); `bench-startup.py --mode warm --profile realistic --runs 20 --require-optimized`. All 15 rows with evidence: [startup-DESIGN.md](startup-DESIGN.md) section 14 |
+| 2026-10-26 | p08-startup-070 (done check 2) | perf/chrome-parity at `5ac4dd1680c` | 18: cold launch, first frame p50 <= 300 ms, p95 <= 360 ms; startup_complete p50 <= 1500 ms | no 069 baseline | **not measured**; `bench-startup.py --mode cold --temperature cold --runs 10` (host with `sudo -n purge`) |
+| 2026-10-26 | p08-startup-070 (done check 3) | perf/chrome-parity at `5ac4dd1680c` | 18: first frame is the picture (`first_commit_layer_tree`, `views_built == 0`) | - | **FAIL (tree)**: `debug.startup` has neither field (0 hits in `Packages/`); no run can pass it at this sha |
+| 2026-10-26 | p08-startup-070 (done check 4) | perf/chrome-parity at `5ac4dd1680c` | 18: main thread at launch | - | **FAIL (tree)**: allowlist 14 (<= 15, pass); `main_cpu_ms_to_first_frame` is not a `debug.startup` field; `startup-lint.py` (104) is not in the tree |
+| 2026-10-26 | p08-startup-070 (done check 5) | perf/chrome-parity at `5ac4dd1680c` | 18: no hangs at launch, 20 warm + 10 cold | - | **not measured**; `debug.hangs` on the runs of checks 1 and 2 |
+| 2026-10-26 | p08-startup-070 (done check 6) | perf/chrome-parity at `5ac4dd1680c` | 18: no blocking at launch | - | **not measured**; `startup-queue.py blocking --runs 5` on a `--config bench-checks` app, `blocking-probe.sh --until-mark first_window_frame_committed` |
+| 2026-10-26 | p08-startup-070 (done check 7) | perf/chrome-parity at `5ac4dd1680c` | 18: Chromium at launch, STRESS, 20 runs | - | **not measured**; the check's `RestoredPageLoader` is `TabContentCache.defersRestoredPages` at this sha |
+| 2026-10-26 | p08-startup-070 (done check 8) | perf/chrome-parity at `5ac4dd1680c` | 18: static counts | Q1b 41 of 46 marked | **FAIL**: Q1 3 (pass); Q1b 46 of 46 marked (pass, table refreshed by this task); Q3 1 call + 1 timer (`LaunchSettle.settled(within:)`, AppDelegate.swift:397; target 0); startup-lint.py not in the tree |
+| 2026-10-26 | p08-startup-070 (done check 9) | perf/chrome-parity at `5ac4dd1680c` | 18: order file >= 90 % resolved; cold A/B pageins -30 %, first frame -10 % | - | **FAIL (tree)**: `Resources/build/cmux-next.order` has 0 symbols and no profdata sha (the 054 refresh has not run); A/B not run |
+| 2026-10-26 | p08-startup-070 (done check 10) | perf/chrome-parity at `5ac4dd1680c` | 18: PGO in Release; A/B first frame p50 -5 % | Linux Rust A/B (startup-DESIGN.md section 12): no gain | **FAIL (tree)**: `cmux-next.pgo.conf` `use=0`, no Swift profile pinned, no Rust `pgo.txt` pointer; no Release build gets `-profile-use` or `-Cprofile-use`; A/B not run |
+| 2026-10-26 | p08-startup-070 (done check 11) | perf/chrome-parity at `5ac4dd1680c` | 18: startup tracing (`CMUX_TRACE_STARTUP=5`, Perfetto, kill -9) | - | **not measured**; tool tests on Linux: `test_trace_launch` 1 error (fixture lacks `release`, read since `6f8e82441cf`) |
+| 2026-10-26 | p08-startup-070 (done check 12) | perf/chrome-parity at `5ac4dd1680c` | 18: field launch histograms (Nightly opt-in) | - | **not measured**; the Swift suites (`LaunchHistogramTests`, `MetricKitPayloadFuzzTests`) did not run (no Swift build on the Linux VM) |
+| 2026-10-26 | p08-startup-070 (done check 13) | perf/chrome-parity at `5ac4dd1680c` | 18: launch correctness matrix, 16 cases | - | **FAIL (tree)**: task 071's cases are not in `relaunch-e2e.py` or `restore-trace.py` |
+| 2026-10-26 | p08-startup-070 (done check 14) | perf/chrome-parity at `5ac4dd1680c` | 18: idle after launch, 3 restored Chromium tabs | - | **not measured**; `bench-idle.sh`, then `startup-queue.py arms` |
+| 2026-10-26 | p08-startup-070 (done check 15) | perf/chrome-parity at `5ac4dd1680c` | 18: edge launches (no-activate, quit at 100 ms) | - | **not measured** |
 | 2026-10-26 | p07-memory-067 (F8 done checks DC1-DC18) | perf/chrome-parity fb08b6548fe (docs only) | F8: DC1-DC18 of chrome-parity/p07-memory.md section 5 | no hour-0 baseline: task 075 is not on perf/chrome-parity, so every "today" value is the spec's quoted number, not a same-base A/B | static and Linux parts measured at fb08b6548fe (table "Memory done checks" below): DC2 kernel sources pass, DC2 observe and DC3 fail with named hits, DC1 static 86 -> 44 files; every fleet run NOT run (no build of this sha, no 075 base) |
 | | | | | | |
 
@@ -419,6 +434,52 @@ plans/cmux-next/perf-lead.md` fails when a group does not sum to its target or t
 |  | wire | doorbell to the host's UI thread dispatch (`hop_us`) | 0.6 ms | p95 1.96 ms (prototype, sandbox off, 2026-10-25) |
 |  | chromium_host | host UI thread dispatch to the renderer's input queue | 0.2 ms | not measured |
 | Processes in the heavy session (done check 13) | app 1, daemon 1, holder 1, vt_worker <= 4 (+1 per extra trust class), terminal_host 0, chromium_host 1 | | | 392 processes, 172 terminal hosts |
+
+### p06 scheduler test phase (task p06-scheduler-160)
+
+Status 2026-10-27: the fleet runs are not done, and no fleet number here is invented. Before sha: `772cdfc45ac`
+(the merge-base of perf/chrome-parity and feat-cmux-next, where the p06 queues were cut). After sha: the program head.
+At `bd61faade91` (perf/chrome-parity) task 034 and most of the program are in, but tasks 347 (queue close-out),
+223 (ordered drain by cause) and 227 (visibility-scoped frontend subscription) are not. An after run there gives an
+interim number, not the program's. Rows 11 and 12 are static counts, taken at both shas with git (no host).
+
+How to run. Make one `cmux-ci build cmux --ref SHA` per sha. Run the benches from a checkout at the after sha against
+both builds, so that before and after use the same harness; an instrument that the base app does not have gives no
+before number. Hosts: macOS 27 on aws-m4pro-1..4 and macOS 26 on aws-m4pro-5..9, each with `--vdisplay=120` (a
+VDISPLAY-FALLBACK voids a frame number). Run before and after of one row on the same host. macOS 14 and 15:
+`scripts/cmux-next/os-matrix.sh --build JOB --os 14,15`, function only. Every result records sha, host, OS, refresh
+rate and repeat count.
+
+| Done check | Command (light and STRESS unless noted) | Instrument at `bd61faade91` | Before | After |
+|---|---|---|---|---|
+| 1 key to frame | `sidebar-churn-typing.py --input real`; `automation-typing-bench.py --input real`; a `script-storm-bench.py` or `bench_cli_storm.py` storm in parallel | churn bench `--input real`: yes; automation bench `--input real`: no (task 230, not landed) | not run | not run |
+| 2 automation isolation | the check 1 sessions: storm p99 minus idle p99, same session and host | yes, from check 1 | not run | not run |
+| 3 `debug.main_budget` in the STRESS storm | `cli-storm-session.py` reads it after a reset | turns, `unattributed_share`, `yielded_to_input_response`, `input_response_cap_hits`, owners with `posted_from`: yes (008, 009, 206); `input_response_pass.applies` and `late_person_applies`: no (follow-up Q12-c) | not run | not run |
+| 4 hidden-workspace storm | `script-storm-bench.py --hidden 50`, 1000 CLI ops | `--hidden` and `hidden_workspace_layouts`: yes (150, 229); hidden mailbox events: no (227) | not run | not run |
+| 5 observers per event | `sidebar-stress-bench.py`, 400 workspaces | `debug.observations` and `row_maps_per_change`: yes (029, 152) | not run | not run |
+| 6 idle | `bench_idle.py --scenarios mixed-hidden`, 60 s, window visible and app hidden | `mixed-hidden` and `main_wakeups_per_s`: yes; daemon thread wakeups: no (228) | not run | not run |
+| 7 launch | `bench_launch.py` cold, warm and `open -g` | `launch.order_ok` and `launch.revealed`: yes (007) | not run | not run |
+| 8 every-action sweep | `every-action-sweep.py` STRESS at 120 Hz, 3 repeats | the sweep, and `task_class` in stall records: yes (009, 203) | not run | not run |
+| 9 daemon | `cmux-ci run --class exclusive --measurement --script scripts/measure/perf-10x-daemon.sh --ref SHA --arg=storm=64` (10 request clients and 64 automation clients) | `debug.daemon_locks`: yes (226). The base script has no `storm`: run the after sha's script against the base daemon | not run | not run |
+| 10 switch and theme | `bench_tab_switch.py` with 12 panes at 400 workspaces; a theme toggle at 50 workspaces | `bench_tab_switch.py` has `--tabs` and `--workspaces` only, no pane layout; no theme-toggle bench; `appearance_applies`: no (215) | not run | not run |
+| 11 ratchet counts | `python3 scripts/cmux-next/p06_queue.py --rev SHA --json`, hits added over the 47 WORK.tsv groups | yes | `772cdfc45ac`: 2788 hits, 47 of 47 groups open. Q1 472, Q1b 772 (heuristic), Q1c 53, Q2 285, Q3 58, Q4 257, Q5 213, Q6 261, Q7 66, Q8 85, Q10 22, Q11 137, QA 157 | `bd61faade91` (interim): 1382 hits, 105 settled, 28 of 47 groups open. Q1 213, Q1b 435, Q1c 23, Q2 119, Q3 11, Q4 106, Q5 124, Q6 175, Q7 12, Q8 41, Q10 8, Q11 42, QA 90. Task 347 is not in; 42 hits in 15 files at the cut are in no group (`--residual`) |
+| 12 budgeted clients | `git grep -c -E 'FrameBatcher\(owner: "[^"]+"' SHA -- Packages/macOS/CmuxNext/Sources` | yes. The section 6 Q9 query ends in `\)` and matches 0 at head, because each constructor now also takes a scheduler or a class | 3 | 6 (interim): SidebarRows (visible), ContentPresentation (visible), Control.frames (automation), DaemonStore.drain, ContentPresentation.nextFrame, NewTabPage.close |
+| 13 unit suites | fleet `swift test --filter <suite>` for each suite in the "Test phase" lines of p06-scheduler.md section 8, macOS 26 and 27, Tart 14 and 15; cmux-tui `cmux-tui-rust-check.sh test <name>` | the suites of the landed tasks exist; 223, 227 and 347 add theirs | not run | not run |
+| 14 hang soak | 30 min STRESS with `bench_cli_storm.py`; `debug.hangs` | `task_owner` and `task_class` per record (203), `stall.render_starved` (004), `debug.main_budget` `top_unattributed_turns`: yes | not run | not run |
+
+Follow-up tasks (misses found while the runs were prepared):
+
+- Q12-a: give `perf-10x-daemon.sh` a request-client count, so that the 64 clients of done check 9 are one argument.
+  Today `storm` counts automation clients only.
+- Q12-b: give `bench_tab_switch.py` a pane layout (`--panes 12`), and add a theme-toggle bench at 50 workspaces that
+  reads `appearance_applies` (with task 215). Done check 10 has no command until then.
+- Q12-c: add `input_response_pass.applies` and `late_person_applies` to `debug.main_budget` (done check 3).
+- Q12-d: change the Q9 query in p06-scheduler.md section 6 to the row 12 query. It reads 0 at head.
+- Q12-e: split WORK.tsv rows 300, 306, 307, 324 and 342 (over 70 hits at the cut), and give the 15 files with no row
+  a row (`p06_queue.py` plan problems; task 347).
+- Q12 owners: from the after run's `debug.main_budget owners` (each owner over 1 ms p99 with no class), its
+  `top_unattributed_turns`, and its hang records with no `task_owner`, one task each. None yet, because the after
+  run is not done.
 
 ### Input pipeline done checks (p04-input-075)
 

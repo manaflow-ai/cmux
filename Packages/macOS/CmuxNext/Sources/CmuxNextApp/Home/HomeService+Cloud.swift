@@ -13,6 +13,7 @@ extension HomeService {
     /// `home.server`: each change re-leases (the Stack token for cmux Cloud,
     /// no token for a self-hosted server) and reconfigures the cloud source.
     func startCloud() {
+        guard let services else { return }
         let local = services.machines.local
         let auth = services.cloudAuth
         let info = Bundle.main.infoDictionary ?? [:]
@@ -49,6 +50,7 @@ extension HomeService {
     }
 
     func handleCloud(_ event: CloudConversationsEvent) {
+        guard let services else { return }
         if case .sessionNeeded(let needed) = event {
             cloudLinker?.sessionNeeded(reason: needed.reason, expiresAt: needed.expiresAt)
             return
