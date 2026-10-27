@@ -4,7 +4,7 @@
 //! owner's hang log lives beside it; the request watchdog writes it
 //! (server/request_watchdog.rs).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// The log for `session`: `owner-panics-<session>.jsonl` at the state root
 /// (the parent of the sessions directory). A session name that needs
@@ -18,6 +18,14 @@ pub fn owner_panic_log_path(session: &str) -> Option<PathBuf> {
 /// line per scope busy past its hang tier.
 pub fn owner_hang_log_path(session: &str) -> Option<PathBuf> {
     owner_log_path("owner-hangs", session)
+}
+
+/// The panic log of the terminal holder of `host_root`, a session's
+/// `terminal_host_root`: `holder-panics.jsonl` in it. The daemon names it in
+/// the holder's environment (`cmux_holder::panic_log::PANIC_LOG_ENV`); the
+/// cmux-next app reads it (`RustPanicSource.holderLog`).
+pub fn holder_panic_log_path(host_root: &Path) -> PathBuf {
+    host_root.join("holder-panics.jsonl")
 }
 
 fn owner_log_path(prefix: &str, session: &str) -> Option<PathBuf> {
@@ -45,4 +53,23 @@ fn owner_log_path(prefix: &str, session: &str) -> Option<PathBuf> {
 #[cfg(debug_assertions)]
 pub fn spawn_owner_hang_test() {
     crate::server::spawn_owner_hang_test();
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    /// The app computes the same path (RustLogForwardTests
+    /// `theHolderLogIsInTheSessionsTerminalHostRoot`).
+    #[test]
+    fn the_holder_panic_log_of_session_main_is_where_the_app_reads_it() {
+        let root = crate::terminal_host_runtime::terminal_host_root(
+            std::path::Path::new("/state/sessions"),
+            "main",
+        );
+        assert_eq!(
+            super::holder_panic_log_path(&root),
+            std::path::Path::new(
+                "/state/sessions/terminal-hosts-1f5962a2ce9803c8/holder-panics.jsonl"
+            )
+        );
+    }
 }

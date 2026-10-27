@@ -8,6 +8,8 @@
 
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {
+    // Before anything that can panic: the daemon named the log (p10-stability-150).
+    cmux_holder::panic_log::install_from_env();
     // Chromium's SetCurrentTaskDefaultRole: echo is on a person's input path.
     if let Err(error) = cmux_threads::process_role::set_default_role() {
         eprintln!("cmux-holder: {error}");

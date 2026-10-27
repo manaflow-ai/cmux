@@ -983,6 +983,7 @@ impl Hub {
             hosts_dir: hosts,
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
             router_owner_fifo: crate::daemon::router_owner_path(),
+            state_home: Some(crate::config::home()),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {

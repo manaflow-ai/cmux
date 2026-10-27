@@ -11,25 +11,42 @@ import os
 /// the `cmux-panic-log` format). ``RustPanicSource`` labels each. This reads the lines added since the last read (a
 /// byte offset kept in `stateFile`) and sends each as an event: a panic does
 /// not always end the owner (worker threads, caught panics), so it is not a
-/// crash report. The first run marks the existing log read. Lines from a
+/// crash report. The first run marks a log that exists read; a log that does
+/// not exist yet is read from its first byte once a process creates it (the
+/// Rust writers create theirs at their first record). Lines from a
 /// time reports were off (`sends` false) are
 /// marked read and never sent. Debug test panics (`"test": true`) are
 /// skipped. The same reader sends a hang log (`owner-hangs-<session>.jsonl`,
-/// `$ACPMUX_HOME/hangs.jsonl`): each `"event": "hang"` line is one warning.
+/// `$ACPMUX_HOME/hangs.jsonl`): each `"event": "hang"` line is one warning,
+/// at most one per fingerprint (source, scope, method) and
+/// ``maxHangEventsPerDay`` in all per day, as Chrome throttles
+/// `DumpWithoutCrashing` per location (base/debug/dump_without_crashing.h);
+/// the rest are marked read and counted in the log.
 /// No event carries a path or URL (``RustLogScrubber``, p10-stability-150).
 public final class OwnerPanicForwarder: Sendable {
     struct State: Codable, Equatable {
         /// Bytes of the log already read.
         var offset: UInt64
-        /// The log's file identity, so a recreated log is read from the start.
+        /// The log's file identity, so a recreated log is read from the start. 0: the log did not
+        /// exist at the first run, so the log a process creates later is read from its first byte.
         var inode: UInt64
+        /// The day (days since 1970, UTC) of ``sentHangs``.
+        var hangDay: Int64?
+        /// The hang fingerprints sent on ``hangDay``.
+        var sentHangs: [String]?
     }
+
+    /// The exception type of a hang event.
+    static let hangType = "RustHang"
+    /// The most hang events one log sends in a day.
+    public static let maxHangEventsPerDay = 20
 
     private let log: URL
     private let stateFile: URL
     private let sends: Bool
     private let source: RustPanicSource
     private let capture: @Sendable (Event) -> Void
+    private let now: @Sendable () -> Date
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.owner-panic-forwarder", qos: .utility)
     private let watcher = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
@@ -40,13 +57,16 @@ public final class OwnerPanicForwarder: Sendable {
     ///   - sends: The user's telemetry choice; false marks lines read without sending.
     ///   - source: Which process wrote `log`; the owner by default.
     ///   - capture: Sends one event (Sentry in the app, a recorder in tests).
+    ///   - now: The clock of the daily hang limit.
     public init(log: URL, stateFile: URL, sends: Bool, source: RustPanicSource = .owner,
-                capture: @escaping @Sendable (Event) -> Void = { SentrySDK.capture(event: $0, scope: Scope()) }) {
+                capture: @escaping @Sendable (Event) -> Void = { SentrySDK.capture(event: $0, scope: Scope()) },
+                now: @escaping @Sendable () -> Date = { Date() }) {
         self.log = log
         self.stateFile = stateFile
         self.sends = sends
         self.source = source
         self.capture = capture
+        self.now = now
     }
 
     /// The owner's log for `session` under `stateRoot` (the parent of the
@@ -71,11 +91,16 @@ public final class OwnerPanicForwarder: Sendable {
     /// Sends the lines added since the last read. Returns the events sent.
     @discardableResult
     public func forwardNew() -> [Event] {
+        let stored = loadState()
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: log.path),
               let size = (attributes[.size] as? NSNumber)?.uint64Value,
-              let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value else { return [] }
-        guard var state = loadState() else {
-            // The first run only marks the log read: older lines are never sent.
+              let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
+            // No log yet: the one a process creates later is new, every line of it.
+            if stored == nil { save(State(offset: 0, inode: 0)) }
+            return []
+        }
+        guard var state = stored else {
+            // The first run only marks an existing log read: older lines are never sent.
             save(State(offset: size, inode: inode))
             return []
         }
@@ -88,17 +113,44 @@ public final class OwnerPanicForwarder: Sendable {
         // Only whole lines; a line still being written stays for the next read.
         let complete = data[data.startIndex...lastNewline]
         var sent: [Event] = []
+        var throttled = 0
         if sends {
             for line in complete.split(separator: UInt8(ascii: "\n")) {
                 guard let event = Self.event(fromLine: Data(line), source: source) else { continue }
+                guard admitsHang(event, state: &state) else {
+                    throttled += 1
+                    continue
+                }
                 capture(event)
                 sent.append(event)
             }
         }
         state.offset += UInt64(complete.count)
         save(state)
-        if !sent.isEmpty { logger.info("forwarded \(sent.count) \(self.source.process, privacy: .public) panic(s)") }
+        if !sent.isEmpty { logger.info("forwarded \(sent.count) \(self.source.process, privacy: .public) record(s)") }
+        if throttled > 0 {
+            logger.info("held back \(throttled) \(self.source.process, privacy: .public) hang(s) over the daily limit")
+        }
         return sent
+    }
+
+    /// Whether `event` may be sent: always for a panic; for a hang, only the first of its
+    /// fingerprint today and only below ``maxHangEventsPerDay``. Records an admitted hang in `state`.
+    private func admitsHang(_ event: Event, state: inout State) -> Bool {
+        guard event.exceptions?.first?.type == Self.hangType, let fingerprint = event.fingerprint else {
+            return true
+        }
+        let key = fingerprint.joined(separator: "\u{1F}")
+        let day = Int64((now().timeIntervalSince1970 / 86_400).rounded(.down))
+        if state.hangDay != day {
+            state.hangDay = day
+            state.sentHangs = []
+        }
+        var sentToday = state.sentHangs ?? []
+        guard sentToday.count < Self.maxHangEventsPerDay, !sentToday.contains(key) else { return false }
+        sentToday.append(key)
+        state.sentHangs = sentToday
+        return true
     }
 
     /// The Sentry event for one log line; nil for a test line or a line
@@ -138,7 +190,7 @@ public final class OwnerPanicForwarder: Sendable {
         let method = scrubber.scrub(record["method"] as? String ?? scope)
         let busy = (record["busy_ms"] as? NSNumber)?.int64Value ?? 0
         let event = Event(level: .warning)
-        let exception = Exception(value: "\(scope) \(method) busy \(busy) ms", type: "RustHang")
+        let exception = Exception(value: "\(scope) \(method) busy \(busy) ms", type: hangType)
         let mechanism = Mechanism(type: "rust_hang")
         // The process lives on: a hang is reported, not a crash.
         mechanism.handled = true
@@ -166,11 +218,12 @@ public final class OwnerPanicForwarder: Sendable {
     }
 
     /// The process, release and platform tags every record carries (cmux-tui owner_panic.rs,
-    /// acpmux daemon/panic_log.rs), so Sentry groups by release and platform.
+    /// acpmux daemon/panic_log.rs, cmux-holder panic_log.rs), so Sentry groups by release and
+    /// platform; `role` tells an acpmux agent host from its daemon.
     private static func buildTags(_ record: [String: Any], source: RustPanicSource) -> [String: String] {
         var tags = ["process": source.process, "crash_source": source.crashSource]
         for (field, tag) in [("version", "tui_version"), ("build_identity", "tui_build"), ("os", "tui_os"),
-                             ("arch", "tui_arch")] {
+                             ("arch", "tui_arch"), ("role", "process_role")] {
             if let value = record[field] as? String { tags[tag] = value }
         }
         return tags

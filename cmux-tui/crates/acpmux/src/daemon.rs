@@ -19,7 +19,7 @@ pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod notify;
-mod panic_log;
+pub(crate) mod panic_log;
 pub use panic_log::{hang_log_path, panic_log_path};
 #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
 mod poll_watch_lab;

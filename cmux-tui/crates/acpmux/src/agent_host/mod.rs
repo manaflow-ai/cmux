@@ -189,6 +189,11 @@ pub struct SpawnSpec {
     /// a write end for its whole life (`daemon::router_owner_fifo`).
     #[serde(default)]
     pub router_owner_fifo: Option<PathBuf>,
+    /// The daemon's `ACPMUX_HOME`: the host appends its panics and hangs to the daemon's
+    /// `panics.jsonl` and `hangs.jsonl` there (`daemon::panic_log`), which the app sends to
+    /// Sentry. `None`: no panic log.
+    #[serde(default)]
+    pub state_home: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

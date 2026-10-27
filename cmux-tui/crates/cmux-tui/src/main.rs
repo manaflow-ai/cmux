@@ -1768,6 +1768,7 @@ fn run_main() {
     // daemon signal handler.
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__holder") {
+        cmux_holder::panic_log::install_from_env();
         set_default_task_role();
         if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");

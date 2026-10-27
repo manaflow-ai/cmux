@@ -26,5 +26,7 @@ cmux-threads.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
-# The spawn-race test only: the holder binary stays std and libc.
+# Test-only; the holder binary stays std and libc (tests/host_spans.rs).
 cmux-process.workspace = true
+# The panic-log test parses the holder's line (tests/panic_log.rs).
+serde_json.workspace = true

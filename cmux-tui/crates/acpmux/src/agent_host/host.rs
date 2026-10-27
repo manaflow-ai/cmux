@@ -32,6 +32,11 @@ async fn run() -> Result<()> {
     let mut stdout = tokio::io::stdout();
     let spec: SpawnSpec =
         read_frame(&mut stdin).await?.ok_or_else(|| anyhow!("no spawn spec on stdin"))?;
+    // A host outlives daemon restarts: its panics go to the daemon's panic log, which reaches
+    // Sentry (p10-stability-150), before the harness starts.
+    if let Some(home) = spec.state_home.as_deref() {
+        crate::daemon::panic_log::install_agent_host(home);
+    }
     // The host owns its daemon's local router while it lives: a kept agent
     // keeps its router through a daemon restart. The path comes from the
     // daemon, whose home may be a tagged build's override.

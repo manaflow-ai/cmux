@@ -76,6 +76,9 @@ const HOLDER_FRAME_WATCH: FrameWatch = FrameWatch {
 /// The holder of one terminal host root (one daemon session).
 pub(crate) struct HolderService {
     socket: PathBuf,
+    /// The holder's panic log (`diagnostics::holder_panic_log_path`), named
+    /// in the environment of each holder this daemon starts.
+    panic_log: PathBuf,
     token: [u8; 32],
     link: Mutex<LinkSlot>,
     /// Serializes connecting, launching and re-adopting. Its holder may
@@ -130,6 +133,7 @@ impl HolderService {
         }
         let service = Arc::new(Self {
             socket: socket_path(host_root)?,
+            panic_log: crate::diagnostics::holder_panic_log_path(host_root),
             token: load_or_create_token(host_root)?,
             link: Mutex::default(),
             connecting: Mutex::new(()),
@@ -549,6 +553,12 @@ impl HolderService {
                     .envs(crate::terminal_host_runtime::spawned_orphan_grace().map(|grace| {
                         (cmux_holder::ORPHAN_GRACE_ENV, grace.as_millis().to_string())
                     }))
+                    // Its panics reach Sentry through the app (p10-stability-150).
+                    .env(cmux_holder::panic_log::PANIC_LOG_ENV, &self.panic_log)
+                    .env(
+                        cmux_holder::panic_log::PANIC_LOG_VERSION_ENV,
+                        crate::release::DISTRIBUTION_VERSION,
+                    )
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::null());

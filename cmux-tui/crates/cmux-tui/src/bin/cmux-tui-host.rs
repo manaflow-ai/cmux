@@ -48,6 +48,7 @@ fn main() -> std::process::ExitCode {
     // The holder of every PTY (cmux-holder) runs from this small binary too.
     #[cfg(unix)]
     if args.first().map(String::as_str) == Some("__holder") {
+        cmux_holder::panic_log::install_from_env();
         return match cmux_holder::serve(&args[1..]) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(error) => {

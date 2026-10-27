@@ -4,12 +4,13 @@ import Foundation
 /// (p10-stability-150). A panic message often names the file it failed on, and a backtrace
 /// names the build machine's checkout; neither may leave the person's Mac.
 ///
-/// An absolute path (`/…` or `~/…`) becomes `<path>`. A Rust source file keeps its crate
-/// relative part (`acpmux/src/hub/mod.rs:941:5`, `<cargo>/tokio-1.53.1/src/lib.rs:10`) so
-/// frames and panic sites stay readable, and the compiler's remapped `/rustc/<hash>/…` std paths
-/// are kept as they are. A URL becomes `<url>`. Like Crashpad, which uploads module names and
-/// never their paths (third_party/crashpad/crashpad/snapshot/module_snapshot.h), the stack's
-/// image is reduced to its file name.
+/// An absolute path (`/…` or `~/…`) becomes `<path>`. A Rust source file under a known build root
+/// keeps its crate relative part (a cmux workspace crate `acpmux/src/hub/mod.rs:941:5`, a cargo
+/// registry or git checkout `<cargo>/tokio-1.53.1/src/lib.rs:10`) so frames and panic sites stay
+/// readable, and the compiler's remapped `/rustc/<hash>/…` std paths are kept as they are. Any other
+/// Rust source becomes `<path>/<file>.rs:line`. A URL becomes `<url>`. Like Crashpad, which uploads
+/// module names and never their paths (third_party/crashpad/crashpad/snapshot/module_snapshot.h),
+/// the stack's image is reduced to its file name.
 struct RustLogScrubber: Sendable {
     /// Characters a path or URL never continues through.
     private static let terminators: Set<Character> = [
@@ -95,7 +96,7 @@ struct RustLogScrubber: Sendable {
         let trailing = String(raw.dropFirst(path.count))
         // A lone slash is a word (`a / b`); remapped std paths hold no user data.
         if path.count < 2 || path.hasPrefix("/rustc/") { return raw }
-        var components = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        let components = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         guard let last = components.last, isRustSource(last) else { return "<path>" + trailing }
         // `.cargo/registry/src/<index>/<crate-version>/…` keeps the crate on,
         // `.cargo/git/checkouts/<repo>/<rev>/…` the repository on.
@@ -106,9 +107,13 @@ struct RustLogScrubber: Sendable {
                 return "<cargo>/" + components[keep...].joined(separator: "/") + trailing
             }
         }
-        if let source = components.lastIndex(of: "src"), source > 0 {
-            components.removeFirst(source - 1)
-            return components.joined(separator: "/") + trailing
+        // A cmux workspace crate, `…/cmux-tui/crates/<crate>/src/…`, keeps the crate on. Any other
+        // folder may be an account or a private project name, so only the file name stays.
+        if let crates = components.indices.last(where: { index in
+            index > 0 && index + 2 < components.count && components[index] == "crates"
+                && components[index - 1] == "cmux-tui" && components[index + 2] == "src"
+        }) {
+            return components[(crates + 1)...].joined(separator: "/") + trailing
         }
         return "<path>/" + last + trailing
     }

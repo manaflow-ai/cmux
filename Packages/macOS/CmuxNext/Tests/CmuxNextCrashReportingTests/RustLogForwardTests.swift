@@ -110,6 +110,61 @@ import CmuxNextCompat
         #expect(on.forwardNew().isEmpty)
     }
 
+    /// The Rust writers create their logs at the first record: on a fresh home that first record
+    /// is the one Sentry must get.
+    @Test func aLogCreatedAfterTheFirstRunIsReadFromItsFirstLine() throws {
+        let dir = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let log = RustPanicSource.acpmuxLog(acpmuxHome: dir)
+        let forwarder = OwnerPanicForwarder(log: log, stateFile: dir.appending(path: "state.json"), sends: true,
+                                            source: .acpmux, capture: { _ in })
+        #expect(forwarder.forwardNew().isEmpty)
+        #expect(forwarder.forwardNew().isEmpty)
+        try Data().write(to: log)
+        try Self.append(["process": "acpmux", "role": "agent-host", "message": "first", "location": "a.rs:1:1",
+                         "thread": "w"], to: log)
+
+        let sent = forwarder.forwardNew()
+        try #require(sent.count == 1)
+        #expect(sent[0].exceptions?.first?.value == "first")
+        #expect(sent[0].tags?["process_role"] == "agent-host")
+        #expect(forwarder.forwardNew().isEmpty)
+    }
+
+    @Test func identicalHangsAreOneEventADayUnderADailyCap() throws {
+        let dir = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let log = OwnerPanicForwarder.hangLog(stateRoot: dir, session: "main")
+        try Data().write(to: log)
+        let clock = TestClock(Date(timeIntervalSince1970: 1_800_000_000))
+        let forwarder = OwnerPanicForwarder(log: log, stateFile: dir.appending(path: "state.json"), sends: true,
+                                            source: .ownerHangs, capture: { _ in }, now: { clock.now() })
+        _ = forwarder.forwardNew()
+        let hang: [String: Any] = ["event": "hang", "scope": "holder-loop", "method": "poll", "busy_ms": 140]
+        for _ in 0..<50 { try Self.append(hang, to: log) }
+        #expect(forwarder.forwardNew().count == 1)
+        try Self.append(hang, to: log)
+        #expect(forwarder.forwardNew().isEmpty, "the same hang again that day")
+
+        for index in 0..<(OwnerPanicForwarder.maxHangEventsPerDay + 5) {
+            try Self.append(["event": "hang", "scope": "mux-conn", "method": "m\(index)", "busy_ms": 600], to: log)
+        }
+        #expect(forwarder.forwardNew().count == OwnerPanicForwarder.maxHangEventsPerDay - 1)
+
+        clock.advance(by: 86_400)
+        try Self.append(hang, to: log)
+        try Self.append(hang, to: log)
+        #expect(forwarder.forwardNew().count == 1, "a new day sends it once more")
+    }
+
+    @Test func theHolderLogIsInTheSessionsTerminalHostRoot() {
+        let sessions = URL(filePath: "/state/sessions", directoryHint: .isDirectory)
+        // cmux-tui-core diagnostics::holder_panic_log_path pins the same name for session "main".
+        #expect(RustPanicSource.holderLog(sessionsDirectory: sessions, session: "main").path
+            == "/state/sessions/terminal-hosts-1f5962a2ce9803c8/holder-panics.jsonl")
+        #expect(RustPanicSource.holder.fingerprintPrefix == "holder-panic")
+    }
+
     @Test func theScrubberKeepsCrateRelativeSourcesAndDropsEverythingElse() {
         let scrubber = RustLogScrubber()
         #expect(scrubber.scrub("crates/acpmux/src/hub/mod.rs:941:5") == "crates/acpmux/src/hub/mod.rs:941:5")
@@ -121,6 +176,12 @@ import CmuxNextCompat
         #expect(scrubber.scrub("at /home/maya/.cargo/git/checkouts/ghostty-1a2b/9f8e7d6/src/lib.rs:3")
             == "at <cargo>/ghostty-1a2b/9f8e7d6/src/lib.rs:3")
         #expect(scrubber.scrub("at /opt/build/main.rs:7") == "at <path>/main.rs:7")
+        // A folder before `src` outside a known build root may be the account or a private project.
+        #expect(scrubber.scrub("at /Users/maya/src/x.rs:1") == "at <path>/x.rs:1")
+        #expect(scrubber.scrub("at /Users/maya/Clients/acme/src/main.rs:1") == "at <path>/main.rs:1")
+        #expect(scrubber.scrub("at /Users/maya/crates/acme/src/main.rs:1") == "at <path>/main.rs:1")
+        #expect(scrubber.scrub("at /Users/runner/work/cmux/cmux-tui/crates/cmux-holder/src/lib.rs:9:3")
+            == "at cmux-holder/src/lib.rs:9:3")
         #expect(scrubber.scrub("GET https://api.example.com/v1/x?token=abc failed")
             == "GET <url> failed")
         #expect(scrubber.scrub("index 3 out of range for slice of length 2")
@@ -162,5 +223,22 @@ private final class RecordedRing: Sendable {
 
     func take() -> FFIPanicRecord? {
         records.withLock { $0.isEmpty ? nil : $0.removeFirst() }
+    }
+}
+
+/// A clock a test moves by hand.
+private final class TestClock: Sendable {
+    private let date: Mutex<Date>
+
+    init(_ date: Date) {
+        self.date = Mutex(date)
+    }
+
+    func now() -> Date {
+        date.withLock { $0 }
+    }
+
+    func advance(by interval: TimeInterval) {
+        date.withLock { $0 += interval }
     }
 }

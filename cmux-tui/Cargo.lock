@@ -1222,6 +1222,7 @@ dependencies = [
  "cmux-threads",
  "cmux-trace",
  "libc",
+ "serde_json",
 ]
 
 [[package]]

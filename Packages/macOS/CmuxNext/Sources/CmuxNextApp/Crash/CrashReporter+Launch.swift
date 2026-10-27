@@ -48,7 +48,8 @@ struct AppCrashReporting: Sendable {
     /// Nil outside the app process. With reports off it only marks reports done.
     let forwarder: SystemCrashForwarder?
     /// The Rust logs sent to Sentry, empty outside the app process: the cmux-tui owner's panic
-    /// log (cx-urd.59) and hang log, and with an acpmux, its daemon's panic and hang logs
+    /// log (cx-urd.59) and hang log, its terminal holder's panic log, and with an acpmux, the panic
+    /// log of its daemon and agent hosts and the daemon's hang log
     /// (`$ACPMUX_HOME/panics.jsonl`, `hangs.jsonl`; p10-stability-150).
     let rustLogs: [OwnerPanicForwarder]
 
@@ -81,12 +82,16 @@ struct AppCrashReporting: Sendable {
         forwarder.start()
         self.forwarder = forwarder
         let stateDirectory = AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
-        let stateRoot = Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory)
+        let sessions = Self.ownerSessionsDirectory(stateDirectory: environment.daemonStateDirectory)
+        let stateRoot = sessions.deletingLastPathComponent()
         let session = environment.daemonSession
         var logs: [(log: URL, stateFile: String, source: RustPanicSource)] = [
             (OwnerPanicForwarder.log(stateRoot: stateRoot, session: session), "owner-panic-forwarder.json", .owner),
             (OwnerPanicForwarder.hangLog(stateRoot: stateRoot, session: session), "owner-hang-forwarder.json",
              .ownerHangs),
+            // A holder panic can end every terminal it keeps; it unwinds, so no system crash report has it.
+            (RustPanicSource.holderLog(sessionsDirectory: sessions, session: session), "holder-panic-forwarder.json",
+             .holder),
         ]
         // A panic in a daemon request task ends only that task: before this log, the
         // 2026-10-14 sort panic reached only daemon.log.
@@ -146,12 +151,11 @@ struct AppCrashReporting: Sendable {
                                          environment: ProcessInfo.processInfo.environment)?.home
     }
 
-    /// The owner's state root: the parent of its sessions directory, which
-    /// is the build's `CMUX_TUI_STATE_DIR` (DaemonLauncher.appNames) or cmux-tui's default.
-    static func ownerStateRoot(stateDirectory: URL?) -> URL {
-        let sessions = stateDirectory
+    /// The owner's sessions directory: the build's `CMUX_TUI_STATE_DIR` (DaemonLauncher.appNames)
+    /// or cmux-tui's default. Its parent is the state root of the owner's panic and hang logs.
+    static func ownerSessionsDirectory(stateDirectory: URL?) -> URL {
+        stateDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appending(path: "Library/Application Support/cmux-tui/sessions", directoryHint: .isDirectory)
-        return sessions.deletingLastPathComponent()
     }
 }

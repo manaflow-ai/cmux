@@ -46,6 +46,10 @@ public struct RustPanicSource: Sendable, Equatable {
     /// The acpmux daemon's hang log (`$ACPMUX_HOME/hangs.jsonl`).
     public static let acpmuxHangs = RustPanicSource(process: "acpmux", fingerprintPrefix: "acpmux-hang",
                                                     crashSource: "acpmux_hang_log", label: "acpmux daemon hang")
+    /// The session's terminal holder (`holder-panics.jsonl` in its terminal host root), the one
+    /// process that keeps every terminal's PTY.
+    public static let holder = RustPanicSource(process: "cmux-holder", fingerprintPrefix: "holder-panic",
+                                               crashSource: "holder_panic_log", label: "cmux-holder panic")
     /// A panic an in-app Rust export caught in its FFI boundary (cmux-ffi-guard's panic ring).
     public static let ffiBoundary = RustPanicSource(process: "cmux", fingerprintPrefix: "ffi-panic",
                                                     crashSource: "ffi_panic_ring", label: "in-app Rust FFI panic")
@@ -55,6 +59,23 @@ public struct RustPanicSource: Sendable, Equatable {
     /// - Returns: `<acpmuxHome>/panics.jsonl`.
     public static func acpmuxLog(acpmuxHome: URL) -> URL {
         acpmuxHome.appending(path: "panics.jsonl")
+    }
+
+    /// The panic log of the terminal holder of `session`: `holder-panics.jsonl` in the session's
+    /// terminal host root, `<sessions>/terminal-hosts-<FNV-1a 64 of the session, 16 hex digits>`
+    /// (cmux-tui-core `terminal_host_root` and `diagnostics::holder_panic_log_path`).
+    /// - Parameters:
+    ///   - sessionsDirectory: The owner's sessions directory (`CMUX_TUI_STATE_DIR` or its default).
+    ///   - session: The daemon session.
+    /// - Returns: The holder's panic log.
+    public static func holderLog(sessionsDirectory: URL, session: String) -> URL {
+        let hash = session.utf8.reduce(UInt64(0xcbf2_9ce4_8422_2325)) { hash, byte in
+            (hash ^ UInt64(byte)) &* 0x100_0000_01b3
+        }
+        let hex = String(hash, radix: 16)
+        let token = String(repeating: "0", count: max(0, 16 - hex.count)) + hex
+        return sessionsDirectory.appending(path: "terminal-hosts-\(token)", directoryHint: .isDirectory)
+            .appending(path: "holder-panics.jsonl")
     }
 
     /// The acpmux daemon's hang log, beside its panic log.

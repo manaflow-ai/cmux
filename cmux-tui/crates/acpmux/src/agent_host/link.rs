@@ -62,6 +62,11 @@ pub async fn spawn_within(
     if let Some(ms) = std::env::var_os(super::host::POOLED_OWNER_WAIT_ENV) {
         cmd.env(super::host::POOLED_OWNER_WAIT_ENV, ms);
     }
+    // The panic-log test trigger (`daemon::panic_log`, tests/agent_host_panic_log.rs).
+    #[cfg(debug_assertions)]
+    if let Some(trigger) = std::env::var_os(crate::daemon::panic_log::TEST_PANIC_ENV) {
+        cmd.env(crate::daemon::panic_log::TEST_PANIC_ENV, trigger);
+    }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.
     unsafe {

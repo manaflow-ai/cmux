@@ -13,6 +13,7 @@
 pub mod client;
 pub mod holder;
 pub mod link;
+pub mod panic_log;
 pub mod pty;
 pub mod ring;
 pub mod wire;
