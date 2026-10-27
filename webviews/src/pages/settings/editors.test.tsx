@@ -233,6 +233,24 @@ describe("editors", () => {
     expect(row().querySelector("[data-reset]")).toBeNull();
   });
 
+  test("unset browser.hibernation shows Never Discard; a timeout shows Reset; Never Discard removes the key", async () => {
+    const key = "browser.hibernation";
+    page = await renderPage({ path: "/settings/browser" });
+    const row = () => rowElement(page!.container, key);
+    const select = () => row().querySelector<HTMLSelectElement>("select")!;
+    expect(select().value).toBe("");
+    expect(select().selectedOptions[0]?.textContent).toBe("Never Discard (Freeze Hidden Tabs)");
+    expect(row().querySelector("[data-reset]")).toBeNull();
+    await changeValue(select(), "moderate");
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key, value: "moderate" }]);
+    expect(select().selectedOptions[0]?.textContent).toBe("After 30 Minutes");
+    expect(row().querySelector("[data-reset]")).not.toBeNull();
+    await changeValue(select(), "");
+    expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key }]);
+    expect(select().value).toBe("");
+    expect(row().querySelector("[data-reset]")).toBeNull();
+  });
+
   test("every row reserves its Reset slot, so showing Reset moves no other control", async () => {
     page = await renderPage({ path: "/settings/privacy" });
     for (const element of page.container.querySelectorAll("[data-row-key]")) {
