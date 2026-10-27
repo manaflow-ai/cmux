@@ -179,6 +179,9 @@ impl Hub {
             None if session.meta().watching.is_some() => {
                 return Err(Err(super::watch::read_only()));
             }
+            // A lane's report to a parent whose close has begun: refused, never reopening it
+            // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
+            None if refuses_closing(&p) && closing(session) => return Err(Err(closing_error())),
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
                 // Another agent's message never overtakes the ones a failed turn held: they run
@@ -227,6 +230,10 @@ impl Hub {
                     session.turn_lock.lock().await
                 };
                 session.queued.fetch_sub(1, Ordering::SeqCst);
+                // Its close may have begun while it waited for the turn.
+                if refuses_closing(&p) && closing(session) {
+                    return Err(Err(closing_error()));
+                }
                 // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
                 if session.moving().is_some() {
                     return Err(Err(moving_error()));
@@ -303,6 +310,8 @@ impl Hub {
                 }
             }
         };
+        // A lane's report queued behind a turn its parent's close then ended is refused before
+        // its turn starts (`turns.rs`), so it never reopens the parent.
         let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
         Ok((turn_id, true, guard, run))
     }
@@ -726,16 +735,6 @@ impl Hub {
         removed.withdraw.notify_one();
     }
 
-    /// At load: puts back every prompt the log shows queued but never dequeued, started or
-    /// removed, in queue order, after any dequeued whose turn never started (`lost_start.rs`).
-    /// They run once `resume_queues` starts them; a client that resends one meanwhile waits for
-    /// that run (the ledger entry made here).
-    pub(super) fn restore_queues(&self) {
-        // Sessions restore apart (each reads only its own log), so they run on every core.
-        let sessions = self.sessions();
-        self.on_every_core(&sessions, |session| self.restore_queue(session));
-    }
-
     /// The record kinds `restore_queue` reads; the store parses no other line.
     const QUEUE_KINDS: &[&str] = &[
         // Restore the branch baseline in this same pass, never by rereading at attach.
@@ -763,7 +762,11 @@ impl Hub {
         "agent_pair_resumed",
     ];
 
-    /// One session's queue, from its log (also a chat moved here, `transfer_in.rs`).
+    /// One session's queue, from its log (at load, `log_load.rs`, and for a chat moved here,
+    /// `transfer_in.rs`): puts back every prompt the log shows queued but never dequeued, started
+    /// or removed, in queue order, after any dequeued whose turn never started (`lost_start.rs`).
+    /// They run once `resume_restored` starts them; a client that resends one meanwhile waits for
+    /// that run (the ledger entry made here).
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
         if session.meta().status == SessionStatus::Closed {
             return;
@@ -920,7 +923,12 @@ impl Hub {
         for e in waiting {
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
             let (prompt_id, turn_id, text) = (field("promptId"), field("turnId"), field("text"));
-            if prompt_id.is_empty() || turn_id.is_empty() {
+            // Restored already: a second pass (a chat settled after adoption, `log_load.rs`)
+            // adds only what the first did not see.
+            if prompt_id.is_empty()
+                || turn_id.is_empty()
+                || queue.iter().any(|q| q.prompt_id == prompt_id)
+            {
                 continue;
             }
             // A record from before the prompt was logged has its text only.
@@ -970,14 +978,27 @@ impl Hub {
         tracing::info!(session = %session.id, queued = queue.len(), "restored queued prompts");
     }
 
-    /// Runs the prompts `restore_queues` put back, each in its place in the queue (after any
-    /// turn recovered from an agent host). Called once at daemon start, after adoption.
+    /// Runs the prompts `restore_queue` put back, each in its place in the queue (after any
+    /// turn recovered from an agent host). Called at daemon start, after adoption, and after an
+    /// import. A chat whose log is read later resumes its own (`log_load.rs`).
     pub fn resume_queues(self: &Arc<Self>) {
+        self.queues_resumed.store(true, Ordering::SeqCst);
         // And what a resumed agent pair still held when the daemon stopped (`agent_pairs.rs`).
         self.resume_agent_pair_drains();
         for session in self.sessions() {
+            // Under its load lock: a log read now resumes its own queue (`log_load.rs`).
+            let loaded = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
+            if *loaded {
+                self.resume_restored(std::slice::from_ref(&session));
+            }
+        }
+    }
+
+    /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark).
+    pub(super) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
+        for session in sessions {
             // Agent messages a failed turn held before the restart go in again by themselves.
-            self.retry_held_agent_messages(&session);
+            self.retry_held_agent_messages(session);
             let restored: Vec<QueuedPrompt> = session
                 .queue
                 .lock()
@@ -1024,4 +1045,30 @@ impl Hub {
             }
         }
     }
+}
+
+/// Whether the prompt is one a closing session refuses: a lane's report.
+fn refuses_closing(p: &Slot<'_>) -> bool {
+    is_lane_report(p.provenance)
+}
+
+fn is_lane_report(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|v| v.get("kind")).and_then(Value::as_str)
+        == Some(super::lane_reports::KIND)
+}
+
+/// Whether a dequeued prompt with `provenance` is a lane's report to `session`, closing now.
+pub(super) fn refuses_closing_run(session: &Session, provenance: Option<&Value>) -> bool {
+    is_lane_report(provenance) && closing(session)
+}
+
+/// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
+fn closing(session: &Session) -> bool {
+    session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
+}
+
+/// The refusal of a lane's report to a session whose close has begun.
+pub(super) fn closing_error() -> RpcError {
+    RpcError::invalid_params("the session is closing or closed: it takes no prompt")
+        .with_data(json!({"reason": "session.closing", "closing": true}))
 }

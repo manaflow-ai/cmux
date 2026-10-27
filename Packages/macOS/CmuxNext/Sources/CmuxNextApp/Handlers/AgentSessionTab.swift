@@ -51,17 +51,31 @@ enum AgentSessionTab {
             throw ActionFailure(message: refusal.message)
         }
         let logger = daemon.logger
-        context.registry.track(Task { @MainActor in
+        let workspace = services.machines.allWorkspaces.first { candidate, _ in
+            candidate.screens.contains { $0.panes.contains { $0 === pane } }
+        }?.0
+        // The run answers the new tab's ids (`cmux agents chat new`, #23026), as New Agent Chat's
+        // script runs do, so the caller can find the chat it put there.
+        context.registry.track(result: Task { @MainActor in
             do {
                 let created = try await pending.value()
                 if shows { _ = services.revealTab(created.key) }
                 logger.info("agent.openSessionTab: session \(session, privacy: .public) in tab \(created.key, privacy: .public)")
-                return nil
+                var result: [String: ActionResultValue] = [
+                    "session": .string(session),
+                    "tab": .string(daemon.store.tab(id: created.key)?.resourceID?.rawValue ?? created.key),
+                    "pane": .string(pane.resourceID?.rawValue ?? pane.id),
+                ]
+                if let workspace {
+                    result["workspace"] = .string(workspace.resourceID?.rawValue ?? workspace.id)
+                    if let key = workspace.key { result["workspace_key"] = .string(key.rawValue) }
+                }
+                return .success(result)
             } catch is CancellationError {
-                return nil // the person closed the tab first
+                return .success(["session": .string(session)]) // the person closed the tab first
             } catch {
                 logger.error("agent.openSessionTab failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("agent.openSessionTab", error)
+                return .failure(ActionWorkFailure("agent.openSessionTab", error))
             }
         })
     }

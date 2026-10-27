@@ -1,5 +1,6 @@
 import { parseCreateNetworkPolicy } from "../../../services/vms/networkPolicyRoute";
 import { parseCreateAgentUpdates } from "../../../services/vms/agentUpdatesRoute";
+import { parseCreateIdlePause } from "../../../services/vms/idlePauseRoute";
 import {
   creatorFor,
   creatorUserIds,
@@ -464,6 +465,7 @@ export async function POST(request: Request): Promise<Response> {
         modelPlane,
         networkPolicy: machineOptions.networkPolicy,
         agentUpdates: machineOptions.agentUpdates,
+        idlePauseMinutes: machineOptions.idlePauseMinutes,
         teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.
@@ -506,6 +508,7 @@ export async function POST(request: Request): Promise<Response> {
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
         agentUpdates: created.agentUpdates,
+        idlePauseMinutes: created.idlePauseMinutes,
         // Keep the create response self-contained for clients that append it
         // directly to their fleet model. Pool accounting and the per-machine
         // resize shape are separate contracts even when they currently match.
@@ -516,13 +519,18 @@ export async function POST(request: Request): Promise<Response> {
   );
 }
 
-/** The create body's outbound network policy and agent-update setting. */
+/**
+ * The create body's outbound network policy, agent-update setting and idle pause
+ * (`cmux cloud new-machine --persistent` sends "off"; stored with the row, before any provider call).
+ */
 function parseCreateMachineOptions(candidate: Record<string, unknown>) {
   const networkPolicy = parseCreateNetworkPolicy(candidate.networkPolicy);
   if (!networkPolicy.ok) return networkPolicy;
   const agentUpdates = parseCreateAgentUpdates(candidate.agentUpdates);
   if (!agentUpdates.ok) return agentUpdates;
-  return { ok: true as const, networkPolicy: networkPolicy.policy, agentUpdates: agentUpdates.setting };
+  const idlePause = parseCreateIdlePause(candidate);
+  if (!idlePause.ok) return idlePause;
+  return { ok: true as const, networkPolicy: networkPolicy.policy, agentUpdates: agentUpdates.setting, idlePauseMinutes: idlePause.minutes };
 }
 
 /**

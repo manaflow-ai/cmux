@@ -45,6 +45,10 @@ public enum TabStripIntent: Equatable, Sendable {
     /// The speaker of a tab playing sound (or muted) was clicked: mute the
     /// tab, or unmute it (Chrome's tab alert button). The App runs Mute Tab.
     case toggleAudioMute(TabID)
+    /// A plain double-click on a tab of a strip that does not rename on double-click: zoom the
+    /// tab's pane to fill the workspace, or restore the layout (cmux classic; the App runs Toggle
+    /// Pane Zoom, Cmd-Shift-Return's action).
+    case toggleZoom(TabID)
     case moveToNewSplit(TabID, TabSplitDirection)
     case moveToNewColumn(TabID)
     /// A tab was dragged out of the strip. The App's drag session takes over

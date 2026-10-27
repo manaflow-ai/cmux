@@ -20,6 +20,9 @@ public nonisolated enum ColumnStripGeometry {
 
     /// Content-space frames for columns laid out left to right with a gap
     /// before, between, and after them. Returns frames and total content width.
+    /// Columns that fit the viewport end exactly at its trailing edge: each
+    /// width is rounded to a pixel on its own, so a rounded-up column is cut
+    /// back to the room left, and no strip scrolls by a rounding error.
     /// `minimumWidths` (per column, optional) widen a column whose split tree
     /// needs more room than its fraction gives, up to the viewport minus its
     /// gaps, so side-by-side panes never collapse.
@@ -36,13 +39,17 @@ public nonisolated enum ColumnStripGeometry {
         let widest = max(1, viewport.width - gap * 2)
         for (index, fraction) in widths.enumerated() {
             var width = SplitGeometry.roundToPixel(pixelWidth(fraction: fraction, viewportWidth: viewport.width, gap: gap), scale: scale)
+            let room = viewport.width - gap - x
+            if width > room { width = max(1, room) }
             if index < minimumWidths.count, width < minimumWidths[index] {
                 width = max(width, SplitGeometry.ceilToPixel(min(minimumWidths[index], widest), scale: scale))
             }
             frames.append(CGRect(x: x, y: 0, width: width, height: viewport.height))
             x += width + gap
         }
-        return (frames, frames.isEmpty ? viewport.width : x)
+        // Float sums land within a hair of the viewport; that hair is not scrollable content.
+        let contentWidth = frames.isEmpty ? viewport.width : (x - viewport.width < 0.001 ? min(x, viewport.width) : x)
+        return (frames, contentWidth)
     }
 
     public static func maxOffset(contentWidth: CGFloat, viewportWidth: CGFloat) -> CGFloat {

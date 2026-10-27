@@ -281,6 +281,7 @@
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* Every control on a playing video takes the pointing hand too (WebKit's own controls). */
 .cv-media__frame.is-playing video,
@@ -376,6 +377,7 @@
   color: var(--cv-text-muted);
   font: inherit;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 button.cv-thumb {
   appearance: none;
@@ -438,6 +440,7 @@ button.cv-thumb:focus-visible {
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-li__images {
   display: block;

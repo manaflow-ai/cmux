@@ -155,6 +155,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
+        // The daemon update's one failure toast: Details opens Settings > Updates, which lists the machines.
+        DaemonUpdateBoard.shared.openDetails = { [weak services] in
+            try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/updates")
+        }
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
@@ -203,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         DebugTimings.markLaunch("dfl.first_window_hooks")
         services.home.start()
+        services.harnessIcons.start()
         mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start()
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
@@ -319,10 +324,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         // macOS posts no notification when an MDM profile changes; activation
-        // is the event-driven backstop next to the managed-file watchers.
-        Task { [weak settings] in
+        // is the event-driven backstop next to the managed-file watchers. A full-screen window an
+        // update relaunch kept back enters once the user is in cmux (`enterRestoredFullScreens`).
+        Task { [weak settings, weak services] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 settings?.managedPreferencesMayHaveChanged()
+                services?.windows.enterRestoredFullScreens()
             }
         }
         services.configActions.start(settings: settings)
@@ -458,7 +465,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, continue userActivity: NSUserActivity,
                      restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
-        services?.externalOpen.continueActivity(type: userActivity.activityType, webpageURL: userActivity.webpageURL) ?? false
+        services?.input.endRelaunchBehind("handoff")
+        return services?.externalOpen.continueActivity(type: userActivity.activityType, webpageURL: userActivity.webpageURL) ?? false
     }
 
     /// One route for every URL macOS hands cmux (`OpenedURLRouting`): the
@@ -466,6 +474,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// then `ExternalOpenRouter`.
     private func routeOpenedURL(_ url: URL) {
         guard let services else { return }
+        // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
+        services.input.endRelaunchBehind("external open")
         let auth = services.cloud.auth
         let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
         guard destination == .auth else { return }
@@ -474,6 +484,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        // The release push's socket closes and nothing reconnects (ReleasePushListener).
+        services?.updater.stopReleasePush()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
         ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()
@@ -506,6 +518,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Dock click with no window open: the last closed window comes back
     /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        // A Dock click in an update relaunch's startup: the user chose cmux.
+        services?.input.endRelaunchBehind("dock click", activating: true)
         guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
         services.windows.reopenOrCreateWindow()
         return false

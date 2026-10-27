@@ -8,6 +8,8 @@ import { runStream, type StreamOptions } from "./streamDebug";
 import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
 import { incomingRows } from "./incomingFixture";
+import { SHARED_PRESENCE, sharedRows } from "./multiplayer/sharedFixture";
+import { shownPresence } from "./multiplayer/LivePresence";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
@@ -24,7 +26,8 @@ export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 export type AcpmuxDebug = {
   /// Replaces the transcript with `count` synthetic rows, with the worked turn of
   /// workedTurn.ts when `fixture` is "worked-turn", or with received agent messages
-  /// (incomingFixture.ts) when it is "incoming".
+  /// (incomingFixture.ts) when it is "incoming", or with a shared chat (teammates' prompts, who
+  /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared".
   seedRows(count?: number, fixture?: string): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -104,6 +107,8 @@ export function createAcpmuxDebug(
   wire: AcpWireLog = acpWire,
 ): AcpmuxDebug {
   let timestamps: number[] = [];
+  /// The live presence the shared fixture replaced (`null`: the fixture is not shown).
+  let beforeShared: ReturnType<typeof shownPresence.get> | null = null;
   let nominal = 1000 / 60;
   let running = false;
   let generation = 0;
@@ -132,10 +137,31 @@ export function createAcpmuxDebug(
           ? workedTurnRows(Date.now() - 60_000)
           : fixture === "incoming"
             ? incomingRows(Date.now() - 120_000)
-            : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+            : fixture === "shared"
+              ? sharedRows(Date.now() - 720_000)
+              : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);
+      if (fixture === "shared") {
+        // The presence to restore on leaving: kept across uninterrupted repeat seeds of this chat,
+        // taken again once live presence or a switch displaced the fixture. The fixture's own
+        // faces over another chat are never a baseline.
+        const now = shownPresence.get();
+        const sessionId = host.sessionId?.();
+        const showing = now?.presence === SHARED_PRESENCE;
+        if (beforeShared === null || !showing || now?.sessionId !== sessionId) {
+          beforeShared = showing ? undefined : now;
+        }
+        shownPresence.set(sessionId, SHARED_PRESENCE);
+      } else if (beforeShared !== null) {
+        // Leaving the shared fixture: its made-up faces go, and the live presence from before
+        // comes back unless the chat's own acpmux has set a newer one since.
+        if (shownPresence.get()?.presence === SHARED_PRESENCE) {
+          shownPresence.set(beforeShared?.sessionId, beforeShared?.presence);
+        }
+        beforeShared = null;
+      }
       const at = await committed;
       return { rows: rows.length, commit_ms: at === undefined ? null : round2(at - start) };
     },
