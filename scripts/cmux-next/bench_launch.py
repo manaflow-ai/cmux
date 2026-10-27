@@ -73,6 +73,15 @@ ran first. Exit 0 when it holds:
 
     python3 scripts/cmux-next/bench_launch.py order --app "/path/cmux DEV <tag>.app" [--runs 5] [--json out.json]
 
+The relaunch after kill -9 (p01-process-152): split the first workspace into --terminals terminals, quit keeping the
+sessions (the quit saves their frames) and relaunch; then --runs times change every screen, SIGKILL the app (the daemon
+keeps running), relaunch and read the launch marks. Exit 0 when every relaunch reattached to the running daemon and
+showed every terminal screen (`launch.visible_panes_shown`) within --budget-ms (300) of its first window frame, and
+with --feature on (relaunchReattach) drew no earlier quit's frame:
+
+    python3 scripts/cmux-next/bench_launch.py after-kill --app "/path/cmux DEV <tag>.app" [--runs 3] [--feature on|off]
+    python3 scripts/cmux-next/bench_launch.py --after-kill --app ...   # the same
+
 Resource limits: an app opened from Finder or the Dock gets launchd's limits (`launchctl limit`; on the fleet
 minis the soft open-file limit is 256), but an app a script starts inherits the script's, and fleet job shells
 raise theirs (the cmux-ci worker to 65536 for every job, the hosts' ~/.zshenv to 65536 for nx-remote jobs). A
@@ -1781,6 +1790,153 @@ def socket_probe(opts, make_app=None):
     return 0 if result["ok"] else 1
 
 
+# The relaunch after `kill -9` of the app (p01-process-152, done check 20 of plans/cmux-next/chrome-parity/p01-process.md):
+# the daemon kept every terminal, so each terminal's screen shows within AFTER_KILL_BUDGET_MS of the first window
+# frame. The marks are the app's launch marks (debug.timings): VisiblePaneRefs' `launch.visible_panes_shown` (every
+# pane on screen shows its content), DaemonService's `daemon_reattached` (the launch found the daemon running) and
+# `daemon.spawned` (it started one), RelaunchReattach's `relaunch.saved_frames_skipped`, and TerminalLaunchFrames'
+# `terminal.launch_frame_shown` (an earlier quit's frame drew over a terminal).
+AFTER_KILL_BUDGET_MS = 300
+AFTER_KILL_FIRST_FRAME = "first_window_frame_committed"
+AFTER_KILL_SHOWN = "launch.visible_panes_shown"
+AFTER_KILL_FEATURE = "relaunchReattach"
+AFTER_KILL_FEATURES = {"on": {AFTER_KILL_FEATURE: True}, "off": {AFTER_KILL_FEATURE: False}, "default": None}
+AFTER_KILL_WORKSPACE = re.compile(r"(workspace:\d+)")
+AFTER_KILL_TERMINAL = re.compile(r"surface (surface:\d+) \[terminal\]")
+
+
+def after_kill_row(marks):
+    """One relaunch's row from its launch marks (`launch_ms_since_process_start`, ms since process start)."""
+    first, shown = marks.get(AFTER_KILL_FIRST_FRAME), marks.get(AFTER_KILL_SHOWN)
+    return {"first_frame_ms": first, "panes_shown_ms": shown,
+            "screens_after_first_frame_ms": None if first is None or shown is None else round(shown - first, 1),
+            "reattached": "daemon_reattached" in marks, "daemon_started": "daemon.spawned" in marks,
+            "saved_frames_skipped": "relaunch.saved_frames_skipped" in marks,
+            "saved_frame_shown": "terminal.launch_frame_shown" in marks}
+
+
+def after_kill_summary(runs, budget_ms=AFTER_KILL_BUDGET_MS, feature="on"):
+    """The verdict over relaunches: every run measured its screens, reattached to the running daemon, and showed every
+    terminal's screen within `budget_ms` of its first frame; with the feature on, no run drew an earlier quit's frame."""
+    measured = [run["screens_after_first_frame_ms"] for run in runs if run.get("screens_after_first_frame_ms") is not None]
+    reattached = sum(1 for run in runs if run.get("reattached"))
+    stale = sum(1 for run in runs if run.get("saved_frame_shown"))
+    worst = max(measured) if measured else None
+    ok = (bool(runs) and len(measured) == len(runs) and reattached == len(runs) and worst <= budget_ms
+          and (feature != "on" or stale == 0))
+    return {"runs": len(runs), "measured": len(measured), "reattached_runs": reattached, "stale_frame_runs": stale,
+            "screens_after_first_frame_p50_ms": round(statistics.median(measured), 1) if measured else None,
+            "screens_after_first_frame_max_ms": worst, "budget_ms": budget_ms, "feature": feature, "ok": ok}
+
+
+def after_kill_terminals(cli):
+    """The first workspace and its terminal surfaces (`cli(*args)` runs the app's CLI and returns its stdout)."""
+    workspaces = AFTER_KILL_WORKSPACE.findall(cli("list-workspaces"))
+    if not workspaces:
+        return None, []
+    return workspaces[0], AFTER_KILL_TERMINAL.findall(cli("tree", "--workspace", workspaces[0]))
+
+
+def after_kill_setup(cli, terminals, poll=time.sleep, seconds=20, clock=time.monotonic):
+    """Splits the first workspace into `terminals` terminals; returns their surfaces, or a string saying why not."""
+    deadline = clock() + seconds
+    workspace, found = after_kill_terminals(cli)
+    while not found and clock() < deadline:
+        poll(0.25)  # the launch makes its first terminal after its window
+        workspace, found = after_kill_terminals(cli)
+    if not found:
+        return "the launch shows no terminal in its first workspace"
+    while len(found) < terminals and clock() < deadline:
+        cli("new-split", "right" if len(found) % 2 else "down", "--workspace", workspace, "--surface", found[-1],
+            "--focus", "false")
+        poll(0.25)
+        workspace, found = after_kill_terminals(cli)
+    return found if len(found) >= terminals else f"{len(found)} of {terminals} terminals after {seconds:g} s"
+
+
+def after_kill_type(cli, surfaces, round_index):
+    """Changes every terminal's screen: what the next relaunch must show is newer than any saved frame."""
+    for index, surface in enumerate(surfaces):
+        cli("send", "--surface", surface, f"clear; echo after-kill round {round_index} terminal {index}\n")
+
+
+def after_kill_marks(app, seconds, poll=time.sleep, clock=time.monotonic):
+    """The relaunch's launch marks once `launch.visible_panes_shown` is among them, else what it has at `seconds`."""
+    deadline = clock() + seconds
+    while True:
+        timings = app.rpc("debug.timings")
+        marks = (timings.get("launch_ms_since_process_start") if isinstance(timings, dict) else None) or {}
+        if AFTER_KILL_SHOWN in marks or clock() >= deadline:
+            return marks
+        poll(0.1)
+
+
+def after_kill(opts, make_app=None, run_cli=None, poll=time.sleep):
+    """`after-kill`: launches the app, splits its first workspace into `opts.terminals` terminals, quits keeping the
+    sessions (the quit saves their frames), launches again; then `opts.runs` times changes every screen, SIGKILLs the
+    app (the daemon keeps running), relaunches on the kept state and reads the marks (``after_kill_row``). Prints one
+    BENCH-LAUNCH line with ``after_kill_summary`` and the runs; exit 0 when it holds. `make_app` builds the BenchApp
+    and `run_cli(app, *args)` runs its CLI (tests pass stubs)."""
+    app = (make_app or BenchApp)(opts.app, out=opts.out, local_features=AFTER_KILL_FEATURES[opts.feature])
+
+    def cli(*args):
+        if run_cli:
+            return run_cli(app, *args)
+        env = {**BASE_ENV, "CMUX_SOCKET_PATH": app.socket, "CMUX_QUIET": "1"}
+        done = subprocess.run([app.cli, "--socket", app.socket, *args], capture_output=True, text=True, timeout=30,
+                              env=env)
+        return done.stdout
+
+    def relaunch():
+        app.fresh_state = False  # the tag's saved state and its running daemon are kept
+        app.launch(timeout=opts.timeout)
+        if app.teardown:
+            app.teardown.remember()
+
+    runs, problem = [], None
+    try:
+        app.launch(timeout=opts.timeout)
+        surfaces = after_kill_setup(cli, opts.terminals, poll=poll)
+        if isinstance(surfaces, str):
+            problem = surfaces
+        else:
+            after_kill_type(cli, surfaces, 0)
+            poll(opts.settle)
+            ended = app.quit_keep_sessions()
+            if not ended["quit"]:
+                problem = f"quit keeping the sessions: {ended['error']}"
+        if problem is None:
+            relaunch()
+            for index in range(opts.runs):
+                after_kill_type(cli, surfaces, index + 1)
+                poll(opts.settle)
+                app.process.send_signal(signal.SIGKILL)  # the app this BenchApp started; never the daemon
+                app.process.wait(20)
+                run = {"run": index + 1}
+                try:
+                    relaunch()
+                    run.update(after_kill_row(after_kill_marks(app, opts.mark_timeout, poll=poll)))
+                except LaunchError as error:
+                    run["reason"] = error.reason
+                note(f"bench-launch: after-kill run {index + 1}: {json.dumps(run)}")
+                runs.append(run)
+                if "reason" in run:
+                    break
+    except LaunchError as error:
+        problem = error.reason
+    finally:
+        app.stop()
+    result = {**after_kill_summary(runs, opts.budget_ms, opts.feature), "per_run": runs}
+    if problem:
+        result.update(ok=False, reason=problem)
+    line = json.dumps(result)
+    print("BENCH-LAUNCH " + line, flush=True)
+    if opts.json:
+        with open(opts.json, "w") as f:
+            f.write(line + "\n")
+    return 0 if result["ok"] else 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Launch-and-socket check of a tagged cmux DEV app.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1811,11 +1967,30 @@ def main(argv=None):
                        help="seconds after the reveal before the trace is written (default 3)")
     order.add_argument("--trace-seconds", type=float, default=30, help="the startup trace's length (default 30)")
     order.add_argument("--json", help="also write the result here")
+    kill = sub.add_parser("after-kill", help="kill -9 of the app, then relaunch: every terminal screen within --budget-ms "
+                                             "of the first frame (p01-process-152)")
+    kill.add_argument("--app", required=True)
+    kill.add_argument("--out")
+    kill.add_argument("--runs", type=int, default=3)
+    kill.add_argument("--terminals", type=int, default=4, help="terminals in the first workspace (default 4)")
+    kill.add_argument("--feature", choices=sorted(AFTER_KILL_FEATURES), default="on",
+                      help=f"the {AFTER_KILL_FEATURE} feature's local choice (default on)")
+    kill.add_argument("--timeout", type=float, default=180)
+    kill.add_argument("--settle", type=float, default=1.5, help="seconds after typing before a quit or kill")
+    kill.add_argument("--mark-timeout", type=float, default=20,
+                      help=f"seconds a relaunch may take to mark {AFTER_KILL_SHOWN}")
+    kill.add_argument("--budget-ms", type=float, default=AFTER_KILL_BUDGET_MS)
+    kill.add_argument("--json", help="also write the result here")
     sub.add_parser("session", help="only report whether this account has a GUI session")
     sub.add_parser("limits", help="launchd's soft limits (a Finder launch's) and this process's, one JSON line")
     finder = sub.add_parser("finder-exec", help="run COMMAND with launchd's soft limits, as a Finder launch gets")
     finder.add_argument("cmd", nargs=argparse.REMAINDER, metavar="-- COMMAND")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["--after-kill"]:  # the spelling of the task's test phase
+        argv[0] = "after-kill"
     opts = parser.parse_args(argv)
+    if opts.command == "after-kill":
+        return after_kill(opts)
     if opts.command == "socket-probe":
         return socket_probe(opts)
     if opts.command == "order":

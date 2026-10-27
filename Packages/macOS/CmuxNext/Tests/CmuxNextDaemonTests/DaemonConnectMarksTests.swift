@@ -75,6 +75,30 @@ struct DaemonConnectMarksTests {
         #expect(received.names.isEmpty)
     }
 
+    /// p01-process-152: a launch after the app alone ended (`kill -9`) finds the daemon running and reattaches to it
+    /// (`DaemonService.launchAttach`); one whose attempt started a daemon did not.
+    @Test("startedDaemon says whether a startup attempt started the daemon")
+    func startedDaemonFollowsTheSpawn() async throws {
+        let running = try StandIn(ensureStatus: "running")
+        defer { running.remove() }
+        let warm = DaemonConnectMarks()
+        _ = try await warm.endpointProvider(of: running.launcher)()
+        #expect(!warm.startedDaemon, "the launch found the daemon running")
+        let started = try StandIn(ensureStatus: "started")
+        defer { started.remove() }
+        let cold = DaemonConnectMarks()
+        _ = try await cold.endpointProvider(of: started.launcher)()
+        #expect(cold.startedDaemon)
+    }
+
+    @Test("A spawn after the startup connect closed does not make it a started daemon")
+    func spawnAfterCloseIsNotStarted() {
+        let marks = DaemonConnectMarks()
+        marks.close()
+        marks.mark(.spawned)
+        #expect(!marks.startedDaemon)
+    }
+
     @Test("A warm launch's later respawn, through the same provider, marks no spawn once the startup attached")
     func respawnAfterAttachMarksNoSpawn() async throws {
         let standIn = try StandIn(ensureStatus: "running")

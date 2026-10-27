@@ -134,6 +134,9 @@ public final class DaemonService {
     /// errors). Becomes `.unavailable` after `startupDeadline` or on an
     /// incompatible daemon; retrying continues in the background.
     public private(set) var startup: DaemonStartupState = .connecting
+    /// Whether the launch connect attached a daemon that kept running while the app was gone (``DaemonLaunchAttach``);
+    /// `.reattached` also marks the launch `daemon_reattached`.
+    public private(set) var launchAttach: DaemonLaunchAttach = .pending
     @ObservationIgnored var startupDeadline: Duration = DaemonStartup.shared.defaultDeadline
     @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
     /// Times the wait for a reopened workspace to reach the mirror
@@ -280,6 +283,7 @@ public final class DaemonService {
                 return
             }
             await marks?.attach(connection)
+            if let marks { self.noteLaunchAttach(startedDaemon: marks.startedDaemon) }
             self.didConnect(connection, identity: identity)
             self.windowState = WindowStateStore(connection: connection)
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
@@ -388,6 +392,14 @@ public final class DaemonService {
         startup = .connected
         pushTerminalDefaultColors()
         relaunchKeptLayoutIfNeeded(connection)
+    }
+
+    /// The launch connect attached its connection: the daemon was running before this launch unless an attempt started
+    /// it (cold, or the handoff's successor). Once per service.
+    private func noteLaunchAttach(startedDaemon: Bool) {
+        guard launchAttach == .pending else { return }
+        launchAttach = startedDaemon ? .started : .reattached
+        if launchAttach == .reattached { Self.launchMark("daemon_reattached") }
     }
 
     /// Records a failed first-connect attempt. Shows as unavailable once the

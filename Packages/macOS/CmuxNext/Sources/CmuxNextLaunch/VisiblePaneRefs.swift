@@ -109,6 +109,8 @@ public final class VisiblePaneRefs {
 
     private let hold: @MainActor (StaticString) -> Release
     private let phase: StartupPhase?
+    /// Runs once, when the last pane ref ends because its pane loaded (``init(hold:phase:bound:shown:)``).
+    private var shown: (@MainActor () -> Void)?
     private let bound: DemandTimer
     private let changes = Changes()
     private var restore: Release?
@@ -130,21 +132,26 @@ public final class VisiblePaneRefs {
     ///   - hold: Takes one startup ref by name and returns its release.
     ///   - phase: The launch phase whose restore and visible-page references this marks (nil: none).
     ///   - bound: The visible-pane bound's timer; tests inject a manual clock.
+    ///   - shown: Runs once, just before the releases, when the restore ended and the last visible pane's ref ends
+    ///     because that pane loaded: every pane on screen shows its content (a terminal its screen). It never runs
+    ///     when the bound, the daemon or a launch with no pane on screen ended the refs (the app's launch mark
+    ///     `launch.visible_panes_shown`, which bench_launch.py `after-kill` reads).
     public init(hold: @escaping @MainActor (StaticString) -> Release, phase: StartupPhase? = nil,
-                bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound")) {
+                bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound"), shown: (@MainActor () -> Void)? = nil) {
         self.hold = hold
         self.phase = phase
         self.bound = bound
+        self.shown = shown
         restore = hold("WindowManager.restore")
     }
 
     /// Takes the restore ref of `startup`, and marks `phase`'s restore and visible-page references.
     public convenience init(startup: StartupScheduler, phase: StartupPhase?,
-                            bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound")) {
+                            bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound"), shown: (@MainActor () -> Void)? = nil) {
         self.init(hold: { [startup] name in
             let ref = startup.hold(name)
             return { ref.release($0) }
-        }, phase: phase, bound: bound)
+        }, phase: phase, bound: bound, shown: shown)
     }
 
     /// True while the restore ref or a pane ref is held.
@@ -215,6 +222,7 @@ public final class VisiblePaneRefs {
         let released = [restore].compactMap { $0 } + pending.map(\.release)
         restore = nil
         pending = []
+        shown = nil
         end(released, .daemonUnavailable)
     }
 
@@ -243,6 +251,11 @@ public final class VisiblePaneRefs {
             return true
         }
         markPhaseIfDone()
+        // The last ref ended with its pane loaded (a pane leaving in the same read loaded nothing).
+        if restore == nil, pending.isEmpty, !loaded.isEmpty, let shown {
+            self.shown = nil
+            shown()
+        }
         for release in left { release(.noVisiblePane) }
         for release in loaded { release(.visiblePaneLoadedIdle) }
         finishIfDone()
@@ -252,6 +265,7 @@ public final class VisiblePaneRefs {
     private func releasePanes(_ reason: StartupInProgressRef.Reason) {
         let released = pending.map(\.release)
         pending = []
+        shown = nil
         end(released, reason)
     }
 
