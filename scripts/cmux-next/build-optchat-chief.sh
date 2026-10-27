@@ -107,6 +107,9 @@ deliver() {
     cp -f "$cache_bin" "$output"
     cp -f "$cache_bin.ref" "$output.ref" 2>/dev/null || true
     chmod 755 "$output"
+    # Its dSYM goes along (nightly.yml uploads <output>.dSYM to Sentry).
+    rm -rf "$output.dSYM"
+    if [[ -d "$cache_bin.dSYM" ]]; then cp -RL "$cache_bin.dSYM" "$output.dSYM"; fi
     found="$output"
   fi
   if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$found"; else echo "optchat-chief $verb at $found"; fi
@@ -160,12 +163,17 @@ for target in "${targets[@]}"; do
   fi
   # An app build never ships the inspector's placeholder page: build.rs fails
   # when the page was not built (build-web-bundles.sh runs before this).
+  # Line tables go to a packed .dSYM beside the slice, cached beside the binary.
   (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 CARGO_TARGET_DIR="$target_dir" \
+    CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed \
     cargo "+$toolchain" build --locked --release --bin optchat-chief --target "$target")
   slice="$target_dir/$target/release/optchat-chief"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }
   slices+=("$slice")
 done
+dsyms=()
+for slice in "${slices[@]}"; do dsyms+=("$slice.dSYM"); done
+"$repo_root/scripts/cmux-next/lipo-dsym.sh" "$cache_bin.dSYM" "${dsyms[@]}"
 staged="$cache_bin.tmp.$$"
 if [[ ${#slices[@]} -eq 1 ]]; then cp "${slices[0]}" "$staged"; else lipo -create "${slices[@]}" -output "$staged"; fi
 chmod 755 "$staged"

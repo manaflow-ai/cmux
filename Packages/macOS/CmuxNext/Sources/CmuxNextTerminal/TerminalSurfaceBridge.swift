@@ -11,8 +11,9 @@ import GhosttyNextKit
 /// still be inside `io_write_cb` and waits for a running `presented_cb`.
 ///
 /// Checked Sendable: Ghostty's IO and Core Animation threads read only the
-/// immutable `input`, `linkFilter`, `frames`, `frameMarks` and `cursor`;
-/// everything mutable is main-actor isolated.
+/// immutable `input`, `linkFilter`, `frames`, `frameMarks` and `cursor`, and an input lock
+/// wait report only the immutable `lockWait`; everything mutable is main-actor
+/// isolated.
 nonisolated final class SurfaceBridge: Sendable {
     let input: TerminalInputSink
     /// What the surface's callbacks reach: its view in the app, a test's recorder. Main-actor only.
@@ -39,6 +40,9 @@ nonisolated final class SurfaceBridge: Sendable {
     /// Where Ghostty's present puts the surface's cursor cell (``ghosttySurfaceCursor(_:_:)``); nil: Ghostty draws
     /// the cursor.
     let cursor: TerminalCursorPresenter?
+    /// Where the surface's input waits for Ghostty's terminal lock go (``GhosttyLockWaitSignpost``): one handle
+    /// for the surface's life, so a report builds nothing.
+    let lockWait = GhosttyLockWaitSignpost()
 
     init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil,
          cursor: TerminalCursorPresenter? = nil) {
@@ -67,11 +71,13 @@ nonisolated final class SurfaceBridge: Sendable {
     }
 
     /// The surface's ``GhosttyActionMailbox``: its state actions apply once per frame of its target's
-    /// window, to the target that shows it then.
+    /// window, to the target that shows it then; while nobody sees the target's tab they wait for it to show.
     @MainActor var actionMailbox: GhosttyActionMailbox {
         if let mailbox { return mailbox }
         let made = GhosttyActionMailbox(owner: "terminal.actions", scheduler: { [weak self] in
             self?.target?.actionFrameScheduler ?? .app
+        }, node: { [weak self] in
+            self?.target?.actionNode
         }, apply: { [weak self] action in
             _ = self?.target?.applyAction(action)
         })

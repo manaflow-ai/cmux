@@ -103,7 +103,7 @@ trap 'rm -rf "$OUT_DIR"' EXIT
 echo "==> building the Chromium host into $FINAL_DIR" >&2
 # build-cef-shim.sh's `common`, unchanged (tests/chromium-host-flags.test.sh).
 common=(
-  -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -O2
+  -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -O2 -gline-tables-only
   -std=c++20 -fno-exceptions -fno-rtti -fno-strict-aliasing -fstack-protector -funwind-tables
   -fvisibility=hidden -fvisibility-inlines-hidden -fobjc-call-cxx-cdtors
   -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS
@@ -131,12 +131,18 @@ done
   "$SHIM_OUT/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework QuartzCore -lobjc
 # The remote shim links neither CEF nor the wrapper, so it takes the flags of
 # tests/remote-shim-abi.test.sh, not the wrapper's `common`.
-"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -O2 \
+"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -O2 -gline-tables-only \
   -std=c++20 -fno-exceptions -fvisibility=hidden -fvisibility-inlines-hidden -Wall -Wextra -Werror \
   -I"$(dirname "$SHIM_HEADER")" -I"$SHIM_SRC" -I"$HOST_DIR/src" -I"$HOST_DIR/client" \
   -dynamiclib -install_name @rpath/libcmux_cef_shim_remote.dylib \
   -o "$OUT_DIR/libcmux_cef_shim_remote.dylib" \
   "$HOST_DIR"/client/*.mm "$HOST_DIR/src/chromium_host_control.cc" -lobjc
+# A dSYM beside each binary, as build-cef-shim.sh writes. clang already wrote
+# the remote shim's: it compiled and linked in one step, from temporary objects.
+for binary in cmux-chromium-host libcmux_cef_shim_remote.dylib; do
+  [[ -d "$OUT_DIR/$binary.dSYM" ]] || xcrun dsymutil "$OUT_DIR/$binary" -o "$OUT_DIR/$binary.dSYM" >&2 ||
+    { echo "warning: no dSYM for $binary" >&2; rm -rf "$OUT_DIR/$binary.dSYM"; }
+done
 rm -rf "$OUT_DIR/obj"
 printf '%s' "$key" > "$OUT_DIR/.build-key"
 if ! /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$OUT_DIR" "$FINAL_DIR" 2>/dev/null; then

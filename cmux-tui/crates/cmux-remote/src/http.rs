@@ -113,9 +113,9 @@ pub fn load_or_create_workspace_http_token(
     let parent = path.parent().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "HTTP token path has no parent")
     })?;
-    fs::create_dir_all(parent)?;
+    cmux_blocking::fs::create_dir_all(parent)?;
     #[cfg(unix)]
-    fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+    cmux_threads::checked::fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
 
     loop {
         match read_workspace_http_token(path) {
@@ -134,11 +134,11 @@ pub fn load_or_create_workspace_http_token(
         options.write(true).create_new(true);
         #[cfg(unix)]
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-        match options.open(path) {
+        match cmux_threads::checked::fs::open_with(&options, path) {
             Ok(mut file) => {
                 file.write_all(encoded.as_bytes())?;
                 file.write_all(b"\n")?;
-                file.sync_all()?;
+                cmux_threads::checked::fs::sync_all(&file)?;
                 return WorkspaceHttpBearerToken::new(encoded);
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -152,7 +152,7 @@ fn read_workspace_http_token(path: &Path) -> Result<WorkspaceHttpBearerToken, io
     options.read(true);
     #[cfg(unix)]
     options.custom_flags(libc::O_NOFOLLOW);
-    let mut file = options.open(path)?;
+    let mut file = cmux_threads::checked::fs::open_with(&options, path)?;
     let metadata = file.metadata()?;
     validate_workspace_http_token_metadata(&metadata)?;
     read_workspace_http_token_contents(&mut file)
@@ -295,7 +295,12 @@ async fn serve_workspace_http_with_limits(
             ),
         ));
     }
-    let token = load_or_create_workspace_http_token(&token_file)?;
+    let token = {
+        let token_file = token_file.clone();
+        cmux_blocking::spawn_blocking(move || load_or_create_workspace_http_token(&token_file))
+            .await
+            .map_err(io::Error::from)??
+    };
     let listener = TcpListener::bind(address).await?;
     let local_addr = listener.local_addr()?;
     let router = workspace_http_router(workspace, token);
