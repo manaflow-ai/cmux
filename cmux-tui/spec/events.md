@@ -116,7 +116,14 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 
 The server writes each response or event as one complete transport message. JSON lines and WebSocket text frames are not interleaved at the byte level.
 
-Requests on one connection are executed in the order they arrive, with two exceptions that may answer after later requests. `clear-history` waits for its surface's output stream. Commands that create a terminal (`new-tab`, `new-pane`, `new-pane-right`, `split`, `new-screen`, `new-workspace`, `create-terminal`) run on the owner's bounded terminal worker pool, which launches the hosts of several `new-tab` requests in parallel. Creates of one connection still commit and reply in request order, so the tabs of a pane land in the order they were requested, but a later non-creating request can be answered first. Match every response by its `id`. A client that needs a created terminal's topology waits for that create's response.
+Requests on one connection are executed in the order they arrive, with the four exceptions below. Requests that name the same surface always run in arrival order, and no request runs before an earlier request that names no surface. Match every response by its `id`.
+
+- `clear-history` waits for its surface's output stream and may answer after later requests of other surfaces.
+- Commands that create a terminal (`new-tab`, `new-pane`, `new-pane-right`, `split`, `new-screen`, `new-workspace`, `create-terminal`) run on the owner's bounded terminal worker pool, which launches the hosts of several `new-tab` requests in parallel. Creates of one connection still commit and reply in request order, so the tabs of a pane land in the order they were requested, but a later non-creating request can be answered first. A client that needs a created terminal's topology waits for that create's response.
+- Input commands (`send`, `send-key`, `paste-image`, `scroll-surface`, `browser-mouse`, `browser-mouse-guarded`, `browser-wheel`, `browser-wheel-guarded`, `browser-key`, `browser-key-press`, `browser-insert-text`) that name a surface run before earlier queued requests of other surfaces. They never run before an earlier request of their own surface, before earlier input that can run, or before an earlier request that names no surface.
+- Long reads (`read-scrollback`, `copy` with `mode` `scrollback`, `vt-state`) run off the connection's dispatcher and may answer after later requests of other surfaces. Later requests of the same surface wait for the long read.
+
+A client that pipelines requests across surfaces (for example `read-screen` or `wait-for` on one surface, then `send` to another) must not assume that the responses come back in request order.
 
 For a single subscription, ordinary events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
 

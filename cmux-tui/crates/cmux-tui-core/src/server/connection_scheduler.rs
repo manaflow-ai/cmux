@@ -52,6 +52,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -172,6 +173,9 @@ pub(super) struct ConnectionSurfaceScheduler {
     /// The connection's client class, set by its registry record; the
     /// dispatcher and clear workers rest at it (connection_qos.rs).
     pub(super) class: Arc<ConnectionClassCell>,
+    /// Request threads this scheduler started: its dispatcher and its
+    /// clear-history workers. A long read starts none (`start_long_read`).
+    pub(super) threads_started: AtomicU64,
 }
 
 impl Default for ConnectionSurfaceScheduler {
@@ -206,6 +210,7 @@ impl ConnectionSurfaceScheduler {
             connection_permit: Mutex::new(connection_permit),
             creations: terminal_create::ConnectionCreations::default(),
             class: Arc::default(),
+            threads_started: AtomicU64::new(0),
         }
     }
 
@@ -338,11 +343,21 @@ impl ConnectionSurfaceScheduler {
         writer: MessageWriter,
     ) -> std::io::Result<()> {
         let scheduler = self.clone();
-        let handle = spawn_request_thread("mux-control-dispatch", move || {
+        let handle = self.spawn_thread("mux-control-dispatch", move || {
             run_connection_surface_dispatcher(scheduler, mux, client, writer);
         })?;
         *self.dispatcher.lock().recover_poison() = Some(handle);
         Ok(())
+    }
+
+    /// Starts one of this scheduler's request threads (`spawn_request_thread`).
+    fn spawn_thread<F, T>(&self, name: &str, f: F) -> std::io::Result<JoinHandle<T>>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        self.threads_started.fetch_add(1, Ordering::Relaxed);
+        spawn_request_thread(name, f)
     }
 
     /// The queued request the dispatcher runs next, if one may run now.
@@ -680,7 +695,7 @@ fn run_connection_surface_dispatcher(
             let worker_scheduler = scheduler.clone();
             let worker_mux = mux.clone();
             let worker_writer = writer.clone();
-            let spawn = spawn_request_thread("mux-surface-control", move || {
+            let spawn = scheduler.spawn_thread("mux-surface-control", move || {
                 let _active = ActiveClearGuard { scheduler: worker_scheduler.clone(), surface };
                 // Drop the mux-wide permit before `_active` wakes the next
                 // request queued behind this surface barrier.

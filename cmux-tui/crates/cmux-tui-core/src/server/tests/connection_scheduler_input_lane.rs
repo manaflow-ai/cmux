@@ -4,9 +4,11 @@
 //! instead of the dispatcher or a thread of its own.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 use cmux_threads::work::Lane;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
+use std::time::Instant;
 
 fn request(line: Value) -> Request {
     serde_json::from_value(line).expect("test request parses")
@@ -108,9 +110,11 @@ fn a_barrier_overtaker_does_not_pass_a_request_that_could_run() {
 
 #[test]
 fn long_reads_run_on_the_work_lane() {
-    for line in
-        [read_scrollback(1, 1), json!({"id": 1, "cmd": "copy", "surface": 1, "mode": "scrollback"})]
-    {
+    for line in [
+        read_scrollback(1, 1),
+        json!({"id": 1, "cmd": "copy", "surface": 1, "mode": "scrollback"}),
+        json!({"id": 1, "cmd": "vt-state", "surface": 1}),
+    ] {
         assert!(request(line).cmd.is_long_read());
     }
     for line in [read_screen(1, 1), json!({"id": 1, "cmd": "copy", "surface": 1, "mode": "screen"})]
@@ -135,8 +139,19 @@ fn hold_terminal(surface: &Arc<crate::Surface>) -> (mpsc::Sender<()>, JoinHandle
     (release_tx, handle)
 }
 
-#[test]
-fn another_surfaces_send_answers_before_a_long_read_in_flight() {
+/// Waits until the dispatcher has taken every queued request.
+fn until_dispatcher_took_all(scheduler: &ConnectionSurfaceScheduler) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !scheduler.state.lock().recover_poison().requests.is_empty() {
+        assert!(Instant::now() < deadline, "the dispatcher never took the long read");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// Surface A's long read `read` is in flight (taken by the dispatcher while
+/// A's terminal lock is held) when a Send for A and a Send for B arrive: B's
+/// Send answers first, then the read, then A's Send.
+fn another_surfaces_send_answers_first(read: impl FnOnce(SurfaceId) -> Value) {
     let mux = test_mux();
     let a = mux.new_workspace(None, Some((80, 24))).unwrap();
     let b = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -149,19 +164,19 @@ fn another_surfaces_send_answers_before_a_long_read_in_flight() {
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     let (writer, outbound) = captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-
-    let (release, holder) = hold_terminal(&a);
-    for line in [
-        json!({"id": 1, "cmd": "read-scrollback", "surface": a.id, "start": 0, "count": 2_000}),
-        json!({"id": 2, "cmd": "send", "surface": a.id, "text": "same"}),
-        json!({"id": 3, "cmd": "send", "surface": b.id, "text": "other"}),
-    ] {
+    let dispatch = |line: Value| {
         let mut pending = Some(request(line));
         assert_eq!(
             scheduler.dispatch(mux.clone(), client, &mut pending, 0, writer.clone()),
             Some(true)
         );
-    }
+    };
+
+    let (release, holder) = hold_terminal(&a);
+    dispatch(read(a.id));
+    until_dispatcher_took_all(&scheduler);
+    dispatch(json!({"id": 2, "cmd": "send", "surface": a.id, "text": "same"}));
+    dispatch(json!({"id": 3, "cmd": "send", "surface": b.id, "text": "other"}));
     let first = pop_json(&outbound);
     let early = outbound.try_pop();
     drop(release);
@@ -175,37 +190,72 @@ fn another_surfaces_send_answers_before_a_long_read_in_flight() {
     assert_eq!(first["ok"], true);
     assert!(early.is_none(), "a reply came while the read held its surface: {early:?}");
     assert_eq!([rest[0]["id"].as_u64(), rest[1]["id"].as_u64()], [Some(1), Some(2)]);
-    assert_eq!(rest[0]["ok"], true, "{}", rest[0]);
+    assert!(rest[0].get("error").is_none(), "{}", rest[0]);
     assert!(drained);
 }
 
 #[test]
-fn long_reads_start_no_thread_per_request() {
-    const READS: u64 = 16;
+fn another_surfaces_send_answers_before_a_long_read_in_flight() {
+    another_surfaces_send_answers_first(
+        |surface| json!({"id": 1, "cmd": "read-scrollback", "surface": surface, "start": 0, "count": 2_000}),
+    );
+}
+
+#[test]
+fn another_surfaces_send_answers_before_a_vt_state_in_flight() {
+    another_surfaces_send_answers_first(
+        |surface| json!({"id": 1, "cmd": "vt-state", "surface": surface}),
+    );
+}
+
+#[test]
+fn long_reads_run_as_work_lane_items_without_request_threads() {
+    const SURFACES: u64 = 4;
+    const READS_PER_SURFACE: u64 = 4;
+    const READS: u64 = SURFACES * READS_PER_SURFACE;
     let mux = test_mux();
-    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let surfaces =
+        (0..SURFACES).map(|_| mux.new_workspace(None, Some((80, 24))).unwrap()).collect::<Vec<_>>();
     let scheduler =
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     let (writer, outbound) = captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    let started = |mux: &Mux| {
-        mux.work.stats().into_iter().find(|lane| lane.lane == Lane::Cpu).unwrap().workers_started
+    let posted = |mux: &Mux| {
+        mux.work.stats().into_iter().find(|lane| lane.lane == Lane::Cpu).unwrap().posted
     };
-    let before = started(&mux);
+    let before = posted(&mux);
 
+    // Reads of every surface interleave: one surface's reads keep their order,
+    // reads of different surfaces may run at once.
     for id in 0..READS {
-        let mut pending = Some(request(read_scrollback(id, surface.id)));
+        let surface = surfaces[(id % SURFACES) as usize].id;
+        let mut pending = Some(request(read_scrollback(id, surface)));
         assert_eq!(
             scheduler.dispatch(mux.clone(), client, &mut pending, 0, writer.clone()),
             Some(true)
         );
     }
-    let ids = (0..READS).map(|_| pop_json(&outbound)["id"].as_u64().unwrap()).collect::<Vec<_>>();
-    let workers = started(&mux) - before;
+    let replies = (0..READS).map(|_| pop_json(&outbound)).collect::<Vec<_>>();
+    let posted = posted(&mux) - before;
+    let threads = scheduler.threads_started.load(Ordering::Relaxed);
     let drained = scheduler.close_and_wait(Duration::from_secs(2));
-    mux.close_surface(surface.id).unwrap();
+    for surface in &surfaces {
+        mux.close_surface(surface.id).unwrap();
+    }
 
-    assert_eq!(ids, (0..READS).collect::<Vec<_>>(), "one surface's reads answered out of order");
-    assert!(workers < READS / 2, "{workers} work-lane workers started for {READS} reads");
+    for reply in &replies {
+        assert_eq!(reply["ok"], true, "{reply}");
+    }
+    for surface in 0..SURFACES {
+        let ids = replies
+            .iter()
+            .map(|reply| reply["id"].as_u64().unwrap())
+            .filter(|id| id % SURFACES == surface)
+            .collect::<Vec<_>>();
+        let expected = (0..READS_PER_SURFACE).map(|n| n * SURFACES + surface).collect::<Vec<_>>();
+        assert_eq!(ids, expected, "one surface's reads answered out of order");
+    }
+    assert_eq!(posted, READS, "{posted} Cpu-lane items for {READS} long reads");
+    assert_eq!(threads, 1, "{threads} request threads (only the dispatcher may start)");
     assert!(drained);
 }
