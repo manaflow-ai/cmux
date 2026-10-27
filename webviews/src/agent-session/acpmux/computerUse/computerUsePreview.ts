@@ -30,7 +30,26 @@ export type ComputerUsePreview = {
   frame: string;
   /// The app's icon, a `data:image/png` URL, sent with the done state when the host found one.
   icon?: string;
+  /// Where the agent clicked last in the frame (0...1 from the top left) and that click's id: the
+  /// card draws its cursor there and plays a click when the id changes. Running cards only.
+  pointer?: ComputerUsePreviewPointer;
 };
+
+export type ComputerUsePreviewPointer = { x: number; y: number; click: number };
+
+const isFraction = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+
+/// The pointer of a host push, or undefined (none, or a malformed one).
+function readPointer(value: unknown): ComputerUsePreviewPointer | undefined {
+  const raw = value as Partial<ComputerUsePreviewPointer> | null | undefined;
+  if (!raw || typeof raw !== "object" || !isFraction(raw.x) || !isFraction(raw.y)) return undefined;
+  if (typeof raw.click !== "number" || !Number.isFinite(raw.click)) return undefined;
+  return { x: raw.x, y: raw.y, click: raw.click };
+}
+
+const samePointer = (a?: ComputerUsePreviewPointer, b?: ComputerUsePreviewPointer) =>
+  a?.x === b?.x && a?.y === b?.y && a?.click === b?.click;
 
 let current: ComputerUsePreview | null = null;
 /// The session the person closed here: hidden at once, before the host's push that takes it away.
@@ -46,12 +65,15 @@ export function readComputerUsePreview(value: unknown): ComputerUsePreview | nul
   const raw = value as Partial<ComputerUsePreview> | null | undefined;
   if (!raw || typeof raw !== "object" || typeof raw.session !== "string" || !raw.session) return null;
   if (!isImage(raw.frame)) return null;
+  const done = raw.done === true;
+  const pointer = done ? undefined : readPointer(raw.pointer);
   return {
     session: raw.session,
     app: typeof raw.app === "string" ? raw.app : "",
-    done: raw.done === true,
+    done,
     frame: raw.frame,
     ...(isImage(raw.icon) ? { icon: raw.icon } : {}),
+    ...(pointer ? { pointer } : {}),
   };
 }
 
@@ -63,7 +85,8 @@ export function setComputerUsePreview(value: unknown): void {
     next?.frame === current?.frame &&
     next?.done === current?.done &&
     next?.app === current?.app &&
-    next?.icon === current?.icon
+    next?.icon === current?.icon &&
+    samePointer(next?.pointer, current?.pointer)
   )
     return;
   current = next;

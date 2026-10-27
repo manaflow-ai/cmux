@@ -190,6 +190,9 @@ public final class ComputerUseLivePreview {
         case .window(let session, let window):
             board.apply(window: window, session: session)
             followCapture()
+        case .pointer(let session, let pointer):
+            board.apply(pointer: pointer, session: session)
+            if let chat = board.entries[session]?.chat { push(chat) }
         }
     }
 

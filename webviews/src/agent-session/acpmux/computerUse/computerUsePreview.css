@@ -91,6 +91,43 @@
   opacity: 0.4;
 }
 
+/* The agent's cursor at its last click (the frame's fractions: the frame box is the image's box). The
+   cmux agent cursor's arrow (CmuxNextAgentCursor AgentCursorLayer.arrowPath): a mid gray with a white
+   rim and a dark hairline, so it reads over a light or a dark window; its tip is the point. Each new
+   click plays one ripple (keyed by the click). */
+.acpmux-cu-preview__pointer {
+  position: absolute;
+  left: calc(var(--cu-pointer-x) * 100%);
+  top: calc(var(--cu-pointer-y) * 100%);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.acpmux-cu-preview__arrow {
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  overflow: visible;
+  filter: drop-shadow(0 0 0.5px color-mix(in srgb, black 55%, transparent))
+    drop-shadow(0 1px 1.5px color-mix(in srgb, black 25%, transparent));
+}
+.acpmux-cu-preview__arrow > path {
+  fill: #8e8e93;
+  stroke: white;
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+}
+.acpmux-cu-preview__ripple {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  width: 14px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1.5px solid #8e8e93;
+  opacity: 0;
+}
+
 /* Done: the app's icon (40px) centered over the dimmed window, a 16px green check on the icon's lower
    right corner with a ring in the page's color (the Codex app's done preview). With no icon, the
    check alone, a little larger. */
@@ -193,6 +230,26 @@
     @starting-style {
       opacity: 0;
       transform: scale(0.4);
+    }
+  }
+  /* The cursor glides to each new point as the helper's own cursor does (cmux-cua --glide-ms 150),
+     and each click's ripple grows and fades. */
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__pointer {
+    transition:
+      left 150ms var(--agent-ease-out, ease-out),
+      top 150ms var(--agent-ease-out, ease-out);
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__ripple {
+    animation: acpmux-cu-preview-click 360ms var(--agent-ease-out, ease-out) 150ms both;
+  }
+  @keyframes acpmux-cu-preview-click {
+    from {
+      opacity: 0.9;
+      transform: scale(0.4);
+    }
+    to {
+      opacity: 0;
+      transform: scale(1.6);
     }
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__close {

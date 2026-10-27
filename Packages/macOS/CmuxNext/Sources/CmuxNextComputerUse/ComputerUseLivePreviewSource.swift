@@ -49,6 +49,23 @@ public nonisolated struct ComputerUsePreviewSession: Equatable, Sendable {
 /// The window a session acts on: its process and WindowServer id (the live capture streams it).
 public typealias ComputerUsePreviewWindow = AgentActivityTargetWindow
 
+/// Where a session's agent clicked last: a point in a window, as a fraction of it (0...1 from the
+/// top left), the same window the live capture streams. The card draws its cursor there.
+public nonisolated struct ComputerUsePreviewPointer: Equatable, Sendable {
+    public var window: ComputerUsePreviewWindow
+    public var x: Double
+    public var y: Double
+    /// The click's event in the session's log: a new one plays the click again.
+    public var click: UInt64
+
+    public init(window: ComputerUsePreviewWindow, x: Double, y: Double, click: UInt64) {
+        self.window = window
+        self.x = min(max(x, 0), 1)
+        self.y = min(max(y, 0), 1)
+        self.click = click
+    }
+}
+
 /// What a live preview source pushes.
 public nonisolated enum ComputerUseLivePreviewUpdate: Sendable {
     /// Every session the driver knows now (replaces the last list).
@@ -58,6 +75,8 @@ public nonisolated enum ComputerUseLivePreviewUpdate: Sendable {
     case newestFrame(session: String, frame: String, at: Date)
     /// The window `session` acted on or read last.
     case window(session: String, ComputerUsePreviewWindow)
+    /// Where `session`'s agent clicked last.
+    case pointer(session: String, ComputerUsePreviewPointer)
 }
 
 /// Where the live preview cards' data comes from: the sessions, each one's newest frame, and its
@@ -99,6 +118,7 @@ public final class ComputerUseActivityPreviewSource: ComputerUseLivePreviewSourc
                 sink(.sessions(sessions.map(Self.session)))
             case .events(let session, let events):
                 if let window = events.last(where: { $0.window != nil })?.window { sink(.window(session: session, window)) }
+                if let pointer = Self.pointer(events) { sink(.pointer(session: session, pointer)) }
                 if let frame = Self.newestFrame(events) { sink(.newestFrame(session: session, frame: frame.id, at: frame.at)) }
             case .connection:
                 break
@@ -121,6 +141,13 @@ public final class ComputerUseActivityPreviewSource: ComputerUseLivePreviewSourc
         guard let event = events.last(where: { $0.displayFrame.map { !$0.expired } ?? false }),
               let frame = event.displayFrame else { return nil }
         return (frame.blob, event.time)
+    }
+
+    /// The newest click of a batch of events: its point in the window it targeted.
+    nonisolated static func pointer(_ events: [AgentActivityEvent]) -> ComputerUsePreviewPointer? {
+        guard let event = events.last(where: { $0.clickPoint != nil && $0.window != nil }),
+              let point = event.clickPoint, let window = event.window else { return nil }
+        return ComputerUsePreviewPointer(window: window, x: point.x, y: point.y, click: event.seq)
     }
 
     nonisolated static func session(_ value: AgentActivitySession) -> ComputerUsePreviewSession {

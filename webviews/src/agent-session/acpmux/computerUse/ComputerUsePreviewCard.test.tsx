@@ -52,3 +52,16 @@ test("done with no icon shows the check alone", () => {
   const html = markup({ ...running, done: true });
   expect(html).toContain('<span class="acpmux-cu-preview__mark"><span class="acpmux-cu-preview__check">');
 });
+
+test("a running card draws the agent's cursor at its last click, as fractions of the frame", () => {
+  const html = markup({ ...running, pointer: { x: 0.25, y: 0.75, click: 4 } });
+  expect(html).toContain(
+    'class="acpmux-cu-preview__pointer" style="--cu-pointer-x:0.25;--cu-pointer-y:0.75" aria-hidden="true"',
+  );
+  expect(html).toContain("acpmux-cu-preview__ripple");
+  expect(html).toContain("acpmux-cu-preview__arrow");
+});
+
+test("a card with no click draws no cursor", () => {
+  expect(markup(running)).not.toContain("acpmux-cu-preview__pointer");
+});

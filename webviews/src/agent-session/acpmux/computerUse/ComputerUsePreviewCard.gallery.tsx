@@ -32,7 +32,14 @@ const icon = `data:image/svg+xml,${encodeURIComponent(
     `</svg>`,
 )}`;
 
-const running: ComputerUsePreview = { session: "cua_native_1", app: "Calculator", done: false, frame };
+/// The agent clicked the "=" key last: the card draws its cursor there.
+const running: ComputerUsePreview = {
+  session: "cua_native_1",
+  app: "Calculator",
+  done: false,
+  frame,
+  pointer: { x: 0.83, y: 0.9, click: 7 },
+};
 const done: ComputerUsePreview = { ...running, done: true, icon };
 
 type Props = { preview: ComputerUsePreview; chat?: boolean; inspector?: InspectorPlacement };

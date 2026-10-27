@@ -39,6 +39,28 @@ describe("computerUsePreview", () => {
     ).toEqual({ session: "cua_1", app: "Calculator", done: false, frame });
   });
 
+  test("a running card takes the agent's last click; a done or malformed one has none", () => {
+    const pointer = { x: 0.5, y: 0.25, click: 3 };
+    expect(readComputerUsePreview({ session: "cua_1", app: "", done: false, frame, pointer })?.pointer).toEqual(
+      pointer,
+    );
+    expect(readComputerUsePreview({ session: "cua_1", app: "", done: true, frame, pointer })?.pointer).toBeUndefined();
+    for (const bad of [{ x: 1.5, y: 0, click: 1 }, { x: 0, y: "0", click: 1 }, { x: 0, y: 0 }, null, "0,0"]) {
+      expect(
+        readComputerUsePreview({ session: "cua_1", app: "", done: false, frame, pointer: bad })?.pointer,
+      ).toBeUndefined();
+    }
+  });
+
+  test("a new click at the same frame is a change", () => {
+    setComputerUsePreview({ session: "cua_1", app: "", done: false, frame, pointer: { x: 0.5, y: 0.5, click: 1 } });
+    const first = currentComputerUsePreview();
+    setComputerUsePreview({ session: "cua_1", app: "", done: false, frame, pointer: { x: 0.5, y: 0.5, click: 2 } });
+    expect(currentComputerUsePreview()).not.toBe(first);
+    expect(currentComputerUsePreview()?.pointer?.click).toBe(2);
+    setComputerUsePreview(null);
+  });
+
   test("a null push or a malformed card hides it", () => {
     setComputerUsePreview({ session: "cua_1", app: "Calculator", done: false, frame });
     expect(currentComputerUsePreview()?.session).toBe("cua_1");

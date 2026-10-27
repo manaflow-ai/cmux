@@ -10,7 +10,10 @@
 // (cardMotion.ts); a new frame shows once it has decoded, so the stream never blanks.
 // With the Inspector open, the card sits directly under it (inspector/underInspector.ts) and keeps
 // its own room there.
-import { useState } from "react";
+// While it runs, the agent's cursor shows where it clicked last (the helper's window stream has no
+// cursor of its own): the cmux agent cursor's arrow, gliding to each new point, with a ripple on
+// each click.
+import { useState, type CSSProperties } from "react";
 import { useT } from "../i18n";
 import { Check, Close } from "../conversation/icons";
 import { useUnderInspectorRoom } from "../inspector/underInspector";
@@ -55,6 +58,18 @@ export function ComputerUsePreviewCard({
       >
         <span className="acpmux-cu-preview__frame">
           <img src={frame} alt="" draggable={false} />
+          {shown.pointer && (
+            <span
+              className="acpmux-cu-preview__pointer"
+              style={{ "--cu-pointer-x": shown.pointer.x, "--cu-pointer-y": shown.pointer.y } as CSSProperties}
+              aria-hidden="true"
+            >
+              <span key={shown.pointer.click} className="acpmux-cu-preview__ripple" />
+              <svg className="acpmux-cu-preview__arrow" viewBox="-1 -1 16.5 23" width="9" height="12.5">
+                <path d="M0 0 L14.5 15 L4.5 11.25 L0 21 Z" />
+              </svg>
+            </span>
+          )}
           {shown.done && (
             <span className="acpmux-cu-preview__badge" aria-hidden="true">
               <span className="acpmux-cu-preview__mark" data-icon={shown.icon ? "" : undefined}>

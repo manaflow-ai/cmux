@@ -192,6 +192,37 @@ struct ComputerUsePreviewBoardTests {
         #expect(card?.frame == "data:image/jpeg;base64,AA==")
     }
 
+    /// The card draws the agent's cursor at its last click: only while it runs, and only in the
+    /// window its frames show (a click in another window would land on the wrong spot).
+    @Test func aRunningCardCarriesTheLastClickInItsWindow() {
+        var board = Self.running()
+        let calculator = ComputerUsePreviewWindow(pid: 40846, windowID: 7)
+        board.apply(window: calculator, session: "s")
+        let click = ComputerUsePreviewPointer(window: calculator, x: 0.25, y: 0.75, click: 3)
+        board.apply(pointer: click, session: "s")
+        #expect(board.card(for: "a")?.pointer == click)
+        board.apply(window: ComputerUsePreviewWindow(pid: 40846, windowID: 8), session: "s")
+        #expect(board.card(for: "a")?.pointer == nil, "the click was in another window")
+        board.apply(window: calculator, session: "s")
+        board.apply(sessions: [Self.session("s", live: false)])
+        #expect(board.card(for: "a")?.done == true)
+        #expect(board.card(for: "a")?.pointer == nil, "a done card draws no cursor")
+    }
+
+    /// The source takes a batch's newest click that names its window, and keeps the point inside it.
+    @Test func theSourceTakesTheNewestClickWithItsWindow() {
+        let window = AgentActivityTargetWindow(pid: 1, windowID: 2)
+        func click(_ seq: UInt64, x: Double, window: AgentActivityTargetWindow?) -> AgentActivityEvent {
+            AgentActivityEvent(seq: seq, time: Self.at(Double(seq)), kind: .act, tool: "click",
+                               clickPoint: CGPoint(x: x, y: 0.5), window: window)
+        }
+        let events = [click(1, x: 0.1, window: window), click(2, x: 1.4, window: window), click(3, x: 0.3, window: nil),
+                      Self.event(4, frame: "b4")]
+        let pointer = ComputerUseActivityPreviewSource.pointer(events)
+        #expect(pointer == ComputerUsePreviewPointer(window: window, x: 1, y: 0.5, click: 2))
+        #expect(ComputerUseActivityPreviewSource.pointer([Self.event(1, frame: "b1")]) == nil)
+    }
+
     @Test func aCardTurnsDoneWhenItsChatsTurnEndsAndRunsAgainWithTheNextAct() {
         var board = Self.running()
         board.route(chats: [Self.chat("a", turnEnded: true), Self.chat("b")])

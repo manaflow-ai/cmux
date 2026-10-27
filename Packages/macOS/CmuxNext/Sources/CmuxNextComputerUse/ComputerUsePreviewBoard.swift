@@ -13,13 +13,18 @@ public nonisolated struct ComputerUsePreviewCard: Equatable, Sendable {
     public var frame: String
     /// The app's icon, a `data:image/png` URL: sent with the done state only, when known.
     public var icon: String?
+    /// Where the agent clicked last in the window the frame shows: the card draws its cursor there.
+    /// Running cards only.
+    public var pointer: ComputerUsePreviewPointer?
 
-    public init(session: String, app: String, done: Bool, frame: String, icon: String? = nil) {
+    public init(session: String, app: String, done: Bool, frame: String, icon: String? = nil,
+                pointer: ComputerUsePreviewPointer? = nil) {
         self.session = session
         self.app = app
         self.done = done
         self.frame = frame
         self.icon = icon
+        self.pointer = pointer
     }
 }
 
@@ -76,6 +81,8 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         var frame: Frame?
         /// The window the session acted on or read last (the live capture streams it).
         var window: ComputerUsePreviewWindow?
+        /// Where the session's agent clicked last.
+        var pointer: ComputerUsePreviewPointer?
         /// The person closed the card.
         var dismissed = false
         /// The card hid itself after it stayed done (``autoHide(chat:)``): a newer action shows it again.
@@ -146,6 +153,11 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
     /// `session` acted on or read `window` last.
     mutating func apply(window: ComputerUsePreviewWindow, session: String) {
         entries[session]?.window = window
+    }
+
+    /// `session`'s agent clicked at `pointer` last.
+    mutating func apply(pointer: ComputerUsePreviewPointer, session: String) {
+        entries[session]?.pointer = pointer
     }
 
     /// Gives each live session without a chat its chat; an id that names a chat moves a guessed one
@@ -250,8 +262,10 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         let app = session.appKey.flatMap { apps[$0] }
         let name = [session.app, app?.name, session.windowTitle].lazy.compactMap { $0?.trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty }
+        // The cursor only on a running card, and only in the window its frames show.
+        let pointer = done ? nil : entry.pointer.flatMap { $0.window == entry.window ? $0 : nil }
         return ComputerUsePreviewCard(session: session.id, app: name ?? "", done: done, frame: frame.url,
-                                      icon: done ? app?.icon : nil)
+                                      icon: done ? app?.icon : nil, pointer: pointer)
     }
 
     /// The next frame to load: the newest by capture time that a card can show, so newer than the

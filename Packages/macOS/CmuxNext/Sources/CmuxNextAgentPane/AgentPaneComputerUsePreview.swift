@@ -17,13 +17,31 @@ public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
     public var frame: String?
     /// The app's icon as a `data:image/png;base64,` URL; nil while unknown.
     public var icon: String?
+    /// Where the agent clicked last in the frame's window; the page draws its cursor there.
+    public var pointer: Pointer?
 
-    public init(session: String, app: String, done: Bool, frame: String? = nil, icon: String? = nil) {
+    public init(session: String, app: String, done: Bool, frame: String? = nil, icon: String? = nil,
+                pointer: Pointer? = nil) {
         self.session = session
         self.app = app
         self.done = done
         self.frame = frame
         self.icon = icon
+        self.pointer = pointer
+    }
+
+    /// A point in the frame, as a fraction of it (0...1 from the top left), and the click it came
+    /// from (a new one plays the click again).
+    public struct Pointer: Hashable, Sendable {
+        public var x: Double
+        public var y: Double
+        public var click: UInt64
+
+        public init(x: Double, y: Double, click: UInt64) {
+            self.x = x
+            self.y = y
+            self.click = click
+        }
     }
 
     /// What a click on the card asks for.
@@ -38,6 +56,9 @@ public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
         var object: [String: JSONValue] = ["session": .string(session), "app": .string(app), "done": .bool(done)]
         if let frame { object["frame"] = .string(frame) }
         if let icon { object["icon"] = .string(icon) }
+        if let pointer {
+            object["pointer"] = .object(["x": .number(pointer.x), "y": .number(pointer.y), "click": .number(Double(pointer.click))])
+        }
         return .object(object)
     }
 
