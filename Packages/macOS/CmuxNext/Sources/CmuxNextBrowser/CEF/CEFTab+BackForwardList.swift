@@ -31,9 +31,14 @@ extension CEFTab: BrowserBackForwardListing {
         restored.history == nil ? goToNativeEntry(offset: offset) : restored.goToEntry(offset: offset)
     }
 
+    /// Goes `offset` entries from Chromium's current one. Whether it can go is decided here, from the
+    /// mirrored list, as Chrome's `NavigationControllerImpl::GoToOffset` checks `CanGoToOffset` (the
+    /// index within the entries) before it navigates (content/browser/renderer_host/
+    /// navigation_controller_impl.cc): the jump is one-way, so its answer never waits for Chromium.
     func goToNativeEntry(offset: Int) -> Bool {
-        guard let browserID, let shim = runtime.shim, runtime.forkAPIVersion >= Self.backForwardListForkAPI,
-              let offset = Int32(exactly: offset) else { return false }
-        return shim.tabGoToEntry(browserID, offset) == 1
+        guard let browserID, let shim = runtime.shim, let step = Int32(exactly: offset), let list = nativeNavigationList(),
+              list.entries.indices.contains(list.current + offset) else { return false }
+        _ = shim.tabGoToEntry(browserID, step)
+        return true
     }
 }

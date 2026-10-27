@@ -3,6 +3,7 @@ import CmuxNextCompatAppKit
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextWakeups
 import Foundation
 import Observation

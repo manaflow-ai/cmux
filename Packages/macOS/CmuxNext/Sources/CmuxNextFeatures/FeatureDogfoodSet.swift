@@ -107,7 +107,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "stripPanResampling",
         "taskManagerMemorySaved",
         "terminalGPURelease",
-        "terminalHolder",
         "terminalPointerFrames",
         "terminalSizingPerApp",
         "topPageDiscard",

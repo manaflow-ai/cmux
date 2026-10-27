@@ -140,15 +140,17 @@ fn terminal_env(daemon: &Daemon) -> (String, serde_json::Value) {
     (env, created)
 }
 
-/// RED (G4): a terminal's process and its terminal host never see the
-/// variable the daemon was started with. The daemon removes it from its own
-/// environment before any thread starts, so every spawn path is covered.
+/// RED (G4): a terminal's process and the process that holds its PTY (its
+/// terminal host, or the holder) never see the variable the daemon was
+/// started with. The daemon removes it from its own environment before any
+/// thread starts, so every spawn path is covered.
 #[test]
 fn no_terminal_or_terminal_host_inherits_the_verifier_variable() {
     let daemon = Daemon::start("child", "control_plane");
     let (env, created) = terminal_env(&daemon);
     assert!(!env.contains(VARIABLE), "the terminal inherited {VARIABLE}:\n{env}");
-    // The terminal host's own environment (Linux: its initial environ).
+    // The own environment of the process that holds the PTY, the shell's
+    // parent: the terminal host or the holder (Linux: its initial environ).
     #[cfg(target_os = "linux")]
     {
         let surface = created["data"]["surface"].as_u64().expect("run returns the surface");
@@ -157,11 +159,16 @@ fn no_terminal_or_terminal_host_inherits_the_verifier_variable() {
             &serde_json::json!({"cmd": "terminal-resources", "surfaces": [surface]}),
         )
         .unwrap();
-        let host = resources["data"]["terminals"][0]["host"]["pid"].as_u64().expect("host pid");
-        let environ = fs::read(format!("/proc/{host}/environ")).unwrap();
+        let shell = resources["data"]["terminals"][0]["pid"].as_u64().expect("shell pid");
+        let stat = fs::read_to_string(format!("/proc/{shell}/stat")).unwrap();
+        let holder = stat
+            .rsplit_once(") ")
+            .and_then(|(_, rest)| rest.split_whitespace().nth(1))
+            .expect("the shell's parent pid");
+        let environ = fs::read(format!("/proc/{holder}/environ")).unwrap();
         let environ = String::from_utf8_lossy(&environ);
-        assert!(environ.contains("PATH="), "the host environ looks empty");
-        assert!(!environ.contains(VARIABLE), "the terminal host inherited {VARIABLE}");
+        assert!(environ.contains("PATH="), "the PTY holder's environ looks empty");
+        assert!(!environ.contains(VARIABLE), "the shell's parent {holder} inherited {VARIABLE}");
     }
 }
 

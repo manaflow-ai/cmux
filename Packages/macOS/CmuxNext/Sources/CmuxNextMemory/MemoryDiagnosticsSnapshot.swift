@@ -90,16 +90,23 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
     }
 
     public nonisolated struct Spare: Sendable {
-        /// The pool: `new_tab` or `page_host`.
+        /// The pool: `new_tab`, `page_host`, or a Chromium spare window, `chromium_window` (the default
+        /// profile's) or `chromium_pages_window` (the cmux pages profile's). A renderer that hosts no frame
+        /// is no snapshot row: the report finds it among the sampled helpers
+        /// (``MemoryDiagnosticsProcesses/rendererClientsWithFrames``).
         public var pool: String
         public var processKind: MemoryDiagnosticsProcesses.Kind
         /// The spare's process; nil while it has none or the pool cannot tell.
         public var pid: Int32?
+        /// A Chromium spare's renderer client ids (its placeholder page's), mapped to the helper's pid when
+        /// sampled; empty for a WebKit spare and for a placeholder with no renderer.
+        public var rendererClients: [Int32]
 
-        public init(pool: String, processKind: MemoryDiagnosticsProcesses.Kind, pid: Int32?) {
+        public init(pool: String, processKind: MemoryDiagnosticsProcesses.Kind, pid: Int32?, rendererClients: [Int32] = []) {
             self.pool = pool
             self.processKind = processKind
             self.pid = pid
+            self.rendererClients = rendererClients
         }
     }
 
@@ -171,9 +178,15 @@ public nonisolated struct MemoryDiagnosticsProcesses: Sendable {
     public var rows: [Row]
     /// Chromium renderer client id to its helper's pid.
     public var rendererPIDs: [Int32: Int32]
+    /// The renderer client ids that host a frame of any browser Chromium holds (tabs, popups, the spare
+    /// windows' placeholders, DevTools), read after the helpers were listed: a listed renderer's frame
+    /// that committed before the read is in it; nil when not read (no Chromium in this process). A listed
+    /// renderer outside it is a `chromium_unattributed_renderer` row in `spares`.
+    public var rendererClientsWithFrames: Set<Int32>?
 
-    public init(rows: [Row], rendererPIDs: [Int32: Int32] = [:]) {
+    public init(rows: [Row], rendererPIDs: [Int32: Int32] = [:], rendererClientsWithFrames: Set<Int32>? = nil) {
         self.rows = rows
         self.rendererPIDs = rendererPIDs
+        self.rendererClientsWithFrames = rendererClientsWithFrames
     }
 }

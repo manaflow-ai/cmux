@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextIcons
 import Foundation
 
 /// Launch work that is pure and thread-safe, started on a background thread
@@ -17,13 +18,21 @@ import Foundation
 /// ready; `ActionCatalogLaunch.mainAccess` records how that read went
 /// (`debug.startup`'s `action_catalog_main_wait_ms`), and the
 /// `action_catalog_built` launch mark is when this thread finished it (no
-/// mark when main claimed the build first).
-enum LaunchWarmup {
-    static func start(catalog: ActionCatalogLaunch) {
+/// mark when main claimed the build first). The icon pack and catalog decode
+/// on their own thread (`IconPack.decodeBundledInBackground`, p08-startup-039)
+/// and mark `icons_decoded`.
+/// The icon decode and launch-mark sink are injected for `LaunchIconWarmupTests`.
+struct LaunchWarmup {
+    /// Starts the icon pack and catalog decode off main; calls its argument, on any thread, when done.
+    var decodeIcons: (_ decoded: @escaping @Sendable () -> Void) -> Void = { IconPack.decodeBundledInBackground(then: $0) }
+    var markLaunch: @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
+
+    func start(catalog: ActionCatalogLaunch) {
+        let markLaunch = markLaunch
         // qos-allow: a frame waits for it (userInteractive): main reads the catalog, the menu's symbol and the
         // display UUIDs before its first frame; below main's QoS a loaded machine ran them after main reached them.
         let thread = Thread {
-            if catalog.build() { DebugTimings.markLaunch("action_catalog_built") }
+            if catalog.build() { markLaunch("action_catalog_built") }
             // The SF Symbols catalog loads on first lookup (20 ms on the
             // main thread while the palette or the main menu first drew).
             _ = NSImage(systemSymbolName: "command", accessibilityDescription: nil)
@@ -37,6 +46,8 @@ enum LaunchWarmup {
         thread.start()
         // Its own thread: the connecting screen's strings can be read before the work above ends.
         Bundle.warmResourceBundlesInBackground()
+        // The restored window's tab strip and sidebar read the icon pack and catalog before the first frame.
+        decodeIcons { markLaunch("icons_decoded") }
     }
 }
 

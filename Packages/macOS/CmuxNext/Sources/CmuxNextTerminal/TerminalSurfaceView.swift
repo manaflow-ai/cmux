@@ -108,7 +108,10 @@ public final class TerminalSurfaceView: NSView {
     }
     /// Shown in a window that stays off screen, the surface lets its GPU memory go (``TerminalOffScreenRelease``).
     var offScreenRelease: TerminalOffScreenRelease
-    var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
+    /// Why the surface does not draw (nil: draws). Only a surface that draws holds a vsync subscription.
+    var pause: SurfacePause? = .notInWindow {
+        didSet { if pause != oldValue { followVSync() } }
+    }
     /// The presented frame kept volatile while the surface does not draw.
     var heldFrame = TerminalHeldFrame()
     private var lastFocus: Bool?
@@ -120,7 +123,15 @@ public final class TerminalSurfaceView: NSView {
     private var appliedBacking = TerminalContentScale()
     /// The display ID last given to the surface (`updateContentScale`); nil before it is first shown.
     var appliedDisplayID: UInt32? { appliedBacking.appliedDisplayID }
+    /// Paces the surface from its display's ``VSyncHub`` thread while it draws (``TerminalVSync``). The bridge
+    /// owns it, so it lives as long as the userdata Ghostty's `vsync_wanted_cb` gets (`bridge`'s note).
+    var vsync: TerminalVSync { bridgeObject.vsync }
+    /// The hub the surface runs on (external vsync), nil: Ghostty's own display link per surface.
+    private let vsyncSource: (any TerminalVSyncSource)?
     var cursor: NSCursor = .iBeam
+    /// The terminal cursor on the render server (feature `terminalCursorLayer`, ``TerminalCursorLayer``); nil:
+    /// Ghostty draws and blinks it (the feature off, or a GhosttyNextKit without `GHOSTTY_EXTERNAL_CURSOR`).
+    let cursorLayer: TerminalCursorLayer?
 
     // Keyboard state (see TerminalSurfaceView+Keyboard.swift).
     var markedText = NSMutableAttributedString()
@@ -170,9 +181,13 @@ public final class TerminalSurfaceView: NSView {
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
          echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
-         mainWork: MainWorkScheduler, node: VisibilityNode? = nil, gpuResidency: (any TerminalGPUResidency)? = nil) {
+         mainWork: MainWorkScheduler, node: VisibilityNode? = nil, gpuResidency: (any TerminalGPUResidency)? = nil,
+         vsyncSource: (any TerminalVSyncSource)? = TerminalVSync.source(FrameScheduler.appDisplays.hub),
+         externalCursor: Bool = false) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
-        let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks)
+        let cursorLayer = externalCursor && TerminalCursorLayer.isAvailable ? TerminalCursorLayer() : nil
+        let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks,
+                                   cursor: cursorLayer?.presenter)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
@@ -181,6 +196,8 @@ public final class TerminalSurfaceView: NSView {
         modifierWatch = modifiers
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
+        self.vsyncSource = vsyncSource
+        self.cursorLayer = cursorLayer
         offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -210,6 +227,7 @@ public final class TerminalSurfaceView: NSView {
             secureInput.release(ObjectIdentifier(self))
             if let surface {
                 lane?.close()
+                vsync.close() // no vsync tick reaches the surface after this
                 // SAFETY: the one free of the view's surface (`surface`'s note), after the lane
                 // that reaches it off the main thread closed.
                 unsafe ghostty_surface_free(surface)
@@ -243,6 +261,18 @@ public final class TerminalSurfaceView: NSView {
         config.io_mode = mode
         // SAFETY: as above.
         unsafe SurfaceBridge.setCallbacks(in: &config, userdata: userdata)
+        // SAFETY: as above; the pacer is the bridge's (`vsync`).
+        if vsyncSource != nil { unsafe SurfaceBridge.setExternalVSync(in: &config, userdata: userdata) }
+        #if GHOSTTY_EXTERNAL_CURSOR
+        if cursorLayer != nil {
+            // Ghostty neither draws nor blinks the cursor; it presents each cursor cell with its frame on the cursor layer.
+            config.cursor_external = true
+            // SAFETY: the callback has ghostty_surface_cursor_cb's signature; `userdata` as above.
+            unsafe config.cursor_cb = ghosttySurfaceCursor
+            // SAFETY: as above.
+            unsafe config.cursor_userdata = userdata
+        }
+        #endif
         // SAFETY: as above; `app` is the runtime's live app (never freed).
         guard let surface = unsafe ghostty_surface_new(app, &config) else {
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
@@ -250,6 +280,8 @@ public final class TerminalSurfaceView: NSView {
         }
         // SAFETY: the new surface, owned by this view and freed once, in deinit (`surface`'s note).
         self.surface = unsafe surface
+        // SAFETY: as above; deinit closes the pacer before the free.
+        if vsyncSource != nil { unsafe vsync.attach(surface: surface) }
         // SAFETY: the view's live surface (`surface`); the hook reads only its trace id.
         unsafe bridgeObject.traceFrames(of: surface, with: stages.traceHook)
         // The drawable follows the size this view sets (`setFrameSize`), not
@@ -266,6 +298,7 @@ public final class TerminalSurfaceView: NSView {
         lane = unsafe TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
                                          keyFlows: bridgeObject.typingSurface, hangs: hangWatch)
         if let layer {
+            cursorLayer?.install(on: layer)
             echoStage?.attach(to: layer)
             TypingFrameProbe.install(on: layer, stages: stages, keyFlows: bridgeObject.typingSurface)
         }
@@ -294,7 +327,20 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        cursorLayer?.place(in: window)
         syncWindowState()
+    }
+
+    /// The view's own overlays (copy mode's box and badge, predictive echo) stay over the cursor layer, as they
+    /// were over the cursor Ghostty drew.
+    public override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if cursorLayer != nil { subview.layer?.zPosition = TerminalCursorLayer.subviewZPosition }
+    }
+
+    /// Ghostty presented cursor cells (``ghosttySurfaceCursor(_:_:)``): the blink follows the newest.
+    func cursorCellsDidChange() {
+        cursorLayer?.cellsDidChange()
     }
 
     // visibility-walk-allow: drawing follows AppKit's own view state in the hide's turn (WindowDrawPolicy), as WindowVisibilitySource says a drawing reader must
@@ -336,7 +382,9 @@ public final class TerminalSurfaceView: NSView {
     /// Shown in a window, not hidden or parked (``syncWindowState()``). A layout change of a terminal
     /// that is not shown records its size only (PL-script A3: a hidden workspace's layout sized every
     /// warm terminal's surface and resized its PTY); showing it applies the last size once.
-    private(set) var isShown = false
+    private(set) var isShown = false {
+        didSet { cursorLayer?.setShown(isShown) }
+    }
     /// A forced grid report asked for while the view was not shown (`TerminalSession.init`, a new owner):
     /// it goes when the view is shown.
     private var pendingForcedReport = false
@@ -392,6 +440,7 @@ public final class TerminalSurfaceView: NSView {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
         if resized, isShown { updateSurfaceSize() }
+        cursorLayer?.layout(size: newSize)
         copyMode.syncCursor()
     }
 
@@ -402,7 +451,16 @@ public final class TerminalSurfaceView: NSView {
         let backing = TerminalBacking(windowScale: window?.backingScaleFactor,
                                       contentScale: convertToBacking(NSSize(width: 1, height: 1)),
                                       displayID: screen?.uint32Value)
+        let shownOn = appliedDisplayID
         appliedBacking.apply(backing, to: scaleTarget)
+        if appliedDisplayID != shownOn { followVSync() } // ticks come from the new display's clock
+    }
+
+    /// Subscribes the surface to its display's vsync while it draws, and leaves while it does not
+    /// (``TerminalVSync/follow(_:source:)``); a surface on Ghostty's own display link does nothing.
+    private func followVSync() {
+        guard surface != nil, let vsyncSource else { return }
+        vsync.follow(pause == nil ? appliedDisplayID ?? CGMainDisplayID() : nil, source: vsyncSource)
     }
 
     /// The owner announced `grid`: the surface renders it and reports against it. Its lock

@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
 public import CmuxNextSidebar
+public import CmuxNextWakeups
 public import Foundation
 
 /// The sidebar document (sidebar-v2, `sidebar-doc-v1`) over the machines' daemon stores: the workspace refs it places,
@@ -64,42 +65,46 @@ public struct SidebarDocMachines {
 
     /// Keeps `store` current: it refreshes when the home daemon connects or starts serving the document, and it shows
     /// the live workspaces (`connectedRemotes`: the sessions of the connected remote machines) after each document or
-    /// live-set change; `shown` gets the band layout it shows.
+    /// live-set change; `shown` gets the band layout it shows. Returns the follows (``ServiceObservation``s on `work`,
+    /// class visible: the document and its bands are model state the sidebar shows, and they must follow while no
+    /// window shows a sidebar); the caller keeps them for the app's life, and releasing them stops the follows.
     public func follow(_ store: SidebarDocStore, connected: @escaping @MainActor () -> Bool, serves: @escaping @MainActor () -> Bool,
-                       connectedRemotes: @escaping @MainActor () -> Set<String>, shown: @escaping @MainActor (SidebarLayoutDocument?) -> Void) {
-        // task-owner: the app's services (live for the app); event-driven (Observation)
-        Task { for await _ in ObservationStream({ (connected(), serves()) }) { store.refresh() } }
-        // task-owner: the app's services; one view call per document or live-set change
-        Task {
-            // A trigger: a document change (`version`) with the same live set still redraws the bands.
-            for await live in ObservationStream({ () -> ObservationTrigger<[SidebarDocWorkspaceRef]> in
-                _ = (store.version, store.isActive)
-                return ObservationTrigger(liveRefs())
-            }) {
-                store.show(live: live.value, connectedRemotes: connectedRemotes())
-                shown(store.shown?.layout)
-            }
+                       connectedRemotes: @escaping @MainActor () -> Set<String>, shown: @escaping @MainActor (SidebarLayoutDocument?) -> Void,
+                       on work: MainWorkScheduler) -> [AnyObject] {
+        // A tuple: every change of either refreshes (no dedupe), as the loop it replaced did.
+        let link = ServiceObservation(.visible, owner: "SidebarDocMachines.link", on: work) {
+            (connected: connected(), serves: serves())
+        } apply: { _ in
+            store.refresh()
         }
+        // A trigger: a document change (`version`) with the same live set still redraws the bands.
+        let bands = ServiceObservation(.visible, owner: "SidebarDocMachines.bands", on: work) { () -> ObservationTrigger<[SidebarDocWorkspaceRef]> in
+            _ = (store.version, store.isActive)
+            return ObservationTrigger(liveRefs())
+        } apply: { live in
+            store.show(live: live.value, connectedRemotes: connectedRemotes())
+            shown(store.shown?.layout)
+        }
+        return [link, bands]
     }
 
     /// Link rows draw the favicon at their item's icon address. An open tab's favicon address can change while its image
     /// is cached already (no favicon `revision`): this watches the addresses too (`byOrigin`, one origin -> favicon table
-    /// read once per change) and stores them on the link items; `faviconKey` is a page's origin key. The returned task is
-    /// the follow (the app's runs for the app; a test cancels its own).
-    @discardableResult
+    /// read once per change) and stores them on the link items; `faviconKey` is a page's origin key. The returned
+    /// ``ServiceObservation`` (visible, on `work`) is the follow: the app keeps it for its life; a test releases its own.
     public static func followFavicons(_ store: SidebarDocStore, revision: @escaping @MainActor () -> Int?,
                                       byOrigin: @escaping @MainActor () -> [String: String],
-                                      faviconKey: @escaping (URL) -> String?) -> Task<Void, Never> {
-        // task-owner: the app's services (live for the app); event-driven (Observation)
-        Task {
-            var last: [String: String]?
-            var lastVersion: UInt64?
-            for await (_, version, origins) in ObservationStream({ (revision(), store.version, byOrigin()) }) {
-                store.faviconsChanged() // every list draws its link rows again
-                guard origins != last || version != lastVersion else { continue } // a tab change that moves no favicon address
-                (last, lastVersion) = (origins, version)
-                store.storeIconURLs { page in URL(string: page).flatMap(faviconKey).flatMap { origins[$0] } }
-            }
+                                      faviconKey: @escaping (URL) -> String?, on work: MainWorkScheduler) -> AnyObject {
+        var last: [String: String]?
+        var lastVersion: UInt64?
+        // A tuple: each favicon revision tells the lists, whether or not an address moved.
+        return ServiceObservation(.visible, owner: "SidebarDocMachines.favicons", on: work) {
+            (revision: revision(), version: store.version, origins: byOrigin())
+        } apply: { state in
+            store.faviconsChanged() // every list draws its link rows again
+            guard state.origins != last || state.version != lastVersion else { return } // a tab change that moves no favicon address
+            (last, lastVersion) = (state.origins, state.version)
+            store.storeIconURLs { page in URL(string: page).flatMap(faviconKey).flatMap { state.origins[$0] } }
         }
     }
 }
