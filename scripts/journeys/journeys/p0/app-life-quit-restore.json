@@ -32,7 +32,7 @@
        {"app_cwd": {"name": "left", "cwd": "/tmp/jr-${nonce}-left"}},
        {"app_cwd": {"name": "right", "cwd": "/tmp/jr-${nonce}-right"}},
        {"app_cwd": "/tmp/jr-${nonce}-second"},
-       {"frame_text": "second-${nonce}-42"}
+       {"pane_frame_text": "second-${nonce}-42"}
      ]},
 
     {"do": "relaunch", "how": "quit", "mark": "reopened"},
@@ -63,21 +63,21 @@
        {"daemon_line": "second-${nonce}-42"},
        {"app_text_line": "second-${nonce}-42"},
        {"app_pane": {"link": "connected"}},
-       {"frame_text": "second-${nonce}-42"}
+       {"pane_frame_text": "second-${nonce}-42"}
      ]},
     {"do": "type", "text": "echo back-${nonce}-$(basename $PWD)", "enter": true, "mark": "back"},
     {"do": "expect", "title": "the restored shell takes input, in its folder", "since": "back", "within": 3, "timeout": 10,
      "all": [
        {"daemon_line": "back-${nonce}-jr-${nonce}-second"},
        {"app_text_line": "back-${nonce}-jr-${nonce}-second"},
-       {"frame_text": "back-${nonce}-jr-${nonce}-second"}
+       {"pane_frame_text": "back-${nonce}-jr-${nonce}-second"}
      ]},
     {"do": "use", "name": "left"},
     {"do": "expect", "title": "the left pane's text came back too", "timeout": 20,
      "all": [
        {"daemon_line": "left-${nonce}-42"},
        {"app_text_line": "left-${nonce}-42"},
-       {"frame_text": "left-${nonce}-42"}
+       {"pane_frame_text": "left-${nonce}-42"}
      ]}
   ]
 }
