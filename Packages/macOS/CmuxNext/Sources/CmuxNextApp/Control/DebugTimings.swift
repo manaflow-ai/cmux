@@ -92,6 +92,9 @@ enum DebugTimings {
         if let derived = LaunchMarks.derivedMark(of: name) { markLaunch(derived, at: date) }
     }
 
+    /// The launch marks so far (`debug.startup`).
+    nonisolated static var launchMarksNow: LaunchMarks { launchMarks.withLock { $0.marks } }
+
     /// The startup trace `CMUX_TRACE_STARTUP` asks for, attached before the first mark (`main`).
     nonisolated static func makeStartupTrace() -> StartupTrace? {
         guard let trace = StartupTrace.fromEnvironment(processStartNanos: processStart.uptimeNanos) else { return nil }

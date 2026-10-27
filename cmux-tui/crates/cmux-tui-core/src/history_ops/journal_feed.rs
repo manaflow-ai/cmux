@@ -30,6 +30,7 @@ use serde_json::Value;
 
 use crate::Mux;
 use crate::journal_kernel::SharedJournalRead;
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::SessionJournalRecord;
 
 const PAGE: usize = 512;
@@ -44,7 +45,7 @@ fn folded(kind: &str) -> bool {
 /// True for a resource commit that upserted or deleted a closed item
 /// (`state_upsert`/`state_delete` of resource `closed` in its changes).
 fn changes_closed(record: &SessionJournalRecord) -> bool {
-    record.payload["changes"].as_array().is_some_and(|changes| {
+    record.payload.field("changes").as_array().is_some_and(|changes| {
         changes.iter().any(|change| {
             change["resource"] == "closed"
                 && matches!(change["kind"].as_str(), Some("state_upsert" | "state_delete"))

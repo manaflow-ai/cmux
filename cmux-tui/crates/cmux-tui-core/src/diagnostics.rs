@@ -28,8 +28,8 @@ mod ipc;
 pub(crate) use ipc::note_json_parse;
 pub use ipc::{
     CountedWrite, IpcKindSnapshot, IpcParseSnapshot, IpcParsesSnapshot, IpcSnapshot, IpcStats,
-    IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseScope, OpenStream,
-    WRITE_STALL_THRESHOLD,
+    IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseHandoff, JsonParseScope,
+    OpenStream, WRITE_STALL_THRESHOLD,
 };
 mod owner_panic_log;
 #[cfg(debug_assertions)]
@@ -129,6 +129,10 @@ impl LogLinearHistogram {
         ((1u64 << octave) - 1) + (sub + 1) * width
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: bucket_index maps every u64 below BUCKETS (u64::MAX is 63 * 4 + 3)"
+    )]
     pub fn record(&self, value: u64) {
         self.max.fetch_max(value, Ordering::Relaxed);
         if let Some(slot) = self.persisted.get() {

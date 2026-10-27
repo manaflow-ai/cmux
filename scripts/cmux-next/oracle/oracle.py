@@ -21,6 +21,8 @@ Chrome reference (chromium/src):
 Subcommands owned here: run, diff, merge, check, gen, rebaseline. These delegate to the
 sibling script that owns them (`oracle.py <cmd> ARGS` runs `python3 -I <script> ARGS`):
 confirm, select, bisect, report, minimize, switches, route, coverage, selftest.
+`selftest --mutants` is the mutation smoke run (mutant_catch.py, p15-oracle-115): every seeded patch
+mutant against its base through the smallest selection that catches it; it fails below 19/20.
 
 Driver protocol (owned here; driver_<product>.py implements it):
     open_session(session_ctx: dict) -> session
@@ -77,7 +79,8 @@ run format baselines.py (016) reads (a `cases` list, the case name without its s
 `baselines.py rebaseline` on it.
 
 `diff` exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 refused (host
-mismatch, an incomplete or mismatched shard set, nothing compared), 4 diff.py internal error.
+mismatch, an incomplete or mismatched shard set, nothing compared, a queued side that did not
+build or run), 4 diff.py internal error.
 
 Sibling interfaces this file calls:
     diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--case GLOB]       (014)
@@ -180,14 +183,14 @@ EXIT_REFUSED = 3
 
 DELEGATES: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
     "confirm": ("confirm.py", (), "p15-oracle-184"),
-    "select": ("select.py", (), "p15-oracle-009"),
-    "bisect": ("bisect.py", (), "p15-oracle-009"),
+    "select": ("select_suites.py", (), "p15-oracle-009"),
+    "bisect": ("bisect_case.py", (), "p15-oracle-009"),
     "report": ("report.py", (), "p15-oracle-116"),
     "minimize": ("minimize.py", (), "p15-oracle-098"),
     "switches": ("switches.py", (), "p15-oracle-018"),
     "route": ("route.py", (), "p15-oracle-118"),
     "coverage": ("coverage.py", (), "p15-oracle-190"),
-    "selftest": ("selftest.py", (), "p15-oracle-019"),
+    "selftest": ("selftest.py", (), "p15-oracle-019"),  # --mutants: mutant_catch.py (p15-oracle-115)
 }
 
 
@@ -1939,7 +1942,10 @@ def queued_diff(args: argparse.Namespace, sides: Tuple[Side, Side], expected: Li
         lines = [line.strip() for line in stdout.splitlines() if line.strip()]
         run_dir = Path(lines[-1]) if lines else None
         if run_dir is None or not (run_dir / "receipt.json").is_file():
-            raise UsageError(f"the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})")
+            # A side that did not build or run is a refused diff, not bad input: bisect_case.py skips that commit.
+            print(f"refused: the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})",
+                  file=sys.stderr)
+            return EXIT_REFUSED
         print(f"{side.label}: {side.ref} run {run_dir} (oracle.py run exit {code})")
         if read_receipt(run_dir)["arm_exercised"] is False:
             print(f"arm-not-exercised: {side.switch}={side.arm}")
