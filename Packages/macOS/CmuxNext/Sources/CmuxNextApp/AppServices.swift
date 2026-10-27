@@ -451,7 +451,7 @@ final class AppServices {
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
-        sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
+        sample: { await AppMemoryModel.processes(webContentPIDs: $0) }, deadlines: mainDeadlines)
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
     /// The app's one preload slot (p13-webui.md 3.D), made here only and installed on `webUI`: New Tab and
@@ -740,8 +740,8 @@ final class AppServices {
     /// - Parameter hangWatch: the hang watch of every watched lane (``work``'s lanes; through ``daemon``, its
     ///   connection readers, terminal attachments and terminal output lanes): the process's
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
-    /// - Parameter energyMonitor: The app's power inputs: the system's by default (nothing reads IOKit
-    ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
+    /// - Parameter energyMonitor: The app's power inputs: nil makes the system's on `mainWork` (nothing reads
+    ///   IOKit until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
     /// - Parameter appearance: The appearance signals (the app's design settings'; a test's own).
     /// - Parameter launchStartup: The launch's scheduler (`AppDelegate` passes `LaunchOrder.startup`); nil (tests)
     ///   makes the right sidebar's icons on main when its first panel is built.
@@ -750,7 +750,7 @@ final class AppServices {
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), terminalLaunchFrames: TerminalLaunchFrames? = nil,
          relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
-         energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
+         energyMonitor: EnergyMonitor? = nil, inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
          crashKeys: CrashKeySlots? = nil, watchdog: MainThreadWatchdog? = nil,
          appearance: AppearanceSignals = DesignSettings.shared.signals, features: FeatureList? = nil) {
@@ -759,7 +759,7 @@ final class AppServices {
         self.work = work
         linkHints = LinkHintController(work: work)
         builtInAdBlockerFolder = AppServices.preloadBuiltInAdBlockerFolder(on: work)
-        self.energyMonitor = energyMonitor
+        self.energyMonitor = energyMonitor ?? EnergyMonitor(mainWork: mainWork)
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
