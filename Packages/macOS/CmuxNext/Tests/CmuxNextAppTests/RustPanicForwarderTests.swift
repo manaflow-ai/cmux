@@ -81,11 +81,11 @@ import Testing
                                    "backtrace": "0: vt::parser::advance"]), to: log)
         let sent = forwarder.forwardNew()
         try #require(sent.count == 1)
-        #expect(sent[0].fingerprint == ["host-panic", location])
+        #expect(sent[0].fingerprint == ["terminal-host-panic", location])
         #expect(sent[0].tags?["process"] == "cmux-tui-host")
-        #expect(sent[0].tags?["crash_source"] == "terminal_host_crash")
+        #expect(sent[0].tags?["crash_source"] == "terminal_host_panic_log")
         #expect(sent[0].extra?["backtrace"] as? String == "0: vt::parser::advance")
-        #expect(sent[0].message?.formatted.hasPrefix("cmux-tui terminal host panic at \(location)") == true)
+        #expect(sent[0].message?.formatted.hasPrefix("cmux-tui-host panic at \(location)") == true)
         #expect(RustPanicSource.acpmux.labeling(lineSource: "cmux-tui-host") == .acpmux)
     }
 }

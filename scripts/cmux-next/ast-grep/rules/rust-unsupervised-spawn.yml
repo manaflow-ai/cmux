@@ -1,0 +1,77 @@
+# guardrails.py (local tier, never CI) runs this on the Rust lines a push adds under cmux-tui/ and Native/.
+# Chrome posts work to owned sequences and the thread pool instead of creating threads, and every task's
+# failure is the process's (docs/threading_and_tasks.md, base/task/thread_pool/thread_pool_impl.h). Here: a
+# dropped tokio JoinHandle loses the task's panic and its end; a raw std thread dies alone and leaves a live
+# process serving nothing. cmux-panic-log's supervise_thread / supervise_task name a policy (Fatal by default).
+id: rust-unsupervised-spawn
+language: rust
+severity: error
+message: "an unsupervised spawn: a dropped JoinHandle or a raw std thread loses its panic and its end"
+note: >-
+  Keep the JoinHandle (store it, join it, or put the task in a JoinSet), or run it under
+  `cmux_panic_log::supervise_task` / `supervise_thread` with a policy and a ShutdownBehavior.
+  Reviewed escape: `// supervise-allow: <who notices when it ends>`.
+utils:
+  test-code:
+    any:
+      - kind: mod_item
+        follows:
+          kind: attribute_item
+          regex: '^#\[cfg\((test|all\(test)'
+          stopBy:
+            not:
+              any:
+                - kind: attribute_item
+                - kind: line_comment
+                - kind: block_comment
+      - kind: function_item
+        follows:
+          kind: attribute_item
+          regex: '^#\[(\w+::)*test\b'
+          stopBy:
+            not:
+              any:
+                - kind: attribute_item
+                - kind: line_comment
+                - kind: block_comment
+rule:
+  kind: call_expression
+  any:
+    # A tokio spawn whose JoinHandle is dropped at once: a statement of its own, `let _ = ...` or `drop(...)`.
+    - all:
+        - has:
+            field: function
+            regex: '^(::)?(tokio::)?(task::)?spawn(_local|_blocking)?$'
+        - any:
+            - inside:
+                kind: expression_statement
+            - inside:
+                kind: let_declaration
+                has:
+                  field: pattern
+                  regex: '^_$'
+            - inside:
+                kind: arguments
+                inside:
+                  kind: call_expression
+                  has:
+                    field: function
+                    regex: '^(::)?(std::)?(mem::)?drop$'
+    # A raw std thread, kept or not: its panic ends only that thread.
+    - has:
+        field: function
+        regex: '^(::)?(std::)?thread::spawn$'
+    - has:
+        field: function
+        kind: field_expression
+        all:
+          - has:
+              field: field
+              regex: '^spawn(_unchecked)?$'
+          - has:
+              field: value
+              regex: '(^|::)Builder::new\(\)'
+  not:
+    inside:
+      matches: test-code
+      stopBy: end
