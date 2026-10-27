@@ -8,13 +8,14 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().with_env(&[
-    ("ANTHROPIC_AUTH_TOKEN", "synthetic-daemon-token"),
-    ("CMUX_REMOTE_TEST_SECRET", "synthetic-cmux-secret"),
-    ("LC_API_TOKEN", "synthetic-locale-shaped-secret"),
-    ("SSH_AUTH_SOCK", "/synthetic/ssh-agent.sock"),
-    ("UNRELATED_TOKEN", "synthetic-unrelated-token"),
-]);
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().keep(&["ACPMUX_REQUIRE_BWRAP"]).with_env(&[
+        ("ANTHROPIC_AUTH_TOKEN", "synthetic-daemon-token"),
+        ("CMUX_REMOTE_TEST_SECRET", "synthetic-cmux-secret"),
+        ("LC_API_TOKEN", "synthetic-locale-shaped-secret"),
+        ("SSH_AUTH_SOCK", "/synthetic/ssh-agent.sock"),
+        ("UNRELATED_TOKEN", "synthetic-unrelated-token"),
+    ]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -437,3 +438,21 @@ async fn a_remote_chain_reaches_its_own_loopback_model_proxy_and_nothing_else() 
     assert_eq!(argv[sources + 1], "project,local");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn linux_unavailable_bwrap_refuses_the_spawn_with_its_reason() {
+    let d = dir("missing-bwrap");
+    let hub = hub_with(&d, Some(false));
+    hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
+    let mut web = Client::new(&hub, Origin::Web);
+    let error = web.run(&d, "argv").await.expect_err("unavailable bwrap must refuse");
+    let _ = std::fs::remove_dir_all(d);
+    assert!(error.to_string().contains("remote.sandbox_refused"), "{error}");
+    assert!(error.to_string().contains("bwrap unavailable"), "{error}");
+    assert!(error.to_string().contains("bwrap not installed"), "{error}");
+}
+
+#[cfg(target_os = "linux")]
+#[path = "support/remote_sandbox_linux_stack.rs"]
+mod linux_stack;

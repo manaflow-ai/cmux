@@ -1024,6 +1024,14 @@ fn canary_report_held(
 }
 
 impl Hub {
+    /// Integration-test fault injection: select an unavailable bwrap for probing only.
+    /// It never changes the executable the keeper pins and runs.
+    #[doc(hidden)]
+    #[cfg(target_os = "linux")]
+    pub fn set_linux_bwrap_probe_for_tests(&self, _path: PathBuf) {
+        // Red-stage seam; production probing is unchanged until G2.
+    }
+
     /// Integration-test probe only; does not enable the Linux spawn path.
     #[doc(hidden)]
     #[cfg(target_os = "linux")]
@@ -1360,6 +1368,39 @@ mod endpoint_tests {
         let (_, args) = linux_wrap(&bound, &p, "claude".into(), vec![]).unwrap();
         assert!(args.contains(&format!("TMPDIR={}", bound.tmp.display())));
         assert!(!args.iter().any(|a| a.contains("/injected")));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_canary_attempts_both_persistence_renames() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("canary-renames-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        let probe = canary_persistence_probe(&root, true).unwrap().unwrap();
+        let log = root.join("renames");
+        let mv = root.join("bin/mv");
+        std::fs::write(&mv, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$RENAME_LOG\"\nexit 1\n")
+            .unwrap();
+        std::fs::set_permissions(&mv, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let out = std::process::Command::new("/bin/bash")
+            .args(["-c", CANARY, "canary", "/nonexistent/outside", "0"])
+            .arg(&root)
+            .arg("0")
+            .arg(&probe)
+            .args(["", ""])
+            .env("PATH", format!("{}:/usr/bin:/bin", root.join("bin").display()))
+            .env("RENAME_LOG", &log)
+            .output()
+            .unwrap();
+        let attempts = std::fs::read_to_string(log).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(out.status.success());
+        for target in [".git/hooks/pre-commit", "CLAUDE.md"] {
+            assert!(
+                attempts.contains(&probe.join(target).display().to_string()),
+                "canary never attempted rename to {target}: {attempts}"
+            );
+        }
     }
 
     #[cfg(target_os = "linux")]
