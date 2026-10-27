@@ -24,6 +24,9 @@ import Foundation
 // - `scrollers`: `data-scrollers` and every element that shows a scroller at rest under "Always"
 //   (overflowing auto/scroll boxes with their overflow in pixels; SCROLLBARS-THIN audit);
 // - `click` (`selector`, `context_menu`?): clicks (or right-clicks) the first element matching the CSS selector;
+// - `scroll` (`selector`, `block`? start | center | end | nearest, default start): scrolls the first
+//   matching element into view at once (every scroller that holds it): `{scrolled, top, height,
+//   viewport}`, or an error when nothing matches, so a capture step fails instead of shooting the fold;
 // - `hover` (`selector`): moves the mouse onto the first matching element (a capture slot's window
 //   never activates, so no pointer reaches its pages): `{hovered, native, x, y}`;
 // - `query` (`selector`): each matching element's data-* attributes, classes and text, in document order;
@@ -100,6 +103,14 @@ enum DebugPages {
         case "hover":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return await page.debugHover(selector)
+        case "scroll":
+            guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
+            let block = params["block"]?.stringValue ?? "start"
+            guard ["start", "center", "end", "nearest"].contains(block) else {
+                return ["error": "block must be one of start, center, end, nearest"]
+            }
+            let scrolled = await page.debugScroll(selector, block: block)
+            return scrolled["scrolled"] == true ? scrolled : ["error": .string("no element matches \(selector)")]
         case "query":
             return await page.debugQuery(params["selector"]?.stringValue ?? "*")
         case "route":

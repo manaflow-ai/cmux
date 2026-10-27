@@ -175,6 +175,25 @@ extension PageWebView {
         return .object(hovered)
     }
 
+    /// Scrolls the first element matching `selector` into view at `block` (`start`, `center`,
+    /// `end` or `nearest`), at once (`behavior: instant`), scrolling every scroller that holds it,
+    /// so a capture can show content below the fold (Settings > Accounts' lower cards) with no wheel
+    /// or key event, which a capture slot's never-active window does not get. `{scrolled, top,
+    /// height, viewport}` in CSS pixels after the scroll (`top` is the element's top in the
+    /// viewport); `{scrolled: false}` when nothing matches.
+    public func debugScroll(_ selector: String, block: String = "start") async -> JSONValue {
+        let script = """
+        const el = document.querySelector(selector); if (!el) { return null; }
+        el.scrollIntoView({ block, inline: 'nearest', behavior: 'instant' });
+        const r = el.getBoundingClientRect();
+        return JSON.stringify({ top: r.top, height: r.height, viewport: window.innerHeight });
+        """
+        guard let text = await callPageFunction(script, arguments: ["selector": selector, "block": block]) as? String,
+              case .object(var members)? = try? JSONValue.parse(Data(text.utf8)) else { return ["scrolled": false] }
+        members["scrolled"] = true
+        return .object(members)
+    }
+
     /// The zoom the page shows at in either engine (UI scale times the page's own zoom): page
     /// CSS pixels are view points divided by it.
     public var debugPageZoom: Double { pageZoom }
