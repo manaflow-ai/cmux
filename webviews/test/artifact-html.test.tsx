@@ -98,6 +98,30 @@ test("Outputs uses the latest write per path, keeping same-title files distinct"
   ]);
 });
 
+test("a canonical full-diff create and raw-input overwrite stay one document", () => {
+  const canonical = "/repo/counter.html";
+  const latest = page.replace(">0<", ">10<");
+  const writes = [
+    ...rows({
+      id: "create",
+      title: "Write",
+      kind: "edit",
+      status: "completed",
+      diffs: [{ path: "counter.html", canonical, newText: page }],
+    }),
+    ...rows({
+      id: "overwrite",
+      title: "Write",
+      kind: "edit",
+      status: "completed",
+      inputPath: { path: "./counter.html", canonical },
+      inputSummary: JSON.stringify({ file_path: "./counter.html", content: latest }),
+    }),
+  ];
+  expect(writtenArtifacts(writes).map((artifact) => artifact.path)).toEqual([canonical, canonical]);
+  expect(outputArtifacts(writes).map(({ artifact }) => [artifact.path, artifact.code])).toEqual([[canonical, latest]]);
+});
+
 test("the standalone opened-write version list drops repeated contents", () => {
   const write = (id: string, code: string) =>
     rows({ id, title: "Write", kind: "edit", status: "completed", diffs: [{ path: "counter.html", newText: code }] });
