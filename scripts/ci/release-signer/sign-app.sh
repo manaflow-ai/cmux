@@ -49,7 +49,7 @@
 # hashes of signed files sealed as plain files (Contents/Resources/bin).
 set -euo pipefail
 # The notary key (helper-first) stays in this shell only: no child inherits it.
-p8="${ASC_API_KEY_P8_BASE64:-}"; unset ASC_API_KEY_P8_BASE64
+unset p8; declare +x p8="${ASC_API_KEY_P8_BASE64:-}"; unset ASC_API_KEY_P8_BASE64
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 [[ $# -eq 2 ]] || { echo "usage: $0 <app-path> <app-entitlements>" >&2; exit 2; }

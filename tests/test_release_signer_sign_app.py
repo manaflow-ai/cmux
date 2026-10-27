@@ -61,7 +61,7 @@ if argv[0] == "sign":
 record["secret_env"] = sorted(k for k in ("APPLE_CERTIFICATE_PASSWORD", "APPLE_CERTIFICATE_BASE64") if k in os.environ)
 # The signer reads RCODESIGN_* variables as its own config: none may reach it.
 record["config_env"] = sorted(k for k in os.environ if k.startswith("RCODESIGN_"))
-record["notary_key_env"] = "ASC_API_KEY_P8_BASE64" in os.environ
+record["notary_key_env"] = "ASC_API_KEY_P8_BASE64" in os.environ or os.environ.get("p8", "exported-by-the-caller") != "exported-by-the-caller"
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps(record) + "\n")
 if argv[0] == os.environ.get("FAKE_FAIL") or argv[-1].endswith(os.environ.get("FAKE_FAIL_PATH") or "\0"):
@@ -115,7 +115,7 @@ SHIM = r'''
 import json, os, shutil, sys
 name = os.path.basename(sys.argv[0])
 with open(os.environ["FAKE_LOG"], "a") as log:
-    log.write(json.dumps({"tool": name, "argv": sys.argv[1:], "notary_key_env": "ASC_API_KEY_P8_BASE64" in os.environ}) + "\n")
+    log.write(json.dumps({"tool": name, "argv": sys.argv[1:], "notary_key_env": "ASC_API_KEY_P8_BASE64" in os.environ or os.environ.get("p8", "exported-by-the-caller") != "exported-by-the-caller"}) + "\n")
 real = sys.executable if name == "python3" else shutil.which(name, path=os.environ["FAKE_REAL_PATH"])
 os.execv(real, [real] + sys.argv[1:])
 '''
@@ -461,7 +461,7 @@ class HelperFirstTest(SignAppTest):
                 self.assertEqual(self.calls("signer", "sign"), [])
 
     def test_no_child_process_sees_the_notary_key(self) -> None:
-        self.run_script()
+        self.run_script(p8="exported-by-the-caller")
         self.assertEqual({c["notary_key_env"] for c in self.calls("signer")}, {False})
         shims = [c for c in self.calls() if c["tool"] != "signer"]
         self.assertTrue(shims)
