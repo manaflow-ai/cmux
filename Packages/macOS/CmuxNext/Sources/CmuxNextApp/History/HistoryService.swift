@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -12,7 +13,9 @@ import Foundation
 /// `history.list`. Owns the per-profile visit logs; never a second copy of
 /// a fact another owner keeps.
 final class HistoryService {
-    unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
     /// `<Application Support>/<bundle id>`, set at launch; nil keeps page
     /// history in memory only (tests).
     var supportDirectory: URL?
@@ -32,7 +35,7 @@ final class HistoryService {
     var onChange: (() -> Void)?
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
         hidden = HiddenHistoryStore(services: services)
         agents = AgentHistory(services: services, hidden: hidden)
         commands = CommandHistory(services: services)
@@ -41,6 +44,7 @@ final class HistoryService {
 
     /// Launch: page history becomes durable in `supportDirectory`.
     func start(supportDirectory: URL) {
+        guard let services else { return }
         self.supportDirectory = supportDirectory
         let cache = services.cache
         attach(cache.history, profile: .default)
@@ -58,7 +62,7 @@ final class HistoryService {
     /// complete (`LaunchStart.historyRetention`).
     func startDaemonSync(settings: SettingsController) {
         commands.start(settings: settings)
-        services.runLaunchStart(.historyRetention) { [weak self] in self?.closedRetention.start(settings: settings) }
+        services?.runLaunchStart(.historyRetention) { [weak self] in self?.closedRetention.start(settings: settings) }
     }
 
     // MARK: Pages
@@ -72,7 +76,7 @@ final class HistoryService {
         }
         routes[profile] = route
         route.onRemove = { [weak self, wire = BrowserProfileRecord.wireID(for: profile)] url in
-            guard let sync = self?.services.onboarding.historySync else { return }
+            guard let sync = self?.services?.onboarding.historySync else { return }
             Task { await sync.forgetPage(url, profile: wire) }  // task-owner: imported pages too
         }
         history.persistence = route
@@ -96,7 +100,7 @@ final class HistoryService {
         }
         let sink = BrowserVisitSink(log: BrowserVisitLog(url: url))
         sinks[profile] = sink
-        logMemory[profile] = AppMemoryConsumers(services: services).registerVisitLog(sink.log)
+        if let services { logMemory[profile] = AppMemoryConsumers(services: services).registerVisitLog(sink.log) }
         return sink
     }
 
@@ -108,6 +112,7 @@ final class HistoryService {
 
     /// Every profile's log: the default one first.
     private var profileLogs: [(profile: String, log: BrowserVisitLog)] {
+        guard let services else { return [] }
         var profiles: [BrowserProfileID] = [.default]
         profiles += services.browserProfiles.ordered.map(\.engineProfile).filter { $0 != .default }
         return profiles.map { (BrowserProfileRecord.wireID(for: $0), sink(for: $0).log) }
@@ -151,6 +156,7 @@ final class HistoryService {
     }
 
     func locationEntries() -> [HistoryEntry] {
+        guard let services else { return [] }
         let trail = services.locationTrail
         return trail.trail.entries.enumerated().map { index, entry in
             let location = entry.location
@@ -165,6 +171,7 @@ final class HistoryService {
     /// (`closed-history-v2`): the only closed history (reopen-closed.md 9). Newest first, a page
     /// closed again once (``DaemonClosedHistory/newestOnce(_:_:)``).
     func closedEntries() -> [HistoryEntry] {
+        guard let services else { return [] }
         let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }
         return DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }.map { entry in
             let item = entry.item, tab = Self.shownTab(item)
@@ -224,6 +231,7 @@ final class HistoryService {
 
     /// Clears `kinds` (empty: all) in `range`. Pages clear in every profile.
     func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange) {
+        guard let services else { return }
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
         let since = range.start(now: Date())
         if wants(.page) { Task { [sync = services.onboarding.historySync] in await sync.forget(profile: nil, since: since) } }  // task-owner: imported pages too
@@ -259,6 +267,7 @@ final class HistoryService {
 
     /// Clears one profile's page history (Clear Browser History).
     func clearPages(profile: BrowserProfileID, range: HistoryRange) {
+        guard let services else { return }
         let since = range.start(now: Date())
         Task { [sync = services.onboarding.historySync, wire = BrowserProfileRecord.wireID(for: profile)] in await sync.forget(profile: wire, since: since) }  // task-owner: imported pages too
         if daemonHistory != nil {
@@ -275,6 +284,7 @@ final class HistoryService {
 
     /// Removes one entry (the page's Remove from History).
     func remove(_ entry: HistoryEntry) {
+        guard let services else { return }
         // Pages keep the app path: the omnibox removes the URL and its persistence (the daemon when
         // it serves history-v1) removes every visit of it.
         if daemonHistory != nil, entry.kind != .page, entry.kind != .command {
@@ -306,6 +316,7 @@ final class HistoryService {
 
     /// Removes every page visit of `host` in every profile.
     func removePages(host: String) {
+        guard let services else { return }
         Task { [sync = services.onboarding.historySync] in await sync.forgetSite(host: host) }  // task-owner: imported pages too
         if daemonHistory != nil {
             // One site removal on the daemon (one backup); memory forgets without persistence.

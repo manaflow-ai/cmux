@@ -11,7 +11,7 @@
 #    spell its selector (PointerHover's `mouseEntered(with:)` was exported as
 #    `mouseEnteredWith:` and AppKit raised "unrecognized selector");
 #  - dynamic_dispatch: string selectors and KVC by string key are counted;
-#  - invariant_check / dump_will_be_check: Invariant API sites need an allowlist entry.
+#  - invariant_check / dump_will_be_check: report-only (p10-stability-199); the CI compare never judges them.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
@@ -372,32 +372,25 @@ if out="$(ratchet)"; then fail "an array or Data index, or an inferred read, pas
 g reset -q
 reset
 
-# 20. The Invariant API (p10-stability-099): with invariant_check and dump_will_be_check banned, a
-#    check or dumpWillBeCheck site passes only with an allowlist entry (an inline crash-allow does not
-#    waive it); notFatalUntil is not a class, and a doc comment that names a call never counts.
+# 20. The Invariant API (p10-stability-099, 199): invariant_check and dump_will_be_check are report-only, so the CI
+#    compare passes a check or dumpWillBeCheck site with no crash-allowlist entry, even when the allowlist names the
+#    classes as banned (an unknown class bans nothing); --report counts each once. notFatalUntil is not a class, and a
+#    doc comment that names a call never counts. guardrails.py's local-only invariant-site rule judges the sites.
 cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
 {"banned": ["swift.as_bang", "swift.objc_selector", "swift.invariant_check", "swift.dump_will_be_check"], "allow": []}
 JSON
 cat > "$app/Sources/M/A.swift" <<'SWIFT'
 /// Invariant.check(a, "doc") in a doc comment.
 Invariant.notFatalUntil(ok, "tab-in-workspace", build: 100)
-Invariant.check(ok, "persisted-order") // crash-allow: an inline escape does not waive a ban
+Invariant.check(ok, "persisted-order")
 Invariant.dumpWillBeCheck(ok, "cache-coherent")
 SWIFT
 g add -A
-if out="$(ratchet)"; then fail "an unlisted Invariant.check or dumpWillBeCheck passed: $out"; fi
-[[ "$out" == *"banned invariant_check in Packages/macOS/CmuxNext/Sources/M/A.swift: 1 hit(s)"* ]] \
-    || fail "the check site is not reported once: $out"
-[[ "$out" == *"banned dump_will_be_check in Packages/macOS/CmuxNext/Sources/M/A.swift: 1 hit(s)"* ]] \
-    || fail "the dumpWillBeCheck site is not reported once: $out"
-cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
-{"banned": ["swift.as_bang", "swift.objc_selector", "swift.invariant_check", "swift.dump_will_be_check"],
- "allow": [{"path": "Packages/macOS/CmuxNext/Sources/M/A.swift", "class": "swift.invariant_check", "count": 1,
-            "reason": "fixture: going on would write a corrupt order file", "reviewer": "crash-lead"},
-           {"path": "Packages/macOS/CmuxNext/Sources/M/A.swift", "class": "swift.dump_will_be_check", "count": 1,
-            "reason": "fixture: the cache rebuilds", "reviewer": "crash-lead"}]}
-JSON
-out="$(ratchet)" || fail "allowlisted Invariant sites did not pass: $out"
+out="$(ratchet)" || fail "the CI compare judged an Invariant site: $out"
+out="$(python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --report invariant_check,dump_will_be_check)" \
+    || fail "--report invariant_check,dump_will_be_check failed: $out"
+counts="$(printf '%s' "$out" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["invariant_check"]["total"], d["dump_will_be_check"]["total"])')"
+[[ "$counts" == "1 1" ]] || fail "the Invariant sites are not reported once each: $out"
 g reset -q
 reset
 

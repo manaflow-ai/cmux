@@ -26,6 +26,17 @@ extension AppServices {
         return folder
     }
 
+    /// Chromium's spare policy from the features, before anything can start Chromium: its switches read
+    /// them at start (`CEFRuntime.initialize`), and the first spare window its placeholder's kind.
+    func configureChromiumSpares() {
+        let spareAfterFirstTab = features.isEnabled(.chromiumSpareAfterFirstTab)
+        cache.cef.spareAfterFirstTab = { spareAfterFirstTab }
+        // A spare's placeholder has no renderer where the fork can (p13-webui-019).
+        cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
+        // At most one Chromium spare renderer: Chromium's own, or the placeholder's (p07-memory-113).
+        cache.cef.setOneSpareRenderer(features.isEnabled(.chromiumOneSpareRenderer))
+    }
+
     /// Starts the launch preload and the pages spare's engine follow; the likelihood hint is its own launch start
     /// (``LaunchStart/chromiumLikely``), after the reveal with feature `launchStartDeferral`. With the Chromium Host,
     /// Chromium's start holds the main thread only for its shim calls (the host spawns and attaches off main, the
@@ -60,8 +71,6 @@ extension AppServices {
         // cmux pages follow `browser.defaultEngine` (ChromiumPageHost): with the feature, their profile
         // keeps a spare window too, so a page's key joins a live window (p13-webui-016).
         let pagesSpare = features.isEnabled(.pagesSpareWindow)
-        // Before the first spare: its placeholder has no renderer where the fork can (p13-webui-019).
-        cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
         #if DEBUG || CMUX_BENCH_HOOKS
         let hostNoSpareWindow = features.isEnabled(.chromiumHostNoSpareWindow)  // the bench's no spare window arm (p01-process-086)
         #else
@@ -204,13 +213,13 @@ extension AppServices {
     }
 
     /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine
-    /// built, before CefInitialize can run: the crash log's writer, the renderer stability events, the run marker's and
-    /// Sentry's signal handlers (Chromium resets them at start), the assistive-client switch of Chromium's accessibility
-    /// trees; then `routes`.
+    /// built, before CefInitialize can run: the crash log's writer and helper-exit events, the renderer stability events,
+    /// the run marker's and Sentry's signal handlers (Chromium resets them at start), the assistive-client switch of
+    /// Chromium's accessibility trees; then `routes`.
     static func chromiumEngineHook(crashRecovery: CrashRecoveryService, reporter: CrashReporter, stability: RendererStability,
                                    routes: @escaping (CEFEngine) -> Void) -> (CEFEngine) -> Void {
         { engine in
-            crashRecovery.observe(engine.crashLog)
+            crashRecovery.observe(engine.crashLog, reporter: reporter)
             engine.rendererStability = stability
             AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: engine, reporter: reporter)
             (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak engine] active in engine?.setAssistiveClientActive(active) }
