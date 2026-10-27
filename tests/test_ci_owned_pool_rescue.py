@@ -1557,6 +1557,38 @@ class StrandedCancel(unittest.TestCase):
         self.assertEqual(rescue.rerun_intended(cancelled, cancelled.run(RUN_ID), 1, clock.sleep, lines.append), "")
         self.assertTrue(any("left cancelled" in line for line in lines), lines)
 
+    def test_a_re_run_rescue_workflow_keeps_its_earlier_attempts_marks(self):
+        # The sweeper run was re-run: attempt 1 (SENT, then stopped) is finished, attempt 2 runs. Both are read.
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        asked = []
+        runs = {"workflow_runs": [{"id": 3, "status": "in_progress", "conclusion": None, "run_attempt": 2,
+                                   "run_started_at": stamp(-60), "updated_at": stamp(0)}]}
+
+        def request(method, path, **_):
+            asked.append(path)
+            if path.startswith("/actions/workflows/"):
+                return runs if "&page=1&" in path else {}
+            attempt = int(path.split("/attempts/")[1].split("/")[0])
+            return {"jobs": [{"id": 30 + attempt, "status": "in_progress" if attempt == 2 else "completed",
+                              "conclusion": None if attempt == 2 else "cancelled"}]}
+        api.request = request
+        self.assertEqual(api.rescue_jobs(START - dt.timedelta(seconds=600)), [31])
+        self.assertNotIn("status=completed", asked[0])
+        self.assertEqual([path for path in asked if "/attempts/" in path],
+                         ["/actions/runs/3/attempts/2/jobs?per_page=20", "/actions/runs/3/attempts/1/jobs?per_page=20"])
+
+    def test_a_cancel_after_the_watch_looked_is_never_re_run(self):
+        # The watch found a refusal; before rescue() read the run, someone cancelled it. No cancel was this rescue's.
+        clock = Clock()
+        api = CancelledAPI(clock, cancelled=True, note="The run was canceled by @leo.")
+        clock.sleep(60)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        for refused in (True, None):
+            result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                                   failed_only=True, refused=refused, refusal=True)
+            self.assertEqual(result, "not rescued: the run was cancelled meanwhile; left cancelled", refused)
+        self.assertEqual(mutations(api), [])
+
     def test_a_janitor_cancel_by_the_same_bot_stays_cancelled(self):
         # The queue janitor cancels as cmux-bot too (a superseded DEV run that never started, an orphan): no rescue
         # sent a cancel of this run's attempt, or it settled that cancel (re-ran it, or left it for a moved head).
@@ -1685,13 +1717,13 @@ class StrandedCancel(unittest.TestCase):
             asked.append(path)
             if path.startswith("/actions/workflows/"):
                 return runs if "&page=1&" in path else {}
-            return {"jobs": [{"id": int(path.split("/")[3]) * 10 + 1, "conclusion": "cancelled"}]}
+            return {"jobs": [{"id": int(path.split("/")[3]) * 10 + 1, "status": "completed", "conclusion": "cancelled"}]}
         api.request = request
         # Run 1 was alive at the cancel; run 4 started later (a successor that may have settled it); run 2 ended
         # before the cancel and run 3 was skipped.
         self.assertEqual(api.rescue_jobs(START - dt.timedelta(seconds=1200)), [11, 41])
         self.assertEqual([path for path in asked if not path.startswith("/actions/workflows/")],
-                         ["/actions/runs/1/jobs?per_page=20", "/actions/runs/4/jobs?per_page=20"])
+                         ["/actions/runs/1/attempts/1/jobs?per_page=20", "/actions/runs/4/attempts/1/jobs?per_page=20"])
         # A five-hour sweeper that rescued near its end is in the window, even one that first waited behind another.
         since = (START - dt.timedelta(seconds=1200 + 2 * rescue.RESCUE_JOB_LIFETIME_SECONDS)).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.assertIn(f"created=%3E%3D{since}", asked[0])
@@ -1712,7 +1744,7 @@ class StrandedCancel(unittest.TestCase):
                 since = rescue.urllib.parse.unquote(path.split("created=")[1])[2:]
                 return runs if "&page=1&" in path and \
                     created >= dt.datetime.fromisoformat(since.replace("Z", "+00:00")) else {}
-            return {"jobs": [{"id": 11, "conclusion": "cancelled"}]}
+            return {"jobs": [{"id": 11, "status": "completed", "conclusion": "cancelled"}]}
         api.request = request
         self.assertEqual(api.rescue_jobs(end - dt.timedelta(seconds=rescue.CANCEL_WAIT_SECONDS)), [11])
 
@@ -1728,7 +1760,7 @@ class StrandedCancel(unittest.TestCase):
                          2: [{"id": 500, "conclusion": "cancelled", "run_started_at": stamp(-60),
                               "updated_at": stamp(0)}]}
                 return {"workflow_runs": found.get(page, [])}
-            return {"jobs": [{"id": 77, "conclusion": "cancelled"}]}
+            return {"jobs": [{"id": 77, "status": "completed", "conclusion": "cancelled"}]}
         api.request = request
         self.assertEqual(api.rescue_jobs(START), [77])
         self.assertEqual(pages, [1, 2, 3])
