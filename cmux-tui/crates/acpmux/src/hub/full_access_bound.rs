@@ -373,9 +373,9 @@ impl Hub {
     /// restart left, by what that host reported since it started (`reported_by_left_host`). Once
     /// that read finds no full access, what this daemon keeps is complete (every later report
     /// reaches it live), so the log is read once per host, not at each check
-    /// (`FloorState::left_host_read`, cleared at each `host_started`), and only when the host
-    /// records could be read (review 69): records that could not may leave a live host unproven, so
-    /// its log is read again at the next check. A host whose own record this build cannot read is
+    /// (`FloorState::left_host_read`, cleared at each `host_started`), kept and trusted only while
+    /// the host records can be read (review 69): records that cannot may leave a live host
+    /// unproven, so its log is read again at each check meanwhile. A host whose own record this build cannot read is
     /// never adopted, so its log does not hear what it did since: under MDM's off it counts as in
     /// full access (review 2 of #26055). A log that cannot be read
     /// says nothing either way: under MDM's off the host counts as in full access (review 61).
@@ -395,13 +395,15 @@ impl Hub {
         if runs_full_access(&FullAccessView::of_session(session)).is_some() {
             return true;
         }
-        if records.is_some_and(|r| !r.live.contains(&session.id))
-            || session.floor.left_host_read.load(Ordering::SeqCst)
-        {
+        if records.is_some_and(|r| !r.live.contains(&session.id)) {
             return false;
         }
         if records.is_some_and(|r| r.unreadable.contains(&session.id)) {
             return true;
+        }
+        // A kept read holds only while the records can be read (review 2 of #26055).
+        if records.is_some() && session.floor.left_host_read.load(Ordering::SeqCst) {
+            return false;
         }
         let reported = self
             .reported_by_left_host(session)
