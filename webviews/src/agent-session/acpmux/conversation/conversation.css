@@ -3503,10 +3503,8 @@ a.cv-sha:focus-visible {
 .acpmux-scroll[data-fade-bottom] {
   --acpmux-fade-bottom: 18px;
 }
-/* Jump to latest (12px up, 32px tall) stands in the bottom band: the fade runs a gap past its top. */
-.acpmux-scroll[data-fade-bottom][data-jump-shown] {
-  --acpmux-fade-bottom: 56px;
-}
+/* Jump to latest keeps its own glass. It does not widen the transcript's soft edge: a 56px band
+   washed out almost three lines above the composer (Leo, 2026-10-27). */
 /* Find in Chat's bar sits in the top band: it keeps full ink, and rows pass under it. */
 .acpmux-scroll[data-fade-top]:has(> .acpmux-find) {
   --acpmux-fade-top: 0px;
