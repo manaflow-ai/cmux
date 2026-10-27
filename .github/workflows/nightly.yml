@@ -294,15 +294,14 @@ jobs:
           # nothing (cx-f58x: every nightly-next DMG got notary status 7000
           # "Team is not yet configured for notarization" from 2026-10-07 12:34Z).
           NIGHTLY_NEXT_NOTARY_PAUSED: ${{ vars.NIGHTLY_NEXT_NOTARY_PAUSED || '' }}
-          # The one nightly-next writer (cx-f76kf): `mac` (this workflow), `linux` (the HQ
-          # Linux pipeline) or `none` (stop the line). Anything but `mac` here: no build and
-          # nothing published; publish-nightly reads it again live before the first write.
-          # Never delete it. Rollback to the Mac: gh variable set NIGHTLY_NEXT_WRITER -R manaflow-ai/cmux --body mac
-          NIGHTLY_NEXT_WRITER: ${{ vars.NIGHTLY_NEXT_WRITER || '' }}
-          # Transition week only (cx-f76kf, until 2026-10-23; NIGHTLY_NEXT_WRITER replaces it):
-          # `1` also holds nightly-next (2026-10-10: the feat-cmux-next tip app trapped at launch).
-          # Clear: gh variable set NIGHTLY_NEXT_HOLD --body 0.
-          NIGHTLY_NEXT_HOLD: ${{ vars.NIGHTLY_NEXT_HOLD || '' }}
+          # The one nightly-next writer (cx-f76kf): `mac` (this workflow, also when the
+          # variable is unset; the vars context gives '' then, so an empty value reads as
+          # unset here and the final gate, reading it live, refuses it), `linux` (the HQ
+          # Linux pipeline) or `none` (stop the line).
+          # Anything but `mac` here: no build and nothing published; publish-nightly reads
+          # it again live before the first write. The transition-week NIGHTLY_NEXT_HOLD
+          # (cx-f76kf, until 2026-10-23) is retired: `none` stops the line.
+          NIGHTLY_NEXT_WRITER: ${{ vars.NIGHTLY_NEXT_WRITER || 'mac' }}
           # `1` stops EVERY nightly-next notary submission, including builds
           # without the import and notary tests, while Apple's queue for the
           # team is stuck (2026-10-09: all submissions In Progress since
@@ -662,18 +661,14 @@ jobs:
             // NIGHTLY_NEXT_WRITER governs publication: a nightly-next run that
             // publishes builds only while the Mac is the writer. Runs that never
             // publish (build-only, fast, notary test and probe dispatches) still build.
-            const nextWriter = (process.env.NIGHTLY_NEXT_WRITER || '').trim();
+            const nextWriter = (process.env.NIGHTLY_NEXT_WRITER || 'mac').trim();
             const notaryDispatchInput = ['NOTARY_TEST_PASSWORDS', 'NOTARY_TEST_BROWSER_DATA', 'NOTARY_PROBE'].some((name) => process.env[name] === 'true')
               || (process.env.NOTARY_IMPORT_PART || 'none') !== 'none';
             const nextNotWriter = track === 'nightly-next' && shouldPublish && !notaryDispatchInput && nextWriter !== 'mac';
             if (nextNotWriter) {
               core.warning(`nightly-next writer is '${nextWriter || '<unset>'}' (repository variable NIGHTLY_NEXT_WRITER), not mac: this Mac pipeline builds and publishes nothing. Make the Mac the writer: gh variable set NIGHTLY_NEXT_WRITER -R manaflow-ai/cmux --body mac`);
             }
-            const nextHold = track === 'nightly-next' && process.env.NIGHTLY_NEXT_HOLD === '1';
-            if (nextHold) {
-              core.warning('nightly-next is on hold (repository variable NIGHTLY_NEXT_HOLD=1): the 2026-10-10 hold followed a feat-cmux-next launch SIGTRAP; no build or publication runs until the signed artifact passes static verification. Clear it with: gh variable set NIGHTLY_NEXT_HOLD --body 0 --repo manaflow-ai/cmux');
-            }
-            core.setOutput('should_build', shouldBuild && !pushThrottled && !nextNotWriter && !nextHold ? 'true' : 'false');
+            core.setOutput('should_build', shouldBuild && !pushThrottled && !nextNotWriter ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
             core.setOutput('force', forceBuild ? 'true' : 'false');
             core.setOutput('short_sha', headSha.slice(0, 7));
@@ -757,9 +752,6 @@ jobs:
               core.notice('nightly-next notarization is paused (repository variable NIGHTLY_NEXT_NOTARY_PAUSED=1) for a build that includes the browser import: this run builds and signs, stops before the notary submission and publishes nothing.');
             }
             const nightlyNextSafetyRows = track === 'nightly-next' ? [
-              [{data: 'publication hold', header: true}, nextHold
-                ? 'ACTIVE — set after the 2026-10-10 feat-cmux-next launch SIGTRAP (69be4c7e0c5); no build or publication.'
-                : 'inactive'],
               [{data: 'required hold verification', header: true}, 'The signed artifact must pass deterministic checks before notarization and publication.'],
               [{data: 'NIGHTLY_NEXT_NOTARY_PAUSED', header: true}, process.env.NIGHTLY_NEXT_NOTARY_PAUSED === '1'
                 ? browserDataOut
@@ -5389,7 +5381,7 @@ jobs:
       already_published: ${{ steps.recheck.outputs.already_published == 'true' || steps.gate.outputs.refused == 'true' }}
       # The final gate refused: a recovered build failed its lineage check, or
       # this pipeline is not the nightly-next writer (NIGHTLY_NEXT_WRITER read
-      # live is not mac, or is unreadable; or NIGHTLY_NEXT_HOLD is 1).
+      # live is not mac, or is unreadable).
       refused: ${{ steps.gate.outputs.refused }}
       refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
       # For publish-nightly-next-github: what to publish and the release body's parts.
@@ -5659,11 +5651,10 @@ jobs:
           repositories: ${{ github.event.repository.name }}
 
       # Last check before the first write to the release or the feed. On
-      # nightly-next, NIGHTLY_NEXT_WRITER read live must be mac: none, linux,
-      # anything else, empty, unset or unreadable refuses. For the transition
-      # week (until 2026-10-23) NIGHTLY_NEXT_HOLD=1 (or unreadable, but not
-      # unset) also refuses. A recovered build is checked again against the
-      # live feed: it must contain NIGHTLY_LEGACY_REQUIRED_COMMITS and descend
+      # nightly-next, NIGHTLY_NEXT_WRITER read live must be mac or unset: none
+      # and linux stand down; anything else, empty or unreadable refuses. A
+      # recovered build is checked again against the live feed: it must
+      # contain NIGHTLY_LEGACY_REQUIRED_COMMITS and descend
       # from the commit the NEXT feed serves. A refusal publishes nothing and
       # is not a failure.
       - name: Final publication gate
