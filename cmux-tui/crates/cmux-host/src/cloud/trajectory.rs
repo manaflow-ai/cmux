@@ -101,7 +101,10 @@ pub struct Remote {
 enum Reply {
     Ok(Value),
     /// A `cloud.trajectory.*` answer about this chat's copy.
-    Refused { code: String, details: Value },
+    Refused {
+        code: String,
+        details: Value,
+    },
     /// A 4xx about the request itself (a record too large, say): retrying the same request is no use.
     Invalid(String),
     Failed(String),
@@ -116,7 +119,10 @@ fn reply(answer: Answer) -> Reply {
             }
             let code = body.field("error").field("code").as_str().unwrap_or("").to_owned();
             if code.starts_with("cloud.trajectory.") {
-                return Reply::Refused { code, details: body.field("error").field("details").clone() };
+                return Reply::Refused {
+                    code,
+                    details: body.field("error").field("details").clone(),
+                };
             }
             match status {
                 400 | 413 => Reply::Invalid(format!("HTTP {status} {code}")),
@@ -229,7 +235,10 @@ impl Mirror {
                 continue;
             }
             if *remote.meta.field("harness") == "cmux-harness" {
-                (self.log)(&format!("trajectory {}: cmux-harness chats are not restored", remote.session));
+                (self.log)(&format!(
+                    "trajectory {}: cmux-harness chats are not restored",
+                    remote.session
+                ));
                 continue;
             }
             self.pending.push((remote, 0));
@@ -263,10 +272,15 @@ impl Mirror {
                     ));
                 }
                 Err(e) if tries + 1 < RESTORE_TRIES => {
-                    (self.log)(&format!("trajectory {}: restore failed, will retry: {e}", remote.session));
+                    (self.log)(&format!(
+                        "trajectory {}: restore failed, will retry: {e}",
+                        remote.session
+                    ));
                     self.pending.push((remote, tries + 1));
                 }
-                Err(e) => (self.log)(&format!("trajectory {}: restore failed: {e}", remote.session)),
+                Err(e) => {
+                    (self.log)(&format!("trajectory {}: restore failed: {e}", remote.session))
+                }
             }
         }
         imported
@@ -362,7 +376,9 @@ impl Mirror {
         let meta_text = serde_json::to_string(meta).unwrap_or_default();
         let meta_changed = track.meta.as_deref() != Some(meta_text.as_str());
         let send_meta = meta_changed
-            && (!lines.is_empty() || track.last_seq == 0 || now >= track.meta_sent_at + META_EVERY_MS);
+            && (!lines.is_empty()
+                || track.last_seq == 0
+                || now >= track.meta_sent_at + META_EVERY_MS);
         if lines.is_empty() && (!send_meta || track.last_seq == 0) {
             // Every record read is kept: the next pass reads from past them.
             track.pos = end;
@@ -376,7 +392,9 @@ impl Mirror {
             "lines": lines.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(),
         });
         if send_meta || track.last_seq == 0 {
-            body["meta"] = meta.clone();
+            if let Some(fields) = body.as_object_mut() {
+                fields.insert("meta".to_owned(), meta.clone());
+            }
         }
         match reply(api.call("append", &body)) {
             Reply::Ok(v) => {
@@ -411,8 +429,7 @@ impl Mirror {
         let home = self.layout.home.clone();
         let log = self.log;
         let Some(track) = self.tracks.get_mut(id) else { return Pass::Idle };
-        if track.located.is_empty()
-            && track.located_at.is_none_or(|at| now >= at + LOCATE_EVERY_MS)
+        if track.located.is_empty() && track.located_at.is_none_or(|at| now >= at + LOCATE_EVERY_MS)
         {
             track.located = locate_native(&home, meta);
             track.located_at = Some(now);
@@ -436,7 +453,7 @@ impl Mirror {
                 None if bytes.len() as u64 == NATIVE_PASS_BYTES => bytes.len(),
                 None => continue,
             };
-            for chunk in bytes[..end].chunks(NATIVE_CHUNK) {
+            for chunk in bytes.get(..end).unwrap_or_default().chunks(NATIVE_CHUNK) {
                 let body = json!({
                     "session": id,
                     "generation": track.generation,
@@ -452,7 +469,7 @@ impl Mirror {
                     }
                     Reply::Refused { code, details } if code == "cloud.trajectory.offset" => {
                         let size = details.field("size").as_u64().unwrap_or(0);
-                        track.native.insert((label.clone(), rel.clone()), size);
+                        track.native.insert((label, rel), size);
                         return Pass::More;
                     }
                     Reply::Refused { code, .. } if code == "cloud.trajectory.disabled" => {
@@ -460,7 +477,9 @@ impl Mirror {
                     }
                     Reply::Refused { code: why, .. } | Reply::Invalid(why) => {
                         track.native_stuck = true;
-                        log(&format!("trajectory {id}: {rel}: {why}; its resume file is no longer kept"));
+                        log(&format!(
+                            "trajectory {id}: {rel}: {why}; its resume file is no longer kept"
+                        ));
                         return Pass::Idle;
                     }
                     Reply::Failed(why) => return Pass::Failed(why),
@@ -621,7 +640,8 @@ fn segments(events: &Path) -> io::Result<Vec<(u32, PathBuf)>> {
     };
     for entry in rd.flatten() {
         let name = entry.file_name();
-        let Some(index) = name.to_str().and_then(|n| n.strip_suffix(".ndjson")).and_then(|s| s.parse().ok())
+        let Some(index) =
+            name.to_str().and_then(|n| n.strip_suffix(".ndjson")).and_then(|s| s.parse().ok())
         else {
             continue;
         };
@@ -662,12 +682,14 @@ fn read_after(
                 break;
             }
             offset += n as u64;
-            let text = String::from_utf8_lossy(&line[..n - 1]).into_owned();
+            let text =
+                String::from_utf8_lossy(line.strip_suffix(b"\n").unwrap_or(&line)).into_owned();
             if text.trim().is_empty() {
                 continue;
             }
-            let seq = line_seq(&text)
-                .ok_or_else(|| io::Error::other(format!("{} has a line without a seq", path.display())))?;
+            let seq = line_seq(&text).ok_or_else(|| {
+                io::Error::other(format!("{} has a line without a seq", path.display()))
+            })?;
             if seq < expect {
                 // Already kept: the read position moves past it.
                 end = Some((index, offset));
@@ -702,11 +724,13 @@ const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 pub fn encode_base64(data: &[u8]) -> String {
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [0, 1, 2].map(|i| chunk.get(i).copied().unwrap_or(0));
         let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         for i in 0..4 {
             if i <= chunk.len() {
-                out.push(char::from(B64[(n >> (18 - 6 * i)) as usize & 63]));
+                out.push(char::from(
+                    B64.get((n >> (18 - 6 * i)) as usize & 63).copied().unwrap_or(b'='),
+                ));
             } else {
                 out.push('=');
             }

@@ -118,7 +118,11 @@ impl Api for FakeServer {
                     } else if seq == kept.lines.len() + 1 {
                         kept.lines.push(line.to_owned());
                     } else {
-                        return refuse(409, "cloud.trajectory.gap", json!({ "last_seq": kept.lines.len() }));
+                        return refuse(
+                            409,
+                            "cloud.trajectory.gap",
+                            json!({ "last_seq": kept.lines.len() }),
+                        );
                     }
                 }
                 ok(json!({ "last_seq": kept.lines.len() }))
@@ -127,7 +131,10 @@ impl Api for FakeServer {
                 let Some(kept) = sessions.get_mut(&session) else {
                     return refuse(404, "cloud.trajectory.not_found", Value::Null);
                 };
-                let key = (body["label"].as_str().unwrap().to_owned(), body["path"].as_str().unwrap().to_owned());
+                let key = (
+                    body["label"].as_str().unwrap().to_owned(),
+                    body["path"].as_str().unwrap().to_owned(),
+                );
                 assert!(native_path(&key.0, &key.1), "{key:?}");
                 let offset = body["offset"].as_u64().unwrap() as usize;
                 let data = decode_base64(body["data"].as_str().unwrap()).unwrap();
@@ -153,7 +160,10 @@ impl Api for FakeServer {
             }
             "native-read" => {
                 let kept = &sessions[&session];
-                let key = (body["label"].as_str().unwrap().to_owned(), body["path"].as_str().unwrap().to_owned());
+                let key = (
+                    body["label"].as_str().unwrap().to_owned(),
+                    body["path"].as_str().unwrap().to_owned(),
+                );
                 let file = &kept.native[&key];
                 let offset = body["offset"].as_u64().unwrap() as usize;
                 let end = file.len().min(offset + 5);
@@ -190,7 +200,8 @@ impl Machine {
     fn write_meta(&self, id: &str, last_seq: u64, created: u64) {
         let meta = meta(id, last_seq, created, &self.layout.home);
         fs::create_dir_all(self.session_dir(id).join("events")).unwrap();
-        fs::write(self.session_dir(id).join("session.json"), serde_json::to_vec(&meta).unwrap()).unwrap();
+        fs::write(self.session_dir(id).join("session.json"), serde_json::to_vec(&meta).unwrap())
+            .unwrap();
     }
 
     /// Appends raw text to one log segment (acpmux's append).
@@ -376,7 +387,9 @@ impl Importer for FakeAcpmux {
         let last = log.lines().filter_map(line_seq).max().unwrap();
         log.push_str(&format!("{}\n", line(last + 1)));
         fs::write(dir.join("events/000001.ndjson"), log).unwrap();
-        let native = bundle.join("native/claude-project/.claude/projects/-work").join(format!("{SID}.jsonl"));
+        let native = bundle
+            .join("native/claude-project/.claude/projects/-work")
+            .join(format!("{SID}.jsonl"));
         let target = self.layout.home.join(".claude/projects/-work").join(format!("{SID}.jsonl"));
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::copy(native, target).unwrap();
@@ -414,7 +427,8 @@ fn a_replacement_machine_restores_the_chat_and_the_chat_continues() {
     second.write_meta("chat-own", 1, CREATED);
     second.append("chat-own", 1, &lines(1, 1));
     server.as_machine("m2", Some("m1"));
-    let mut acpmux = FakeAcpmux { layout: second.layout.clone(), running: false, fail: 0, imported: vec![] };
+    let mut acpmux =
+        FakeAcpmux { layout: second.layout.clone(), running: false, fail: 0, imported: vec![] };
     let mut replacement = second.mirror();
     // chat-a waits; the cmux-harness chat is not restored (its journal is not bundled).
     assert_eq!(replacement.prime(&mut server).unwrap(), 1);
@@ -426,7 +440,8 @@ fn a_replacement_machine_restores_the_chat_and_the_chat_continues() {
     assert_eq!(acpmux.imported, vec!["chat-a"]);
     assert!(!second.layout.staging.join("chat-a").exists(), "the stage is removed");
     assert_eq!(fs::read(second.claude_file()).unwrap(), b"{\"turn\":1}\n{\"turn\":2}\n");
-    let restored = fs::read_to_string(second.session_dir("chat-a").join("events/000001.ndjson")).unwrap();
+    let restored =
+        fs::read_to_string(second.session_dir("chat-a").join("events/000001.ndjson")).unwrap();
     assert!(restored.starts_with(&lines(1, 5)), "the history is intact, verbatim");
 
     // The chat continues on the replacement, into the replacement's own copy.
@@ -435,7 +450,10 @@ fn a_replacement_machine_restores_the_chat_and_the_chat_continues() {
     assert_eq!(replacement.sync(&mut server, 10), Pass::Idle);
     assert_eq!(kept_lines(&server, "chat-a"), (1..=7).map(line).collect::<Vec<_>>());
     let key = ("claude-project".to_owned(), format!(".claude/projects/-work/{SID}.jsonl"));
-    assert_eq!(server.sessions()["chat-a"].native[&key], b"{\"turn\":1}\n{\"turn\":2}\n{\"turn\":3}\n");
+    assert_eq!(
+        server.sessions()["chat-a"].native[&key],
+        b"{\"turn\":1}\n{\"turn\":2}\n{\"turn\":3}\n"
+    );
     assert_eq!(kept_lines(&server, "chat-own"), vec![line(1)]);
     // The source's copy is untouched.
     assert_eq!(server.stores["m1"]["chat-a"].lines.len(), 5);
@@ -451,7 +469,8 @@ fn a_failed_import_is_tried_again_and_a_chat_on_the_snapshot_disk_is_not_importe
     let _first = first_machine(&mut server);
     let second = Machine::new();
     server.as_machine("m2", Some("m1"));
-    let mut acpmux = FakeAcpmux { layout: second.layout.clone(), running: true, fail: 1, imported: vec![] };
+    let mut acpmux =
+        FakeAcpmux { layout: second.layout.clone(), running: true, fail: 1, imported: vec![] };
     let mut replacement = second.mirror();
     assert_eq!(replacement.prime(&mut server).unwrap(), 1);
     assert_eq!(replacement.restore(&mut server, &mut acpmux), 0);
@@ -535,10 +554,20 @@ fn a_restore_keeps_only_whole_lines_of_a_resume_file_cut_mid_line() {
     let _first = first_machine(&mut server);
     // The machine was lost between two parts of a long line.
     let key = ("claude-project".to_owned(), format!(".claude/projects/-work/{SID}.jsonl"));
-    server.stores.get_mut("m1").unwrap().get_mut("chat-a").unwrap().native.get_mut(&key).unwrap().extend_from_slice(b"{\"turn\":3,");
+    server
+        .stores
+        .get_mut("m1")
+        .unwrap()
+        .get_mut("chat-a")
+        .unwrap()
+        .native
+        .get_mut(&key)
+        .unwrap()
+        .extend_from_slice(b"{\"turn\":3,");
     let second = Machine::new();
     server.as_machine("m2", Some("m1"));
-    let mut acpmux = FakeAcpmux { layout: second.layout.clone(), running: true, fail: 0, imported: vec![] };
+    let mut acpmux =
+        FakeAcpmux { layout: second.layout.clone(), running: true, fail: 0, imported: vec![] };
     let mut replacement = second.mirror();
     assert_eq!(replacement.prime(&mut server).unwrap(), 1);
     assert_eq!(replacement.restore(&mut server, &mut acpmux), 1);

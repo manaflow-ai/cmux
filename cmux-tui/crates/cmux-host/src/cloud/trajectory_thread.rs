@@ -11,8 +11,8 @@
 //! later request fail at once and waits up to [`STOP_WAIT`] for the one in
 //! flight, so no request is held open into a snapshot.
 
-use std::os::unix::process::CommandExt;
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -154,7 +154,9 @@ fn run<H: Http>(
                 Ok(waiting) => {
                     primed = true;
                     if waiting > 0 {
-                        log(&format!("trajectory: {waiting} chats of the restore source to import"));
+                        log(&format!(
+                            "trajectory: {waiting} chats of the restore source to import"
+                        ));
                     }
                 }
                 Err(Pass::Disabled) => {
@@ -255,7 +257,8 @@ impl Importer for AcpmuxImporter {
             .env("LOGNAME", &self.user)
             .env(
                 "PATH",
-                std::env::var("PATH").unwrap_or_else(|_| crate::daemon_spec::DEFAULT_PATH.to_owned()),
+                std::env::var("PATH")
+                    .unwrap_or_else(|_| crate::daemon_spec::DEFAULT_PATH.to_owned()),
             )
             .current_dir(&self.home)
             .stdin(Stdio::null())
