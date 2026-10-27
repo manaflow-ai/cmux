@@ -83,6 +83,18 @@ final class TipUpdateCheck {
         }
     }
 
+    /// The release push (``UpdaterService/releasePushed(_:)``): read the feed now instead of at the
+    /// interval's deadline. Joins a read in flight; nothing reads where the interval's read would not.
+    /// Returns whether a read runs.
+    @discardableResult
+    func readNow(_ updater: UpdaterService) -> Bool {
+        guard task == nil else { return true }
+        guard mayCheck(updater) else { return false }
+        timer.cancel()
+        run(updater)
+        return task != nil
+    }
+
     private func mayCheck(_ updater: UpdaterService) -> Bool {
         guard Self.interval(for: updater.identity) != nil, automatic, updater.isStarted, updater.disabledReason == nil,
               !updater.flow.installRequested, !updater.isSheetPresented(), downloads(updater) else { return false }
@@ -92,7 +104,7 @@ final class TipUpdateCheck {
         }
     }
 
-    private func downloads(_ updater: UpdaterService) -> Bool {
+    func downloads(_ updater: UpdaterService) -> Bool {
         if let downloadsInBackground { return downloadsInBackground() }
         return updater.controller?.downloadsUpdatesInBackground ?? false
     }

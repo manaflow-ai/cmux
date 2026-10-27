@@ -87,6 +87,12 @@ def env(**overrides: str) -> dict:
     return {"SIDE_LABEL": SIDE, "JOBS": " ".join(JOBS), "GITHUB_RUN_ATTEMPT": "1", **overrides}
 
 
+def placed_in(attempt: str, actor: str) -> str:
+    """The attempt macos-placement last ran in: it runs on attempt 1 and on the rescue's attempt 2
+    (github-actions[bot]); any other attempt carries an earlier attempt's job, outputs and all."""
+    return attempt if attempt == "1" or attempt == "2" and actor == "github-actions[bot]" else "1"
+
+
 class Decide(unittest.TestCase):
     def setUp(self):
         self.assertIsNotNone(placement, "scripts/ci/side_lane_placement.py is missing")
@@ -603,7 +609,8 @@ class CmuxNextWiring(unittest.TestCase):
                                                          "labels": [{"name": "full-ci"}]}})
         outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner,
                                                     "gui_runner": GUI if runner else "",
-                                                    "session_runner": GUI if runner else ""}
+                                                    "session_runner": GUI if runner else "",
+                                                    "placed_attempt": placed_in(attempt, triggering_actor)}
         # path_route (#17164) gates every Mac job; these cases are native changes.
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
@@ -720,10 +727,12 @@ class CmuxNextWiring(unittest.TestCase):
                     unplaced = self.context(attempt, triggering_actor=bot)
                     unplaced["needs"] = {}
                     self.assertFalse(str(evaluate(runs_on, unplaced)).startswith("glaeda-"), (name, attempt))
-                # A free Blacksmith slot the placement found takes the overflow.
-                free = self.context("3", runner=STD, triggering_actor=bot)
-                free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
-                self.assertEqual(evaluate(runs_on, free), FALLBACK)
+                # The placement never runs on attempt 3, so a retry label there was read in an earlier
+                # attempt (a re-run of failed jobs carries it): stale, so the owned fallback, never it
+                # (run 40398277457, 2026-10-26: a 39-minute-old slot, then 55 minutes with no runner).
+                stale = self.context("3", runner=STD, triggering_actor=bot)
+                stale["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
+                self.assertEqual(evaluate(runs_on, stale), overflow(name))
                 # A person's re-run stays minis-first at any attempt.
                 self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)), on(name, STD))
 
