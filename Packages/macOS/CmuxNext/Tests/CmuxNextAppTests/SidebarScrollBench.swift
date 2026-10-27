@@ -222,16 +222,18 @@ final class SidebarScrollBench {
     /// main-thread frames ("SSB" call tree lines, "SSB-TOP" top of stack). The wait for `sample`
     /// is bounded and off the main thread (`SelfSampler`).
     func profile(seconds: Int = 6, minimum: Int = 25) async throws {
-        let sampler = try SelfSampler(name: "sidebar-scroll", seconds: seconds)
-        try await Task.sleep(for: .milliseconds(500)) // bounded: lets sample attach before the scroll
-        var rounds = 0
-        let end = Date().addingTimeInterval(TimeInterval(seconds))
-        while Date() < end {
-            _ = run(step: 40, passes: 0)
-            rounds += 1
-            await Task.yield()
+        let (report, rounds) = try await SelfSampler.run(name: "sidebar-scroll", seconds: seconds) { _ in
+            try await Task.sleep(for: .milliseconds(500)) // bounded: lets sample attach before the scroll
+            var rounds = 0
+            let end = Date().addingTimeInterval(TimeInterval(seconds))
+            while Date() < end {
+                _ = run(step: 40, passes: 0)
+                rounds += 1
+                await Task.yield()
+            }
+            return rounds
         }
-        guard let text = await sampler.finish() else { return print("SIDEBAR-SCROLL-PROFILE no sample output") }
+        guard let text = report else { return print("SIDEBAR-SCROLL-PROFILE no sample output") }
         print("SIDEBAR-SCROLL-PROFILE n=\(count) rounds=\(rounds)")
         let lines = text.components(separatedBy: "\n")
         var inMain = false, printed = 0

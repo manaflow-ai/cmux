@@ -73,24 +73,25 @@ struct SidebarHugeGroupTests {
     func profile10k() async throws {
         let bench = SidebarScrollBench(count: 10_000, shape: .oneGroup)
         defer { bench.close() }
-        let sampler = try SelfSampler(name: "huge", seconds: 8)
-        try await Task.sleep(for: .milliseconds(500)) // bounded: lets sample attach
-        let end = Date().addingTimeInterval(8)
-        let id = GroupID("sb-g0")
-        while Date() < end {
-            _ = bench.model.setGroupCollapsed(id, true); bench.drain(); bench.drawFrame()
-            _ = bench.model.setGroupCollapsed(id, false); bench.drain(); bench.drawFrame()
-            var sections = bench.model.sections
-            if case var .group(group)? = sections.first?.nodes.first {
-                group.workspaces.insert(group.workspaces.removeLast(), at: 0)
-                sections[0].nodes[0] = .group(group)
-                bench.model.sections = sections
-                bench.sidebar.renderNow()
+        let (report, _) = try await SelfSampler.run(name: "huge", seconds: 8) { _ in
+            try await Task.sleep(for: .milliseconds(500)) // bounded: lets sample attach
+            let end = Date().addingTimeInterval(8)
+            let id = GroupID("sb-g0")
+            while Date() < end {
+                _ = bench.model.setGroupCollapsed(id, true); bench.drain(); bench.drawFrame()
+                _ = bench.model.setGroupCollapsed(id, false); bench.drain(); bench.drawFrame()
+                var sections = bench.model.sections
+                if case var .group(group)? = sections.first?.nodes.first {
+                    group.workspaces.insert(group.workspaces.removeLast(), at: 0)
+                    sections[0].nodes[0] = .group(group)
+                    bench.model.sections = sections
+                    bench.sidebar.renderNow()
+                }
+                bench.drain(); bench.drawFrame()
+                await Task.yield()
             }
-            bench.drain(); bench.drawFrame()
-            await Task.yield()
         }
-        let text = await sampler.finish() ?? ""
+        let text = report ?? ""
         var inMain = false, printed = 0
         for line in text.components(separatedBy: "\n") {
             if line.contains("Thread_") { inMain = line.contains("main-thread") || line.contains("DispatchQueue_1:") }
