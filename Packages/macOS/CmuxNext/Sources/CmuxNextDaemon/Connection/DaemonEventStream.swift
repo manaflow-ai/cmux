@@ -7,8 +7,9 @@
 ///
 /// Bounded (p05-ipc-093): the events wait in the route's ``EventInbox`` backlog, so a reader that
 /// falls more than 4096 events behind gets one ``DaemonEvent/overflow(_:)`` in place of the ones it
-/// lost (lifecycle events and what a re-read cannot restore are kept), and whole-value surface
-/// events it has not read yet coalesce to the newest.
+/// lost and must re-read; the backlog never holds more than 4096 events of any kind (lifecycle
+/// events and what a re-read cannot restore are kept while they fit, then only the newest of each
+/// lifecycle event), and whole-value surface events it has not read yet coalesce to the newest.
 public struct DaemonEventStream: AsyncSequence, Sendable {
     public typealias Element = DaemonEventEnvelope
 

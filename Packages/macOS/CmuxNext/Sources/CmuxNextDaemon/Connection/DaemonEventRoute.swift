@@ -18,10 +18,11 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// waits for another.
 ///
 /// Bounded (p05-ipc-093): nothing here grows with the events no one took. The backlog is an
-/// ``EventInbox`` (4096 events, coalescing, one `overflow` marker that the store answers with one
-/// resync), as mojo bounds what a receiver leaves unread (`MOJO_QUOTA_TYPE_UNREAD_MESSAGE_COUNT`,
-/// mojo/public/cpp/bindings/message_quota_checker.h); where mojo ends the pipe at its quota, the
-/// consumer re-reads. A sink that attaches takes the backlog first, under the route's lock, so it
+/// ``EventInbox`` that holds at most 4096 events of every kind, collapsed or not
+/// (``EventInbox/Retention/upToLimit``: coalescing, one `overflow` marker that the store answers
+/// with one resync), as mojo bounds what a receiver leaves unread
+/// (`MOJO_QUOTA_TYPE_UNREAD_MESSAGE_COUNT`, mojo/public/cpp/bindings/message_quota_checker.h);
+/// where mojo ends the pipe at its quota, the consumer re-reads. A sink that attaches takes the backlog first, under the route's lock, so it
 /// sees one order with the events emitted after it.
 final class DaemonEventRoute: Sendable {
     /// Takes one event. Called with the route's lock held: it must not block or call back into the
@@ -67,13 +68,13 @@ final class DaemonEventRoute: Sendable {
         var lastSubscriberID: UInt64 = 0
     }
 
-    /// The events no sink took yet: bounded, coalescing, collapsed past its limit into one
-    /// `overflow` marker plus what a resync cannot restore (``EventInbox``).
+    /// The events no sink took yet: at most the limit, coalescing, collapsed past it into one
+    /// `overflow` marker plus what a resync cannot restore while that fits (``EventInbox``).
     let backlog: EventInbox
     private let state = Mutex(State())
 
     init(limit: Int = EventInbox.defaultLimit) {
-        backlog = EventInbox(limit: limit)
+        backlog = EventInbox(limit: limit, retention: .upToLimit)
     }
 
     /// Passes `envelope` on: to each subscriber it matches, and to the sink when one took the events,

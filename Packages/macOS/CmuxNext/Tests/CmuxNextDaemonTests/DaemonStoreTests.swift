@@ -104,6 +104,97 @@ import Testing
         gate.deliver(after) { passed.append($0) }
         #expect(passed.last == after, "the open gate held an event")
     }
+
+    /// A raw `apps-*` event, as a page relay connection decodes every event: a collapse keeps it.
+    private static let unrestorable = DaemonEvent.unknown(name: "apps-flood", payload: .number(1))
+
+    private static func notification() throws -> DaemonEvent {
+        let json = #"{"notification":1,"title":"","body":"flood","level":"info","surface":1}"#
+        return .notification(try JSONDecoder().decode(DaemonNotification.self, from: Data(json.utf8)))
+    }
+
+    /// Floods the backlog of a connection no one reads with `event`, then reads it all after the close.
+    private static func readAfterFlooding(_ event: DaemonEvent) async throws -> (held: Int, read: [DaemonEventEnvelope]) {
+        let connection = Self.connection()
+        for index in 1...Self.flood { connection.route.emit(DaemonEventEnvelope(sequence: UInt64(index), event: event)) }
+        let held = connection.route.streamBacklog
+        await connection.close()
+        var read: [DaemonEventEnvelope] = []
+        for try await envelope in connection.events { read.append(envelope) }
+        return (held, read)
+    }
+
+    private static func lostSome(_ envelope: DaemonEventEnvelope?) -> Bool {
+        if case .overflow(let reason)? = envelope?.event { reason.contains("dropped") } else { false }
+    }
+
+    /// Events a resync cannot restore survive a collapse only while they fit: 100k of them with no
+    /// reader (a page relay's raw stream) hold at most the limit, and the overflow says some were lost.
+    @Test func aFloodOfRawEventsWithNoReaderStaysBounded() async throws {
+        let (held, read) = try await Self.readAfterFlooding(Self.unrestorable)
+        #expect(held <= Self.limit, "the connection's backlog held \(held) events")
+        #expect(read.count <= Self.limit, "read \(read.count) events")
+        #expect(Self.lostSome(read.first), "the reader was not told it lost events: \(String(describing: read.first))")
+    }
+
+    @Test func aFloodOfNotificationsWithNoReaderStaysBounded() async throws {
+        let (held, read) = try await Self.readAfterFlooding(try Self.notification())
+        #expect(held <= Self.limit, "the connection's backlog held \(held) events")
+        #expect(read.count <= Self.limit, "read \(read.count) events")
+        #expect(Self.lostSome(read.first), "the reader was not told it lost events: \(String(describing: read.first))")
+    }
+
+    /// The handshake gate holds at most its limit of the events a resync cannot restore too.
+    @Test func aFloodOfRawEventsDuringTheHandshakeStaysBounded() throws {
+        let gate = EventGate()
+        let notification = try Self.notification()
+        var passed: [DaemonEventEnvelope] = []
+        for index in 1...Self.flood {
+            let event = index.isMultiple(of: 2) ? Self.unrestorable : notification
+            gate.deliver(DaemonEventEnvelope(sequence: UInt64(index), event: event)) { passed.append($0) }
+        }
+        #expect(gate.heldCount <= Self.limit, "the gate held \(gate.heldCount) events")
+        gate.open(first: DaemonEventEnvelope(sequence: 0, event: .bell(surface: 1))) { passed.append($0) }
+        #expect(passed.count <= Self.limit + 1, "the gate released \(passed.count) events")
+        #expect(Self.lostSome(passed.dropFirst().first), "the reader was not told it lost events")
+    }
+
+    /// A full backlog still takes the newest agent status per surface it holds, in place, and the
+    /// newest of each lifecycle event, which the store needs after any resync.
+    @Test func aFullBacklogKeepsTheNewestAgentStatusAndLifecycleEvent() async throws {
+        let connection = Self.connection()
+        let surfaces = 8
+        // Collapse with events the resync restores, then hold one status per surface.
+        for index in 1...Self.limit + 1 { connection.route.emit(DaemonEventEnvelope(sequence: UInt64(index), event: .treeChanged(transaction: nil))) }
+        var sequence = UInt64(Self.limit + 1)
+        func emit(_ event: DaemonEvent) {
+            sequence += 1
+            connection.route.emit(DaemonEventEnvelope(sequence: sequence, event: event))
+        }
+        for surface in 1...surfaces { emit(.agentChanged(AgentStatus(surface: SurfaceID(rawValue: UInt64(surface)), state: .idle, updatedAtMs: 0))) }
+        // Fill the rest, then flood statuses of the same surfaces and lifecycle events.
+        while connection.route.streamBacklog < Self.limit { emit(Self.unrestorable) }
+        for index in 1...Self.flood {
+            let surface = SurfaceID(rawValue: UInt64(index % surfaces + 1))
+            emit(.agentChanged(AgentStatus(surface: surface, state: .working, updatedAtMs: UInt64(index))))
+            if index.isMultiple(of: 1000) { emit(.disconnected(reason: "drop \(index)")) }
+        }
+        // A new generation, then a reconnect to the same one: handles from before both are invalid.
+        let identity = DaemonIdentity(capabilities: [], generation: DaemonGeneration(rawValue: "flood"))
+        emit(.connected(identity, generationChanged: true))
+        emit(.connected(identity, generationChanged: false))
+        #expect(connection.route.streamBacklog <= Self.limit + 2, "the full backlog held \(connection.route.streamBacklog) events")
+        await connection.close()
+        var read: [DaemonEventEnvelope] = []
+        for try await envelope in connection.events { read.append(envelope) }
+        let statuses = read.compactMap { envelope -> AgentStatus? in if case .agentChanged(let status) = envelope.event { status } else { nil } }
+        #expect(statuses.count == surfaces, "held \(statuses.count) statuses for \(surfaces) surfaces")
+        #expect(statuses.allSatisfy { $0.state == .working && $0.updatedAtMs > UInt64(Self.flood - surfaces) }, "a status is not the newest")
+        let drops = read.compactMap { envelope -> String? in if case .disconnected(let reason) = envelope.event { reason } else { nil } }
+        #expect(drops == ["drop \(Self.flood)"], "kept \(drops.count) disconnects, want only the newest")
+        let connects = read.compactMap { envelope -> Bool? in if case .connected(_, let changed) = envelope.event { changed } else { nil } }
+        #expect(connects == [true], "kept connects \(connects), want one that says the generation changed")
+    }
 }
 
 /// The resync's snapshot read of ``DaemonStoreTests``: counts the reads.

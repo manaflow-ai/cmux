@@ -162,6 +162,11 @@ final class PageRelayChannel {
                         // A reconnect: the events while it was down are lost.
                         if connectedBefore { self.resync() }
                         connectedBefore = true
+                    case .overflow:
+                        // This reader fell behind the connection's bounded backlog
+                        // (``DaemonEventRoute``): the events it dropped are lost; the daemon's
+                        // subscription is still live.
+                        self.resync()
                     case .unknown(name: "overflow", payload: _):
                         // The daemon ended the stream: subscribe again, then re-read, so no
                         // change falls between the re-read and the new stream.
