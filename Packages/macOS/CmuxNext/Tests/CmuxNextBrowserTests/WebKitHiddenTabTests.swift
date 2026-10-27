@@ -1,5 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -7,7 +9,8 @@ import WebKit
 /// p14-energy-059 (`webkitHiddenTabs`): a WebKit tab the content lifecycle hides is hidden to WebKit through its web
 /// view's `isHidden` (``WebKitPageVisibility``), so the page reports `document.visibilityState == "hidden"`; a show
 /// unhides it in the same call and reloads nothing; a page with audible or Picture in Picture media or a camera or
-/// microphone capture stays visible; with the feature off nothing changes.
+/// microphone capture, playing media the tab's mute silences, or an agent driving it off screen stays visible; a
+/// render-rate re-show never shows a page the lifecycle hid; with the feature off nothing changes.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct WebKitHiddenTabTests {
     // MARK: The rule
 
@@ -22,6 +25,24 @@ import WebKit
         var capturing = hidden
         capturing.captures = true
         #expect(!capturing.hidesPage, "a page that captures was hidden")
+        var driven = hidden
+        driven.keptRendering = true
+        #expect(!driven.hidesPage, "a page an agent drives off screen was hidden")
+        var reshowing = WebKitPageVisibility()
+        reshowing.reshowing = true
+        #expect(reshowing.hidesPage, "a re-show's hidden step did not hide the page with the feature off")
+    }
+
+    /// Memory Saver's media rule (`BrowserHibernation+Probe`): the tab's mute keeps a playing page.
+    @Test func mediaKeepsAPageShownAsMemorySaverKeepsIt() {
+        #expect(Self.song.keepsPageShown(tabMuted: false), "audible media")
+        #expect(BrowserMediaState(title: "song", isPlaying: true, isMuted: true).keepsPageShown(tabMuted: true),
+                "media the tab's mute silences")
+        #expect(!BrowserMediaState(title: "song", isPlaying: true, isMuted: true).keepsPageShown(tabMuted: false),
+                "media the page muted itself")
+        #expect(!BrowserMediaState(title: "song", isPlaying: false).keepsPageShown(tabMuted: true), "paused media")
+        #expect(BrowserMediaState(title: "clip", isPlaying: false, isPictureInPicture: true).keepsPageShown(tabMuted: false),
+                "Picture in Picture")
     }
 
     // MARK: The tab
@@ -59,14 +80,79 @@ import WebKit
         #expect(!tab.webView.isHidden)
     }
 
-    @Test func aMutedTabIsHiddenButItsPictureInPictureKeepsItShown() {
+    @Test func aPageThatMutedItselfIsHiddenButItsPictureInPictureKeepsItShown() {
         let tab = Self.engine(hides: true).makeWebKitTab()
         defer { tab.close() }
         tab.apply(.mediaChanged(BrowserMediaState(title: "clip", isPlaying: true, isMuted: true, isVideo: true)))
         tab.setContentVisible(false)
-        #expect(tab.webView.isHidden, "a muted page kept the hidden tab visible")
+        #expect(tab.webView.isHidden, "a page that muted itself kept the hidden tab visible")
         tab.apply(.mediaChanged(BrowserMediaState(title: "clip", isPlaying: true, isMuted: true, isVideo: true, isPictureInPicture: true)))
         #expect(!tab.webView.isHidden, "a page whose video floats in Picture in Picture was hidden")
+    }
+
+    @Test func aPlayingTabTheUserMutedStaysShownWhileHidden() {
+        let tab = Self.engine(hides: true).makeWebKitTab()
+        defer { tab.close() }
+        tab.apply(.mediaChanged(Self.song))
+        tab.setAudioMuted(true)
+        // The tab's mute script mutes the element, and the page reports it muted.
+        tab.apply(.mediaChanged(BrowserMediaState(title: "song", isPlaying: true, isMuted: true, isTabMuted: true)))
+        tab.setContentVisible(false)
+        #expect(!tab.isAudible)
+        #expect(!tab.webView.isHidden, "a playing tab the user muted was hidden to WebKit")
+        tab.setAudioMuted(false)
+        tab.apply(.mediaChanged(BrowserMediaState(title: "song", isPlaying: false)))
+        #expect(tab.webView.isHidden, "a hidden tab whose muted media stopped stayed visible")
+        tab.apply(.mediaChanged(BrowserMediaState(title: "song", isPlaying: true, isMuted: true)))
+        tab.setAudioMuted(true)
+        #expect(!tab.webView.isHidden, "muting a hidden tab's playing media did not show it again")
+    }
+
+    @Test func aTabAnAgentDrivesOffScreenStaysShownUntilTheDriveEnds() {
+        let tab = Self.engine(hides: true).makeWebKitTab()
+        defer { tab.close() }
+        tab.setContentVisible(false)
+        #expect(tab.webView.isHidden)
+        tab.setKeptRendering(true)
+        #expect(!tab.webView.isHidden, "a hidden tab parked in an agent's render window stayed hidden to WebKit")
+        tab.setKeptRendering(false)
+        #expect(tab.webView.isHidden, "the hidden tab stayed visible after its render window went")
+    }
+
+    /// The container is the only writer of the web view's `isHidden`: a render-rate re-show that the content
+    /// lifecycle's hide interrupts leaves the page hidden, and the next show unhides it.
+    @Test func aReshowNeverShowsATabHiddenDuringIt() async throws {
+        _ = NSApplication.shared
+        let energy = EnergyPolicySource()
+        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory(), energy: energy)
+        engine.hidesHiddenTabs = true
+        let clock = ManualClock()
+        engine.rateReshowClock = clock
+        engine.displayFramesPerSecond = { _ in 120 }
+        engine.rateReshowSnapshot = { NSImage(size: NSSize(width: 1, height: 1)) }
+        let tab = engine.makeWebKitTab()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer {
+            tab.close()
+            window.close()
+        }
+        tab.contentView.frame = NSRect(x: 0, y: 0, width: 200, height: 100)
+        window.contentView?.addSubview(tab.contentView)
+        energy.update(EnergyPolicy(saverReason: .setting))
+        let reshow = try #require(tab.rateReshow, "the Energy Saver change did not re-show the shown tab")
+        try await clock.waitForSleeper()
+        #expect(tab.webView.isHidden, "the re-show's hidden step did not hide the page")
+
+        tab.setContentVisible(false)
+        clock.advance(by: .milliseconds(200))
+        await reshow.value
+        #expect(tab.webView.isHidden, "the re-show showed a tab the content lifecycle hid during it")
+        #expect(!tab.container.subviews.contains { $0 is NSImageView }, "the re-show left its cover")
+
+        tab.setContentVisible(true)
+        #expect(!tab.webView.isHidden, "the show after the re-show waited")
     }
 
     // MARK: WebKit's view of it
@@ -99,6 +185,18 @@ import WebKit
         #expect(try await live.visibility(becomes: "hidden", within: 1000) == "visible", "the audible hidden tab was hidden to WebKit")
         tab.apply(.mediaChanged(nil))
         #expect(try await live.visibility(becomes: "hidden") == "hidden", "the hidden tab whose audio stopped stayed visible")
+    }
+
+    @Test func aHiddenTabAnAgentDrivesIsVisibleToWebKitUntilTheDriveEnds() async throws {
+        let live = try await LivePage()
+        defer { live.close() }
+        let tab = live.tab
+        tab.setContentVisible(false)
+        #expect(try await live.visibility(becomes: "hidden") == "hidden")
+        tab.setKeptRendering(true)
+        #expect(try await live.visibility(becomes: "visible") == "visible", "the driven hidden tab stayed hidden to WebKit")
+        tab.setKeptRendering(false)
+        #expect(try await live.visibility(becomes: "hidden") == "hidden", "the hidden tab stayed visible after the drive")
     }
 
     // MARK: Helpers

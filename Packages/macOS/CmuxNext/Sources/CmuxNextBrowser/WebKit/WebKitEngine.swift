@@ -202,7 +202,8 @@ public final class WebKitEngine: BrowserEngine {
         guard WebKitRenderRate.framesPerSecond(energySaver: !fullRate, displayMaxFPS: display)
                 != WebKitRenderRate.framesPerSecond(energySaver: fullRate, displayMaxFPS: display) else { return }
         let snapshot = rateReshowSnapshot ?? { [weak webView] in try? await webView?.takeSnapshot(configuration: nil) }
-        tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock)
+        tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock,
+                                                 setHidden: { [weak tab] in tab?.setReshowing($0) })
     }
 
     private func makeConfiguration(for profile: BrowserProfileID) -> WKWebViewConfiguration {

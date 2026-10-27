@@ -179,10 +179,6 @@ public final class WebKitTab: NSObject, BrowserTab {
         }
     }
 
-    /// WebKit draws in-view; with ``WebKitEngine/hidesHiddenTabs`` a hidden page's web view is hidden to WebKit
-    /// (``WebKitPageVisibility``), shown again in this call.
-    public func setContentVisible(_ visible: Bool) { container.visibility.contentHidden = !visible }
-
     // MARK: Snapshot, script, find
 
     public func snapshot() async throws -> CGImage {
@@ -322,7 +318,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         machine.apply(event)
         let audible = machine.state.media?.isAudible == true
         if audible != isAudible { isAudible = audible }
-        container.visibility.playsMedia = audible || machine.state.media?.isPictureInPicture == true
+        container.visibility.playsMedia = machine.state.media?.keepsPageShown(tabMuted: machine.state.isAudioMuted) == true
         for observer in navigationObservers.values { observer(event) }
         if machine.state.faviconURL != previousFavicon {
             faviconURLDidChange()
