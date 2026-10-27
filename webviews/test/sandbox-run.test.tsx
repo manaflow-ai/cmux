@@ -484,6 +484,8 @@ test("a receipt a read finds while the send is unanswered ends the spinner and t
   await tab.read();
   expect(tab.view()).toMatchObject({ state: "done" });
   expect(tab.busy()).toBe(false);
+});
+
 test("a send whose answer is lost while another attempt's receipt holds the tab gets its prompt back", async () => {
   const { SandboxTab } = await import("../src/agent-session/acpmux/sandboxRun");
   const restored: string[] = [];
