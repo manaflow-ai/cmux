@@ -140,6 +140,18 @@ struct FeatureSafeModeTests {
         #expect(safeMode.remoteValues(latest: [:], lastKnownGood: ["killX": false], registry: Self.registry) == ["killX": false])
     }
 
+    /// Params follow the document safe mode picks; no param survives `noRemote` (none is a kill switch).
+    @Test(arguments: [
+        (2, ["perfY": ["n": "3"]]),
+        (3, ["perfY": ["n": "1"]]),
+        (4, [String: [String: String]]()),
+    ] as [(Int, [String: [String: String]])])
+    func remoteParamsFollowTheLevel(crashes: Int, expected: [String: [String: String]]) async {
+        let harness = Harness()
+        let safeMode = await harness.launchAfterCrashes(crashes)
+        #expect(safeMode.remoteParams(latest: ["perfY": ["n": "3"]], lastKnownGood: ["perfY": ["n": "1"]]) == expected)
+    }
+
     @Test func aCleanLaunchKeepsTheStreak() async {
         let harness = Harness()
         _ = await harness.launchAfterCrashes(3)

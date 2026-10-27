@@ -50,12 +50,22 @@ public nonisolated struct FeatureRemoteOverrides: Sendable, Equatable {
     public let studies: [FeatureStudy]
     /// The entries left out, in name order.
     public let ignored: [FeatureRemoteIgnoredEntry]
+    /// The document's `FeatureParams` as written: ``FeatureParamList`` checks
+    /// names, types and bounds and reports what it rejects.
+    public let params: [String: [String: String]]
 
-    public init(serial: UInt64, values: [String: Bool], studies: [FeatureStudy], ignored: [FeatureRemoteIgnoredEntry]) {
+    public init(
+        serial: UInt64,
+        values: [String: Bool],
+        studies: [FeatureStudy],
+        ignored: [FeatureRemoteIgnoredEntry],
+        params: [String: [String: String]] = [:]
+    ) {
         self.serial = serial
         self.values = values
         self.studies = studies
         self.ignored = ignored
+        self.params = params
     }
 
     /// No document.
@@ -95,6 +105,6 @@ public nonisolated struct FeatureRemoteOverrides: Sendable, Equatable {
                 studies.append(study)
             }
         }
-        self.init(serial: document.serial, values: values, studies: studies, ignored: ignored)
+        self.init(serial: document.serial, values: values, studies: studies, ignored: ignored, params: document.params)
     }
 }

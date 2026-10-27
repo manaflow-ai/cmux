@@ -10,7 +10,8 @@ public import Foundation
 /// { "version": 1,
 ///   "default": { "Features": { "cefTimerSlack": "off" }, "FeaturesSerial": 7,
 ///                "FeaturesExpiresAt": "2026-12-01T00:00:00Z",
-///                "FeaturesMinBuild": 1500, "FeaturesMaxBuild": 1600 },
+///                "FeaturesMinBuild": 1500, "FeaturesMaxBuild": 1600,
+///                "FeatureParams": { "agentPageRendererSharing": { "mainFrames": "4" } } },
 ///   "cohorts": { "wave-1": { "Features": { "cefTimerSlack": "on" }, "FeaturesSerial": 8 } } }
 /// ```
 ///
@@ -42,6 +43,9 @@ public nonisolated struct FeatureRemoteDocument: Sendable, Equatable {
     public let features: [String: String]
     /// `Studies`: the Nightly field trials (task p12-perf-process-152 assigns arms).
     public let studies: [FeatureStudy]
+    /// `FeatureParams`: feature name to param name to value text, as Chrome's
+    /// `FieldTrialParams`; ``FeatureParamList`` checks each against the registry.
+    public let params: [String: [String: String]]
 
     public init(
         serial: UInt64,
@@ -49,7 +53,8 @@ public nonisolated struct FeatureRemoteDocument: Sendable, Equatable {
         minBuild: UInt64? = nil,
         maxBuild: UInt64? = nil,
         features: [String: String] = [:],
-        studies: [FeatureStudy] = []
+        studies: [FeatureStudy] = [],
+        params: [String: [String: String]] = [:]
     ) {
         self.serial = serial
         self.expiresAt = expiresAt
@@ -57,6 +62,7 @@ public nonisolated struct FeatureRemoteDocument: Sendable, Equatable {
         self.maxBuild = maxBuild
         self.features = features
         self.studies = studies
+        self.params = params
     }
 
     /// The keys `data` sets for `cohort`: the default's, each replaced by the cohort's.
@@ -72,6 +78,7 @@ public nonisolated struct FeatureRemoteDocument: Sendable, Equatable {
         let layer = wire.cohorts?[cohort] ?? Keys()
         let features = layer.features ?? base.features ?? [:]
         let studies = layer.studies ?? base.studies ?? []
+        let params = layer.params ?? base.params ?? [:]
         // Without a serial a replayed old document could not be told from a new one.
         guard let serial = layer.serial ?? base.serial else { throw .missingSerial }
         var expiresAt: Date?
@@ -93,7 +100,8 @@ public nonisolated struct FeatureRemoteDocument: Sendable, Equatable {
             minBuild: minBuild,
             maxBuild: maxBuild,
             features: features,
-            studies: studies.map(\.study)
+            studies: studies.map(\.study),
+            params: params.mapValues { $0.mapValues(\.text) }
         )
     }
 
@@ -112,6 +120,7 @@ public nonisolated struct FeatureRemoteDocument: Sendable, Equatable {
         var minBuild: UInt64?
         var maxBuild: UInt64?
         var studies: [StudyWire]?
+        var params: [String: [String: ParamWire]]?
 
         enum CodingKeys: String, CodingKey {
             case features = "Features"
@@ -120,6 +129,26 @@ public nonisolated struct FeatureRemoteDocument: Sendable, Equatable {
             case minBuild = "FeaturesMinBuild"
             case maxBuild = "FeaturesMaxBuild"
             case studies = "Studies"
+            case params = "FeatureParams"
+        }
+    }
+
+    /// One `FeatureParams` value: text, or a JSON number or boolean written as
+    /// its text (`8`, `0.05`, `true`), so the registry's parse decides either way.
+    private struct ParamWire: Decodable {
+        let text: String
+
+        init(from decoder: any Decoder) throws {
+            let value = try decoder.singleValueContainer()
+            if let text = try? value.decode(String.self) {
+                self.text = text
+            } else if let flag = try? value.decode(Bool.self) {
+                text = String(flag)
+            } else if let integer = try? value.decode(Int.self) {
+                text = String(integer)
+            } else {
+                text = try String(value.decode(Double.self))
+            }
         }
     }
 

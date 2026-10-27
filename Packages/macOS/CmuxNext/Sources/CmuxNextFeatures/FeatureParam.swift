@@ -49,7 +49,8 @@ public nonisolated struct FeatureParam<Value: FeatureParamType>: Sendable, Hasha
 }
 
 /// A Swift type a ``FeatureParam`` reads: `Int` (`int`), `Double` (`double`,
-/// or `duration` in seconds), `Duration` (`duration`) and `Bool` (`bool`).
+/// or `duration` in seconds), `Duration` (`duration`, to the microsecond) and
+/// `Bool` (`bool`).
 public protocol FeatureParamType: Sendable, Hashable {
     /// The value of an unbound handle: zero or false.
     static var featureParamZero: Self { get }
@@ -97,9 +98,11 @@ extension Duration: FeatureParamType {
         return false
     }
 
+    /// Whole microseconds, as ``Feature/durationParam(_:)``: `.seconds(0.2)`
+    /// would carry the double's error into the attoseconds.
     public init?(featureParam scalar: FeatureParamValue.Scalar) {
         guard case let .double(seconds) = scalar else { return nil }
-        self = .seconds(seconds)
+        self = .microseconds(Int64((seconds * 1_000_000).rounded()))
     }
 }
 

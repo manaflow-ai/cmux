@@ -28,8 +28,9 @@ public nonisolated final class FeatureParamList: Sendable {
     @usableFromInline let resolutions: ContiguousArray<Resolution>
 
     /// Resolves every param of `features`' registry once. `remote` maps a
-    /// feature name to its params' text (the signed document, already
-    /// filtered by safe mode). `local` is asked only when `features`' channel
+    /// feature name to its params' text: the signed document's
+    /// ``FeatureRemoteOverrides/params``, chosen by
+    /// ``FeatureSafeMode/remoteParams(latest:lastKnownGood:)``. `local` is asked only when `features`' channel
     /// allows local overrides, once per param of a feature that is on.
     public init(
         features: FeatureList,
@@ -107,7 +108,7 @@ public nonisolated final class FeatureParamList: Sendable {
         var rejections: [Rejection] = []
         for (name, params) in remote.sorted(by: { $0.key < $1.key }) {
             let feature = registry.feature(named: name)
-            for (param, text) in params.sorted(by: { $0.key < $1.key }) where !(feature?.params.contains { $0.name == param } ?? false) {
+            for (param, text) in params.sorted(by: { $0.key < $1.key }) where feature?.params.contains(where: { $0.name == param }) != true {
                 rejections.append(Rejection(
                     feature: name,
                     param: param,

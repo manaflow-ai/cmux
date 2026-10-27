@@ -1,5 +1,6 @@
 import Atomics
 import CmuxNextFeatures
+import Foundation
 import Testing
 
 /// FeatureParam handles and the FeatureParamList snapshot (base::FeatureParam,
@@ -61,7 +62,7 @@ struct FeatureParamTests {
         #expect(Self.eager.slot == 4)
         #expect(Self.eager.index == 3)
         #expect(Self.deadline.spec?.value == .duration(default: 0.05, min: 0, max: 1))
-        #expect(Self.deadline.declaredDefault == .seconds(0.05))
+        #expect(Self.deadline.declaredDefault == .milliseconds(50))
         #expect(Self.deadlineSeconds.declaredDefault == 0.05)
         #expect(Self.limit.declaredDefault == 10)
         #expect(!Self.eager.declaredDefault)
@@ -71,10 +72,17 @@ struct FeatureParamTests {
         #expect(Int(featureParam: .int(3)) == 3)
         #expect(Int(featureParam: .double(3)) == nil)
         #expect(Double(featureParam: .double(0.5)) == 0.5)
-        #expect(Duration(featureParam: .double(0.5)) == .seconds(0.5))
+        #expect(Duration(featureParam: .double(0.5)) == .milliseconds(500))
         #expect(Duration(featureParam: .bool(true)) == nil)
         #expect(Bool(featureParam: .bool(true)) == true)
         #expect(Bool(featureParam: .int(1)) == nil)
+    }
+
+    /// The same value `Feature.durationParam` gives: whole microseconds, not the double's attoseconds.
+    @Test func aDurationIsWholeMicroseconds() {
+        #expect(Duration(featureParam: .double(0.2)) == .milliseconds(200))
+        #expect(Duration(featureParam: .double(0.000_000_4)) == .zero)
+        #expect(Duration(featureParam: .double(1.000_000_6)) == .microseconds(1_000_001))
     }
 
     @Test func aHandleTypeMatchesTheDeclaredType() {
@@ -95,7 +103,7 @@ struct FeatureParamTests {
         var reported: [FeatureParamList.Rejection] = []
         let list = Self.params(remote: ["tunedThing": ["scale": "1.75"]], report: { reported.append($0) })
         #expect(list.value(Self.retries) == 2)
-        #expect(list.value(Self.deadline) == .seconds(0.05))
+        #expect(list.value(Self.deadline) == .milliseconds(50))
         #expect(list.value(Self.deadlineSeconds) == 0.05)
         #expect(!list.value(Self.eager))
         #expect(list.resolution(of: Self.retries) == FeatureParamList.Resolution(value: .int(2), source: .channelDefault))
@@ -108,7 +116,7 @@ struct FeatureParamTests {
         let list = Self.params(remote: ["tunedThing": ["retries": "5", "scale": "2", "deadline": "0.25", "eager": "true"]])
         #expect(list.value(Self.retries) == 5)
         #expect(list.value(Self.scale) == 2.0)
-        #expect(list.value(Self.deadline) == .seconds(0.25))
+        #expect(list.value(Self.deadline) == .milliseconds(250))
         #expect(list.value(Self.eager))
         #expect(list.resolution(of: Self.deadline) == FeatureParamList.Resolution(value: .double(0.25), source: .remote))
     }
@@ -128,7 +136,7 @@ struct FeatureParamTests {
         var reported: [FeatureParamList.Rejection] = []
         let list = Self.params(remote: ["tunedThing": ["retries": "9", "deadline": "5", "scale": "0.5"]], report: { reported.append($0) })
         #expect(list.value(Self.retries) == 2)
-        #expect(list.value(Self.deadline) == .seconds(0.05))
+        #expect(list.value(Self.deadline) == .milliseconds(50))
         #expect(list.value(Self.scale) == 1.5)
         #expect(list.resolution(of: Self.deadline)?.source == .channelDefault)
         #expect(reported == list.rejections)
@@ -182,6 +190,69 @@ struct FeatureParamTests {
     @Test func aBadRemoteValueIsReportedWhileItsFeatureIsOff() {
         let list = Self.params(remote: ["offThing": ["limit": "0"]])
         #expect(list.rejections.map(\.description) == ["offThing.limit=\"0\" source=remote: outside 1...100"])
+    }
+
+    // MARK: The signed document
+
+    private static func overrides(_ json: String, cohort: String = "default", build: UInt64? = 100) throws -> FeatureRemoteOverrides {
+        let document = try FeatureRemoteDocument(json: Data(json.utf8), cohort: cohort)
+        let context = FeatureRemoteContext(registry: registry, cohort: cohort, build: build)
+        return try FeatureRemoteOverrides(document, context: context, now: Date(timeIntervalSince1970: 1_800_000_000))
+    }
+
+    /// `FeatureParams` reaches the list as text: JSON numbers and booleans read
+    /// as their text, so the registry's parse and bounds decide both forms.
+    @Test func theDocumentsParamsReachTheList() throws {
+        let remote = try Self.overrides("""
+        {"version": 1, "default": {"FeaturesSerial": 2, "FeatureParams": {
+          "tunedThing": {"retries": 5, "scale": "1.25", "deadline": 0.5, "eager": true},
+          "offThing": {"limit": "40"}}}}
+        """)
+        #expect(remote.params["tunedThing"] == ["retries": "5", "scale": "1.25", "deadline": "0.5", "eager": "true"])
+        let list = Self.params(remote: remote.params)
+        #expect(list.value(Self.retries) == 5)
+        #expect(list.value(Self.scale) == 1.25)
+        #expect(list.value(Self.deadline) == .milliseconds(500))
+        #expect(list.value(Self.eager))
+        #expect(list.resolution(of: Self.retries)?.source == .remote)
+        #expect(list.value(Self.limit) == 10)
+        #expect(list.rejections.isEmpty)
+    }
+
+    @Test func aCohortsParamsReplaceTheDefaults() throws {
+        let json = """
+        {"version": 1,
+         "default": {"FeaturesSerial": 2, "FeatureParams": {"tunedThing": {"retries": "5", "scale": "1.25"}}},
+         "cohorts": {"wave-1": {"FeaturesSerial": 3, "FeatureParams": {"tunedThing": {"retries": "6"}}}}}
+        """
+        #expect(try Self.overrides(json, cohort: "wave-1").params == ["tunedThing": ["retries": "6"]])
+        #expect(try Self.overrides(json, cohort: "other").params == ["tunedThing": ["retries": "5", "scale": "1.25"]])
+    }
+
+    @Test func anOutOfRangeDocumentValueIsRejectedAndTheDefaultRead() throws {
+        let remote = try Self.overrides("""
+        {"version": 1, "default": {"FeaturesSerial": 2, "FeatureParams": {"tunedThing": {"retries": 12, "deadline": -1}}}}
+        """)
+        var reported: [FeatureParamList.Rejection] = []
+        let list = Self.params(remote: remote.params, report: { reported.append($0) })
+        #expect(list.value(Self.retries) == 2)
+        #expect(list.value(Self.deadline) == .milliseconds(50))
+        #expect(reported.map(\.description) == [
+            "tunedThing.retries=\"12\" source=remote: outside 0...8",
+            "tunedThing.deadline=\"-1\" source=remote: outside 0.0...1.0",
+        ])
+    }
+
+    @Test func aDocumentOutsideThisBuildGivesNoParams() throws {
+        let json = #"{"version": 1, "default": {"FeaturesSerial": 2, "FeaturesMaxBuild": 50, "FeatureParams": {"tunedThing": {"retries": "5"}}}}"#
+        #expect(throws: FeatureRemoteDocumentError.buildAboveMaximum(build: 100, maximum: 50)) {
+            try Self.overrides(json)
+        }
+    }
+
+    @Test func aParamValueOfAnotherJSONTypeMakesTheDocumentMalformed() {
+        let json = #"{"version": 1, "default": {"FeaturesSerial": 2, "FeatureParams": {"tunedThing": {"retries": [5]}}}}"#
+        #expect(throws: FeatureRemoteDocumentError.self) { try Self.overrides(json) }
     }
 
     // MARK: Local overrides
