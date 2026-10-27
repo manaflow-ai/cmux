@@ -121,6 +121,9 @@ final class BrowserHibernation {
     static let standInCap: Duration = .milliseconds(500)
     /// The clock of the stand-in cap (a seam for tests).
     var standInClock: any Clock<Duration> = ContinuousClock()
+    /// The clock hidden, grace and backoff times are read from (tests set it, as for
+    /// `AgentPageHibernation.now`). The probe's own deadlines stay on the wall clock.
+    var now: () -> ContinuousClock.Instant = { .now }
     /// Wakes with a picture whose page could show no stand-in (`debug.surfaces`).
     var uncoveredWakes = 0
     private let lowPower: LowPowerMode
@@ -215,14 +218,14 @@ final class BrowserHibernation {
     /// replans with it (the heaviest of equally idle pages goes first).
     private func refreshMemoryIfNeeded() {
         guard pressure != .normal, let measureMemory, !measuringMemory else { return }
-        if let at = memoryMeasuredAt, (ContinuousClock.now - at).seconds < Self.memoryMaxAge { return }
+        if let at = memoryMeasuredAt, (now() - at).seconds < Self.memoryMaxAge { return }
         measuringMemory = true
         Task { @MainActor [weak self] in
             let sample = await measureMemory()
             guard let self else { return }
             self.measuringMemory = false
             self.memoryBytes = sample
-            self.memoryMeasuredAt = .now
+            self.memoryMeasuredAt = self.now()
             self.replan()
         }
     }
@@ -243,7 +246,7 @@ final class BrowserHibernation {
             guard leased.remove(key) != nil else { return }
             if exemptions[key] == .agentLease { exemptions[key] = nil }
             // The agent left it: its hidden clock starts now.
-            if cache?.lifecycle.phase(key) == .mountedHidden { hiddenAt[key] = .now }
+            if cache?.lifecycle.phase(key) == .mountedHidden { hiddenAt[key] = now() }
         }
         replan()
     }
@@ -252,7 +255,7 @@ final class BrowserHibernation {
 
     func tabDidHide(_ key: String) {
         guard cache?.browsers[key] != nil else { return }
-        hiddenAt[key] = .now
+        hiddenAt[key] = now()
         replan()
     }
 
@@ -268,7 +271,7 @@ final class BrowserHibernation {
         probeKeptAt[key] = nil
         askedBeforeUnload.remove(key)
         discardedByUser.remove(key)
-        noteFocus(key, at: .now)
+        noteFocus(key, at: now())
     }
 
     /// Records a show of tab `key` for its ranking, dropping shows older than `focusWindow`.
@@ -290,11 +293,11 @@ final class BrowserHibernation {
     /// agent woke sleeps again once the agent leaves it alone that long.
     func noteAgentUse(_ key: String) {
         guard let cache, cache.browsers[key] != nil else { return }
-        agentUsedAt[key] = .now
+        agentUsedAt[key] = now()
         // Before the agent's call goes out: a frozen page runs no script.
         thaw(key)
         guard cache.lifecycle.phase(key) == .mountedHidden else { return }
-        hiddenAt[key] = .now
+        hiddenAt[key] = now()
         replan()
     }
 
@@ -346,7 +349,7 @@ final class BrowserHibernation {
         hoverDwell.cancel()
         guard let key, neighborRadius > 0, let cache, cache.browsers[key] != nil,
               cache.lifecycle.phase(key) != .mountedVisible else { return }
-        hoveredAt[key] = .now
+        hoveredAt[key] = now()
         thaw(key, prewarm: true)
         if cache.lifecycle.phase(key) == .hibernated {
             // Justified delay: a dwell, not a poll; the next hover change cancels it.
@@ -369,7 +372,7 @@ final class BrowserHibernation {
         let left = awakeNeighbors.subtracting(next)
         let joined = next.subtracting(awakeNeighbors)
         awakeNeighbors = next
-        let now = ContinuousClock.now
+        let now = self.now()
         for key in left where cache.lifecycle.phase(key) == .mountedHidden {
             hiddenAt[key] = now
             if exemptions[key] == .neighbor { exemptions[key] = nil }
@@ -419,7 +422,7 @@ final class BrowserHibernation {
     /// freezes alone (a probe that kept a page: planning its discard again would ask it at once).
     func replan(freezeOnly: Bool = false) {
         guard let cache else { return }
-        let now = ContinuousClock.now
+        let now = self.now()
         var graceEnds: Double?
         let candidates = cache.lifecycle.keys(in: .mountedHidden).compactMap { key -> HibernationPlanner.Candidate? in
             guard let at = hiddenAt[key], !probing.contains(key), let entry = cache.browsers[key] else { return nil }
@@ -472,7 +475,7 @@ final class BrowserHibernation {
     /// for the next (`HibernationPlanner.freezePlan`). Events only, as for hibernation.
     private func replanFreeze(_ hidden: [HibernationPlanner.Candidate]) {
         guard let cache else { return }
-        let now = ContinuousClock.now
+        let now = self.now()
         let threshold = setting.freezeSeconds
         var recheck: Double?
         let candidates = hidden.filter { candidate in
@@ -516,7 +519,7 @@ final class BrowserHibernation {
             guard self.mayFreeze(key) else { return }
             let doubted = self.probeHistory.record(probe, for: key, step: .freeze)
             if probe.stopsWhenFrozen || doubted {
-                self.freezeKeptAt[key] = .now
+                self.freezeKeptAt[key] = self.now()
                 self.replan()
                 return
             }
@@ -527,17 +530,17 @@ final class BrowserHibernation {
     /// No agent called the hidden page within `agentGrace` or holds its lease, and it is no
     /// neighbor or hovered tab.
     private func mayFreeze(_ key: String) -> Bool {
-        if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return false }
+        if let used = agentUsedAt[key], (now() - used).seconds < Self.agentGrace { return false }
         // An agent holds its lease: its next call would wait on a thaw.
         if leased.contains(key) { return false }
-        return !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
+        return !awakeNeighbors.contains(key) && hoverLeft(key, now: now()) == nil
     }
 
     private func freeze(_ key: String, _ page: any BrowserFreezing) {
         // The engine refuses a page it still counts visible: it stays awake and is asked again
         // after `freezeSeconds` (a hidden page's visibility reaches the engine within a frame).
         guard page.setFrozen(true) else {
-            freezeKeptAt[key] = .now
+            freezeKeptAt[key] = now()
             cache?.trace(key, "freeze refused")
             replan()
             return
@@ -559,7 +562,7 @@ final class BrowserHibernation {
     /// switches neighbors exist to avoid (`debug.surfaces`, the bench).
     private(set) var coldShows = 0
 
-    private func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant = .now) -> HibernationPlanner.Candidate {
+    private func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant) -> HibernationPlanner.Candidate {
         let tab = entry.tab
         let capturing = (tab as? any PageInfoProviding).map { !$0.pageInfoInUse.union($0.pageInfoActivity.inUse).isEmpty } ?? false
         var candidate = HibernationPlanner.Candidate(
@@ -584,7 +587,7 @@ final class BrowserHibernation {
     /// its engine cannot restore it. Returns why not, or nil when it started.
     func hibernateNow(_ key: String) -> HibernationPlanner.Exemption? {
         guard let cache, let entry = cache.browsers[key], cache.lifecycle.phase(key) == .mountedHidden else { return .disabled }
-        let facts = candidate(key, entry: entry, hiddenFor: 0)
+        let facts = candidate(key, entry: entry, hiddenFor: 0, now: now())
         guard facts.canRestore else { return .unsupported }
         // An agent holds its lease: its next call would find no page.
         guard !facts.hasAgentLease else { exemptions[key] = .agentLease; return .agentLease }
@@ -637,7 +640,7 @@ final class BrowserHibernation {
                 // The page's own answer (form input, audio) is the reason it reports, else why the
                 // check kept it.
                 self.exemptions[key] = exemption ?? reason
-                if exemption != nil { self.probeKeptAt[key] = .now }
+                if exemption != nil { self.probeKeptAt[key] = self.now() }
                 // The probe thawed the page and the replans meanwhile skipped it: plan again so it
                 // freezes. No `.keep` reason (neighbor, hover, agent grace, the setting) makes it due.
                 self.replan()
@@ -647,7 +650,7 @@ final class BrowserHibernation {
             }
             if let exemption {
                 self.exemptions[key] = exemption
-                self.probeKeptAt[key] = .now
+                self.probeKeptAt[key] = self.now()
                 // The probe thawed it and the replans meanwhile skipped it: its freeze is planned
                 // again (not its discard, which would ask the page again at once).
                 self.replan(freezeOnly: true)
@@ -712,8 +715,8 @@ final class BrowserHibernation {
         // the person has since removed (or turned off) does not happen.
         if !setting.isEnabled { return .keep(.disabled) }
         if !setting.discardsAutomatically { return .keep(.keepsState) }
-        if awakeNeighbors.contains(key) || hoverLeft(key, now: .now) != nil { return .keep(.neighbor) }
-        if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return .keep(.agentDriving) }
+        if awakeNeighbors.contains(key) || hoverLeft(key, now: now()) != nil { return .keep(.neighbor) }
+        if let used = agentUsedAt[key], (now() - used).seconds < Self.agentGrace { return .keep(.agentDriving) }
         return .go
     }
 
