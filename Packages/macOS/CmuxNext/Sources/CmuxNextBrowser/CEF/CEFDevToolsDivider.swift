@@ -27,13 +27,46 @@ final class CEFDevToolsDivider: NSView {
     /// so the drag's first click often lands while cmux's window is not key.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard let devTools else { return }
-        performWithTheme { Borders.color(Palette.separator) }.setFill()
-        let line = devTools.layout.dock.isSide
-            ? NSRect(x: bounds.midX - CEFDevToolsLayout.lineThickness / 2, y: 0, width: CEFDevToolsLayout.lineThickness, height: bounds.height)
-            : NSRect(x: 0, y: bounds.midY - CEFDevToolsLayout.lineThickness / 2, width: bounds.width, height: CEFDevToolsLayout.lineThickness)
-        line.fill()
+    /// The line: a layer color, placed for the dock side, never a drawn backing store (the grab area
+    /// around it stays clear).
+    private let line = ChromeFillLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layer?.addSublayer(line)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    /// The dock side (the controller invalidates on a dock change) and the theme's separator.
+    override func updateLayer() {
+        line.isHidden = devTools == nil
+        line.backgroundColor = performWithTheme { Borders.color(Palette.separator).cgColor }
+        placeLine()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize { placeLine() }
+    }
+
+    private func placeLine() {
+        let thickness = CEFDevToolsLayout.lineThickness
+        line.frame = devTools?.layout.dock.isSide == true
+            ? NSRect(x: bounds.midX - thickness / 2, y: 0, width: thickness, height: bounds.height)
+            : NSRect(x: 0, y: bounds.midY - thickness / 2, width: bounds.width, height: thickness)
+    }
+
+    // visibility-walk-allow: one invalidation; AppKit updates only views on screen, so a hidden divider pays nothing
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true // invalidate: the appearance changed; the separator color resolves again.
     }
 
     override func resetCursorRects() {

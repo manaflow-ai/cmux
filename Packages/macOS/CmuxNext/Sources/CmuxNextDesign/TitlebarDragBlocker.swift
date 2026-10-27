@@ -27,5 +27,4 @@ public final class TitlebarDragBlocker: NSControl {
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
     public override var canBecomeKeyView: Bool { false }
     public override func becomeFirstResponder() -> Bool { false }
-    public override func draw(_ dirtyRect: NSRect) {}
 }

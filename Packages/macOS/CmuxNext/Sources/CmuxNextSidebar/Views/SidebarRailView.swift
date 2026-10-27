@@ -21,6 +21,11 @@ public final class SidebarRailView: NSView {
     /// The ticks drawn now, in this view's (flipped) coordinates.
     private(set) var railLayout = SidebarRailLayout(groups: [], top: 0, available: 0)
     private var marks: [[SidebarRailMark]] = []
+    /// One pill layer per tick (a layer color in a half-height radius), in tick order: a selection or
+    /// state change recolors layers and draws no pixels.
+    private(set) var tickLayers: [ChromeFillLayer] = []
+    /// The width the ticks were last placed at (a trailing-edge rail places them from it).
+    private var placedWidth: CGFloat = -1
     /// The rail's pointer moves for its hover cards (feature `pointerFrameHover`, `hoverFrameInput`).
     private lazy var hoverMoves = PointerFrameHover(owner: "SidebarRailView.hover", view: self) { [weak self] point in
         self?.pointer(at: point)
@@ -43,6 +48,8 @@ public final class SidebarRailView: NSView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(Strings.railLabel)
         setAccessibilityIdentifier("sidebar.rail")
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
     }
 
     @available(*, unavailable)
@@ -102,6 +109,7 @@ public final class SidebarRailView: NSView {
     override public func layout() {
         super.layout()
         relayout()
+        if hugsTrailingEdge, bounds.width != placedWidth { needsDisplay = true } // invalidate: ticks placed from the old width
     }
 
     private func relayout() {
@@ -111,14 +119,25 @@ public final class SidebarRailView: NSView {
         needsDisplay = true
     }
 
-    override public func draw(_ dirtyRect: NSRect) {
+    nonisolated override public var wantsUpdateLayer: Bool { true }
+
+    override public func updateLayer() {
+        guard let layer else { return }
+        let ticks = railLayout.ticks
+        while tickLayers.count < ticks.count {
+            let tickLayer = ChromeFillLayer()
+            layer.addSublayer(tickLayer)
+            tickLayers.append(tickLayer)
+        }
+        while tickLayers.count > ticks.count { tickLayers.removeLast().removeFromSuperlayer() }
+        placedWidth = bounds.width
         performWithTheme {
-            for tick in railLayout.ticks {
+            for (tick, tickLayer) in zip(ticks, tickLayers) {
                 var rect = tick.rect
                 if hugsTrailingEdge { rect.origin.x = bounds.width - rect.maxX }
-                guard rect.intersects(dirtyRect) else { continue }
-                Self.color(tick.mark).setFill()
-                NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
+                tickLayer.frame = rect
+                tickLayer.cornerRadius = rect.height / 2
+                tickLayer.backgroundColor = Self.color(tick.mark).cgColor
             }
         }
     }
@@ -131,7 +150,7 @@ public final class SidebarRailView: NSView {
 
     override public func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the appearance changed; the tick colors resolve again.
     }
 
     // MARK: Pointer

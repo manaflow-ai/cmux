@@ -64,8 +64,11 @@ open class PopupRowView: NSView {
 
     private var isHovering = false { didSet { if oldValue != isHovering { needsDisplay = true } } }
     private var isPressed = false { didSet { if oldValue != isPressed { needsDisplay = true } } }
-    private var showsFocus = false { didSet { needsDisplay = true } }
+    private var showsFocus = false { didSet { if oldValue != showsFocus { needsDisplay = true } } }
     private var tracking: NSTrackingArea?
+    /// The highlight, press fill and focus ring: layer properties in the popup row radius, inset by
+    /// ``Layout/fillInset``; the row draws no backing store.
+    let highlight = ChromeFillLayer()
 
     public init(leading: NSView?, title: String, subtitle: String? = nil, trailing: NSView? = nil,
                 layout: Layout = Layout(), interactive: Bool = true) {
@@ -75,6 +78,11 @@ open class PopupRowView: NSView {
         isInteractive = interactive
         super.init(frame: NSRect(x: 0, y: 0, width: 200, height: layout.minHeight))
         focusRingType = .none
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        highlight.cornerRadius = PopupStyle.standard.rowCornerRadius
+        highlight.isHidden = true
+        layer?.insertSublayer(highlight, at: 0)
         titleLabel.stringValue = title
         subtitleLabel.stringValue = subtitle ?? ""
         for (label, font, ink) in [(titleLabel, Typography.body, ThemeInk.primary), (subtitleLabel, Typography.caption, .secondary)] {
@@ -163,22 +171,34 @@ open class PopupRowView: NSView {
         return isHighlighted || showsFocus || (rowLayout.hoverFills && isHovering)
     }
 
-    open override func draw(_ dirtyRect: NSRect) {
+    nonisolated open override var wantsUpdateLayer: Bool { true }
+
+    /// The fill for the state, and the focus ring as the fill's border (a 1.5 pt line inside its edge).
+    open override func updateLayer() {
         let pressed = isPressed && isEnabled && isInteractive
-        guard pressed || drawsHighlight else { return }
-        let style = PopupStyle.standard
-        let rect = bounds.insetBy(dx: rowLayout.fillInset.width, dy: rowLayout.fillInset.height)
-        let path = NSBezierPath(roundedRect: rect, xRadius: style.rowCornerRadius, yRadius: style.rowCornerRadius)
-        performWithTheme {
-            (pressed ? Palette.pressedFill : Palette.hoverFill).setFill()
-            path.fill()
-            guard showsFocus else { return }
-            let ring = NSBezierPath(roundedRect: rect.insetBy(dx: 0.75, dy: 0.75), xRadius: style.rowCornerRadius,
-                                    yRadius: style.rowCornerRadius)
-            ring.lineWidth = Metrics.lineWidth(1.5)
-            Palette.focusRing.setStroke()
-            ring.stroke()
+        guard pressed || drawsHighlight else {
+            highlight.isHidden = true
+            return
         }
+        let focused = showsFocus
+        let (fill, ring): (CGColor, CGColor?) = performWithTheme {
+            ((pressed ? Palette.pressedFill : Palette.hoverFill).cgColor, focused ? Palette.focusRing.cgColor : nil)
+        }
+        highlight.backgroundColor = fill
+        highlight.borderColor = ring
+        highlight.borderWidth = focused ? Metrics.lineWidth(1.5) : 0
+        placeHighlight()
+        highlight.isHidden = false
+    }
+
+    open override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize { placeHighlight() }
+    }
+
+    private func placeHighlight() {
+        highlight.frame = bounds.insetBy(dx: rowLayout.fillInset.width, dy: rowLayout.fillInset.height)
     }
 
     open override func viewDidChangeEffectiveAppearance() {

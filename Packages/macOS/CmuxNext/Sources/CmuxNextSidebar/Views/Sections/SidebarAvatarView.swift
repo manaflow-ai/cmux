@@ -8,10 +8,54 @@ import CmuxNextDesign
 /// buttons do. It draws inside a `SidebarItemRowView`, which owns the hover
 /// pill, the click and accessibility.
 final class SidebarAvatarView: NSView {
-    var avatar: SidebarAvatar? { didSet { if avatar != oldValue { needsDisplay = true } } }
+    var avatar: SidebarAvatar? {
+        didSet {
+            guard avatar != oldValue else { return }
+            if avatar?.imageData != oldValue?.imageData { pictureImage = Self.picture(avatar).flatMap(Self.cgImage) }
+            needsDisplay = true // invalidate: another avatar (the guard above)
+        }
+    }
     /// Full strength under the pointer or keyboard focus, secondary at rest
     /// (the same rule as the sidebar's other icon items).
     var isStrong = false { didSet { if isStrong != oldValue { needsDisplay = true } } }
+
+    /// The disc (glass fill and rim), the picture, its glaze and the initial: layer properties and a
+    /// glyph layer, so a hover's strength change or a theme change draws no pixels.
+    let disc = ChromeFillLayer()
+    let picture = ChromeFillLayer()
+    private let glaze = CAGradientLayer()
+    let initial = ChromeTextLayer()
+    /// The avatar's picture, decoded once per image (nil: the initial shows).
+    private var pictureImage: CGImage?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        disc.masksToBounds = true
+        disc.isHidden = true
+        glaze.actions = Self.still
+        glaze.colors = [NSColor.white.withAlphaComponent(0.3).cgColor, NSColor.white.withAlphaComponent(0).cgColor]
+        glaze.locations = [0, 0.6]
+        // The view is flipped: y 0 is the disc's top, where the light falls.
+        glaze.startPoint = CGPoint(x: 0.5, y: 0)
+        glaze.endPoint = CGPoint(x: 0.5, y: 1)
+        initial.actions = Self.still
+        initial.isHidden = true
+        disc.addSublayer(picture)
+        disc.addSublayer(glaze)
+        layer?.addSublayer(disc)
+        layer?.addSublayer(initial)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The gradient's and glyph layer's own keys that the avatar changes: all still.
+    private static let still: [String: any CAAction] = [
+        "bounds": NSNull(), "position": NSNull(), "frame": NSNull(), "contents": NSNull(), "contentsScale": NSNull(),
+        "hidden": NSNull(), "colors": NSNull(), "opacity": NSNull(), "onOrderIn": NSNull(), "onOrderOut": NSNull(),
+    ]
 
     nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -28,9 +72,67 @@ final class SidebarAvatarView: NSView {
         avatar?.imageData.flatMap(NSImage.init(data:)).flatMap { $0.isValid ? $0 : nil }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard let avatar else { return }
-        performWithTheme { Self.draw(avatar, in: circleFrame, strong: isStrong) }
+    private static func cgImage(_ image: NSImage) -> CGImage? {
+        image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    }
+
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    /// The avatar ``draw(_:in:strong:)`` paints, as layers: the picture clipped round, else the glass
+    /// disc with its glaze and the initial; the rim on both (a border draws over the sublayers).
+    override func updateLayer() {
+        guard let avatar else {
+            disc.isHidden = true
+            initial.isHidden = true
+            return
+        }
+        let circle = circleFrame
+        let scale = window?.backingScaleFactor ?? 2
+        let strong = isStrong
+        let image = pictureImage
+        disc.frame = circle
+        disc.cornerRadius = circle.height / 2
+        disc.borderWidth = Metrics.lineWidth(1) / max(scale, 1)
+        picture.frame = CGRect(origin: .zero, size: circle.size)
+        picture.contentsScale = scale
+        picture.contents = image
+        picture.opacity = strong ? 1 : 0.85
+        picture.isHidden = image == nil
+        glaze.frame = picture.frame
+        glaze.isHidden = image != nil
+        initial.isHidden = image != nil
+        performWithTheme {
+            disc.borderColor = Palette.textPrimary.withAlphaComponent(0.18).cgColor
+            // Glass, never opaque: the disc lets the sidebar through a little, more at rest.
+            let fill = avatar.color.map { SidebarStyle.color($0) } ?? Palette.accentFill
+            disc.backgroundColor = image == nil ? fill.withAlphaComponent(strong ? 0.94 : 0.84).cgColor : nil
+            initial.foregroundColor = (avatar.color == nil ? Palette.onAccent : Palette.textOnPrimary).cgColor
+        }
+        if image == nil { placeInitial(avatar.initial, in: circle, scale: scale) }
+        disc.isHidden = false
+    }
+
+    /// The initial's glyph layer, its ink in the middle of `circle` (``initialOrigin(_:font:in:flipped:)``).
+    private func placeInitial(_ text: String, in circle: NSRect, scale: CGFloat) {
+        let font = NSFont.systemFont(ofSize: circle.height * (text.count > 1 ? 0.44 : 0.56), weight: TypeScale.strong)
+        initial.font = font
+        initial.string = text
+        initial.contentsScale = scale
+        let origin = Self.initialOrigin(text, font: font, in: circle, flipped: true)
+        // The layer puts the baseline `ascender` below its top, as draw(at:) does from `origin`.
+        initial.frame = NSRect(x: origin.x, y: origin.y, width: ceil(initial.textWidth) + 2,
+                               height: ceil(font.ascender - font.descender) + 1)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize, avatar != nil { needsDisplay = true } // invalidate: the circle centers in the new size
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if avatar != nil { needsDisplay = true } // invalidate: the rim and glyphs follow the new scale
     }
 
     /// The picture clipped round, else the initial on the profile's color or the theme accent,

@@ -233,6 +233,9 @@ final class PaletteMenuRow: NSView {
         keys.keycaps = keycaps ?? []
         keys.isHidden = keycaps == nil
         [icon, label, keys].forEach(addSubview)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layer?.cornerRadius = PaletteLayout.rowCornerRadius
     }
 
     @available(*, unavailable)
@@ -259,12 +262,11 @@ final class PaletteMenuRow: NSView {
         onMove?(event) // the menu's PointerFrameHover coalesces it
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard isSelected else { return }
-        performWithTheme {
-            Palette.selectionFill.setFill()
-            NSBezierPath(roundedRect: bounds, xRadius: PaletteLayout.rowCornerRadius, yRadius: PaletteLayout.rowCornerRadius).fill()
-        }
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    /// The selected row's fill: the layer's own color in the row radius, no backing store.
+    override func updateLayer() {
+        layer?.backgroundColor = isSelected ? performWithTheme { Palette.selectionFill.cgColor } : nil
     }
 
     override func viewDidMoveToWindow() {
@@ -275,6 +277,7 @@ final class PaletteMenuRow: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
+        if isSelected { needsDisplay = true } // invalidate: the appearance changed; the fill resolves again.
     }
 
     private func applyColors() {

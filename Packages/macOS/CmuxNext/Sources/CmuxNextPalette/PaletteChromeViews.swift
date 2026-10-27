@@ -8,17 +8,37 @@ final class PaletteClickView: NSView {
         didSet { if fillsBackground != oldValue { needsDisplay = true } }
     }
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
     override func mouseDown(with event: NSEvent) {
         onClick?()
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard fillsBackground else { return }
-        performWithTheme {
-            Palette.selectionFill.setFill()
-            let radius = bounds.height / 2
-            NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
-        }
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    /// The pill: the layer's own color and radius, no backing store.
+    override func updateLayer() {
+        layer?.backgroundColor = fillsBackground ? performWithTheme { Palette.selectionFill.cgColor } : nil
+        layer?.cornerRadius = bounds.height / 2
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize.height != oldSize.height { layer?.cornerRadius = newSize.height / 2 }
+    }
+
+    // visibility-walk-allow: one invalidation; AppKit updates only views on screen, so a hidden chip pays nothing
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if fillsBackground { needsDisplay = true } // invalidate: the appearance changed; the fill resolves again.
     }
 }
 

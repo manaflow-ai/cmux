@@ -2,19 +2,35 @@ import CmuxAgentBrands
 import AppKit
 import CmuxNextDesign
 
-/// Shortcut badges drawn directly (no subviews): one rounded gray cap per key.
+/// Shortcut badges as layers (no subviews, no backing store): one rounded gray cap per key, its
+/// fill a layer color and its glyph a ``ChromeTextLayer``, so a row's selection or theme change
+/// recolors layers and draws no pixels.
 final class PaletteKeycapsView: NSView {
     var keycaps: [String] = [] {
         didSet {
             guard keycaps != oldValue else { return }
+            rebuildCaps()
             invalidateIntrinsicContentSize()
-            needsDisplay = true // invalidate: other caps (the guard above)
+            needsLayout = true // invalidate: other caps (the guard above) take new places
+            needsDisplay = true // invalidate: other caps (the guard above) take the theme's colors
         }
     }
 
+    /// One fill and one glyph layer per cap, in order.
+    private var caps: [(fill: ChromeFillLayer, text: ChromeTextLayer)] = []
+
     nonisolated override var isFlipped: Bool { true }
 
-    /// theme-scoped: read inside `performWithTheme` (draw) or for measuring.
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// theme-scoped: read inside `performWithTheme` (colors) or for measuring.
     private var attributes: [NSAttributedString.Key: Any] {
         [.font: Typography.shortcut, .foregroundColor: Palette.textSecondary]
     }
@@ -30,22 +46,69 @@ final class PaletteKeycapsView: NSView {
         return NSSize(width: widths.reduce(0, +) + Metrics.space1 * CGFloat(keycaps.count - 1), height: PaletteLayout.keycapSize)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    private func rebuildCaps() {
+        caps.forEach { $0.fill.removeFromSuperlayer() }
+        caps = keycaps.map { cap in
+            let fill = ChromeFillLayer()
+            fill.cornerRadius = PaletteLayout.keycapCornerRadius
+            let text = ChromeTextLayer()
+            text.actions = Self.stillText
+            text.font = Typography.shortcut
+            text.alignmentMode = .center
+            text.string = cap
+            text.contentsScale = window?.backingScaleFactor ?? 2
+            fill.addSublayer(text)
+            layer?.addSublayer(fill)
+            return (fill: fill, text: text)
+        }
+    }
+
+    /// The glyph layer's own keys that the caps change: all still.
+    private static let stillText: [String: any CAAction] = [
+        "bounds": NSNull(), "position": NSNull(), "frame": NSNull(), "contents": NSNull(), "contentsScale": NSNull(),
+        "hidden": NSNull(), "onOrderIn": NSNull(), "onOrderOut": NSNull(),
+    ]
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize { needsLayout = true }
+    }
+
+    override func layout() {
+        super.layout()
         var x: CGFloat = 0
         let size = PaletteLayout.keycapSize
         let y = (bounds.height - size) / 2
-        performWithTheme {
-            for cap in keycaps {
-                let width = capWidth(cap)
-                let rect = NSRect(x: x, y: y, width: width, height: size)
-                Palette.hoverFill.setFill()
-                NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.keycapCornerRadius, yRadius: PaletteLayout.keycapCornerRadius).fill()
-                let text = cap as NSString
-                let textSize = text.size(withAttributes: attributes)
-                text.draw(at: NSPoint(x: rect.midX - textSize.width / 2, y: rect.midY - textSize.height / 2), withAttributes: attributes)
-                x += width + Metrics.space1
-            }
+        let textHeight = ceil(Typography.shortcut.ascender - Typography.shortcut.descender)
+        for (cap, layers) in zip(keycaps, caps) {
+            let width = capWidth(cap)
+            layers.fill.frame = NSRect(x: x, y: y, width: width, height: size)
+            layers.text.frame = NSRect(x: 0, y: (size - textHeight) / 2, width: width, height: textHeight)
+            x += width + Metrics.space1
         }
+    }
+
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        let (fill, ink) = performWithTheme { (Palette.hoverFill.cgColor, Palette.textSecondary.cgColor) }
+        for layers in caps {
+            layers.fill.backgroundColor = fill
+            layers.text.foregroundColor = ink
+        }
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        let scale = window?.backingScaleFactor ?? 2
+        for layers in caps where layers.text.contentsScale != scale { layers.text.contentsScale = scale }
+    }
+
+    // visibility-walk-allow: one invalidation; AppKit updates only views on screen, so hidden caps pay nothing
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if !caps.isEmpty { needsDisplay = true } // invalidate: the appearance changed; the cap colors resolve again.
     }
 }
 

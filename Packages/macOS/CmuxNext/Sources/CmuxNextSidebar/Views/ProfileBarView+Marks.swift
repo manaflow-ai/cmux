@@ -125,7 +125,37 @@ nonisolated final class ProfileDotElement: NSAccessibilityElement {
     }
 }
 
-/// A non-interactive layer of the bar that draws through `onDraw`.
+/// The bar's current-space chip: the selection fill in the row radius as its layer's own color, so
+/// it slides on a switch and recolors on a theme change without drawing.
+final class ProfileBarChipView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    nonisolated override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.backgroundColor = performWithTheme { Palette.selectionFill.cgColor }
+    }
+
+    // visibility-walk-allow: one invalidation; AppKit updates only views on screen, so a hidden chip pays nothing
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true // invalidate: the appearance changed; the selection fill resolves again.
+    }
+}
+
+/// The bar's marks (`drawMarks`): each space's icon, emoji, picture or dot and the "+", drawn through
+/// `onDraw`. They stay drawn content, not layer properties: emoji and pictures keep their own colors,
+/// and a switch crossfades the whole drawn `contents` (`ProfileBarView.refresh`).
 final class ProfileBarLayerView: NSView {
     var onDraw: ((NSRect) -> Void)?
 

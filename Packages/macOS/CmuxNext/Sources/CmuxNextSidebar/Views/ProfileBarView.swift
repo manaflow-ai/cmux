@@ -35,7 +35,9 @@ final class ProfileBarView: NSView {
     }
 
     /// The current space's chip; it slides on a switch.
-    let indicator = ProfileBarLayerView()
+    let indicator = ProfileBarChipView()
+    /// The hovered space's background: a layer color behind the chip and the marks.
+    let hoverFill = ChromeFillLayer()
     /// The spaces' marks and the "+".
     let marks = ProfileBarLayerView()
 
@@ -52,11 +54,14 @@ final class ProfileBarView: NSView {
         self.model = model
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        hoverFill.cornerRadius = SidebarStyle.rowCornerRadius
+        hoverFill.isHidden = true
+        layer?.insertSublayer(hoverFill, at: 0)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(Strings.profiles)
         setAccessibilityIdentifier("cmux.sidebar.spaces")
-        indicator.onDraw = { [weak self] _ in self?.drawIndicator() }
         marks.onDraw = { [weak self] _ in self?.drawMarks() }
         indicator.isHidden = true
         marks.autoresizingMask = [.width, .height]
@@ -136,6 +141,7 @@ final class ProfileBarView: NSView {
         super.layout()
         marks.frame = bounds
         placeIndicator(animated: false)
+        if let chip = hoverChip, chip.rect != hoverFill.frame { hoverFill.frame = chip.rect }
     }
 
     // MARK: Drawing
@@ -146,14 +152,17 @@ final class ProfileBarView: NSView {
         ProfileBarLogic.isVisible(profileCount: model.profiles.count) || isPointerInside ? model.profiles.count : 0
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        performWithTheme {
-            if let chip = hoverChip {
-                chip.fill.setFill()
-                let radius = SidebarStyle.rowCornerRadius
-                NSBezierPath(roundedRect: chip.rect, xRadius: radius, yRadius: radius).fill()
-            }
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    /// The hover chip: a layer frame and color, no backing store.
+    override func updateLayer() {
+        guard let chip = hoverChip else {
+            hoverFill.isHidden = true
+            return
         }
+        hoverFill.frame = chip.rect
+        hoverFill.backgroundColor = performWithTheme { chip.fill.cgColor }
+        hoverFill.isHidden = false
     }
 
     /// The current space's chip in this bar: its slot inset like the hover
@@ -163,15 +172,6 @@ final class ProfileBarView: NSView {
         let rects = slotRects()
         guard rects.indices.contains(active) else { return nil }
         return ProfileBarLogic.chipRect(slot: rects[active], inset: Metrics.space1)
-    }
-
-    // theme-scoped: indicator.draw runs inside the bar's theme scope
-    private func drawIndicator() {
-        performWithTheme {
-            Palette.selectionFill.setFill()
-            let radius = SidebarStyle.rowCornerRadius
-            NSBezierPath(roundedRect: indicator.bounds, xRadius: radius, yRadius: radius).fill()
-        }
     }
 
     /// Moves the chip to the current space; a switch slides it (Reduce
@@ -197,7 +197,6 @@ final class ProfileBarView: NSView {
             if indicator.frame != rect {
                 indicator.layer?.removeAnimation(forKey: "position")
                 indicator.frame = rect
-                indicator.needsDisplay = true
             }
             return
         }

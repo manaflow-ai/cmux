@@ -76,13 +76,25 @@ extension WhichKeyOverlay: ThemeResponsive {
     }
 }
 
-/// The overlay's body, drawn directly: the leader's keycaps and the cancel
-/// hint on top, then one row per key (monospace keycap, action title) in
-/// as many columns as fit. Theme tokens only, read inside `performWithTheme`.
+/// The overlay's body, as layers (no backing store): the leader's keycaps and
+/// the cancel hint on top, then one row per key (monospace keycap, action
+/// title) in as many columns as fit. A cap is a layer fill with a
+/// ``ChromeTextLayer`` glyph; a title or the hint is a ``ChromeTextLayer``.
+/// Theme tokens only, read inside `performWithTheme`.
 final class WhichKeyView: NSView {
     private var prefixCaps: [String] = []
     private var rows: [WhichKeyRow] = []
-    private var columns = 1
+    private var columns = 1 {
+        didSet { if columns != oldValue { needsDisplay = true } }
+    }
+    /// One keycap: its fill and its glyphs.
+    private struct Cap {
+        let fill: ChromeFillLayer
+        let text: ChromeTextLayer
+    }
+    private var prefixLayers: [Cap] = []
+    private var rowLayers: [(cap: Cap, title: ChromeTextLayer)] = []
+    private let hintLayer = ChromeTextLayer()
     private var keyColumnWidth: CGFloat = 0
     private var columnWidth: CGFloat = 0
     /// Longest a title draws before it truncates.
@@ -90,9 +102,31 @@ final class WhichKeyView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        hintLayer.actions = Self.still
+        hintLayer.font = Typography.caption
+        hintLayer.string = WhichKeyStrings.cancelHint
+        layer?.addSublayer(hintLayer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
     func update(prefix: [String], rows newRows: [WhichKeyRow]) {
         prefixCaps = prefix
         rows = newRows
+        prefixLayers.forEach { $0.fill.removeFromSuperlayer() }
+        rowLayers.forEach { $0.cap.fill.removeFromSuperlayer(); $0.title.removeFromSuperlayer() }
+        prefixLayers = prefix.map(makeCap)
+        rowLayers = rows.map { row in
+            let title = Self.textLayer(row.title, font: Typography.body)
+            title.truncation = .end
+            layer?.addSublayer(title)
+            return (cap: makeCap(row.key), title: title)
+        }
         keyColumnWidth = rows.map { capWidth($0.key) }.max() ?? capHeight
         let titleWidth = rows.map { min(width($0.title, Typography.body), Self.maxTitleWidth) }.max() ?? 0
         columnWidth = keyColumnWidth + Metrics.space2 + titleWidth
@@ -134,49 +168,80 @@ final class WhichKeyView: NSView {
         return NSSize(width: ceil(min(maxWidth, max(header, content) + inset * 2)), height: ceil(height))
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        performWithTheme {
-            let fill = Palette.hoverFill, primary = Palette.textPrimary, dimmed = Palette.textTertiary
-            var x = inset
-            for cap in prefixCaps { x += drawCap(cap, at: NSPoint(x: x, y: inset), fill: fill, color: primary) + Metrics.space1 }
-            let hint = WhichKeyStrings.cancelHint
-            drawText(hint, font: Typography.caption, color: dimmed,
-                     in: NSRect(x: bounds.maxX - inset - width(hint, Typography.caption), y: inset,
-                                width: width(hint, Typography.caption), height: lineHeight))
-            let top = inset + lineHeight + Metrics.space3
-            for (index, row) in rows.enumerated() {
-                let column = CGFloat(index / rowsPerColumn), line = CGFloat(index % rowsPerColumn)
-                let origin = NSPoint(x: inset + column * (columnWidth + columnGap), y: top + line * (lineHeight + Metrics.space1))
-                _ = drawCap(row.key, at: origin, fill: fill, color: row.isEnabled ? primary : dimmed)
-                let titleX = origin.x + keyColumnWidth + Metrics.space2
-                drawText(row.title, font: Typography.body, color: row.isEnabled ? primary : dimmed,
-                         in: NSRect(x: titleX, y: origin.y, width: max(0, min(columnWidth - keyColumnWidth - Metrics.space2,
-                                                                               bounds.maxX - inset - titleX)), height: lineHeight))
-            }
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    /// Places and colors the layers: the caps and hint on top, then the rows by column.
+    override func updateLayer() {
+        let scale = window?.backingScaleFactor ?? 2
+        let (fill, primary, dimmed) = performWithTheme {
+            (Palette.hoverFill.cgColor, Palette.textPrimary.cgColor, Palette.textTertiary.cgColor)
+        }
+        var x = inset
+        for (cap, layers) in zip(prefixCaps, prefixLayers) {
+            x += place(layers, cap, at: NSPoint(x: x, y: inset), fill: fill, ink: primary, scale: scale) + Metrics.space1
+        }
+        let hintWidth = width(WhichKeyStrings.cancelHint, Typography.caption)
+        place(hintLayer, in: NSRect(x: bounds.maxX - inset - hintWidth, y: inset, width: hintWidth, height: lineHeight),
+              ink: dimmed, scale: scale)
+        let top = inset + lineHeight + Metrics.space3
+        for (index, (row, layers)) in zip(rows, rowLayers).enumerated() {
+            let column = CGFloat(index / rowsPerColumn), line = CGFloat(index % rowsPerColumn)
+            let origin = NSPoint(x: inset + column * (columnWidth + columnGap), y: top + line * (lineHeight + Metrics.space1))
+            let ink = row.isEnabled ? primary : dimmed
+            place(layers.cap, row.key, at: origin, fill: fill, ink: ink, scale: scale)
+            let titleX = origin.x + keyColumnWidth + Metrics.space2
+            place(layers.title, in: NSRect(x: titleX, y: origin.y, width: max(0, min(columnWidth - keyColumnWidth - Metrics.space2,
+                                                                                      bounds.maxX - inset - titleX)), height: lineHeight),
+                  ink: ink, scale: scale)
         }
     }
 
-    /// One rounded keycap at the top left of a line, in colors `draw`
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize { needsDisplay = true } // invalidate: the hint and the titles' widths follow the width
+    }
+
+    private func makeCap(_ cap: String) -> Cap {
+        let fill = ChromeFillLayer()
+        fill.cornerRadius = Metrics.itemCornerRadius
+        let text = Self.textLayer(cap, font: Typography.shortcut)
+        text.alignmentMode = .center
+        fill.addSublayer(text)
+        layer?.addSublayer(fill)
+        return Cap(fill: fill, text: text)
+    }
+
+    private static func textLayer(_ string: String, font: NSFont) -> ChromeTextLayer {
+        let text = ChromeTextLayer()
+        text.actions = still
+        text.font = font
+        text.string = string
+        return text
+    }
+
+    /// The glyph layers' own keys that the body changes: all still.
+    private static let still: [String: any CAAction] = [
+        "bounds": NSNull(), "position": NSNull(), "frame": NSNull(), "contents": NSNull(), "contentsScale": NSNull(),
+        "hidden": NSNull(), "onOrderIn": NSNull(), "onOrderOut": NSNull(),
+    ]
+
+    /// One rounded keycap at the top left of a line, in colors `updateLayer`
     /// read in the theme scope; returns its width.
-    private func drawCap(_ cap: String, at origin: NSPoint, fill: NSColor, color: NSColor) -> CGFloat {
+    @discardableResult
+    private func place(_ layers: Cap, _ cap: String, at origin: NSPoint, fill: CGColor, ink: CGColor, scale: CGFloat) -> CGFloat {
         let size = NSSize(width: capWidth(cap), height: capHeight)
-        let rect = NSRect(origin: NSPoint(x: origin.x, y: origin.y + (lineHeight - size.height) / 2), size: size)
-        fill.setFill()
-        NSBezierPath(roundedRect: rect, xRadius: Metrics.itemCornerRadius, yRadius: Metrics.itemCornerRadius).fill()
-        let attributes: [NSAttributedString.Key: Any] = [.font: Typography.shortcut, .foregroundColor: color]
-        let text = cap as NSString
-        let textSize = text.size(withAttributes: attributes)
-        text.draw(at: NSPoint(x: rect.midX - textSize.width / 2, y: rect.midY - textSize.height / 2), withAttributes: attributes)
+        layers.fill.frame = NSRect(origin: NSPoint(x: origin.x, y: origin.y + (lineHeight - size.height) / 2), size: size)
+        layers.fill.backgroundColor = fill
+        place(layers.text, in: NSRect(origin: .zero, size: size), ink: ink, scale: scale)
         return size.width
     }
 
-    /// One line of text, vertically centered in `rect`, truncated at its end.
-    private func drawText(_ text: String, font: NSFont, color: NSColor, in rect: NSRect) {
-        let style = NSMutableParagraphStyle()
-        style.lineBreakMode = .byTruncatingTail
-        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color, .paragraphStyle: style]
-        let height = ceil(font.ascender - font.descender)
-        (text as NSString).draw(in: NSRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height),
-                                withAttributes: attributes)
+    /// One line of text, vertically centered in `rect`, truncated at its end when it truncates.
+    private func place(_ text: ChromeTextLayer, in rect: NSRect, ink: CGColor, scale: CGFloat) {
+        let height = ceil(text.font.ascender - text.font.descender)
+        text.frame = NSRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height)
+        text.foregroundColor = ink
+        text.contentsScale = scale
     }
 }
