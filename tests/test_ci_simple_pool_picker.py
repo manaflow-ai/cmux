@@ -242,6 +242,42 @@ class NeverQueueBehindBlacksmithTests(unittest.TestCase):
                                              pool("glaeda-light-xcode-26.6", 4, free=0, queued=2)))
         self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
 
+    def test_the_wait_ranks_by_measured_turnover_not_queue_per_runner(self):
+        # A busy 4-runner light pool with 12 queued (3 a runner) against a busy 30-runner std pool with
+        # 108 (3.6 a runner): queued / capacity picked light, where the run starts 46.3 min out (four
+        # 11.58 min turnovers) against std's 30.0 (four of 7.51).
+        light = pool("glaeda-light-xcode-26.6", 4, running=4, free=0, queued=12)
+        std = pool("glaeda-std-xcode-26.6", 30, running=30, free=0, queued=108)
+        self.assertLess(light.queued / light.capacity, std.queued / std.capacity)
+        self.assertAlmostEqual(picker.expected_wait_minutes(light, 2), 4 * 11.58)
+        self.assertAlmostEqual(picker.expected_wait_minutes(std, 2), 4 * 7.51)
+        self.assertEqual(picker.pick(self.state(self.FULL, owned=(std, light))).label, "glaeda-std-xcode-26.6")
+
+    def test_a_pool_smaller_than_the_run_waits_a_turnover_per_extra_wave(self):
+        # One online runner, nothing queued: the second job starts one turnover after the first.
+        tiny = pool("glaeda-light-xcode-26.6", 1, free=1)
+        self.assertEqual(picker.expected_wait_minutes(tiny, 1), 0)
+        self.assertAlmostEqual(picker.expected_wait_minutes(tiny, 2), 11.58)
+        # Idle runners take the queue ahead first; a busy pool's job waits one turnover, the slowest
+        # measured one for a class with no figure.
+        self.assertEqual(picker.expected_wait_minutes(pool("glaeda-std-xcode-26.6", 8, running=4, queued=2), 2), 0)
+        self.assertEqual(picker.expected_wait_minutes(pool("glaeda-xl-xcode-26.6", 1, running=1), 1),
+                         max(picker.TURNOVER_MINUTES.values()))
+
+    def test_turnover_is_the_measured_fixture(self):
+        # TURNOVER_MINUTES is derived, never typed: total runner minutes over jobs per pool class.
+        data = json.loads((ROOT / "tests/fixtures/owned-pool-turnover/2026-10-20-to-26.json").read_text())
+        totals: dict[str, list[float]] = {}
+        for row in data["jobs"]:
+            total = totals.setdefault(row["pool"], [0, 0.0])
+            total[0] += row["n"]
+            total[1] += row["runner_minutes"]
+        self.assertEqual(set(totals), set(picker.TURNOVER_MINUTES))
+        for klass, (jobs, minutes) in totals.items():
+            with self.subTest(klass=klass):
+                self.assertEqual(round(minutes / jobs, 2), picker.TURNOVER_MINUTES[klass])
+        self.assertEqual({klass: jobs for klass, (jobs, _) in totals.items()}, {"std": 20003, "light": 1360})
+
     def test_without_an_owned_pool_to_wait_on_the_rule_is_unchanged(self):
         # A fork, owned pools off or an unread runner list has no fleet queue to wait on.
         for state in (self.state(self.FULL, fork=True), self.state(self.FULL, owned_enabled=False),
