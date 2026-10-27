@@ -3,7 +3,7 @@
 export const ARTIFACT_FRAME_URL = "cmux-agent://render/artifact";
 export const artifactGallery = () =>
   typeof location !== "undefined" &&
-  location.pathname.endsWith("/gallery/frame.html") &&
+  location.pathname.endsWith("/frame.html") &&
   new URLSearchParams(location.search).has("entry");
 export const ARTIFACT_POLICY =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'";

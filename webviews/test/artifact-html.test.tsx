@@ -2,11 +2,33 @@ import { expect, test } from "bun:test";
 import { artifactKind } from "../src/agent-session/acpmux/conversation/artifactPreview";
 import { outputArtifacts } from "../src/agent-session/acpmux/inspector/OutputsSection";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { artifactGallery } from "../src/agent-session/acpmux/conversation/artifactSandbox";
 
 const page = '<title>Counter</title><button onclick="this.textContent++">0</button>';
 const rows = (tool: NonNullable<AcpmuxActivity["tool"]>): AcpmuxRow[] => [
   { id: tool.id, version: 1, at: 0, kind: "activity", items: [{ kind: "tool", text: "", tool }] },
 ];
+
+test("offline artifacts use the sandbox in dev and built gallery frame routes only", () => {
+  const before = Object.getOwnPropertyDescriptor(globalThis, "location");
+  try {
+    for (const [path, expected] of [
+      ["/gallery/frame.html?entry=agent-pane.artifact-panel", true],
+      ["/frame.html?entry=agent-pane.artifact-panel", true],
+      ["/frame.html", false],
+      ["/index.html?entry=agent-pane.artifact-panel", false],
+    ] as const) {
+      Object.defineProperty(globalThis, "location", {
+        configurable: true,
+        value: new URL(path, "https://gallery.test"),
+      });
+      expect(artifactGallery()).toBe(expected);
+    }
+  } finally {
+    if (before) Object.defineProperty(globalThis, "location", before);
+    else Reflect.deleteProperty(globalThis, "location");
+  }
+});
 
 test("JSX fences use the HTML artifact surface", () => {
   expect(artifactKind("jsx", "export default () => <button>Hi</button>")).toBe("html");
