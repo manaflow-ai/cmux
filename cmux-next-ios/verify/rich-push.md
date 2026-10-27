@@ -12,9 +12,9 @@ PROTOCOL.md "Push notifications (API 0.13.0)". The trust analysis for PR B is
 | Question, one choice, at most 4 options | "<Agent> asks", the question, `<workspace> · <Mac>` | the chat's last lines, the question, option rows, the composer | one per option | the chat, scrolled to the question |
 | Question, multi-select, more than 4 options, several questions or free text | same | option rows (checkboxes for multi-select), Submit, the composer | "Answer…" | the chat |
 | Permission | "<Agent> needs permission", the command or tool title | the last lines and the request | Allow once, Deny (as the Feed, `phoneOptions`: acpmux refuses a lasting grant from a phone, `remote.lasting_grant_refused`; a prompt with no single-use Allow keeps its Always allow, and acpmux's refusal says why) | the chat |
-| Finished turn | "<Agent> finished", the last line | the last lines, the composer | Reply (text) | the chat |
-| Error | "<Agent> stopped with an error" | same | Reply (text) | the chat |
-| Chief | "Chief", the reply's first lines | the last messages, the composer | Reply (text) | that Chief's conversation |
+| Finished turn | "<Agent> finished", the last line | the last 4 messages up to the reply, the reply bar ("+": Photos, Files) | none beside the reply bar; "Reply to <Agent>" (text) without it | the chat |
+| Error | "<Agent> stopped with an error" | same | same | the chat |
+| Chief | "Chief", the reply's first lines | Chief's header (its avatar and name, the Mac), the last 4 messages up to the reply as Messages bubbles, the reply bar ("+": Photos) | none beside the reply bar; "Reply to Chief" (text) without it | that Chief's conversation |
 | Terminal (OSC 9, 777, 99) | "Terminal · <workspace>", the program's title and body | the program's title and body (the screen stays on the Mac until PR B seals payloads) | none (Reply is PR B, needs device unlock) | the terminal tab |
 
 Thread per session (`thread-id`), the collapse rules from #23803 unchanged.
@@ -31,11 +31,21 @@ Thread per session (`thread-id`), the collapse rules from #23803 unchanged.
   `extensionContext.notificationActions` from the payload, so a question's
   own options are the buttons. Without the extension (watch, an older
   build) the static category offers "Answer…".
-- **The composer.** iOS gives an extension no way to start a background
-  action from its own view. The system Reply field is the background path;
-  the extension's composer (with "+") hands its text and attachments to the
-  app through the App Group outbox and opens the app on the chat, which sends
-  over the Mac's link. Photos come from PHPicker inside the extension.
+- **The reply bar.** iOS gives an extension no way to start a background
+  action from its own view. The extension's reply bar, docked at the bottom
+  as Messages' notification reply is (its `inputAccessoryView`), hands its
+  text and attachments to the app through the App Group outbox and opens the
+  app on the chat, which sends over the Mac's link. "+" offers Photos
+  (PHPicker) and, for an agent's chat, Files (a copy from the document
+  picker, at most 25 MB); Chief's messages carry text and photos only. While
+  the bar shows, the extension sets no Reply button, so there is one way to
+  reply; the system Reply field ("Reply to <Agent>") is the path only in a
+  build without the App Group, which can't hand a reply over.
+- **History.** The last 4 messages up to and including the notified one
+  (`PushHistory`): the chat the app saved when it last went to the
+  background (Chief's conversation too, with its name and avatar), then the
+  push's message, once. The push's `tail` is the same reply cut into lines,
+  never a second bubble; a chat saved before the push never holds it.
 - **Preview rendering.** The content extension has a tight memory budget and
   no link. It draws the payload's last lines (and, when the app saved one, the
   chat's recent messages from the App Group) with a small SwiftUI view, not
@@ -75,6 +85,9 @@ Thread per session (`thread-id`), the collapse rules from #23803 unchanged.
   labels); the saved chat loads into the long-press view only while the phone
   is unlocked. With Require Face ID on, Reply and Deny open the app (behind
   its lock) instead of running in the background.
+- **Previews off, unlocked.** The long look shows content and its reply bar
+  while the phone is unlocked, and the static Reply button stays (its title
+  never names an option on the lock screen). That is the one case with both.
 - **Leftovers.** Attachments are deleted once sent and after 15 minutes; the
   outbox and retries are cleared on sign-out.
 

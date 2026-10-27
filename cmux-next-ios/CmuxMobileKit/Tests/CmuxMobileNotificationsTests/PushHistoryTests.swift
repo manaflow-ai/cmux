@@ -51,6 +51,24 @@ import UserNotifications
         #expect(history.messages.map(\.text) == ["go", reply])
     }
 
+    /// Review finding 2: a chat saved before the push holds an older "Done.", not this one.
+    @Test func anOlderReplyThatReadsTheSameIsNotTheNotifiedOne() {
+        var saved = snapshot([(.user, "build it"), (.agent, "Done."), (.user, "now deploy it")])
+        saved.updatedAt = Date(timeIntervalSince1970: 1_000)
+        let push = chief(body: "Done.", tail: ["Done."])
+        let arrived = Date(timeIntervalSince1970: 2_000)
+        let history = PushHistory(payload: push, snapshot: saved, notifiedAt: arrived)
+        #expect(history.messages.map(\.text) == ["build it", "Done.", "now deploy it", "Done."])
+        #expect(history.notifiedIndex == 3)
+        // Saved after it arrived, the chat's own copy is the notified one.
+        saved.messages.append(.init(role: .agent, text: "Done."))
+        saved.updatedAt = Date(timeIntervalSince1970: 3_000)
+        #expect(PushHistory(payload: push, snapshot: saved, notifiedAt: arrived).messages.map(\.text) == ["build it", "Done.", "now deploy it", "Done."])
+        // The person's own words never stand for Chief's reply.
+        let mine = snapshot([(.user, "Done.")])
+        #expect(PushHistory(payload: push, snapshot: mine).messages.map(\.role) == [.user, .agent])
+    }
+
     @Test func differentShortMessagesDoNotMatch() {
         #expect(!PushHistory.same("Yes", "Yes, deploy it now to production"))
         #expect(PushHistory.same("Done.  All\npass", "Done. All pass"))

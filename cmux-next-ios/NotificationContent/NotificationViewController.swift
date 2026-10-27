@@ -59,8 +59,7 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
     private func updateComposer() {
         if model.showsComposer {
             composer.setPlaceholder(model.composerPlaceholder)
-            // A question's text is its "Other" answer: no attachments there.
-            composer.allowsAttachments = model.payload?.kind != .question
+            composer.attachmentKinds = model.attachmentKinds
             if !isFirstResponder, !composer.textView.isFirstResponder { becomeFirstResponder() }
         } else if isFirstResponder || composer.textView.isFirstResponder {
             composer.textView.resignFirstResponder()
@@ -89,7 +88,7 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
         }
         model.actionable = actionable
         // The push shows at once; the App Group's outbox and snapshot join it once resolved.
-        model.load(payload: payload, group: nil)
+        model.load(payload: payload, group: nil, date: notification.date)
         updateComposer()
         // The App Group (outbox, chat snapshot) and the shared Require Face ID
         // choice are read off the main thread. A build signed without the

@@ -31,8 +31,12 @@ final class NotificationContentModel {
     /// A file picked from Files larger than this is refused (the Mac's link carries it whole).
     nonisolated static let maxFileBytes = 25 * 1024 * 1024
 
-    func load(payload: PushPayload?, group: PushAppGroup?) {
+    /// When the notification arrived: a chat the app saved before it does not hold its message.
+    private(set) var notifiedAt: Date?
+
+    func load(payload: PushPayload?, group: PushAppGroup?, date: Date? = nil) {
         self.payload = payload
+        if let date { notifiedAt = date }
         form = payload.map(PushForm.init(payload:))
         outbox = PushOutbox(group: group)
         let markerDirectory = group?.directory ?? FileManager.default.temporaryDirectory
@@ -56,12 +60,21 @@ final class NotificationContentModel {
 
     /// The conversation up to and including the notified message.
     var history: PushHistory? {
-        payload.map { PushHistory(payload: $0, snapshot: snapshot) }
+        payload.map { PushHistory(payload: $0, snapshot: snapshot, notifiedAt: notifiedAt) }
     }
 
     /// Who a Chief notification is from: the name and avatar the Mac set, as the app shows them.
     var chiefName: String { snapshot?.title ?? payload?.agent ?? String(localized: "Chief") }
     var chiefAvatar: String { snapshot?.avatar ?? "C" }
+
+    /// What "+" offers: Chief's messages carry text and photos only, an agent's prompt any file.
+    var attachmentKinds: ComposerBar.AttachmentKinds {
+        switch payload?.kind {
+        case .question, .permission, .terminal, nil: []
+        case .chief: [.photos]
+        case .completed, .failed: [.photos, .files]
+        }
+    }
 
     var composerPlaceholder: String {
         guard let payload else { return String(localized: "Reply") }

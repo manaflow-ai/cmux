@@ -26,10 +26,11 @@ public struct PushSnapshots {
     }
 
     /// Chief's conversation: the person's messages and Chief's, unsent and
-    /// scheduled ones left out, a message with only attachments named by them.
+    /// scheduled ones and status rows left out, a message with only
+    /// attachments named by them.
     public static func chiefMessages(_ messages: [ConversationMessage], chiefID: String) -> [PushSnapshot.Message] {
         var out: [PushSnapshot.Message] = []
-        for message in messages where !message.isUnsent && !message.isScheduled {
+        for message in messages where !message.isUnsent && !message.isScheduled && message.systemEvent == nil {
             let text = message.text.isEmpty ? attachmentLabel(message.attachments) : message.text
             guard let text, !text.isEmpty else { continue }
             out.append(.init(role: message.senderID == chiefID ? .agent : .user, text: text))

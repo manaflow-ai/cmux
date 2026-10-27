@@ -6,6 +6,12 @@ import UIKit
 /// The view controller returns it as its `inputAccessoryView`, so it rests at
 /// the bottom and rides on the keyboard while typing.
 final class ComposerBar: UIView, UITextViewDelegate {
+    struct AttachmentKinds: OptionSet {
+        let rawValue: Int
+        static let photos = AttachmentKinds(rawValue: 1)
+        static let files = AttachmentKinds(rawValue: 2)
+    }
+
     struct Attachment: Equatable {
         var name: String
         var title: String
@@ -29,8 +35,8 @@ final class ComposerBar: UIView, UITextViewDelegate {
     private var textHeight: NSLayoutConstraint?
     private var shelfHeight: NSLayoutConstraint?
     private(set) var attachments: [Attachment] = []
-    /// Text into a question accepts no attachments.
-    var allowsAttachments = true { didSet { plusGlass.isHidden = !allowsAttachments; setNeedsLayout() } }
+    /// What "+" offers; none hides it (a question's text is its "Other" answer).
+    var attachmentKinds: AttachmentKinds = [.photos, .files] { didSet { updateMenu() } }
 
     static let maxLines: CGFloat = 5
     static let thumbnailSize: CGFloat = 56
@@ -43,11 +49,7 @@ final class ComposerBar: UIView, UITextViewDelegate {
         plusButton.setImage(UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(textStyle: .body, scale: .large)), for: .normal)
         plusButton.tintColor = .label
         plusButton.showsMenuAsPrimaryAction = true
-        plusButton.menu = UIMenu(children: [
-            UIAction(title: String(localized: "Photos"), image: UIImage(systemName: "photo.on.rectangle")) { [weak self] _ in self?.onPickPhotos() },
-            UIAction(title: String(localized: "Files"), image: UIImage(systemName: "folder")) { [weak self] _ in self?.onPickFiles() },
-        ])
-        plusButton.accessibilityLabel = String(localized: "Attach Photos or Files")
+        updateMenu()
         plusButton.accessibilityIdentifier = "cmux.push.attach"
         for glass in [plusGlass, fieldGlass] {
             glass.layer.cornerRadius = 19
@@ -139,6 +141,20 @@ final class ComposerBar: UIView, UITextViewDelegate {
         // An input accessory sizes from this; the bottom safe area joins it when the keyboard is down.
         let field = (textHeight?.constant ?? 38) + (shelfHeight?.constant ?? 0)
         return CGSize(width: UIView.noIntrinsicMetric, height: field + 14)
+    }
+
+    private func updateMenu() {
+        var items: [UIMenuElement] = []
+        if attachmentKinds.contains(.photos) {
+            items.append(UIAction(title: String(localized: "Photos"), image: UIImage(systemName: "photo.on.rectangle")) { [weak self] _ in self?.onPickPhotos() })
+        }
+        if attachmentKinds.contains(.files) {
+            items.append(UIAction(title: String(localized: "Files"), image: UIImage(systemName: "folder")) { [weak self] _ in self?.onPickFiles() })
+        }
+        plusButton.menu = UIMenu(children: items)
+        plusButton.accessibilityLabel = attachmentKinds.contains(.files)
+            ? String(localized: "Attach Photos or Files") : String(localized: "Attach Photos")
+        plusGlass.isHidden = items.isEmpty
     }
 
     func setPlaceholder(_ text: String) {
