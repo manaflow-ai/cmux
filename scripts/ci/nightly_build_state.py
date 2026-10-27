@@ -61,8 +61,10 @@ KEY_PATHS = re.compile(r'(^|/)(Package\.resolved|Cargo\.lock|build\.zig\.zon|rus
                        r'|cef-manifest\.json|ensure-cef\.sh|ensure-remote-browser-host\.sh|download-prebuilt-ghosttykit\.sh)$')
 # An import or include line added or removed in a source file: the import set changes, the audited
 # case for stale autolink and force-load data in objects that were not recompiled.
-IMPORT_SOURCES = ('*.swift', '*.h', '*.m', '*.mm', '*.c', '*.cpp')
-IMPORT_LINE = re.compile(r'^[+-](?![+-]).*\bimport\s|^[+-]\s*#\s*(import|include)\b')
+IMPORT_SOURCES = ('*.swift', '*.h', '*.hh', '*.hpp', '*.hxx', '*.inc', '*.def', '*.m', '*.mm', '*.c', '*.cc',
+                  '*.cpp', '*.cxx', '*.modulemap', '*.apinotes')
+IMPORT_LINE = re.compile(r'^[+-](?![+-]).*\bimport\s|^[+-]\s*#\s*(import|include|include_next)\b'
+                         r'|^[+-]\s*@import\b')
 STRUCTURE_PATHS = re.compile(r'(^|/)(Package\.swift|[^/]+\.pbxproj|[^/]+\.xcconfig|[^/]+\.modulemap'
                              r'|[^/]+\.xcscheme|[^/]+\.entitlements|[^/]+\.xcfilelist)$')
 NOTICES_CACHE = 'notices-crates'

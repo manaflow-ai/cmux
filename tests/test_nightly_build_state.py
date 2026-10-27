@@ -160,6 +160,9 @@ class DedicatedBuilder(unittest.TestCase):
         for name, text in (('Sources/a.swift', 'import Foundation\nlet a = 1\n'),
                            ('Sources/b.swift', '@_exported import Bar\n'),
                            ('Sources/c.m', '#import <Foundation/Foundation.h>\n'),
+                           ('Sources/d.cc', '#include_next <x.h>\n'),
+                           ('Sources/e.hpp', '#include "y.h"\n'),
+                           ('Sources/f.m', '@import Darwin;\n'),
                            ('Sources/a.swift', 'let a = 1\n')):
             with self.subTest(name=name, text=text):
                 self.build()
