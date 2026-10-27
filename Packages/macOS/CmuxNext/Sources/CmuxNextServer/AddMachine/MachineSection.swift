@@ -82,7 +82,7 @@ public struct MachineSectionListView: View {
         VStack(alignment: .leading, spacing: 2) {
             if rows.isEmpty {
                 VStack(alignment: .leading, spacing: Metrics.space2) {
-                    Text(verbatim: AddMachineStrings.devicesEmpty)
+                    Text(verbatim: AddDeviceStrings.devicesEmpty)
                         .font(Font(Typography.body))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
