@@ -48,6 +48,10 @@ pub(crate) struct FloorState {
     /// (`FullAccessView::of_session`); the next options the harness reports replace them, and they
     /// go when the agent exits (review 60 of #23322).
     pub(super) asked_options: StdMutex<Vec<Value>>,
+    /// Under MDM's off, the end of this session's agent failed and its host may still run: every
+    /// check counts it as full access until the end succeeds or a new host starts (review 65 of
+    /// #23322).
+    pub(super) full_access_end_pending: AtomicBool,
     /// The agent process holds a lasting grant a client gave it ("allow
     /// always"): Web control ends until the agent exits (`web_control.rs`).
     pub(super) harness_grant: AtomicBool,

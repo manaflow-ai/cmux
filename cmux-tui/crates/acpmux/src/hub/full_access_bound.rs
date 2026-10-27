@@ -181,7 +181,9 @@ impl Hub {
     /// the saved chat can be older. Called under the session's spawn lock.
     pub(super) async fn end_if_runs_full_access(&self, session: &Session) -> FullAccessEnd {
         if !self.full_access_managed_off()
-            || !(self.runs_full_access_by_any_record(session) || Self::host_unheard(session).await)
+            || !(session.floor.full_access_end_pending.load(Ordering::SeqCst)
+                || self.runs_full_access_by_any_record(session)
+                || Self::host_unheard(session).await)
         {
             return FullAccessEnd::NotInFullAccess;
         }
@@ -227,7 +229,8 @@ impl Hub {
     pub(super) async fn end_every_managed_full_access(&self) {
         for session in self.sessions() {
             if self.full_access_managed_off()
-                && (self.runs_full_access_by_any_record(&session)
+                && (session.floor.full_access_end_pending.load(Ordering::SeqCst)
+                    || self.runs_full_access_by_any_record(&session)
                     || Self::host_unheard(&session).await)
             {
                 let _spawning = session.spawn_lock.lock().await;
@@ -411,15 +414,21 @@ impl Hub {
             if tokio::time::timeout(grace * 2, child.terminate(grace)).await.is_err() {
                 tracing::warn!(session = %session.id, "its full-access agent did not end in time; its host is ended");
             }
+            // What waited on it is answered now: a reader that stopped reads no exit for it
+            // (review 65 of #23322).
+            child.fail_pending().await;
+            self.cancel_pending_permissions(session);
         }
         if Self::host_record_live(&session.id) {
             self.end_unadopted_host(session).await;
             if Self::host_record_live(&session.id) {
                 tracing::warn!(session = %session.id, "MDM forces full access off: its full-access agent host did not end; it is not reached until it does");
                 self.append(session, "mux", "full_access_end_failed", json!({"reason": "managed"}));
+                session.floor.full_access_end_pending.store(true, Ordering::SeqCst);
                 return FullAccessEnd::StillRunning;
             }
         }
+        session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
         // What only the ended agent said goes with it: the mode it reported without declaring
         // modes, the values bare answers took, and a full-access value of any option (the next
         // agent reports its own, and `replay_config` skips a null).

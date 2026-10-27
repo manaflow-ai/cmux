@@ -89,6 +89,13 @@ impl Hub {
                     let _ = done.send(());
                 }
                 Inbound::ReplayDone { agent } => session.end_replay(agent),
+                // Under MDM's off an unheard agent ends now (review 65 of #23322): the background
+                // check ends it (`end_every_managed_full_access`, `host_unheard`).
+                Inbound::LinkBroken { .. } => {
+                    if self.full_access_managed_off() {
+                        self.idle_wake.notify_one();
+                    }
+                }
                 Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;

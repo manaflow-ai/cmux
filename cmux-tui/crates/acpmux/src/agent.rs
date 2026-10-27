@@ -67,6 +67,12 @@ pub enum Inbound {
     ReplayDone {
         agent: u64,
     },
+    /// The reader of this generation's host link stopped: an entry could not be logged, so what
+    /// the host reports from there waits with the host until a reattach. The hub's full-access
+    /// bound treats such an agent as unheard (#23322).
+    LinkBroken {
+        agent: u64,
+    },
 }
 
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
@@ -541,6 +547,15 @@ impl ChildAgent {
     /// logged right now, so what the caller logs next comes after it.
     pub fn retire(&self) {
         *self.retired.lock().unwrap_or_else(|e| e.into_inner()) = true;
+    }
+
+    /// Fails every request still waiting on this agent: it was ended, and no exit may be read for
+    /// it (a host whose reader stopped, #23322 review 65). A request already answered is not here.
+    pub async fn fail_pending(&self) {
+        let mut p = self.pending.lock().await;
+        for (_, tx) in p.map.drain() {
+            let _ = tx.send(Err(RpcError::internal("agent process closed")));
+        }
     }
 
     /// Whether [`Self::retire`] ran.
@@ -1083,6 +1098,8 @@ impl ChildAgent {
                     // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
                     hosted.broken.store(true, Ordering::SeqCst);
+                    let _ =
+                        hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
                     return;
                 }
                 hosted.logged.send_replace(h);
