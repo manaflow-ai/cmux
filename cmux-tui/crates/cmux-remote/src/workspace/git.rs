@@ -187,35 +187,36 @@ pub(crate) async fn diff(
         if page.len().saturating_add(section_length) > maximum {
             break;
         }
-        page.extend_from_slice(&continuation.unified[section.clone()]);
+        let section_bytes = continuation.unified.get(section.clone()).ok_or_else(|| {
+            RpcError::new("internal", "git diff section lies outside the collected diff")
+        })?;
+        page.extend_from_slice(section_bytes);
         index += 1;
     }
-    let mut response = match format {
-        DiffFormat::Unified => WorkspaceResponse::Diff {
-            data: ByteString::from_bytes(&page),
-            format,
-            next_cursor: None,
-        },
+    let page = match format {
+        DiffFormat::Unified => DiffPage::Data(ByteString::from_bytes(&page)),
         DiffFormat::Structured | DiffFormat::StructuredV1 => {
             let text = std::str::from_utf8(&page)
                 .map_err(|_| RpcError::new("invalid-text", "git diff is not UTF-8"))?;
             let path_metadata = continuation.path_metadata.as_ref().ok_or_else(|| {
                 RpcError::new("internal", "structured diff path metadata was not collected")
             })?;
-            let metadata = &path_metadata[start..index];
             let mut structured = parse_structured_diff(text);
-            if metadata.len() != structured.files.len() {
+            let metadata = path_metadata
+                .get(start..index)
+                .filter(|metadata| metadata.len() == structured.files.len());
+            let Some(metadata) = metadata else {
                 return Err(RpcError::new(
                     "git-parse-error",
                     "git path metadata does not match the structured diff files",
                 ));
-            }
+            };
             for (file, paths) in structured.files.iter_mut().zip(metadata) {
                 file.old_path.clone_from(&paths.old_path);
                 file.new_path.clone_from(&paths.new_path);
             }
             if format == DiffFormat::StructuredV1 {
-                WorkspaceResponse::StructuredDiff { diff: structured, next_cursor: None }
+                DiffPage::Structured(structured)
             } else {
                 let legacy = LegacyStructuredDiff {
                     files: structured
@@ -236,11 +237,7 @@ pub(crate) async fn diff(
                         format!("encoded diff exceeds {MAX_GIT_DIFF_BYTES} bytes"),
                     ));
                 }
-                WorkspaceResponse::Diff {
-                    data: ByteString::from_bytes(&data),
-                    format,
-                    next_cursor: None,
-                }
+                DiffPage::Data(ByteString::from_bytes(&data))
             }
         }
     };
@@ -261,14 +258,18 @@ pub(crate) async fn diff(
     if let Some(delivery) = delivery.as_mut() {
         delivery.finish_preparation();
     }
-    match &mut response {
-        WorkspaceResponse::Diff { next_cursor: response_cursor, .. }
-        | WorkspaceResponse::StructuredDiff { next_cursor: response_cursor, .. } => {
-            *response_cursor = next_cursor;
-        }
-        _ => unreachable!("diff request constructed a diff response"),
-    }
+    let response = match page {
+        DiffPage::Data(data) => WorkspaceResponse::Diff { data, format, next_cursor },
+        DiffPage::Structured(diff) => WorkspaceResponse::StructuredDiff { diff, next_cursor },
+    };
     Ok(PreparedWorkspaceResponse::paginated(response, delivery))
+}
+
+/// One page of a diff before its next cursor is known.
+enum DiffPage {
+    /// Unified text, or the legacy structured JSON, in the request's format.
+    Data(ByteString),
+    Structured(StructuredDiffV1),
 }
 
 async fn run_git(
@@ -409,28 +410,27 @@ impl DiffPathPair {
 }
 
 fn parse_diff_path_metadata(output: &[u8]) -> Result<Vec<DiffPathPair>, RpcError> {
-    let mut offset = 0usize;
+    let mut rest = output;
     let mut paths = Vec::new();
-    while offset < output.len() {
+    while !rest.is_empty() {
         if paths.len() >= MAX_GIT_DIFF_FILES {
             return Err(RpcError::new(
                 "resource-exhausted",
                 format!("git diff metadata exceeds {MAX_GIT_DIFF_FILES} files"),
             ));
         }
-        let status = take_nul_field(output, &mut offset)?;
-        let kind = status[0];
+        let status = take_nul_field(&mut rest)?;
+        let &[kind, ref score @ ..] = status else {
+            return Err(RpcError::new("git-parse-error", "empty Git name-status field"));
+        };
         if !matches!(kind, b'A' | b'B' | b'C' | b'D' | b'M' | b'R' | b'T' | b'U' | b'X')
-            || !status[1..].iter().all(u8::is_ascii_digit)
+            || !score.iter().all(u8::is_ascii_digit)
         {
             return Err(RpcError::new("git-parse-error", "malformed Git name-status entry"));
         }
-        let first = take_nul_field(output, &mut offset)?;
-        let second = if matches!(kind, b'C' | b'R') {
-            Some(take_nul_field(output, &mut offset)?)
-        } else {
-            None
-        };
+        let first = take_nul_field(&mut rest)?;
+        let second =
+            if matches!(kind, b'C' | b'R') { Some(take_nul_field(&mut rest)?) } else { None };
         let first = diff_metadata_path(first)?;
         let pair = match kind {
             b'A' => DiffPathPair { old_path: None, new_path: Some(first) },
@@ -448,17 +448,16 @@ fn parse_diff_path_metadata(output: &[u8]) -> Result<Vec<DiffPathPair>, RpcError
     Ok(paths)
 }
 
-fn take_nul_field<'a>(output: &'a [u8], offset: &mut usize) -> Result<&'a [u8], RpcError> {
-    let remaining = &output[*offset..];
-    let end = remaining
-        .iter()
-        .position(|byte| *byte == 0)
-        .ok_or_else(|| RpcError::new("git-parse-error", "unterminated Git name-status entry"))?;
-    let field = &remaining[..end];
+/// The NUL-terminated field at the front of `rest`; `rest` moves past it.
+fn take_nul_field<'a>(rest: &mut &'a [u8]) -> Result<&'a [u8], RpcError> {
+    let mut parts = rest.splitn(2, |byte| *byte == 0);
+    let (Some(field), Some(after)) = (parts.next(), parts.next()) else {
+        return Err(RpcError::new("git-parse-error", "unterminated Git name-status entry"));
+    };
     if field.is_empty() {
         return Err(RpcError::new("git-parse-error", "empty Git name-status field"));
     }
-    *offset += end + 1;
+    *rest = after;
     Ok(field)
 }
 
@@ -475,27 +474,24 @@ fn parse_status(output: &[u8]) -> Result<(Option<String>, Vec<GitChange>), RpcEr
     let mut changes = Vec::new();
     let mut response_bytes = 0usize;
     let mut index = 0usize;
-    if let Some(first) = fields.first()
-        && first.starts_with(b"## ")
-    {
-        let header = String::from_utf8_lossy(&first[3..]);
+    if let Some(header) = fields.first().and_then(|first| first.strip_prefix(b"## ")) {
+        let header = String::from_utf8_lossy(header);
         branch = parse_branch(&header);
         index = 1;
     }
-    while index < fields.len() {
+    while let Some(&field) = fields.get(index) {
         if changes.len() >= MAX_GIT_CHANGES {
             return Err(RpcError::new(
                 "resource-exhausted",
                 format!("git status exceeds {MAX_GIT_CHANGES} changes"),
             ));
         }
-        let field = fields[index];
-        if field.len() < 3 || field[2] != b' ' {
+        let &[index_status, worktree_status, b' ', ref path @ ..] = field else {
             return Err(RpcError::new("git-parse-error", "malformed git status entry"));
-        }
-        let index_status = char::from(field[0]);
-        let worktree_status = char::from(field[1]);
-        let path = std::str::from_utf8(&field[3..])
+        };
+        let index_status = char::from(index_status);
+        let worktree_status = char::from(worktree_status);
+        let path = std::str::from_utf8(path)
             .map_err(|_| RpcError::new("invalid-path", "git path is not UTF-8"))?
             .to_string();
         index += 1;
@@ -548,11 +544,11 @@ fn split_diff_section_ranges(source: &[u8]) -> Vec<Range<usize>> {
     const HEADER: &[u8] = b"diff --git ";
     let mut starts = Vec::new();
     let mut line_start = 0usize;
-    while line_start < source.len() {
-        if source[line_start..].starts_with(HEADER) {
+    while let Some(line) = source.get(line_start..).filter(|line| !line.is_empty()) {
+        if line.starts_with(HEADER) {
             starts.push(line_start);
         }
-        let Some(newline) = source[line_start..].iter().position(|byte| *byte == b'\n') else {
+        let Some(newline) = line.iter().position(|byte| *byte == b'\n') else {
             break;
         };
         line_start = line_start.saturating_add(newline).saturating_add(1);
@@ -560,8 +556,9 @@ fn split_diff_section_ranges(source: &[u8]) -> Vec<Range<usize>> {
     if starts.is_empty() {
         return std::iter::once(0..source.len()).collect();
     }
-    if starts[0] != 0 {
-        starts[0] = 0;
+    // The first section also holds any text before the first header.
+    if let Some(first) = starts.first_mut() {
+        *first = 0;
     }
     starts
         .iter()
@@ -708,6 +705,9 @@ fn structured_path(path: &str) -> Option<String> {
         )
     }
 }
+
+#[cfg(test)]
+mod parse_tests;
 
 #[cfg(test)]
 mod tests {
