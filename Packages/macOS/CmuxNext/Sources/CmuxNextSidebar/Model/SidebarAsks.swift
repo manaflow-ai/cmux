@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -19,8 +20,13 @@ public final class SidebarAsks {
     }
 
     private var asks: [Ask] = []
+    /// The app's one main-thread scheduler: the asker watches flush on it, and a cancelled caller's answer is posted on it.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
 
-    public init() {}
+    /// - Parameter mainWork: The app's one main-thread scheduler (`AppServices.mainWork`).
+    public init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
+    }
 
     /// The oldest open question's card, nil for none.
     public var card: SidebarNoticeCard? { asks.first?.card }
@@ -32,11 +38,14 @@ public final class SidebarAsks {
         var card = card
         card.awaitsAnswer = true
         let id = card.id
-        let watch = asker.flatMap { asker -> Task<Void, Never>? in
+        let mainWork = mainWork
+        // One watch of the asker per open question, stopped when it is answered. Its apply answers the ask (a model
+        // write), so it is a service observation and runs whether or not a sidebar shows the card. An agent's chat
+        // closing is automation's change: its answer waits behind the person's input.
+        let watch = asker.flatMap { asker -> ServiceObservation<Bool>? in
             guard present(asker) else { return nil }
-            // task-owner: one watch of the asker per open question; cancelled when it is answered
-            return Task { @MainActor [weak self] in
-                for await here in ObservationStream({ present(asker) }) where !here { self?.answer(id, action: nil); return }
+            return ServiceObservation(.automation, owner: "SidebarAsks.asker", on: mainWork) { present(asker) } apply: { [weak self] here in
+                if !here { self?.answer(id, action: nil) }
             }
         }
         defer { watch?.cancel() }
@@ -46,7 +55,8 @@ public final class SidebarAsks {
                 if Task.isCancelled { answer.resume(returning: false) } else { asks.append(Ask(card: card, answer: answer)) }
             }) ?? false
         } onCancel: {
-            Task { @MainActor in self.answer(id, action: nil) }
+            // The cancelling thread is any thread: the card goes in one posted task in the caller's class.
+            mainWork.postFromAnyThread(.automation, owner: "SidebarAsks.cancel") { _ = self.answer(id, action: nil) }
         }
     }
 
