@@ -119,6 +119,10 @@ struct Hosted {
     /// The reader stopped (an entry could not be logged): the agent is not
     /// usable through this link; the next request adopts the host again.
     broken: std::sync::atomic::AtomicBool,
+    /// The reader of the current link stopped otherwise (the link closed, or an acknowledgement
+    /// failed while its socket still looked open): the agent is not heard through this link
+    /// (`is_alive`, review 68 of #23322); a reattach clears it.
+    stopped: std::sync::atomic::AtomicBool,
 }
 
 impl Hosted {
@@ -691,6 +695,7 @@ impl ChildAgent {
         if let Some(h) = &self.hosted {
             return !h.exit_seen.load(Ordering::SeqCst)
                 && !h.broken.load(Ordering::SeqCst)
+                && !h.stopped.load(Ordering::SeqCst)
                 && !h.link().is_closed();
         }
         let mut guard = self.child.lock().await;
@@ -992,6 +997,7 @@ impl ChildAgent {
             };
         *h.link.write_or_recover() = link.clone();
         h.broken.store(false, Ordering::SeqCst);
+        h.stopped.store(false, Ordering::SeqCst);
         self.start_reader(link);
         Ok(last_h)
     }
@@ -1071,6 +1077,7 @@ impl ChildAgent {
                 detached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 logged: tokio::sync::watch::channel(resume_after).0,
                 broken: std::sync::atomic::AtomicBool::new(false),
+                stopped: std::sync::atomic::AtomicBool::new(false),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
@@ -1128,7 +1135,9 @@ impl ChildAgent {
             if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
                 return;
             }
-            // The host died or another owner took it.
+            // The host died or another owner took it, or an acknowledgement failed: the link is
+            // not heard from here, before anything is told.
+            hosted.stopped.store(true, Ordering::SeqCst);
             {
                 let mut p = reader.pending.lock().await;
                 for (_, tx) in p.map.drain() {

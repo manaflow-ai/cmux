@@ -5,6 +5,7 @@
 //! state that died with the previous daemon from that complete log.
 
 use super::full_access_bound::FullAccessEnd;
+use super::full_access_bound::OffLatch;
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
@@ -103,8 +104,9 @@ impl Hub {
         // still holds the open requests, prompts and turn; recovery would
         // handle them a second time.
         let current = session.child.lock().await.clone();
-        // MDM's off, read once for this re-adoption (#23322).
-        let off = self.full_access_managed_off();
+        // MDM's off, read once for this re-adoption with the count of offs, so one pushed
+        // while it runs counts too (`OffLatch`, #23322 review 68).
+        let off = self.off_latch();
         // The link closed. Either the harness exited and its host is
         // finishing (wait, bounded, for the host's lock to drop, then let the
         // caller start a fresh agent), or the link alone was lost while the
@@ -127,7 +129,7 @@ impl Hub {
             match child.reattach().await {
                 Ok(last_h) => {
                     self.append(session, "mux", "host_reattached", json!({"reason": "link_lost"}));
-                    return self.judged_after_reattach(session, child, last_h, off).await;
+                    return self.judged_after_reattach(session, child, last_h, &off).await;
                 }
                 Err(e) => {
                     tracing::warn!(session = %session.id, "agent host reattach after a lost link failed: {e:#}");
@@ -138,7 +140,7 @@ impl Hub {
         if let Some(child) = current.filter(|c| c.is_broken()) {
             match child.reattach().await {
                 Ok(last_h) => {
-                    return self.judged_after_reattach(session, &child, last_h, off).await;
+                    return self.judged_after_reattach(session, &child, last_h, &off).await;
                 }
                 Err(e) => {
                     tracing::warn!(session = %session.id, "agent host reattach failed: {e:#}")
@@ -149,7 +151,7 @@ impl Hub {
         let dir = agent_host::hosts_dir();
         let (good, _) = agent_host::load_records(&dir).ok()?;
         let (_, record) = good.into_iter().find(|(_, r)| r.session_id == session.id)?;
-        if let Err(e) = self.adopt_one(session, record, off).await {
+        if let Err(e) = self.adopt_one(session, record, &off).await {
             tracing::warn!(session = %session.id, "agent host re-adoption failed: {e:#}");
         }
         session.child.lock().await.clone().filter(|c| c.host_record().is_some())
@@ -177,15 +179,15 @@ impl Hub {
     /// adoption waits) and the session judged again from the log; an agent that runs in full
     /// access, or whose replay did not complete, ends, and None is returned (the caller starts a
     /// fresh agent, or refuses when the host did not end). Without MDM's off (`off`, the caller's
-    /// one read of it) nothing changes.
+    /// one read of it, with any off pushed since) nothing changes.
     async fn judged_after_reattach(
         &self,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         last_h: u64,
-        off: bool,
+        off: &OffLatch,
     ) -> Option<Arc<ChildAgent>> {
-        if !off {
+        if !off.off() {
             return Some(child.clone());
         }
         let replayed = child.wait_replayed(last_h, REPLAY_STALL, REPLAY_CEILING).await;
@@ -213,8 +215,9 @@ impl Hub {
     /// before agents may spawn; a prompt to a kept session may still adopt
     /// its host first (`readopt`).
     pub async fn adopt_agent_hosts(self: &Arc<Self>) {
-        // MDM's off (start-mode.json, loaded with the hub), read once for this adoption (#23322).
-        let off = self.full_access_managed_off();
+        // MDM's off (start-mode.json, loaded with the hub), read once for this adoption with the
+        // count of offs, so one pushed while it runs counts too (`OffLatch`, #23322 review 68).
+        let off = self.off_latch();
         // Debug builds only: `ACPMUX_TEST_ADOPT_HOLD_MS` holds adoption here, after it read MDM's
         // off, so integration tests can push the off meanwhile. Bounded; release builds have no
         // seam.
@@ -269,10 +272,12 @@ impl Hub {
             // running in it is ended, never adopted (#23322), a mode it reported without
             // declaring modes included.
             // One whose end failed is not adopted either (review 51).
-            if self.end_if_runs_full_access(&session, off).await != FullAccessEnd::NotInFullAccess {
+            if self.end_if_runs_full_access(&session, off.off()).await
+                != FullAccessEnd::NotInFullAccess
+            {
                 continue;
             }
-            if let Err(e) = self.adopt_one(&session, record, off).await {
+            if let Err(e) = self.adopt_one(&session, record, &off).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
             }
         }
@@ -282,7 +287,7 @@ impl Hub {
                 // too when its chat runs in full access (`end_unadopted_host`: its nonce proves it).
                 let ended = {
                     let _spawning = session.spawn_lock.lock().await;
-                    self.end_if_runs_full_access(&session, off).await
+                    self.end_if_runs_full_access(&session, off.off()).await
                         != FullAccessEnd::NotInFullAccess
                 };
                 if ended && Self::host_record_gone(&session.id) {
@@ -333,12 +338,13 @@ impl Hub {
         self.save_meta(session);
     }
 
-    /// Adopts `record`'s host for `session`; `off` is the caller's one read of MDM's off.
+    /// Adopts `record`'s host for `session`; `off` is the caller's one read of MDM's off, with any
+    /// off pushed since (`OffLatch`).
     async fn adopt_one(
         self: &Arc<Self>,
         session: &Arc<Session>,
         record: agent_host::HostRecord,
-        off: bool,
+        off: &OffLatch,
     ) -> anyhow::Result<()> {
         if session.meta().remote_origin
             && !self.remote_host_env_current(session, &record.incarnation)
@@ -427,7 +433,9 @@ impl Hub {
         // report reaches `write_mode_state` live.
         // A replay that did not complete may still hold such a report: under MDM's off the host
         // is not known to ask, so it ends (review 61).
-        if off {
+        // An off pushed since adoption read the policy counts (review 68): that push may have
+        // read the log before the replay reached it.
+        if off.off() {
             session.floor.left_host_read.store(false, Ordering::SeqCst);
             let ended = if replayed {
                 self.end_if_runs_full_access(session, true).await
