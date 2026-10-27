@@ -176,25 +176,47 @@ extension AgentJournalLifecycleCenter {
 #endif
     }
 
+    /// Built-in agents always project. Any other key projects only when the
+    /// panel's cmux.json declares it under `vault.agents`, the same rule
+    /// `set_agent_lifecycle` applies. The registry read stays off the main actor.
+    static func projectsLifecycle(
+        _ assignment: AgentLifecycleAssignment,
+        workspaceHint: String?
+    ) async -> Bool {
+        let key = assignment.agentKey
+        if AgentHibernationLifecycleStatusKeys.isAllowed(key) { return true }
+        guard !AgentHibernationLifecycleStatusKeys.isManualKey(key),
+              CmuxVaultAgentRegistration.isValidID(key),
+              let panelId = UUID(uuidString: assignment.surfaceId) else { return false }
+        let scope = await MainActor.run {
+            panelOwner(panelId: panelId, workspaceHint: workspaceHint)?
+                .agentLifecycleRegistryScope(panelId: panelId)
+        }
+        guard let scope else { return false }
+        return scope.loadRegistry().registration(id: key) != nil
+    }
+
+    @MainActor
+    private static func panelOwner(panelId: UUID, workspaceHint: String?) -> ControlSidebarPanelOwner? {
+        if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(panelId) }) {
+            return .dock(dock)
+        }
+        guard let located = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panelId,
+            preferredWorkspaceId: workspaceHint.flatMap(UUID.init(uuidString:))
+        ) else { return nil }
+        return .workspace(located.workspace)
+    }
+
+    /// Callers gate the key with ``projectsLifecycle(_:workspaceHint:)`` first.
     @MainActor
     static func apply(
         _ assignment: AgentLifecycleAssignment,
         workspaceHint: String?,
         activity: AgentLifecycleActivity? = nil
     ) {
-        guard AgentHibernationLifecycleStatusKeys.isAllowed(assignment.agentKey) else { return }
         guard let panelId = UUID(uuidString: assignment.surfaceId) else { return }
-        let owner: ControlSidebarPanelOwner?
-        if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(panelId) }) {
-            owner = .dock(dock)
-        } else if let located = AppDelegate.shared?.workspaceContainingPanel(
-            panelId: panelId,
-            preferredWorkspaceId: workspaceHint.flatMap(UUID.init(uuidString:))
-        ) {
-            owner = .workspace(located.workspace)
-        } else {
-            owner = nil
-        }
+        let owner = panelOwner(panelId: panelId, workspaceHint: workspaceHint)
         guard let owner else {
             // Fail closed and record it in release builds too: the panel no
             // longer exists, so the assignment is dropped, never re-homed.

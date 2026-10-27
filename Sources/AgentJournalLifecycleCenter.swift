@@ -97,7 +97,8 @@ final class AgentJournalLifecycleCenter: Sendable {
                 if decision.disposition != .stale, decision.projectsLifecycle,
                    let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), sourceKind: canonical.kind,
                        aliases: eventAliases,
-                       reducer: reducer, state: &state) {
+                       reducer: reducer, state: &state),
+                   await Self.projectsLifecycle(application.assignment, workspaceHint: application.workspaceHint) {
                     await MainActor.run {
                         Self.apply(
                             application.assignment,
@@ -229,9 +230,13 @@ final class AgentJournalLifecycleCenter: Sendable {
                         state: &state,
                         notifications: &notifications
                     )
-                    if !assignments.isEmpty {
+                    var projected: [AgentLifecycleAssignment] = []
+                    for assignment in assignments where await Self.projectsLifecycle(assignment, workspaceHint: nil) {
+                        projected.append(assignment)
+                    }
+                    if !projected.isEmpty {
                         await MainActor.run {
-                            for assignment in assignments {
+                            for assignment in projected {
                                 Self.apply(assignment, workspaceHint: nil)
                             }
                         }
