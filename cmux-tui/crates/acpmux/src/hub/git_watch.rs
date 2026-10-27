@@ -23,6 +23,8 @@ use super::*;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
+
+use cmux_config::watch::queue::{DEFAULT_CAPACITY, EventReceiver, event_queue};
 use std::time::Instant;
 
 use notify::Watcher as _;
@@ -34,7 +36,7 @@ use crate::git_state::{GitState, head_dir};
 /// session's folder had at its last read.
 #[derive(Default)]
 pub(crate) struct GitWatchState {
-    signal: StdMutex<Option<tokio::sync::mpsc::UnboundedSender<()>>>,
+    signal: StdMutex<Option<tokio::sync::mpsc::Sender<()>>>,
     task: StdMutex<Option<tokio::task::JoinHandle<()>>>,
     /// By session id; `None` inside is a detached HEAD or no repository.
     now: StdMutex<HashMap<String, Option<String>>>,
@@ -62,10 +64,8 @@ impl Hub {
             tracing::warn!("git watch: no async runtime");
             return;
         };
-        let (tx, rx) = std::sync::mpsc::channel();
-        let watcher = match notify::recommended_watcher(move |event| {
-            let _ = tx.send(event);
-        }) {
+        let (tx, rx) = event_queue(DEFAULT_CAPACITY);
+        let watcher = match notify::recommended_watcher(tx) {
             Ok(watcher) => watcher,
             Err(e) => {
                 tracing::warn!("git watch cannot start: {e}");
@@ -73,7 +73,7 @@ impl Hub {
             }
         };
         let watched = Arc::new(StdMutex::new(Watched { watcher, dirs: HashSet::new() }));
-        let (signal, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let (signal, mut wake) = crate::wake::wake_channel();
         *self.git_watch.signal.lock().unwrap_or_else(|p| p.into_inner()) = Some(signal.clone());
         let hub = Arc::downgrade(self);
         let task = handle.spawn(async move {
@@ -121,7 +121,7 @@ impl Hub {
     /// Wakes the git watch: a client attached or detached.
     pub(super) fn git_watch_wake(&self) {
         if let Some(signal) = &*self.git_watch.signal.lock().unwrap_or_else(|p| p.into_inner()) {
-            let _ = signal.send(());
+            crate::wake::wake(signal);
         }
     }
 
@@ -230,10 +230,7 @@ fn is_head(path: &Path) -> bool {
 
 /// Ends when the watcher is dropped (the channel closes), or when the task
 /// is gone (the runtime stopped or the hub dropped).
-fn run(
-    rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
-    signal: &tokio::sync::mpsc::UnboundedSender<()>,
-) {
+fn run(rx: &EventReceiver, signal: &tokio::sync::mpsc::Sender<()>) {
     let matters = |event: notify::Result<notify::Event>| match event {
         // A watcher error may have dropped events: read again.
         Err(_) => true,
@@ -260,7 +257,7 @@ fn run(
             }
         }
         // Only a signal: the read runs on the runtime, never here.
-        if changed && signal.send(()).is_err() {
+        if changed && !crate::wake::wake(signal) {
             return;
         }
         if closed {

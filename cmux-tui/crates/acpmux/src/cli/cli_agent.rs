@@ -206,7 +206,15 @@ fn dedent(line: &str) -> &str {
     line.strip_prefix("  ").unwrap_or(line)
 }
 
-type Out = mpsc::UnboundedSender<Value>;
+type Out = mpsc::Sender<Value>;
+
+/// Messages held for stdout while the client reads it. A full queue makes
+/// the sender wait: a prompt stops reading its program's output (the
+/// program then waits on its pipe) until the client reads again.
+const OUT_QUEUE: usize = 256;
+/// Output lines of a running program held for the prompt; a full queue
+/// stops reading the program's stdout, which then waits on its pipe.
+const LINE_QUEUE: usize = 256;
 
 #[derive(Default)]
 struct State {
@@ -230,7 +238,7 @@ pub async fn run(options: Options) -> Result<()> {
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
-    let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
+    let (tx, mut rx) = mpsc::channel::<Value>(OUT_QUEUE);
     let writer = tokio::spawn(async move {
         let mut stdout = tokio::io::stdout();
         while let Some(v) = rx.recv().await {
@@ -253,13 +261,13 @@ pub async fn run(options: Options) -> Result<()> {
     Ok(())
 }
 
-fn reply(tx: &Out, id: &Value, result: Value) {
-    let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "result": result}));
+async fn reply(tx: &Out, id: &Value, result: Value) {
+    let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "result": result})).await;
 }
 
-fn error(tx: &Out, id: &Value, code: i64, message: String) {
-    let _ =
-        tx.send(json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}));
+async fn error(tx: &Out, id: &Value, code: i64, message: String) {
+    let message = json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}});
+    let _ = tx.send(message).await;
 }
 
 async fn handle(msg: Value, options: &Arc<Options>, state: &Arc<Mutex<State>>, tx: &Out) {
@@ -282,20 +290,21 @@ async fn handle(msg: Value, options: &Arc<Options>, state: &Arc<Mutex<State>>, t
                 "agentInfo": {"name": "acpmux-cli-agent", "version": env!("CARGO_PKG_VERSION")},
                 "authMethods": []
             }),
-        ),
+        )
+        .await,
         ("session/new", Some(id)) => {
             let mut s = state.lock().await;
             s.next += 1;
             let sid = format!("cli-{}-{}", std::process::id(), s.next);
             let cwd = params.get("cwd").and_then(Value::as_str).unwrap_or(".").to_owned();
             s.sessions.insert(sid.clone(), cwd);
-            reply(tx, &id, json!({"sessionId": sid}));
+            reply(tx, &id, json!({"sessionId": sid})).await;
         }
         ("session/load" | "session/resume", Some(id)) => {
             let sid = session_of(&params);
             let cwd = params.get("cwd").and_then(Value::as_str).unwrap_or(".").to_owned();
             state.lock().await.sessions.insert(sid, cwd);
-            reply(tx, &id, json!({}));
+            reply(tx, &id, json!({})).await;
         }
         ("session/prompt", Some(id)) => {
             let sid = session_of(&params);
@@ -305,7 +314,7 @@ async fn handle(msg: Value, options: &Arc<Options>, state: &Arc<Mutex<State>>, t
             let cwd = {
                 let mut s = state.lock().await;
                 let Some(cwd) = s.sessions.get(&sid).cloned() else {
-                    error(tx, &id, -32602, format!("no session {sid}"));
+                    error(tx, &id, -32602, format!("no session {sid}")).await;
                     return;
                 };
                 s.running.insert(sid.clone(), cancel_tx);
@@ -316,8 +325,8 @@ async fn handle(msg: Value, options: &Arc<Options>, state: &Arc<Mutex<State>>, t
                 let outcome = run_prompt(&options, &sid, &cwd, &blocks, cancel_rx, &tx).await;
                 state.lock().await.running.remove(&sid);
                 match outcome {
-                    Ok(stop) => reply(&tx, &id, json!({"stopReason": stop})),
-                    Err(e) => error(&tx, &id, -32603, e),
+                    Ok(stop) => reply(&tx, &id, json!({"stopReason": stop})).await,
+                    Err(e) => error(&tx, &id, -32603, e).await,
                 }
             });
         }
@@ -327,9 +336,11 @@ async fn handle(msg: Value, options: &Arc<Options>, state: &Arc<Mutex<State>>, t
             }
         }
         ("session/set_mode" | "session/set_model" | "session/set_config_option", Some(id)) => {
-            reply(tx, &id, json!({}))
+            reply(tx, &id, json!({})).await
         }
-        (_, Some(id)) => error(tx, &id, -32601, format!("cli-agent has no method {method}")),
+        (_, Some(id)) => {
+            error(tx, &id, -32601, format!("cli-agent has no method {method}")).await
+        }
         (_, None) => {}
     }
 }
@@ -394,25 +405,15 @@ async fn run_prompt(
             text.chars().rev().take(600).collect::<Vec<_>>().into_iter().rev().collect();
         tail.trim().to_owned()
     });
-    let chunk = |text: String| {
-        let _ = tx.send(json!({
-            "jsonrpc": "2.0",
-            "method": "session/update",
-            "params": {"sessionId": session, "update": {
-                "sessionUpdate": "agent_message_chunk",
-                "content": {"type": "text", "text": text}
-            }}
-        }));
-    };
     let mut lines = match master {
         Some(master) => read_lines(master),
         None => {
             let stdout = child.stdout.take().expect("piped stdout");
-            let (line_tx, line_rx) = mpsc::unbounded_channel();
+            let (line_tx, line_rx) = mpsc::channel(LINE_QUEUE);
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    if line_tx.send(line).is_err() {
+                    if line_tx.send(line).await.is_err() {
                         break;
                     }
                 }
@@ -445,7 +446,7 @@ async fn run_prompt(
             line = lines.recv() => match line {
                 Some(line) => {
                     if let Some(text) = filter.push(&line) {
-                        chunk(text);
+                        chunk(tx, session, text).await;
                     }
                 }
                 None => break,
@@ -458,7 +459,7 @@ async fn run_prompt(
                     tokio::time::timeout(TTY_DRAIN, lines.recv()).await
                 {
                     if let Some(text) = filter.push(&line) {
-                        chunk(text);
+                        chunk(tx, session, text).await;
                     }
                 }
                 break;
@@ -466,7 +467,7 @@ async fn run_prompt(
         }
     }
     if let Some(text) = filter.finish() {
-        chunk(text);
+        chunk(tx, session, text).await;
     }
     let status = match status {
         Some(status) => status,
@@ -534,11 +535,24 @@ fn attach_tty(_cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::Fi
     Err(std::io::Error::other("--tty needs a Unix terminal"))
 }
 
+/// One `agent_message_chunk` update of `session`.
+async fn chunk(tx: &Out, session: &str, text: String) {
+    let update = json!({
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {"sessionId": session, "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": text}
+        }}
+    });
+    let _ = tx.send(update).await;
+}
+
 /// The lines of a terminal's output, read on a thread (a terminal read
 /// blocks; it fails with EIO once the program and its children closed it).
-fn read_lines(file: std::fs::File) -> mpsc::UnboundedReceiver<String> {
+fn read_lines(file: std::fs::File) -> mpsc::Receiver<String> {
     use std::io::BufRead;
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::channel(LINE_QUEUE);
     std::thread::spawn(move || {
         let mut reader = std::io::BufReader::new(file);
         let mut buf = Vec::new();
@@ -549,7 +563,9 @@ fn read_lines(file: std::fs::File) -> mpsc::UnboundedReceiver<String> {
                 Ok(_) => {
                     let line = String::from_utf8_lossy(&buf);
                     let line = line.trim_end_matches(['\n', '\r']).to_owned();
-                    if tx.send(line).is_err() {
+                    // A plain thread, never a runtime worker: waiting here
+                    // is the terminal's backpressure.
+                    if tx.blocking_send(line).is_err() {
                         break;
                     }
                 }

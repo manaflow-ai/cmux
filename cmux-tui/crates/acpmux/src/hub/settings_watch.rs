@@ -19,6 +19,8 @@ use super::*;
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
+
+use cmux_config::watch::queue::{DEFAULT_CAPACITY, EventReceiver, event_queue};
 use std::time::Instant;
 
 use notify::Watcher as _;
@@ -56,10 +58,8 @@ impl Hub {
             return;
         };
         let files = crate::user_settings::paths();
-        let (tx, rx) = std::sync::mpsc::channel();
-        let watcher = match notify::recommended_watcher(move |event| {
-            let _ = tx.send(event);
-        }) {
+        let (tx, rx) = event_queue(DEFAULT_CAPACITY);
+        let watcher = match notify::recommended_watcher(tx) {
             Ok(watcher) => watcher,
             Err(e) => {
                 tracing::warn!("settings watch cannot start: {e}");
@@ -75,7 +75,7 @@ impl Hub {
             Some(watch.clone());
         // The value the watchers' last answer was based on.
         let mut last = super::start_mode::setting_snapshot();
-        let (signal, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let (signal, mut wake) = crate::wake::wake_channel();
         let hub = Arc::downgrade(self);
         let task = handle.spawn(async move {
             while wake.recv().await.is_some() {
@@ -162,10 +162,10 @@ fn real(path: &Path) -> PathBuf {
 /// Ends when the watcher is dropped (the channel closes), or when the task
 /// is gone (the runtime stopped or the hub dropped).
 fn run(
-    rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
+    rx: &EventReceiver,
     watch: &std::sync::Weak<SettingsWatcher>,
     files: &[PathBuf],
-    signal: &tokio::sync::mpsc::UnboundedSender<()>,
+    signal: &tokio::sync::mpsc::Sender<()>,
 ) {
     let mut names: Vec<PathBuf> = files.to_vec();
     names.extend(files.iter().map(|f| real(f)));
@@ -201,7 +201,7 @@ fn run(
             let Some(watch) = watch.upgrade() else { return };
             watch.refresh(files);
             drop(watch);
-            if signal.send(()).is_err() {
+            if !crate::wake::wake(signal) {
                 return;
             }
         }

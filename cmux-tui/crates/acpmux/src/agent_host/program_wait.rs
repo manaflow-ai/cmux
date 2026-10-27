@@ -59,10 +59,10 @@ pub async fn wait_for_program(program: &str, budget: Duration) -> Result<()> {
     }
     tracing::info!(program, "harness program is missing; waiting for it to come back");
     let path = Path::new(program).to_path_buf();
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, mut rx) = crate::wake::wake_channel();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         if !matches!(&event, Ok(e) if e.kind.is_access()) {
-            let _ = tx.send(());
+            crate::wake::wake(&tx);
         }
     })
     .with_context(|| format!("watch for {program}"))?;

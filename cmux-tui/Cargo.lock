@@ -14,6 +14,7 @@ dependencies = [
  "cmux-chat-index",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-config",
  "cmux-features",
  "cmux-git",
  "cmux-link",

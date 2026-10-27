@@ -115,6 +115,7 @@ fn output_by(
         }
         return out;
     };
+    // unbounded-allow: two messages, one per pipe
     let (tx, rx) = std::sync::mpsc::channel();
     for (is_stdout, pipe) in [
         (true, child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>)),

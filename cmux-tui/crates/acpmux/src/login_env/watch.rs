@@ -8,9 +8,10 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
+use cmux_config::watch::queue::{DEFAULT_CAPACITY, EventReceiver, event_queue};
 use notify::Watcher as _;
 
 /// Editors save in bursts (write, rename, chmod): read once after this quiet...
@@ -32,10 +33,8 @@ pub fn start() {
         files.iter().filter_map(|f| f.parent().map(Path::to_path_buf)).collect();
     dirs.sort();
     dirs.dedup();
-    let (tx, rx) = std::sync::mpsc::channel();
-    let mut watcher = match notify::recommended_watcher(move |event| {
-        let _ = tx.send(event);
-    }) {
+    let (tx, rx) = event_queue(DEFAULT_CAPACITY);
+    let mut watcher = match notify::recommended_watcher(tx) {
         Ok(watcher) => watcher,
         Err(e) => {
             tracing::warn!("login env: the startup-file watcher cannot start: {e}");
@@ -89,23 +88,20 @@ fn watched(files: Vec<PathBuf>) -> Vec<PathBuf> {
     out
 }
 
-/// Whether an event may have changed a startup file (an error may have
-/// dropped events: check).
+/// Whether an event may have changed a startup file (an error or a rescan
+/// may have dropped events: check).
 fn touches(event: &notify::Result<notify::Event>, files: &[PathBuf]) -> bool {
     match event {
         Ok(event) => {
-            !matches!(event.kind, notify::EventKind::Access(_))
-                && event.paths.iter().any(|p| files.contains(p))
+            event.need_rescan()
+                || (!matches!(event.kind, notify::EventKind::Access(_))
+                    && event.paths.iter().any(|p| files.contains(p)))
         }
         Err(_) => true,
     }
 }
 
-fn run(
-    rx: &Receiver<notify::Result<notify::Event>>,
-    files: &[PathBuf],
-    rt: &tokio::runtime::Handle,
-) {
+fn run(rx: &EventReceiver, files: &[PathBuf], rt: &tokio::runtime::Handle) {
     while let Ok(event) = rx.recv() {
         if !touches(&event, files) {
             continue;

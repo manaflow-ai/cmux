@@ -114,6 +114,8 @@ impl Maintenance {
             return Ok(());
         }
         let clock = MaintenanceClock::start(&self.energy)?;
+        // unbounded-allow: one Add or Remove per registered job and one Due per job per clock
+        // period; the task takes each at once
         let (adapter, inbox) = mpsc::unbounded_channel();
         tokio::spawn(adapt(inbox));
         // A racing start loses its clock here; its adapter ends with its sender.

@@ -369,7 +369,12 @@ impl Turn {
     }
 }
 
-type Tx = mpsc::UnboundedSender<Value>;
+type Tx = mpsc::Sender<Value>;
+
+/// Messages held for stdout while the client reads it. A full queue makes
+/// the sender wait: a prompt stops reading the chat's socket until the
+/// client reads again.
+const OUT_QUEUE: usize = 256;
 
 #[derive(Default)]
 struct State {
@@ -388,7 +393,7 @@ pub async fn run(options: Options) -> Result<()> {
     )
     .map_err(anyhow::Error::msg)?;
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
+    let (tx, mut rx) = mpsc::channel::<Value>(OUT_QUEUE);
     let writer = tokio::spawn(async move {
         let mut stdout = tokio::io::stdout();
         while let Some(v) = rx.recv().await {
@@ -411,13 +416,13 @@ pub async fn run(options: Options) -> Result<()> {
     Ok(())
 }
 
-fn reply(tx: &Tx, id: &Value, result: Value) {
-    let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "result": result}));
+async fn reply(tx: &Tx, id: &Value, result: Value) {
+    let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "result": result})).await;
 }
 
-fn error(tx: &Tx, id: &Value, code: i64, message: String) {
-    let _ =
-        tx.send(json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}));
+async fn error(tx: &Tx, id: &Value, code: i64, message: String) {
+    let message = json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}});
+    let _ = tx.send(message).await;
 }
 
 /// ACP's "authentication required" error code.
@@ -448,14 +453,15 @@ async fn handle(msg: Value, ctx: &Arc<(Options, Endpoint)>, state: &Arc<Mutex<St
                     "description": format!("{SETUP}.")
                 }]
             }),
-        ),
+        )
+        .await,
         ("authenticate", Some(id)) => match endpoint.token() {
-            Ok(_) => reply(tx, &id, json!({})),
-            Err(e) => error(tx, &id, AUTH_REQUIRED, e),
+            Ok(_) => reply(tx, &id, json!({})).await,
+            Err(e) => error(tx, &id, AUTH_REQUIRED, e).await,
         },
         ("session/new", Some(id)) => {
             if let Err(e) = endpoint.token() {
-                error(tx, &id, AUTH_REQUIRED, e);
+                error(tx, &id, AUTH_REQUIRED, e).await;
                 return;
             }
             let mut s = state.lock().await;
@@ -463,13 +469,13 @@ async fn handle(msg: Value, ctx: &Arc<(Options, Endpoint)>, state: &Arc<Mutex<St
             let sid = format!("uniichat-{}-{}-{}", endpoint.host, std::process::id(), s.next);
             let cwd = params.get("cwd").and_then(Value::as_str).unwrap_or(".").to_owned();
             s.sessions.insert(sid.clone(), cwd);
-            reply(tx, &id, json!({"sessionId": sid}));
+            reply(tx, &id, json!({"sessionId": sid})).await;
         }
         ("session/load" | "session/resume", Some(id)) => {
             let sid = session_of(&params);
             let cwd = params.get("cwd").and_then(Value::as_str).unwrap_or(".").to_owned();
             state.lock().await.sessions.insert(sid, cwd);
-            reply(tx, &id, json!({}));
+            reply(tx, &id, json!({})).await;
         }
         ("session/prompt", Some(id)) => {
             let sid = session_of(&params);
@@ -479,7 +485,7 @@ async fn handle(msg: Value, ctx: &Arc<(Options, Endpoint)>, state: &Arc<Mutex<St
             {
                 let mut s = state.lock().await;
                 if !s.sessions.contains_key(&sid) {
-                    error(tx, &id, -32602, format!("no session {sid}"));
+                    error(tx, &id, -32602, format!("no session {sid}")).await;
                     return;
                 }
                 s.running.insert(sid.clone(), cancel_tx);
@@ -489,8 +495,8 @@ async fn handle(msg: Value, ctx: &Arc<(Options, Endpoint)>, state: &Arc<Mutex<St
                 let outcome = run_prompt(&ctx.0, &ctx.1, &sid, &blocks, cancel_rx, &tx).await;
                 state.lock().await.running.remove(&sid);
                 match outcome {
-                    Ok(stop) => reply(&tx, &id, json!({"stopReason": stop})),
-                    Err((code, e)) => error(&tx, &id, code, e),
+                    Ok(stop) => reply(&tx, &id, json!({"stopReason": stop})).await,
+                    Err((code, e)) => error(&tx, &id, code, e).await,
                 }
             });
         }
@@ -500,14 +506,16 @@ async fn handle(msg: Value, ctx: &Arc<(Options, Endpoint)>, state: &Arc<Mutex<St
             }
         }
         ("session/set_mode" | "session/set_model" | "session/set_config_option", Some(id)) => {
-            reply(tx, &id, json!({}))
+            reply(tx, &id, json!({})).await
         }
-        (_, Some(id)) => error(tx, &id, -32601, format!("uniichat-agent has no method {method}")),
+        (_, Some(id)) => {
+            error(tx, &id, -32601, format!("uniichat-agent has no method {method}")).await
+        }
         (_, None) => {}
     }
 }
 
-fn send_out(tx: &Tx, session: &str, out: Out) {
+async fn send_out(tx: &Tx, session: &str, out: Out) {
     let update = match out {
         Out::Message(text) => json!({
             "sessionUpdate": "agent_message_chunk",
@@ -531,11 +539,13 @@ fn send_out(tx: &Tx, session: &str, out: Out) {
             "content": [{"type": "content", "content": {"type": "text", "text": text}}]
         }),
     };
-    let _ = tx.send(json!({
-        "jsonrpc": "2.0",
-        "method": "session/update",
-        "params": {"sessionId": session, "update": update}
-    }));
+    let _ = tx
+        .send(json!({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {"sessionId": session, "update": update}
+        }))
+        .await;
 }
 
 type Socket =
@@ -689,7 +699,7 @@ async fn run_prompt(
                     Ok(Some(Ok(Message::Text(t)))) => {
                         let Ok(v) = serde_json::from_str::<Value>(&t) else { continue };
                         for out in turn.hear(&v) {
-                            send_out(tx, session, out);
+                            send_out(tx, session, out).await;
                         }
                     }
                     Ok(Some(Ok(Message::Ping(p)))) => {

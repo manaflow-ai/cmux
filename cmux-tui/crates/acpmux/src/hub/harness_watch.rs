@@ -24,6 +24,8 @@ use super::*;
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
+
+use cmux_config::watch::queue::{DEFAULT_CAPACITY, EventReceiver, event_queue};
 use std::time::{Duration, Instant};
 
 #[cfg(not(target_os = "macos"))]
@@ -76,7 +78,7 @@ pub(crate) struct HarnessWatcher {
     #[cfg(target_os = "macos")]
     kernel: StdMutex<Option<crate::agent_host::record_watch::DirWatch>>,
     #[cfg(target_os = "macos")]
-    events: std::sync::mpsc::Sender<notify::Result<notify::Event>>,
+    events: cmux_config::watch::queue::EventSender,
 }
 
 impl Hub {
@@ -104,11 +106,9 @@ impl Hub {
         if sources == ProfileSources::none() {
             return;
         }
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = event_queue(DEFAULT_CAPACITY);
         #[cfg(not(target_os = "macos"))]
-        let watcher = match notify::recommended_watcher(move |event| {
-            let _ = tx.send(event);
-        }) {
+        let watcher = match notify::recommended_watcher(tx) {
             Ok(watcher) => watcher,
             Err(e) => {
                 tracing::warn!("harness watch cannot start: {e}");
@@ -130,7 +130,7 @@ impl Hub {
         // signals that come during a reload make one more. It ends when the
         // thread ends (the channel closes), the hub is gone, or the runtime
         // stops; the hub's watch state aborts it when the hub drops.
-        let (signal, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let (signal, mut wake) = crate::wake::wake_channel();
         let hub = Arc::downgrade(self);
         let reloader = handle.spawn(async move {
             while wake.recv().await.is_some() {
@@ -333,10 +333,10 @@ fn real_sources(sources: &ProfileSources) -> ProfileSources {
 /// Ends when the watcher is dropped (the channel closes), or when the reload
 /// task is gone (the runtime stopped or the hub dropped).
 fn run(
-    rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
+    rx: &EventReceiver,
     watch: &std::sync::Weak<HarnessWatcher>,
     sources: &ProfileSources,
-    signal: &tokio::sync::mpsc::UnboundedSender<()>,
+    signal: &tokio::sync::mpsc::Sender<()>,
 ) {
     // FSEvents reports real paths: a symlinked ~/.config must still match.
     let real = real_sources(sources);
@@ -374,7 +374,7 @@ fn run(
             watch.refresh(sources);
             drop(watch);
             // Only a signal: the reload runs on the runtime, never here.
-            if signal.send(()).is_err() {
+            if !crate::wake::wake(signal) {
                 return;
             }
         }

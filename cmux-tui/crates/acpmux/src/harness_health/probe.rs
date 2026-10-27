@@ -47,6 +47,7 @@ pub(super) fn run_for(
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     let mut child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;
+    // unbounded-allow: two messages, one per pipe
     let (tx, rx) = std::sync::mpsc::channel();
     for pipe in [
         child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>),

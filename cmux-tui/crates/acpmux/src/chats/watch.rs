@@ -5,7 +5,9 @@
 
 use std::path::PathBuf;
 use std::sync::Weak;
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::RecvTimeoutError;
+
+use cmux_config::watch::queue::{DEFAULT_CAPACITY, EventReceiver, event_queue};
 use std::time::{Duration, Instant};
 
 use notify::Watcher as _;
@@ -23,7 +25,7 @@ pub(super) struct RootWatcher {
     _watcher: notify::RecommendedWatcher,
 }
 
-type Events = Receiver<notify::Result<notify::Event>>;
+type Events = EventReceiver;
 
 /// Watches `roots`. Returns the watcher (None when there is nothing to
 /// watch or it cannot start) and one message per root it cannot watch.
@@ -34,10 +36,8 @@ pub(super) fn start(
     if roots.is_empty() {
         return (None, Vec::new());
     }
-    let (tx, rx) = std::sync::mpsc::channel();
-    let mut watcher = match notify::recommended_watcher(move |event| {
-        let _ = tx.send(event);
-    }) {
+    let (tx, rx) = event_queue(DEFAULT_CAPACITY);
+    let mut watcher = match notify::recommended_watcher(tx) {
         Ok(watcher) => watcher,
         Err(e) => return (None, vec![format!("the chat watcher cannot start: {e}")]),
     };

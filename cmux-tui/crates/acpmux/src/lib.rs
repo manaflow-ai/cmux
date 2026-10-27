@@ -113,6 +113,7 @@ pub mod trust;
 pub mod trust_auto;
 pub mod tui;
 pub mod user_settings;
+mod wake;
 pub mod web_modes;
 pub mod worktree_sessions;
 

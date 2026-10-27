@@ -1014,9 +1014,9 @@ impl ChildAgent {
         let reader = self.clone();
         tokio::spawn(async move {
             let Some(hosted) = reader.hosted.as_ref() else { return };
+            // unbounded-allow: one ack per entry; the host stops reading its harness once its
+            // unacknowledged entries pass `agent_host::DEFAULT_BUFFER_CAP`
             let (acks, ack_rx) = mpsc::unbounded_channel();
-            // Bounded by the host: it stops reading its harness once its unacknowledged entries
-            // pass `agent_host::DEFAULT_BUFFER_CAP`.
             let acker = tokio::spawn(reader.clone().ack_entries(link.clone(), ack_rx));
             let mut entries = link.entries.lock().await;
             while let Some((h, entry)) = entries.recv().await {

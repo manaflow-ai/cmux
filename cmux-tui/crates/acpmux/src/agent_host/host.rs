@@ -306,6 +306,8 @@ impl Started {
         let pgid = child.id().map(|p| p as i32);
 
         // stdin writer: a full pipe never blocks the event loop.
+        // unbounded-allow: one line per frame or reply this host routes to the harness; the owner's
+        // frames come one at a time through the bounded `events` queue
         let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<String>();
         tokio::spawn(async move {
             let mut stdin = stdin;
@@ -527,8 +529,8 @@ impl Started {
                     next_conn += 1;
                     let id = next_conn;
                     let (mut rd, mut wr) = stream.into_split();
-                    // Unbounded: the retained entries already bound it, and a
-                    // slow owner must not be dropped (it would never return).
+                    // unbounded-allow: the retained entries (`buffer_cap`) already bound it, and a
+                    // slow owner must not be dropped (it would never return)
                     let (tx, mut rx) = mpsc::unbounded_channel::<HostFrame>();
                     tokio::spawn(async move {
                         while let Some(frame) = rx.recv().await {
