@@ -8,24 +8,28 @@ Chromium Host (`debug.cef` backend `host`); in process, every check of the row i
 
   kill-host       done check 4. A tab is given typed text and a scroll offset; the host gets each of --signals in
                   turn (TRAP, SEGV, ABRT, KILL). Per signal: cmux's pid is unchanged; the crash page shows within 1
-                  frame of the exit; the tab is back at its URL with its text and scroll within 2000 ms; debug.crashes
-                  has a record naming the signal, with a minidump of symbolized frames and no URL or title. The 4th
+                  frame of the exit; the signaled host ends and a new one has the tab back at its URL with its text
+                  and scroll within 2000 ms; debug.crashes has a record naming the signal, with a minidump of
+                  symbolized frames and no URL or title. The 4th
                   crash within 5 minutes starts no host and leaves the crash page's Reload. Then a host started by
                   Reload and ended before its context is up shows "cannot start" and is not retried. While the host
-                  dies, keys go to a terminal (the typing probe, CMUX_NEXT_TYPING_PROBE): its key-to-frame p99.
-  helper-kill     SIGKILL to the host's GPU helper, then to the tab's renderer: one debug.crashes record each, the
+                  dies, keys go to a terminal (the typing probe, CMUX_NEXT_TYPING_PROBE): its key-to-frame p99, and
+                  no key lost.
+  helper-kill     SIGKILL to the host's GPU helper, then to every renderer: one debug.crashes record each, the
                   host and cmux keep running, the page answers again after the GPU loss and shows its sad tab after
                   the renderer's.
   hang            done check 11, --hang MS: the host's UI thread is blocked for MS (`debug.cef` host_block_ms, or
                   SIGSTOP when the build has no such hook) while a key waits: cmux's banner at 2000 +/- 100 ms after
-                  the key, cmux's main-turn p99 <= 4 ms meanwhile, the banner gone after; with cmux hidden no hang
-                  timer is armed; the host's own hang shows in debug.hangs tagged as the host's.
+                  the key, cmux's main-turn p99 <= 4 ms meanwhile, the banner gone after; with cmux hidden a key to
+                  the stopped host arms no hang timer (the visible key's armed timer is the control); the host's own
+                  hang shows in debug.hangs tagged as the host's.
   renderer-hang   done check 11: `for (;;) {}` in a page gives the tab's own unresponsive prompt and never the host
                   banner.
   ime             done check 8: a dead key composes and commits; the host's firstRect reads stay under 0.1 ms and
                   it asks cmux for no synchronous IME state; secure event input is on while a password field has
-                  focus and off after blur, a host crash and a tab close. Kotoeri, the emoji picker and dictation
-                  need an input-method driver on the fleet host: those checks say so and fail.
+                  focus and off after blur, a host crash and a tab close. Kotoeri (selected by the bench) composes
+                  `nihon` and commits it; the emoji picker and dictation have no bench driver: those checks fail
+                  naming the task whose input path they exercise.
   ax              done check 9: the tab's page view has remote accessibility children (`page_accessibility`
                   connected) and the probe's h1 is readable through the Accessibility API.
   ordering        done check 7: --ordering-keys keys interleaved with focus changes between two tabs, dead-key
@@ -34,8 +38,8 @@ Chromium Host (`debug.cef` backend `host`); in process, every check of the row i
   visibility      done check 12: a tab in a workspace that is hidden, and in a hidden app, has
                   visibilityState hidden and draws 0 animation frames per second; it draws again when shown.
   stall           done check 5, --stall MS/EVERY: the page animates at the display's rate with 0 long frames while
-                  cmux's main thread stalls MS every EVERY ms; the same after --stall-idle-minutes with cmux
-                  frontmost (no App Nap of the host).
+                  cmux's main thread stalls MS every EVERY ms; the same after --stall-idle-minutes with cmux made
+                  frontmost before the idle and still frontmost after it (no App Nap of the host).
   quit            task 087: Cmd-Q with a page that has a beforeunload handler asks; Stay keeps cmux, the host and
                   the tab.
   runtime-update  task 087: a staged Chromium runtime (`debug.cef` stage_runtime_update) is used after the host's
@@ -49,7 +53,7 @@ What the rows read that a later task adds (a missing field makes its check not m
 context_initialized (081), hang_banner, hang_timer_armed (084), first_rect_max_ms (043), runtime_version (087)};
 `debug.cef` params host_block_ms (084) and stage_runtime_update (087); `debug.crashes` chromium records' `minidump`
 {symbolized_frames} (226); `debug.hangs` records' `process` "chromium-host" (084); the relaunch's
-terminal_screens_ms (152). `ime_sync_requests` comes from `debug.chromium_host` (043).
+`terminal_screens_shown` launch mark (152). `ime_sync_requests` comes from `debug.chromium_host` (043).
 """
 import ctypes
 import ctypes.util
@@ -95,6 +99,17 @@ RESTORE_PAGE = """<!doctype html><meta charset=utf-8><title>restore probe</title
 RESTORE_STATE = ("JSON.stringify({search: location.search, field: document.getElementById('f').value, "
                  "scroll: Math.round(scrollY), origin: performance.timeOrigin})")
 
+KOTOERI_SOURCE = "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese"
+KOTOERI_KEYS, KOTOERI_COMMIT = "nihon", "にほん"
+# Done check 8's input methods the bench has no driver for: each names the task whose path it exercises, so Q6
+# gives the row an owner. Both insert through the page view's NSTextInputClient from another process's UI.
+NO_IME_DRIVER = {
+    "emoji_picker": "no bench driver: the emoji picker is system UI in another process; it inserts through "
+                    "insertText: on the page view (task p01-process-043)",
+    "dictation": "no bench driver: dictation needs audio input; it inserts through the page view's text input "
+                 "(task p01-process-047, 'dictation inserts text')",
+}
+
 AX_HEADING = "cmux accessibility probe"
 AX_PAGE = f"<!doctype html><meta charset=utf-8><title>ax probe</title><h1>{AX_HEADING}</h1>"
 
@@ -112,11 +127,14 @@ class Lab:
     app_pid(), helpers(host_pid) -> [{pid, type}], typing_rows() -> the typing probe's CSV rows,
     focus_terminal() -> True when a terminal pane has the focus, secure_pid() -> the secure event input's pid (0 none,
     None unreadable), ax_text(pid, text) -> True/False, None without an Accessibility grant, front() -> frontmost pid,
-    write_page(name, html) -> its file URL, stall_pace(ms, every_ms) -> stall_row's dict, relaunch() -> {first_frame_ms,
-    terminal_screens_ms} or {error}, hz (the display's refresh rate)."""
+    write_page(name, html) -> its file URL, stall_pace(ms, every_ms) -> stall_row's dict, relaunch() -> SIGKILL to
+    cmux and a relaunch that adopts the surviving host: ``relaunch_timings``' {first_frame_ms, terminal_screens_ms}
+    or {error}, activate() -> {activated, error} (cmux made frontmost), input_source(id) -> the input source id
+    selected before (``select_input_source``) or None, hz (the display's refresh rate), host_deaths (now() of each
+    host end the run caused before and during the rows: kill-host waits out the restart window after the last)."""
 
     def __init__(self, **parts):
-        self.host_deaths = []  # now() of each host end a row caused (kill-host waits out the restart window)
+        self.host_deaths = []
         self.__dict__.update(parts)
 
 
@@ -238,13 +256,17 @@ class Typing:
             self.done.wait(TYPING_INTERVAL_S)  # test harness: one key every two 60 Hz frames
 
     def stop(self):
+        """The typed keys' key-to-frame percentiles, and `lost`: the keys sent with no complete probe row (a press
+        whose echo never reached a frame writes complete 0, or no row at all)."""
         self.done.set()
         self.thread.join(15)
         self.lab.sleep(0.5)  # test harness: the last key's frame lands
-        self.lab.rpc("debug.key", {"key": "u", "modifiers": ["ctrl"]})  # clears the typed line
-        frames = [float(r["contents_ms"]) for r in self.lab.typing_rows()[self.rows_before:]
-                  if str(r.get("complete")).lower() in ("1", "true") and r.get("contents_ms") not in (None, "")]
-        return {"keys": self.sent, "frames": len(frames), "p50": percentile(frames, 0.5),
+        written = self.lab.typing_rows()[self.rows_before:]
+        self.lab.rpc("debug.key", {"key": "u", "modifiers": ["ctrl"]})  # clears the typed line, after the read
+        complete = [r for r in written if str(r.get("complete")).lower() in ("1", "true")]
+        frames = [float(r["contents_ms"]) for r in complete if r.get("contents_ms") not in (None, "")]
+        return {"keys": self.sent, "rows": len(written), "complete": len(complete), "frames": len(frames),
+                "lost": max(0, self.sent - len(complete)), "p50": percentile(frames, 0.5),
                 "p99": percentile(frames, 0.99), "max": max(frames) if frames else None}
 
 
@@ -304,13 +326,24 @@ def one_kill(lab, tab, expected, name, budget_spent, app_pid):
         checks.append(holds(4, row, "no_restart", again is None, again))
         checks.append(field_check(4, row, "reload_shown", state, "crash_page", "082", lambda v: v is True))
     else:
-        back = lab.wait(lambda: same_page(page_json(lab, tab, RESTORE_STATE), expected),
-                        rows.KILL_RESTORE_MS / 1000 + RESTORE_GRACE_S, RESTORE_POLL_S)
+        def restored():
+            # Only a new host's page counts: the old one still answers while it is in its crash handler, or when
+            # it ignored the signal, and its page is the seeded one.
+            new = lab.host_pid()
+            if not (lab.pid_gone(pid) and new and new != pid):
+                return None
+            return same_page(page_json(lab, tab, RESTORE_STATE), expected)
+        back = lab.wait(restored, rows.KILL_RESTORE_MS / 1000 + RESTORE_GRACE_S, RESTORE_POLL_S)
         restore_ms = (lab.now() - started) * 1000 if back else None
-        out.update(restore_ms=restore_ms, after=back or page_json(lab, tab, RESTORE_STATE))
+        new_pid, gone = lab.host_pid(), lab.pid_gone(pid)
+        restarted = gone and bool(new_pid) and new_pid != pid
+        out.update(restore_ms=restore_ms, new_pid=new_pid, after=back or page_json(lab, tab, RESTORE_STATE))
+        checks.append(holds(4, row, "restarted", restarted, new_pid, reason=None if restarted else
+                            "no new Chromium Host started" if gone else "the signaled host did not end"))
+        why = (f"not back with its URL, text and scroll: {json.dumps(out['after'])[:120]}" if restarted
+               else "no new host restored it")
         checks.append(at_most(4, row, "restore_ms", restore_ms, rows.KILL_RESTORE_MS) if back else
-                      check(4, row, "restore_ms", False, None, f"<= {rows.KILL_RESTORE_MS}", "ms",
-                            f"not back with its URL, text and scroll: {json.dumps(out['after'])[:120]}"))
+                      check(4, row, "restore_ms", False, None, f"<= {rows.KILL_RESTORE_MS:g}", "ms", why))
     checks.append(holds(4, row, "app_pid", lab.app_pid() == app_pid, lab.app_pid()))
     checks.append(crash_page_frames(lab, row))
     records, out["record"] = crash_checks(lab, row, before, pid, sig)
@@ -372,10 +405,12 @@ def kill_host(lab, signals=DEFAULT_SIGNALS):
     finally:
         typed = typing.stop() if typing else None
     if typed is None:
-        checks.append(unmeasured(4, "kill-host.typing", "key_to_frame_p99_ms", "no terminal pane took the focus"))
+        checks += [unmeasured(4, "kill-host.typing", name, "no terminal pane took the focus")
+                   for name in ("key_to_frame_p99_ms", "lost")]
     else:
         checks.append(at_most(4, "kill-host.typing", "key_to_frame_p99_ms", typed["p99"], rows.KILL_TYPING_P99_MS,
                               reason="the typing probe wrote no frame rows (CMUX_NEXT_TYPING_PROBE)"))
+        checks.append(holds(4, "kill-host.typing", "lost", typed["lost"] == 0, typed["lost"]))
     start = cannot_start(lab, tab) if len(signals) > rows.RESTART_LIMIT else {
         "checks": [unmeasured(4, "kill-host.cannot_start", "no_retry",
                               f"needs more than {rows.RESTART_LIMIT} signals to spend the restart budget")]}
@@ -397,17 +432,21 @@ def helper_kill(lab):
     host_pid, app_pid, checks, out = lab.host_pid(), lab.app_pid(), [], {}
     for kind, short in (("gpu-process", "gpu"), ("renderer", "renderer")):
         row = f"helper-kill.{short}"
-        found = [h for h in lab.helpers(host_pid) if h.get("type") == kind] if host_pid else []
+        found = [h["pid"] for h in lab.helpers(host_pid) if h.get("type") == kind] if host_pid else []
         if not found:
             checks.append(unmeasured(4, row, "one_record", f"no {kind} child of the Chromium Host"))
             continue
-        before, victim = crash_records(lab), found[0]["pid"]
-        lab.kill(victim, signal.SIGKILL)
-        lab.wait(lambda: records_of(lab, before, victim), RECORD_WAIT_S, 0.2)
+        # Every renderer, not one: ps cannot tell which renderer draws the probe tab (earlier rows' tabs and
+        # Chromium's spare renderer have their own, and debug.energy matches tab renderers in process only).
+        victims = found if short == "renderer" else found[:1]
+        before = crash_records(lab)
+        for victim in victims:
+            lab.kill(victim, signal.SIGKILL)
+        lab.wait(lambda: all(records_of(lab, before, victim) for victim in victims), RECORD_WAIT_S, 0.2)
         lab.sleep(1.0)  # test harness: a second record for the same exit would have come by now
-        count = len(records_of(lab, before, victim))
-        out[short] = {"pid": victim, "records": count}
-        checks.append(holds(4, row, "one_record", count == 1, count) if count else
+        counts = [len(records_of(lab, before, victim)) for victim in victims]
+        out[short] = {"pids": victims, "records": counts}
+        checks.append(holds(4, row, "one_record", all(count == 1 for count in counts), counts) if any(counts) else
                       unmeasured(4, row, "one_record", "no debug.crashes record for the helper (task p01-process-225)"))
         checks.append(holds(4, row, "host_alive", lab.host_pid() == host_pid, lab.host_pid()))
         checks.append(holds(4, row, "app_alive", lab.app_pid() == app_pid, lab.app_pid()))
@@ -443,9 +482,10 @@ def hang(lab, hang_ms):
         lab.kill(pid, signal.SIGSTOP)
     started = lab.now()
     lab.rpc("debug.key", {"target": "page", "key": "a"})  # an input the blocked host cannot ack
-    banner_ms, state = None, {}
+    banner_ms, state, armed = None, {}, False
     while lab.now() - started < hang_ms / 1000:
         state = host_state(lab)
+        armed = armed or state.get("hang_timer_armed") is True
         if banner_ms is None and state.get("hang_banner"):
             banner_ms = (lab.now() - started) * 1000
         lab.sleep(0.02)  # test harness: banner poll, within the 100 ms tolerance
@@ -467,22 +507,33 @@ def hang(lab, hang_ms):
     else:
         checks.append(unmeasured(11, "hang", "host_report",
                                  "no debug.cef host_block_ms (task p01-process-084): SIGSTOP stops the host's watcher too"))
-    checks.append(hidden_hang(lab, pid))
+    checks.append(hidden_hang(lab, pid, armed))
     return {"hang_ms": hang_ms, "blocked_by": "host" if blocked else "SIGSTOP", "banner_ms": banner_ms,
-            "main_turn_p99_ms": turn, "checks": checks}
+            "timer_armed_visible": armed, "main_turn_p99_ms": turn, "checks": checks}
 
 
-def hidden_hang(lab, pid):
-    """With cmux hidden, a stopped host arms no hang timer (done check 11)."""
+def hidden_hang(lab, pid, control):
+    """With cmux hidden, an input to a stopped host arms no hang timer (done check 11). `control`: the visible hang
+    armed one for its input; without it a False here would prove nothing."""
+    row = "hang.hidden"
     if not pid:
-        return unmeasured(11, "hang.hidden", "no_timer", "no Chromium Host process")
+        return unmeasured(11, row, "no_timer", "no Chromium Host process")
     lab.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True}, "origin": "script"}, timeout=60)
     lab.kill(pid, signal.SIGSTOP)
-    lab.sleep(HIDDEN_HANG_S)  # test harness: past the 2 s banner deadline
-    state = host_state(lab)
+    lab.rpc("debug.key", {"target": "page", "key": "b"})  # an outstanding input: what arms the timer when shown
+    started, armed, state = lab.now(), False, {}
+    while lab.now() - started < HIDDEN_HANG_S:  # past the 2 s banner deadline
+        state = host_state(lab)
+        armed = armed or state.get("hang_timer_armed") is True
+        lab.sleep(0.1)  # test harness: timer poll
     lab.kill(pid, signal.SIGCONT)
     lab.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": False}, "origin": "script"}, timeout=60)
-    return field_check(11, "hang.hidden", "no_timer", state, "hang_timer_armed", "084", lambda v: v is False)
+    if "hang_timer_armed" not in state:
+        return unmeasured(11, row, "no_timer", NO_FIELD.format("hang_timer_armed", "084"))
+    if not control:
+        return unmeasured(11, row, "no_timer", "the visible hang armed no timer for its input, so no timer "
+                                               "while hidden proves nothing (task p01-process-084)")
+    return holds(11, row, "no_timer", not armed, armed)
 
 
 def renderer_hang(lab):
@@ -527,9 +578,9 @@ def ime(lab):
     lab.rpc("debug.key", {"target": "page", "key": "e"})
     composed = lab.wait(lambda: (lambda v: v if v else None)(page(lab, tab, "document.getElementById('f').value")), 5)
     state, prototype = host_state(lab), lab.rpc("debug.chromium_host") or {}
-    checks = [holds(8, "ime.dead_key", "commit", composed == "é", composed)]
-    for source in ("kotoeri", "emoji_picker", "dictation"):
-        checks.append(unmeasured(8, f"ime.{source}", "commit", "needs an input-method driver on the fleet host"))
+    checks = [holds(8, "ime.dead_key", "commit", composed == "é", composed), kotoeri(lab, tab)]
+    for source, reason in NO_IME_DRIVER.items():
+        checks.append(unmeasured(8, f"ime.{source}", "commit", reason))
     checks.append(at_most(8, "ime.first_rect", "max_ms", state.get("first_rect_max_ms"), rows.IME_FIRST_RECT_MS,
                           reason=NO_FIELD.format("first_rect_max_ms", "043")))
     checks.append(at_most(8, "ime.sync", "requests", prototype.get("ime_sync_requests"), rows.IME_SYNC_REQUESTS, "",
@@ -537,6 +588,30 @@ def ime(lab):
     secure = secure_input(lab, tab)
     checks += secure.pop("checks")
     return {"composed": composed, "secure": secure, "checks": checks}
+
+
+def field_value(lab, tab):
+    return page(lab, tab, "document.getElementById('f').value")
+
+
+def kotoeri(lab, tab):
+    """Kotoeri's romaji input composes `nihon` and Return commits it as にほん (done check 8). The bench selects
+    the input source (``select_input_source``) and puts the one before it back."""
+    row = "ime.kotoeri"
+    page(lab, tab, "document.getElementById('f').value = ''")
+    previous = lab.input_source(KOTOERI_SOURCE)
+    if previous is None:
+        return unmeasured(8, row, "commit", f"the bench could not select {KOTOERI_SOURCE} (TISSelectInputSource: not "
+                                            "macOS, or the input source is not installed)")
+    try:
+        lab.sleep(0.3)  # test harness: the input source change reaches cmux's text input context
+        type_keys(lab, KOTOERI_KEYS)
+        lab.rpc("debug.key", {"target": "page", "key": "return"})
+        committed = lab.wait(lambda: (lambda v: v if v == KOTOERI_COMMIT else None)(field_value(lab, tab)), 5)
+    finally:
+        lab.input_source(previous)
+    value = committed or field_value(lab, tab)
+    return holds(8, row, "commit", value == KOTOERI_COMMIT, value)
 
 
 def secure_input(lab, tab):
@@ -660,6 +735,50 @@ def ax_find_text(pid, text, limit=AX_ROLE_LIMIT):
     return found
 
 
+def select_input_source(source_id):
+    """Selects the keyboard input source `source_id` (Text Input Sources: TISEnableInputSource, then
+    TISSelectInputSource) and returns the id that was selected before it, or None when it cannot (not macOS, the
+    source is not installed, or the selection fails)."""
+    try:
+        tis = ctypes.CDLL("/System/Library/Frameworks/Carbon.framework/Carbon")
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    except OSError:
+        return None
+    ptr = ctypes.c_void_p
+    id_key = ptr.in_dll(tis, "kTISPropertyInputSourceID")
+    tis.TISCopyCurrentKeyboardInputSource.restype = ptr
+    tis.TISGetInputSourceProperty.restype, tis.TISGetInputSourceProperty.argtypes = ptr, [ptr, ptr]
+    tis.TISCreateInputSourceList.restype, tis.TISCreateInputSourceList.argtypes = ptr, [ptr, ctypes.c_bool]
+    tis.TISEnableInputSource.restype = tis.TISSelectInputSource.restype = ctypes.c_int32
+    tis.TISEnableInputSource.argtypes = tis.TISSelectInputSource.argtypes = [ptr]
+    cf.CFStringGetCString.restype = ctypes.c_bool
+    cf.CFStringGetCString.argtypes = [ptr, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
+    cf.CFArrayGetCount.restype, cf.CFArrayGetCount.argtypes = ctypes.c_long, [ptr]
+    cf.CFArrayGetValueAtIndex.restype, cf.CFArrayGetValueAtIndex.argtypes = ptr, [ptr, ctypes.c_long]
+    cf.CFRelease.argtypes = [ptr]
+
+    def source_id_of(source):
+        value = tis.TISGetInputSourceProperty(source, id_key) if source else None  # not owned: no release
+        buffer = ctypes.create_string_buffer(256)
+        return buffer.value.decode() if value and cf.CFStringGetCString(value, buffer, 256, 0x08000100) else None
+    current = tis.TISCopyCurrentKeyboardInputSource()
+    previous = source_id_of(current)
+    if current:
+        cf.CFRelease(current)
+    sources = tis.TISCreateInputSourceList(None, True)
+    if not sources or previous is None:
+        return None
+    try:
+        for index in range(cf.CFArrayGetCount(sources)):
+            source = cf.CFArrayGetValueAtIndex(sources, index)
+            if source_id_of(source) == source_id:
+                tis.TISEnableInputSource(source)
+                return previous if tis.TISSelectInputSource(source) == 0 else None
+        return None
+    finally:
+        cf.CFRelease(sources)
+
+
 # ---------------------------------------------------------------- ordering (done check 7)
 
 def ordering(lab, keys):
@@ -763,13 +882,22 @@ def stall(lab, ms, every_ms, idle_minutes):
     judged("stall", out["fresh"])
     if idle_minutes <= 0:
         checks.append(unmeasured(5, "stall.after_idle", "long_frames", "run with --stall-idle-minutes 10"))
-    else:
-        lab.sleep(idle_minutes * 60)  # test harness: done check 5's idle with cmux frontmost
-        out["front_after_idle"] = lab.front()
-        checks.append(holds(5, "stall.after_idle", "cmux_frontmost", out["front_after_idle"] == lab.app_pid(),
-                            out["front_after_idle"]))
-        out["after_idle"] = lab.stall_pace(ms, every_ms)
-        judged("stall.after_idle", out["after_idle"])
+        out["checks"] = checks
+        return out
+    # Done check 5 excludes App Nap: cmux is made frontmost before the idle and must still be after it.
+    out["activated"] = lab.activate()
+    if not out["activated"].get("activated"):
+        reason = f"cmux could not be made frontmost: {out['activated'].get('error') or 'no reason given'}"
+        checks += [unmeasured(5, "stall.after_idle", name, reason) for name in ("cmux_frontmost", "long_frames")]
+        out["checks"] = checks
+        return out
+    lab.sleep(idle_minutes * 60)  # test harness: done check 5's idle with cmux frontmost
+    out["front_after_idle"] = lab.front()
+    checks.append(holds(5, "stall.after_idle", "cmux_frontmost", out["front_after_idle"] == lab.app_pid(),
+                        out["front_after_idle"]))
+    lab.activate()  # the pacing itself runs with cmux frontmost, also when something took the front meanwhile
+    out["after_idle"] = lab.stall_pace(ms, every_ms)
+    judged("stall.after_idle", out["after_idle"])
     out["checks"] = checks
     return out
 
@@ -842,7 +970,27 @@ def kill_app(lab):
         holds(20, "kill-app", "host_adopted", bool(host_pid) and lab.host_pid() == host_pid, lab.host_pid()),
         holds(20, "kill-app", "no_reload", origin is not None and after.get("origin") == origin, after.get("origin")),
         at_most(20, "kill-app", "terminal_screens_ms", launch.get("terminal_screens_ms"), rows.REATTACH_SCREEN_MS,
-                reason=NO_FIELD.format("terminal_screens_ms in the launch marks", "152"))]}
+                reason=launch.get("terminal_screens_missing") or "the relaunch reported no launch marks")]}
+
+
+FIRST_FRAME_MARK = "first_window_frame_committed"
+TERMINAL_SCREENS_MARK = "terminal_screens_shown"  # the mark task p01-process-152 writes
+
+
+def relaunch_timings(timings):
+    """From a relaunched app's debug.timings: first_frame_ms (its launch mark, ms since process start, as
+    bench_launch's socket probe reads it) and terminal_screens_ms (every terminal screen shown, ms after that first
+    frame); a missing mark gives None and terminal_screens_missing says which."""
+    marks = (timings.get("launch_ms_since_process_start") if isinstance(timings, dict) else None) or {}
+    first, screens = marks.get(FIRST_FRAME_MARK), marks.get(TERMINAL_SCREENS_MARK)
+    out = {"first_frame_ms": first if rows.is_number(first) else None, "terminal_screens_ms": None}
+    if out["first_frame_ms"] is None:
+        out["terminal_screens_missing"] = f"the relaunch wrote no {FIRST_FRAME_MARK} launch mark"
+    elif not rows.is_number(screens):
+        out["terminal_screens_missing"] = NO_FIELD.format(f"the {TERMINAL_SCREENS_MARK} launch mark", "152")
+    else:
+        out["terminal_screens_ms"] = screens - first
+    return out
 
 
 def run_row(lab, name, params):

@@ -61,6 +61,15 @@ NATIVE_UI_ROWS = {
     "keyboard_lock": "p01-process-229", "swipe_back": "p01-process-234",
 }
 
+# Done check 10's "0 visible host windows" through the native UI rows: the task that reports them.
+HOST_WINDOWS_TASK = "p01-process-068"
+# The checks a mode would have written, for a mode that was asked for and has no result.
+ASKED_MODE_ROWS = {
+    "inproc": [(6, "paint.inproc", "key_p50_ms")],
+    "helper": [(6, "paint.helper", "key_p50_ms"), (10, "identity", "host_page")],
+    "display": [(6, "display", "pass")],
+}
+
 # Each row and the done check it answers. display is task 221's row: the page's frames at the display's rate, the
 # 120 Hz of done check 6. identity is done check 10's "never frontmost, 0 visible windows" outside the native UI.
 # helper-kill, quit and runtime-update keep tabs alive across a process end, as done check 4 does for the host.
@@ -213,6 +222,8 @@ def native_ui_checks(native, ran):
     windows = native.get("host_windows_seen")
     if windows is not None:
         out.append(holds(10, "native-ui.host_windows", "visible", windows == 0, windows))
+    elif ran is None:
+        out.append(unmeasured(10, "native-ui.host_windows", "visible", f"no runner yet: task {HOST_WINDOWS_TASK}"))
     return out
 
 
@@ -226,8 +237,34 @@ def stall_checks(modes):
     return out
 
 
-def from_result(result, native_rows=None):
-    """Every check of a chromium-host-bench result: the older modes' rows, then each process row's own checks."""
+def not_run_reason(result):
+    """Why an asked row has no result: the run's own error (a launch that failed), else that it did not run."""
+    return f"did not run: {result['error']}" if result.get("error") else "did not run"
+
+
+def process_row_checks(result, asked=()):
+    """Each process row's own checks; an asked row (`asked`) with no result fails as not measured."""
+    out, ran = [], result.get("rows") or {}
+    for name in sorted(ran):
+        row = ran[name]
+        checks = row.get("checks") if isinstance(row, dict) else None
+        if checks:
+            out += checks
+        else:
+            out.append(unmeasured(PROCESS_ROWS.get(name.split(".")[0], 0), name, "pass",
+                                  _why(row) or "the row wrote no checks"))
+    out += [unmeasured(PROCESS_ROWS.get(name, 0), name, "pass", not_run_reason(result))
+            for name in asked if name not in ran]
+    return out
+
+
+def from_result(result, native_rows=None, asked=None):
+    """Every check of a chromium-host-bench result: the older modes' rows, then each process row's own checks.
+
+    `asked` ({"modes": [...], "process_rows": [...], "native_ui": bool}) is what the run was asked for: an asked mode,
+    native UI set or process row with no result (the launch failed, a step stopped before it) fails as not measured,
+    so --list-failing never writes an empty failing.txt for a run that measured nothing."""
+    asked = asked or {}
     modes = result.get("modes") or {}
     out = []
     if "inproc" in modes or "helper" in modes:
@@ -236,16 +273,15 @@ def from_result(result, native_rows=None):
     out += helper_checks(modes.get("helper"))
     if "native_ui" in modes:
         out += native_ui_checks(modes["native_ui"], native_rows)
+    elif asked.get("native_ui"):
+        out += native_ui_checks({"error": not_run_reason(result)}, native_rows)
     if "display" in modes:
         out.append(_row_check(PROCESS_ROWS["display"], "display", "pass", modes["display"]))
-    for name in sorted(result.get("rows") or {}):
-        row = result["rows"][name]
-        checks = row.get("checks") if isinstance(row, dict) else None
-        if checks:
-            out += checks
-        else:
-            out.append(unmeasured(PROCESS_ROWS.get(name.split(".")[0], 0), name, "pass",
-                                  _why(row) or "the row wrote no checks"))
+    for mode in asked.get("modes") or ():
+        if mode not in modes:
+            out += [unmeasured(number, row, name, not_run_reason(result))
+                    for number, row, name in ASKED_MODE_ROWS.get(mode, ())]
+    out += process_row_checks(result, asked.get("process_rows") or ())
     return out
 
 

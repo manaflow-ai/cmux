@@ -143,9 +143,10 @@ count and active match (the oracle's overlays.findBar) and the page scrolled to 
 Pass/fail rows (task p01-process-160, chromium_host_rows.py): after every run each measured row prints one line per
 check, PASS or FAIL with its done check's number (plans/cmux-next/chrome-parity/p01-process.md section 5), the value
 and its threshold: `ROW 4 kill-host.SEGV restore_ms PASS 1430 (<= 2000 ms)`. A check the run could not measure fails
-with its reason. --list-failing then prints each failing row once (`FAILING <row>`) and writes them to failing.txt in
---out: `--native-ui --list-failing` is machine queue Q6, and lists the native UI rows that have no runner yet with
-the task that adds them. The process rows (chromium_host_process_rows.py, each on a Chromium tab of the app's backend
+with its reason, and so does every asked row that has no result (a failed launch, a step that stopped first). The run
+exits 1 when any check of an asked process row fails. --list-failing then prints each failing row once
+(`FAILING <row>`) and writes them to failing.txt in --out: `--native-ui --list-failing` is machine queue Q6, and lists
+the native UI rows that have no runner yet with the task that adds them. The process rows (chromium_host_process_rows.py, each on a Chromium tab of the app's backend
 in the Chromium Host) run with their flags, alone unless --modes is given:
   --kill-host [--signals TRAP,SEGV,ABRT,KILL]  done check 4, with the terminal typing probe across the kills
   --kill-app                                   done check 20 (relaunches cmux with browserHost.survivesAppCrash)
@@ -543,6 +544,9 @@ def probe_color_share():
 BENCH_START = time.time()
 APP_LOG = {}
 TYPING_PROBE = {}  # {"path": the CMUX_NEXT_TYPING_PROBE CSV} when --kill-host types across the kills
+# time.monotonic() of each Chromium Host end this run caused, the helper mode's kill too: the process rows' Lab
+# shares it, so kill-host waits out the restart window after all of them.
+HOST_DEATHS = []
 DEFAULTS = {}
 
 
@@ -773,6 +777,8 @@ def main():
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
     if "kill-host" in opts.process_rows:
         env["CMUX_NEXT_TYPING_PROBE"] = TYPING_PROBE["path"] = os.path.join(opts.out, "typing.csv")
+    if "stall" in opts.process_rows and opts.stall_idle_minutes > 0:
+        env["CMUX_NEXT_NO_ACTIVATE"] = None  # the after-idle stall makes cmux frontmost (BenchApp.activate)
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
@@ -783,7 +789,7 @@ def main():
     except RecordError as error:
         RESULT["build"] = None
         RESULT["notes"].append(str(error))
-    ok = True
+    ok = rows_ok = True
     try:
         app.launch()
         settle_host_feature(app)
@@ -878,17 +884,28 @@ def main():
         finally:
             try:
                 RESULT["checks"] = chromium_host_rows.from_result(
-                    RESULT, native_rows=None if opts.native_ui_all or opts.native_ui is None else opts.native_ui)
+                    RESULT, native_rows=None if opts.native_ui_all or opts.native_ui is None else opts.native_ui,
+                    asked=asked_rows(opts))
                 RESULT["summary"] = chromium_host_rows.report(
                     RESULT["checks"], lambda text: print(text, flush=True), list_failing=opts.list_failing,
                     failing_path=os.path.join(opts.out, "failing.txt"))
+                # The process rows are pass/fail: any of their checks failing fails the run.
+                rows_ok = not any(c["verdict"] != "PASS" for c in
+                                  chromium_host_rows.process_row_checks(RESULT, opts.process_rows))
                 for path in filter(None, [os.path.join(opts.out, "chromium-host-bench.json"), opts.json]):
                     with open(path, "w") as out:
                         json.dump(RESULT, out, indent=2)
                 print("CHROMIUM-HOST-BENCH " + json.dumps(RESULT), flush=True)
             finally:
                 app.stop()
-    return 0 if ok else 1
+    return 0 if ok and rows_ok else 1
+
+
+def asked_rows(options):
+    """What the run was asked for, for chromium_host_rows.from_result: an asked row with no result fails."""
+    only = options.native_ui is not None or options.find  # these run instead of the modes
+    return {"modes": [] if only else [m for m in options.modes.split(",") if m],
+            "native_ui": options.native_ui is not None, "process_rows": list(options.process_rows)}
 
 
 def probe_stats(title):
@@ -1261,6 +1278,15 @@ def run_host_probe(rpc, url, record=True):
                  record=record)
 
 
+def kill_host_by_op(rpc):
+    """`debug.chromium_host op kill`: the killed host's pid, its end recorded in HOST_DEATHS (it is one crash of the
+    host's restart window)."""
+    killed = (rpc("debug.chromium_host", {"op": "kill"}) or {}).get("killed_pid")
+    if killed:
+        HOST_DEATHS.append(time.monotonic())
+    return killed
+
+
 def run_helper(rpc, url, inproc_tab):
     # A pane of its own (the in-process page keeps the left one).
     rpc("action.run", {"action": "splitRight", "focus": True, "origin": "script"}, timeout=60)
@@ -1355,7 +1381,7 @@ def run_helper(rpc, url, inproc_tab):
     # Kill: cmux keeps running, a new host loads the saved page.
     before = rpc("debug.chromium_host") or {}
     app_pid = before.get("app_pid")
-    killed = (rpc("debug.chromium_host", {"op": "kill"}) or {}).get("killed_pid")
+    killed = kill_host_by_op(rpc)
     after = wait(lambda: (lambda r: r if r.get("restarts", 0) >= 1 and r.get("shown_context_id") and r.get("pid") != killed else None)(
         rpc("debug.chromium_host") or {}), 90, 0.25)
     windows = rpc("debug.windows") or {}
@@ -2131,22 +2157,31 @@ def stall_pace(rpc, url):
     return run
 
 
+RELAUNCH_MARKS_WAIT_S = 10.0
+
+
 def relaunch_after_kill(app):
-    """SIGKILL to the cmux this bench started, then the same launch again; when it first answered."""
+    """SIGKILL to the cmux this bench started, then a relaunch that adopts what survives it (the tag's daemon and,
+    with browserHost.survivesAppCrash, the Chromium Host): its first answer and launch marks
+    (process_rows.relaunch_timings over debug.timings)."""
     def run():
         app.process.kill()
         app.process.wait(30)
         try:
-            app.launch(probe_first_answer=True)
+            app.launch(probe_first_answer=True, adopt=True)
         except LaunchError as error:
             return {"error": error.reason}
+        read = lambda: process_rows.relaunch_timings(app.rpc("debug.timings"))  # noqa: E731
+        # The marks land after the window answers: read until both are there, else the last read says which is not.
+        timings = wait(lambda: (lambda t: t if t["terminal_screens_ms"] is not None else None)(read()),
+                       RELAUNCH_MARKS_WAIT_S, 0.1) or read()
         settle_host_feature(app)
-        return {"first_answer_ms": getattr(app, "first_answer_ms", None)}
+        return {"first_answer_ms": app.first_answer_ms, **timings}
     return run
 
 
-def run_process_rows(app, url):
-    """The asked process rows (chromium_host_process_rows.py), each bounded by its own limit, in their order."""
+def process_lab(app, url):
+    """The process rows' Lab over the running app."""
     rpc = app.rpc
 
     def write_page(name, html):
@@ -2154,14 +2189,20 @@ def run_process_rows(app, url):
         with open(path, "w") as out:
             out.write(html)
         return pathlib.Path(path).as_uri()
-    lab = process_rows.Lab(
+    return process_rows.Lab(
         rpc=rpc, wait=wait, sleep=time.sleep, now=time.monotonic, uptime=lambda: time.clock_gettime(time.CLOCK_UPTIME_RAW),
         kill=os.kill, pid_gone=pid_gone, host_pid=chromium_host_pid,
         app_pid=lambda: app.process.pid if app.process and app.process.poll() is None else None,
         helpers=host_helpers, typing_rows=typing_rows, focus_terminal=lambda: focus_terminal(rpc),
         secure_pid=secure_input_pid, ax_text=process_rows.ax_find_text, front=front_pid, write_page=write_page,
-        stall_pace=stall_pace(rpc, url), relaunch=relaunch_after_kill(app),
+        stall_pace=stall_pace(rpc, url), relaunch=relaunch_after_kill(app), activate=app.activate,
+        input_source=process_rows.select_input_source, host_deaths=HOST_DEATHS,
         hz=RESULT.get("refresh_hz") or main_display_hz() or 60.0)
+
+
+def run_process_rows(app, url):
+    """The asked process rows (chromium_host_process_rows.py), each bounded by its own limit, in their order."""
+    lab = process_lab(app, url)
     params = {"signals": opts.signals, "hang_ms": opts.hang, "ordering_keys": opts.ordering_keys, "stall": opts.stall,
               "stall_idle_minutes": opts.stall_idle_minutes}
     out = {}

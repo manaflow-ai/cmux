@@ -2,10 +2,14 @@
 """chromium_host_rows.py and chromium_host_process_rows.py, the pass/fail rows of chromium-host-bench.py
 (p01-process-160), against a fake app on a fake clock: every check prints PASS or FAIL with its done check's number; a
 check the app cannot answer fails with its reason; --list-failing names each failing row once and lists the native UI
-rows with no runner yet (Q6). kill-host passes for a host that restarts and restores within 2000 ms, fails for one
-that restores late or never ends its restarts, and the 4th signal checks the restart budget; a build whose backend is
-not the host measures nothing; ordering catches a key routed to the wrong tab. The bench's own flags select rows and
-modes. Runs anywhere (no app, no macOS).
+rows with no runner yet (Q6), and an asked row with no result fails with the run's error. kill-host passes for a host
+that restarts and restores within 2000 ms, fails for one that restores late, ignores the signal or never ends its
+restarts, and for a terminal that loses keys; the 4th signal checks the restart budget, after the window of every
+earlier host death (the helper mode's kill too); a build whose backend is not the host measures nothing; ordering
+catches a key routed to the wrong tab. Every other row (hang and its hidden case against the visible control,
+renderer-hang, ime with Kotoeri and secure input, ax, visibility, stall after idle with cmux frontmost, quit,
+runtime-update, helper-kill, kill-app) has a passing and a failing fake, and the bench's relaunch adopts the surviving
+host and reads its launch marks. The bench's own flags select rows and modes. Runs anywhere (no app, no macOS).
 Run: python3 -I scripts/cmux-next/tests/test_chromium_host_rows.py"""
 import importlib.util, json, os, signal, sys, tempfile, time, unittest
 
@@ -26,13 +30,17 @@ class FakeApp:
     """A host-mode app with one Chromium tab and a Chromium Host process. `restore_s`: how long a killed host takes
     to come back with the tab's state (None: it comes back without the typed text); `budget`: restarts the host
     allows before it stays ended (None: no limit, the restart budget is missing); `report_fields`: the `debug.cef`
-    host fields of the later tasks are there; `misroute`: the ordering tabs swap every key after this many."""
+    host fields of the later tasks are there; `misroute`: the ordering tabs swap every key after this many;
+    `ignores`: signals the host ignores. A killed host's page loses its text and scroll until a restart restores
+    them."""
 
-    def __init__(self, backend="host", restore_s=0.6, budget=3, report_fields=True, misroute=None):
+    def __init__(self, backend="host", restore_s=0.6, budget=3, report_fields=True, misroute=None, ignores=()):
         self.backend, self.restore_s, self.budget, self.report_fields, self.misroute = backend, restore_s, budget, report_fields, misroute
+        self.ignores = set(ignores)  # signals the host ignores: it keeps running with its page
         self.now_s, self.pid, self.next_pid, self.app = 0.0, 500, 501, 100
         self.down_until, self.crashes, self.kills, self.restarts = None, [], [], 0
         self.state = {"search": "?kill", "field": "", "scroll": 0, "origin": 1.0}
+        self.saved = None  # the page state a restarted host gives back
         self.tabs, self.focused, self.keys = {}, None, 0
         self.exit_ns = self.page_ns = None
 
@@ -58,8 +66,8 @@ class FakeApp:
             self.down_until = None
             self.pid, self.next_pid = self.next_pid, self.next_pid + 1
             self.restarts += 1
-            if self.restore_s is None:
-                self.state["field"] = ""
+            # A new host loads the tab's URL; only a restore (task 093) gives back its text and scroll.
+            self.state.update((self.saved or {}) if self.restore_s is not None else {"origin": self.now_s})
 
     def host_pid(self):
         return None if self.down_until is not None or self.pid is None else self.pid
@@ -68,6 +76,10 @@ class FakeApp:
         if pid != self.pid:
             return
         self.kills.append(sig)
+        if sig in self.ignores:
+            return
+        self.saved = dict(self.state)
+        self.state.update(field="", scroll=0)
         self.crashes.append({"pid": pid, "code": int(sig), "process_type": "chromium-host",
                              "minidump": {"symbolized_frames": 12}})
         self.exit_ns = self.now_s * 1e9
@@ -189,7 +201,32 @@ class FromResultTests(unittest.TestCase):
         self.assertIn("task p01-process-229", named[("native-ui.fullscreen", "pass")]["reason"])
         failing = rows.failing(checks)
         self.assertNotIn("native-ui.select", failing)
-        self.assertEqual(len(failing), len(rows.NATIVE_UI_ROWS) - 1)
+        # Every row but select, and the 0-visible-host-windows check with no runner yet (task 068).
+        self.assertEqual(len(failing), len(rows.NATIVE_UI_ROWS))
+        self.assertIn("task p01-process-068", named[("native-ui.host_windows", "visible")]["reason"])
+        seen = by_name(rows.from_result({"modes": {"native_ui": {"host_windows_seen": 1}}}))
+        self.assertEqual(seen[("native-ui.host_windows", "visible")]["verdict"], "FAIL")
+        self.assertTrue(seen[("native-ui.host_windows", "visible")]["measured"])
+
+    def test_asked_rows_with_no_result_fail_with_the_runs_error(self):
+        result = {"error": "tag-in-use", "modes": {}}
+        asked = {"modes": ["inproc", "helper"], "native_ui": True, "process_rows": ["ax", "kill-host"]}
+        checks = rows.from_result(result, asked=asked)
+        failing = rows.failing(checks)
+        for row in ("paint.inproc", "paint.helper", "identity", "native-ui.select", "ax", "kill-host"):
+            self.assertIn(row, failing)
+        self.assertTrue(all(not c["measured"] and "tag-in-use" in c["reason"] for c in checks))
+        lines = []
+        with tempfile.TemporaryDirectory() as scratch:
+            path = os.path.join(scratch, "failing.txt")
+            rows.report(checks, lines.append, list_failing=True, failing_path=path)
+            with open(path) as written:
+                self.assertIn("kill-host\n", written.read())
+        # A row that ran is judged by its own checks, not as missing.
+        ran = rows.process_row_checks({"rows": {"ax": {"checks": [rows.holds(9, "ax", "remote_children", True)]}}},
+                                      ["ax", "quit"])
+        self.assertEqual([(c["row"], c["verdict"]) for c in ran], [("ax", "PASS"), ("quit", "FAIL")])
+        self.assertEqual(ran[1]["reason"], "did not run")
 
     def test_only_the_asked_native_ui_rows_are_judged(self):
         checks = rows.from_result({"modes": {"native_ui": {"select": {"ok": True}}}}, native_rows=["select"])
@@ -284,6 +321,46 @@ class KillHostTests(unittest.TestCase):
         self.assertGreaterEqual(result["frames"], 3)
         self.assertEqual(result["p99"], 9.0)
 
+    def test_a_host_that_ignores_the_signal_restores_nothing_and_fails(self):
+        named = by_name(process.kill_host(FakeApp(ignores={signal.SIGTRAP}).lab())["checks"])
+        self.assertEqual(named[("kill-host.TRAP", "restarted")]["verdict"], "FAIL")
+        self.assertEqual(named[("kill-host.TRAP", "restarted")]["reason"], "the signaled host did not end")
+        self.assertEqual(named[("kill-host.TRAP", "restore_ms")]["verdict"], "FAIL")
+        self.assertEqual(named[("kill-host.SEGV", "restarted")]["verdict"], "PASS")
+
+    def test_a_restore_is_timed_from_the_new_host_not_the_old_page(self):
+        row = process.kill_host(FakeApp(restore_s=0.6).lab())
+        self.assertGreaterEqual(row["kills"][0]["restore_ms"], 600)
+        self.assertNotEqual(row["kills"][0]["new_pid"], row["kills"][0]["pid"])
+
+    def test_keys_the_terminal_dropped_while_the_host_died_fail_the_typing_row(self):
+        app = FakeApp()
+        written = []
+
+        def rpc(method, params=None, timeout=60):
+            if method == "debug.key" and "timestamp" in (params or {}):
+                index = len(written)
+                written.append({"complete": "0" if index % 4 == 3 else "1", "contents_ms": "" if index % 4 == 3 else "6.0"})
+            return app.rpc(method, params, timeout)
+        lab = app.lab(focus_terminal=lambda: True, typing_rows=lambda: list(written))
+        lab.rpc = rpc
+        typing = process.Typing(lab)
+        while typing.sent < 8:
+            time.sleep(0.01)  # test harness: the typing thread's keys
+        result = typing.stop()
+        self.assertEqual(result["p99"], 6.0)  # the complete presses alone pass the p99
+        self.assertGreaterEqual(result["lost"], 2)
+        # Through the row: a terminal whose every press stalls fails `lost`, whatever its p99 says.
+        stalled = FakeApp()
+        rows_written = [{"complete": "1", "contents_ms": "5.0"}]
+        lab = stalled.lab(focus_terminal=lambda: True, typing_rows=lambda: list(rows_written))
+        lab.rpc = lambda method, params=None, timeout=60: (
+            rows_written.append({"complete": "0", "contents_ms": ""}) if method == "debug.key" and "timestamp" in
+            (params or {}) else None) or stalled.rpc(method, params, timeout)
+        named = by_name(process.kill_host(lab)["checks"])
+        self.assertEqual(named[("kill-host.typing", "lost")]["verdict"], "FAIL")
+        self.assertGreaterEqual(named[("kill-host.typing", "lost")]["value"], 1)
+
     def test_an_in_process_backend_measures_nothing(self):
         row = process.kill_host(FakeApp(backend="inProcess").lab())
         self.assertEqual(len(row["checks"]), 1)
@@ -303,6 +380,498 @@ class OrderingTests(unittest.TestCase):
         named = by_name(row["checks"])
         self.assertEqual(named[("ordering", "keys_on_active_page")]["verdict"], "FAIL")
         self.assertGreater(row["misplaced"], 0)
+
+
+class RowFake(FakeApp):
+    """FakeApp with what the other rows read. Each switch is one way a correct host behaves, off for a broken one:
+    `hang_gate` (no hang timer while hidden), `banner_at` (seconds from an unacked key to cmux's banner), `host_block`
+    (debug.cef host_block_ms exists), `renderer_prompt` (the per-tab unresponsive prompt), `renderer_banner` (the host
+    banner shows for a renderer hang: wrong), `dead_keys`, `kotoeri`, `secure_balanced`, `ax_connected`,
+    `hidden_throttle`, `stay` (Stay keeps cmux), `runtime` (stage_runtime_update), `helper_records`, `sad_tab`,
+    `adopt` (the relaunch keeps the host), `screens_ms` (the relaunch's terminal_screens_shown after its first frame)."""
+
+    def __init__(self, **switches):
+        defaults = dict(hang_gate=True, banner_at=2.0, host_block=True, renderer_prompt=True, renderer_banner=False,
+                        dead_keys=True, kotoeri=True, secure_balanced=True, ax_connected=True, hidden_throttle=True,
+                        stay=True, runtime=True, helper_records=True, sad_tab=True, adopt=True, screens_ms=120.0)
+        self.switches = {**defaults, **{k: v for k, v in switches.items() if k in defaults}}
+        super().__init__(**{k: v for k, v in switches.items() if k not in defaults})
+        self.hidden = self.stopped = False
+        self.block_until = self.key_at = self.mouse_at = None
+        self.workspaces, self.hidden_workspace = ["w1"], False
+        self.source, self.composing = "com.apple.keylayout.US", ""
+        self.focus_element, self.secure, self.gone, self.unresponsive = None, False, False, False
+        self.titles, self.dialogs, self.raf, self.helper_pids = {}, [], 0.0, {"gpu-process": [700], "renderer": [701, 702]}
+        self.staged = None
+
+    # what a row reads of the host
+    def blocked(self):
+        return self.stopped or (self.block_until is not None and self.now_s < self.block_until)
+
+    def armed(self):
+        return self.key_at is not None and self.blocked() and not (self.hidden and self.switches["hang_gate"])
+
+    def tick(self):
+        super().tick()
+        if self.key_at is not None and not self.blocked():
+            self.key_at = None  # acked
+        if not (self.hidden or self.hidden_workspace) or not self.switches["hidden_throttle"]:
+            self.raf = getattr(self, "raf", 0.0) + 60 * 0.001  # counted per ms of the fake clock below
+
+    def sleep(self, seconds):
+        steps = max(1, int(round(seconds / 0.001)))
+        for _ in range(min(steps, 20000)):
+            self.now_s += seconds / min(steps, 20000)
+            self.tick()
+
+    def host_fields(self):
+        banner = bool(self.armed() and self.now_s - self.key_at >= self.switches["banner_at"])
+        banner = banner or (self.switches["renderer_banner"] and self.mouse_at is not None and self.titles.get(
+            self.focused) == "hang probe")
+        return {"hang_banner": banner, "hang_timer_armed": self.armed(), "first_rect_max_ms": 0.04,
+                **({"runtime_version": self.staged} if self.staged and self.restarts else {"runtime_version": "1"})}
+
+    def kill(self, pid, sig):
+        if pid == self.pid and sig in (signal.SIGSTOP, signal.SIGCONT):
+            self.stopped = sig == signal.SIGSTOP
+            self.tick()
+            return
+        for kind, pids in self.helper_pids.items():
+            if pid in pids:
+                pids.remove(pid)
+                if self.switches["helper_records"]:
+                    self.crashes.append({"pid": pid, "process_type": kind, "code": int(sig)})
+                if kind == "renderer" and pid == 702:  # the probe tab's renderer, the second in ps order
+                    self.gone = self.switches["sad_tab"]
+                return
+        if pid == self.pid:
+            self.secure = self.secure and not self.switches["secure_balanced"]
+            self.focus_element = None
+        super().kill(pid, sig)
+
+    def lab(self, **parts):
+        base = dict(sleep=self.sleep, helpers=lambda pid: [{"pid": p, "type": kind} for kind, pids in
+                                                            self.helper_pids.items() for p in pids] if pid == self.pid else [],
+                    secure_pid=lambda: self.app if self.secure else 0,
+                    ax_text=lambda pid, text: self.switches["ax_connected"] and text == process.AX_HEADING,
+                    input_source=self.select_source, activate=lambda: {"activated": True, "error": ""},
+                    relaunch=self.relaunch, front=lambda: self.app)
+        base.update(parts)
+        return super().lab(**base)
+
+    def select_source(self, source):
+        previous, self.source = self.source, source
+        return previous
+
+    def relaunch(self):
+        self.app += 1
+        if not self.switches["adopt"]:
+            self.pid, self.next_pid = self.next_pid, self.next_pid + 1
+            self.state["origin"] = self.now_s + 1000.0  # a reload: a new timeOrigin
+        first = 400.0
+        marks = {process.FIRST_FRAME_MARK: first}
+        if self.switches["screens_ms"] is not None:
+            marks[process.TERMINAL_SCREENS_MARK] = first + self.switches["screens_ms"]
+        return process.relaunch_timings({"launch_ms_since_process_start": marks})
+
+    def rpc(self, method, params=None, timeout=60):
+        params = params or {}
+        if method == "debug.cef":
+            if "host_block_ms" in params:
+                if not self.switches["host_block"]:
+                    return {"backend": self.backend, "host": self.host_fields()}
+                self.block_until = self.now_s + params["host_block_ms"] / 1000
+                return {"host_blocked": True}
+            if "stage_runtime_update" in params:
+                if not self.switches["runtime"]:
+                    return {}
+                self.staged = "2.0"
+                self.kills.append("idle-restart")
+                self.down_until = self.now_s + 1.0
+                return {"staged_runtime": self.staged}
+            reply = super().rpc(method, params, timeout)
+            reply["host"].update(self.host_fields())
+            reply["devtools"] = [{"tab": tab, "page_accessibility": "connected" if self.switches["ax_connected"]
+                                  else "none"} for tab in self.tabs]
+            return reply
+        if method == "debug.chromium_host":
+            return {"ime_sync_requests": 0}
+        if method == "debug.hangs":
+            blocked_by_host = self.switches["host_block"] and self.block_until is not None
+            return {"turn_histogram": {"main_turn": {"p99_ms": 2.5}},
+                    "records": [{"process": "chromium-host", "duration_ms": 5000}] if blocked_by_host else []}
+        if method == "debug.browser.page_status":
+            if params.get("press") == "exit":
+                self.unresponsive = False
+            hung = (self.mouse_at is not None and self.titles.get(self.focused) == "hang probe"
+                    and self.now_s - self.mouse_at >= rows.RENDERER_HANG_PROMPT_S)
+            self.unresponsive = self.unresponsive or (hung and self.switches["renderer_prompt"])
+            return {"gone": "1" if self.gone else "0", "unresponsive": "1" if self.unresponsive else "0"}
+        if method == "debug.dialog":
+            if params.get("press") == "cancel":
+                self.dialogs = []
+                if not self.switches["stay"]:
+                    self.app, self.pid = None, None
+            return {"dialogs": list(self.dialogs)}
+        if method == "snapshot.get":
+            return {"topology": {"workspaces": [{"id": w} for w in self.workspaces]}}
+        if method == "debug.mouse":
+            if "y" in params:
+                self.focus_element = "pw" if params["y"] > 100 else "f"
+                self.secure = self.focus_element == "pw" and self.host_pid() is not None
+            else:
+                self.mouse_at = self.now_s
+                if self.titles.get(self.focused) == "unload probe":
+                    self.titles[self.focused] = "unload armed"
+            return {}
+        if method == "debug.key":
+            if params.get("target") == "page" and self.blocked() and self.key_at is None:
+                self.key_at = self.now_s
+            if params.get("modifiers") == ["cmd"] and params.get("key") == "q":
+                if self.titles.get(self.focused) == "unload armed":
+                    self.dialogs = [{"identifier": dialogs_question(), "visible": True}]
+                return {}
+            if self.source == process.KOTOERI_SOURCE and self.switches["kotoeri"] and self.focused in self.tabs:
+                if params["key"] == "return":
+                    self.tabs[self.focused]["field"] += {"nihon": "にほん"}.get(self.composing, self.composing)
+                    self.composing = ""
+                else:
+                    self.composing += params["key"]
+                return {}
+            if params.get("modifiers") == ["alt"] and not self.switches["dead_keys"]:
+                return {}
+            return super().rpc(method, params, timeout)
+        if method == "action.run":
+            action = params.get("action")
+            if action == "openBrowser.chromium":
+                super().rpc(method, params, timeout)
+                url = params["args"]["url"]
+                name = url.rsplit("/", 1)[-1].split("?")[0]
+                self.titles[self.focused] = {"hang.html": "hang probe", "unload.html": "unload probe",
+                                             "ax.html": "ax probe"}.get(name, "restore probe")
+            elif action == "showHideAllWindows":
+                self.hidden = params["args"]["hidden"]
+            elif action == "newTab":
+                self.workspaces.append("w2")
+                self.hidden_workspace = True
+            elif action == "closeWorkspace":
+                self.workspaces.remove(params["target"].split(":", 1)[1])
+                self.hidden_workspace = False
+            elif action == "closeTab":
+                self.tabs.pop(params["target"].split(":", 1)[1], None)
+                self.secure = self.secure and not self.switches["secure_balanced"]
+            else:
+                return super().rpc(method, params, timeout)
+            return {"ok": True}
+        return super().rpc(method, params, timeout)
+
+    def evaluate(self, script, tab):
+        if "document.readyState" in script:
+            return {"value": True, "tab": tab}
+        if "getBoundingClientRect" in script:
+            return {"value": [100, 150] if "'pw'" in script else [100, 50], "tab": tab}
+        if self.host_pid() is None or tab not in self.tabs:
+            return {"error": "the host or the tab is gone"}
+        if script == "1 + 1":
+            return {"value": 2}
+        if script == "window.__raf":
+            return {"value": round(self.raf)}
+        if script == "document.visibilityState":
+            return {"value": "hidden" if (self.hidden or self.hidden_workspace) and self.switches["hidden_throttle"]
+                    else "visible"}
+        if script == "document.title":
+            return {"value": self.titles.get(tab)}
+        if script == "location.search":
+            return {"value": self.tabs[tab]["search"]}
+        if script.endswith(".value = ''") and tab != self.tab_of("?kill"):
+            self.tabs[tab]["field"] = ""
+            return {"value": None}
+        return super().evaluate(script, tab)
+
+    def tab_of(self, search):
+        return next((t for t, v in self.tabs.items() if v["search"] == search), None)
+
+
+def dialogs_question():
+    return process.dialogs.QUESTION
+
+
+def run(fake, row, *args, **parts):
+    """`row` over `fake`'s Lab (with `parts` replaced): its checks by (row, name)."""
+    return by_name(row(fake.lab(**parts), *args)["checks"])
+
+
+class HangTests(unittest.TestCase):
+    def test_a_banner_at_two_seconds_that_clears_and_no_timer_while_hidden_passes(self):
+        named = by_name(process.hang(RowFake().lab(), 5000)["checks"])
+        for name in ("banner_ms", "main_turn_p99_ms", "banner_clears", "host_report"):
+            self.assertEqual(named[("hang", name)]["verdict"], "PASS", named[("hang", name)])
+        self.assertEqual(named[("hang.hidden", "no_timer")]["verdict"], "PASS")
+
+    def test_a_late_banner_fails(self):
+        named = by_name(process.hang(RowFake(banner_at=2.5).lab(), 5000)["checks"])
+        self.assertEqual(named[("hang", "banner_ms")]["verdict"], "FAIL")
+        self.assertTrue(named[("hang", "banner_ms")]["measured"])
+
+    def test_a_timer_armed_while_hidden_fails(self):
+        named = by_name(process.hang(RowFake(hang_gate=False).lab(), 5000)["checks"])
+        self.assertEqual(named[("hang.hidden", "no_timer")]["verdict"], "FAIL")
+        self.assertTrue(named[("hang.hidden", "no_timer")]["measured"])
+
+    def test_no_timer_while_hidden_proves_nothing_without_the_visible_control(self):
+        fake = RowFake()
+        fake.armed = lambda: False  # a host whose input arms no timer at all
+        named = by_name(process.hang(fake.lab(), 5000)["checks"])
+        self.assertFalse(named[("hang.hidden", "no_timer")]["measured"])
+        self.assertIn("visible hang armed no timer", named[("hang.hidden", "no_timer")]["reason"])
+
+    def test_without_host_block_ms_the_host_report_is_not_measured(self):
+        named = by_name(process.hang(RowFake(host_block=False).lab(), 5000)["checks"])
+        self.assertEqual(named[("hang", "banner_ms")]["verdict"], "PASS")  # SIGSTOP stands in
+        self.assertIn("p01-process-084", named[("hang", "host_report")]["reason"])
+
+
+class RendererHangTests(unittest.TestCase):
+    def test_the_tabs_own_prompt_and_no_host_banner_pass(self):
+        named = run(RowFake(), process.renderer_hang)
+        self.assertEqual(named[("renderer-hang", "prompt_s")]["verdict"], "PASS")
+        self.assertEqual(named[("renderer-hang", "no_host_banner")]["verdict"], "PASS")
+
+    def test_the_host_banner_for_a_renderer_hang_fails(self):
+        named = run(RowFake(renderer_banner=True), process.renderer_hang)
+        self.assertEqual(named[("renderer-hang", "no_host_banner")]["verdict"], "FAIL")
+
+    def test_no_prompt_fails(self):
+        named = run(RowFake(renderer_prompt=False), process.renderer_hang)
+        self.assertEqual(named[("renderer-hang", "prompt_s")]["verdict"], "FAIL")
+
+
+class ImeTests(unittest.TestCase):
+    def test_dead_key_kotoeri_and_secure_input_pass(self):
+        fake = RowFake()
+        named = run(fake, process.ime, secure_pid=lambda: fake.app if fake.secure else 0)
+        for row, name in (("ime.dead_key", "commit"), ("ime.kotoeri", "commit"), ("ime.first_rect", "max_ms"),
+                          ("ime.sync", "requests"), ("ime.secure_input", "focused"), ("ime.secure_input", "blurred"),
+                          ("ime.secure_input", "after_crash"), ("ime.secure_input", "after_close")):
+            self.assertEqual(named[(row, name)]["verdict"], "PASS", named[(row, name)])
+        self.assertEqual(fake.source, "com.apple.keylayout.US")  # the input source before it is back
+        for source in ("emoji_picker", "dictation"):
+            self.assertIn("task p01-process-04", named[(f"ime.{source}", "commit")]["reason"])
+
+    def test_a_dead_key_or_kotoeri_that_does_not_compose_fails(self):
+        named = run(RowFake(dead_keys=False, kotoeri=False), process.ime)
+        self.assertEqual(named[("ime.dead_key", "commit")]["verdict"], "FAIL")
+        self.assertEqual(named[("ime.kotoeri", "commit")]["verdict"], "FAIL")
+        self.assertTrue(named[("ime.kotoeri", "commit")]["measured"])
+
+    def test_kotoeri_without_an_input_source_driver_is_not_measured(self):
+        named = run(RowFake(), process.ime, input_source=lambda source: None)
+        self.assertFalse(named[("ime.kotoeri", "commit")]["measured"])
+
+    def test_secure_input_left_on_after_a_crash_and_close_fails(self):
+        named = run(RowFake(secure_balanced=False), process.ime)
+        self.assertEqual(named[("ime.secure_input", "focused")]["verdict"], "PASS")
+        self.assertEqual(named[("ime.secure_input", "after_crash")]["verdict"], "FAIL")
+
+    def test_the_crash_counts_toward_the_restart_window(self):
+        fake = RowFake()
+        lab = fake.lab()
+        process.ime(lab)
+        self.assertEqual(len(lab.host_deaths), 1)
+
+
+class AxVisibilityTests(unittest.TestCase):
+    def test_remote_children_and_a_readable_h1_pass(self):
+        named = run(RowFake(), process.ax)
+        self.assertEqual(named[("ax", "remote_children")]["verdict"], "PASS")
+        self.assertEqual(named[("ax", "h1_readable")]["verdict"], "PASS")
+
+    def test_no_remote_children_fails(self):
+        named = run(RowFake(ax_connected=False), process.ax)
+        self.assertEqual(named[("ax", "remote_children")]["verdict"], "FAIL")
+        self.assertEqual(named[("ax", "h1_readable")]["verdict"], "FAIL")
+
+    def test_hidden_pages_that_stop_drawing_pass(self):
+        named = run(RowFake(), process.visibility)
+        for row in ("visibility.workspace_hidden", "visibility.app_hidden"):
+            self.assertEqual(named[(row, "state_hidden")]["verdict"], "PASS")
+            self.assertEqual(named[(row, "raf_per_s")]["verdict"], "PASS")
+        self.assertEqual(named[("visibility.shown_again", "draws")]["verdict"], "PASS")
+
+    def test_hidden_pages_that_keep_drawing_fail(self):
+        named = run(RowFake(hidden_throttle=False), process.visibility)
+        self.assertEqual(named[("visibility.app_hidden", "raf_per_s")]["verdict"], "FAIL")
+        self.assertEqual(named[("visibility.workspace_hidden", "state_hidden")]["verdict"], "FAIL")
+
+
+class StallTests(unittest.TestCase):
+    PACE = {"stalls": 30, "long_frames": 0}
+
+    def test_cmux_made_frontmost_before_the_idle_and_still_frontmost_passes(self):
+        activations = []
+        named = run(RowFake(), process.stall, 50, 100, 10, stall_pace=lambda ms, every: dict(self.PACE),
+                    activate=lambda: activations.append(1) or {"activated": True, "error": ""})
+        self.assertEqual(named[("stall.after_idle", "cmux_frontmost")]["verdict"], "PASS")
+        self.assertEqual(named[("stall.after_idle", "long_frames")]["verdict"], "PASS")
+        self.assertEqual(len(activations), 2)  # before the idle and before the second pacing
+
+    def test_cmux_not_frontmost_after_the_idle_fails(self):
+        named = run(RowFake(), process.stall, 50, 100, 10, stall_pace=lambda ms, every: dict(self.PACE), front=lambda: 1)
+        self.assertEqual(named[("stall.after_idle", "cmux_frontmost")]["verdict"], "FAIL")
+
+    def test_an_app_that_refuses_activation_measures_no_after_idle_row(self):
+        named = run(RowFake(), process.stall, 50, 100, 10, stall_pace=lambda ms, every: dict(self.PACE),
+                    activate=lambda: {"activated": False, "error": "launched with CMUX_NEXT_NO_ACTIVATE=1"})
+        self.assertFalse(named[("stall.after_idle", "long_frames")]["measured"])
+        self.assertIn("NO_ACTIVATE", named[("stall.after_idle", "cmux_frontmost")]["reason"])
+
+    def test_long_frames_fail(self):
+        named = run(RowFake(), process.stall, 50, 100, 0, stall_pace=lambda ms, every: {"stalls": 30, "long_frames": 3})
+        self.assertEqual(named[("stall", "long_frames")]["verdict"], "FAIL")
+
+
+class QuitRuntimeTests(unittest.TestCase):
+    def test_stay_keeps_cmux_the_host_and_the_tab(self):
+        named = run(RowFake(), process.quit_row)
+        for name in ("asked", "stay_keeps_cmux", "host_kept", "tab_kept"):
+            self.assertEqual(named[("quit", name)]["verdict"], "PASS", named[("quit", name)])
+
+    def test_a_quit_that_ignores_stay_fails(self):
+        named = run(RowFake(stay=False), process.quit_row)
+        self.assertEqual(named[("quit", "stay_keeps_cmux")]["verdict"], "FAIL")
+
+    def test_a_staged_runtime_used_after_the_idle_restart_passes(self):
+        named = run(RowFake(), process.runtime_update)
+        for name in ("idle_restart", "tab_back", "uses_staged"):
+            self.assertEqual(named[("runtime-update", name)]["verdict"], "PASS", named[("runtime-update", name)])
+
+    def test_no_staged_runtime_fails_naming_the_task(self):
+        named = run(RowFake(runtime=False), process.runtime_update)
+        self.assertIn("p01-process-087", named[("runtime-update", "pass")]["reason"])
+
+
+class HelperKillTests(unittest.TestCase):
+    def test_every_renderer_is_killed_so_the_probe_tab_shows_its_sad_tab(self):
+        fake = RowFake()
+        row = process.helper_kill(fake.lab())
+        named = by_name(row["checks"])
+        for helper in ("gpu", "renderer"):
+            for name in ("one_record", "host_alive", "app_alive"):
+                self.assertEqual(named[(f"helper-kill.{helper}", name)]["verdict"], "PASS")
+        self.assertEqual(named[("helper-kill.gpu", "page_answers")]["verdict"], "PASS")
+        self.assertEqual(named[("helper-kill.renderer", "sad_tab")]["verdict"], "PASS")
+        self.assertEqual(row["renderer"]["pids"], [701, 702])  # the probe's renderer is not the first in ps order
+
+    def test_no_sad_tab_or_no_record_fails(self):
+        named = run(RowFake(sad_tab=False), process.helper_kill)
+        self.assertEqual(named[("helper-kill.renderer", "sad_tab")]["verdict"], "FAIL")
+        named = run(RowFake(helper_records=False), process.helper_kill)
+        self.assertIn("p01-process-225", named[("helper-kill.gpu", "one_record")]["reason"])
+
+
+class KillAppTests(unittest.TestCase):
+    def test_a_relaunch_that_adopts_the_host_with_no_reload_passes(self):
+        named = run(RowFake(), process.kill_app)
+        for name in ("host_adopted", "no_reload", "terminal_screens_ms"):
+            self.assertEqual(named[("kill-app", name)]["verdict"], "PASS", named[("kill-app", name)])
+        self.assertEqual(named[("kill-app", "terminal_screens_ms")]["value"], 120.0)
+
+    def test_a_relaunch_with_a_new_host_and_a_reload_fails(self):
+        named = run(RowFake(adopt=False, screens_ms=450.0), process.kill_app)
+        for name in ("host_adopted", "no_reload", "terminal_screens_ms"):
+            self.assertEqual(named[("kill-app", name)]["verdict"], "FAIL")
+
+    def test_no_terminal_screens_mark_names_task_152(self):
+        named = run(RowFake(screens_ms=None), process.kill_app)
+        self.assertIn("terminal_screens_shown", named[("kill-app", "terminal_screens_ms")]["reason"])
+        self.assertIn("p01-process-152", named[("kill-app", "terminal_screens_ms")]["reason"])
+
+    def test_a_refused_relaunch_fails_with_its_reason(self):
+        named = run(RowFake(), process.kill_app, relaunch=lambda: {"error": "tag-in-use"})
+        self.assertIn("tag-in-use", named[("kill-app", "pass")]["reason"])
+
+
+class BenchRelaunchTests(unittest.TestCase):
+    """relaunch_after_kill over a fake BenchApp that refuses, as BenchApp.launch does, any launch beside the tag's
+    surviving processes unless it adopts them."""
+
+    class Process:
+        def __init__(self, pid):
+            self.pid, self.killed = pid, False
+
+        def kill(self):
+            self.killed = True
+
+        def wait(self, timeout=None):
+            return -9
+
+        def poll(self):
+            return -9 if self.killed else None
+
+    class Bench:
+        def __init__(self, bench, marks):
+            self.bench, self.marks, self.launches = bench, marks, []
+            self.process, self.first_answer_ms, self.features = BenchRelaunchTests.Process(10), None, None
+            self.host_pid = 500  # survives the kill: browserHost.survivesAppCrash
+
+        def launch(self, probe_first_answer=False, adopt=False, **_):
+            self.launches.append(adopt)
+            if self.host_pid and not adopt:
+                raise self.bench.LaunchError("tag-in-use", {"detail": "an app of the bundle already runs"})
+            self.process, self.first_answer_ms = BenchRelaunchTests.Process(11), 42.0
+            return self
+
+        def rpc(self, method, params=None, timeout=60):
+            if method == "debug.timings":
+                return {"launch_ms_since_process_start": dict(self.marks)}
+            return {}
+
+        def read_features(self):
+            return {"cefHelperHost": {"state": "on", "source": "local"}}, "fh", "off"
+
+        def activate(self):
+            return {"activated": True, "error": ""}
+
+    def setUp(self):
+        self.bench = load_bench()
+        self.bench.opts = self.bench.parse(["--app", "/tmp/cmux DEV probe.app", "--out", tempfile.mkdtemp(), "--kill-app"])
+
+    def test_the_relaunch_adopts_the_surviving_host_and_reads_its_launch_marks(self):
+        app = self.Bench(self.bench, {"first_window_frame_committed": 400.0, "terminal_screens_shown": 610.0})
+        old = app.process
+        result = self.bench.relaunch_after_kill(app)()
+        self.assertTrue(old.killed)
+        self.assertEqual(app.launches, [True])
+        self.assertEqual(result["first_answer_ms"], 42.0)
+        self.assertEqual(result["first_frame_ms"], 400.0)
+        self.assertEqual(result["terminal_screens_ms"], 210.0)
+
+    def test_a_relaunch_with_no_terminal_screens_mark_says_which_mark_is_missing(self):
+        self.bench.RELAUNCH_MARKS_WAIT_S = 0.2
+        result = self.bench.relaunch_after_kill(self.Bench(self.bench, {"first_window_frame_committed": 400.0}))()
+        self.assertIsNone(result["terminal_screens_ms"])
+        self.assertIn("terminal_screens_shown", result["terminal_screens_missing"])
+
+    def test_the_helper_modes_kill_is_one_death_of_the_restart_window(self):
+        del self.bench.HOST_DEATHS[:]
+        killed = self.bench.kill_host_by_op(lambda method, params=None, timeout=60: {"killed_pid": 500})
+        self.assertEqual(killed, 500)
+        self.assertEqual(len(self.bench.HOST_DEATHS), 1)
+        self.bench.RESULT["refresh_hz"] = 60.0
+        lab = self.bench.process_lab(self.Bench(self.bench, {}), "file:///probe.html")
+        self.assertIs(lab.host_deaths, self.bench.HOST_DEATHS)
+        # kill-host then rests out the window after that kill before it spends the budget.
+        fake = FakeApp()
+        seeded = fake.lab()
+        seeded.host_deaths.append(fake.now() - 30)
+        self.assertAlmostEqual(process.kill_host(seeded)["rested_s"], rows.RESTART_WINDOW_S - 30, delta=0.01)
+
+    def test_asked_rows_follow_the_flags(self):
+        asked = self.bench.asked_rows(self.bench.opts)
+        self.assertEqual(asked, {"modes": [], "native_ui": False, "process_rows": ["kill-app"]})
+        native = self.bench.parse(["--app", "/tmp/cmux DEV probe.app", "--out", "/tmp/out", "--native-ui"])
+        self.assertEqual(self.bench.asked_rows(native)["modes"], [])
+        self.assertTrue(self.bench.asked_rows(native)["native_ui"])
 
 
 class BenchFlagTests(unittest.TestCase):

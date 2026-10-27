@@ -1144,15 +1144,25 @@ class BenchApp:
     def binary(self):
         return main_binary(self.app)
 
-    def running_pids(self):
-        """PIDs of processes running an executable of this bundle (another run of the same app)."""
+    def running_pids(self, main_only=False):
+        """PIDs of processes running an executable of this bundle (another run of the same app); with `main_only`,
+        only its main executable (another cmux, not a helper such as a surviving Chromium Host)."""
         out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
         prefix = self.app + "/Contents/MacOS/"
+        # The longest executable path a command line starts with is its executable: names have spaces, and the
+        # main one (`cmux DEV`) is a prefix of its helpers' (`cmux DEV Chromium Host`).
+        names = os.listdir(prefix) if main_only and os.path.isdir(prefix) else []
+        executables = sorted((prefix + name for name in names), key=len, reverse=True)
         pids = []
         for line in out.splitlines():
             pid, _, command = line.strip().partition(" ")
-            if command.lstrip().startswith(prefix) and pid.isdigit() and int(pid) != os.getpid():
-                pids.append(int(pid))
+            command = command.lstrip()
+            if not (command.startswith(prefix) and pid.isdigit() and int(pid) != os.getpid()):
+                continue
+            if main_only and next((e for e in executables if command == e or command.startswith(e + " ")),
+                                  None) != self.binary:
+                continue
+            pids.append(int(pid))
         return pids
 
     def tag_processes(self):
@@ -1302,8 +1312,13 @@ class BenchApp:
         os.rename(root, prev)
         note(f"bench-launch: {self.tag} starts from an empty saved session (earlier state moved to {prev})")
 
-    def launch(self, timeout=180, ready="debug.windows", on_start=None, probe_first_answer=False, validate_host=True):
+    def launch(self, timeout=180, ready="debug.windows", on_start=None, probe_first_answer=False, validate_host=True,
+               adopt=False):
         """Starts the app and returns once `ready` answers (debug.windows: with a window).
+
+        With `adopt`, the launch is a relaunch after this bench killed its app: the processes of the tag that
+        survive it (the daemon, a Chromium Host that outlives cmux) are what the new app must adopt, so they do not
+        refuse it and the saved session is not moved aside. Another running cmux of the bundle still refuses it.
 
         With `validate_host` False, the lab's full host validation (``validate_lab_host``, under the perf-lab runner
         a nettop window of a minute) is not part of the launch: a bench that times a span from the spawn calls
@@ -1331,8 +1346,8 @@ class BenchApp:
                                                     "it off, or pass low_power_mode_ok=True for a bench of Low Power "
                                                     "Mode itself"})
         note(f"bench-launch: {mute_output()}")
-        running = self.running_pids()
-        if not running and self.fresh_state and not os.environ.get("BENCH_LAUNCH_KEEP_STATE"):
+        running = self.running_pids(main_only=adopt)
+        if not adopt and not running and self.fresh_state and not os.environ.get("BENCH_LAUNCH_KEEP_STATE"):
             left = self.tag_processes()
             if left:
                 self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": [pid for pid, _ in left],
@@ -1355,8 +1370,8 @@ class BenchApp:
                 os.unlink(path)  # nothing listens: a socket a killed run of this tag left; the app makes it again
         if self.local_features:
             note(f"bench-launch: local features {write_local_features(self.state_root(), self.local_features)}")
-        if self.teardown:
-            self.teardown.install()
+        if self.teardown and not adopt:
+            self.teardown.install()  # signal handlers: main thread only, and the first launch installed them
         log = open(self.log_path, "a")
         env = self.environment()
         self.launched_env = dict(env)

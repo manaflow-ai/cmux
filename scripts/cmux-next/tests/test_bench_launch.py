@@ -728,6 +728,27 @@ class LeftDaemonTests(unittest.TestCase):
             self.assertTrue(os.path.isdir(self.root), "the left daemon's state moved out from under it")
             self.assertIsNone(self.daemon.poll())
 
+    def test_an_adopting_relaunch_beside_the_daemon_and_a_surviving_host_is_not_refused(self):
+        """chromium-host-bench --kill-app: after the bench SIGKILLs its app, the daemon and the Chromium Host (in
+        Contents/MacOS) survive; the relaunch adopts them and keeps the saved session where the app reads it."""
+        host = os.path.join(self.app, "Contents/MacOS/cmux DEV Chromium Host")
+        shutil.copy("/bin/sleep", host)
+        survivor = subprocess.Popen([host, "300"])
+        try:
+            bench = self.bench(teardown=False)
+            with self.assertRaises(bl.LaunchError) as refused, contextlib.redirect_stdout(io.StringIO()):
+                bench.launch(timeout=5)
+            self.assertEqual(refused.exception.reason, "tag-in-use")  # a fresh launch still refuses
+            with self.assertRaises(bl.LaunchError) as failed, contextlib.redirect_stdout(io.StringIO()):
+                bench.launch(timeout=5, adopt=True)  # the stand-in app exits at once: launched, then app-exited
+            self.assertNotEqual(failed.exception.reason, "tag-in-use")
+            self.assertIsNotNone(bench.process)
+            self.assertTrue(os.path.isdir(self.root), "the adopted session moved out from under the relaunch")
+            self.assertIsNone(survivor.poll())
+        finally:
+            survivor.kill()  # the exact process this test started
+            survivor.wait()
+
     def test_a_relaunch_on_the_kept_state_adopts_the_daemon(self):
         bench = self.bench(teardown=False, fresh_state=False)
         with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(bl.LaunchError) as failed:
