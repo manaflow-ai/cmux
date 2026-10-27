@@ -7,11 +7,16 @@ import SwiftUI
 /// view, no bindings, no demo commands.
 public struct AgentChatPreview: View {
     let store: AgentChatStore
+    /// The turns to draw (the last ones); nil reads the store's own. A grid
+    /// card passes a copy it updates only while the grid shows and is not
+    /// scrolling, so a streaming chat does not re-render its card per token.
+    var turns: [AgentTurn]?
     var topInset: CGFloat
     var bottomInset: CGFloat
 
-    public init(store: AgentChatStore, topInset: CGFloat, bottomInset: CGFloat) {
+    public init(store: AgentChatStore, turns: [AgentTurn]? = nil, topInset: CGFloat, bottomInset: CGFloat) {
         self.store = store
+        self.turns = turns
         self.topInset = topInset
         self.bottomInset = bottomInset
     }
@@ -35,7 +40,8 @@ public struct AgentChatPreview: View {
     }
 
     @ViewBuilder private var content: some View {
-        if store.turns.isEmpty {
+        let turns = self.turns ?? store.turns
+        if turns.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "sparkle")
                     .font(.system(size: 22))
@@ -47,8 +53,8 @@ public struct AgentChatPreview: View {
             .padding(.bottom, 240)
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(store.turns.suffix(2)) { turn in
-                    TurnView(turn: turn, store: store, isLast: turn.id == store.turns.last?.id)
+                ForEach(turns.suffix(2)) { turn in
+                    TurnView(turn: turn, store: store, isLast: turn.id == turns.last?.id)
                         .padding(.bottom, 24)
                 }
             }

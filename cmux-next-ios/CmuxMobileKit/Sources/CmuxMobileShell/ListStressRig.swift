@@ -70,6 +70,12 @@ final class ListStressRig: NSObject {
             try? await Task.sleep(for: .seconds(2))
             if settings.streams { DemoDirector.shared.post(.chatSend("stream")) }
             try? await Task.sleep(for: .seconds(1))
+            if settings.streams {
+                // The prompt is typed into t-g0's composer, then sent: say whether its turn runs.
+                try? await Task.sleep(for: .seconds(1))
+                let chat = AgentSessionDirectory.shared.existingStore(id: "t-g0", macID: ws.macID)
+                log.notice("FRAMELOG list-stress tabs stream running=\(chat?.isRunning ?? false, privacy: .public) turns=\(chat?.turns.count ?? -1, privacy: .public)")
+            }
             FrameIntervalLog.shared.begin("tabs-open-grid")
             WorkspaceDemoDirector.shared.post(.showGrid(true))
             try? await Task.sleep(for: .seconds(2))
