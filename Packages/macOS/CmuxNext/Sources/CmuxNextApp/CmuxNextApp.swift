@@ -26,6 +26,10 @@ public struct CmuxNextApp {
         // CMUX_TRACE_STARTUP: the startup trace's ring, before the first mark (unset: one getenv, no ring).
         let startupTrace = DebugTimings.makeStartupTrace()
         DebugTimings.markLaunch("main_start")
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // CMUX_NEXT_MAIN_JOB_CENSUS=1 (startup-queue.py mainjobs): every main job and turn until startup completes (p08-startup-080).
+        let mainJobs = MainJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
+        #endif
         announceBenchHooksBuild()
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
@@ -66,6 +70,9 @@ public struct CmuxNextApp {
         // Shells get the launch limit back. Path lookups only: the stores at these paths read and create on first use.
         var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
+        #if DEBUG || CMUX_BENCH_HOOKS
+        environment.mainJobCensus = mainJobs
+        #endif
         // Key flows start and stop at run time; CMUX_NEXT_TRACE_FLOWS only starts them at launch.
         TypingLatencyProbe.shared.startFlows(launchEnvironment: ProcessInfo.processInfo.environment)
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
@@ -159,6 +166,9 @@ public struct CmuxNextApp {
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        mainJobs?.freeze(after: order.startup)
+        #endif
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)
         if let pictures = environment.windowPictures { order.startup.whenComplete { _ in pictures.dropFront() } } // decoded pictures are large
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats, features: features,
