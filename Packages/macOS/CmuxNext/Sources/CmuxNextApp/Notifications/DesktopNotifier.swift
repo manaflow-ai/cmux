@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextMobileHost
+import CmuxNextWakeups
 import os
 import UserNotifications
 
