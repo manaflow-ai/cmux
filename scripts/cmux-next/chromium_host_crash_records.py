@@ -1,7 +1,7 @@
-"""chromium-host-bench.py's `--kill-host` row (p01-process-085): a Chromium tab in the supervisor's Chromium Host
-(`debug.cef` backend `host`: the bench turns `browserHost.helper` and `browserHost.tabs` on), then one `--signal` to
-that host (default TRAP, a CHECK's trap) and `debug.crashes` lists the host's end in `chromium_host` (the supervisor's
-records, the fields of its crash report). The row:
+"""The crash record check of chromium-host-bench.py's `--kill-host` rows (p01-process-085): after a kill row
+(chromium_host_kill.py, p01-process-082) signals the supervisor's Chromium Host (`debug.cef` backend `host`: the
+bench turns `browserHost.helper` and `browserHost.tabs` on), `debug.crashes` lists the host's end in `chromium_host`
+(the supervisor's records, the fields of its crash report). Each row's `crash_record`:
 
   crash_record    a record of the signalled host's pid came within RECORD_S of the signal
   signal          its signal is the one sent; `signal_name` its name
@@ -10,18 +10,11 @@ records, the fields of its crash report). The row:
   log_tail_lines  the lines of chromium-host.log it kept: at least the host's start line, at most 20
   urls            log lines that still hold a URL: must be 0
 
-`run(rpc, wait, page_eval, url, number)` drives the row; `row(rpc, wait, host_pid, number)` checks the record of a
-host already signalled, so a later kill row (chromium_host_kill.py, p01-process-082) adds it to each signal's row.
-Without the host backend the row does not run and the mode fails: it could not run.
+`row(rpc, wait, host_pid, number)` checks the record of a host already signalled; the bench passes it to
+chromium_host_kill.run as `record`, so every signal's row (TRAP for this task's acceptance) carries it.
 """
-import os
 import re
-import signal
 
-TITLE = "crash record probe"
-PAGE = f"<!doctype html><meta charset=utf-8><title>{TITLE}</title><p>crash record probe"
-SIGNALS = ("TRAP", "SEGV", "ABRT", "KILL")
-LOAD_S = 60.0
 RECORD_S = 10.0
 POLL_S = 0.05
 LOG_TAIL_LINES = 20
@@ -72,31 +65,3 @@ def row(rpc, wait, host_pid, number):
     result["pass"] = (result["signal"] == number and result["fork_api"] is not None
                       and 0 < result["log_tail_lines"] <= LOG_TAIL_LINES and result["urls"] == 0)
     return result
-
-
-def signal_number(name):
-    """`name` ("TRAP" or "SIGTRAP") as its signal number; ValueError for a name SIGNALS does not hold."""
-    name = name.upper().removeprefix("SIG")
-    if name not in SIGNALS:
-        raise ValueError(f"--signal takes {', '.join(SIGNALS)}, not {name!r}")
-    return int(getattr(signal, f"SIG{name}"))
-
-
-def run(rpc, wait, page_eval, url, number, send=os.kill):
-    """The `--kill-host` row; returns (row, ok). Opens `url` (PAGE) in a Chromium tab, sends signal `number` to the
-    supervisor's host (`debug.cef` host_supervisor pid) once the page loaded, then checks its record (row())."""
-    backend = (rpc("debug.cef") or {}).get("backend")
-    if backend != "host":
-        return {"not_run": f"the Chromium backend is {backend!r}, not the Chromium Host (a Release build, or "
-                           "browserHost.helper or browserHost.tabs off)", "pass": False}, False
-    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"},
-                 timeout=120)
-    if not wait(lambda: page_eval(f"document.readyState === 'complete' && document.title === {TITLE!r}") is True,
-                LOAD_S, 0.5):
-        return {"error": f"the probe never loaded: {str(opened)[:200]}", "pass": False}, False
-    host = ((rpc("debug.cef") or {}).get("host_supervisor") or {}).get("pid")
-    if host is None:
-        return {"not_run": "the supervisor runs no host", "pass": False}, False
-    send(host, number)
-    result = {"host_pid": host, **row(rpc, wait, host, number)}
-    return result, True
