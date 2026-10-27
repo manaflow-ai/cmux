@@ -92,17 +92,18 @@ enum CloudPresenter {
         let teamID = services.cloud.auth.teamID
         guard let provider = CloudCredentialTransfer.Provider(rawValue: request.provider.rawValue) else { return false }
         let providerName = provider == .claude ? "Claude" : "Codex"
-        let teamName = teamID.flatMap { id in services.cloud.auth.teams.first(where: { $0.id == id })?.displayName } ?? "Personal account"
+        let teamName = teamID.flatMap { id in services.cloud.auth.teams.first(where: { $0.id == id })?.displayName } ?? String(localized: "cloud.credentialRecovery.personalAccount", defaultValue: "Personal account", table: "CloudCredentialRecovery", bundle: .module)
         let body: String
         if provider == .claude {
-            body = "cmux will run claude setup-token in a visible local terminal, then install the resulting one-year login on this owner VM for \(teamName)."
+            body = String(format: String(localized: "cloud.credentialRecovery.claudeDisclosure", defaultValue: "cmux will run claude setup-token in a visible local terminal, then install the resulting one-year login on this owner VM for %@.", table: "CloudCredentialRecovery", bundle: .module), teamName)
         } else {
-            body = "cmux will start a fresh Codex device login in a visible local terminal for this VM. Codex refresh credentials are never copied between VMs; Codex requires a separate sign-in for each VM."
+            body = String(localized: "cloud.credentialRecovery.codexDisclosure", defaultValue: "cmux will start a fresh Codex device login in a visible local terminal for this VM. Codex refresh credentials are never copied between VMs; Codex requires a separate sign-in for each VM.", table: "CloudCredentialRecovery", bundle: .module)
         }
         let spec = CmuxDialogSpec(
-            title: "Set up \(providerName) on \(session.machine.title)?",
-            lines: [body, "This replaces \(providerName)'s login on this VM and restarts this chat before retrying its failed prompt."],
-            buttons: [.cancel("Cancel"), CmuxDialogButton(id: "transfer", title: "Transfer and restart", role: .default)],
+            title: String(format: String(localized: "cloud.credentialRecovery.title", defaultValue: "Set up %@ on %@?", table: "CloudCredentialRecovery", bundle: .module), providerName, session.machine.title),
+            lines: [body, String(format: String(localized: "cloud.credentialRecovery.restartDisclosure", defaultValue: "This replaces %@'s login on this VM and restarts this chat before retrying its failed prompt.", table: "CloudCredentialRecovery", bundle: .module), providerName)],
+            buttons: [.cancel(String(localized: "cloud.credentialRecovery.cancel", defaultValue: "Cancel", table: "CloudCredentialRecovery", bundle: .module)),
+                      CmuxDialogButton(id: "transfer", title: String(localized: "cloud.credentialRecovery.transfer", defaultValue: "Transfer and restart", table: "CloudCredentialRecovery", bundle: .module), role: .default)],
             identifier: credentialRecoveryIdentifier)
         guard let window = services.windows.active?.window else { return false }
         let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
@@ -127,7 +128,8 @@ enum CloudPresenter {
             guard try await restartCredentialSession(request.sessionID, exec: {
                 try await pinned.exec(session.machineID, command: $0, timeoutMs: 300_000)
             }) else {
-                CloudPresenter.show("Credentials installed", "The chat could not restart yet. Wait for any running turn to finish, then retry the prompt.", in: window)
+                CloudPresenter.show(String(localized: "cloud.credentialRecovery.installedTitle", defaultValue: "Credentials installed", table: "CloudCredentialRecovery", bundle: .module),
+                                    String(localized: "cloud.credentialRecovery.restartDeferred", defaultValue: "The chat could not restart yet. Wait for any running turn to finish, then retry the prompt.", table: "CloudCredentialRecovery", bundle: .module), in: window)
                 return false
             }
             return true
