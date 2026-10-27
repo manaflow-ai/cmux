@@ -190,7 +190,7 @@ final class DividerMouseCatcherView: NSView {
     /// have no screen pointer.
     lazy var isPointerOver: () -> Bool = { [weak self] in
         guard let self, let panel = self.window, panel.isVisible, panel.alphaValue > 0, !panel.ignoresMouseEvents,
-              !self.isHiddenOrHasHiddenAncestor else { return false }
+              !self.isHiddenOrHasHiddenAncestor else { return false } // visibility-walk-allow: a hit test of the pointer, read once on the turn after an enter
         // global-input-allow: next turn, outside dispatch; the pointer may have left before its exit is handled.
         return self.convert(self.bounds, to: nil).contains(panel.convertPoint(fromScreen: NSEvent.mouseLocation))
     }
@@ -210,7 +210,7 @@ final class DividerMouseCatcherView: NSView {
         // only if no exit came and the panel still shows under the pointer (a panel parked,
         // hidden or moved meanwhile gets no exit). One-shot: nothing repeats or stays scheduled.
         pendingCursorSet?.cancel()
-        pendingCursorSet = Task { @MainActor [weak self] in
+        pendingCursorSet = Task { @MainActor [weak self] in // main-hop-allow: AppKit resets the key window's arrow later in this enter's turn; the cursor set must run after that turn
             guard let self else { return }
             self.pendingCursorSet = nil
             guard !Task.isCancelled, self.isEntered, self.isPointerOver() else { return }
@@ -224,7 +224,7 @@ final class DividerMouseCatcherView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) { forward(event) }
-    override func mouseDragged(with event: NSEvent) { forward(event) }
+    override func mouseDragged(with event: NSEvent) { forward(event) } // local-monitor-allow: a forward to the parent window, order and count kept; the divider there coalesces its drag
     override func mouseUp(with event: NSEvent) { forward(event) }
     override func rightMouseDown(with event: NSEvent) { forward(event) }
     override func rightMouseUp(with event: NSEvent) { forward(event) }
@@ -233,7 +233,7 @@ final class DividerMouseCatcherView: NSView {
 
     // The event's own screen point (`screenLocation`): the panel moves while a divider drags.
     // input-coalesce: native (a forward; the view under it coalesces its own scroll)
-    override func scrollWheel(with event: NSEvent) {
+    override func scrollWheel(with event: NSEvent) { // local-monitor-allow: a forward to the view under the pointer in the parent window, order and count kept
         guard let parent = window?.parent, let content = parent.contentView else { return }
         let point = content.convert(parent.convertPoint(fromScreen: event.screenLocation), from: nil)
         content.hitTest(point)?.scrollWheel(with: event)

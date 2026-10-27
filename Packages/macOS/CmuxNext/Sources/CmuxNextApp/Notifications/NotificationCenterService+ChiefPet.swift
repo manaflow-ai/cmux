@@ -10,9 +10,9 @@ extension NotificationCenterService {
     /// Showcase captures draw the app's own windows only, so they never start the pet.
     func followChiefPet(_ settings: SettingsController) {
         guard desktopPostingEnabled, let services, chiefPet == nil else { return }
-        let pet = ChiefPetRoutes(services: services).makePet()
+        let pet = ChiefPetRoutes(services: services).makePet(appEvents: services.appEvents)
         chiefPet = pet
-        pet.start(enabled: { [weak settings] in settings?.snapshot.homeChiefPetEnabled ?? false },
+        pet.start(on: services.mainWork, enabled: { [weak settings] in settings?.snapshot.homeChiefPetEnabled ?? false },
                   mascot: { [weak settings] in settings?.snapshot.homeChiefPetMascot ?? "" })
     }
 

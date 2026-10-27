@@ -68,7 +68,8 @@ struct LayoutDragBench {
 
         /// One display frame's work after a pointer change.
         func frame() async {
-            for _ in 0..<4 { await Task.yield() }
+            // The model's observation apply runs before the frame's commit: here, in the bench's own turn.
+            root.syncWithModel()
             _ = root.advanceFrame(LayoutDragBench.frameBudget)
             root.layoutSubtreeIfNeeded()
             root.displayIfNeeded()

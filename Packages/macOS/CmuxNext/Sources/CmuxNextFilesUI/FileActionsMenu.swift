@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextFiles
+public import CmuxNextWakeups
 import Quartz
 import UniformTypeIdentifiers
 
@@ -14,7 +15,7 @@ import UniformTypeIdentifiers
 /// the system reports for the type, the default first, then Other….
 ///
 /// ```swift
-/// let menu = FileActionsMenu(apps: WorkspaceFileApps(queries: services.workspaceQueries),
+/// let menu = FileActionsMenu(apps: WorkspaceFileApps(queries: services.workspaceQueries), mainWork: services.mainWork,
 ///                            actions: .init(openInCmux: { opener.openFile($0) }, revealInFiles: { files.reveal($0) }))
 /// menu.items(forFileNamed: "index.html") { url }.forEach(contextMenu.addItem)
 /// ```
@@ -48,6 +49,7 @@ public final class FileActionsMenu {
     public static var openAsTextTitle: String { FileActionStrings.openAsText }
 
     private let apps: any FileAppsProviding
+    private let mainWork: MainWorkScheduler
     private let appIcon: @MainActor (URL, NSMenuItem) -> Void
     private let actions: Actions
     private let quickLook = QuickLookSource()
@@ -56,18 +58,21 @@ public final class FileActionsMenu {
     ///
     /// - Parameters:
     ///   - apps: the Open With seam; a fake in tests.
+    ///   - mainWork: the app's main-thread scheduler: an Open With submenu Launch Services answers late fills as
+    ///     one task on it.
     ///   - appIcon: sets an Open With row's image to the app's icon (now or when it arrives); nothing by default.
     ///   - actions: the host's cmux actions.
-    public init(apps: any FileAppsProviding, appIcon: @escaping @MainActor (URL, NSMenuItem) -> Void = { _, _ in },
-                actions: Actions) {
+    public init(apps: any FileAppsProviding, mainWork: MainWorkScheduler,
+                appIcon: @escaping @MainActor (URL, NSMenuItem) -> Void = { _, _ in }, actions: Actions) {
         self.apps = apps
+        self.mainWork = mainWork
         self.appIcon = appIcon
         self.actions = actions
     }
 
     /// A menu builder over the system's apps: Open With rows show each app's icon from `apps`' kept answers.
-    public convenience init(apps: WorkspaceFileApps, actions: Actions) {
-        self.init(apps: apps as any FileAppsProviding, appIcon: { apps.showIcon(of: $0, in: $1) }, actions: actions)
+    public convenience init(apps: WorkspaceFileApps, mainWork: MainWorkScheduler, actions: Actions) {
+        self.init(apps: apps as any FileAppsProviding, mainWork: mainWork, appIcon: { apps.showIcon(of: $0, in: $1) }, actions: actions)
     }
 
     /// The rows for an item named `name`.
@@ -138,11 +143,17 @@ public final class FileActionsMenu {
             fill(submenu, with: kept, resolve: resolve)
             return row
         }
-        let apps = self.apps
-        // task-owner: one LaunchServices lookup; ends when the submenu is filled
-        Task { @MainActor in
-            let list = await apps.openWithList(forFileNamed: name, isDirectory: isDirectory)
+        let apps = self.apps, mainWork = self.mainWork
+        // The fill is the rest of the person's right-click (userBlocking), posted in the common modes, so it runs
+        // while the menu tracks. The off-main task holds only Sendable values; the menu stays in a main-actor closure.
+        let fillLate: @MainActor @Sendable (OpenWithList) -> Void = { [weak self, weak submenu] list in
+            guard let self, let submenu else { return }
             self.fill(submenu, with: list, resolve: resolve)
+        }
+        // task-owner: one LaunchServices lookup off main; ends when the submenu is filled
+        Task { @concurrent in
+            let list = await apps.openWithList(forFileNamed: name, isDirectory: isDirectory)
+            mainWork.postFromAnyThread(.userBlocking, owner: "FileActionsMenu.openWith") { fillLate(list) }
         }
         return row
     }
@@ -153,7 +164,9 @@ public final class FileActionsMenu {
         submenu.removeAllItems()
         for (index, app) in list.apps.enumerated() {
             let title = app.isDefault ? FileActionStrings.defaultApp(app.name) : app.name
-            let item = menuRow(title, nil) { Self.run(resolve) { file in Task { _ = await apps.open([file], withApplicationAt: app.url) } } }
+            let url = app.url
+            // task-owner: one open off main (Launch Services); nothing comes back to main
+            let item = menuRow(title, nil) { Self.run(resolve) { file in Task { @concurrent in _ = await apps.open([file], withApplicationAt: url) } } }
             appIcon(app.url, item)
             submenu.addItem(item)
             if index == 0, app.isDefault, list.apps.count > 1 { submenu.addItem(.separator()) }
@@ -164,6 +177,7 @@ public final class FileActionsMenu {
 
     private static func run(_ resolve: @escaping @MainActor @Sendable () async -> URL?, _ action: @escaping @MainActor (URL) -> Void) {
         // task-owner: one resolve (a Home attachment may download); ends when the action runs
+        // main-hop-allow: the rest of the person's menu click: resolve is main-actor (its download runs off main) and the action follows it in the same task
         Task { @MainActor in if let file = await resolve() { action(file) } }
     }
 
@@ -178,8 +192,8 @@ public final class FileActionsMenu {
         panel.prompt = FilesStrings.open
         panel.begin { response in
             guard response == .OK, let app = panel.url else { return }
-            // task-owner: one open with the chosen app
-            Task { _ = await apps.open([file], withApplicationAt: app) }
+            // task-owner: one open with the chosen app, off main (Launch Services); nothing comes back to main
+            Task { @concurrent in _ = await apps.open([file], withApplicationAt: app) }
         }
     }
 

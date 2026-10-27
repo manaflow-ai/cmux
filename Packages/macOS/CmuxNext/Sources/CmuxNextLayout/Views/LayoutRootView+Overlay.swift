@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesign
 
 /// The overlay plane: pane rings and dims follow their hosts' displayed
@@ -22,16 +23,14 @@ extension LayoutRootView {
         overlayIsStale = true
         guard !overlayFlushScheduled else { return }
         overlayFlushScheduled = true
-        // Blocks run before the run loop waits, so before Core Animation
-        // commits this turn's frame.
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                guard let self else { return }
-                self.overlayFlushScheduled = false
-                self.flushOverlaySync()
-            }
+        // Blocks run before the run loop waits, so before Core Animation commits this turn's frame:
+        // the overlay lands in the frame that moved its hosts, as Blink runs its paint before the
+        // commit (AfterFrameCommit would show it one frame late).
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self else { return }
+            self.overlayFlushScheduled = false
+            self.flushOverlaySync()
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     /// Syncs the overlay when it is stale.

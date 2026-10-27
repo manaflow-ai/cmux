@@ -193,6 +193,7 @@ final class ChiefPetCapsule: NSView {
         needsLayout = true
     }
 
+    // visibility-walk-allow: two labels' colors and fonts of a notice card in the pet's own panel, which is ordered out while no card shows; no node to defer to
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         recolor()

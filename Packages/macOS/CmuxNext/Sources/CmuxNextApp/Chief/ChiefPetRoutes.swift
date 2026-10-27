@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFloating
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// What the Chief pet (`CmuxNextFloating`) opens and sends in this app; `NotificationCenterService+ChiefPet`
 /// makes and feeds the pet. A click on the pet opens its reply box; its menu opens its settings or hides it.
@@ -13,11 +14,12 @@ import CmuxNextSettings
 struct ChiefPetRoutes {
     weak var services: AppServices?
 
-    func makePet() -> ChiefPetController {
+    /// `appEvents`: the app's one fan-out of app notices (`AppServices.appEvents`), where the pet subscribes.
+    func makePet(appEvents: AppEvents) -> ChiefPetController {
         // The notices' card shows over cmux only; over another app the pet's badge counts what waits.
-        ChiefPetController(makePanel: { ChiefPetPanel() }, actions: ChiefPetActions(
+        ChiefPetController(makePanel: { ChiefPetPanel(appEvents: appEvents) }, actions: ChiefPetActions(
             registry: services?.registry, open: { open($0) }, send: { await send(to: $0, $1) }, openSettings: { openSettings() }),
-            appIsActive: { NSApp.isActive })
+            appIsActive: { NSApp.isActive }, appEvents: appEvents)
     }
 
     /// Chief Pet Settings…: the Chief Settings popover over a Chief's Home on screen (its

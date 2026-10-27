@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextFiles
 @testable import CmuxNextFilesUI
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -36,7 +37,8 @@ struct FileColumnsClickTests {
             key: { _ in false },
             browse: { recorder.browsed.append($0) }
         )
-        let columns = FileColumnsView(actions: actions, icons: FileIconProvider(queries: nil), lister: FixedLister(entries: entries))
+        let columns = FileColumnsView(actions: actions, icons: FileIconProvider(queries: nil), lister: FixedLister(entries: entries),
+                                      mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let browser = try #require(columns.view as? NSBrowser)
         browser.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         browser.loadColumnZero()

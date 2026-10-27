@@ -226,6 +226,7 @@ extension ScreenContentView {
         beginCanvasDragFrames()
     }
 
+    // local-monitor-allow: the drag goes to the window's FrameInputCoalescer (dragFrames), one move per frame to the latest point; only a view with no coalescer (tests, feature off) moves per event
     override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every canvas drag event)
         guard canvasState.drag != nil else { return super.mouseDragged(with: event) }
         if let frames = canvasState.dragFrames, frames.post(event) { return }
