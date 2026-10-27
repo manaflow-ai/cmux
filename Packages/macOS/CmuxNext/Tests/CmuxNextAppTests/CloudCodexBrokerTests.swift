@@ -4,6 +4,12 @@ import Testing
 
 @Suite("Cloud Codex broker", .timeLimit(.minutes(1)))
 struct CloudCodexBrokerTests {
+    @Test func readsPrettyPrintedRunningDaemonCapabilities() {
+        let output = "{\n  \"capabilities\": [\n    \"codex-external-access-v1\"\n  ]\n}"
+        #expect(CloudCodexBrokerTarget.supportsExternalAccess(output))
+        #expect(!CloudCodexBrokerTarget.supportsExternalAccess("{\"capabilities\":[]}"))
+    }
+
     actor Recorder {
         var files: [String: Data] = [:]
         var committed: (String, String, String, String)?
