@@ -77,7 +77,9 @@ extension FieldTextView {
     func replaceAllText(with text: String) {
         let all = NSRange(location: 0, length: (string as NSString).length)
         guard shouldChangeText(in: all, replacementString: text) else { return }
-        textStorage?.replaceCharacters(in: all, with: NSAttributedString(string: text, attributes: typingAttributes))
+        if let storage = textStorage, let whole = storage.checkedRange(all) {
+            storage.replaceCharacters(in: whole, with: NSAttributedString(string: text, attributes: typingAttributes))
+        }
         didChangeText()
         setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
         scrollRangeToVisible(selectedRange())

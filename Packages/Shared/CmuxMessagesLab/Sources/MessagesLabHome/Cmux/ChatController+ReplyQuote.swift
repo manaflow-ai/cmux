@@ -86,7 +86,8 @@ extension ChatController {
               let spec = rowSpec(hit.key), let g = TranscriptSelection.geometry(spec) else { return false }
         let offset = TranscriptSelection.position(at: p, body: hit.body, key: hit.key, geometry: g).offset
         guard offset <= run.length else { return false }
-        let head = (text as NSString).substring(with: NSRange(location: 0, length: min(run.length, (text as NSString).length)))
+        let ns = text as NSString
+        guard let head = ns.checkedSubstring(NSRange(location: 0, length: min(run.length, ns.length))) else { return false }
         let words = head.trimmingCharacters(in: CharacterSet(charactersIn: "\u{201C}\u{201D}"))
         guard let message = store?.state.conversation.messages.first(where: { $0.id == hit.row.ref.messageId }) else { return false }
         // The message answered: the tree parent, else the thread root, else the newest earlier message holding the words.

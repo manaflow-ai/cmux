@@ -146,7 +146,7 @@ struct HomeTableGrid {
         let s = NSMutableAttributedString(string: cell.text, attributes: [.font: font, .foregroundColor: color])
         if !header {
             let bold = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
-            for range in cell.bold where NSMaxRange(range) <= s.length { s.addAttribute(.font, value: bold, range: range) }
+            for run in cell.bold { if let range = s.checkedRange(run) { s.addAttribute(.font, value: bold, range: range) } }
         }
         return s
     }

@@ -25,12 +25,11 @@ extension HomeMarkdown {
         for match in autoLinkPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
             var range = match.range
             // A sentence's punctuation after a path is not part of it.
-            while range.length > 1, let last = ns.substring(with: NSRange(location: range.location + range.length - 1, length: 1)).unicodeScalars.first,
+            while range.length > 1, let last = ns.checkedSubstring(NSRange(location: NSMaxRange(range) - 1, length: 1))?.unicodeScalars.first,
                   ".,:;!?".unicodeScalars.contains(last) {
                 range.length -= 1
             }
-            let raw = ns.substring(with: range)
-            guard let link = destination(raw) else { continue }
+            guard let raw = ns.checkedSubstring(range), let link = destination(raw) else { continue }
             found.append(AutoLink(range: range, link: link, label: shortLabel(raw)))
         }
         return found
@@ -92,7 +91,7 @@ extension HomeMarkdown.Output {
         let ns = s as NSString
         var at = 0
         for found in links {
-            append(ns.substring(with: NSRange(location: at, length: found.range.location - at)), styles)
+            if let gap = ns.checkedSubstring(NSRange(location: at, length: found.range.location - at)) { append(gap, styles) }
             append(found.label, styles, link: found.link)
             at = found.range.location + found.range.length
         }

@@ -150,8 +150,8 @@ extension TextLayout {
     func chipSpans(line i: Int, attr given: NSAttributedString? = nil) -> [HomeLinkChipSpan] {
         guard runs.contains(where: { $0.chipKind != nil }), let range = lines[checked: i]?.range, range.length > 0 else { return [] }
         let attr = given ?? attributed(color: .white, linkColor: .white)
-        guard Self.range(range.location, range.length, in: attr.length) != nil else { return [] }
-        let line = CTLineCreateWithAttributedString(attr.attributedSubstring(from: range))
+        guard let lineText = attr.checkedAttributedSubstring(range) else { return [] }
+        let line = CTLineCreateWithAttributedString(lineText)
         let ns = text as NSString
         var out: [HomeLinkChipSpan] = []
         for (n, r) in runs.enumerated() {
@@ -166,7 +166,7 @@ extension TextLayout {
             if hi == r.start + r.length, next.map({ $0.link != link || $0.start != hi }) ?? true {
                 x1 += HomeLinkChip.trailingPad
             }
-            let icon = lo == r.start && r.start < ns.length && ns.character(at: r.start) == 0xA0
+            let icon = lo == r.start && ns.checkedCharacter(at: r.start) == 0xA0
             // Runs of one chip (a bold word in a label) join into one part.
             if let last = out.last, last.link == link, abs(last.x1 - x0) < 0.5 {
                 out.update(at: out.count - 1) { $0.x1 = x1 }
@@ -222,15 +222,15 @@ extension HomeLinkChip {
         guard runs.contains(where: { $0.chipKind != nil }) else { return }
         let ns = a.string as NSString
         for (i, r) in runs.enumerated() where r.chipKind != nil {
-            guard let range = TextLayout.range(r.start, r.length, in: a.length), range.length > 0 else { continue }
+            guard r.length > 0, let range = a.checkedRange(NSRange(location: r.start, length: r.length)) else { continue }
             a.removeAttribute(.underlineStyle, range: range)
-            if ns.character(at: range.location) == 0xA0 {
-                a.addAttribute(.kern, value: kern + iconSlot - padWidth, range: NSRange(location: range.location, length: 1))
+            if ns.checkedCharacter(at: range.location) == 0xA0, let pad = a.checkedRange(NSRange(location: range.location, length: 1)) {
+                a.addAttribute(.kern, value: kern + iconSlot - padWidth, range: pad)
             }
             let next = runs[checked: i + 1]
             let ends = next.map { $0.link != r.link || $0.start != r.start + r.length } ?? true
-            if ends {
-                a.addAttribute(.kern, value: kern + trailingPad, range: NSRange(location: NSMaxRange(range) - 1, length: 1))
+            if ends, let last = a.checkedRange(NSRange(location: NSMaxRange(range) - 1, length: 1)) {
+                a.addAttribute(.kern, value: kern + trailingPad, range: last)
             }
         }
     }

@@ -113,12 +113,15 @@ final class LinkPreviews: @MainActor LinkPreviewFetching {
         else { return out }
         let ns = html as NSString
         for m in re.matches(in: html, range: NSRange(location: 0, length: min(ns.length, 400_000))) {
-            let tag = ns.substring(with: m.range) as NSString
+            // cmux: checked substrings (a group that took no part is {NSNotFound, 0}, p10-stability-169)
+            guard let found = ns.checkedSubstring(m.range) else { continue }
+            let tag = found as NSString
             guard let k = key.firstMatch(in: tag as String, range: NSRange(location: 0, length: tag.length)),
-                  let v = val.firstMatch(in: tag as String, range: NSRange(location: 0, length: tag.length)) else { continue }
-            let name = tag.substring(with: k.range(at: 1)).lowercased()
+                  let v = val.firstMatch(in: tag as String, range: NSRange(location: 0, length: tag.length)),
+                  let name = tag.checkedSubstring(k.range(at: 1))?.lowercased() else { continue }
             let r = v.range(at: 2).location != NSNotFound ? v.range(at: 2) : v.range(at: 3)
-            let content = decode(tag.substring(with: r)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let raw = tag.checkedSubstring(r) else { continue }
+            let content = decode(raw).trimmingCharacters(in: .whitespacesAndNewlines)
             if !out.keys.contains(name), !content.isEmpty { out.updateValue(content, forKey: name) }
         }
         return out
@@ -137,7 +140,8 @@ final class LinkPreviews: @MainActor LinkPreviewFetching {
     nonisolated static func titleTag(_ html: String) -> String? {
         guard let re = try? NSRegularExpression(pattern: "<title[^>]*>([^<]*)</title>", options: [.caseInsensitive]),
               let m = re.firstMatch(in: html, range: NSRange(location: 0, length: min((html as NSString).length, 400_000))) else { return nil }
-        let t = decode((html as NSString).substring(with: m.range(at: 1))).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let raw = (html as NSString).checkedSubstring(m.range(at: 1)) else { return nil } // cmux: checked
+        let t = decode(raw).trimmingCharacters(in: .whitespacesAndNewlines)
         return t.isEmpty ? nil : t
     }
     nonisolated static func decode(_ s: String) -> String {

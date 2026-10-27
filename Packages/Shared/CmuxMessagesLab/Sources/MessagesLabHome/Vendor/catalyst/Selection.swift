@@ -117,7 +117,7 @@ struct ShortTextGeometry: RowTextGeometry {
     func substring(_ r: NSRange) -> String {
         let ns = text as NSString
         let lo = max(0, min(r.location, ns.length)), hi = max(lo, min(NSMaxRange(r), ns.length))
-        return ns.substring(with: NSRange(location: lo, length: hi - lo))
+        return ns.checkedSubstring(NSRange(location: lo, length: hi - lo)) ?? "" // cmux: checked
     }
     /// Line i's CTLine with the drawing attributes (kern included: caret x matches the glyphs).
     func ctLine(_ i: Int) -> CTLine {
@@ -128,8 +128,10 @@ struct ShortTextGeometry: RowTextGeometry {
             Self.attrCache.setObject(attr, forKey: key)
         }
         // a line outside the text (or measured for another text) is an empty line.
-        guard let range = lines[checked: i]?.range, NSMaxRange(range) <= attr.length else { return CTLineCreateWithAttributedString(NSAttributedString()) }
-        return CTLineCreateWithAttributedString(attr.attributedSubstring(from: range))
+        guard let range = lines[checked: i]?.range, let lineText = attr.checkedAttributedSubstring(range) else { // cmux: checked
+            return CTLineCreateWithAttributedString(NSAttributedString())
+        }
+        return CTLineCreateWithAttributedString(lineText)
     }
     func offset(at p: CGPoint) -> Int {
         let x = p.x - Fixture.bubblePadX, y = p.y - Fixture.bubblePadY
@@ -151,7 +153,8 @@ struct ShortTextGeometry: RowTextGeometry {
         // The composed character whose glyph span holds x (both directions: RTL runs too).
         var j = r.location
         while j < NSMaxRange(r) {
-            let c = ns.rangeOfComposedCharacterSequence(at: j)
+            guard let at = ns.checkedIndex(j) else { break } // cmux: checked
+            let c = ns.rangeOfComposedCharacterSequence(at: at)
             let a = ct.offset(forStringIndex: c.location - r.location)
             let b = ct.offset(forStringIndex: min(r.length, NSMaxRange(c) - r.location))
             if x >= min(a, b) && x < max(a, b) { return c.location }
@@ -174,7 +177,7 @@ struct ShortTextGeometry: RowTextGeometry {
             guard y + Fixture.lineHeight >= visible.lowerBound, y <= visible.upperBound else { continue }
             let lr = line.range
             // A hard line end owns its newline (selected: a short tail); a soft wrap does not.
-            let hard = NSMaxRange(lr) < ns.length && ns.character(at: NSMaxRange(lr)) == 10
+            let hard = ns.checkedCharacter(at: NSMaxRange(lr)) == 10 // cmux: checked
             let s = max(r.location, lr.location), e = min(NSMaxRange(r), NSMaxRange(lr) + (hard ? 1 : 0))
             guard s < e || (lr.length == 0 && NSLocationInRange(lr.location, r)) else { continue }
             var x0: CGFloat = 0, x1: CGFloat = SelectionLook.newlineTail
@@ -244,7 +247,7 @@ struct LongTextGeometry: RowTextGeometry {
         // A paragraph may run past its block: join the next blocks until a newline.
         var b = layout.selectionBlockIndex(offset)
         var end = NSMaxRange(p) + base
-        while NSMaxRange(p) == s.length, s.length > 0, s.character(at: s.length - 1) != 10, b + 1 < layout.blockCount {
+        while NSMaxRange(p) == s.length, s.length > 0, s.checkedCharacter(at: s.length - 1) != 10, b + 1 < layout.blockCount { // cmux: checked
             b += 1
             s = layout.selectionString(b); base = layout.index.selStarts[checked: b] ?? base // checked
             p = SelWords.paragraph(in: s, at: 0)
@@ -283,7 +286,8 @@ enum SelWords {
         CFStringTokenizerGoToTokenAtIndex(tok, i)
         let r = CFStringTokenizerGetCurrentTokenRange(tok)
         if r.location != kCFNotFound { return NSRange(location: r.location, length: r.length) }
-        return s.rangeOfComposedCharacterSequence(at: i)
+        guard let at = s.checkedIndex(i) else { return NSRange(location: 0, length: 0) } // cmux: checked
+        return s.rangeOfComposedCharacterSequence(at: at)
         #else
         return NSAttributedString(string: s as String).doubleClick(at: i)
         #endif
@@ -291,7 +295,9 @@ enum SelWords {
     /// The paragraph holding `offset`, with its newline (AppKit's triple-click).
     static func paragraph(in s: NSString, at offset: Int) -> NSRange {
         guard s.length > 0 else { return NSRange(location: 0, length: 0) }
-        return s.paragraphRange(for: NSRange(location: max(0, min(offset, s.length - 1)), length: 0))
+        // cmux: checked
+        guard let caret = s.checkedRange(NSRange(location: max(0, min(offset, s.length - 1)), length: 0)) else { return NSRange(location: 0, length: 0) }
+        return s.paragraphRange(for: caret)
     }
 }
 
@@ -326,7 +332,8 @@ enum SelectionCopy {
                 if case let .text(t, _) = part {
                     // Offsets are in the display string (markdown: no markers, tables as TSV).
                     let shown = Markdown.displayText(t, message: m.id, format: m.format) ?? t
-                    out.append(Piece(seq: seq, sender: m.senderId, text: (shown as NSString).substring(with: r), isText: true))
+                    guard let text = (shown as NSString).checkedSubstring(r) else { continue } // cmux: checked
+                    out.append(Piece(seq: seq, sender: m.senderId, text: text, isText: true))
                 } else {
                     var isFile = false, name = ""
                     if case let .attachment(a) = part { isFile = true; name = a.fileName }

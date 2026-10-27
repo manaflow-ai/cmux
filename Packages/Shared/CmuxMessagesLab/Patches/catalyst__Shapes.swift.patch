@@ -156,16 +156,26 @@
          return t
      }
  }
-@@ -273,7 +301,7 @@
-             attr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(range, in: s))
+@@ -269,12 +297,13 @@
+     static func line(_ s: String, font: UIFont, color: UIColor, x: CGFloat, baseline: CGFloat,
+                      in ctx: CGContext, underline: String? = nil, link: String? = nil, kern: CGFloat = 0) {
+         let attr = NSMutableAttributedString(string: s, attributes: [.font: font, .foregroundColor: color, .kern: kern])
+-        if let u = underline, let range = s.range(of: u) {
+-            attr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(range, in: s))
++        // cmux: checked ranges (p10-stability-169)
++        if let u = underline, let found = s.range(of: u), let range = attr.checkedRange(NSRange(found, in: s)) {
++            attr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
          }
-         if let l = link, let range = s.range(of: l) {
+-        if let l = link, let range = s.range(of: l) {
 -            attr.addAttributes([.foregroundColor: UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1),
+-                                .underlineStyle: NSUnderlineStyle.single.rawValue], range: NSRange(range, in: s))
++        if let l = link, let found = s.range(of: l), let range = attr.checkedRange(NSRange(found, in: s)) {
 +            attr.addAttributes([.foregroundColor: Fixture.incomingLink, // cmux: themed link tint
-                                 .underlineStyle: NSUnderlineStyle.single.rawValue], range: NSRange(range, in: s))
++                                .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
          }
          let line = CTLineCreateWithAttributedString(attr)
-@@ -286,7 +314,7 @@
+         ctx.saveGState()
+@@ -286,7 +315,7 @@
  
      static func width(_ s: String, font: UIFont, kern: CGFloat = 0) -> CGFloat {
          let attr = NSAttributedString(string: s, attributes: [.font: font, .kern: kern])
@@ -174,7 +184,7 @@
      }
  }
  
-@@ -338,8 +366,8 @@
+@@ -338,8 +367,8 @@
          for (stops, fromTop) in [(rim.top, true), (rim.bottom, false)] {
              // no force unwraps ; an empty rim or a failed gradient draws nothing.
              guard let span = stops.last?.0 else { continue }

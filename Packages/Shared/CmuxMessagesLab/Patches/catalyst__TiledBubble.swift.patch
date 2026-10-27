@@ -1,6 +1,16 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/TiledBubble.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/TiledBubble.swift
-@@ -81,10 +81,17 @@
+@@ -50,7 +50,8 @@
+         let a = chunk * linesPerTile, b = min(bl.lines.count, a + linesPerTile)
+         guard a >= 0, a < b else { return } // a negative chunk draws nothing
+         for (j, line) in zip(a..<b, bl.lines.dropFirst(a)) where line.length > 0 { // no index math
+-            let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line))
++            guard let lineText = attr.checkedAttributedSubstring(line) else { continue } // cmux: checked
++            let l = CTLineCreateWithAttributedString(lineText)
+             ctx.saveGState()
+             ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+             ctx.textPosition = CGPoint(x: Fixture.bubblePadX,
+@@ -81,10 +82,17 @@
  enum BubbleSlices {
      static let cap: CGFloat = 32, pad: CGFloat = 24, vpad: CGFloat = 8
      private static var cache: [String: CGImage] = [:]
@@ -19,7 +29,7 @@
          let w = (ceil((bodyWidth + 2 * pad + 1) * scale)) / scale
          let size = CGSize(width: w, height: 2 * cap + 2 * vpad)
          guard let img = WideBitmap.make(size: size, scale: scale, opaque: false, { ctx in
-@@ -105,7 +112,7 @@
+@@ -105,7 +113,7 @@
  }
  
  /// Rendered tiles, LRU by bytes (main thread).
@@ -28,7 +38,7 @@
      static let shared = TileCache()
      struct Key: Hashable {
          var lineage: Int; var start: Int; var end: Int; var final: Bool; var column: CGFloat
-@@ -114,11 +121,16 @@
+@@ -114,11 +122,16 @@
          var slot: Slot { Slot(lineage: lineage, start: start, chunk: chunk) }
      }
      struct Slot: Hashable { var lineage: Int; var start: Int; var chunk: Int }
@@ -48,7 +58,7 @@
      private var map: [Key: (CGImage, Int, Int)] = [:]
      private var tick = 0
      private(set) var bytes = 0
-@@ -142,10 +154,37 @@
+@@ -142,10 +155,37 @@
              bytes -= e.1
              freed.append(e.0)
          }
@@ -88,7 +98,7 @@
  }
  
  /// The long-text layers of one RowCell.
-@@ -288,7 +327,7 @@
+@@ -288,7 +328,7 @@
              let key = "\(p.reactions)|\(p.myReaction ?? -1)|\(p.outgoing)|\(body.minX)|\(body.width)|\(spec.width)|\(s)|\(Fixture.paletteGeneration)"
              if key != badgeKey {
                  badgeKey = key
@@ -97,7 +107,7 @@
                  badges.contentsScale = s
                  let b = body
                  badges.contents = WideBitmap.make(size: badges.frame.size, scale: s, opaque: false) { ctx in
-@@ -331,10 +370,13 @@
+@@ -331,10 +371,13 @@
          }
          guard folded else { bandRect = .zero; return }
          let headH = CGFloat(LongTextFold.headLines) * lh, tailH = CGFloat(LongTextFold.tailLines) * lh
@@ -114,7 +124,7 @@
          bandRect = CGRect(x: body.minX, y: textTop + headH, width: body.width, height: LongTextFold.bandHeight)
          band.frame = bandRect
          drawBand(LongTextFold.label(layout.index.hardLines), p, scale: s)
-@@ -356,11 +398,11 @@
+@@ -356,11 +399,11 @@
          guard key != bandKey else { return }
          bandKey = key
          if let img = TiledBody.bandImages[key] { band.contentsScale = s; band.contents = img; return }
@@ -129,7 +139,7 @@
          band.contentsScale = s
          band.contents = WideBitmap.make(size: bandRect.size, scale: s, opaque: false) { ctx in
              rule.setFill()
-@@ -399,8 +441,8 @@
+@@ -399,8 +442,8 @@
          // the first 40 lines, and the last 40 lines moved up under the band (both clipped).
          var segments: [(lines: Range<Int>, shift: CGFloat, parent: CALayer)] = [(0..<total, 0, container)]
          if folded {

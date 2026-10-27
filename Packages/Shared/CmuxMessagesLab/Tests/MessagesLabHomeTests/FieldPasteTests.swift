@@ -112,7 +112,7 @@ import Testing
         tv.onPasteImage = { _ in images += 1 }
         tv.pasteAsPlainText(nil)
         let text = tv.string, caret = tv.selectedRange()
-        let attributes = tv.textStorage?.attributes(at: 1) ?? [:]
+        let attributes = tv.textStorage?.checkedAttributes(at: 1) ?? [:]
         let size = (attributes[.font] as? NSFont)?.pointSize
         let asked = boards.count == 1 && boards.first === pb
         #expect(text == "abold linkb")

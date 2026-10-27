@@ -218,26 +218,26 @@ enum MarkdownDraw {
     static func drawFrag(_ ctx: CGContext, _ f: MDFrag, _ pal: MDPalette) {
         guard f.attr.length > 0 else { return }
         let a = NSMutableAttributedString(attributedString: f.attr)
-        let full = NSRange(location: 0, length: a.length)
         let base: UIColor
         switch f.role {
         case .quote: base = pal.secondary
         case .marker, .more: base = pal.marker
         default: base = pal.text
         }
-        a.addAttribute(.foregroundColor, value: base, range: full)
-        a.enumerateAttribute(.mdRole, in: full) { v, r, _ in
-            if let raw = v as? UInt8, raw == MDRole.quote.rawValue { a.addAttribute(.foregroundColor, value: pal.secondary, range: r) }
+        // cmux: the whole range spelled at each call and each run checked (p10-stability-169)
+        a.addAttribute(.foregroundColor, value: base, range: NSRange(location: 0, length: a.length))
+        a.enumerateAttribute(.mdRole, in: NSRange(location: 0, length: a.length)) { v, r, _ in
+            if let raw = v as? UInt8, raw == MDRole.quote.rawValue, let run = a.checkedRange(r) { a.addAttribute(.foregroundColor, value: pal.secondary, range: run) }
         }
-        a.enumerateAttribute(.mdToken, in: full) { v, r, _ in
-            if let raw = v as? UInt8, let t = MDToken(rawValue: raw), let c = pal.tokens[t] { a.addAttribute(.foregroundColor, value: c, range: r) }
+        a.enumerateAttribute(.mdToken, in: NSRange(location: 0, length: a.length)) { v, r, _ in
+            if let raw = v as? UInt8, let t = MDToken(rawValue: raw), let c = pal.tokens[t], let run = a.checkedRange(r) { a.addAttribute(.foregroundColor, value: c, range: run) }
         }
-        a.enumerateAttribute(.link, in: full) { v, r, _ in
-            guard v != nil else { return }
-            a.addAttributes([.foregroundColor: pal.link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: r)
+        a.enumerateAttribute(.link, in: NSRange(location: 0, length: a.length)) { v, r, _ in
+            guard v != nil, let run = a.checkedRange(r) else { return }
+            a.addAttributes([.foregroundColor: pal.link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: run)
         }
         // CoreText draws NSLink runs blue on its own in some hosts: drop the attribute for drawing.
-        a.removeAttribute(.link, range: full)
+        a.removeAttribute(.link, range: NSRange(location: 0, length: a.length))
         let line = CTLineCreateWithAttributedString(a)
         ctx.saveGState()
         ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
@@ -263,7 +263,7 @@ enum MarkdownCopy {
         func text(_ range: NSRange) -> String {
             let inter = NSIntersectionRange(range, r)
             guard inter.length > 0 else { return "" }
-            return esc(ns.substring(with: inter))
+            return ns.checkedSubstring(inter).map(esc) ?? "" // cmux: checked
         }
         func emit(_ n: MDAXNode) {
             guard NSIntersectionRange(n.range, r).length > 0 || (n.range.length == 0 && NSLocationInRange(n.range.location, r)) else { return }
@@ -282,7 +282,7 @@ enum MarkdownCopy {
                 out += "<table>"
                 for (i, row) in n.children.enumerated() {
                     out += "<tr>"
-                    for c in row.children { let tag = i == 0 ? "th" : "td"; out += "<\(tag)>" + esc(ns.substring(with: c.range)) + "</\(tag)>" }
+                    for c in row.children { let tag = i == 0 ? "th" : "td"; out += "<\(tag)>" + esc(ns.checkedSubstring(c.range) ?? "") + "</\(tag)>" }
                     out += "</tr>"
                 }
                 out += "</table>"

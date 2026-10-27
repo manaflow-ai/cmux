@@ -145,9 +145,9 @@ import Testing
 
     @Test func attributesReadWithoutARangePointer() {
         let s = NSAttributedString(string: "ab", attributes: [.kern: 2])
-        #expect(s.attribute(.kern, at: 1) as? Int == 2)
-        #expect(s.attributes(at: 0)[.kern] as? Int == 2)
-        #expect(s.attribute(.link, at: 0) == nil)
+        #expect(s.checkedAttribute(.kern, at: 1) as? Int == 2)
+        #expect(s.checkedAttributes(at: 0)?[.kern] as? Int == 2)
+        #expect(s.checkedAttribute(.link, at: 0) == nil)
     }
 
     @Test func associationKeysKeepOneValueEachPerObject() {

@@ -78,7 +78,9 @@ final class DeferredSpellChecker {
         if ns.length > DeferredSpellChecker.fullCheckLimit {
             let c = v.selectedRange().location
             let lo = max(0, c - DeferredSpellChecker.windowRadius), hi = min(ns.length, c + DeferredSpellChecker.windowRadius)
-            range = ns.paragraphRange(for: NSRange(location: lo, length: hi - lo))
+            // cmux: checked window; a selection outside the text (stale) waits for the next change's check
+            guard let window = ns.checkedRange(NSRange(location: lo, length: hi - lo)) else { return }
+            range = ns.paragraphRange(for: window)
         }
         let count = changeCount, end = typingEnd
         DeferredSpellChecker.checks += 1

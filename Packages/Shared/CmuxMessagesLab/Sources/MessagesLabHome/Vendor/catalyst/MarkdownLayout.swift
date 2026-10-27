@@ -391,11 +391,11 @@ enum MarkdownLayoutEngine {
                 var n = wrap ? CTTypesetterSuggestLineBreak(ts, start, Double(max(1, w))) : lineLength(ns, from: start)
                 if n <= 0 { n = 1 }
                 var range = NSRange(location: start, length: n)
-                let endsNewline = ns.character(at: start + n - 1) == 10
+                let endsNewline = ns.checkedCharacter(at: start + n - 1) == 10 // cmux: checked
                 if endsNewline { range.length -= 1 }
                 // The line from the substring (string indices from 0, as drawing creates it); the
-                // typesetter only chooses the break.
-                let sub = attr.attributedSubstring(from: range)
+                // typesetter only chooses the break. cmux: checked, a break past the end ends the lines.
+                guard let sub = attr.checkedAttributedSubstring(range) else { break }
                 let line = CTLineCreateWithAttributedString(sub)
                 let lw = CGFloat(line.typographicWidth)
                 // A wrapped line's trailing space is not part of its drawn width.
@@ -422,7 +422,9 @@ enum MarkdownLayoutEngine {
         }
 
         private func lineLength(_ ns: NSString, from: Int) -> Int {
-            let r = ns.range(of: "\n", options: [], range: NSRange(location: from, length: ns.length - from))
+            // cmux: checked; nothing left from a start outside the text
+            guard let rest = ns.checkedRange(NSRange(location: from, length: ns.length - from)) else { return 0 }
+            let r = ns.range(of: "\n", options: [], range: rest)
             return r.location == NSNotFound ? ns.length - from : r.location - from + 1
         }
 
@@ -456,17 +458,19 @@ enum MarkdownLayoutEngine {
             var lineStart = 0
             let total = ns.length
             repeat {
-                let nl = ns.range(of: "\n", options: [], range: NSRange(location: lineStart, length: total - lineStart))
+                // cmux: checked (lineStart never passes total: a line ends at a newline inside the text)
+                guard let rest = ns.checkedRange(NSRange(location: lineStart, length: total - lineStart)) else { break }
+                let nl = ns.range(of: "\n", options: [], range: rest)
                 let end = nl.location == NSNotFound ? total : nl.location
                 var r = NSRange(location: lineStart, length: end - lineStart)
                 var more = 0
                 if r.length > Markdown.maxCodeLine {
                     // Keep whole surrogate pairs.
                     var cut = Markdown.maxCodeLine
-                    if CFStringIsSurrogateHighCharacter(ns.character(at: lineStart + cut - 1)) { cut -= 1 }
+                    if let c = ns.checkedCharacter(at: lineStart + cut - 1), CFStringIsSurrogateHighCharacter(c) { cut -= 1 } // cmux: checked
                     more = r.length - cut; r.length = cut
                 }
-                let sub = r.length > 0 ? attr.attributedSubstring(from: r) : NSAttributedString(string: "")
+                let sub = (r.length > 0 ? attr.checkedAttributedSubstring(r) : nil) ?? NSAttributedString(string: "") // cmux: checked
                 let line = CTLineCreateWithAttributedString(sub)
                 let lw = CGFloat(line.typographicWidth)
                 out.frags.append(MDFrag(attr: sub, line: line, origin: CGPoint(x: x + Markdown.codePadX, y: y), width: lw, baseline: Markdown.codeBaseline,
@@ -662,7 +666,7 @@ enum MarkdownLayoutEngine {
             best = max(best, line.offset(forStringIndex: hi) - line.offset(forStringIndex: lo))
         }
         for i in 0..<n {
-            let c = s.character(at: i)
+            let c = s.checkedCharacter(at: i) // cmux: checked
             if c == 32 || c == 10 || c == 9 { measure(start, i); start = i + 1 }
         }
         measure(start, n)
@@ -673,22 +677,25 @@ enum MarkdownLayoutEngine {
     static func attributed(_ t: MDText, font: UIFont, role: MDRole, kern: CGFloat) -> NSAttributedString {
         let a = NSMutableAttributedString(string: t.string, attributes: [.font: font, .kern: kern, .mdRole: role.rawValue])
         for s in t.spans {
-            let r = NSRange(location: s.location, length: s.length)
-            guard NSMaxRange(r) <= a.length else { continue }
+            // cmux: the span's attributes set once on its checked range (p10-stability-169); a span outside the
+            // text is skipped.
+            var add: [NSAttributedString.Key: Any] = [:]
             if s.style.contains(.code) {
-                a.addAttribute(.font, value: Markdown.inlineCodeFont, range: r)
-                a.addAttribute(.kern, value: 0, range: r)
+                add[.font] = Markdown.inlineCodeFont
+                add[.kern] = 0
             } else {
                 var traits: UIFontDescriptor.SymbolicTraits = []
                 if s.style.contains(.strong) { traits.insert(.traitBold) }
                 if s.style.contains(.emphasis) { traits.insert(.traitItalic) }
                 // The bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
                 if !traits.isEmpty, let f = HomeFonts.font(font, adding: traits) {
-                    a.addAttribute(.font, value: f, range: r)
+                    add[.font] = f
                 }
             }
-            if let l = s.link { a.addAttribute(.link, value: l, range: r) }
-            a.addAttribute(.mdStyle, value: s.style.rawValue, range: r)
+            if let l = s.link { add[.link] = l }
+            add[.mdStyle] = s.style.rawValue
+            guard let r = a.checkedRange(NSRange(location: s.location, length: s.length)) else { continue }
+            a.addAttributes(add, range: r)
         }
         return a
     }

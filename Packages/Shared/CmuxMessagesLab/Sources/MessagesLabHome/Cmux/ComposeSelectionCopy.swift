@@ -24,15 +24,16 @@ struct ComposeSelectionCopy {
     func pieces(_ s: NSAttributedString, ranges: [NSRange]) -> Pieces? {
         let ns = s.string as NSString
         var text = "", files: [URL] = [], marks = 0
-        for range in ranges where range.length > 0 && NSMaxRange(range) <= s.length {
-            if !text.isEmpty { text += "\n" }
-            var run = String.UnicodeScalarView()
-            run.append(contentsOf: ns.substring(with: range).unicodeScalars.lazy.filter { $0 != Draft.mark })
-            text += String(run)
-            marks += Draft.markOffsets(ns.substring(with: range)).count
+        for selected in ranges where selected.length > 0 {
+            guard let piece = ns.checkedSubstring(selected), let range = s.checkedRange(selected) else { continue }
             s.enumerateAttribute(.attachment, in: range) { value, _, _ in
                 if let a = value as? ComposeInlineAttachment, let url = file(a.attachmentID) { files.append(url) }
             }
+            if !text.isEmpty { text += "\n" }
+            var run = String.UnicodeScalarView()
+            run.append(contentsOf: piece.unicodeScalars.lazy.filter { $0 != Draft.mark })
+            text += String(run)
+            marks += Draft.markOffsets(piece).count
         }
         return marks == 0 ? nil : Pieces(text: text, files: files)
     }

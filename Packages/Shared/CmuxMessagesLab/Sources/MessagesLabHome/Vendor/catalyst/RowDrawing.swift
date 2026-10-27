@@ -379,7 +379,8 @@ enum PartRenderer {
         let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         let attr = tl.attributed(color: color, linkColor: link)
         for (i, line) in tl.lines.enumerated() where line.range.length > 0 {
-            let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line.range))
+            guard let lineText = attr.checkedAttributedSubstring(line.range) else { continue } // cmux: checked
+            let l = CTLineCreateWithAttributedString(lineText)
             let origin = CGPoint(x: body.minX + Fixture.bubblePadX, y: body.minY + Fixture.textBaseline + tl.lineOffset(i, hard: outgoing ? TextLayout.hardBreakAdvance : Fixture.lineHeight))
             // cmux: link chips (HomeLinkChip) under the line's text.
             HomeLinkChip.drawSpans(ctx, tl.chipSpans(line: i, attr: attr), origin: origin, tint: link, outgoing: outgoing, scale: Fixture.renderScale)

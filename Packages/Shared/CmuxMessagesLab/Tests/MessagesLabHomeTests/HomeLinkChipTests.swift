@@ -120,10 +120,10 @@ import Testing
         #expect(a.chipSpans(line: 0).isEmpty)
         // The body font on the id, as on the words around it.
         let attr = a.attributed(color: .white, linkColor: .white)
-        let idFont = attr.attribute(.font, at: 1) as? NSFont
-        let bodyFont = attr.attribute(.font, at: 6) as? NSFont
+        let idFont = attr.checkedAttribute(.font, at: 1) as? NSFont
+        let bodyFont = attr.checkedAttribute(.font, at: 6) as? NSFont
         #expect(idFont?.pointSize == bodyFont?.pointSize)
-        #expect(attr.attribute(.kern, at: 0) as? CGFloat == attr.attribute(.kern, at: 6) as? CGFloat)
+        #expect(attr.checkedAttribute(.kern, at: 0) as? CGFloat == attr.checkedAttribute(.kern, at: 6) as? CGFloat)
     }
 }
 

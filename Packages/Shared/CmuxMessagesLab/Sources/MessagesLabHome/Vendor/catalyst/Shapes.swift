@@ -297,12 +297,13 @@ enum TextDraw {
     static func line(_ s: String, font: UIFont, color: UIColor, x: CGFloat, baseline: CGFloat,
                      in ctx: CGContext, underline: String? = nil, link: String? = nil, kern: CGFloat = 0) {
         let attr = NSMutableAttributedString(string: s, attributes: [.font: font, .foregroundColor: color, .kern: kern])
-        if let u = underline, let range = s.range(of: u) {
-            attr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(range, in: s))
+        // cmux: checked ranges (p10-stability-169)
+        if let u = underline, let found = s.range(of: u), let range = attr.checkedRange(NSRange(found, in: s)) {
+            attr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
         }
-        if let l = link, let range = s.range(of: l) {
+        if let l = link, let found = s.range(of: l), let range = attr.checkedRange(NSRange(found, in: s)) {
             attr.addAttributes([.foregroundColor: Fixture.incomingLink, // cmux: themed link tint
-                                .underlineStyle: NSUnderlineStyle.single.rawValue], range: NSRange(range, in: s))
+                                .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
         }
         let line = CTLineCreateWithAttributedString(attr)
         ctx.saveGState()

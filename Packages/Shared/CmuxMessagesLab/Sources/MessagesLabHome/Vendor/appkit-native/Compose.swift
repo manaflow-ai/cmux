@@ -450,12 +450,12 @@ final class FieldTextView: NSTextView {
         // cmux: a picture takes its whole line, as in Messages (ComposeInlineAttachment).
         let storageText = textStorage
         func picture(_ i: Int) -> Bool {
-            guard let s = storageText, i >= 0, i < s.length else { return false }
-            return s.attribute(.attachment, at: i) is ComposeInlineAttachment
+            // cmux: checked index (nil outside the text, p10-stability-169)
+            return storageText?.checkedAttribute(.attachment, at: i) is ComposeInlineAttachment
         }
-        let length = storageText?.length ?? 0
-        let next: unichar? = index < length ? (storageText?.string as NSString?)?.character(at: index) : nil
-        let previous: unichar? = index > 0 && index <= length ? (storageText?.string as NSString?)?.character(at: index - 1) : nil
+        let chars = storageText?.string as NSString? // cmux: checked reads, nil outside the text
+        let next: unichar? = chars?.checkedCharacter(at: index)
+        let previous: unichar? = chars?.checkedCharacter(at: index - 1)
         // Right after a picture, where nothing follows on its line (the end, a line break or another
         // picture), the caret starts the line under it: the next character goes there.
         if picture(index - 1), next == nil || next == 0x0A || picture(index), let above = segment(upstream: true) {
@@ -545,8 +545,9 @@ final class FieldTextView: NSTextView {
 
     /// cmux: TEXT at the caret (replacing the selection) in the typing style, as its own undo step.
     private func insertPlainText(_ text: String) {
-        let range = selectedRange()
-        guard shouldChangeText(in: range, replacementString: text), let storage = textStorage else { return }
+        // cmux: the selection checked against the text before the edit begins (p10-stability-169)
+        guard let storage = textStorage, let range = storage.checkedRange(selectedRange()),
+              shouldChangeText(in: range, replacementString: text) else { return }
         breakUndoCoalescing()
         storage.replaceCharacters(in: range, with: NSAttributedString(string: text, attributes: typingAttributes))
         setSelectedRange(NSRange(location: range.location + (text as NSString).length, length: 0))
@@ -1225,8 +1226,9 @@ final class ComposeView: UIView {
             // SAFETY: `stop` is Foundation's flag for this enumeration, valid during the block only.
             if (v as? ComposeInlineAttachment)?.attachmentID == id { range = r; unsafe stop.pointee = true }
         }
-        guard let range, tv.shouldChangeText(in: range, replacementString: "") else { return }
-        storage.replaceCharacters(in: range, with: "")
+        // cmux: checked range (p10-stability-169)
+        guard let found = range, let mark = storage.checkedRange(found), tv.shouldChangeText(in: mark, replacementString: "") else { return }
+        storage.replaceCharacters(in: mark, with: "")
         tv.didChangeText()
     }
 
@@ -1246,8 +1248,9 @@ final class ComposeView: UIView {
         if let added, added <= new.length { return NSRange(location: added, length: 0) }
         if new.length == old.length + 1 {
             var p = 0
-            while p < old.length, old.character(at: p) == new.character(at: p) { p += 1 }
-            if new.character(at: p) == 0xFFFC, new.substring(from: p + 1) == old.substring(from: p) {
+            // cmux: checked reads (p10-stability-169)
+            while let a = old.checkedCharacter(at: p), a == new.checkedCharacter(at: p) { p += 1 }
+            if new.checkedCharacter(at: p) == 0xFFFC, new.substring(from: p + 1) == old.substring(from: p) {
                 return NSRange(location: p + 1, length: 0)
             }
         }

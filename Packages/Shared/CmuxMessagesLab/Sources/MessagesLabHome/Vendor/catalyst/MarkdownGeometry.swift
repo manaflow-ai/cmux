@@ -39,7 +39,7 @@ extension MarkdownLayout: RowTextGeometry {
     func substring(_ r: NSRange) -> String {
         let ns = plain as NSString
         let lo = max(0, min(r.location, ns.length)), hi = max(lo, min(NSMaxRange(r), ns.length))
-        return ns.substring(with: NSRange(location: lo, length: hi - lo))
+        return ns.checkedSubstring(NSRange(location: lo, length: hi - lo)) ?? "" // cmux: checked
     }
 
     /// Scroll offsets of regions (main thread state; MarkdownScroll).
@@ -104,7 +104,7 @@ extension MarkdownLayout: RowTextGeometry {
         let ns = plain as NSString
         var lo = min(offset, ns.length - 1), hi = lo
         let set = CharacterSet.alphanumerics
-        func isWord(_ i: Int) -> Bool { guard let u = Unicode.Scalar(ns.character(at: i)) else { return true }; return set.contains(u) || u == "_" }
+        func isWord(_ i: Int) -> Bool { guard let c = ns.checkedCharacter(at: i), let u = Unicode.Scalar(c) else { return true }; return set.contains(u) || u == "_" } // cmux: checked
         while lo > 0, isWord(lo - 1) { lo -= 1 }
         while hi < ns.length, isWord(hi) { hi += 1 }
         return NSRange(location: lo, length: max(hi - lo, 1))
@@ -121,9 +121,11 @@ extension MarkdownLayout: RowTextGeometry {
                 switch n.kind {
                 case .code:
                     let s = plain as NSString
-                    let line = s.lineRange(for: NSRange(location: offset, length: 0))
+                    // cmux: checked (an offset outside the text selects the block)
+                    guard let caret = s.checkedRange(NSRange(location: offset, length: 0)) else { return n.range }
+                    let line = s.lineRange(for: caret)
                     var r = NSIntersectionRange(line, n.range)
-                    if r.length > 0, NSMaxRange(r) <= s.length, s.character(at: NSMaxRange(r) - 1) == 10 { r.length -= 1 }
+                    if r.length > 0, s.checkedCharacter(at: NSMaxRange(r) - 1) == 10 { r.length -= 1 }
                     return r
                 case .table:
                     for row in n.children where NSLocationInRange(offset, row.range) { return row.range }
@@ -136,7 +138,11 @@ extension MarkdownLayout: RowTextGeometry {
             }
             return nil
         }
-        return find(ax) ?? (plain as NSString).paragraphRange(for: NSRange(location: min(offset, length), length: 0))
+        if let found = find(ax) { return found }
+        // cmux: checked (a negative offset selects nothing)
+        let s = plain as NSString
+        guard let caret = s.checkedRange(NSRange(location: min(offset, s.length), length: 0)) else { return NSRange(location: 0, length: 0) }
+        return s.paragraphRange(for: caret)
     }
 
     func link(at p: CGPoint) -> String? {

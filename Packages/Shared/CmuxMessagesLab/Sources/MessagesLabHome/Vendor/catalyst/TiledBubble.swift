@@ -50,7 +50,8 @@ enum TiledBubble {
         let a = chunk * linesPerTile, b = min(bl.lines.count, a + linesPerTile)
         guard a >= 0, a < b else { return } // a negative chunk draws nothing
         for (j, line) in zip(a..<b, bl.lines.dropFirst(a)) where line.length > 0 { // no index math
-            let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line))
+            guard let lineText = attr.checkedAttributedSubstring(line) else { continue } // cmux: checked
+            let l = CTLineCreateWithAttributedString(lineText)
             ctx.saveGState()
             ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
             ctx.textPosition = CGPoint(x: Fixture.bubblePadX,

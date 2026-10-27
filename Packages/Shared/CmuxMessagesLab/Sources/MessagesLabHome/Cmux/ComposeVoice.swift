@@ -19,12 +19,12 @@ struct ComposeVoiceSplice: Equatable {
     init(text: NSString, caret: Int) {
         let at = min(max(0, caret), text.length)
         location = at
-        if at > 0, let scalar = Unicode.Scalar(text.character(at: at - 1)) {
+        if let unit = text.checkedCharacter(at: at - 1), let scalar = Unicode.Scalar(unit) {
             leadingSpace = !CharacterSet.whitespacesAndNewlines.contains(scalar)
         } else {
             leadingSpace = false
         }
-        if at < text.length, let scalar = Unicode.Scalar(text.character(at: at)) {
+        if let unit = text.checkedCharacter(at: at), let scalar = Unicode.Scalar(unit) {
             trailingSpace = CharacterSet.alphanumerics.contains(scalar)
         } else {
             trailingSpace = false
@@ -183,8 +183,8 @@ final class ComposeVoice {
 
     /// A field edit that registers no undo (the session's words come and go; only the commit is one step).
     private func edit(_ field: FieldTextView, _ range: NSRange, _ text: String, caret: Int) {
-        guard let storage = field.textStorage else { return }
-        let r = clamped(range, in: field)
+        // Every caller checked isShowing first, so a range outside the field is a stale splice: no edit.
+        guard let storage = field.textStorage, let r = storage.checkedRange(range) else { return }
         applying = true
         defer { applying = false }
         storage.replaceCharacters(in: r, with: NSAttributedString(string: text, attributes: field.typingAttributes))
@@ -195,14 +195,7 @@ final class ComposeVoice {
     /// The field still shows the session's piece where the splice says.
     private func isShowing(_ splice: ComposeVoiceSplice, in field: FieldTextView) -> Bool {
         let text = field.string as NSString
-        guard NSMaxRange(splice.range) <= text.length else { return false }
-        return text.substring(with: splice.range) == splice.shown
-    }
-
-    private func clamped(_ range: NSRange, in field: FieldTextView) -> NSRange {
-        let n = (field.string as NSString).length
-        let lo = min(range.location, n)
-        return NSRange(location: lo, length: min(range.length, n - lo))
+        return text.checkedSubstring(splice.range) == splice.shown
     }
 }
 

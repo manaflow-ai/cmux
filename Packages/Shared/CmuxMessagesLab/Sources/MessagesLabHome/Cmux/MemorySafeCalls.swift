@@ -141,17 +141,3 @@ extension NSBitmapImageRep {
                                 bytesPerRow: bytesPerRow, bitsPerPixel: bitsPerPixel)
     }
 }
-
-extension NSAttributedString {
-    /// The value of attribute `name` at `location` (`attribute(_:at:effectiveRange: nil)`).
-    func attribute(_ name: NSAttributedString.Key, at location: Int) -> Any? {
-        // SAFETY: the effective-range pointer is nil, so Foundation writes no range.
-        unsafe attribute(name, at: location, effectiveRange: nil)
-    }
-
-    /// The attributes at `location` (`attributes(at:effectiveRange: nil)`).
-    func attributes(at location: Int) -> [NSAttributedString.Key: Any] {
-        // SAFETY: the effective-range pointer is nil, so Foundation writes no range.
-        unsafe attributes(at: location, effectiveRange: nil)
-    }
-}

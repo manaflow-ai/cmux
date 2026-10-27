@@ -68,8 +68,8 @@ struct ComposeInlineText {
     static func orphanRanges(in s: NSAttributedString, keeping ids: Set<ID>) -> [NSRange] {
         var out: [NSRange] = []
         let ns = s.string as NSString
-        for i in 0..<ns.length where ns.character(at: i) == 0xFFFC {
-            let a = s.attribute(.attachment, at: i) as? ComposeInlineAttachment
+        for i in 0..<ns.length where ns.checkedCharacter(at: i) == 0xFFFC {
+            let a = s.checkedAttribute(.attachment, at: i) as? ComposeInlineAttachment
             if !(a.map { ids.contains($0.attachmentID) } ?? false) { out.append(NSRange(location: i, length: 1)) }
         }
         return out.reversed()
@@ -91,10 +91,10 @@ struct ComposeInlineText {
         let ns = s.string as NSString
         guard ns.range(of: "\u{FFFC}").location != NSNotFound else { return s }
         let out = NSMutableAttributedString(attributedString: s)
-        for i in stride(from: ns.length - 1, through: 0, by: -1) where ns.character(at: i) == 0xFFFC {
-            guard out.attribute(.attachment, at: i) is ComposeInlineAttachment else { continue }
-            let attrs = out.attributes(at: i).filter { $0.key != .attachment }
-            let next = i + 1 < ns.length ? ns.character(at: i + 1) : nil
+        for i in stride(from: ns.length - 1, through: 0, by: -1) where ns.checkedCharacter(at: i) == 0xFFFC {
+            guard out.checkedAttribute(.attachment, at: i) is ComposeInlineAttachment,
+                  let attrs = out.checkedAttributes(at: i)?.filter({ $0.key != .attachment }) else { continue }
+            let next = ns.checkedCharacter(at: i + 1)
             // After it: a break, unless one follows (or the next picture brings its own); after the last
             // character, the caret's line too (a measured trailing line break adds no line).
             let after: String
@@ -102,12 +102,14 @@ struct ComposeInlineText {
                 after = "\n "
             } else if next == 0x0A {
                 after = i + 2 == ns.length ? "\n " : ""
-                if !after.isEmpty { out.replaceCharacters(in: NSRange(location: i + 1, length: 1), with: "") }
+                if !after.isEmpty, let newline = out.checkedRange(NSRange(location: i + 1, length: 1)) {
+                    out.replaceCharacters(in: newline, with: "")
+                }
             } else {
-                after = next == 0xFFFC && s.attribute(.attachment, at: i + 1) is ComposeInlineAttachment ? "" : "\n"
+                after = next == 0xFFFC && s.checkedAttribute(.attachment, at: i + 1) is ComposeInlineAttachment ? "" : "\n"
             }
             if !after.isEmpty { out.insert(NSAttributedString(string: after, attributes: attrs), at: i + 1) }
-            if i > 0, ns.character(at: i - 1) != 0x0A { out.insert(NSAttributedString(string: "\n", attributes: attrs), at: i) }
+            if i > 0, ns.checkedCharacter(at: i - 1) != 0x0A { out.insert(NSAttributedString(string: "\n", attributes: attrs), at: i) }
         }
         return out
     }

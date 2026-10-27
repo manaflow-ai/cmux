@@ -11,7 +11,15 @@
      /// The text above this length is checked around the caret only (a paste stress
      /// must not mark a megabyte on main).
      static let fullCheckLimit = 20_000
-@@ -82,7 +83,8 @@
+@@ -77,12 +78,15 @@
+         if ns.length > DeferredSpellChecker.fullCheckLimit {
+             let c = v.selectedRange().location
+             let lo = max(0, c - DeferredSpellChecker.windowRadius), hi = min(ns.length, c + DeferredSpellChecker.windowRadius)
+-            range = ns.paragraphRange(for: NSRange(location: lo, length: hi - lo))
++            // cmux: checked window; a selection outside the text (stale) waits for the next change's check
++            guard let window = ns.checkedRange(NSRange(location: lo, length: hi - lo)) else { return }
++            range = ns.paragraphRange(for: window)
+         }
          let count = changeCount, end = typingEnd
          DeferredSpellChecker.checks += 1
          NSSpellChecker.shared.requestChecking(of: text, range: range, types: NSTextCheckingResult.CheckingType.spelling.rawValue,

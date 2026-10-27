@@ -710,7 +710,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // stands for no draft attachment (a pasted U+FFFC, an undo of a removal) leaves the text.
         if let storage = tv.textStorage {
             let orphans = ComposeInlineText.orphanRanges(in: storage, keeping: Set(draft.map(\.id)))
-            for r in orphans { storage.replaceCharacters(in: r, with: "") }
+            for orphan in orphans { if let r = storage.checkedRange(orphan) { storage.replaceCharacters(in: r, with: "") } }
         }
         composerHistory.textChanged(to: tv.string)
         dispatch(.setDraft(tv.string))

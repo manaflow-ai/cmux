@@ -1,5 +1,27 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownHighlight.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownHighlight.swift
+@@ -69,16 +69,16 @@
+     }()
+ 
+     private static func set(_ a: NSMutableAttributedString, _ r: NSRange, _ t: MDToken) {
+-        guard r.length > 0 else { return }
+-        a.addAttribute(.mdToken, value: t.rawValue, range: r)
++        guard r.length > 0, let run = a.checkedRange(r) else { return } // cmux: checked
++        a.addAttribute(.mdToken, value: t.rawValue, range: run)
+     }
+ 
+     private static func diff(_ a: NSMutableAttributedString) {
+         let ns = a.string as NSString
+         ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: [.byLines, .substringNotRequired]) { _, r, _, _ in
+-            guard r.length > 0 else { return }
+-            let c = ns.character(at: r.location)
+-            let isHeader = ns.substring(with: r).hasPrefix("+++") || ns.substring(with: r).hasPrefix("---")
++            // cmux: checked reads, one substring per line
++            guard r.length > 0, let c = ns.checkedCharacter(at: r.location), let line = ns.checkedSubstring(r) else { return }
++            let isHeader = line.hasPrefix("+++") || line.hasPrefix("---")
+             if c == 64 || isHeader { set(a, r, .meta) }           // @@ hunk headers, file headers
+             else if c == 43 { set(a, r, .added) }                 // +
+             else if c == 45 { set(a, r, .removed) }               // -
 @@ -91,7 +91,9 @@
          // Very long blocks: colours for the first 64k units only (bounded layout time).
          let limit = min(n, 65_536)
@@ -11,3 +33,12 @@
          let lineStarts = spec.line.map { Array($0.utf16) }
          let blockOpen = spec.block.map { Array($0.0.utf16) }, blockClose = spec.block.map { Array($0.1.utf16) }
          func starts(_ p: [UInt16], at i: Int) -> Bool {
+@@ -140,7 +142,7 @@
+                 var j = i + 1
+                 while j < limit, isIdent(at: j) { j += 1 }
+                 let r = NSRange(location: i, length: j - i)
+-                let w = ns.substring(with: r)
++                let w = ns.checkedSubstring(r) ?? "" // cmux: checked
+                 if spec.keywords.contains(w) { set(a, r, .keyword) }
+                 else if spec.types, c >= 65, c <= 90, j - i > 1 { set(a, r, .type) }
+                 i = j; continue

@@ -8,6 +8,15 @@
  
  /// Text geometry of a part row for selection, copy, links and accessibility
  /// (agreed with the selection agent, 2026-10-06). Points are body-local: the
+@@ -38,7 +39,7 @@
+     func substring(_ r: NSRange) -> String {
+         let ns = plain as NSString
+         let lo = max(0, min(r.location, ns.length)), hi = max(lo, min(NSMaxRange(r), ns.length))
+-        return ns.substring(with: NSRange(location: lo, length: hi - lo))
++        return ns.checkedSubstring(NSRange(location: lo, length: hi - lo)) ?? "" // cmux: checked
+     }
+ 
+     /// Scroll offsets of regions (main thread state; MarkdownScroll).
 @@ -87,8 +88,8 @@
              let dx = offsetX(f.region)
              let a = inter.length > 0 ? inter.location - f.range.location : f.range.length
@@ -19,7 +28,43 @@
              var rect = CGRect(x: f.origin.x - dx + x0, y: f.origin.y, width: max(2, x1 - x0), height: f.height)
              if f.region >= 0, let reg = regions[checked: f.region] { rect = rect.intersection(reg.frame) } // checked
              if !rect.isNull, rect.width > 0 { out.append(rect) }
-@@ -146,7 +147,7 @@
+@@ -103,7 +104,7 @@
+         let ns = plain as NSString
+         var lo = min(offset, ns.length - 1), hi = lo
+         let set = CharacterSet.alphanumerics
+-        func isWord(_ i: Int) -> Bool { guard let u = Unicode.Scalar(ns.character(at: i)) else { return true }; return set.contains(u) || u == "_" }
++        func isWord(_ i: Int) -> Bool { guard let c = ns.checkedCharacter(at: i), let u = Unicode.Scalar(c) else { return true }; return set.contains(u) || u == "_" } // cmux: checked
+         while lo > 0, isWord(lo - 1) { lo -= 1 }
+         while hi < ns.length, isWord(hi) { hi += 1 }
+         return NSRange(location: lo, length: max(hi - lo, 1))
+@@ -120,9 +121,11 @@
+                 switch n.kind {
+                 case .code:
+                     let s = plain as NSString
+-                    let line = s.lineRange(for: NSRange(location: offset, length: 0))
++                    // cmux: checked (an offset outside the text selects the block)
++                    guard let caret = s.checkedRange(NSRange(location: offset, length: 0)) else { return n.range }
++                    let line = s.lineRange(for: caret)
+                     var r = NSIntersectionRange(line, n.range)
+-                    if r.length > 0, NSMaxRange(r) <= s.length, s.character(at: NSMaxRange(r) - 1) == 10 { r.length -= 1 }
++                    if r.length > 0, s.checkedCharacter(at: NSMaxRange(r) - 1) == 10 { r.length -= 1 }
+                     return r
+                 case .table:
+                     for row in n.children where NSLocationInRange(offset, row.range) { return row.range }
+@@ -135,7 +138,11 @@
+             }
+             return nil
+         }
+-        return find(ax) ?? (plain as NSString).paragraphRange(for: NSRange(location: min(offset, length), length: 0))
++        if let found = find(ax) { return found }
++        // cmux: checked (a negative offset selects nothing)
++        let s = plain as NSString
++        guard let caret = s.checkedRange(NSRange(location: min(offset, s.length), length: 0)) else { return NSRange(location: 0, length: 0) }
++        return s.paragraphRange(for: caret)
+     }
+ 
+     func link(at p: CGPoint) -> String? {
+@@ -146,7 +153,7 @@
              let idx = CTLineGetStringIndexForPosition(f.line, CGPoint(x: x, y: 0))
              guard idx != kCFNotFound else { continue }
              // The index is a caret position: the glyph under x is the one before it when x is past its middle.
@@ -28,7 +73,7 @@
              let glyph = x < x0 ? max(0, idx - 1) : idx
              if let hit = f.links.first(where: { NSLocationInRange(glyph, $0.0) }) { return hit.1 }
          }
-@@ -166,18 +167,18 @@
+@@ -166,18 +173,18 @@
  }
  
  /// Horizontal scroll offsets of markdown regions (code blocks, wide tables), keyed by

@@ -118,7 +118,7 @@
              }
              ctx.restoreGState()
          }
-@@ -365,13 +376,16 @@
+@@ -365,13 +376,17 @@
      static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
          let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
          // An outgoing link is the bubble's text colour (white; a themed host's own colour).
@@ -126,7 +126,9 @@
 +        let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
          let attr = tl.attributed(color: color, linkColor: link)
          for (i, line) in tl.lines.enumerated() where line.range.length > 0 {
-             let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line.range))
+-            let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line.range))
++            guard let lineText = attr.checkedAttributedSubstring(line.range) else { continue } // cmux: checked
++            let l = CTLineCreateWithAttributedString(lineText)
 +            let origin = CGPoint(x: body.minX + Fixture.bubblePadX, y: body.minY + Fixture.textBaseline + tl.lineOffset(i, hard: outgoing ? TextLayout.hardBreakAdvance : Fixture.lineHeight))
 +            // cmux: link chips (HomeLinkChip) under the line's text.
 +            HomeLinkChip.drawSpans(ctx, tl.chipSpans(line: i, attr: attr), origin: origin, tint: link, outgoing: outgoing, scale: Fixture.renderScale)
@@ -137,7 +139,7 @@
              CTLineDraw(l, ctx)
              ctx.restoreGState()
          }
-@@ -434,7 +448,7 @@
+@@ -434,7 +449,7 @@
              if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
          case "voiceMemo":
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -146,7 +148,7 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -456,7 +470,7 @@
+@@ -456,7 +471,7 @@
                            baseline: body.midY + 4, in: ctx)
          default:
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -155,7 +157,7 @@
              let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
              if a.kind == "contact" {
                  UIColor(white: 0.55, alpha: 1).setFill()
-@@ -563,103 +577,72 @@
+@@ -563,103 +578,72 @@
          }
      }
  
@@ -299,7 +301,7 @@
              ctx.fill(thumb)
              if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
                  let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
-@@ -668,16 +651,11 @@
+@@ -668,16 +652,11 @@
              }
              ctx.restoreGState()
              let (title, sub) = pv.lines
@@ -320,7 +322,7 @@
      }
  
      private static func fillBubble(_ ctx: CGContext, _ shape: UIBezierPath, outgoing: Bool, windowY: CGFloat) {
-@@ -842,9 +820,9 @@
+@@ -842,9 +821,9 @@
          let centroid = CGPoint(x: c.x, y: c.y - 0.27)
          let box = CGRect(x: centroid.x + 0.48 - s.width / 2, y: centroid.y + 0.84 - s.height / 2, width: s.width, height: s.height)
          let rgb = { (r: CGFloat, g: CGFloat, b: CGFloat) in UIColor(red: r / 255, green: g / 255, blue: b / 255, alpha: 1).cgColor }
@@ -333,7 +335,7 @@
          ctx.saveGState()
          ctx.beginTransparencyLayer(auxiliaryInfo: nil)
          img.draw(in: box)
-@@ -885,7 +863,9 @@
+@@ -885,7 +864,9 @@
  /// keyed by its row and the scale it is drawn at (`Key`), so two views at two backing scales (cmux Home: windows on a
  /// 2x and a 1x display) share the cache and never show each other's bitmaps. Every call takes the caller's scale
  /// (default `Fixture.renderScale`: inside a view's `Fixture.withRenderScale`, the view's).
@@ -344,7 +346,7 @@
      static let shared = RowBitmaps()
      /// `space`: the colour space the bitmap is drawn in (WideBitmap.drawSpace; AppKit: the window's display space,
      /// process-wide). Bitmaps of another display stay cached for a move back (cx-3cb scale-redraw).
-@@ -900,8 +880,11 @@
+@@ -900,8 +881,11 @@
          return q
      }()
      static let capacity = 500
@@ -358,7 +360,7 @@
      private(set) var bytes = 0
  
      /// The cache key of a row's bitmap: without the width for a width-invariant row
-@@ -965,50 +948,36 @@
+@@ -965,50 +949,36 @@
          queue.addOperation(op)
      }
  
@@ -428,7 +430,7 @@
  
      private func apply(_ batch: [(Key, CGImage, Int)]) {
          for (w, img, gen) in batch {
-@@ -1033,11 +1002,11 @@
+@@ -1033,11 +1003,11 @@
          bytes += img.bytesPerRow * img.height
          // Trim in chunks (removing from the front of the order array on every
          // insert copied it each time). Bounded by rows and by bytes (media rows are large).
@@ -443,7 +445,7 @@
                      freed += cache.value(for: spec).map { $0.bytesPerRow * $0.height } ?? 0
                      n += 1
                  }
-@@ -1046,15 +1015,52 @@
+@@ -1046,15 +1016,52 @@
              let imgs = drop.compactMap { cache.removeValue(forKey: $0) }
              bytes -= imgs.reduce(0) { $0 + $1.bytesPerRow * $1.height }
              // Freed off the main thread (vm_deallocate blocked main for up to 291 ms).
@@ -498,7 +500,7 @@
          bytes = 0
          cache.removeAll()
          order.removeAll()
-@@ -1069,13 +1075,10 @@
+@@ -1069,13 +1076,10 @@
          items.forEach { store($0.0, $0.1, scale: scale, space: WideBitmap.drawSpace) }
      }
  
@@ -514,7 +516,7 @@
              switch spec.kind { case .receipt, .typing: return nil; default: return render(spec, scale: scale).map { (spec, $0) } } // unallocated rows are skipped
          }
      }
-@@ -1134,11 +1137,29 @@
+@@ -1134,11 +1138,29 @@
  /// thread for up to 291 ms in a profile. The hop through the main queue lets
  /// Core Animation drop its references in the current turn first, so the
  /// background block holds the last one.
@@ -547,7 +549,7 @@
      }
  }
  
-@@ -1146,7 +1167,11 @@
+@@ -1146,7 +1168,11 @@
  enum BubbleView {
      static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
                             cornersOf frame: CGSize? = nil, circularEnds: Bool = false) {
@@ -560,7 +562,7 @@
          if outgoing {
              if windowY.isNaN { return }     // filled by the row's gradient layer
              ctx.saveGState()
-@@ -1161,18 +1186,9 @@
+@@ -1161,18 +1187,9 @@
      }
  }
  

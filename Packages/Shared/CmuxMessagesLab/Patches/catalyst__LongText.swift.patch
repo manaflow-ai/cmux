@@ -151,7 +151,7 @@
          lines = []; widths = []
          lineCount = n
      }
-@@ -297,7 +320,7 @@
+@@ -297,12 +320,13 @@
      /// `reuse`: the same block before text was appended (streaming): its lines before its last
      /// paragraph are kept and only the rest is typeset (paragraphs break independently).
      init(string: NSString, column: CGFloat, final: Bool, reuse: BlockLayout? = nil) {
@@ -160,7 +160,20 @@
          var lines: [NSRange] = [], widths: [CGFloat] = []
          var from = 0
          if let r = reuse, r.string.length <= string.length, r.string.length > 0,
-@@ -321,7 +344,7 @@
+-           string.substring(to: r.string.length) == r.string as String {
+-            let nl = r.string.range(of: "\n", options: .backwards, range: NSRange(location: 0, length: r.string.length - 1))
++           string.substring(to: r.string.length) == r.string as String,
++           let head = r.string.checkedRange(NSRange(location: 0, length: r.string.length - 1)) { // cmux: checked
++            let nl = r.string.range(of: "\n", options: .backwards, range: head)
+             if nl.location != NSNotFound {
+                 from = nl.location + 1
+                 for (l, w) in zip(r.lines, r.widths) where l.location < from { lines.append(l); widths.append(w) } // no index math
+@@ -317,11 +341,11 @@
+             var n = CTTypesetterSuggestLineBreak(ts, start, Double(column))
+             if n <= 0 { n = 1 }
+             var range = NSRange(location: start, length: n)
+-            let endsNL = tail.character(at: start + n - 1) == 10
++            let endsNL = tail.checkedCharacter(at: start + n - 1) == 10 // cmux: checked
              if endsNL { range.length -= 1 }
              lines.append(NSRange(location: range.location + from, length: range.length))
              // A blank line is 0 pt (length 0 would lay out the whole rest of the text: TextLayout.make).
@@ -169,7 +182,7 @@
              start += n
              if start == len && endsNL && final { lines.append(NSRange(location: len + from, length: 0)); widths.append(0) }
          }
-@@ -334,10 +357,9 @@
+@@ -334,56 +358,70 @@
  
      /// Drawing attributes (the bubble's text colour, kern, links detected in this block).
      func attributed(outgoing: Bool) -> NSAttributedString {
@@ -182,8 +195,13 @@
          let a = NSMutableAttributedString(string: string as String,
                                            attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
          if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
-@@ -348,42 +370,57 @@
-                 a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
+             // Long text is untrusted too: only URLs the link policy allows look like links
+             // (MarkdownLinkPolicy, shared/MARKDOWN.md Security; same rule as TextParts.linkRuns).
+             for m in BlockLayout.detector?.matches(in: string as String, range: NSRange(location: 0, length: string.length)) ?? [] {
+-                guard let url = m.url, MarkdownLinkPolicy.allows(url) else { continue }
+-                a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
++                guard let url = m.url, MarkdownLinkPolicy.allows(url), let found = a.checkedRange(m.range) else { continue } // cmux: checked
++                a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: found)
              }
          }
 -        drawAttr[outgoing] = a
@@ -259,7 +277,7 @@
      let index: LongTextIndex
      let width: CGFloat
      let column: CGFloat
-@@ -391,22 +428,35 @@
+@@ -391,22 +429,35 @@
      let markdown: Bool
      /// What the row's tiles look like (TiledBody sets it): a streamed tail block is measured and
      /// its tiles near the end are drawn off main, then both reach the screen in one publish.
@@ -307,7 +325,7 @@
  
      static let measureQueue: OperationQueue = {
          let q = OperationQueue()
-@@ -431,34 +481,32 @@
+@@ -431,34 +482,32 @@
          var v = (0..<index.blockCount).map { (b: Int) -> Int32 in
              max(index.pieces[checked: b] ?? 1, Int32(clamping: CrashGuard.int(Double((Float(index.estRef[checked: b] ?? 0) * k).rounded()))))
          }
@@ -351,7 +369,7 @@
      }
      var textHeight: CGFloat { CGFloat(totalLines) * Fixture.lineHeight }
      var size: CGSize { size(scale: Fixture.renderScale) }
-@@ -467,11 +515,11 @@
+@@ -467,11 +516,11 @@
          CGSize(width: Sizing.textBalloonWidth(column, column: column, scale: scale), height: textHeight + 2 * Fixture.bubblePadY)
      }
      var blockCount: Int { index.blockCount }
@@ -368,7 +386,7 @@
  
      func key(_ b: Int) -> BlockLayoutCache.Key {
          // A markdown block's layout also depends on whether the next block continues it.
-@@ -491,7 +539,7 @@
+@@ -491,7 +540,7 @@
          }
          let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b), reuse: reuse)
          BlockLayoutCache.shared.put(k, out)
@@ -377,7 +395,7 @@
          report(b, out.lineCount)
          return out
      }
-@@ -510,9 +558,7 @@
+@@ -510,9 +559,7 @@
      /// (2 screens), then publish counts and tiles together.
      func measureTail(_ blocks: Range<Int>) {
          guard !blocks.isEmpty else { return }
@@ -388,7 +406,7 @@
          LongTextLayout.tailQueue.addOperation { [weak self] in
              guard let self, !self.retired else { return }
              // Lines of the first tail block before this append: its tiles above them did not change.
-@@ -547,10 +593,11 @@
+@@ -547,10 +594,11 @@
                      line += c
                  }
              }
@@ -404,7 +422,7 @@
              LongTextCenter.schedule(self)
          }
      }
-@@ -563,7 +610,7 @@
+@@ -563,7 +611,7 @@
          }
          let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b))
          BlockLayoutCache.shared.put(key(b), out)
@@ -413,7 +431,7 @@
          return out
      }
  
-@@ -574,10 +621,11 @@
+@@ -574,10 +622,11 @@
          require(blocks: a..<(b + 1))
      }
      func require(blocks: Range<Int>) {
@@ -429,7 +447,7 @@
          guard !todo.isEmpty else { return }
          // Chunks of 8 blocks per operation (fewer queue hops).
          for i in stride(from: 0, to: todo.count, by: 8) {
-@@ -596,33 +644,38 @@
+@@ -596,33 +645,38 @@
      }
  
      func report(_ b: Int, _ n: Int) {
@@ -484,9 +502,27 @@
  
      // MARK: Anchors (text-local y: 0 at the first line's slot top)
  
-@@ -722,8 +775,8 @@
-                 if s < e || (lr.length == 0 && NSLocationInRange(lineRange.location, range)) {
-                     let attr = NSAttributedString(string: bl.string.substring(with: lr), attributes: [.font: Fixture.bodyFont])
+@@ -672,8 +726,9 @@
+             return (index.selStarts[checked: b] ?? 0) + min(md.length, md.offset(at: local))
+         }
+         let j = max(0, min(bl.lines.count - 1, line - firstLine(ofBlock: b)))
+-        guard let r = bl.lines[checked: j] else { return index.selStarts[checked: b] ?? 0 } // a block with no lines
+-        let attr = NSAttributedString(string: bl.string.substring(with: r), attributes: [.font: Fixture.bodyFont])
++        // a block with no lines; cmux: or a line outside its text (checked)
++        guard let r = bl.lines[checked: j], let piece = bl.string.checkedSubstring(r) else { return index.selStarts[checked: b] ?? 0 }
++        let attr = NSAttributedString(string: piece, attributes: [.font: Fixture.bodyFont])
+         let ct = CTLineCreateWithAttributedString(attr)
+         var i = CTLineGetStringIndexForPosition(ct, CGPoint(x: p.x, y: 0))
+         if i == kCFNotFound { i = 0 }
+@@ -719,11 +774,12 @@
+                 // A hard line end owns its newline; a soft wrap does not (the next line starts there).
+                 let soft = bl.lines.dropFirst(j + 1).first.map { $0.location == NSMaxRange(lr) } ?? false
+                 let s = max(range.location, lineRange.location), e = min(NSMaxRange(range), NSMaxRange(lineRange) + (soft ? 0 : 1))
+-                if s < e || (lr.length == 0 && NSLocationInRange(lineRange.location, range)) {
+-                    let attr = NSAttributedString(string: bl.string.substring(with: lr), attributes: [.font: Fixture.bodyFont])
++                if s < e || (lr.length == 0 && NSLocationInRange(lineRange.location, range)),
++                   let piece = bl.string.checkedSubstring(lr) { // cmux: checked
++                    let attr = NSAttributedString(string: piece, attributes: [.font: Fixture.bodyFont])
                      let ct = CTLineCreateWithAttributedString(attr)
 -                    let x0 = CTLineGetOffsetForStringIndex(ct, max(0, s - lineRange.location), nil)
 -                    let x1 = e > NSMaxRange(lineRange) ? (bl.widths[checked: j] ?? 0) + 4 : CTLineGetOffsetForStringIndex(ct, min(lr.length, e - lineRange.location), nil)
@@ -495,7 +531,15 @@
                      out.append(CGRect(x: x0, y: CGFloat(gl) * lh, width: max(1, x1 - x0), height: lh))
                  }
              }
-@@ -750,54 +803,97 @@
+@@ -743,61 +799,104 @@
+         while b < blockCount, let base = index.selStarts[checked: b], base < NSMaxRange(range) { // checked
+             let s = selectionString(b)
+             let lo = max(0, range.location - base), hi = min(s.length, NSMaxRange(range) - base)
+-            if lo < hi { out += s.substring(with: NSRange(location: lo, length: hi - lo)) }
++            if lo < hi, let piece = s.checkedSubstring(NSRange(location: lo, length: hi - lo)) { out += piece } // cmux: checked
+             b += 1
+         }
+         return out
      }
  }
  
@@ -624,7 +668,7 @@
          let apply = {
              rs.forEach { $0() }
              ls.forEach { $0.applyPending() }
-@@ -807,19 +903,26 @@
+@@ -807,19 +906,26 @@
  }
  
  /// Text to index and layouts (thread safe). Finds a streamed text's previous index by prefix.
@@ -661,7 +705,7 @@
      static let maxIndexes = 12
      static let syncBytes = 512 << 10
  
-@@ -843,65 +946,119 @@
+@@ -843,65 +949,119 @@
          let idx = index(for: text) ?? LongTextIndex.build(text, lineage: 0)
          let md = idx.markdown && markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
          let wk = md || !idx.markdown ? width : -width
@@ -815,7 +859,7 @@
                      let old = layoutsOf(prev)
                      register(i, addr: addr, print: pr, head: hd, replacing: prev)
                      // Layouts carry the measured blocks. The tail keeps its previous line count (and
-@@ -911,7 +1068,10 @@
+@@ -911,7 +1071,10 @@
                      for o in old {
                          let tailOffMain = LongText.offMainTail
                          let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
@@ -827,7 +871,7 @@
                          if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // never an inverted range
                          // The previous rule: the new tail is measured now (about 4 KB).
                          let reuse = BlockLayoutCache.shared.get(o.key(keep))
-@@ -921,10 +1081,9 @@
+@@ -921,10 +1084,9 @@
                      return i
                  }
              }
@@ -841,7 +885,7 @@
                  let i = LongTextIndex.build(t, lineage: lineage)
                  register(i, addr: addr, print: pr, head: hd, replacing: nil)
                  return i
-@@ -932,8 +1091,9 @@
+@@ -932,8 +1094,9 @@
              // Large: a placeholder (estimated height, no tiles) until the scan finishes off main.
              let ph = LongTextIndex.placeholder(t, lineage: lineage)
              register(ph, addr: addr, print: pr, head: hd, replacing: nil)
@@ -852,7 +896,7 @@
                  LongTextCenter.scheduleReplace(lineage: lineage) {
                      self.register(i, addr: addr, print: pr, head: hd, replacing: ph)
                  }
-@@ -943,37 +1103,42 @@
+@@ -943,37 +1106,42 @@
      }
  
      private func layoutsOf(_ i: LongTextIndex) -> [LongTextLayout] {
@@ -920,7 +964,7 @@
  }
  
  /// Collapsed long messages (shared/LONG-MESSAGES.md, product rule): a message taller than
-@@ -982,6 +1147,11 @@
+@@ -982,6 +1150,11 @@
  /// fixed (80 lines and the band), so measurement never changes it.
  enum LongTextFold {
      static let headLines = 40, tailLines = 40
@@ -932,7 +976,7 @@
      /// 3 screens (the 1041 pt window).
      static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) }
      static var bandHeight: CGFloat { 2 * Fixture.lineHeight }
-@@ -992,15 +1162,16 @@
+@@ -992,15 +1165,16 @@
          if disabledByArgument { return false }
          return UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
      }

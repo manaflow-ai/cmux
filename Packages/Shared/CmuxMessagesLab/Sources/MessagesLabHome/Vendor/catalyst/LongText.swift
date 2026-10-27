@@ -324,8 +324,9 @@ final class BlockLayout: Sendable {
         var lines: [NSRange] = [], widths: [CGFloat] = []
         var from = 0
         if let r = reuse, r.string.length <= string.length, r.string.length > 0,
-           string.substring(to: r.string.length) == r.string as String {
-            let nl = r.string.range(of: "\n", options: .backwards, range: NSRange(location: 0, length: r.string.length - 1))
+           string.substring(to: r.string.length) == r.string as String,
+           let head = r.string.checkedRange(NSRange(location: 0, length: r.string.length - 1)) { // cmux: checked
+            let nl = r.string.range(of: "\n", options: .backwards, range: head)
             if nl.location != NSNotFound {
                 from = nl.location + 1
                 for (l, w) in zip(r.lines, r.widths) where l.location < from { lines.append(l); widths.append(w) } // no index math
@@ -340,7 +341,7 @@ final class BlockLayout: Sendable {
             var n = CTTypesetterSuggestLineBreak(ts, start, Double(column))
             if n <= 0 { n = 1 }
             var range = NSRange(location: start, length: n)
-            let endsNL = tail.character(at: start + n - 1) == 10
+            let endsNL = tail.checkedCharacter(at: start + n - 1) == 10 // cmux: checked
             if endsNL { range.length -= 1 }
             lines.append(NSRange(location: range.location + from, length: range.length))
             // A blank line is 0 pt (length 0 would lay out the whole rest of the text: TextLayout.make).
@@ -366,8 +367,8 @@ final class BlockLayout: Sendable {
             // Long text is untrusted too: only URLs the link policy allows look like links
             // (MarkdownLinkPolicy, shared/MARKDOWN.md Security; same rule as TextParts.linkRuns).
             for m in BlockLayout.detector?.matches(in: string as String, range: NSRange(location: 0, length: string.length)) ?? [] {
-                guard let url = m.url, MarkdownLinkPolicy.allows(url) else { continue }
-                a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
+                guard let url = m.url, MarkdownLinkPolicy.allows(url), let found = a.checkedRange(m.range) else { continue } // cmux: checked
+                a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: found)
             }
         }
         // cmux: built outside the lock; when two renderers build the same block at once, both draw the first one stored.
@@ -725,8 +726,9 @@ final class LongTextLayout: Sendable {
             return (index.selStarts[checked: b] ?? 0) + min(md.length, md.offset(at: local))
         }
         let j = max(0, min(bl.lines.count - 1, line - firstLine(ofBlock: b)))
-        guard let r = bl.lines[checked: j] else { return index.selStarts[checked: b] ?? 0 } // a block with no lines
-        let attr = NSAttributedString(string: bl.string.substring(with: r), attributes: [.font: Fixture.bodyFont])
+        // a block with no lines; cmux: or a line outside its text (checked)
+        guard let r = bl.lines[checked: j], let piece = bl.string.checkedSubstring(r) else { return index.selStarts[checked: b] ?? 0 }
+        let attr = NSAttributedString(string: piece, attributes: [.font: Fixture.bodyFont])
         let ct = CTLineCreateWithAttributedString(attr)
         var i = CTLineGetStringIndexForPosition(ct, CGPoint(x: p.x, y: 0))
         if i == kCFNotFound { i = 0 }
@@ -772,8 +774,9 @@ final class LongTextLayout: Sendable {
                 // A hard line end owns its newline; a soft wrap does not (the next line starts there).
                 let soft = bl.lines.dropFirst(j + 1).first.map { $0.location == NSMaxRange(lr) } ?? false
                 let s = max(range.location, lineRange.location), e = min(NSMaxRange(range), NSMaxRange(lineRange) + (soft ? 0 : 1))
-                if s < e || (lr.length == 0 && NSLocationInRange(lineRange.location, range)) {
-                    let attr = NSAttributedString(string: bl.string.substring(with: lr), attributes: [.font: Fixture.bodyFont])
+                if s < e || (lr.length == 0 && NSLocationInRange(lineRange.location, range)),
+                   let piece = bl.string.checkedSubstring(lr) { // cmux: checked
+                    let attr = NSAttributedString(string: piece, attributes: [.font: Fixture.bodyFont])
                     let ct = CTLineCreateWithAttributedString(attr)
                     let x0 = ct.offset(forStringIndex: max(0, s - lineRange.location))
                     let x1 = e > NSMaxRange(lineRange) ? (bl.widths[checked: j] ?? 0) + 4 : ct.offset(forStringIndex: min(lr.length, e - lineRange.location))
@@ -796,7 +799,7 @@ final class LongTextLayout: Sendable {
         while b < blockCount, let base = index.selStarts[checked: b], base < NSMaxRange(range) { // checked
             let s = selectionString(b)
             let lo = max(0, range.location - base), hi = min(s.length, NSMaxRange(range) - base)
-            if lo < hi { out += s.substring(with: NSRange(location: lo, length: hi - lo)) }
+            if lo < hi, let piece = s.checkedSubstring(NSRange(location: lo, length: hi - lo)) { out += piece } // cmux: checked
             b += 1
         }
         return out

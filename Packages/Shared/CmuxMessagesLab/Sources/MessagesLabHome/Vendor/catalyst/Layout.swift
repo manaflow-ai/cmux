@@ -95,7 +95,8 @@ struct TextLayout: Hashable {
             ? TextLayout(text: text, runs: runs, lines: [], width: 0).attributed(color: .white, linkColor: .white, kern: 0)
             : NSAttributedString(string: text, attributes: [.font: font])
         let ts = CTTypesetterCreateWithAttributedString(attr)
-        let len = (text as NSString).length
+        let ns = text as NSString // cmux: one NSString for the checked line reads below
+        let len = ns.length
         var lines: [Line] = []
         var start = 0
         while start < len {
@@ -103,7 +104,7 @@ struct TextLayout: Hashable {
             if n <= 0 { n = 1 }
             var range = NSRange(location: start, length: n)
             // A hard newline ends the line but is not drawn or measured.
-            let s = (text as NSString).substring(with: range)
+            guard let s = ns.checkedSubstring(range) else { break } // cmux: a break past the end ends the layout (no NSRangeException)
             if s.hasSuffix("\n") { range.length -= 1 }
             // A blank line (the empty line of a paragraph break) is 0 pt wide: CTTypesetterCreateLine with
             // length 0 lays out the whole rest of the text, which made every text with a paragraph break
@@ -128,35 +129,39 @@ struct TextLayout: Hashable {
     func attributed(color: UIColor, linkColor: UIColor, kern: CGFloat = Fixture.bodyKern) -> NSAttributedString {
         let a = NSMutableAttributedString(string: text, attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: kern])
         for r in runs {
-            // a run that does not fit this text is skipped: negative, or past the end
-            // without overflowing (NSMaxRange of Int.max traps; addAttribute raises NSRangeException).
-            guard let range = Self.range(r.start, r.length, in: a.length) else { continue }
+            // cmux: the run's attributes in the order they were added (a later one wins), set once on its checked range
+            // (p10-stability-169): a run that does not fit this text is skipped, negative or past the end
+            // (addAttribute raises NSRangeException).
+            var add: [NSAttributedString.Key: Any] = [:]
             var traits: UIFontDescriptor.SymbolicTraits = []
             for s in r.style ?? [] {
                 switch s {
                 case "bold": traits.insert(.traitBold)
                 case "italic": traits.insert(.traitItalic)
-                case "underline": a.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
-                case "strikethrough": a.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+                case "underline": add[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                case "strikethrough": add[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
                 // cmux: a quoted excerpt (Reply to Selection, a Markdown `>` line) in the text's own colour at 66 %.
-                case "quote": a.addAttribute(.foregroundColor, value: color.withAlphaComponent(color.alphaComponent * 0.66), range: range)
+                case "quote": add[.foregroundColor] = color.withAlphaComponent(color.alphaComponent * 0.66)
                 default: break
                 }
             }
             if r.mention != nil { traits.insert(.traitBold) }
             // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
             if !traits.isEmpty, let f = HomeFonts.font(Fixture.bodyFont, adding: traits) {
-                a.addAttribute(.font, value: f, range: range)
+                add[.font] = f
             }
             // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
             // One font for the process (HomeFonts.code): one made per run on RowBitmaps' threads came back nil.
             if r.style?.contains("code") == true {
-                a.addAttribute(.font, value: HomeFonts.code, range: range)
+                add[.font] = HomeFonts.code
             }
             if r.link != nil {
-                a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
+                add[.foregroundColor] = linkColor
+                add[.underlineStyle] = NSUnderlineStyle.single.rawValue
             }
-            if r.detected != nil { a.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
+            if r.detected != nil { add[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            guard !add.isEmpty, let range = a.checkedRange(NSRange(location: r.start, length: r.length)) else { continue }
+            a.addAttributes(add, range: range)
         }
         HomeLinkChip.reserve(in: a, runs: runs, kern: kern)
         return a
@@ -182,7 +187,7 @@ struct TextLayout: Hashable {
         let hardAdvance = hard
         for line in lines.prefix(max(1, i + 1)).dropFirst() { // no index math
             let loc = line.range.location
-            let hard = loc > 0 && loc <= ns.length && ns.character(at: loc - 1) == 10
+            let hard = ns.checkedCharacter(at: loc - 1) == 10 // cmux: checked (nil at loc 0 or past the end)
             y += hard ? hardAdvance : Fixture.lineHeight
         }
         return y
@@ -195,8 +200,8 @@ struct TextLayout: Hashable {
         guard i >= 0, i < lines.count, let lineRange = lines[checked: i]?.range else { return nil } // checked
         let attr = attributed(color: .white, linkColor: .white)
         // lines measured for another text (stale during an edit or a streamed reply) are not read past the end.
-        guard Self.range(lineRange.location, lineRange.length, in: attr.length) != nil else { return nil }
-        let line = CTLineCreateWithAttributedString(attr.attributedSubstring(from: lineRange))
+        guard let lineText = attr.checkedAttributedSubstring(lineRange) else { return nil } // cmux: checked
+        let line = CTLineCreateWithAttributedString(lineText)
         let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: p.x, y: 0)) + lineRange.location
         return runs.first { $0.link != nil && idx >= $0.start && idx < $0.start + $0.length }?.link
     }
@@ -434,8 +439,8 @@ struct ThreadPreview: Hashable {
                 lines.append(truncate(rest, maxWidth: maxWidth))
                 break
             }
-            guard TextLayout.range(line.range.location, line.range.length, in: ns.length) != nil else { break }
-            lines.append(ns.substring(with: line.range))
+            guard let text = ns.checkedSubstring(line.range) else { break } // cmux: checked
+            lines.append(text)
         }
         return lines.isEmpty ? [""] : lines
     }
@@ -447,7 +452,8 @@ struct ThreadPreview: Hashable {
         let ns = s as NSString
         let cut = n == kCFNotFound ? ns.length : min(max(0, n), ns.length)
         // A composed character is never split.
-        let safe = cut < ns.length ? ns.rangeOfComposedCharacterSequence(at: cut).location : cut
+        var safe = cut // cmux: checked index
+        if let at = ns.checkedIndex(cut) { safe = ns.rangeOfComposedCharacterSequence(at: at).location }
         var head = ns.substring(to: safe)
         while head.last == " " { head.removeLast() }
         return head + "…"
@@ -621,7 +627,7 @@ enum Sizing {
     static func linkTitleLines(_ title: String, width: CGFloat) -> [String] {
         let tl = TextLayout.make(title, runs: [], maxWidth: width - 20, font: linkTitleFont)
         let ns = title as NSString
-        var lines = tl.lines.map { ns.substring(with: $0.range) }
+        var lines = tl.lines.compactMap { ns.checkedSubstring($0.range) } // cmux: checked
         if lines.count > 2 { lines = Array(lines.prefix(2)); lines[1] = lines[1].trimmingCharacters(in: .whitespaces) + "…" }
         return lines
     }
@@ -886,7 +892,7 @@ final class MeasureCache: Sendable {
         let s = tl.text as NSString
         for l in tl.lines {
             let end = NSMaxRange(l.range)
-            guard end >= s.length || s.character(at: end) == 0x0A else { return nil }
+            guard end >= s.length || s.checkedCharacter(at: end) == 0x0A else { return nil } // cmux: checked
         }
         return Value(size: v.size, text: tl, width: width)
     }
