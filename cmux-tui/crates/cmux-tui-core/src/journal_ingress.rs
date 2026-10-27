@@ -2327,8 +2327,10 @@ mod tests {
             release_gate_path.as_os_str(),
         ))
         .unwrap();
+        // SAFETY: `release_gate_path_c` is a NUL-terminated CString that outlives the call.
+        let made_release_gate = unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) };
         assert_eq!(
-            unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) },
+            made_release_gate,
             0,
             "failed to create descendant release gate: {}",
             io::Error::last_os_error()
@@ -2344,8 +2346,11 @@ mod tests {
             std::os::unix::ffi::OsStrExt::as_bytes(release_ready_signal_path.as_os_str()),
         )
         .unwrap();
+        // SAFETY: `release_ready_signal_path_c` is a NUL-terminated CString that outlives the call.
+        let made_ready_signal =
+            unsafe { libc::mkfifo(release_ready_signal_path_c.as_ptr(), 0o600) };
         assert_eq!(
-            unsafe { libc::mkfifo(release_ready_signal_path_c.as_ptr(), 0o600) },
+            made_ready_signal,
             0,
             "failed to create descendant readiness signal: {}",
             io::Error::last_os_error()

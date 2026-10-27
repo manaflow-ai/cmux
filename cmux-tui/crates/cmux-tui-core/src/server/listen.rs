@@ -99,7 +99,7 @@ pub(super) fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()>
         // The effective user must own the directory before we chmod it. This
         // prevents an inherited path from being used to mutate another user's
         // runtime directory.
-        if metadata.uid() != unsafe { libc::geteuid() } {
+        if metadata.uid() != platform::effective_uid() {
             anyhow::bail!(
                 "runtime socket directory is not owned by the effective user: {}",
                 dir.display()
@@ -280,7 +280,7 @@ impl SocketStartLock {
                     "session-server start lock has unexpected hard links",
                 ));
             }
-            if metadata.uid() != unsafe { libc::geteuid() } {
+            if metadata.uid() != platform::effective_uid() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::PermissionDenied,
                     "session-server start lock owner changed",
