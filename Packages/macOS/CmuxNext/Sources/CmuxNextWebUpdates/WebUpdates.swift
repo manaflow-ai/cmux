@@ -23,6 +23,22 @@ import Observation
 public final class WebUpdates {
     public static let shared = WebUpdates()
 
+    /// How the updater reads the network and keeps time: URLSession and the continuous clock in
+    /// the app, a fake transport and a manual clock in tests.
+    nonisolated struct Transport: Sendable {
+        var fetch: WebUpdater.Fetch
+        var download: WebUpdater.Download
+        var clock: any Clock<Duration>
+
+        static let network = Transport(fetch: { try await URLSession.shared.data(for: $0) },
+                                       download: { try await WebUpdater.downloadToFile($0) }, clock: ContinuousClock())
+    }
+
+    /// The folder the pages' scheme handlers serve from and the views they served.
+    @ObservationIgnored let overlay: WebBundleOverlay
+    @ObservationIgnored let servedViews: WebBundleServedViews
+    @ObservationIgnored private let transport: Transport
+
     public private(set) var updater: WebUpdater?
     /// The folder to serve from the next safe point (`.some(nil)`: the bundled web).
     public private(set) var pending: URL??
@@ -57,6 +73,12 @@ public final class WebUpdates {
     @ObservationIgnored private var settings: UpdatesSettings?
     /// Whether startup completed (``startChecks()``): an updater made after it reads at once.
     @ObservationIgnored private var checksStarted = false
+
+    init(overlay: WebBundleOverlay = .shared, servedViews: WebBundleServedViews = .shared, transport: Transport = .network) {
+        self.overlay = overlay
+        self.servedViews = servedViews
+        self.transport = transport
+    }
 
     /// What the launch read of the kept update found (``startLaunchRead(bundle:on:)``).
     public nonisolated struct Launch: Sendable {
@@ -113,14 +135,13 @@ public final class WebUpdates {
     private func start(_ launch: LaunchRead<Launch?>?, bundle: Bundle) {
         guard !started, inputs != nil, let launch else { return }
         started = true
-        let overlay = WebBundleOverlay.shared
         if let agentPane = AgentPaneView.bundledPage?.deletingLastPathComponent() {
             overlay.register(bundled: agentPane, output: WebUpdateTree.outputs[0])
         }
         if let resources = bundle.resourceURL {
             overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: resources), output: WebUpdateTree.outputs[4])
         }
-        if WebBundleServedViews.shared.isEmpty {
+        if servedViews.isEmpty {
             launchServed = true
             overlay.load { [weak self] in await self?.launchTree(await launch.finished()) }
         } else {
@@ -162,12 +183,13 @@ public final class WebUpdates {
     private func makeUpdater(_ launch: Launch) -> WebUpdater? {
         guard let inputs else { return nil }
         let updater = WebUpdater(store: launch.store, app: launch.app, keys: .bundled(inputs.files), energy: inputs.energy,
-                                 kept: launch.kept, checksHeld: !checksStarted)
+                                 clock: transport.clock, kept: launch.kept, checksHeld: !checksStarted,
+                                 fetch: transport.fetch, download: transport.download)
         updater.onReady = { [weak self] tree, pointer in
             self?.handedOver = true
             self?.ready(tree, version: pointer)
         }
-        updater.served = { WebBundleOverlay.shared.activeTree }
+        updater.served = { [overlay] in overlay.activeTree }
         // Checks come every minute only while cmux is in the front (the activation observers follow it).
         updater.foreground = NSApp?.isActive ?? false
         if let shown = inputs.shown {
@@ -220,10 +242,10 @@ public final class WebUpdates {
         safePoint.cancel()
         let version = pendingVersion
         swapped = .some(version)
-        guard WebBundleOverlay.shared.activate(tree) else { return 0 }
+        guard overlay.activate(tree) else { return 0 }
         // task-owner: one prune of the trees nothing serves now; it ends by itself
         if let updater { Task { await updater.pruneUnused() } }
-        let reloaded = WebBundleServedViews.shared.reloadServed()
+        let reloaded = servedViews.reloadServed()
         // A swap back to the bundled pages (no version) clears an unseen note of an earlier one.
         if reloaded > 0 { unseenNote = nil }
         if reloaded > 0, let version { note(version.updatedNote) }
