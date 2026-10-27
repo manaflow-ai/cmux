@@ -17468,7 +17468,7 @@ private struct SidebarMetadataRows: View {
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
-    private let collapsedEntryLimit = 3
+    private let collapsedEntryLimit = SidebarWorkspaceSnapshotBuilder.collapsedMetadataEntryLimit
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -17500,8 +17500,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var visibleEntries: [SidebarStatusEntry] {
-        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
-        return Array(entries.prefix(collapsedEntryLimit))
+        SidebarWorkspaceSnapshotBuilder.visibleMetadataEntries(entries, isExpanded: isExpanded)
     }
 
     private var helpText: String {

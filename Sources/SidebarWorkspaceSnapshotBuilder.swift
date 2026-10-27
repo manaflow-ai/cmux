@@ -4,6 +4,15 @@ import Foundation
 
 /// Workspace sidebar snapshot value types extracted from `ContentView.swift`, which sits at its file-length budget.
 struct SidebarWorkspaceSnapshotBuilder {
+    /// How many status lines a workspace row shows before "Show more".
+    static let collapsedMetadataEntryLimit = 3
+
+    /// The status lines a workspace row shows: all of them when expanded, else the first
+    /// ``collapsedMetadataEntryLimit`` in display order.
+    static func visibleMetadataEntries(_ entries: [SidebarStatusEntry], isExpanded: Bool) -> [SidebarStatusEntry] {
+        isExpanded ? entries : Array(entries.prefix(collapsedMetadataEntryLimit))
+    }
+
     struct PresentationKey: Equatable {
         let showsWorkspaceDescription: Bool
         let usesVerticalBranchLayout: Bool

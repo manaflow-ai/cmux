@@ -25,7 +25,11 @@ enum SessionPriorityPaneState: Equatable {
 /// The one sidebar row per workspace that shows its tier, difficulty, target and state.
 enum SessionPriorityStatusRow {
     static let key = "session_priority"
-    static let priority = -5
+    /// Above an agent's ordinary status line and program status (priority 0 to 4), so the row
+    /// stays among the three lines a collapsed workspace row shows next to two `set-status
+    /// --priority 200` lines; below an agent line that asks for attention (needs input or an
+    /// error, priority 100), which it never hides.
+    static let priority = 50
 
     static func entry(
         tier: SessionPriorityTier,
