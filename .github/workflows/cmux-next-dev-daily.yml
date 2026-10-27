@@ -397,8 +397,12 @@ jobs:
     # cutting-edge DEV artifact.
     needs: [sign]
     if: needs.sign.outputs.signed == 'true'
-    # No concurrency group (a group replaces a pending run, which the dev-build
-    # rule forbids).
+    # This copy's publish updates the rolling release without a lease, so its
+    # group still serializes it. main's copy, the one that runs, replaced the
+    # group with an R2 lease and a newest-wins check.
+    concurrency:
+      group: cmux-next-dev-daily
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
