@@ -28,6 +28,12 @@
 // INITIALIZE, the set the app runs in process with (CEFSwitches); the host
 // fits them to its own message loop and adds TimerSlackMac (host_switches.h).
 //
+// No window of the host is ever on screen (task p01-process-068): from
+// initialize on, every Chromium widget of a detached page is blocked by the
+// fork and dismissed here (host_blocked_widgets.h), and a host window that
+// still shows (a window-modal sheet, an AppKit panel) is ordered out and
+// logged (ObserveHostWindows).
+//
 // App Nap: no window of the host is on screen, so macOS may nap it. The host
 // holds a user-initiated activity while cmux shows one of its pages and lets
 // App Nap apply when every page is hidden (host_page_activity.h, task
@@ -63,6 +69,7 @@
 #include "chromium_host_input_ring.h"
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
+#include "host_blocked_widgets.h"
 #include "host_dispatch.h"
 #include "host_page_activity.h"
 #include "host_switches.h"
@@ -184,6 +191,28 @@ ForkInputCalls ResolveForkInputCalls(const std::string& framework_binary) {
   calls.set_wheel_ack_handler =
       reinterpret_cast<cmux_host::SetWheelAckHandlerFn>(dlsym(image, "cmux_set_wheel_ack_handler"));
   return calls;
+}
+
+// The fork's blocked widget calls (fork API 31, host_blocked_widgets.h),
+// looked up as ResolveForkInputCalls does; nullptr below API 31.
+struct ForkBlockedWidgetCalls {
+  cmux_host::SetBlockedWidgetHandlerFn set_handler = nullptr;
+  cmux_host::BlockedWidgetCloseFn close = nullptr;
+};
+
+ForkBlockedWidgetCalls ResolveForkBlockedWidgetCalls(const std::string& framework_binary) {
+  ForkBlockedWidgetCalls calls;
+  void* image = dlopen(framework_binary.c_str(), RTLD_NOLOAD | RTLD_LAZY);
+  if (!image) return calls;
+  calls.set_handler =
+      reinterpret_cast<cmux_host::SetBlockedWidgetHandlerFn>(dlsym(image, "cmux_set_blocked_widget_handler"));
+  calls.close = reinterpret_cast<cmux_host::BlockedWidgetCloseFn>(dlsym(image, "cmux_blocked_widget_close"));
+  return calls;
+}
+
+// One line of the host's log (its stderr: cmux's app log).
+void HostLog(const std::string& line) {
+  fprintf(stderr, "cmux-chromium-host: %s\n", line.c_str());
 }
 
 // A task for CefPostTask(TID_UI): the default UI queue, for a fork without
@@ -401,6 +430,42 @@ class HostMain : public cmux_host::HostDelegate {
   int exit_status_ = 0;
 };
 
+// The backstop for a host window that shows although the fork blocks
+// Chromium's widgets (task p01-process-068): a window-modal sheet, which
+// AppKit's -beginSheet: shows outside headless mode, or an AppKit panel. A
+// window ordered in with alpha above 0 is taken off screen (a sheet ended
+// through its parent, as its own Escape would, so Chromium's completion
+// handler closes the widget) and logged as UNEXPECTED_WINDOW. The host's own
+// page windows are never ordered in, and Chromium's detached page windows
+// have alpha 0. Main thread.
+void TakeOffScreen(NSWindow* window) {
+  if (!window || !window.isVisible || window.alphaValue <= 0) return;
+  NSWindow* parent = window.sheetParent;
+  const char* title = window.title.UTF8String;
+  HostLog(cmux_host::UnexpectedWindowLine(object_getClassName(window), title ? title : "", parent != nil));
+  if (parent) {
+    [parent endSheet:window];
+  } else {
+    [window orderOut:nil];
+  }
+}
+
+// A window coming on screen changes its occlusion state (AppKit has no
+// public "did become visible" notification), and a sheet or panel that
+// takes the keyboard becomes key (ObserveActivation).
+void ObserveHostWindows() {
+  [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidChangeOcclusionStateNotification
+                                                  object:nil
+                                                   queue:NSOperationQueue.mainQueue
+                                              usingBlock:^(NSNotification* note) {
+                                                if (![note.object isKindOfClass:NSWindow.class]) return;
+                                                NSWindow* window = note.object;
+                                                if (window.occlusionState & NSWindowOcclusionStateVisible) {
+                                                  TakeOffScreen(window);
+                                                }
+                                              }];
+}
+
 void ObserveActivation() {
   // The host shares cmux's bundle id and is never the app a person uses:
   // if anything activates it (a click or an accessibility focus on a page
@@ -420,6 +485,7 @@ void ObserveActivation() {
                     NSWindow* key = NSApp.keyWindow;
                     fprintf(stderr, "cmux-chromium-host: a window became key: %s\n",
                             key ? object_getClassName(key) : "none");
+                    TakeOffScreen(key);
                     ReturnActivationToParent();
                   }];
 }
@@ -470,6 +536,7 @@ int main(int argc, char* argv[]) {
     [ChromiumHostApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     ObserveActivation();
+    ObserveHostWindows();
   }
   // Held from here, through Chromium's start, until the first shown page
   // count after initialize (HostContext::Resume).
@@ -489,6 +556,7 @@ int main(int argc, char* argv[]) {
     return cmux_host::kExitForkAPI;
   }
   const ForkInputCalls fork_input = ResolveForkInputCalls(binary);
+  const ForkBlockedWidgetCalls fork_blocked = ResolveForkBlockedWidgetCalls(binary);
   if (!cmux_shim_prepare_application()) {
     fprintf(stderr, "cmux-chromium-host: NSApp does not implement CefAppProtocol\n");
     return cmux_host::kExitInitialize;
@@ -565,6 +633,12 @@ int main(int argc, char* argv[]) {
   CFRunLoopRun();
   CFRunLoopRemoveSource(CFRunLoopGetMain(), keep_alive, kCFRunLoopCommonModes);
   CFRelease(keep_alive);
+  // Chromium's widgets of detached pages, from initialize on: each is
+  // dismissed in a UI task after its report and logged. Outlives
+  // cmux_shim_shutdown, so a dismissal posted during shutdown finds it.
+  cmux_host::BlockedWidgets blocked_widgets(
+      [close = fork_blocked.close](int widget_id) { return close ? close(widget_id) : 0; }, &PostDefaultUITask,
+      &HostLog);
   int status = host_main.exit_status();
   if (!host_main.quit_before_start() && host_main.request()) {
     const cmux_host::InitializeRequest& request = *host_main.request();
@@ -587,6 +661,11 @@ int main(int argc, char* argv[]) {
       return cmux_host::kExitInitialize;
     }
     host_main.set_running();
+    // Before Resume runs cmux's first op, so before any page is detached.
+    if (!blocked_widgets.Install(fork_blocked.set_handler)) {
+      HostLog("no blocked widget handler (fork API " + std::to_string(fork_api) +
+              "): Chromium's own widgets of a page can show");
+    }
     input_tasks.Start();
     PostToMain([&host, &ordered, &check] {
       host.Resume();
