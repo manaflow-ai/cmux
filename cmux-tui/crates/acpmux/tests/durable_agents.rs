@@ -2552,6 +2552,21 @@ async fn a_left_host_whose_log_cannot_be_read_ends_under_mdm_off() {
     );
 }
 
+/// Review 2 of #26054: under MDM's off, a left host whose log read back finds no record (its
+/// segments could not be listed this time; the debug seam `ACPMUX_TEST_LEFT_HOST_SCAN_EMPTY`)
+/// is not known to ask: the read never saw the host's start, so it is ended, never adopted.
+#[tokio::test]
+async fn a_left_host_whose_log_reads_back_empty_ends_under_mdm_off() {
+    let (mut daemon, _session, harness_pid) = left_in_bypass("mdmscanempty", None).await;
+    daemon.env.push(("ACPMUX_TEST_LEFT_HOST_SCAN_EMPTY".to_owned(), "1".to_owned()));
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next daemon adopted a host whose log read back nothing under the managed off"
+    );
+}
+
 /// Rewrites the first record of `session`'s log whose line holds every one of `marks` with
 /// `rewrite`, for the next daemon to read.
 fn rewrite_log_record(

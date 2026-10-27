@@ -444,13 +444,21 @@ impl Hub {
         // Debug builds only: `ACPMUX_TEST_LEFT_HOST_SCAN_FAILS` makes this read fail before it reads
         // anything, as an unreadable log does, so the daemon's integration tests can drive that
         // path. Release builds have no seam.
+        // `ACPMUX_TEST_LEFT_HOST_SCAN_EMPTY` makes it read no record, as a log whose segments
+        // could not be listed this time does.
         #[cfg(debug_assertions)]
-        let fails = std::env::var_os("ACPMUX_TEST_LEFT_HOST_SCAN_FAILS").is_some();
+        let (fails, empty) = (
+            std::env::var_os("ACPMUX_TEST_LEFT_HOST_SCAN_FAILS").is_some(),
+            std::env::var_os("ACPMUX_TEST_LEFT_HOST_SCAN_EMPTY").is_some(),
+        );
         #[cfg(not(debug_assertions))]
-        let fails = false;
+        let (fails, empty) = (false, false);
         let scan = |visit: &mut dyn FnMut(crate::store::EventRecord) -> bool| {
             if fails {
                 return Err(anyhow::anyhow!("the log could not be read"));
+            }
+            if empty {
+                return Ok(());
             }
             self.store.scan_strict(&session.id, start.saturating_sub(1), visit)
         };
