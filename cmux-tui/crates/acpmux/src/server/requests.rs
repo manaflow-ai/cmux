@@ -1717,7 +1717,13 @@ async fn dispatch_request(
         }
         method::MUX_PERMISSION_GROUPS => {
             let s = hub.resolve(session_key(&params)?)?;
-            hub.permission_groups(&s, &params)
+            let mut list = hub.permission_groups(&s, &params)?;
+            // Only the person allows a group (`hub/person.rs`): a reader that
+            // is not one is told so, and draws no Allow it cannot give.
+            if !conn.is_person() {
+                list["allowRefused"] = json!(crate::hub::person::REASON);
+            }
+            Ok(list)
         }
         method::MUX_PERMISSION_GROUP_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
