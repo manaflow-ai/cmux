@@ -52,6 +52,14 @@ final class CEFHostStart {
     private(set) var acksWheels = false
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
+    /// The host Chromium ran on ended and its pages do not show it yet: `CEFRuntime.hostWireEnded` sets it,
+    /// `CEFRuntime.hostEnded(_:)` takes it with the exit they show; the next attach clears it.
+    var pagesAwaitEnd = false
+    /// What the host's end runs, whichever reports it first: the supervisor
+    /// (``ChromiumHostSupervising/observeHostEnds(_:)``) or the wire's own end
+    /// (``CEFHostReplies/wireEnded()``). The runtime that owns this start sets its `hostWireEnded`,
+    /// which detaches the wire before anything resolves; with none, ``ended()`` does both itself.
+    var onHostGone: (@MainActor () -> Void)?
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
@@ -70,7 +78,17 @@ final class CEFHostStart {
         self.helloDeadline = helloDeadline
         self.clock = clock
         replies = CEFHostReplies(clock: clock)
-        supervisor.observeHostEnds { [weak self] in self?.hostDisconnected() }
+        supervisor.observeHostEnds { [weak self] in self?.ended() }
+        replies.onWireEnded = { [weak self] in self?.ended() }
+    }
+
+    /// The host ended: its runtime's ``onHostGone``, or for a start no runtime owns, the dead wire
+    /// detached (an attach still waiting for its hello fails by itself) and then everything that
+    /// waited on the host resolved.
+    private func ended() {
+        if let onHostGone { return onHostGone() }
+        if remote != nil { hostEnded() }
+        hostDisconnected()
     }
 
     /// The attached host; the first caller starts the attach, later ones await it.
@@ -83,7 +101,7 @@ final class CEFHostStart {
         self.task = task
         let outcome = await task.value
         guard case .success(let host) = outcome else { return outcome }
-        (remote, mapsClientIDs, acksWheels, hostGone) = (host.remote, host.mapsClientIDs, host.acksWheels, false)
+        (remote, mapsClientIDs, acksWheels, hostGone, pagesAwaitEnd) = (host.remote, host.mapsClientIDs, host.acksWheels, false, false)
         // Once per attach, before initialize: a preinit op, which the remote shim replays to every later host.
         if startsAttach, drawsSuggestions { host.shim.suggestions.setEvents(1) }
         return outcome
@@ -97,10 +115,10 @@ final class CEFHostStart {
         (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
     }
 
-    /// The host's wire ended, whatever ended it (`CEFRuntime.hostGone`, task 091): every REPLY token not
-    /// answered yet fails with ``CEFHostReplyError/hostGone`` and what cmux showed for the host closes in
-    /// this turn. A dead host sends no WIDGET_GONE, POPUP_MENU_HIDE or chooser end, so its panels, panes,
-    /// windows, `<select>` menu and file pickers go here, as a mojo disconnect runs each pending reply
+    /// The host's wire ended, whatever ended it (`CEFRuntime.hostWireEnded`, task 091), and ``hostEnded()``
+    /// detached it: every REPLY token not answered yet fails with ``CEFHostReplyError/hostGone`` and
+    /// what cmux showed for the host closes in this turn. A dead host sends no WIDGET_GONE,
+    /// POPUP_MENU_HIDE or chooser end, so its panels, panes, windows, `<select>` menu and file pickers go here, as a mojo disconnect runs each pending reply
     /// callback's default and then the disconnect handler
     /// (mojo/public/cpp/bindings/lib/interface_endpoint_client.cc, `NotifyError`). A second call finds nothing.
     func hostDisconnected() {

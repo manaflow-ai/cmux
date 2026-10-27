@@ -194,7 +194,10 @@ final class CEFRuntime {
         loader.load($0)
     }
     /// Host mode (``BrowserBackend/host``): the attach that replaces ``loadInProcess``; nil in process.
-    var hostStart: CEFHostStart?
+    /// Its host's end, whoever reports it, runs ``hostWireEnded()``.
+    var hostStart: CEFHostStart? {
+        didSet { hostStart?.onHostGone = { [weak self] in self?.hostWireEnded() } }
+    }
     /// Prepares a start's disk inputs, off the main thread (``preparedStartInputs()``; a test's recorder).
     var prepareInputs: @Sendable (CEFStartInputs.Request) -> CEFStartInputs = { CEFStartInputs.prepare($0) }
     /// The preparation the start under way awaits; nil between starts.
