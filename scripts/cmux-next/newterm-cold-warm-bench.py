@@ -55,6 +55,9 @@ DOGFOOD = ["agentChromium", "agentPageRendererSharing", "automationBurstSnap", "
            "sidebarRowsNearViewport", "sidebarSlideHoldsContent", "sleepWakeKeepalives", "stripPanResampling",
            "taskManagerMemorySaved", "terminalGPURelease", "terminalHolder", "terminalPointerFrames",
            "terminalSizingPerApp", "topPageDiscard", "visibilityGatedHosting", "vsyncHub", "windowOcclusionFamily"]
+# chrome-parity v1.1 (job 567b4a26d93aa86fdce19821): its all-on list (features-v1-1.md, CMUX_ENABLE_FEATURES there; the
+# bench sets them as local overrides because the app strips an inherited CMUX_ENABLE_FEATURES).
+V11_ON = "agentPageRendererSharing,automationBurstSnap,cefLayerHosting,cefPrefetchBehindFence,cefPumpInputPolicy,cefTimerSlack,chromiumHostIdleExit,chromiumHostWidgets,chromiumSpareAfterFirstTab,cmuxPageRendererSharing,coldScrollbackCompression,controlSocketEarlyBind,daemonRequestQos,energySaver,frameRateClasses,frozenGrowthDiscard,intentPrewarmHover,memoryAgentAndControlCaches,memoryAppCaches,memoryBrowserCaches,memoryDiscardAgentPagesOverBudget,memoryDiscardConversations,memoryDiscardInternalPages,memoryDiscardPageTabs,memoryDiscardParkedIdleTimeout,memoryDiscardParkedWorkspaces,memoryDiscardRemoteTabs,memoryFileHomeCaches,memoryHiddenFrameLRU,memoryImageCaches,memorySaverBackgroundActivity,memoryTerminalLastFrames,newTabParksHidden,occludedWindowDiscard,overlayTopLayer,pageLifecycle,pageProcessGroups,pageRendererAtFirstShow,pagesSpareWindow,pointerFrameDrags,pointerFrameHover,pointerFrameRemoteInput,recentlyAudibleProtection,renderStarvationGuard,rendererlessSpareWindow,sentryHandlersFirst,sidebarRowsNearViewport,stripPanResampling,taskManagerMemorySaved,terminalGPURelease,terminalPointerFrames,topPageDiscard,vsyncHub".split(",")
 WATCH = ["terminalHolder", "vsyncHub", "frameRateClasses", "renderStarvationGuard", "cefPumpInputPolicy",
          "terminalPointerFrames", "daemonRequestQos", "energySaver", "terminalGPURelease", "sharedGlyphMasks",
          "terminalSizingPerApp", "launchVisiblePanesOnly", "windowOcclusionFamily", "paneHoldsContentInMotion"]
@@ -123,6 +126,17 @@ def session_overrides(spec):
         return {}
     if spec == "off":
         return {name: False for name in DOGFOOD}
+    if spec == "v11":
+        return {name: True for name in V11_ON}
+    if spec.startswith("half:"):
+        # half:<i>/<n>: the build less DOGFOOD's i-th n-th (by index ranges), for the switch bisect
+        index, count = (int(x) for x in spec[5:].split("/"))
+        size = -(-len(DOGFOOD) // count)
+        return {name: False for name in DOGFOOD[index * size:(index + 1) * size]}
+    if spec.startswith("only-on:"):
+        # only-on:a+b: every DOGFOOD switch off except those
+        keep = set(spec[8:].split("+"))
+        return {name: name in keep for name in DOGFOOD}
     overrides = {}
     for part in spec.replace("+", " +").replace("-", " -").split():
         overrides[part[1:]] = part[0] == "+"
@@ -234,7 +248,10 @@ def run_session(spec, digest):
         feats = rpc("features.list", timeout=30) or {}
         states = {f.get("name"): (f.get("state"), f.get("source")) for f in feats.get("features") or [] if isinstance(f, dict)}
         on = [n for n in DOGFOOD if (states.get(n) or ("",))[0] in ("on", "enabled", True)]
+        on11 = [n for n in V11_ON if (states.get(n) or ("",))[0] in ("on", "enabled", True)]
         session["features_on_of_set"] = len(on)
+        session["features_on_of_v11"] = len(on11)
+        note(f"  features: {len(on11)}/{len(V11_ON)} of the v1.1 all-on list on")
         session["watched"] = {n: states.get(n) for n in WATCH}
         note(f"  features: {len(on)}/{len(DOGFOOD)} of the set on; watched {json.dumps(session['watched'])}")
         if opts.input == "real":
