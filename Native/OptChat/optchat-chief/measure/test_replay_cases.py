@@ -31,14 +31,14 @@ MESSAGES = {
     2: (5, "tool", 'mcp__optchat__send {"reply_to":1,"text":"Will do: every task gets a Group."}'),
     3: (60, "user", "fix the sidebar flicker when a workspace closes"),       # accepted dispatch
     4: (70, "tool", spawn("~/fun/cmux", "Sidebar flicker")),
-    5: (71, "echo", "Started a1."),
+    5: (71, "echo", 'Started a1 in /x. - a1: workspace "Sidebar flicker" in group "G"'),
     6: (200, "user", "make the tab bar thinner in compact mode please"),     # corrected next
     7: (210, "tool", spawn("~/fun/cmux", "Tab bar")),
     8: (300, "user", "no i said the pinned tab bar"),
     9: (400, "user", "the composer loses focus [image sha256:abc]"),          # has an image
     10: (500, "user", "rename the settings button to Preferences"),          # no spawn at all
     11: (505, "talk", "Done, renamed."),
-    12: (600, "user", "the hq dashboard shows a stale build number"),         # accepted, other repo
+    12: (600, "user", "the cmuxterm-hq dashboard shows a stale build number"),  # accepted, other repo
     13: (610, "tool", spawn("/Users/me/fun/cmuxterm-hq", "Stale build")),
     14: (700, "user", "thanks"),
 }
@@ -47,6 +47,8 @@ for k in range(15, 40):  # filler between the rule and its later dispatch
 MESSAGES[40] = (2000, "user", "add a shortcut to reopen the last closed workspace")
 MESSAGES[41] = (2010, "tool", spawn("~/fun/cmux", "Reopen shortcut"))
 MESSAGES[42] = (2100, "user", "great")
+MESSAGES[43] = (2200, "user", "the alarm skips nothing after the button press")  # repo only in old memory
+MESSAGES[44] = (2210, "tool", spawn("~/fun/sleep-alarm", "Alarm skip"))
 
 
 class ReplayCases(unittest.TestCase):
@@ -63,7 +65,7 @@ class ReplayCases(unittest.TestCase):
         cls.out = os.path.join(cls.tmp.name, "cases")
         cls.result = subprocess.run(
             [sys.executable, "-I", SCRIPT, "--db", cls.db, "--out", cls.out,
-             "--dispatch", "3,6,9,10", "--feedback", "12", "--rule", "group:1"],
+             "--dispatch", "3,6,9,10,43", "--feedback", "12", "--rule", "group:1"],
             capture_output=True, text=True,
         )
 
@@ -82,12 +84,16 @@ class ReplayCases(unittest.TestCase):
         self.assertIn("skipped 6: no accepted spawn", self.result.stdout)   # corrected
         self.assertIn("skipped 9: has an image", self.result.stdout)
         self.assertIn("skipped 10: no accepted spawn", self.result.stdout)
+        self.assertIn("skipped 43: its repo is named only in older memory", self.result.stdout)
 
-    def test_a_dispatch_checks_repo_words_and_title(self):
+    def test_a_dispatch_checks_repo_key_words_and_title(self):
         checks = self.case("dispatch-m3")["turns"][0]["checks"]
         res = [c.get("re") for c in checks]
         self.assertIn("Title:", res)
-        self.assertIn(r"(?i)fix\W+the\W+sidebar\W+flicker\W+when", res)
+        # Any one of the words of 5+ letters the accepted task ("Sidebar flicker") kept.
+        self.assertIn("(?i)sidebar|flicker", res)
+        words = next(r for r in res if r and r.startswith("(?i)sidebar"))
+        self.assertNotIn("workspace", words, "the accepted task did not keep it")
         cwd = next(r for r in res if r and r.startswith('"cwd"'))
         import re
         self.assertRegex('{"cwd":"~/fun/cmux","tasks":[]}', cwd)
@@ -117,6 +123,10 @@ class ReplayCases(unittest.TestCase):
             {"kind": "user", "text": MESSAGES[1][2]},
             {"kind": "talk", "text": "Will do: every task gets a Group."},
         ])
+
+    def test_the_history_shows_what_chief_already_started(self):
+        h = self.case("feedback-m12")["history"]
+        self.assertIn({"kind": "talk", "text": "Started a1: Sidebar flicker"}, h)
 
     def test_cases_inside_a_git_work_tree_are_refused(self):
         r = subprocess.run(

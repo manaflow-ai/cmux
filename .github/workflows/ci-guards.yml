@@ -206,6 +206,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_bash32_linux_job.py
 
+      - name: Validate the macOS keychain real-import runs only for keychain changes
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_signing_keychain_real_import_gate.py
+
       - name: Validate v0.64.25 rpath repair workflow contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_repair_v06425_workflow.sh
@@ -416,15 +420,25 @@ jobs:
       # feat-cmux-next pull request and push, where these files live.
       - name: Test What's New highlights and release notes
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        # Every command runs, and the step fails at the end if any failed, so
+        # one red (test_digest.py on a bad highlight) never hides the rest.
         run: |
-          python3 scripts/whats-new/test_digest.py
-          python3 scripts/whats-new/test_validate.py
-          python3 scripts/whats-new/test_community.py
-          python3 tests/test_cmux_next_release_notes.py
-          python3 tests/test_release_notes_pr_media.py
-          python3 tests/test_release_notes_clips.py
-          python3 tests/test_whats_new_clips.py
-          python3 scripts/cmux-next/media/whats-new-clips.py check
+          failed=()
+          for command in \
+            "python3 scripts/whats-new/test_digest.py" \
+            "python3 scripts/whats-new/test_validate.py" \
+            "python3 scripts/whats-new/test_community.py" \
+            "python3 tests/test_cmux_next_release_notes.py" \
+            "python3 tests/test_release_notes_pr_media.py" \
+            "python3 tests/test_release_notes_clips.py" \
+            "python3 tests/test_whats_new_clips.py" \
+            "python3 scripts/cmux-next/media/whats-new-clips.py check"; do
+            echo "::group::$command"
+            $command || failed+=("$command")
+            echo "::endgroup::"
+          done
+          for command in "${failed[@]}"; do echo "::error::failed: $command"; done
+          [ "${#failed[@]}" -eq 0 ]
 
       - name: Test the server bootstrap candidate renderer
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -818,6 +832,10 @@ jobs:
       - name: Validate side-lane placement onto idle owned runners
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_side_lane_placement.py
+
+      - name: Validate the rescue's re-runs route alike for both bot identities
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rescue_actors.py
 
       - name: Validate session jobs keep the gui label until runners carry the session label
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1300,6 +1318,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_budget_wait.py
 
+      - name: Validate the nightly-next tick re-runs a cancelled tip
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_cancelled_tip.py
+
       - name: Validate the run artifact download waits through a refused GitHub call
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_download_run_artifact_retries.py
@@ -1307,6 +1329,10 @@ jobs:
       - name: Validate publish gh calls go out as the release App first, github.token as fallback
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_app_token.py
+
+      - name: Validate the nightly publish jobs send gh calls as the release App first
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_publish_app_token_workflow.py
 
       - name: Validate a feat-cmux-next push stops deferring to a publisher whose daemon tests are stuck
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1554,6 +1580,10 @@ jobs:
       - name: Validate the nightly signing jobs take a Blacksmith label with a moving queue
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_sign_runner.py
+
+      - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_build_runner.py
 
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}
