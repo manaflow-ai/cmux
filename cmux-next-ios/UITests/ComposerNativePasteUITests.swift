@@ -19,7 +19,7 @@ final class ComposerNativePasteUITests: XCTestCase {
 
     @MainActor
     func testAgentChatComposerPastes() throws {
-        try checkPaste(demo: "kbd-chat-empty", field: "chat.composer.field", attachment: "attachment.thumb")
+        try checkPaste(demo: "kbd-chat-empty", field: "chat.composer.field", attachment: "attachment.thumb", expand: "Reply to Claude")
     }
 
     @MainActor
@@ -28,12 +28,18 @@ final class ComposerNativePasteUITests: XCTestCase {
     }
 
     @MainActor
-    private func checkPaste(demo: String, field id: String, attachment: String) throws {
+    private func checkPaste(demo: String, field id: String, attachment: String, expand: String? = nil) throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", demo]
         app.launch()
 
+        // The agent chat shows its composer collapsed until tapped.
+        if let expand {
+            let bar = app.buttons[expand]
+            XCTAssertTrue(bar.waitForExistence(timeout: 20), "\(expand)\n\(app.debugDescription)")
+            bar.tap()
+        }
         let field = app.textViews[id]
         XCTAssertTrue(field.waitForExistence(timeout: 20), "\(id)\n\(app.debugDescription)")
         // The field can appear while its screen is still pushing: tap until it has focus.
@@ -49,12 +55,10 @@ final class ComposerNativePasteUITests: XCTestCase {
         XCTAssertTrue(waitForValue(field, containing: "echo menu-paste"), "edit menu Paste\n\(String(describing: field.value))")
         attach(app, "\(demo)-menu-paste")
 
-        // Command-V on a hardware keyboard.
-        field.typeKey("a", modifierFlags: .command)
-        field.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-        UIPasteboard.general.string = "echo command-v"
+        // Command-V on a hardware keyboard, at the caret (the end of the draft).
+        UIPasteboard.general.string = " && echo command-v"
         field.typeKey("v", modifierFlags: .command)
-        XCTAssertTrue(waitForValue(field, containing: "echo command-v"), "Command-V\n\(String(describing: field.value))")
+        XCTAssertTrue(waitForValue(field, containing: "echo menu-paste && echo command-v"), "Command-V\n\(String(describing: field.value))")
         attach(app, "\(demo)-command-v")
 
         // A copied image: Paste is offered and attaches it; the text stays.
@@ -62,7 +66,7 @@ final class ComposerNativePasteUITests: XCTestCase {
         try menuPaste(app, field)
         XCTAssertTrue(app.descendants(matching: .any)[attachment].waitForExistence(timeout: 5),
                       "pasted image attached\n\(app.debugDescription)")
-        XCTAssertTrue(waitForValue(field, containing: "echo command-v"), "the draft text is kept")
+        XCTAssertTrue(waitForValue(field, containing: "echo menu-paste && echo command-v"), "the draft text is kept")
         attach(app, "\(demo)-image-paste")
     }
 
