@@ -10,7 +10,7 @@ extension CloudMachineRepoTests {
     static let repo = CloudMachineRepo(owner: "o", name: "r")
     static let clone = "/home/cmux/work/r"
 
-    static func answer(_ lock: String = "free", now: Int = 1000, _ status: String?) -> CloudExecResult {
+    static func answer(_ status: String?, lock: String = "free", now: Int = 1000) -> CloudExecResult {
         CloudExecResult(exitCode: 0, stdout: "cmux-wait \(lock) \(now)\n" + (status.map { $0 + "\n" } ?? ""), stderr: "")
     }
 
@@ -70,7 +70,7 @@ extension CloudMachineRepoTests {
         #expect(CloudMachineBootstrap.completion(script) == .failed(reason: CloudStrings.bootstrapScriptFailed(7, log: CloudMachineBootstrap.logPath)))
         #expect(CloudStrings.bootstrapScriptFailed(7, log: "L").contains("7"))
         #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "75")))]).0 == .runnerNeverCame, "the runner came a minute late")
-        #expect(await run(withRepo, [.success(Self.answer(now: 1100, Self.status("starting", at: 1000)))]).0 == .runnerNeverCame)
+        #expect(await run(withRepo, [.success(Self.answer(Self.status("starting", at: 1000), now: 1100))]).0 == .runnerNeverCame)
         #expect(await run(withRepo, [.success(Self.answer(nil))]).0 == .runnerNeverCame, "no status at all")
         #expect(await run(withRepo, [.success(Self.answer(Self.status("running")))]).0 == .stopped, "`running` with its lock free")
     }
@@ -82,7 +82,7 @@ extension CloudMachineRepoTests {
 
     @Test func aReadCutOffWhileTheRunnerRunsIsIssuedAgain() async {
         let answers: [Result<CloudExecResult, any Error>] = [
-            .success(Self.answer("held", Self.status("running"))),
+            .success(Self.answer(Self.status("running"), lock: "held")),
             .failure(Timeout()),
             .success(Self.answer(Self.status("starting", at: 995))),
             .success(Self.answer(Self.status("done", "0", repo: Self.repoStatus("cloned")))),
@@ -91,7 +91,7 @@ extension CloudMachineRepoTests {
         let unreachable = await run(withRepo, [.failure(Timeout()), .failure(Timeout()), .failure(Timeout())])
         #expect(unreachable.1 == 3)
         guard case .unreachable = unreachable.0 else { Issue.record("three failed reads in a row end the wait"); return }
-        let bounded = await run(withRepo, [.success(Self.answer("held", Self.status("running")))], bound: .zero)
+        let bounded = await run(withRepo, [.success(Self.answer(Self.status("running"), lock: "held"))], bound: .zero)
         #expect(bounded == (Run.stillRunning, 1))
         #expect(CloudMachineBootstrap.completion(.stillRunning) == .failed(reason: CloudStrings.bootstrapStillRunning(log: CloudMachineBootstrap.logPath)))
     }
@@ -186,7 +186,7 @@ extension CloudMachineRepoTests {
         await fake.untilRead()
         creations.end(creation)
         // The read in flight comes back still waiting: no read follows it.
-        fake.answer(Self.answer("held", Self.status("running")))
+        fake.answer(Self.answer(Self.status("running"), lock: "held"))
         await creation.completionTask?.value
         #expect(fake.readCount == 1)
         #expect(creation.bootstrapCompletion == nil)
