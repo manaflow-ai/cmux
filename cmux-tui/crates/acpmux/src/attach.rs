@@ -149,6 +149,17 @@ pub async fn blocks_for(
         let paths = paths.to_vec();
         return tokio::task::spawn_blocking(move || inline_blocks(&paths)).await?;
     }
+    // Checked before any byte is sent, so no upload is left behind for a prompt that would be
+    // refused: this daemon resolves references, and a peer's chat is refused at the begin
+    // (`forPrompt`) when its daemon does not (`server/peer_forward.rs`).
+    if !daemon.daemon_lists(crate::prompt_uploads::FEATURE) {
+        let build = daemon.daemon_build().unwrap_or_else(|| "unknown".into());
+        anyhow::bail!(
+            "these files do not fit one message, and the running acpmux daemon (build {build}) \
+             predates files sent by reference: restart it on this build (`acpmux daemon shutdown`; \
+             the next command starts it)"
+        );
+    }
     // Upload calls name the chat by its id (a peer's chat by `peer/id`).
     let info = daemon.request(method::MUX_INFO, json!({"sessionId": session})).await?;
     let chat = match (info.get("sessionId").and_then(Value::as_str), info.get("peer")) {
@@ -182,7 +193,7 @@ async fn upload(daemon: &Client, chat: &str, path: &Path, size: u64) -> anyhow::
     let name = safe_name(&path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
     let mut file =
         tokio::fs::File::open(path).await.with_context(|| format!("cannot attach {label}"))?;
-    let begin = json!({"sessionId": chat, "fileName": name, "size": size});
+    let begin = json!({"sessionId": chat, "fileName": name, "size": size, "forPrompt": true});
     let begun = daemon
         .request(method::MUX_FILE_PUT_BEGIN, begin)
         .await
