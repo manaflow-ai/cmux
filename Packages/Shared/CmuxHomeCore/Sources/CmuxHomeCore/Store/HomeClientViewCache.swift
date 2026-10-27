@@ -93,7 +93,8 @@ final class HomeClientViewCache {
         let delay = writeDelay
         // task-owner: one coalesced cache write; cancelled by writeNow, which writes at once
         pendingWrite = Task { [weak self] in
-            do { try await clock.sleep(for: delay) } catch { return }
+            // wakeup-allow: deadline of one coalesced cache write after a change; `writeNow` cancels it
+            do { try await clock.sleep(for: delay, tolerance: HomeWakeLeeway(delay: delay).tolerance) } catch { return }
             guard let self else { return }
             self.pendingWrite = nil
             self.writeNow()

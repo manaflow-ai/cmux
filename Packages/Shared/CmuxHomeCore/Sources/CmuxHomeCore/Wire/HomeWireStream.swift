@@ -13,6 +13,8 @@ import Foundation
 ///   again at 1 s). A 4401 close or a 401 upgrade means the token expired:
 ///   the next dial asks for a new one. A 403 or 404 upgrade, or an
 ///   `auth.forbidden` error, stops the stream (`.refused`).
+/// - A ping goes out only after 25 s with no frame from the owner
+///   (``HomeKeepaliveSchedule``); one that gets no answer closes the socket.
 /// - Ops never go on the socket: ``WireHomeSource`` sends them over HTTP,
 ///   as the daemon does, so `result`, `reject` and `request-settled` frames
 ///   are ignored.
@@ -35,6 +37,10 @@ actor HomeWireStream {
     private var awaitingSnapshot = false
     /// The subscribe went out on the current socket.
     private var subscribed = false
+    /// When the owner last sent a frame, on ``clock``: it pushes the next keepalive ping out.
+    private var lastInbound: (any InstantProtocol)?
+    /// The quiet time on a socket before a keepalive ping.
+    static let keepaliveInterval: Duration = .seconds(25)
 
     init(target: HomeWireStreamTarget, client: HomeWireClient, sockets: any HomeWireSocketConnecting,
          clock: any Clock<Duration>) {
@@ -118,8 +124,11 @@ actor HomeWireStream {
             let delay = reconnectDelay(attempt: attempt)
             attempt += 1
             let clock = self.clock
-            // A bounded, cancellable backoff between dials; `reconnectNow` and `stop` cancel it.
-            let pause = Task { _ = try? await clock.sleep(for: delay) }
+            // task-owner: the wait between dials; `reconnectNow` and `stop` cancel it
+            let pause = Task {
+                // wakeup-allow: backoff 1 s doubling to 30 s between dials after a drop; `reconnectNow` and `stop` cancel it
+                _ = try? await clock.sleep(for: delay, tolerance: HomeWakeLeeway(delay: delay).tolerance)
+            }
             wait = pause
             await pause.value
             wait = nil
@@ -149,6 +158,7 @@ actor HomeWireStream {
         do {
             while !stopped, !Task.isCancelled {
                 let text = try await socket.receive()
+                lastInbound = clock.now
                 if try await handle(text, on: socket) { welcomed = true }
             }
             return .ended(welcomed: welcomed, unauthorized: false)
@@ -163,15 +173,31 @@ actor HomeWireStream {
         }
     }
 
-    /// Pings every 25 s; a socket that stops answering is closed, so the loop dials again.
+    /// Pings after ``keepaliveInterval`` with no frame from the owner; a socket that stops answering
+    /// is closed, so the loop dials again.
     private func keepAlive(_ socket: any HomeWireSocket) async {
+        await keepAlive(socket, on: clock)
+    }
+
+    private func keepAlive<C: Clock<Duration>>(_ socket: any HomeWireSocket, on clock: C) async {
+        let schedule = HomeKeepaliveSchedule(interval: Self.keepaliveInterval)
+        var lastPing = clock.now
+        // wakeup-allow: deadline one ping deadline at a time, `keepaliveInterval` after the last ping or
+        // the owner's last frame; frames push it out, the socket's end cancels it.
         while !Task.isCancelled {
-            // A bounded keepalive interval (cancelled with the socket), not a poll.
-            do { try await clock.sleep(for: .seconds(25)) } catch { return }
+            let due = schedule.nextPing(afterPing: lastPing, lastInbound: lastInbound as? C.Instant)
+            let remaining = clock.now.duration(to: due)
+            if remaining > .zero {
+                // wakeup-allow: deadline the next ping's due time, with leeway; on waking the loop reads
+                // the due time again, because the owner's frames may have pushed it out.
+                do { try await clock.sleep(for: remaining, tolerance: HomeWakeLeeway(delay: remaining).tolerance) } catch { return }
+                continue
+            }
             guard await socket.ping() else {
                 socket.close()
                 return
             }
+            lastPing = clock.now
         }
     }
 

@@ -18,7 +18,8 @@ extension HomeStore {
         let clock = self.clock
         backoffTasks[key]?.cancel()
         backoffTasks[key] = Task { [weak self] in
-            do { try await clock.sleep(for: delay) } catch { return }
+            // wakeup-allow: backoff the next `resendBackoff` delay (2 s to 60 s, five at most) after an unanswered send
+            do { try await clock.sleep(for: delay, tolerance: HomeWakeLeeway(delay: delay).tolerance) } catch { return }
             // A newer backoff replaced this one while it woke: leave its handle.
             guard !Task.isCancelled, let self, !self.stopped else { return }
             self.backoffTasks[key] = nil

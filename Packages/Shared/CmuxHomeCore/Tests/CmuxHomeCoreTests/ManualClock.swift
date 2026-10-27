@@ -22,6 +22,7 @@ final class ManualClock: Clock, Sendable {
         var now = Instant(offset: .zero)
         var nextID = 0
         var sleepers: [Sleeper] = []
+        var tolerances: [Duration?] = []
     }
 
     private let state = OSAllocatedUnfairLock(uncheckedState: State())
@@ -30,9 +31,12 @@ final class ManualClock: Clock, Sendable {
     var minimumResolution: Duration { .zero }
     /// Sleeps waiting for a later `advance`.
     var pendingSleepers: Int { state.withLockUnchecked { $0.sleepers.count } }
+    /// The tolerance of every sleep, in call order (nil: the caller passed none).
+    var tolerances: [Duration?] { state.withLockUnchecked { $0.tolerances } }
 
     func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
         let id = state.withLockUnchecked { state -> Int in
+            state.tolerances.append(tolerance)
             state.nextID += 1
             return state.nextID
         }

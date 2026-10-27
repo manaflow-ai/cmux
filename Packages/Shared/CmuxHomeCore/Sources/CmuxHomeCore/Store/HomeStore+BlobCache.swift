@@ -5,8 +5,26 @@ import Foundation
 extension HomeStore {
     // MARK: Blob cache
 
-    /// Prunes the blob cache (at `start`, then every
-    /// `blobCachePruneInterval`): temp files left by a crash,
+    /// The cache grew (a prepare wrote into it): one prune
+    /// `blobCachePruneInterval` from now, unless one is already due. Nothing
+    /// before `start` (its pass prunes) or after `stop`.
+    func scheduleBlobCachePrune() {
+        guard eventTask != nil, !stopped, pruneDeadline == nil else { return }
+        let clock = self.clock
+        let interval = Self.blobCachePruneInterval
+        // task-owner: the one prune due after the cache grew; `stop` cancels it
+        pruneDeadline = Task { [weak self] in
+            // wakeup-allow: deadline one prune `blobCachePruneInterval` after a prepare grew the cache; armed
+            // again only by the next prepare after it ran
+            do { try await clock.sleep(for: interval, tolerance: HomeWakeLeeway(delay: interval).tolerance) } catch { return }
+            guard let self, !self.stopped else { return }
+            self.pruneDeadline = nil
+            await self.pruneBlobCache()
+        }
+    }
+
+    /// Prunes the blob cache (at `start`, then `blobCachePruneInterval`
+    /// after a prepare grew it): temp files left by a crash,
     /// blobs older than `blobCacheMaxAge`, then the least recently used
     /// blobs over `blobCacheMaxBytes`. Never deletes a blob that a pending
     /// send or this session's prepared attachments use.
