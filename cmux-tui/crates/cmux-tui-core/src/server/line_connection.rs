@@ -506,3 +506,7 @@ mod echo_thread_rows_tests;
 #[cfg(all(test, unix))]
 #[path = "line_connection_panic_mode_tests.rs"]
 mod panic_mode_tests;
+
+#[cfg(all(test, unix))]
+#[path = "request_work_panic_mode_tests.rs"]
+mod request_work_panic_mode_tests;
