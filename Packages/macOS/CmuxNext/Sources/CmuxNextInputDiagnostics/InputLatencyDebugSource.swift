@@ -10,8 +10,9 @@ public import CmuxNextWakeups
 /// after a few keys counts every one of them.
 ///
 /// ```swift
-/// let source = InputLatencyDebugSource(reporter: reporter, tracker: tracker, mainWork: mainWork)
-/// source.follow { 16_666_667 }  // once, on main, before the first input
+/// let source = InputLatencyDebugSource(reporter: InputLatencyReporter(), tracker: tracker, mainWork: mainWork)
+/// source.follow { 16_666_667 }  // once, on main
+/// work.task(.bestEffort) { await source.foldBatches() }
 /// router.register([DebugInput(sources: [source]).method])
 /// ```
 public nonisolated struct InputLatencyDebugSource: DebugInputSource {
@@ -35,13 +36,31 @@ public nonisolated struct InputLatencyDebugSource: DebugInputSource {
     /// Makes ``reporter`` the tracker's batch sink. Each batch carries the tracker's lost-slot count and the refresh
     /// interval `vsyncNanos` gives then (scroll frames are judged against it; 0 skips them).
     @MainActor
-    public func follow(vsyncNanos: @escaping @MainActor () -> UInt64) {}
+    public func follow(vsyncNanos: @escaping @MainActor () -> UInt64) {
+        tracker.batchSink = { [reporter, weak tracker] slots in
+            reporter.submit(InputLatencyBatch(slots: slots, vsyncNanos: vsyncNanos(), droppedTotal: tracker?.droppedTotal ?? 0))
+        }
+    }
+
+    /// Folds the tracker's batches until the reporter finishes (``InputLatencyReporter/run()``), off the main thread
+    /// whatever the caller's isolation. Call it once, from a task the owner keeps.
+    @concurrent
+    public func foldBatches() async {
+        await reporter.run()
+    }
 
     public func read() async -> InputLatencySnapshot {
-        await reporter.snapshot()
+        await handOver()
+        return await reporter.snapshot()
     }
 
     public func reset() async {
+        await handOver()
         await reporter.reset()
+    }
+
+    /// The slots closed since the last batch, to the reporter (one main-thread copy).
+    private func handOver() async {
+        await mainWork.apply(.automation, owner: "debug.input.latency") { [tracker] in tracker.flushClosedSlots() }
     }
 }

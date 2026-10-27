@@ -170,13 +170,17 @@ public final class InputLatencyTracker {
     /// Slots lost since launch before any batch carried them: the ones the ring overwrote and the ones the full table
     /// refused (an ``InputLatencyBatch``'s cumulative `droppedTotal`).
     public var droppedTotal: UInt64 {
-        0
+        ring.droppedCount &+ table.droppedCount
     }
 
     /// Hands the slots closed since the last batch to ``batchSink`` now, however few: a `debug.input` read counts every
     /// closed slot, not only those of full half rings. Nothing when no slot closed since the last batch or there is no
     /// sink.
-    public func flushClosedSlots() {}
+    public func flushClosedSlots() {
+        guard let batchSink else { return }
+        let batch = ring.takeBatch()
+        if !batch.isEmpty { batchSink(batch) }
+    }
 
     /// Opens a slot for `event`, dispatched now.
     ///
