@@ -12,8 +12,20 @@ extension DebugMouse {
     /// instead of passing it through; the press and release go to the view under the point, as
     /// AppKit hands them on when the window is key. Chromium's view forwards them to the renderer
     /// and waits for its answer, so a hung page's hang timer starts (cx-d0d.36). `delivered`
-    /// counts the events a view got. No system event and no other app.
+    /// counts the events a view got. No system event and no other app. Host mode: the press and release go
+    /// through the page view's own mouse path, which sends them to the Chromium Host as the page's input
+    /// (the user activation a fullscreen or lock request needs), as ``movePage(_:services:)`` does.
     static func clickPage(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if let target = hostPage(params, services: services) {
+            guard let down = mouse(.leftMouseDown, at: target.topLeft, in: target.window, flags: [], clicks: 1),
+                  let up = mouse(.leftMouseUp, at: target.topLeft, in: target.window, flags: [], clicks: 1) else {
+                return .object(["error": .string("could not synthesize the page click")])
+            }
+            target.page.mouseDown(with: down)
+            target.page.mouseUp(with: up)
+            return .object(["window": .string(target.windowID), "x": .number(target.point.x), "y": .number(target.point.y),
+                            "view": .string("ChromiumHostPageView"), "delivered": .number(2)])
+        }
         let windowID = params["window"]?.stringValue
         let controller = services.windows.controllers.first { windowID == nil || $0.state.id == windowID }
         guard let controller, let pane = params["pane"]?.stringValue ?? controller.focus.state.pane,

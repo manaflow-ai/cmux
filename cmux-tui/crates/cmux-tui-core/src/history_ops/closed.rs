@@ -88,7 +88,8 @@ fn delete(
     digest.update(key.as_bytes());
     digest.update([0]);
     digest.update(scope.as_bytes());
-    let hash: String = digest.finalize()[..16].iter().map(|byte| format!("{byte:02x}")).collect();
+    let hash: String =
+        digest.finalize().iter().take(16).map(|byte| format!("{byte:02x}")).collect();
     let mutation = WorkspaceMutation::new(format!("history-closed-{hash}"), ORIGIN, actor.clone())
         .map_err(resource_operation_error)?;
     let commit =

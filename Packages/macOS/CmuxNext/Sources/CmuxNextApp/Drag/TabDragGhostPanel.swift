@@ -149,6 +149,9 @@ final class TabDragGhostPanel {
         tabLayer.contentsGravity = .resize
         tabLayer.contentsScale = scale
         tabLayer.shadowColor = ThemeScope.app.perform { Palette.shadow.cgColor }
+        // shadow: alpha-derived: the image's alpha is the shape (a tab or chip pill, a sidebar row, a
+        // multi-tab strip; none for a row handed off with no image), and the layer has no sublayers, so
+        // only its own contents are read.
         // The raised elevation step (PopupStyle.elevation2): a tight lift, not a dark halo.
         tabLayer.shadowOpacity = onGlass ? 0 : Float(PopupStyle.elevation2.alpha)
         tabLayer.shadowRadius = PopupStyle.elevation2.layerRadius

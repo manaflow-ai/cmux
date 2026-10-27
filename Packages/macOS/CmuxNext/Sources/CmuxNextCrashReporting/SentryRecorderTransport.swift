@@ -66,15 +66,35 @@ public final class SentryRecorderTransport: Sendable {
     /// `beforeSendWithHint`, and its next major version passes them to `beforeSend`.
     public func install(on options: Options, prepare: @escaping (Event) -> Event) {
         options.beforeSend = { [self] event in
-            let prepared = prepare(event)
-            do {
-                try record(prepared)
-            } catch {
-                let id = prepared.eventId.sentryIdString
-                logger.error("sentry recorder: event \(id, privacy: .public) not recorded: \(String(describing: error), privacy: .public)")
-            }
+            recordOrLog(prepare(event), attachments: [])
             return nil
         }
+        stopSessionsAndReports(on: options)
+    }
+
+    /// The hint form of ``install(on:prepare:)``, for options whose own hook is `beforeSendWithHint`
+    /// (sentry-cocoa 9 then never calls `beforeSend`, so the plain form would record nothing). `prepare` is
+    /// that hook's work (the previous run's crash evidence, scrub and label); the event is recorded with the
+    /// attachments the hint holds after it, as Sentry would have sent them.
+    public func install(on options: Options, prepareWithHint prepare: @escaping (Event, Hint) -> Event) {
+        options.beforeSendWithHint = { [self] event, hint in
+            recordOrLog(prepare(event, hint), attachments: hint.attachments)
+            return nil
+        }
+        stopSessionsAndReports(on: options)
+    }
+
+    private func recordOrLog(_ prepared: Event, attachments: [Attachment]) {
+        do {
+            try record(prepared, attachments: attachments)
+        } catch {
+            let id = prepared.eventId.sentryIdString
+            logger.error("sentry recorder: event \(id, privacy: .public) not recorded: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Session updates and client reports would reach Sentry past the recorder.
+    private func stopSessionsAndReports(on options: Options) {
         options.enableAutoSessionTracking = false
         options.sendClientReports = false
     }

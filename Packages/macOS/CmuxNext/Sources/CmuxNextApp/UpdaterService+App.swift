@@ -6,6 +6,7 @@ import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWakeups
 import CmuxNextWebUpdates
 import Observation
 
@@ -58,9 +59,9 @@ extension UpdaterService {
     /// The work behind the wired cards, after startup (the `Updater.attachedWork` launch post, p08-startup-031):
     /// the Updated card's change list when its record has none (2026-10-20; a network read), and the
     /// tip's re-pick when cmux becomes active again.
-    func startAttachedWork() {
+    func startAttachedWork(appEvents: AppEvents) {
         loadCurrentBuildNotesIfNeeded()
-        refreshTipOnActivation()
+        refreshTipOnActivation(on: appEvents)
     }
 
     /// The tips card (BOTTOM-LEFT-CARDS K1): "Try It" runs the catalog

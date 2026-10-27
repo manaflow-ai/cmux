@@ -199,6 +199,7 @@ final class SidebarListView: NSView {
         layerContentsRedrawPolicy = .never
         decorations.autoresizingMask = [.width, .height]
         addSubview(decorations)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
         setAccessibilityRole(.outline)
         setAccessibilityLabel(Strings.sidebarLabel)
         hoverCard.list = self
@@ -315,15 +316,6 @@ final class SidebarListView: NSView {
     var metrics: SidebarLayoutMetrics { .standard }
     var inset: CGFloat { SidebarStyle.horizontalInset }
     // MARK: - Hover
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(
-            rect: .zero,
-            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-            owner: self
-        ))
-    }
     override func mouseMoved(with event: NSEvent) { frameInputHover.moved(event) }
     // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
     override func mouseEntered(with event: NSEvent) {
