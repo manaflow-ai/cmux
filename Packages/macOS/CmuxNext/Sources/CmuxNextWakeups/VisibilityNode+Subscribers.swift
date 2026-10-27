@@ -14,12 +14,15 @@ extension VisibilityNode {
         return subscription
     }
 
-    /// Runs `work` now when this node is visible; otherwise once, when it next becomes visible.
-    /// A later call with the same `key` replaces pending work, so a hidden node runs each key once.
+    /// Runs `work` now when this node renders (``wantsFrames``: it is visible, or a capture vote
+    /// holds it); otherwise once, when it next renders. A later call with the same `key` replaces
+    /// pending work, so a hidden node runs each key once. The work is view work (the R-appear and
+    /// R-hide recipes), and a capture draws the views, so it runs for a capture as a view
+    /// observation applies for one.
     ///
     /// The node holds `work` until it runs: capture the node and its owner weakly.
     public func deferUntilVisible(key: some Hashable, _ work: @escaping @MainActor () -> Void) {
-        if isVisible { work(); return }
+        if wantsFrames { work(); return }
         let key = AnyHashable(key)
         if let index = deferred.firstIndex(where: { $0.key == key }) {
             deferred[index].work = work
@@ -51,8 +54,12 @@ extension VisibilityNode {
         warmSubscriptions.removeAll { $0.subscription == nil || $0.subscription === subscription }
     }
 
-    func runDeferred() {
-        while isVisible, !deferred.isEmpty {
+    /// Runs the deferred work in the order it was first deferred, while the node still renders (a
+    /// body that hides it again leaves the rest for the next time it renders). It follows whether
+    /// the node renders now, not whether that changed: a subscriber can defer work while the node
+    /// is hidden and show it again inside the same pass.
+    func runDeferredIfRendering() {
+        while wantsFrames, !deferred.isEmpty {
             deferred.removeFirst().work()
         }
     }

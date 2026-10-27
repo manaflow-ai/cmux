@@ -32,7 +32,8 @@ import Darwin
 /// `WebContents::IncrementCapturerCount(size, stay_hidden, stay_awake)`
 /// (content/public/browser/web_contents.h) keeps a hidden page rendering. While a vote holds a node,
 /// the node and its own-shown subtree render (``wantsFrames``): frame clients tick, view
-/// observations apply and the node's task queues run. A `stayHidden` vote leaves ``effective``,
+/// observations apply, the node's task queues run and its deferred view work
+/// (``deferUntilVisible(key:_:)``) runs. A `stayHidden` vote leaves ``effective``,
 /// page visibility and the hidden timer alignment as they are; any other vote makes the node
 /// ``Visibility/visible``.
 ///
@@ -72,7 +73,7 @@ import Darwin
 
     /// Whether this node renders: it is ``Visibility/visible``, or a capture vote holds it
     /// (``isCaptured``: a screenshot, a screencast or screen share sees it while it is hidden).
-    /// Frame clients, view observations and the node's task queues follow it.
+    /// Frame clients, view observations, the node's task queues and its deferred work follow it.
     public var wantsFrames: Bool { isVisible || isCaptured }
 
     /// How many times a propagation recomputed this node (tests prove a flip visits only what can change).
@@ -287,7 +288,9 @@ import Darwin
                 guard renderingGeneration == generation else { return }
                 subscription.onFlip(effective)
             }
+            guard renderingGeneration == generation else { return }
         }
+        runDeferredIfRendering()
         guard isCaptured != notifiedCaptured else { return }
         notifiedCaptured = isCaptured
         notifyExemption()
@@ -318,7 +321,7 @@ import Darwin
             subscription.onFlip(value)
         }
         guard notifyGeneration == generation else { return }
-        if value == .visible { runDeferred() }
+        runDeferredIfRendering()
     }
 
     // MARK: Children
