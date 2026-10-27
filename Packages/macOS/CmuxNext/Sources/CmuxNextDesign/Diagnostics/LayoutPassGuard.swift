@@ -70,6 +70,12 @@ public final class LayoutPassGuard {
     /// DEBUG builds only; a release build always reads 0.
     public private(set) var viewLayoutCalls = 0
     public private(set) var windowLayoutPasses = 0
+    #if DEBUG
+    /// The geometry re-entrancy guard (p10-stability-192), installed with
+    /// this one: a view re-entering its own geometry callback is stopped
+    /// before the stack overflows. Debug builds only.
+    public let geometry = GeometryReentrancyGuard()
+    #endif
     #if DEBUG || CMUX_BENCH_HOOKS
     /// An armed ``RenderStats`` (set by its `arm()`): it counts each layout call per view class.
     weak var renderStats: RenderStats?
@@ -112,10 +118,14 @@ public final class LayoutPassGuard {
     }
 
     /// Installs the counters on `-[NSView layout]` and
-    /// `-[NSWindow layoutIfNeeded]`. Idempotent.
+    /// `-[NSWindow layoutIfNeeded]`, and in Debug builds ``geometry``.
+    /// Idempotent.
     public func install() {
         guard !isInstalled else { return }
         isInstalled = true
+        #if DEBUG
+        geometry.install()
+        #endif
         Self.swizzleLayout()
         Self.swizzleWindowLayout()
         // No window layout runs while the main run loop waits: an entry left
