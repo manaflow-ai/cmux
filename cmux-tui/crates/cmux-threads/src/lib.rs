@@ -37,6 +37,9 @@
 //! Child processes never run at an echo thread's QoS: a user child starts
 //! at Default and a helper runs at [`HELPER_CHILD`] (Utility) at most, see
 //! [`process`]. [`process_role`] reads the process's Mach task role.
+//!
+//! A [`reaper`] waits for every child exit on one thread (kqueue on macOS,
+//! pidfd and epoll on Linux) and completes each on a [`work`] lane.
 
 pub mod blocking;
 pub mod checked;
@@ -46,6 +49,8 @@ pub mod lock_wait;
 pub mod process;
 pub mod process_role;
 pub mod qos;
+#[cfg(unix)]
+pub mod reaper;
 pub mod registry;
 pub mod spawn;
 pub mod sync;

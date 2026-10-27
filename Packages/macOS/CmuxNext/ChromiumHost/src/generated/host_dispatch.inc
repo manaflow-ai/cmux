@@ -189,36 +189,37 @@ enum Op : uint16_t {
   kOpTabSetVisibility = 179,
   kOpExtLoadLaterSupported = 180,
   kOpExtLoadCommandLine = 181,
-  kOpSetPopupMenus = 182,
-  kOpBrowserPopupMenuReply = 183,
-  kOpBrowserEditCommand = 184,
-  kOpAddDocumentScript = 185,  // optional
-  kOpAddPageChannel = 186,  // optional
-  kOpTabEvaluate = 187,  // optional
-  kOpTabSetFrozen = 188,  // optional
-  kOpTabSendClick = 189,  // optional
-  kOpTabSetColorScheme = 190,  // optional
-  kOpPageSchemeSetGroup = 191,  // optional
-  kOpTabDiscard = 192,  // optional
-  kOpWidgetSetGeometry = 193,  // optional
-  kOpWidgetDismiss = 194,  // optional
-  kOpWidgetSendInput = 195,  // optional
-  kOpBrowserImeSetComposition = 196,  // optional
-  kOpBrowserImeCommitText = 197,  // optional
-  kOpBrowserImeFinishComposing = 198,  // optional
-  kOpBrowserImeCancelComposition = 199,  // optional
-  kOpTabCopySurface = 200,  // optional
-  kOpTabSendMouseMove = 201,  // optional
+  kOpTabPagePush = 182,
+  kOpSetPopupMenus = 183,
+  kOpBrowserPopupMenuReply = 184,
+  kOpBrowserEditCommand = 185,
+  kOpAddDocumentScript = 186,  // optional
+  kOpAddPageChannel = 187,  // optional
+  kOpTabEvaluate = 188,  // optional
+  kOpTabSetFrozen = 189,  // optional
+  kOpTabSendClick = 190,  // optional
+  kOpTabSetColorScheme = 191,  // optional
+  kOpPageSchemeSetGroup = 192,  // optional
+  kOpTabDiscard = 193,  // optional
+  kOpWidgetSetGeometry = 194,  // optional
+  kOpWidgetDismiss = 195,  // optional
+  kOpWidgetSendInput = 196,  // optional
+  kOpBrowserImeSetComposition = 197,  // optional
+  kOpBrowserImeCommitText = 198,  // optional
+  kOpBrowserImeFinishComposing = 199,  // optional
+  kOpBrowserImeCancelComposition = 200,  // optional
+  kOpTabCopySurface = 201,  // optional
+  kOpTabSendMouseMove = 202,  // optional
 };
-inline constexpr uint16_t kOpCount = 201;
+inline constexpr uint16_t kOpCount = 202;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 60;
-inline constexpr char kShimAbiID[] = "d128aec04fa05a69106f078e74425abdff01de21e19b22b4bf52a54a398b007f";
+inline constexpr char kShimAbiID[] = "9cfe5c4de25f7260147531bba284e92fad173c6eaf516a7af8de62eb71ca6422";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "d79332d9b3beb8e168662df7dd1f788ff1b6c887170aa713bbc30263886dc2bf";
+inline constexpr char kWireID[] = "715be878730d0340ccea5241de794f19292538271fd8809d266120cb38de0328";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -1726,6 +1727,15 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       TlvWriter reply_w;
       reply_w.I32(call_result);
       ctx.Reply(wire_token, reply_w);
+      return true;
+    }
+    case kOpTabPagePush: {
+      const auto arg_browser_id = r.I32();
+      const std::optional<std::string> arg_text = r.Str();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_tab_page_push(ctx.Browser(arg_browser_id), arg_text ? arg_text->c_str() : nullptr);
+      (void)call_result;
+      ctx.Ack(wire_token);
       return true;
     }
     case kOpSetPopupMenus: {

@@ -103,7 +103,8 @@ pub(super) trait TraceTargets {
         deadline: Instant,
         admit: &mut dyn FnMut() -> bool,
     ) -> Vec<HostCall>;
-    /// Connects to acpmux; `None` when it does not run (it is never started).
+    /// Connects to acpmux; `None` when it does not run (it is never started,
+    /// as on a platform without agent sessions).
     fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>>;
 }
 
@@ -543,8 +544,10 @@ pub(super) fn forward_to_holder(
 }
 
 /// acpmux's trace method (`acpmux/src/trace_control.rs`).
+#[cfg(unix)]
 const ACPMUX_TRACE_METHOD: &str = "_acpmux/trace";
 
+#[cfg(unix)]
 fn acpmux_params(op: ControlOp) -> Value {
     match op {
         ControlOp::Start { categories } => json!({"op": "start", "categories": categories}),
