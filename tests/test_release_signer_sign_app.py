@@ -109,11 +109,11 @@ SHIM = r'''
 import json, os, shutil, sys
 name = os.path.basename(sys.argv[0])
 with open(os.environ["FAKE_LOG"], "a") as log:
-    log.write(json.dumps({"tool": name, "argv": sys.argv[1:]}) + "\n")
+    log.write(json.dumps({"tool": name, "argv": sys.argv[1:], "notary_key_env": "ASC_API_KEY_P8_BASE64" in os.environ}) + "\n")
 real = sys.executable if name == "python3" else shutil.which(name, path=os.environ["FAKE_REAL_PATH"])
 os.execv(real, [real] + sys.argv[1:])
 '''
-SHIMMED = ["base64", "grep", "rm", "awk", "find", "chmod", "tail", "mktemp", "python3", "realpath", "sed"]
+SHIMMED = ["base64", "grep", "rm", "awk", "find", "chmod", "tail", "mktemp", "python3", "realpath", "sed", "dirname"]
 
 FW = "Contents/Frameworks/"
 CEF = FW + "Chromium Embedded Framework.framework/Versions/A/"
@@ -442,9 +442,17 @@ class HelperFirstTest(SignAppTest):
         self.assertEqual(self.calls("signer"), [])
 
     def test_needs_the_notary_key(self) -> None:
-        self.env.pop("ASC_API_KEY_ID")
-        self.run_script(ok=False)
-        self.assertEqual(self.calls("signer", "sign"), [])
+        for name in ("ASC_API_KEY_ID", "ASC_API_KEY_P8_BASE64"):
+            with self.subTest(name=name):
+                self.run_script(ok=False, **{name: ""})
+                self.assertEqual(self.calls("signer", "sign"), [])
+
+    def test_no_child_process_sees_the_notary_key(self) -> None:
+        self.run_script()
+        self.assertEqual({c["notary_key_env"] for c in self.calls("signer")}, {False})
+        shims = [c for c in self.calls() if c["tool"] != "signer"]
+        self.assertTrue(shims)
+        self.assertEqual([c for c in shims if c.get("notary_key_env")], [])
 
 
 class SliceCdhashesTest(unittest.TestCase):

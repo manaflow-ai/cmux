@@ -48,6 +48,8 @@
 # time stamp and signature, which differ between any two runs), and so in the
 # hashes of signed files sealed as plain files (Contents/Resources/bin).
 set -euo pipefail
+# The notary key (helper-first) stays in this shell only: no child inherits it.
+p8="${ASC_API_KEY_P8_BASE64:-}"; unset ASC_API_KEY_P8_BASE64
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 [[ $# -eq 2 ]] || { echo "usage: $0 <app-path> <app-entitlements>" >&2; exit 2; }
@@ -66,7 +68,7 @@ MODE="${CMUX_SIGN_MODE:-all}"
 computer_use="$APP_PATH/Contents/Library/cmux Computer Use.app"
 if [[ "$MODE" == helper-first ]]; then
   [[ -d "$computer_use/Contents" ]] || { echo "error: nested cmux Computer Use app not found: $computer_use" >&2; exit 1; }
-  : "${ASC_API_KEY_ID:?}" "${ASC_API_ISSUER_ID:?}" "${ASC_API_KEY_P8_BASE64:?}"
+  : "${ASC_API_KEY_ID:?}" "${ASC_API_ISSUER_ID:?}" "${p8:?ASC_API_KEY_P8_BASE64 is not set}"
   [[ "${CMUX_TIMESTAMP:-}" != none ]] ||
     { echo "error: CMUX_TIMESTAMP=none cannot be notarized; helper-first needs Apple's time stamp" >&2; exit 2; }
   helper_wait="${CMUX_HELPER_NOTARY_WAIT_SECONDS:-1500}"
@@ -77,8 +79,6 @@ command -v "$R" >/dev/null || { echo "error: signer binary not found ($R)" >&2; 
 export APPLE_CERTIFICATE_PASSWORD
 APP_ENTITLEMENTS="$(realpath "$2")"
 HELPER_ENTITLEMENTS="$(realpath "$HELPER_ENTITLEMENTS")"
-# The notary key (helper-first) stays in this shell only: no child inherits it.
-p8="${ASC_API_KEY_P8_BASE64:-}"; unset ASC_API_KEY_P8_BASE64
 
 secrets="" work=""
 trap 'rm -rf ${secrets:+"$secrets"} ${work:+"$work"}' EXIT

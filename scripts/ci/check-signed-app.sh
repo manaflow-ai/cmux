@@ -94,7 +94,11 @@ for helper_dir in bin libexec; do
 done
 echo "==> entitlements, helpers and browser host: OK"
 
-[[ -d "$COMPUTER_USE_HELPER" ]] || { echo "==> no Computer Use helper in this app"; exit 0; }
+if [[ ! -d "$COMPUTER_USE_HELPER" ]]; then
+  [[ "$REQUIRE_TICKET" == false ]] || { echo "error: no Computer Use helper in this app" >&2; exit 1; }
+  echo "==> no Computer Use helper in this app"
+  exit 0
+fi
 /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
 if /usr/bin/codesign -d --entitlements :- "$COMPUTER_USE_HELPER" 2>&1 | grep -q "application-identifier"; then
   echo "error: nested Computer Use helper unexpectedly carries application-identifier" >&2
