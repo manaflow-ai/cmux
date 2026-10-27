@@ -92,6 +92,12 @@ extension UpdateController {
         driver.restageAfterDeclinedQuit()
     }
 
+    /// The automatic install the app was to quit for: the user came into the app meanwhile, so
+    /// Sparkle installs and relaunches it as for a click (activating). No-op otherwise.
+    public func relaunchHeldInstallThroughSparkle() {
+        driver.relaunchHeldInstallThroughSparkle()
+    }
+
     /// The app should quit for the installer within ``installWatchdogTimeout``; a click that
     /// leaves it running becomes the "couldn't start the update" error with its retry.
     private func armStagedInstallWatchdog() {

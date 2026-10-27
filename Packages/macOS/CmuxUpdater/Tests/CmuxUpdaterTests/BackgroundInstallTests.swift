@@ -387,6 +387,21 @@ private final class ReopeningHost: UpdateActionDelegate {
         #expect(host.asked == ["0.64.17"], "a click never asks the host to reopen")
     }
 
+    /// The user came into the app before the quit: Sparkle installs and relaunches, once.
+    @Test func aHeldInstallRelaunchesThroughSparkleWhenTheUserComesIn() {
+        let harness = Harness()
+        let host = ReopeningHost(reopens: true)
+        let ready = stage(harness, host: host, automatic: true)
+        #expect(ready.choice == nil)
+        harness.controller.relaunchHeldInstallThroughSparkle()
+        #expect(ready.choice == .install)
+        ready.choice = nil
+        harness.controller.relaunchHeldInstallThroughSparkle()
+        harness.controller.restageAfterDeclinedQuit()
+        #expect(ready.choice == nil, "once")
+        #expect(harness.controller.stagedUpdate == nil)
+    }
+
     @Test func aHostThatDoesNotReopenRelaunchesThroughSparkle() {
         let harness = Harness()
         let host = ReopeningHost(reopens: false)

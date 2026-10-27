@@ -113,6 +113,17 @@ extension UpdateDriver {
         return true
     }
 
+    /// The automatic install the host meant to quit for is now one the user is in the app for:
+    /// Sparkle installs and relaunches (activating), once. False when no such install waits.
+    @discardableResult
+    func relaunchHeldInstallThroughSparkle() -> Bool {
+        guard let pending = quitInstall else { return false }
+        quitInstall = nil
+        log.append("background install: relaunching through Sparkle")
+        pending.install()
+        return true
+    }
+
     /// Replies Skip to the held ready prompt once: Sparkle cancels the installer that would run
     /// when the app quits. Unlike Skip on the update-found prompt, this records no skipped
     /// version, so the next check offers the update again. False when this driver holds no

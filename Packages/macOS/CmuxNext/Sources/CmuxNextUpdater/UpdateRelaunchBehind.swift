@@ -59,11 +59,14 @@ public import Foundation
         arguments = Self.arguments(app: app, installerJob: Self.installerJobLabel(bundleIdentifier: bundleIdentifier))
     }
 
-    /// Starts the helper and, once it found Sparkle's installer, runs `willQuit` (the relaunch
-    /// hooks) and quits; the installer is waiting for this exit. `declined` runs instead when the
-    /// helper cannot start or finds no installer (nothing ran, the app keeps running), or later
-    /// from ``quitRefused()``: the update is staged again.
-    public func start(willQuit: @escaping @MainActor () -> Void, declined: @escaping @MainActor () -> Void) {
+    /// Starts the helper and, once it found Sparkle's installer, asks `willQuit` (which rechecks
+    /// that the app still stays behind and runs the relaunch hooks) and quits; the installer is
+    /// waiting for this exit. When `willQuit` says no (the user came into the app meanwhile), the
+    /// helper stops and `inFront` runs (Sparkle relaunches, activating). `declined` runs instead
+    /// when the helper cannot start or finds no installer (nothing ran, the app keeps running), or
+    /// later from ``quitRefused()``: the update is staged again.
+    public func start(willQuit: @escaping @MainActor () -> Bool, declined: @escaping @MainActor () -> Void,
+                      inFront: @escaping @MainActor () -> Void) {
         let arguments = arguments
         // task-owner: one spawn and its lookup answer (off main: a fork and exec, then a bounded
         // read), then the quit; ends there.
@@ -76,13 +79,15 @@ public import Foundation
             }.value
             guard let started else { return declined() }
             guard started.installer != nil else {
-                Self.refuse(started.writeEnd)
-                Task.detached(priority: .utility) { _ = waitpid(started.pid, nil, 0) }
+                Self.stop(started.pid, started.writeEnd)
                 return declined()
+            }
+            guard willQuit() else {
+                Self.stop(started.pid, started.writeEnd)
+                return inFront()
             }
             self.helper = (started.pid, started.writeEnd)
             self.declined = declined
-            willQuit()
             NSApplication.terminateFromRunLoop()
         }
     }
@@ -113,12 +118,16 @@ public import Foundation
     public func quitRefused() {
         guard let helper else { return }
         self.helper = nil
-        Self.refuse(helper.writeEnd)
-        // The helper ends on the line; reap it off main.
-        Task.detached(priority: .utility) { _ = waitpid(helper.pid, nil, 0) }
+        Self.stop(helper.pid, helper.writeEnd)
         let declined = declined
         self.declined = nil
         declined?()
+    }
+
+    /// Tells the helper the app does not quit, then reaps it off main (it ends on the line).
+    nonisolated static func stop(_ pid: pid_t, _ writeEnd: Int32) {
+        refuse(writeEnd)
+        Task.detached(priority: .utility) { _ = waitpid(pid, nil, 0) }
     }
 
     /// Tells the helper the quit was refused (it ends, opening nothing), and closes the pipe.

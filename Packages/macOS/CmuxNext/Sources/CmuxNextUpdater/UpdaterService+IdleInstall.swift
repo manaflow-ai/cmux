@@ -27,16 +27,27 @@ extension UpdaterService {
     /// refusal and hand-back stay as a safety net. Every other install lets Sparkle relaunch,
     /// which activates the app as a click expects.
     public func updaterQuitsForAutomaticInstall(build: String) -> Bool {
-        let wasFrontmost = (automaticInstallFrontmost?.isThisApp ?? false) || frontmost().isThisApp
-        guard UpdateRelaunchFocus.staysBehind(automatic: automaticInstallInFlight, appIsFrontmost: wasFrontmost),
-              let relaunchBehind else { return false }
+        guard staysBehindNow, let relaunchBehind else { return false }
         log.append("will install \(build)")
         updaterWillInstallUpdate(build: build)
         log.append("relaunching behind: quitting for the install, then open -g")
-        // The relaunch hooks (the record, keep sessions) run only once the helper runs.
-        relaunchBehind({ [weak self] in self?.updaterWillRelaunchApplication() },
-                       { [weak self] in self?.quitForInstallDeclined() })
+        // The relaunch hooks (the record, keep sessions) run only once the helper runs, and only
+        // if the user did not come into the app meanwhile; then Sparkle relaunches it, activating.
+        relaunchBehind({ [weak self] in
+            guard let self, self.staysBehindNow else { return false }
+            self.updaterWillRelaunchApplication()
+            return true
+        }, { [weak self] in self?.quitForInstallDeclined() }, { [weak self] in
+            self?.log.append("relaunching behind: the user came into the app; Sparkle relaunches it")
+            self?.controller?.relaunchHeldInstallThroughSparkle()
+        })
         return true
+    }
+
+    /// An install nobody clicked, in an app the user was not in when it started and is not in now.
+    var staysBehindNow: Bool {
+        let wasFrontmost = (automaticInstallFrontmost?.isThisApp ?? false) || frontmost().isThisApp
+        return UpdateRelaunchFocus.staysBehind(automatic: automaticInstallInFlight, appIsFrontmost: wasFrontmost)
     }
 
     /// The app did not quit for the automatic install (the helper could not start, or the user

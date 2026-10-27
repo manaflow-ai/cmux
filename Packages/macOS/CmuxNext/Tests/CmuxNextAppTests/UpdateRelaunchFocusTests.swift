@@ -107,13 +107,30 @@ import Testing
         let updater = Self.updater(defaults: defaults, front: Self.nightly)
         updater.keptRunningBuild = .kept
         updater.automaticInstallInFlight = true
-        var willQuit: (@MainActor () -> Void)?
-        updater.relaunchBehind = { quit, _ in willQuit = quit }
+        var willQuit: (@MainActor () -> Bool)?
+        updater.relaunchBehind = { quit, _, _ in willQuit = quit }
         #expect(updater.updaterQuitsForAutomaticInstall(build: "200"))
         #expect(updater.installingBuild == "200")
         #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil, "nothing is recorded before the helper runs")
-        willQuit?()
+        #expect(willQuit?() == true)
         #expect(UpdateRelaunchFocus.consume(defaults: defaults, build: "200", now: Self.start.addingTimeInterval(2))?.frontmostPID == 7045)
+    }
+
+    /// The user came into the app while the helper looked up the installer: no quit, no record;
+    /// Sparkle relaunches it (activating).
+    @Test func theUserComingInDuringTheLookupLetsSparkleRelaunch() {
+        let defaults = Self.defaults()
+        var front = Self.nightly
+        let updater = Self.updater(defaults: defaults, front: front)
+        updater.frontmost = { front }
+        updater.keptRunningBuild = .kept
+        updater.automaticInstallInFlight = true
+        var willQuit: (@MainActor () -> Bool)?
+        updater.relaunchBehind = { quit, _, _ in willQuit = quit }
+        #expect(updater.updaterQuitsForAutomaticInstall(build: "200"))
+        front = UpdateFrontmostApp(isThisApp: true, pid: 1, bundleID: "self")
+        #expect(willQuit?() == false)
+        #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil)
     }
 
     /// The helper could not start, or the user refused the quit: the record goes and the next launch
@@ -123,10 +140,10 @@ import Testing
         let updater = Self.updater(defaults: defaults, front: Self.nightly)
         updater.keptRunningBuild = .kept
         updater.automaticInstallInFlight = true
-        var hooks: (willQuit: @MainActor () -> Void, declined: @MainActor () -> Void)?
-        updater.relaunchBehind = { hooks = ($0, $1) }
+        var hooks: (willQuit: @MainActor () -> Bool, declined: @MainActor () -> Void)?
+        updater.relaunchBehind = { quit, declined, _ in hooks = (quit, declined) }
         #expect(updater.updaterQuitsForAutomaticInstall(build: "200"))
-        hooks?.willQuit()
+        _ = hooks?.willQuit()
         #expect(defaults.data(forKey: UpdateRelaunchFocus.key) != nil)
         hooks?.declined()
         #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil)
@@ -139,7 +156,7 @@ import Testing
             updater.keptRunningBuild = .kept
             updater.automaticInstallInFlight = automatic
             var reopened = 0
-            updater.relaunchBehind = { _, _ in reopened += 1 }
+            updater.relaunchBehind = { _, _, _ in reopened += 1 }
             #expect(!updater.updaterQuitsForAutomaticInstall(build: "200"))
             #expect(reopened == 0)
         }
