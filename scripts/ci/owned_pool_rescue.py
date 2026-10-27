@@ -343,6 +343,9 @@ TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-
 # cmux-next.yml's macos-placement puts a feed compile there, and a job there that no runner acquired
 # needs the same re-run as one on any other owned label.
 LANE_LABEL = re.compile(r"glaeda-(?:aws-)?(?:session-|fast-|dev-)(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# The freshness slot's own labels, a subset of LANE_LABEL: a job that started there is a DEV feed compile,
+# which nothing automatic cancels (started_dev_compile()).
+DEV_LABEL = re.compile(r"glaeda-(?:aws-)?dev-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 # Every other workflow that can put a job on an owned pool, on main or on
 # feat-cmux-next (whose files are not in main's tree): owned_pool_sources.py
 # finds them from their jobs' runs-on, and tests/test_ci_owned_pool_sources.py
@@ -595,6 +598,23 @@ def reserved_runner(job: Mapping[str, Any]) -> str | None:
     for label in job.get("labels") or []:
         if str(label).startswith(RUNNER_LABEL_PREFIX):
             return str(label)
+    return None
+
+
+def started_dev_compile(jobs: Sequence[Mapping[str, Any]]) -> str | None:
+    """The freshness-slot label of a job a runner has taken, if any: a started DEV feed compile.
+
+    The watch reads jobs before rescue() cancels, so a compile queued on the slot can start in between;
+    a started dev build is never cancelled, so rescue() reads the jobs again right before its cancel.
+    """
+    for job in jobs:
+        if job.get("status") == "queued" and not job.get("runner_name"):
+            continue
+        if job.get("status") == "completed":
+            continue
+        for label in job.get("labels") or []:
+            if DEV_LABEL.fullmatch(str(label)):
+                return str(label)
     return None
 
 
@@ -1733,6 +1753,12 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
         api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
+    if target.path == CMUX_NEXT_WORKFLOW_PATH:
+        # Only cmux-next.yml places jobs on the freshness slot (macos-placement's fresh_runner).
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        slot = started_dev_compile(jobs)
+        if slot:
+            return f"not rescued: a DEV feed compile started on {slot}; a started dev build is never cancelled"
     api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
     started = now()
