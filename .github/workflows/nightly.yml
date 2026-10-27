@@ -3697,12 +3697,15 @@ jobs:
     # needs chain holds a skipped job unless its `if` calls a status function, so a skipped
     # fallback skipped signing and publishing (runs 40154003204 and 40155340212 built an app
     # and published nothing). After a successful primary it runs on Linux, finds the primary's
-    # result and does nothing; after a failed primary it prepares there.
+    # result and does nothing; after a failed primary it prepares there. Only that failed case takes GitHub's
+    # hosted Ubuntu (off the Blacksmith pool the primary just failed on): 2026-10-27 every nightly-next run
+    # waited 12 to 30 minutes in the hosted Ubuntu queue here, then again at prepare-nightly-variant and
+    # pick-nightly-sign-runner, and nothing newer than #26069 published for hours.
     if: always() && (needs.prepare-nightly-variant-primary.result == 'failure' || needs.prepare-nightly-variant-primary.result == 'success') && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || needs.prepare-nightly-variant-primary.result == 'success' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3988,7 +3991,7 @@ jobs:
   prepare-nightly-variant:
     needs: [prepare-nightly-variant-primary, prepare-nightly-variant-fallback]
     if: always() && (needs.prepare-nightly-variant-primary.result == 'success' || needs.prepare-nightly-variant-fallback.result == 'success')
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Accept primary or fallback preparation
         run: echo "nightly preparation completed on the primary or fallback route"
@@ -4005,10 +4008,11 @@ jobs:
     needs: [decide, prepare-nightly-variant]
     if: ${{ !cancelled() && needs.prepare-nightly-variant.result == 'success' }}
     # A failed pick reads as success to the signing jobs, whose runs-on then falls back to
-    # vars.MACOS_RUNNER_26: a pick never blocks signing. It runs on GitHub's hosted runner, as
-    # prepare-nightly-variant does, so it never waits on a queue of its own before that fallback.
+    # vars.MACOS_RUNNER_26: a pick never blocks signing. It runs on Blacksmith Linux, as
+    # prepare-nightly-variant does (Blacksmith macOS while Blacksmith Linux starts nothing); GitHub's
+    # hosted Ubuntu queued it 10+ minutes a run on 2026-10-27.
     continue-on-error: true
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Room for every step budget in turn (the Blacksmith pick 2, then the owned pick's token
     # mints 1 + 1 and picker 2) plus checkout, so the job is never cut off before its outputs;
     # the Blacksmith pick runs first so `runner` is set before the owned steps start.

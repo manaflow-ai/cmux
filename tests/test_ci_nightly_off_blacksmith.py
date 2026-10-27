@@ -129,7 +129,17 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         self.assertEqual(jobs["prepare-nightly-variant-primary"]["runs-on"],
                          "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + owned
                          + "'blacksmith-4vcpu-ubuntu-2404' }}")
-        self.assertEqual(jobs["prepare-nightly-variant-fallback"]["runs-on"], "${{ " + owned + "'ubuntu-24.04' }}")
+        self.assertEqual(jobs["prepare-nightly-variant-fallback"]["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + owned
+                         + "needs.prepare-nightly-variant-primary.result == 'success' && 'blacksmith-4vcpu-ubuntu-2404'"
+                         + " || 'ubuntu-24.04' }}")
+        # The light jobs after preparation take Blacksmith Linux, never GitHub's hosted Ubuntu queue (2026-10-27:
+        # 12 to 30 minutes a job there held every nightly-next run after its Mac build).
+        for name in ("prepare-nightly-variant", "pick-nightly-sign-runner"):
+            with self.subTest(job=name):
+                self.assertEqual(jobs[name]["runs-on"],
+                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + owned
+                                 + "'blacksmith-4vcpu-ubuntu-2404' }}")
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
                      "check-daemon-capabilities.sh", "test_bundled_ghostty_theme_picker_helper.sh",
                      "verify-diff-sidecar-artifact.sh", "select-ci-xcode.sh", "ditto ", "otool", "codesign")
