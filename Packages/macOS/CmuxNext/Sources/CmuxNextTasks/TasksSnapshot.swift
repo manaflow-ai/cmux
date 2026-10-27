@@ -29,3 +29,28 @@ public nonisolated struct TasksSnapshot: Codable, Sendable {
     public var tasks: [TaskItem]
     public var sessions: [TaskSessionItem]
 }
+
+/// A snapshot from the owner that the mirror refuses.
+public nonisolated enum TasksSnapshotError: Error, Equatable, Sendable {
+    /// Two rows of one entity have the same id. `entity` is the wire name (task, status, label, project, session).
+    case duplicateID(entity: String, id: String)
+}
+
+nonisolated extension TasksSnapshot {
+    /// Throws for two rows of one entity with the same id. The owner keys each table by id, so a
+    /// repeated id is corrupt input, not a row to choose.
+    public func checkUniqueIDs() throws(TasksSnapshotError) {
+        try Self.checkUnique("task", tasks.map(\.id))
+        try Self.checkUnique("status", statuses.map(\.id))
+        try Self.checkUnique("label", labels.map(\.id))
+        try Self.checkUnique("project", projects.map(\.id))
+        try Self.checkUnique("session", sessions.map(\.id))
+    }
+
+    private static func checkUnique(_ entity: String, _ ids: [String]) throws(TasksSnapshotError) {
+        var seen = Set<String>()
+        for id in ids where !seen.insert(id).inserted {
+            throw .duplicateID(entity: entity, id: id)
+        }
+    }
+}

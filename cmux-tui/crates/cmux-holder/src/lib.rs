@@ -170,6 +170,18 @@ pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 /// still starts.
 pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
 
+/// The environment variable that sets, in milliseconds, how long a terminal
+/// prints nothing before its ring gives its pages back (a test's; the
+/// default is the memory budget's `cold_scrollback_after`). An environment
+/// variable for the same reason as [`ORPHAN_GRACE_ENV`].
+pub const RING_COLD_ENV: &str = "CMUX_HOLDER_RING_COLD_MS";
+
+/// The environment variable that sets the installed RAM, in bytes, the
+/// holder sizes its rings for (a test's, to run as an 8 GB Mac does; the
+/// default is this Mac's). An environment variable for the same reason as
+/// [`ORPHAN_GRACE_ENV`].
+pub const RING_MEMORY_ENV: &str = "CMUX_HOLDER_RING_MEMORY_BYTES";
+
 /// What `cmux-holder --version` prints: the program and the wire versions
 /// it serves. A daemon starts a holder binary only when it reports this
 /// shape (`cmux-holder wire MIN-MAX`) with a range it speaks. No build
@@ -250,6 +262,12 @@ pub fn serve(args: &[String]) -> io::Result<()> {
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|millis| *millis > 0)
         .map(|millis| std::time::Duration::from_millis(millis.min(30 * 24 * 3600 * 1000)));
+    let ring_cold_after = std::env::var(RING_COLD_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(std::time::Duration::from_millis);
+    let ring_memory =
+        std::env::var(RING_MEMORY_ENV).ok().and_then(|value| value.trim().parse::<u64>().ok());
     let socket = socket.ok_or_else(|| invalid("--socket PATH is required"))?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
@@ -279,6 +297,12 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
     holder.set_orphan_grace(orphan_grace);
+    if let Some(after) = ring_cold_after {
+        holder.set_ring_cold_after(after);
+    }
+    if let Some(installed_bytes) = ring_memory {
+        holder.set_ring_budget_memory(installed_bytes);
+    }
     if let Some(idle_exit) = idle_exit {
         holder.set_idle_exit(idle_exit);
     }

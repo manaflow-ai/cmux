@@ -11,14 +11,21 @@ description = "The panic and hang logs of cmux's background processes: one JSON 
 workspace = true
 
 [features]
-default = ["json"]
-# The serde_json panic line, the hang log and the crash-key object the daemons write.
+default = ["json", "tokio"]
+# The serde_json panic line, the hang log, the crash-key object the daemons
+# write and `Supervisor`.
 json = ["dep:serde_json"]
+# `Supervisor::supervise_task*`; FFI crates without a runtime turn it off.
+tokio = ["json", "dep:tokio", "dep:tokio-util"]
 # The std-only panic writer (`minimal`, hand-escaped JSON) for the std+libc holder.
 minimal = []
 
 [dependencies]
+# std and libc only, so the holder's minimal writer may name the trace scopes too.
+cmux-trace.workspace = true
 serde_json = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
@@ -26,3 +33,4 @@ libc.workspace = true
 [dev-dependencies]
 # The minimal writer's tests parse its hand-escaped lines; the writer stays std only.
 serde_json.workspace = true
+tokio.workspace = true

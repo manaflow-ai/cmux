@@ -14,14 +14,24 @@
 //! `message`, `location` (`file:line:col`), `thread`, `at_ms`, `test`
 //! (true for a debug test panic, which the app never sends) and
 //! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]), and `crash_keys` (the
-//! process's [`crash_keys`] at the panic) when any key is set.
+//! process's [`crash_keys`] at the panic) when any key is set. Once the
+//! process's trace black box runs (`cmux_trace::init_blackbox`), a line also
+//! has its `role` and `uptime_ms` (since that start), and a panic inside
+//! `cmux_trace::trace_scope!`s has `scopes` (their names, innermost first) and
+//! `scope_depth` (how many were open, those past the names too) ([`trace_context`]).
 //!
 //! The hang log beside it ([`hang`]) gets one JSON line per watched scope
 //! that runs past its hang deadline, with the hung thread's stack.
 //!
-//! Features: `json` (default) is the serde_json writer above and the hang
-//! log. `minimal` writes the same line with std alone ([`minimal`]), for
-//! the holder, which links std and libc only.
+//! [`Supervisor`] runs long-lived threads and tasks under a declared failure
+//! policy ([`Fatal`] by default, [`Restart`] for state-private workers) and a
+//! [`ShutdownBehavior`]; a fatal failure adds a `"kind": "supervised_exit"`
+//! line and ends the process.
+//!
+//! Features: `json` (default) is the serde_json writer above, the hang log
+//! and [`Supervisor`]; `tokio` (default) adds its task runner. `minimal`
+//! writes the same line with std alone ([`minimal`]), for the holder, which
+//! links std and libc only.
 
 pub mod crash_keys;
 #[cfg(feature = "json")]
@@ -35,6 +45,16 @@ use std::io::Write;
 use std::path::Path;
 #[cfg(feature = "json")]
 use std::path::PathBuf;
+
+#[cfg(feature = "json")]
+mod supervise;
+
+#[cfg(feature = "json")]
+pub use supervise::{
+    ExitProcess, Failure, FailureSink, Fatal, FatalReason, FatalReport, PoisonProbe, Restart,
+    SUPERVISED_FATAL_EXIT_CODE, ShutdownBehavior, ShutdownReport, StopToken, SuperviseError,
+    Supervisor, WorkerHandle, WorkerOutcome,
+};
 
 /// Largest backtrace kept per line.
 pub const MAX_BACKTRACE_BYTES: usize = 16 * 1024;
@@ -68,8 +88,15 @@ pub fn install_with_opener(
         let mut line =
             record(&fields, &panic.message, &panic.location, &panic.thread, test, panic.backtrace);
         let keys = crash_keys::snapshot();
-        if let (false, serde_json::Value::Object(object)) = (keys.is_empty(), &mut line) {
-            object.insert("crash_keys".into(), keys.to_json());
+        if let serde_json::Value::Object(object) = &mut line {
+            if !keys.is_empty() {
+                object.insert("crash_keys".into(), keys.to_json());
+            }
+            object.extend(trace_context(
+                cmux_trace::process_role(),
+                cmux_trace::process_uptime_ns(),
+                &cmux_trace::scope_stack(),
+            ));
         }
         append_line(&opener, format!("{line}\n").as_bytes());
         previous(info);
@@ -115,19 +142,23 @@ struct Panic {
 #[cfg(any(feature = "json", feature = "minimal"))]
 impl Panic {
     fn capture(info: &std::panic::PanicHookInfo<'_>) -> Self {
-        let message = info
-            .payload()
-            .downcast_ref::<&str>()
-            .map(|text| (*text).to_string())
-            .or_else(|| info.payload().downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "non-text panic payload".to_string());
         Self {
-            message,
+            message: payload_text(info.payload()),
             location: info.location().map(ToString::to_string).unwrap_or_default(),
             thread: std::thread::current().name().unwrap_or("unnamed").to_string(),
             backtrace: std::backtrace::Backtrace::force_capture().to_string(),
         }
     }
+}
+
+/// A panic payload's text: its `&str` or `String`, else a placeholder.
+#[cfg(any(feature = "json", feature = "minimal"))]
+pub(crate) fn payload_text(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|text| (*text).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "non-text panic payload".to_string())
 }
 
 /// Cut `backtrace` to at most [`MAX_BACKTRACE_BYTES`], on a char boundary.
@@ -149,6 +180,30 @@ fn now_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis())
         .unwrap_or_default()
+}
+
+/// The trace keys of a panic line: `role` and `uptime_ms` when the process
+/// traces, `scopes` (innermost first) and `scope_depth` when the panicking
+/// thread had scopes open. The hook reads them on the panicking thread.
+#[cfg(feature = "json")]
+pub fn trace_context(
+    role: Option<cmux_trace::Role>,
+    uptime_ns: Option<u64>,
+    scopes: &cmux_trace::ScopeStack,
+) -> Fields {
+    let mut context = Fields::new();
+    if let Some(role) = role {
+        context.insert("role".into(), role.as_str().into());
+    }
+    if let Some(uptime_ns) = uptime_ns {
+        context.insert("uptime_ms".into(), (uptime_ns / 1_000_000).into());
+    }
+    if scopes.depth() > 0 {
+        let names: Vec<serde_json::Value> = scopes.names().map(Into::into).collect();
+        context.insert("scopes".into(), names.into());
+        context.insert("scope_depth".into(), scopes.depth().into());
+    }
+    context
 }
 
 #[cfg(any(feature = "json", feature = "minimal"))]

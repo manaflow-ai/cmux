@@ -15,7 +15,10 @@ then tiers, then Pinpoint). One tick:
 1. starts a bisect for each new monitored alert group (state new or triaged, no bisect job yet), pinned to the
    group's largest regression (alerts.group_alerts): its story, metric, build config and host class, over the
    commits between the range ends that the group's issue links (alerts.waterfall_sha). Magnitude = the alert's
-   delta (median_after - median_before, in the metric's unit); pinpoint.py turns it into IQRs (3.6). The group
+   delta (median_after - median_before, in the metric's unit); pinpoint.py turns it into IQRs (3.6). A
+   harness-broken group (harness_alerts.py, task 214) gets a functional-mode bisect of its story's pass/fail rate
+   instead (catapult job_state.py's comparison_mode `functional`), from the story's newest stored waterfall pass
+   before the range (harness_alerts.functional_target). The group
    moves new -> triaged -> bisecting through sheriff.Sheriff.apply_state with ACTOR as the session, in the same
    transaction as the job row, so the sheriff's transitions, reasons and claims hold for the executor too.
 2. for each running bisect: stops it when its group is no longer bisecting (catapult cancels a Pinpoint job whose
@@ -87,6 +90,7 @@ builds = _load_sibling("perf_lab_builds", "builds.py")
 ingest = _load_sibling("perf_lab_ingest", "ingest.py")
 alerts = _load_sibling("perf_lab_alerts", "alerts.py")
 sheriff = _load_sibling("perf_lab_sheriff", "sheriff.py")
+harness_alerts = _load_sibling("perf_lab_harness_alerts", "harness_alerts.py")
 scheduler = _load_sibling("perf_lab_scheduler", "scheduler.py")
 
 CHECKPOINT_SCHEMA = "cmux-perf-pinpoint-exec/v2"
@@ -375,11 +379,19 @@ class Executor:
     def _start(self, group: sqlite3.Row) -> int | str:
         """The new bisect's job id, or why the group cannot start yet."""
         top = next(iter(alerts.group_alerts(self._lab, group["id"])), None)
-        if top is None:
-            return "no regression alert"
-        series = top.series
+        if top is not None:
+            series, mode, magnitude = top.series, pinpoint.PERFORMANCE, top.median_after - top.median_before
+            good = alerts.waterfall_sha(self._lab, series.build_config, group["start_pos"], before=True)
+            measured = f"delta {magnitude:+.4g}"
+        else:
+            target = harness_alerts.functional_target(self._lab, group["id"])
+            if target is None:
+                return "no regression or harness-broken alert"
+            if target.good is None:
+                return f"no stored waterfall pass of {target.series.story} before the range"
+            series, mode, magnitude, good = target.series, pinpoint.FUNCTIONAL, None, target.good
+            measured = "pass/fail rate"
         config = series.build_config
-        good = alerts.waterfall_sha(self._lab, config, group["start_pos"], before=True)
         bad = alerts.waterfall_sha(self._lab, config, group["end_pos"], before=False)
         if good is None or bad is None:
             return f"no waterfall point {'before' if good is None else 'at the end of'} the range"
@@ -395,9 +407,9 @@ class Executor:
             stored = self._ledger_get(sha, config)
             commits.append(pinpoint.Commit(sha, batch_tip=sha in tips,
                                            stored_build=stored is not None and stored.status == "ok"))
-        job = pinpoint.Job(kind=pinpoint.BISECT, mode=pinpoint.PERFORMANCE, story=series.story,
+        job = pinpoint.Job(kind=pinpoint.BISECT, mode=mode, story=series.story,
                            metric=series.metric, host_class=series.host_class, good=commits[0].change,
-                           bad=commits[-1].change, magnitude=top.median_after - top.median_before,
+                           bad=commits[-1].change, magnitude=magnitude,
                            better=series.better, commits=tuple(commits))
         params = json.dumps({"role": "bisect", "job": job_doc(job, config=config)}, sort_keys=True)
 
@@ -413,11 +425,14 @@ class Executor:
                 (JOB_KIND, job.story, job.host_class, good, bad, group["id"], params, now, now)).lastrowid
             # catapult alert_group_workflow.py triages an untriaged group and bisects it: new -> triaged -> bisecting.
             if current["state"] == "new":
-                self._sheriff.apply_state(group["id"], "triaged", reason="monitored regression; automatic bisect")
+                self._sheriff.apply_state(
+                    group["id"], "triaged",
+                    reason=("monitored regression" if mode == pinpoint.PERFORMANCE else "harness broken")
+                    + "; automatic bisect")
             self._sheriff.apply_state(
                 group["id"], "bisecting",
-                reason=f"bisect job {job_id}: {job.story} {job.metric} on {job.host_class}, "
-                       f"{len(commits) - 1} commits {good[:12]}..{bad[:12]}, delta {job.magnitude:+.4g}")
+                reason=f"{mode} bisect job {job_id}: {job.story} {job.metric} on {job.host_class}, "
+                       f"{len(commits) - 1} commits {good[:12]}..{bad[:12]}, {measured}")
             return job_id
 
         try:

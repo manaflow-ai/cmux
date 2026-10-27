@@ -60,6 +60,7 @@ pub mod local_stream;
 pub mod login_env;
 pub mod mailbox;
 pub mod maintenance;
+pub mod mcp_relay;
 pub mod memory;
 pub mod native;
 pub mod no_panic;

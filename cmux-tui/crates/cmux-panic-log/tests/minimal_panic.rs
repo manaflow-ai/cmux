@@ -29,6 +29,12 @@ fn scratch_log() -> PathBuf {
 #[test]
 fn a_minimal_panic_hook_writes_one_line_and_runs_the_previous_hook() {
     let log = scratch_log();
+    // The holder traces as holder, so its lines name the role and uptime, and
+    // the scopes the panic ran in (p09-observability-082), as the json writer's do.
+    cmux_trace::init_blackbox(log.parent().unwrap(), cmux_trace::Role::Holder)
+        .expect("the first trace start")
+        .wait()
+        .ok();
     std::panic::set_hook(Box::new(|_| PREVIOUS_RAN.store(true, Ordering::SeqCst)));
     let fields: minimal::Fields =
         vec![("process", "cmux-holder".into()), ("holder_pid", std::process::id().into())];
@@ -36,7 +42,11 @@ fn a_minimal_panic_hook_writes_one_line_and_runs_the_previous_hook() {
 
     let joined = std::thread::Builder::new()
         .name(TEST_THREAD.into())
-        .spawn(|| panic!("minimal \"quoted\" panic\nsecond line"))
+        .spawn(|| {
+            let _link = cmux_trace::trace_scope!(daemon, "daemon.holder.link");
+            let _frame = cmux_trace::trace_scope!(daemon, "daemon.holder.link.frame");
+            panic!("minimal \"quoted\" panic\nsecond line")
+        })
         .unwrap()
         .join();
     assert!(joined.is_err(), "the thread panicked");
@@ -52,6 +62,13 @@ fn a_minimal_panic_hook_writes_one_line_and_runs_the_previous_hook() {
     assert_eq!(record["holder_pid"].as_u64(), Some(u64::from(std::process::id())), "{record}");
     assert!(record["location"].as_str().unwrap_or_default().contains("minimal_panic.rs:"));
     assert!(record["backtrace"].is_string(), "{record}");
+    assert_eq!(record["role"], "holder", "{record}");
+    assert!(record["uptime_ms"].is_u64(), "{record}");
+    assert_eq!(
+        record["scopes"],
+        serde_json::json!(["daemon.holder.link.frame", "daemon.holder.link"])
+    );
+    assert_eq!(record["scope_depth"], 2, "{record}");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

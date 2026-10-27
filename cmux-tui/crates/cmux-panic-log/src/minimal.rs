@@ -2,7 +2,8 @@
 //! only (the holder, `cmux-holder holder-panics.jsonl`).
 //!
 //! The line is the one [`crate::install`] writes: the same keys, the same
-//! `crash_keys` object, the same size caps and the same owner-only,
+//! `crash_keys` object, the same trace keys ([`crate::trace_context`]'s
+//! `role`, `uptime_ms`, `scopes` and `scope_depth`), the same size caps and the same owner-only,
 //! no-follow append, so the app's `RustPanicForwarder` reads both alike.
 //! Only the encoder differs: the JSON is written and escaped by hand (RFC
 //! 8259 section 7: `"`, `\` and the control characters below U+0020 are
@@ -60,8 +61,46 @@ impl From<bool> for Value {
 pub type Fields = Vec<(&'static str, Value)>;
 
 /// The keys the panic writes itself.
-const PANIC_KEYS: [&str; 7] =
-    ["message", "location", "thread", "at_ms", "test", "backtrace", "crash_keys"];
+const PANIC_KEYS: [&str; 11] = [
+    "message",
+    "location",
+    "thread",
+    "at_ms",
+    "test",
+    "backtrace",
+    "crash_keys",
+    "role",
+    "uptime_ms",
+    "scopes",
+    "scope_depth",
+];
+
+/// What a line carries from the process at the panic besides the panic:
+/// its crash keys and its trace keys. Copies only, no allocation.
+#[derive(Clone, Copy, Debug)]
+pub struct Context {
+    /// The process's [`crash_keys`] (`crash_keys`, when any is set).
+    pub keys: Snapshot,
+    /// The role the process traces as (`role`).
+    pub role: Option<cmux_trace::Role>,
+    /// Time since the trace black box started (`uptime_ms`).
+    pub uptime_ns: Option<u64>,
+    /// The thread's open trace scopes (`scopes` and `scope_depth`, when any).
+    pub scopes: cmux_trace::ScopeStack,
+}
+
+impl Context {
+    /// The calling thread's context: a panic hook reads it on the panicking
+    /// thread.
+    pub fn current() -> Self {
+        Self {
+            keys: crash_keys::snapshot(),
+            role: cmux_trace::process_role(),
+            uptime_ns: cmux_trace::process_uptime_ns(),
+            scopes: cmux_trace::scope_stack(),
+        }
+    }
+}
 
 /// Install a hook that appends each panic to `path`, then runs the previous
 /// hook. `is_test_thread` marks lines from a debug test trigger (`"test": true`).
@@ -77,7 +116,7 @@ pub fn install(path: PathBuf, fields: Fields, is_test_thread: fn(&str) -> bool) 
             &panic.thread,
             test,
             panic.backtrace,
-            &crash_keys::snapshot(),
+            &Context::current(),
         );
         append(&path, &line);
         previous(info);
@@ -85,7 +124,7 @@ pub fn install(path: PathBuf, fields: Fields, is_test_thread: fn(&str) -> bool) 
 }
 
 /// One whole log line, its newline included: `fields`, then the panic's
-/// own keys, then `crash_keys` when `keys` has any.
+/// own keys, then `crash_keys` when `context` has any, then its trace keys.
 pub fn line(
     fields: &Fields,
     message: &str,
@@ -93,7 +132,7 @@ pub fn line(
     thread: &str,
     test: bool,
     mut backtrace: String,
-    keys: &Snapshot,
+    context: &Context,
 ) -> String {
     crate::truncate_backtrace(&mut backtrace);
     let mut out = String::with_capacity(256 + message.len() + backtrace.len());
@@ -118,10 +157,11 @@ pub fn line(
     object.out.push_str(if test { "true" } else { "false" });
     object.key("backtrace");
     push_string(object.out, &backtrace);
-    if !keys.is_empty() {
+    if !context.keys.is_empty() {
         object.key("crash_keys");
-        push_crash_keys(object.out, keys);
+        push_crash_keys(object.out, &context.keys);
     }
+    push_trace(&mut object, context);
     object.close();
     out.push('\n');
     out
@@ -130,6 +170,32 @@ pub fn line(
 /// Append one [`line`], unless the log is full. Never panics.
 pub fn append(path: &Path, line: &str) {
     crate::append_line(&|| crate::open_append(path), line.as_bytes());
+}
+
+/// [`crate::trace_context`]'s keys: `role` and `uptime_ms` when the process
+/// traces, `scopes` (innermost first) and `scope_depth` when any scope is open.
+fn push_trace(object: &mut Object<'_>, context: &Context) {
+    if let Some(role) = context.role {
+        object.key("role");
+        push_string(object.out, role.as_str());
+    }
+    if let Some(uptime_ns) = context.uptime_ns {
+        object.key("uptime_ms");
+        push_number(object.out, u128::from(uptime_ns / 1_000_000));
+    }
+    if context.scopes.depth() > 0 {
+        object.key("scopes");
+        object.out.push('[');
+        for (index, name) in context.scopes.names().enumerate() {
+            if index > 0 {
+                object.out.push(',');
+            }
+            push_string(object.out, name);
+        }
+        object.out.push(']');
+        object.key("scope_depth");
+        push_number(object.out, u128::from(context.scopes.depth()));
+    }
 }
 
 /// [`Snapshot::to_json`]'s object: each set key by name, and the hung
@@ -216,6 +282,16 @@ fn push_string(out: &mut String, text: &str) {
 mod tests {
     use super::*;
 
+    /// No crash key, no trace: this test thread holds no scope.
+    fn no_context() -> Context {
+        Context {
+            keys: Snapshot::default(),
+            role: None,
+            uptime_ns: None,
+            scopes: cmux_trace::scope_stack(),
+        }
+    }
+
     fn parse(line: &str) -> serde_json::Value {
         assert!(line.ends_with('\n') && line.matches('\n').count() == 1, "{line:?}");
         serde_json::from_str(line).unwrap_or_else(|error| panic!("{error}: {line:?}"))
@@ -239,7 +315,7 @@ mod tests {
             "holder-loop",
             false,
             "0: frame".into(),
-            &Snapshot::default(),
+            &no_context(),
         );
         let record = parse(&line);
         assert_eq!(record["process"], "cmux-holder");
@@ -254,6 +330,26 @@ mod tests {
         assert_eq!(record["backtrace"], "0: frame");
         assert!(record["at_ms"].as_u64().is_some_and(|at| at > 0), "{record}");
         assert!(record.get("crash_keys").is_none(), "no key set, no object: {record}");
+        assert!(record.get("role").is_none(), "no trace, no role: {record}");
+        assert!(record.get("scopes").is_none(), "no scope open: {record}");
+    }
+
+    #[test]
+    fn a_line_carries_the_trace_keys_of_the_json_writer() {
+        let context = Context {
+            role: Some(cmux_trace::Role::Holder),
+            uptime_ns: Some(2_500_000_000),
+            ..no_context()
+        };
+        let record = parse(&line(&Fields::new(), "m", "l", "t", false, String::new(), &context));
+        assert_eq!(record["role"], "holder");
+        assert_eq!(record["uptime_ms"], 2500);
+        #[cfg(feature = "json")]
+        {
+            let json = crate::trace_context(context.role, context.uptime_ns, &context.scopes);
+            assert_eq!(record["role"], json["role"]);
+            assert_eq!(record["uptime_ms"], json["uptime_ms"]);
+        }
     }
 
     #[test]
@@ -267,7 +363,8 @@ mod tests {
             format!("{} hung_kind_0=2 hung_kind_1=5", std::str::from_utf8(&buffer[..len]).unwrap())
         })
         .unwrap();
-        let record = parse(&line(&Fields::new(), "m", "l", "t", true, String::new(), &keys));
+        let context = Context { keys, ..no_context() };
+        let record = parse(&line(&Fields::new(), "m", "l", "t", true, String::new(), &context));
         assert_eq!(
             record["crash_keys"],
             serde_json::json!({
@@ -282,8 +379,7 @@ mod tests {
     #[test]
     fn a_long_backtrace_is_cut_on_a_char_boundary() {
         let backtrace = "é".repeat(crate::MAX_BACKTRACE_BYTES);
-        let record =
-            parse(&line(&Fields::new(), "m", "l", "t", false, backtrace, &Snapshot::default()));
+        let record = parse(&line(&Fields::new(), "m", "l", "t", false, backtrace, &no_context()));
         let kept = record["backtrace"].as_str().unwrap();
         assert!(
             kept.len() <= crate::MAX_BACKTRACE_BYTES && kept.len() + 2 > crate::MAX_BACKTRACE_BYTES

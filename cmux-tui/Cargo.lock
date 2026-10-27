@@ -1374,6 +1374,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-threads",
  "futures-util",
  "getrandom 0.3.4",
  "jsonschema",
@@ -1394,8 +1395,11 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-trace",
  "libc",
  "serde_json",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -1990,6 +1994,7 @@ dependencies = [
  "base64",
  "cmux-blocking",
  "cmux-panic-log",
+ "cmux-threads",
  "cmux-wg",
  "futures-util",
  "getrandom 0.3.4",
@@ -2004,6 +2009,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "subtle",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
  "x25519-dalek",

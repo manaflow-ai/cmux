@@ -28,9 +28,9 @@ final class SidebarNoticeCardView: NSView {
     private let spinner = StatusIndicatorView.spinner()
     private let track = CALayer()
     private let bar = CALayer()
-    /// The unmeasured sweep's loop: off while the card is out of its window, hidden or occluded.
-    private let loopVisibility = LoopVisibility("sidebar.noticeCard.sweep")
-    private var loopNode: VisibilityNode { loopVisibility.node }
+    /// The card's node (its window's, hidden with the card) and the unmeasured sweep's loop on it.
+    private let loopVisibility = LoopVisibility("sidebar.noticeCard")
+    var loopNode: VisibilityNode { loopVisibility.node } // tests read its deferred work
     private(set) var actionButtons: [SidebarUpdateButton] = []
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The text button that replaces the x when the notice names one (``SidebarNoticeCard/dismissTitle``).
@@ -42,9 +42,9 @@ final class SidebarNoticeCardView: NSView {
     /// The notice whose `shownAction` was sent (once per notice id), and its
     /// `hiddenAction` (sent when that notice leaves the card).
     private var reportedShown: (id: String, hiddenAction: String?)?
-    /// The window node's flips (``WindowVisibilitySource``): a window that comes into view
-    /// (unhidden app, restored, another window moved away) shows the card now.
-    private var windowVisibility: VisibilitySubscription?
+    /// The card's node coming into view (an unhidden app, a restored window, another window moved away, the
+    /// card or the sidebar unhidden) reports the notice shown then.
+    private var shownWatch: VisibilitySubscription?
     /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
     private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
     private let motionPolicy: @MainActor () -> MotionPolicy
@@ -96,6 +96,7 @@ final class SidebarNoticeCardView: NSView {
         dismissButton.setAccessibilityIdentifier("cmux.sidebar.notice.dismiss")
         setAccessibilityElement(false)
         isHidden = true
+        shownWatch = loopNode.subscribe(owner: "SidebarNoticeCard.shown") { [weak self] in if $0.isVisible { self?.reportShownIfOnScreen() } }
     }
 
     @available(*, unavailable)
@@ -160,12 +161,11 @@ final class SidebarNoticeCardView: NSView {
         reportShownIfOnScreen()
     }
 
-    /// Sends the notice's `shownAction` once it is on screen: a window that is
-    /// not covered, minimized or hidden, no hidden ancestor (a collapsed
-    /// sidebar shows nothing) and a real size.
+    /// Sends the notice's `shownAction` once it is on screen: the card's node is visible (a window that is not
+    /// covered, minimized or hidden; the card and the sidebar not hidden) and the card has a real size.
     private func reportShownIfOnScreen() {
         guard let notice, let action = notice.shownAction, reportedShown?.id != notice.id,
-              window.map({ WindowVisibilitySource.of($0).node.isVisible }) == true, !isHiddenOrHasHiddenAncestor, !bounds.isEmpty else { return }
+              loopNode.isVisible, !bounds.isEmpty else { return }
         reportedShown = (notice.id, notice.hiddenAction)
         onAction?(notice.id, action)
     }
@@ -178,7 +178,6 @@ final class SidebarNoticeCardView: NSView {
     override func viewDidUnhide() {
         super.viewDidUnhide()
         loopNode.set(.visible)
-        reportShownIfOnScreen()
     }
 
     /// Right-click (cx-2lm4): the card's buttons, then its x (Dismiss, or the x's menu), as menu items.
@@ -446,17 +445,16 @@ final class SidebarNoticeCardView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyColors()
-        surface.needsDisplay = true
+        loopNode.deferUntilVisible(key: "appearance") { [weak self] in
+            self?.applyColors()
+            self?.surface.needsDisplay = true
+        }
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         loopVisibility.place(in: window)
         applyColors()
-        windowVisibility = window.map { window in
-            WindowVisibilitySource.of(window).node.subscribe(owner: "SidebarNoticeCard") { [weak self] _ in self?.reportShownIfOnScreen() }
-        }
         reportShownIfOnScreen()
     }
 
