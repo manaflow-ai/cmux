@@ -155,7 +155,7 @@ def outcomes_from_summary(summary: object, *, batch_pos: int, host: str | None =
     Exit 3 (refusal `env-invalid`): host_env refused the host before any story ran, so every planned story is
     env-invalid. Another refusal or exit code says nothing about a story: no outcome. A run is env-invalid when the
     host failed it (run_story's `env_invalid`: the app's validation after launch, a lost virtual display), a pass
-    when it is ok, else an error with its reason. `host` and `host_class` default to the summary's host_env report;
+    when it is ok, else an error with its reason. A not-measurable run (the build lacks a need) makes no outcome. `host` and `host_class` default to the summary's host_env report;
     with no host class only env-invalid outcomes could be made, which are no evidence, so none are.
     """
     if not isinstance(summary, dict):
@@ -186,6 +186,8 @@ def outcomes_from_summary(summary: object, *, batch_pos: int, host: str | None =
         story = run.get("story") if isinstance(run, dict) else None
         if not isinstance(story, str) or not story:
             raise HarnessAlertsError(f"summary.json: runs[{index}] names no story")
+        if run.get("not_measurable"):
+            continue  # the build lacks a need of the story (run_story's not-measurable): no evidence about the story
         if run.get("ok") is True:
             status, reason = PASS, ""
         elif run.get("env_invalid") is True:

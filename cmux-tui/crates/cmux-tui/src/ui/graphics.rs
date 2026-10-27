@@ -1056,7 +1056,8 @@ fn cell_pixels_from_window_size(
 
 #[cfg(unix)]
 fn ioctl_cell_pixels() -> Option<(u16, u16)> {
-    let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
+    let mut ws = libc::winsize { ws_row: 0, ws_col: 0, ws_xpixel: 0, ws_ypixel: 0 };
+    // SAFETY: TIOCGWINSZ writes one winsize into `ws`, a live local.
     let ok = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) } == 0;
     ok.then(|| cell_pixels_from_terminal_size(ws.ws_col, ws.ws_row, ws.ws_xpixel, ws.ws_ypixel))
         .flatten()
@@ -1079,11 +1080,13 @@ fn read_stdin_until(timeout: Duration, complete: impl Fn(&[u8]) -> bool) -> Vec<
         let remaining = timeout.saturating_sub(start.elapsed());
         let poll_ms = remaining.min(Duration::from_millis(20)).as_millis() as i32;
         let mut fd = libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
+        // SAFETY: the pointer names one live, exclusively borrowed pollfd and the count is 1.
         let ready = unsafe { libc::poll(&mut fd, 1, poll_ms) };
         if ready <= 0 {
             continue;
         }
         let mut buf = [0u8; 1024];
+        // SAFETY: read(2) writes at most `buf.len().min(available)` bytes into `buf`, a live local.
         let n = unsafe {
             libc::read(libc::STDIN_FILENO, buf.as_mut_ptr().cast(), buf.len().min(available))
         };
@@ -1096,6 +1099,7 @@ fn read_stdin_until(timeout: Duration, complete: impl Fn(&[u8]) -> bool) -> Vec<
             // input sequence split at this read boundary remains intact.
             let mut pending =
                 libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
+            // SAFETY: the pointer names one live, exclusively borrowed pollfd and the count is 1.
             if unsafe { libc::poll(&mut pending, 1, 0) } <= 0 {
                 break;
             }
@@ -1235,6 +1239,8 @@ pub(crate) fn finish_startup_input(
                 let poll_ms = remaining.min(Duration::from_millis(20)).as_millis().max(1) as i32;
                 let mut fd =
                     libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
+                // SAFETY: the pointer names one live, exclusively borrowed pollfd and the count is
+                // 1.
                 let ready = unsafe { libc::poll(&mut fd, 1, poll_ms) };
                 if ready < 0 {
                     if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
@@ -1246,6 +1252,7 @@ pub(crate) fn finish_startup_input(
                     continue;
                 }
                 let mut bytes = [0_u8; 1024];
+                // SAFETY: read(2) writes at most `bytes.len()` bytes into `bytes`, a live local.
                 let count = unsafe {
                     libc::read(libc::STDIN_FILENO, bytes.as_mut_ptr().cast(), bytes.len())
                 };

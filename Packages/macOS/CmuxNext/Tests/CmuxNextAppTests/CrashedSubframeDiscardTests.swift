@@ -61,9 +61,9 @@ import Testing
     }
 
     @Test func theShimReportsEachSubframesRenderer() {
-        #expect(CEFShimEvent(kind: 61, browser: 7, request: 9, a: 1, b: 0, s1: "9-ab", s2: "")
+        #expect(CEFShimEvent(kind: 64, browser: 7, request: 9, a: 1, b: 0, s1: "9-ab", s2: "")
             == .subframeRenderer(browser: 7, frame: "9-ab", client: 9, attached: true))
-        #expect(CEFShimEvent(kind: 61, browser: 7, request: 9, a: 0, b: 0, s1: "9-ab", s2: "")
+        #expect(CEFShimEvent(kind: 64, browser: 7, request: 9, a: 0, b: 0, s1: "9-ab", s2: "")
             == .subframeRenderer(browser: 7, frame: "9-ab", client: 9, attached: false))
     }
 
