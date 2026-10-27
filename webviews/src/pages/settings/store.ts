@@ -327,6 +327,20 @@ export class SettingsStore {
     return this.themeFileSaved(await this.request("cmux.settings.theme.import", retry ?? {}));
   }
 
+  /**
+   * Let Themes Set Colors: the host turns the Ghostty config's own color lines into comments and
+   * reloads it, so the theme sets those colors; the host lists then drop the notice.
+   */
+  async releaseThemeOverrides(): Promise<Reply<{ files: number }>> {
+    const reply = await this.request("cmux.settings.theme.overrides.release", {});
+    if (reply.ok) await this.refreshHost();
+    return reply;
+  }
+
+  openThemeOverrides(): void {
+    void this.request("cmux.settings.theme.overrides.open", {});
+  }
+
   /** After a theme file lands, the theme names and colors are read again so every picker lists it. */
   private async themeFileSaved(reply: Reply<{ name?: string }>): Promise<Reply<{ name?: string }>> {
     if (reply.ok && reply.value.name) await Promise.all([this.refresh(), this.fetchNative(settingsKeys.themeColors)]);
