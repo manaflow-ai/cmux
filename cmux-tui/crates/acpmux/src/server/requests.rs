@@ -1130,8 +1130,8 @@ async fn dispatch_request(
             let path = crate::tui::directory::resolve(&base, value, &home, None)
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             let result = crate::daemon::spawn_blocking(move || -> Result<Value, std::io::Error> {
-                let path = std::fs::canonicalize(path)?;
-                if !path.is_dir() { return Err(std::io::Error::other("not a directory")); }
+                let path = cmux_blocking::fs::canonicalize(path)?;
+                if !cmux_blocking::fs::metadata(&path).is_ok_and(|m| m.is_dir()) { return Err(std::io::Error::other("not a directory")); }
                 let children = crate::tui::directory::children(&path);
                 Ok(json!({"path": path, "parent": path.parent(), "home": home, "directories": children}))
             }).await.map_err(|e| RpcError::internal(e.to_string()))?.map_err(|e| RpcError::invalid_params(e.to_string()))?;

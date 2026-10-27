@@ -36,13 +36,15 @@ pub(crate) fn init(dir: &Path) {
     }
 }
 
-/// `tokio::task::spawn_blocking`, with the item watched for [`BLOCKING_ITEM`] ([`blocking_item`]).
+/// `cmux_blocking::spawn_blocking` (a `MayBlock` item, so its `scoped_blocking_call`s are
+/// allowed), with the item watched for [`BLOCKING_ITEM`] ([`blocking_item`]).
+#[track_caller]
 pub fn spawn_blocking<F, R>(work: F) -> tokio::task::JoinHandle<R>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
-    tokio::task::spawn_blocking(move || blocking_item(BLOCKING_ITEM, work))
+    cmux_blocking::spawn_blocking(move || blocking_item(BLOCKING_ITEM, work))
 }
 
 /// Runs `work` as one watched item of the calling thread: a scope of the thread's registration,

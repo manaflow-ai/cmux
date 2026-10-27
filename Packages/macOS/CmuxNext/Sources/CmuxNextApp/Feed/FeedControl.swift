@@ -60,7 +60,7 @@ enum FeedControl {
     static func liveDialogs(_ services: AppServices) -> AgentDialogDesk {
         AgentDialogDesk(open: { [weak services] in
             guard let services, let environment = QuitAgents.environment(services) else { return nil }
-            return await AcpmuxPersonLine.open(environment)
+            return await AcpmuxPersonLine.open(environment, deadlines: services.mainDeadlines)
         }, tab: { [weak services] session in
             guard let services else { return nil }
             let local = services.agentTabs.localHost

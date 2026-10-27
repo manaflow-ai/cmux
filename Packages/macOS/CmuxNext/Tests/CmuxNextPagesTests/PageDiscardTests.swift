@@ -44,16 +44,21 @@ struct PageDiscardTests {
         }
     }
 
-    /// An encoder that records what it is given and answers at once with ``answer``.
+    /// An encoder that records what it is given and answers at once: a frame with ``answer``, a surface
+    /// copy with its own PNG.
     @MainActor private final class RecordingEncoder {
         var images: [CGImage] = []
+        var unpacked: [PageSurfaceCopy] = []
         var answer: PageEncodedSnapshot?
 
         var encoder: PageSnapshotEncoder {
-            PageSnapshotEncoder { [self] image, done in
+            PageSnapshotEncoder(start: { [self] image, done in
                 images.append(image)
                 done(answer)
-            }
+            }, unpack: { [self] copy, done in
+                unpacked.append(copy)
+                done(copy.encoded())
+            })
         }
 
         /// An encoder whose answer waits for ``finish(_:)`` (an encode still on the lane).
@@ -75,6 +80,8 @@ struct PageDiscardTests {
     private let lifecycle: PageLifecycle
     private let descriptor = PageDescriptor(id: "test.page-discard", resource: "page-discard", processGroup: .solo, namespaces: [])
     private static let picture = PageEncodedSnapshot(data: Data([0x89, 0x50, 0x4E, 0x47]), pixelSize: CGSize(width: 200, height: 160))
+    /// ``picture`` as Chromium's surface copy answers it, in base64.
+    private static let surfaceCopy = PageSurfaceCopy(base64: picture.data.base64EncodedString(), pixelSize: picture.pixelSize)
 
     init() {
         lifecycle = PageLifecycle(deadlines: rig.scheduler)
@@ -163,18 +170,20 @@ struct PageDiscardTests {
 
     // MARK: A real page
 
-    /// A Chromium page copies its surface when it hides (no DevTools), and the discard 300 s later makes
-    /// no call into the page and encodes nothing more: Chromium's copy comes encoded.
+    /// A Chromium page copies its surface when it hides (no DevTools), its base64 goes to the encoder's
+    /// unpack (off the main thread in the app), and the discard 300 s later makes no call into the page and
+    /// encodes nothing more: Chromium's copy comes encoded.
     @Test func aChromiumPageKeepsItsSurfaceCopyAtTheHideAndIsDiscardedWithNoPageCall() async throws {
         let root = try pageRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let (view, page) = try await chromiumView(root: root)
         let (other, _) = try await chromiumView(root: root)
-        page.surfaceCopy = Self.picture
+        page.surfaceCopy = Self.surfaceCopy
         let encoder = RecordingEncoder()
         let calls = page.calls.count, evaluations = page.evaluations.count
         lifecycle.hide("a", page: PageWebViewLifecycle(view, encoder: encoder.encoder))
         #expect(page.surfaceCopies == [CGSize(width: 200, height: 160)], "one copy at the view's 2x size, in the hide's turn")
+        #expect(encoder.unpacked == [Self.surfaceCopy], "the copy's base64 was not unpacked by the encoder")
         #expect(view.hideState.encoded == Self.picture)
         rig.advance(to: .seconds(5))
         lifecycle.hide("b", page: PageWebViewLifecycle(other, encoder: encoder.encoder))
@@ -185,6 +194,7 @@ struct PageDiscardTests {
         #expect(page.evaluations.count == evaluations, "a call into the page")
         #expect(page.surfaceCopies.count == 1, "the discard took a picture of its own")
         #expect(encoder.images.isEmpty, "a Chromium copy is encoded already")
+        #expect(encoder.unpacked.count == 1, "the discard unpacked again")
         #expect(view.hideState.encoded == Self.picture)
         view.close()
         other.close()
@@ -320,6 +330,30 @@ struct PageDiscardTests {
         #expect(state.encoded == nil, "an older capture's answer replaced the newer one")
         state.captured(newer, encoded: Self.picture)
         #expect(state.encoded == Self.picture)
+    }
+
+    /// The app's encoder unpacks a surface copy's base64 (megabytes of text for a full window) on the `.cpu`
+    /// lane, never in the main actor's turn: the main thread records no cpu-intensive site.
+    @Test func theAppEncoderUnpacksASurfaceCopyOnTheCPULane() async throws {
+        let (ran, report) = AsyncStream<BlockingLane>.makeStream()
+        let work = BackgroundWork(cpuWidth: 1, label: "test.page-unpack", onRan: { lane, _, _, _ in report.yield(lane) })
+        let encoder = PageSnapshotEncoder(work: work, mainWork: rig.work)
+        let png = Data(repeating: 0xAB, count: 256 * 1024)
+        let copy = PageSurfaceCopy(base64: png.base64EncodedString(), pixelSize: CGSize(width: 512, height: 512))
+        try #require(copy.base64.utf8.count > BlockingKind.cpuIntensiveJSONBytes)
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        let table = BlockingViolationTable(mode: .record)
+        BlockingViolationTable.$scoped.withValue(table) { encoder.unpack(copy) { _ in } }
+        #else
+        encoder.unpack(copy) { _ in }
+        #endif
+        var lanes = ran.makeAsyncIterator()
+        #expect(await lanes.next() == .cpu, "the unpack did not run on the .cpu lane")
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        await table.flush()
+        #expect(table.sites.filter { $0.kind == .cpuIntensive }.isEmpty, "the unpack ran on the main thread: \(table.sites)")
+        #endif
+        await work.shutdown()
     }
 
     /// The app's encoder runs the encode on the `.cpu` lane at QoS utility, never on the main thread,

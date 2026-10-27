@@ -557,7 +557,7 @@ impl JournalTail {
     /// `JOURNAL_BYTES` a read, so a big run's journal is read once in all.
     fn read(mut self, dir: &Path) -> Option<Self> {
         use std::io::{Read, Seek, SeekFrom};
-        let mut file = std::fs::File::open(dir.join("journal.jsonl")).ok()?;
+        let mut file = cmux_blocking::fs::open(dir.join("journal.jsonl")).ok()?;
         file.seek(SeekFrom::Start(self.offset)).ok()?;
         let mut bytes = Vec::new();
         file.take(JOURNAL_BYTES).read_to_end(&mut bytes).ok()?;

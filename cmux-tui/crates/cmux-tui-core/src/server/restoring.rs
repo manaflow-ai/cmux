@@ -119,6 +119,18 @@ impl RestoringServer {
     }
 }
 
+#[cfg(test)]
+impl RestoringServer {
+    /// The oldest connection the accept loop has parked so far, if any.
+    pub(super) fn take_parked(&self) -> Option<Box<dyn transport::Stream>> {
+        let mut state = self.slot.state.lock().unwrap_or_else(PoisonError::into_inner);
+        match &mut *state {
+            SlotState::Restoring(parked) => parked.pop_front(),
+            SlotState::Served(_) => None,
+        }
+    }
+}
+
 impl Drop for RestoringServer {
     fn drop(&mut self) {
         if self.attached {

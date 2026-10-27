@@ -247,7 +247,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Some((listen, token)) => match crate::server::bind_ws(listen).await {
             Ok(l) => Some((l, token.clone())),
             Err(e) if explicit_listen => {
-                let _ = std::fs::remove_file(socket_path());
+                let _ = tokio::fs::remove_file(socket_path()).await;
                 return Err(e.context(format!(
                     "the WebSocket listener {listen} (--listen) is taken; free the port or choose another"
                 )));
@@ -262,7 +262,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                         Some((l, token.clone()))
                     }
                     Err(e) => {
-                        let _ = std::fs::remove_file(socket_path());
+                        let _ = tokio::fs::remove_file(socket_path()).await;
                         return Err(e.context("no free loopback port for the WebSocket listener"));
                     }
                 }
@@ -532,7 +532,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tracing::info!("shutting down");
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
-    let _ = std::fs::remove_file(socket_path());
+    let _ = tokio::fs::remove_file(socket_path()).await;
     if let Some(t) = ws_task {
         t.abort();
     }
@@ -549,9 +549,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // After the agents: their model streams go through the router. Waits for the router's exit:
     // a WILL_BLOCK item, unwatched.
     let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;
-    let _ = std::fs::remove_file(home().join("daemon.pid"));
+    let _ = tokio::fs::remove_file(home().join("daemon.pid")).await;
     for file in [local_app_file, peer_file].into_iter().flatten() {
-        let _ = std::fs::remove_file(file);
+        let _ = tokio::fs::remove_file(file).await;
     }
     tracing::info!("stopped");
     Ok(())
