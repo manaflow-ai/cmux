@@ -410,12 +410,17 @@ def delimited(jobs: Sequence[str]) -> str:
 
 def main(env: Mapping[str, str] = os.environ) -> int:
     runners = None
-    token, repo = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
-    if token and repo:
+    repo = env.get("GITHUB_REPOSITORY", "")
+    # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
+    for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
+        token = env.get(name, "")
+        if not (token and repo):
+            continue
         try:
             runners = pool.GitHub(token, repo).runners()
+            break
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
-            print(f"::warning title=side-lane placement::could not list runners ({error})")
+            print(f"::warning title=side-lane placement::could not list runners with {name} ({error})")
     fast = fast_route(env, runners)
     if fast:
         env = without_fast(env)

@@ -124,9 +124,9 @@ final class CaptureSceneRegistry {
         if isHome { clearShowcaseAgent(windowID: targetWindowID) }
         guard case .object(var result) = snapshot else { return snapshot }
         result["click"] = click
-        guard isHome || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
+        guard isHome || Self.pageComposited(result) else {
             return .object([
-                "error": .string("agent web view was not composited"),
+                "error": .string("agent page was not composited"),
                 "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
             ])
         }
@@ -187,6 +187,17 @@ final class CaptureSceneRegistry {
     }
 
     /// The agent pane drew the worked turn and shows its composer.
+    /// Whether `snapshot` (``DebugWindowSnapshot/captureAsync(_:services:)``) drew a page image:
+    /// a WebKit web view or a Chromium page. The agent chat shows on either engine
+    /// (`agent.chromium`, on by default, puts it in Chromium when `browser.defaultEngine` is
+    /// Chromium; WebKit otherwise or after a Chromium fallback), so counting only WebKit refused
+    /// every Chromium agent page. The snapshot does not say which page is the agent's; the
+    /// readiness check before it already proved the agent page has a transcript and a composer,
+    /// so this only refuses a still in which no page drew at all.
+    static func pageComposited(_ snapshot: [String: JSONValue]) -> Bool {
+        (snapshot["webviews_composited"]?.intValue ?? 0) + (snapshot["chromium_pages_composited"]?.intValue ?? 0) > 0
+    }
+
     private func readinessIsComplete(_ readiness: JSONValue) -> Bool {
         guard case .object(let report) = readiness else { return false }
         return (report["body_text_length"]?.intValue ?? 0) > 0 && (report["transcript_rows"]?.intValue ?? 0) > 0
