@@ -115,54 +115,37 @@ def test_nightly_push_runs_never_share_a_build_group() -> None:
     assert load(WORKFLOWS / "nightly.yml")["concurrency"]["cancel-in-progress"] is False
 
 
-def _minutes(seconds_flag: str, run: str) -> int:
-    match = re.search(rf"{seconds_flag} (\d+)", run)
-    assert match, (seconds_flag, run)
-    return int(match.group(1)) // 60
-
-
-def test_classic_publishers_share_one_lease_that_outlives_each_holder() -> None:
+def test_classic_publishers_write_only_while_they_hold_the_lease() -> None:
+    # Newest wins through scripts/ci/classic_publish_lease.py: every write
+    # comes after the job took the lease, re-checks it (and yields to a newer
+    # build) right before writing, and the lease is released whatever happens.
     document = load(WORKFLOWS / "auto-resume-nightly-notarization.yml")
-    keys, ttls, waits, holds = set(), set(), set(), []
+    keys = set()
+    writes = ("live_appcast_build.py \"https://", "publish-release-assets.py", "upload-r2-object.py",
+              "update-release-tag.py", "gh release edit")
     for name in NO_CONCURRENCY_GROUP["auto-resume-nightly-notarization.yml"]:
         job = document["jobs"][name]
-        keys.add(job["env"]["LEASE_KEY"])
+        keys.add((job["env"]["LEASE_KEY"], job["env"]["CLAIM_KEY"]))
         assert "github.run_id" in job["env"]["LEASE_OWNER"] and "github.job" in job["env"]["LEASE_OWNER"], name
         steps = job["steps"]
         names = [step.get("name", "") for step in steps]
         take = names.index("Take the channel publication lease")
         release = names.index("Release the channel publication lease")
-        lock = steps[take]["run"]
-        assert "r2_cas.py lock" in lock, name
-        ttl, wait = _minutes("--ttl", lock), _minutes("--wait", lock)
-        ttls.add(ttl)
-        waits.add(wait)
+        assert "classic_publish_lease.py acquire" in steps[take]["run"], name
         assert steps[release].get("if") == "always()", name
-        assert "r2_cas.py unlock" in steps[release]["run"], name
-        # Every step run while the lease is held is bounded, so the hold is.
-        held = steps[take + 1:release + 1]
-        for step in held:
-            assert "timeout-minutes" in step, (name, step.get("name"))
-        hold = sum(step["timeout-minutes"] for step in held)
-        holds.append(hold)
-        assert steps[take]["timeout-minutes"] > wait, name
-        assert job["timeout-minutes"] >= steps[take]["timeout-minutes"] + hold, (name, job["timeout-minutes"])
-        # Every read of the live feed and every write comes after the lease.
+        assert "classic_publish_lease.py release" in steps[release]["run"], name
         for index, step in enumerate(steps):
             body = str(step.get("run", ""))
-            if any(marker in body for marker in ("live_appcast_build.py", "publish-release-assets.py",
-                                                 "upload-r2-object.py", "update-release-tag.py",
-                                                 "gh release edit")):
-                assert take < index < release, (name, step.get("name"))
-    # A waiter judges the holder's lease by its own --ttl, so every holder uses
-    # the same one, longer than any hold: the lease is never taken from a
-    # holder that is still writing.
-    assert len(keys) == 1 and len(ttls) == 1 and len(waits) == 1, (keys, ttls, waits)
-    (ttl,), (wait,) = ttls, waits
-    assert ttl > max(holds), (ttl, holds)
-    # A waiter outlasts an abandoned lease and then one full hold, so a newer
-    # publication is not lost behind one stuck and one slow publisher.
-    assert wait >= ttl + max(holds), (wait, ttl, holds)
+            found = [marker for marker in writes if marker in body]
+            if not found:
+                continue
+            assert take < index < release, (name, step.get("name"))
+            if any(marker != writes[0] for marker in found):
+                check = body.find("classic_publish_lease.py check")
+                assert 0 <= check < min(body.find(marker) for marker in found if marker != writes[0]), (
+                    name, step.get("name"))
+                assert "R2_BUCKET" in step.get("env", {}), (name, step.get("name"))
+    assert len(keys) == 1, keys
 
 if __name__ == "__main__":
     test_required_delivery_workflows_exist()
@@ -172,5 +155,5 @@ if __name__ == "__main__":
     test_newest_wins_jobs_take_no_concurrency_group()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
     test_nightly_push_runs_never_share_a_build_group()
-    test_classic_publishers_share_one_lease_that_outlives_each_holder()
+    test_classic_publishers_write_only_while_they_hold_the_lease()
     print("PASS: nightly and DEV delivery never cancel or replace waiting builds")

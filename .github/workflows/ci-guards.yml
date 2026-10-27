@@ -1301,6 +1301,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_live_appcast_build.py
 
+      - name: Validate newest-wins classic publication
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_classic_publish_lease.py
+
       - name: Validate the Linux DEV signer (stock rcodesign, fake-rcodesign fixture)
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_rcodesign_sign_bundle_dev.py
