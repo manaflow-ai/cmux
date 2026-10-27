@@ -432,6 +432,7 @@ public actor CloudCodexBroker {
         let stageAccess = "/home/cmux/.config/cmux/codex-broker/.access-\(suffix).json"
         let stageMode = "/home/cmux/.config/cmux/agent-auth/.codex-\(suffix)"
         var commitAttempted = false
+        var stagingAttempted = false
         do {
             try await validate(target: target, confirmed: true)
             try await ensureScope()
@@ -448,6 +449,7 @@ public actor CloudCodexBroker {
             try await target.makeDirectory("/home/cmux/.config/cmux/agent-auth")
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
+            stagingAttempted = true
             try await target.writeFile(stageAccess, data, 0o600)
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
@@ -470,8 +472,10 @@ public actor CloudCodexBroker {
             let previous = previousModeByMachine[target.machineID] ?? nil
             // Cleanup must complete even when the initiating task was cancelled.
             let cleanup = Task {
-                try? await target.removeFile(stageAccess)
-                try? await target.removeFile(stageMode)
+                if stagingAttempted {
+                    try? await target.removeFile(stageAccess)
+                    try? await target.removeFile(stageMode)
+                }
                 if commitAttempted {
                     try await target.removeFile(Self.accessPath)
                     try await target.removeFile(Self.modePath)
