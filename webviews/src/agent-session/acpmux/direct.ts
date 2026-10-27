@@ -1148,6 +1148,9 @@ export class AcpmuxDirectClient {
   /// request, so one that finds this moved is older than what the summary holds. A seq alone can't
   /// tell: a re-attach can install a newer inherited limit at the same `lastSeq`.
   private limitsVersion = 0;
+  /// Whether `limitsVersion` last moved for a `limits` record: only then is the summary's limit
+  /// newer than a reply, rather than cleared or the tail of a chat still attaching.
+  private limitsFromRecord = false;
   /// The running-limit changes in flight, one after another: each steps from the answer before it.
   private limitsChain: Promise<unknown> = Promise.resolve();
   /// The session detail's goal is current through attach's lastSeq; older session-info history
@@ -1836,6 +1839,7 @@ export class AcpmuxDirectClient {
     this.configSeq = 0;
     this.limitsSeq = 0;
     this.limitsVersion += 1;
+    this.limitsFromRecord = false;
     this.goalSeq = 0;
     this.usage = undefined;
     this.turnTokens = undefined;
@@ -2605,10 +2609,13 @@ export class AcpmuxDirectClient {
     const seen = this.limitsVersion;
     const result = await this.request("_acpmux/subsession/limits", { sessionId }, 10_000);
     this.takeRunningLimit(sessionId, result?.subsessionLimits, seen);
-    // A record newer than the read came in while it was in flight: step from that one.
-    if (sessionId === this.selectedSessionId && this.limitsVersion !== seen)
-      return subsessionLimits(this.summary?.subsessionLimits);
-    return subsessionLimits(result?.subsessionLimits);
+    // A record newer than the read came in while it was in flight: step from that one. A chat
+    // selected or attached meanwhile proves nothing newer, so the read's answer stands.
+    const recorded =
+      sessionId === this.selectedSessionId && this.limitsVersion !== seen && this.limitsFromRecord
+        ? subsessionLimits(this.summary?.subsessionLimits)
+        : undefined;
+    return recorded ?? subsessionLimits(result?.subsessionLimits);
   }
 
   /// A reply carries no seq, so it is current only as of the request: a `limits` record, a new
@@ -3067,6 +3074,7 @@ export class AcpmuxDirectClient {
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.limitsSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.limitsVersion += 1;
+    this.limitsFromRecord = false;
     this.goalSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
     // The reads the chat draws with, at once rather than one after another: each is a round trip,
@@ -3449,6 +3457,7 @@ export class AcpmuxDirectClient {
     // refused, keeping the old limit.
     const limitsSeq = this.limitsSeq;
     const limitsVersion = this.limitsVersion;
+    const limitsFromRecord = this.limitsFromRecord;
     const queue = this.queue;
     const permission = this.pendingPermission;
     const waiting = this.waitingPermissions;
@@ -3457,6 +3466,7 @@ export class AcpmuxDirectClient {
     this.summary = summary;
     this.limitsSeq = limitsSeq;
     this.limitsVersion = limitsVersion;
+    this.limitsFromRecord = limitsFromRecord;
     this.queue = queue;
     this.pendingPermission = permission;
     this.waitingPermissions = waiting;
@@ -3616,6 +3626,7 @@ export class AcpmuxDirectClient {
       this.summary = { ...this.summary, subsessionLimits: msg.limits };
       if (event.seq) this.limitsSeq = event.seq;
       this.limitsVersion += 1;
+      this.limitsFromRecord = true;
     }
   }
 
