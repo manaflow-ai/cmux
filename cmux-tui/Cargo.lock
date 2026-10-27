@@ -16,6 +16,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-features",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
@@ -841,6 +842,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-pty",
  "cmux-server-core",
+ "cmux-threads",
  "futures-util",
  "getrandom 0.3.4",
  "http",
@@ -1216,6 +1218,7 @@ name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
+ "cmux-hang-watch",
  "cmux-ipc",
  "cmux-memory",
  "cmux-process",
@@ -1372,6 +1375,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-threads",
  "futures-util",
  "getrandom 0.3.4",
  "jsonschema",
@@ -1392,8 +1396,11 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-trace",
  "libc",
  "serde_json",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -1680,6 +1687,7 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "libc",
+ "tokio",
 ]
 
 [[package]]
@@ -1710,6 +1718,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-config",
  "cmux-features",
+ "cmux-hang-watch",
  "cmux-holder",
  "cmux-host",
  "cmux-ipc",
@@ -1809,6 +1818,7 @@ dependencies = [
  "cmux-feed-core",
  "cmux-flow-trace",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-history",
  "cmux-holder",
  "cmux-ipc",
@@ -1960,6 +1970,7 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "rusqlite",
+ "serde",
  "serde_json",
 ]
 
@@ -1988,6 +1999,7 @@ dependencies = [
  "base64",
  "cmux-blocking",
  "cmux-panic-log",
+ "cmux-threads",
  "cmux-wg",
  "futures-util",
  "getrandom 0.3.4",
@@ -2002,6 +2014,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "subtle",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
  "x25519-dalek",

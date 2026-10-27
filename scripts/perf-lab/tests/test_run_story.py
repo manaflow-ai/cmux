@@ -87,6 +87,10 @@ FAKE_BENCH = textwrap.dedent('''
     report = json.loads(os.environ.get("FAKE_LAB_REPORT", '{"ok": true, "reasons": []}'))
     app = bl.BenchApp(opts.app, out=out, teardown=False, lab_check=lambda pids: report)
     app.features = ({}, None, os.environ.get("FAKE_SAFE_MODE", "off"))  # what launch() reads from features.list
+    if os.environ.get("FAKE_PROBE"):  # the build's debug.capabilities answer; launch() asks it once the app answers
+        answer = json.loads(os.environ["FAKE_PROBE"])
+        app.rpc = lambda method, params=None, timeout=60: answer if method == "debug.capabilities" else {"error": "no"}
+        app.check_lab_needs()
     if not os.environ.get("FAKE_BENCH_SKIP_LAB"):
         app.validate_lab_host([os.getpid()])  # what launch() does once the app answers
     app.record(story, "key_to_frame_ms", "ms", [8.0, 8.5], "lower", "none")
@@ -323,7 +327,10 @@ class MainTests(unittest.TestCase):
         self.log = os.path.join(self.tmp, "bench.log")
         write_catalog_root(self.root, {"home-key": {"seconds": 20, "session": "stress"}, "term-key": {"seconds": 30},
                                        "idle": {"seconds": 60}, "build": {"tier": "builder"},
-                                       "no-tag": {"command": ["bench/no_tag.py"], "tier": "T1"}})
+                                       "no-tag": {"command": ["bench/no_tag.py"], "tier": "T1"},
+                                       "closes": {"tier": "T2",
+                                                  "needs": ["debug:debug.closed_ids", "env:CMUX_NEXT_TYPING_PROBE",
+                                                            "file:bench/fake_bench.py", "privilege:purge"]}})
         for name, value in (("FAKE_BENCH_LOG", self.log),
                             ("FAKE_PERF_RESULT", os.path.join(PERF_LAB, "perf_result.py")),
                             ("FAKE_BENCH_LAUNCH", os.path.join(ROOT, "scripts", "cmux-next", "bench_launch.py"))):
@@ -405,6 +412,39 @@ class MainTests(unittest.TestCase):
         self.assertEqual(by_story["home-key"].session, "stress")
         self.assertEqual(by_story["idle"].session, "light")
 
+    def probe(self, methods):
+        self.set_env("FAKE_PROBE", json.dumps({"schema": "cmux-debug-capabilities/v1", "methods": methods,
+                                               "signposts": [], "environment": ["CMUX_NEXT_TYPING_PROBE"]}))
+
+    def test_a_build_that_lacks_a_need_is_not_measurable_not_a_failed_run(self):
+        """p12-perf-process-211: the build's own debug.capabilities answer, not the git guess, ends the job."""
+        self.probe(["debug.capabilities", "debug.hangs"])
+        self.assertEqual(self.run_main("--stories", "closes"), rs.EXIT_NOT_MEASURABLE)
+        runs = self.bench_runs()
+        self.assertEqual([r["repeat"] for r in runs], [0], "a later repeat of the same build would say the same")
+        self.assertEqual(runs[0]["env"]["PERF_LAB_NEEDS"], "debug:debug.closed_ids,env:CMUX_NEXT_TYPING_PROBE")
+        self.assertEqual(runs[0]["env"]["PERF_LAB_PROBE_OUT"],
+                         os.path.join(self.out, "runs", "closes-0", rs.PROBE_FILE))
+        summary = self.summary()
+        self.assertEqual(summary["refusal"]["kind"], "not-measurable")
+        self.assertEqual(summary["refusal"]["missing"], ["debug:debug.closed_ids"])
+        self.assertEqual([r["not_measurable"] for r in summary["runs"]], [["debug:debug.closed_ids"]] * 2)
+        self.assertEqual([r["env_invalid"] for r in summary["runs"]], [False] * 2)  # the build's answer, not the host's
+        self.assertEqual(os.listdir(os.path.join(self.out, "results")), [])
+
+    def test_a_build_with_every_need_measures(self):
+        self.probe(["debug.capabilities", "debug.closed_ids"])
+        self.assertEqual(self.run_main("--stories", "closes"), 0)
+        self.assertIsNone(self.summary()["refusal"])
+        self.assertEqual(len(os.listdir(os.path.join(self.out, "results"))), 2)
+
+    def test_a_failed_run_outranks_a_not_measurable_one(self):
+        summary = {"runs": [{"ok": False, "not_measurable": ["debug:debug.x"]}, {"ok": False, "not_measurable": []}]}
+        self.assertEqual(rs.runs_exit(summary), rs.EXIT_RUN_FAILED)
+        summary["runs"].pop()
+        self.assertEqual(rs.runs_exit(summary), rs.EXIT_NOT_MEASURABLE)
+        self.assertEqual(summary["refusal"]["missing"], ["debug:debug.x"])
+
     def test_bench_env_unset_switches_and_the_step_sha_are_removed(self):
         bench_env = load("bench_env", os.path.join(PERF_LAB, "bench_env.py"))
         base = {**{name: "1" for name in bench_env.unset_env()}, "CMUX_CI_SHA": OTHER_SHA}
@@ -427,6 +467,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.run_main("--stories", "idle", "--repeats", "1"), 1)
         run = self.summary()["runs"][0]
         self.assertEqual(run["reason"], "env-invalid after launch: network-egress")
+        self.assertIs(run["env_invalid"], True)  # the host failed it: no evidence about the story (harness_alerts)
         self.assertEqual(os.listdir(os.path.join(self.out, "results")), [])
         self.assertEqual(len(os.listdir(os.path.join(self.out, "rejected"))), 1)
         self.assertEqual(len(self.teardowns), 1)
@@ -435,6 +476,7 @@ class MainTests(unittest.TestCase):
         self.set_env("FAKE_BENCH_SKIP_LAB", "1")
         self.assertEqual(self.run_main("--stories", "idle", "--repeats", "1"), 1)
         self.assertIn("network-egress unchecked", self.summary()["runs"][0]["reason"])
+        self.assertIs(self.summary()["runs"][0]["env_invalid"], False)  # the bench skipped its own check
         self.assertEqual(os.listdir(os.path.join(self.out, "results")), [])
 
     def test_a_result_measured_under_triggered_safe_mode_is_rejected(self):
@@ -459,8 +501,8 @@ class MainTests(unittest.TestCase):
         FakeDisplay.alive_runs = 1
         self.assertEqual(self.run_main("--stories", "idle,home-key", "--repeats", "1"), 1)
         self.assertEqual([r["story"] for r in self.bench_runs()], ["home-key"])
-        self.assertEqual([(r["story"], r["reason"]) for r in self.summary()["runs"]],
-                         [("home-key", None), ("idle", "the virtual display ended before this run")])
+        self.assertEqual([(r["story"], r["reason"], r["env_invalid"]) for r in self.summary()["runs"]],
+                         [("home-key", None, False), ("idle", "the virtual display ended before this run", True)])
 
     def test_shard_runs_its_stories_only(self):
         self.assertEqual(self.run_main("--shard", "0/2", "--repeats", "1"), 0)

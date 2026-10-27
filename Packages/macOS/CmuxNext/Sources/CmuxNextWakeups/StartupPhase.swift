@@ -161,6 +161,7 @@ public final class StartupPhase {
         self.timing = timing
         self.onHeldAwait = onHeldAwait
         elapsed = StartupPhase.stopwatch(clock)
+        // timer-class-allow: the reveal deadline, an unposted scheduler timer (p06 section A)
         timer = DemandTimer(owner: "StartupPhase", clock: clock, ledger: ledger)
         phase = .launching
         pendingReferences = Set(Reference.allCases)
@@ -171,6 +172,7 @@ public final class StartupPhase {
         timing = Timing()
         onHeldAwait = StartupPhase.assertNotHeld
         elapsed = { .zero }
+        // timer-class-allow: the settled phase's timer, never scheduled
         timer = DemandTimer(owner: "StartupPhase", ledger: ledger)
         phase = .settled
         pendingReferences = []

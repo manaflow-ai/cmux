@@ -158,6 +158,7 @@ extension SimulatorSurfaceServer {
             connection.start(ended: { [weak self] in self?.end() })
             let inputs = inputs
             // task-owner: the session's one input applier; ends with the stream in end()
+            // main-hop-allow: the phone's input lines apply one at a time in arrival order, each awaiting the main-actor HID send
             applying = Task { [weak self] in
                 for await line in inputs {
                     guard let self, !self.closed else { return }
@@ -219,7 +220,9 @@ extension SimulatorSurfaceServer {
                 return startFrames()
             }
             switch type {
-            case "encode": encode(idr: line["idr"]?.bool ?? false, kbps: Int(line["kbps"]?.number ?? 4000))
+            case "encode":
+                guard let kbps = Self.bitrate(line) else { return fail("bad kbps") }
+                encode(idr: line["idr"]?.bool ?? false, kbps: kbps)
             case "visible": setVisible(line["visible"]?.bool ?? true)
             case "touch", "text", "key", "button":
                 guard stillShown() else {
@@ -322,6 +325,13 @@ extension SimulatorSurfaceServer {
         private func key(_ line: [String: SurfaceSourceValue]) {
             guard let usage = line["key"]?.string.flatMap(Self.keyUsage), let down = line["down"]?.bool else { return }
             try? live.keyNow(usage, down: down, udid: udid)
+        }
+
+        /// The kbps of an `encode` line (4000 when it names none). hostd sends a whole number; a fraction or a
+        /// value past `Int` is a bad line (nil, and the session ends), never a rate rounded or clamped into range.
+        static func bitrate(_ line: [String: SurfaceSourceValue]) -> Int? {
+            guard let value = line["kbps"] else { return 4000 }
+            return value.number.flatMap { Int(exactly: $0) }
         }
 
         /// The HID keyboard usages of the keys a phone may press (hostd's list).

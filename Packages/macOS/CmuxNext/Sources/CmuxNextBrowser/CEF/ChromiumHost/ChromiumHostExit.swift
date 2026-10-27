@@ -37,7 +37,7 @@ nonisolated struct ChromiumHostExit: Equatable, Sendable, CustomStringConvertibl
     /// CHECK's trap is a crash; SIGKILL, SIGINT and SIGTERM mean something outside ended it. A start
     /// failure (``startFailures``) is a launch failure; any other end is abnormal, so a host never
     /// leaves its pages blank. `code` is in `waitpid` form, as the sad tab reads it
-    /// (``BrowserProcessExit/codeDescription``).
+    /// (``BrowserProcessExit/codeDescription``), and its process is the host.
     var pageExit: BrowserProcessExit? {
         if let signal {
             let reason: BrowserProcessExit.Reason = switch signal {
@@ -45,12 +45,13 @@ nonisolated struct ChromiumHostExit: Equatable, Sendable, CustomStringConvertibl
             case SIGKILL, SIGINT, SIGTERM: .killed
             default: .abnormal
             }
-            return BrowserProcessExit(reason: reason, code: Int(signal), engine: .cef)
+            return BrowserProcessExit(reason: reason, code: Int(signal), engine: .cef, process: .chromiumHost)
         }
-        guard let status else { return BrowserProcessExit(reason: .abnormal, engine: .cef) }  // ended, its status unreadable
+        // Ended, its status unreadable.
+        guard let status else { return BrowserProcessExit(reason: .abnormal, engine: .cef, process: .chromiumHost) }
         guard status != 0 else { return nil }
         let reason: BrowserProcessExit.Reason = startFailure == nil ? .abnormal : .launchFailed
-        return BrowserProcessExit(reason: reason, code: Int(status) << 8, engine: .cef)
+        return BrowserProcessExit(reason: reason, code: Int(status) << 8, engine: .cef, process: .chromiumHost)
     }
 }
 #endif

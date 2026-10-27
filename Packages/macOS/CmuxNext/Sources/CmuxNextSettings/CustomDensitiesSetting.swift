@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 import Foundation
 
 /// `appearance.customDensities` in cmux.json: the user's own densities

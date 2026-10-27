@@ -66,7 +66,7 @@ impl Surface {
         #[cfg(any(unix, windows))]
         {
             let turn = pty.input_fifo.enter();
-            let pending = match &*pty.runtime.lock().unwrap() {
+            let pending = match &*pty.runtime.lock().recover_poison() {
                 PtyRuntime::Hosted(host) => Some(host.begin_clear_history(fallback_key)?),
                 PtyRuntime::ExitedHosted => {
                     return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
@@ -95,7 +95,7 @@ impl Surface {
             // The fallback key is input: it is written in a turn of the
             // input FIFO, taken before the terminal lock (crate::lock_rank).
             let turn = pty.input_fifo.enter();
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             let before = terminal_scroll_position(&term);
             let scroll_changed = match apply_clear_history_transition(&mut term, fallback_key)
                 .map_err(ClearHistoryFailure::known_not_delivered)?
@@ -103,16 +103,14 @@ impl Surface {
                 ClearHistoryTransition::Blocked => {
                     drop(term);
                     drop(turn);
-                    let deadline = stream_wait
-                        .get_or_insert_with(|| {
-                            pty.stream_progress
-                                .begin_clear_history_wait(CLEAR_HISTORY_STREAM_WAIT_TIMEOUT)
-                        })
-                        .deadline();
+                    let wait = stream_wait.get_or_insert_with(|| {
+                        pty.stream_progress
+                            .begin_clear_history_wait(CLEAR_HISTORY_STREAM_WAIT_TIMEOUT)
+                    });
                     let Some(progress) =
-                        pty.stream_progress.wait_for_change(observed_progress, deadline)
+                        pty.stream_progress.wait_for_change(observed_progress, wait.deadline())
                     else {
-                        stream_wait.as_mut().unwrap().mark_timed_out();
+                        wait.mark_timed_out();
                         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                             CLEAR_HISTORY_STREAM_TIMEOUT_ERROR
                         )));
@@ -121,7 +119,12 @@ impl Surface {
                     continue;
                 }
                 ClearHistoryTransition::EncodedFallback(encoded) => {
-                    let mut runtime = pty.runtime.lock().unwrap();
+                    let mut runtime = pty.runtime.lock().recover_poison();
+                    #[allow(
+                        clippy::unreachable,
+                        reason = "INVARIANT: the hosted runtimes returned above, and a runtime \
+                                  never changes between local and hosted after construction"
+                    )]
                     let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
                         unreachable!("a local PTY runtime cannot become hosted")
                     };
@@ -135,7 +138,7 @@ impl Surface {
                 }
                 ClearHistoryTransition::Noop => return Ok(()),
                 ClearHistoryTransition::Cleared(clear) => {
-                    pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                    pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
                     pty.broadcast_attach_output(&clear);
                     pty.stream_progress.notify();
                     let after = terminal_scroll_position(&term);
@@ -163,7 +166,7 @@ impl Surface {
             }
             #[cfg(unix)]
             {
-                let holder = match &*pty.runtime.lock().unwrap() {
+                let holder = match &*pty.runtime.lock().recover_poison() {
                     PtyRuntime::Local { holder, .. } => holder.clone(),
                     _ => None,
                 };

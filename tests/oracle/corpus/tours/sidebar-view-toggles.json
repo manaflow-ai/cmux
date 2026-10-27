@@ -1,0 +1,194 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "sidebar-view-toggles",
+  "suite": "tours",
+  "title": "Tour: Sidebar view toggles in the App Store",
+  "priority": "P2",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    }
+  },
+  "fixture": {
+    "seed": "tours-sidebar-view-toggles-v1",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock"
+  },
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
+  ],
+  "requires": [
+    "gui"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "01-launch",
+      "op": "snapshot"
+    },
+    {
+      "id": "02-app-store-features-with-comfortable-side",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "action",
+          "run",
+          "appStore.show",
+          "--tab",
+          "features",
+          "--focus"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/webviews/pages",
+        "predicate": "changed",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "03-expanded-on-its-card-says-on-and-the-sid",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "set",
+          "sidebar.density",
+          "expanded"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "04-comfortable-on-expanded-goes-back-to-get",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "set",
+          "sidebar.density",
+          "comfortable"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "05-dark",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.appearance",
+          "{\"mode\":\"dark\"}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (debug.appearance is DEBUG only), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers debug.appearance in DEBUG || CMUX_BENCH_HOOKS builds and answers in its main-actor turn, so the bench build runs it; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "06-back-to-the-system-appearance",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.appearance",
+          "{\"mode\":\"system\"}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (debug.appearance is DEBUG only), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers debug.appearance in DEBUG || CMUX_BENCH_HOOKS builds and answers in its main-actor turn, so the bench build runs it; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "07-removed-back-to-compact-both-cards-say-g",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "unset",
+          "sidebar.density"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
+      }
+    }
+  ],
+  "invariants": [
+    "each step's settled snapshot is the model state of the tour's picture of that step",
+    "no step waits on a clock: each ends on its waitFor value or the settle barrier"
+  ],
+  "teardown": [
+    "quit the tagged app the run started",
+    "verify its debug socket is gone"
+  ],
+  "untested": [
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture"
+  ]
+}
