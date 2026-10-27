@@ -37,6 +37,7 @@ export default componentEntry<Props>({
   id: "agent-pane.file-attachment",
   title: "File attachment chips",
   area: "Composer",
+  pane: true,
   height: 390,
   widths: { normal: 560, narrow: 320 },
   covers: ["agent-session/acpmux/FileAttachment.tsx#FileAttachment"],
@@ -46,7 +47,11 @@ export default componentEntry<Props>({
       ([{ AttachmentStrip }, { UserBubble }]) =>
         function Files({ look }: Props) {
           return (
-            <div style={{ padding: 20 }} data-file-look={look}>
+            <div
+              className="acpmux-shell"
+              style={{ padding: 20, display: "block", height: "auto" }}
+              data-file-look={look}
+            >
               <style>{`
           [data-file-look=compact] .acpmux-file-chip { max-width: 260px; gap: 4px; }
           [data-file-look=stacked] .acpmux-file-chip { height: 44px; flex-wrap: wrap; }
@@ -56,7 +61,7 @@ export default componentEntry<Props>({
                 <AttachmentStrip attachments={files} onRemove={() => {}} />
                 <div style={{ padding: 16 }}>Please use these files.</div>
               </div>
-              <div style={{ marginTop: 36 }}>
+              <div className="cv-user" style={{ marginTop: 36 }}>
                 <UserBubble
                   row={{
                     id: "files",

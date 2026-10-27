@@ -541,10 +541,11 @@ button.acpmux-attachment-pasted-open:hover {
   padding: 0;
 }
 .acpmux-file-chip {
+  --acpmux-file-chip-gap: 6px;
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: var(--acpmux-attach-gap);
+  gap: var(--acpmux-file-chip-gap);
   min-width: 0;
   max-width: min(340px, 72vw);
   height: 32px;

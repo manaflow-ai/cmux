@@ -7,7 +7,7 @@ export type FileAttachmentInfo = { name: string; size?: number; mimeType?: strin
 export function attachmentPath(uri: string | undefined): string | undefined {
   if (!uri?.startsWith("file://")) return undefined;
   try {
-    return decodeURI(uri.slice(7));
+    return decodeURIComponent(new URL(uri).pathname);
   } catch {
     return uri.slice(7);
   }

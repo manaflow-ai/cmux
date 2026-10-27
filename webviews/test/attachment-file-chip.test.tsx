@@ -4,6 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AttachmentStrip } from "../src/agent-session/acpmux/composer/attachmentIntake";
 import { UserBubble } from "../src/agent-session/acpmux/conversation/UserBubble";
+import { attachmentPath } from "../src/agent-session/acpmux/FileAttachment";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 
 const file: ComposerAttachment = {
@@ -47,4 +48,30 @@ test("a sent file uses the same chip and keeps the original metadata", () => {
   expect(html).toContain("key.pem");
   expect(html).toContain("2 kB");
   expect(html).not.toContain("Sent as file path");
+});
+
+test("legacy strip images retain only their thumbnail, alongside a real file chip", () => {
+  const html = renderToStaticMarkup(
+    <UserBubble
+      row={{
+        id: "legacy-image",
+        version: 1,
+        at: 1,
+        kind: "user",
+        inlineParts: [
+          { kind: "image", id: "durable", name: "shot.png", mimeType: "image/png" },
+          { kind: "file", name: "original.heic", uri: "file:///tmp/original.heic" },
+          { kind: "file", name: file.name, uri: `file://${file.path}`, mimeType: file.mimeType, size: file.size },
+        ],
+      }}
+      text="Use these"
+    />,
+  );
+  expect(html.match(/class="acpmux-file-chip"/g)?.length).toBe(1);
+  expect(html).toContain('data-file-type="pem"');
+  expect(html).not.toContain('data-file-type="heic"');
+});
+
+test("the tooltip decodes the actual local path, including reserved characters", () => {
+  expect(attachmentPath("file:///tmp/key%23prod%25%3F.pem")).toBe("/tmp/key#prod%?.pem");
 });

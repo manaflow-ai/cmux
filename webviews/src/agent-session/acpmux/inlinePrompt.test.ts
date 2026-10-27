@@ -204,7 +204,10 @@ test("refused Retry and Edit retain every screenshot and video preview in strip 
     await io.client.send("plain", attachments).catch(() => undefined);
     await settle(() => io.rows().some((row) => row.failed));
     const row = io.rows().find((row) => row.failed)!;
-    expect(io.sent[0]._meta.acpmux.inlineParts).toBeUndefined();
+    expect(io.sent[0]._meta.acpmux.inlineParts).toHaveLength(8);
+    expect(io.sent[0]._meta.acpmux.inlineParts.every((part: any) => part.companionOf + 1 === part.blockIndex)).toBe(
+      true,
+    );
     expect(row.inlineParts).toBeUndefined();
     expect(row.images).toHaveLength(8);
     expect(row.images?.every((image) => image.src === "data:image/png;base64,AQID")).toBe(true);
@@ -263,6 +266,13 @@ test("strip echo Retry and Edit retain local bytes, original path and video", as
   try {
     await io.client.send("strip", attachments);
     const sent = io.sent[0];
+    const original = sent.prompt.findIndex((block: any) => block.uri === "file:///tmp/one.png");
+    expect(sent._meta.acpmux.inlineParts).toContainEqual({
+      kind: "file",
+      blockIndex: original,
+      name: "one.png",
+      companionOf: original - 1,
+    });
     io.emit(sent.sessionId, {
       mux: "user_message",
       msg: {
