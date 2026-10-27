@@ -6,7 +6,10 @@
 #   rig.sh sync                xcodegen here, rsync sources to $HOST:$DIR (the Rust xcframework is built there once:
 #                              `bash $DIR/cmux-next-ios/rust/scripts/build-xcframework.sh`)
 #   rig.sh seed-xcf            copy the Rust xcframework into $DIR from FROM=host:dir (default aws-m4pro-6:smooth-lists)
-#   rig.sh sim                 create + boot $SIM_NAME (iPhone 17 Pro, iOS 26.5) on $HOST
+#   rig.sh sim                 create + boot $SIM_NAME ($DEVICE, default iPhone 17 Pro, iOS 26.5) on $HOST
+#   rig.sh shot LABEL SCREEN SECS [K=V..]
+#                              install and launch as `run` does (no passes: LIST_PASSES=0), take LABEL.png
+#                              SECS seconds after launch, then terminate the app
 #   rig.sh build               Demo simulator build on $HOST (arm64 only)
 #   rig.sh run LABEL SCREEN [K=V..]
 #                              install, launch with CMUX_MOBILE_LIST_SCREEN=SCREEN and CMUX_MOBILE_<K>=V,
@@ -52,7 +55,7 @@ case "${1:-}" in
     ;;
   sim)
     remote "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
-      if [[ -z \$udid ]]; then udid=\$(xcrun simctl create '$SIM_NAME' 'iPhone 17 Pro' com.apple.CoreSimulator.SimRuntime.iOS-26-5); fi; \
+      if [[ -z \$udid ]]; then udid=\$(xcrun simctl create '$SIM_NAME' '${DEVICE:-iPhone 17 Pro}' com.apple.CoreSimulator.SimRuntime.iOS-26-5); fi; \
       xcrun simctl boot \$udid 2>/dev/null; xcrun simctl bootstatus \$udid -b >/dev/null; echo \$udid"
     ;;
   build)
@@ -103,5 +106,19 @@ case "${1:-}" in
     fi
     python3 "$mobile/verify/feedperf/summarize.py" "$out/$label.jsonl"
     ;;
-  *) sed -n '2,17p' "$0"; exit 2 ;;
+  shot)
+    label=${2:?label} screen=${3:?screen} secs=${4:?seconds}; shift 4
+    envs="SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1 SIMCTL_CHILD_CMUX_MOBILE_LIST_SCREEN=$screen SIMCTL_CHILD_CMUX_MOBILE_LIST_PASSES=0"
+    for kv in "$@"; do envs+=" SIMCTL_CHILD_CMUX_MOBILE_$kv"; done
+    out="$mobile/verify/evidence/listperf"; mkdir -p "$out"
+    remote "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
+      app=\$(ls -d $DIR/cmux-next-ios/build/demo/Build/Products/Demo-iphonesimulator/*.app | head -1); \
+      bid=\$(plutil -extract CFBundleIdentifier raw \$app/Info.plist); \
+      xcrun simctl terminate \$udid \$bid 2>/dev/null; xcrun simctl install \$udid \$app; \
+      $envs xcrun simctl launch --terminate-running-process \$udid \$bid -cmuxMobile.setupComplete YES -cmux-mobile-no-restore >/dev/null; \
+      sleep $secs; rm -f $DIR/$label.png; xcrun simctl io \$udid screenshot $DIR/$label.png >/dev/null 2>&1; \
+      xcrun simctl terminate \$udid \$bid 2>/dev/null; true"
+    remote "cat $DIR/$label.png" > "$out/$label.png" && echo "shot: $out/$label.png"
+    ;;
+  *) sed -n '2,20p' "$0"; exit 2 ;;
 esac
