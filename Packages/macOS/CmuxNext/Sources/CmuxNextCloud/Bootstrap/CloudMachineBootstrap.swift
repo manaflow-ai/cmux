@@ -5,9 +5,9 @@ public import Foundation
 /// runner, and one short exec starts the runner detached under systemd, so a long bootstrap (the
 /// lane bootstrap installs tools for minutes) never meets the exec API's 25 s limit. The runner
 /// runs the script as the machine's user, logs to ``logPath`` and writes ``statusPath``
-/// (`{"state":"running|done|failed","exit_code":N,"script_sha256":"…","at":unix}`), and ends
-/// when the script does. Starts queue, one runner at a time; a start whose script and repo step
-/// finished last runs nothing. With a ``repo`` the runner clones it first (``CloudMachineRepo``; `status.json`'s
+/// (`{"state":"running|done|failed","exit_code":N,"script_sha256":"…","start_sha256":"…","at":unix}`), and ends
+/// when the script does. One runner at a time: a start while one runs says `running`, and a start
+/// whose script and repo step finished last runs nothing. With a ``repo`` the runner clones it first (``CloudMachineRepo``; `status.json`'s
 /// `repo`), and a machine with only `--repo` runs ``noScript``.
 public struct CloudMachineBootstrap: Equatable, Sendable {
     public enum Kind: String, Sendable, Equatable { case plain, lane }
@@ -28,7 +28,7 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
     public static let directory = "/home/cmux/.cmux/bootstrap"
     public static let logPath = directory + "/bootstrap.log"
     public static let statusPath = directory + "/status.json"
-    /// The transient units the runners run in, one per start (`systemctl list-units 'cmux-machine-bootstrap-*'`).
+    /// The transient unit the runner runs in (`systemctl status cmux-machine-bootstrap`).
     public static let unit = "cmux-machine-bootstrap"
     /// The longest script the app uploads (the lane bootstrap is about 47 KB).
     public static let maxBytes = 1 << 20
@@ -50,8 +50,8 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         }
     }
 
-    /// How a start went: `started`, `queued` (it runs after the run under way; a runner whose files
-    /// finished last skips them) or `failed` with its `reason`.
+    /// How a start went: `started`, `running` (another start's run is under way; this one's files are
+    /// dropped), `skipped` (this script and repo step already finished here) or `failed` with its `reason`.
     public struct Outcome: Equatable, Sendable {
         public var status: String
         public var reason: String?
@@ -63,8 +63,7 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
     }
 
     /// Uploads the script with its environment, the runner and the repo step into a folder of
-    /// this start's own, then starts the runner on that folder: no start ever changes the files
-    /// another start's runner runs.
+    /// this start's own, then starts: no upload ever changes the files a running runner runs.
     public func start(name: String?, on machine: Machine, startID: String = UUID().uuidString.lowercased()) async -> Outcome {
         let tail = { (ran: CloudExecResult) in String((ran.stderr.isEmpty ? ran.stdout : ran.stderr).suffix(500)) }
         let staged = Self.stagingDirectory(startID)
@@ -80,7 +79,7 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
             try await machine.write(staged + "/repo", repo.map { Data($0.step.utf8) } ?? Self.noScript, 0o700)
             let ran = try await machine.exec(Self.startCommand(staged))
             let said = ran.stdout.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
-            guard ran.exitCode == 0, ["started", "queued"].contains(said) else { return Outcome(status: "failed", reason: tail(ran)) }
+            guard ran.exitCode == 0, ["started", "running", "skipped"].contains(said) else { return Outcome(status: "failed", reason: tail(ran)) }
             return Outcome(status: said)
         } catch {
             return Outcome(status: "failed", reason: String(describing: error))
@@ -113,58 +112,93 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
     /// `as_u CMD`: CMD as the work user `$u`, from either account.
     static let userHelper = #"as_u() { if [ "$(id -un)" = "$u" ]; then "$@"; else root runuser -u "$u" -- "$@"; fi; }"#
 
+    /// No folder on the way may be a symlink: root's chown and chmod would follow it out of the home folder.
+    static let noSymlinks = #"for p in "$h/.cmux" "$d"; do [ -L "$p" ] && { echo "$p is a symlink" >&2; exit 1; }; done"#
+
     /// The bootstrap folder and this start's upload folder, the work user's, before the uploads.
     public static func prepareCommand(_ staged: String) -> String { [
-        "set -eu", rootHelper, "d=\(directory)", "s=\(staged)",
-        #"root mkdir -p "$d" "$s" && root chown \#(user):\#(user) "$d" "$s" && root chmod 700 "$d" "$s""#,
+        "set -eu", rootHelper, "d=\(directory)", "s=\(staged)", "u=\(user)", #"h=$(getent passwd "$u" | cut -d: -f6)"#, noSymlinks,
+        #"root mkdir -p "$d" && root chown -h \#(user):\#(user) "$d" && root chmod 700 "$d""#,
+        #"[ -L "$s" ] && { echo "$s is a symlink" >&2; exit 1; }; root mkdir -p "$s" && root chown -h \#(user):\#(user) "$s" && root chmod 700 "$s""#,
     ].joined(separator: "; ") }
 
     /// The file API may write as root, so the files go to the work user first, and a start that
-    /// cannot hand them over fails here instead of in the runner. The runner starts on this
-    /// start's own folder, always as the work user with its home: it waits for the lock (`queued`
-    /// behind a runner that holds it), skips when the same files finished last (only it decides,
-    /// under the lock, so no start is lost), and runs them. A transient systemd unit per start (it
-    /// outlives the exec); without systemd, or when `systemd-run` fails, under `setsid`.
+    /// cannot hand them over fails here instead of in the runner. Uploads land in this start's
+    /// own folder, so no upload ever changes the files a running runner runs: the start moves
+    /// them into the bootstrap folder only while it holds the runner's lock, and a start while a
+    /// runner runs says `running` and drops its files. The runner always runs as the work user
+    /// with its home, in a transient systemd unit (it outlives the exec); without systemd, or
+    /// when `systemd-run` fails, under `setsid`.
     public static func startCommand(_ staged: String) -> String { [
-        "set -eu", rootHelper, userHelper, "d=\(directory)", "s=\(staged)", "u=\(user)", #"h=$(getent passwd "$u" | cut -d: -f6)"#,
-        #"root chown -R "$u:$u" "$d" 2>/dev/null || true"#,
-        #"for f in script env run repo repo.json; do [ "$(stat -c %U "$s/$f")" = "$u" ] || { echo "$s/$f is not $u's: the start needs root or passwordless sudo" >&2; exit 1; }; done"#,
-        #"said=started; as_u flock -n "$d/lock" true || said=queued; n=\#(unit)-$(basename "$s")"#,
-        #"if command -v systemd-run >/dev/null 2>&1 && root systemd-run --quiet --collect --unit="$n" --uid="$u" --gid="$u" --setenv=HOME="$h" --working-directory="$h" "$s/run" "$s"; then :; else as_u env HOME="$h" setsid nohup "$s/run" "$s" >/dev/null 2>&1 </dev/null & fi"#,
-        #"echo "$said""#,
+        "set -eu", rootHelper, userHelper, "d=\(directory)", "s=\(staged)", "u=\(user)", #"h=$(getent passwd "$u" | cut -d: -f6)"#, noSymlinks,
+        // Exclusive against a machine-config apply (it holds this shared for its whole run): from here until
+        // `starting` is out, so an apply either sees this start or this start waits for it (15 s, then a
+        // clear refusal). Opened read-only and only once it exists and is no link: root never creates or
+        // writes through a link the work user planted.
+        #"[ -e "$d/start.lock" ] || as_u touch "$d/start.lock"; { [ -f "$d/start.lock" ] && [ ! -L "$d/start.lock" ]; } || { echo "$d/start.lock is not a regular file" >&2; exit 1; }; exec 7<"$d/start.lock""#,
+        #"flock -w 15 7 || { echo "a machine config apply is running on this machine: start the bootstrap again when it ends" >&2; exit 1; }"#,
+        #"root chown -hR "$u:$u" "$d" 2>/dev/null || true"#,
+        #"[ -d "$s" ] && [ ! -L "$s" ] || { echo "$s is not a folder" >&2; exit 1; }"#,
+        #"for f in script env run repo repo.json; do { [ -f "$s/$f" ] && [ ! -L "$s/$f" ] && [ "$(stat -c %U "$s/$f")" = "$u" ]; } || { echo "$s/$f is not $u's: the start needs root or passwordless sudo" >&2; exit 1; }; done"#,
+        // The runner's own lock, held from the `running` check until `starting` is out (opened read-only, a
+        // regular file of the work user's, like start.lock): a runner an earlier start launched that only now
+        // gets to run finds it taken and exits, so it never runs the files between this start's move and its
+        // `starting`. Let go before the launch, so this start's runner can take it.
+        #"[ -e "$d/lock" ] || as_u touch "$d/lock"; { [ -f "$d/lock" ] && [ ! -L "$d/lock" ]; } || { echo "$d/lock is not a regular file" >&2; exit 1; }; exec 6<"$d/lock""#,
+        #"flock -n 6 || { as_u rm -rf "$s" || true; echo running; exit 0; }"#,
+        // No runner runs: this start's files become the bootstrap folder's (a rename each, as the work user),
+        // where the runner and a machine-config apply read them (`script`, `repo.json`).
+        #"for f in script env run repo repo.json; do as_u mv -f "$s/$f" "$d/$f"; done; as_u rm -rf "$s""#,
+        // `script_sha256` is the script's; `start_sha256` is the script's and the repo step's, which say
+        // together what a start runs: the same pair done already runs nothing.
+        #"sum=$(sha256sum "$d/script" | cut -d' ' -f1); key=$(cat "$d/script" "$d/repo" | sha256sum | cut -d' ' -f1)"#,
+        #"if grep -q "\"state\":\"done\".*\"start_sha256\":\"$key\"" "$d/status.json" 2>/dev/null; then echo skipped; exit 0; fi"#,
+        #"as_u rm -f "$d/repo-status.json""#,
+        // Only when a runner is launched: a machine-config applier waits on `starting` (a retry of a failed
+        // script too). The runner takes `alive` once it runs, which the applier waits on too.
+        #"printf '{"state":"starting","exit_code":null,"script_sha256":"%s","start_sha256":"%s","at":%s}\n' "$sum" "$key" "$(date +%s)" | as_u tee "$d/status.json" >/dev/null"#,
+        "exec 6<&-",
+        #"if command -v systemd-run >/dev/null 2>&1 && { root systemctl reset-failed \#(unit) 2>/dev/null || true; root systemd-run --quiet --collect --unit=\#(unit) --uid="$u" --gid="$u" --setenv=HOME="$h" --working-directory="$h" "$d/run"; }; then :; else as_u env HOME="$h" setsid nohup "$d/run" >/dev/null 2>&1 </dev/null 7<&- & fi"#,
+        "echo started",
     ].joined(separator: "; ") }
 
-    /// The runner (`run` in a start's own folder, given that folder).
+    /// The runner (`run` in ``directory``).
     public static let runner = #"""
         #!/bin/sh
         # cmux machine bootstrap runner, written by the cmux app (cmux cloud new-machine
-        # --bootstrap-script, --repo). Runs its start's ./repo, then ./script, one start at a time,
-        # logs to ../bootstrap.log, writes ../status.json; the files stay in ../current.
+        # --bootstrap-script, --repo). Runs ./repo, then ./script, logs to ./bootstrap.log,
+        # writes ./status.json.
         set -u
-        s=$1
-        d=$(cd "$s/.." && pwd)
-        # One runner at a time, in the order they got here; each start keeps its own files.
+        d=$(cd "$(dirname "$0")" && pwd)
+        # One runner at a time; a start while this one runs says `running`.
         exec 9>"$d/lock"
-        flock 9 || exit 1
-        sum=$(cat "$s/script" "$s/repo" | sha256sum | cut -d' ' -f1)
-        if grep -q "\"state\":\"done\".*\"script_sha256\":\"$sum\"" "$d/status.json" 2>/dev/null; then rm -rf "$s"; exit 0; fi
-        r="$d/current"
-        rm -rf "$r" && mv "$s" "$r" || exit 1
+        flock -n 9 || exit 0
+        sum=$(sha256sum "$d/script" | cut -d' ' -f1)
+        key=$(cat "$d/script" "$d/repo" | sha256sum | cut -d' ' -f1)
+        # A runner launched by an earlier start may have run these files to their end while this one waited
+        # to be scheduled: a script and repo step that are done are not run again.
+        if grep -q "\"state\":\"done\".*\"start_sha256\":\"$key\"" "$d/status.json" 2>/dev/null; then exit 0; fi
+        # Held for the runner's whole life, taken blocking: a machine-config apply probes it (shared,
+        # non-blocking, released at once) to wait while this runner runs; the kernel drops it at the end.
+        [ -f "$d/alive" ] && [ ! -L "$d/alive" ] || rm -f "$d/alive"
+        exec 8>"$d/alive"
+        flock 8
         status() {
-          repo=$(cat "$r/repo-status.json" 2>/dev/null || echo null)
-          printf '{"state":"%s","exit_code":%s,"script_sha256":"%s","repo":%s,"at":%s}\n' "$1" "$2" "$sum" "$repo" "$(date +%s)" >"$d/status.json.tmp" &&
+          repo=$(cat "$d/repo-status.json" 2>/dev/null || echo null)
+          printf '{"state":"%s","exit_code":%s,"script_sha256":"%s","start_sha256":"%s","repo":%s,"at":%s}\n' "$1" "$2" "$sum" "$key" "$repo" "$(date +%s)" >"$d/status.json.tmp" &&
             mv -f "$d/status.json.tmp" "$d/status.json"
         }
-        repo_step() { "$r/repo" >>"$d/bootstrap.log" 2>&1 </dev/null; }
+        # Not its locks: a daemon the repo step or the script leaves running must not keep them held after this runner ends.
+        repo_step() { "$d/repo" >>"$d/bootstrap.log" 2>&1 </dev/null 8>&- 9>&-; }
         status running null
-        . "$r/env"
+        [ -f "$d/env" ] && . "$d/env"
         cd "$HOME" 2>/dev/null || cd /
-        printf '== cmux bootstrap %s at %s\n' "$sum" "$(date -u +%FT%TZ)" >>"$d/bootstrap.log"
+        printf '== cmux bootstrap %s at %s\n' "$key" "$(date -u +%FT%TZ)" >>"$d/bootstrap.log"
         repo_step
         repo_code=$?
         # \#(CloudMachineRepo.needsGitHubExit): the repo needs GitHub access the script may set up (a lane VM's broker helper); try again after it.
         if [ "$repo_code" -ne 0 ] && [ "$repo_code" -ne \#(CloudMachineRepo.needsGitHubExit) ]; then status failed "$repo_code"; exit "$repo_code"; fi
-        "$r/script" >>"$d/bootstrap.log" 2>&1 </dev/null
+        "$d/script" >>"$d/bootstrap.log" 2>&1 </dev/null 8>&- 9>&-
         code=$?
         if [ "$code" -eq 0 ] && [ "$repo_code" -ne 0 ]; then repo_step; code=$?; fi
         if [ "$code" -eq 0 ]; then status done 0; else status failed "$code"; fi

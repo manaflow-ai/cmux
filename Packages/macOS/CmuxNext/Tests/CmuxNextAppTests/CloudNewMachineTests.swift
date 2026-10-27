@@ -80,11 +80,11 @@ struct CloudNewMachineTests {
 
     @Test func everyMachineCommandNamesTheWorkUser() {
         let staged = CloudMachineBootstrap.stagingDirectory("ab")
-        #expect(CloudMachineBootstrap.prepareCommand(staged).contains("root chown cmux:cmux"))
+        #expect(CloudMachineBootstrap.prepareCommand(staged).contains("root chown -h cmux:cmux"))
         let start = CloudMachineBootstrap.startCommand(staged)
         #expect(start.contains(#"--uid="$u""#))
         #expect(start.contains(#"as_u env HOME="$h" setsid"#), "the fallback runs as the work user too")
-        #expect(start.contains(#"as_u flock -n "$d/lock" true"#), "the lock is the work user's, whichever account the exec uses")
+        #expect(start.contains(#"as_u mv -f "$s/$f" "$d/$f""#), "the files move as the work user, whichever account the exec uses")
     }
 
     @Test func aQuotedTildeScriptIsTheHomeFolders() throws {
@@ -153,11 +153,13 @@ struct CloudNewMachineTests {
         #expect(CloudMachineBootstrap.stagingDirectory("zz; ~/..") == CloudMachineBootstrap.directory + "/in-", "only an id's own characters")
     }
 
-    @Test func aStartBehindARunningBootstrapIsQueued() async {
+    @Test func aBootstrapAlreadyDoneOrRunningIsNotStartedAgain() async {
         let fake = FakeMachine()
         let script = CloudMachineBootstrap(kind: .plain, contents: Data("true\n".utf8))
-        fake.startAnswer = CloudExecResult(exitCode: 0, stdout: "queued\n", stderr: "")
-        #expect(await script.start(name: nil, on: fake.machine).status == "queued")
+        fake.startAnswer = CloudExecResult(exitCode: 0, stdout: "skipped\n", stderr: "")
+        #expect(await script.start(name: nil, on: fake.machine).status == "skipped")
+        fake.startAnswer = CloudExecResult(exitCode: 0, stdout: "running\n", stderr: "")
+        #expect(await script.start(name: nil, on: fake.machine).status == "running")
     }
 
     @Test func aStartThatFailsSaysWhy() async {

@@ -125,23 +125,25 @@ struct CloudMachineRepoTests {
         #expect(CloudCreationFlow.needsBootstrap(creation), "not started yet")
         creation.noteBootstrap(CloudMachineBootstrap.Outcome(status: "failed", reason: "upload failed"))
         #expect(CloudCreationFlow.needsBootstrap(creation), "a failed start is tried again")
-        creation.noteBootstrap(CloudMachineBootstrap.Outcome(status: "queued"))
+        creation.noteBootstrap(CloudMachineBootstrap.Outcome(status: "running"))
         #expect(!CloudCreationFlow.needsBootstrap(creation), "a start the machine took is not sent twice")
         #expect(!CloudCreationFlow.needsBootstrap(CloudMachineCreation(windowID: nil)), "no bootstrap asked")
     }
 
     @Test func theRunnerClonesFirstAndRetriesAfterAScriptThatSetsUpGitHub() throws {
         let runner = CloudMachineBootstrap.runner
-        let step = try #require(runner.range(of: "repo_step\n")), script = try #require(runner.range(of: #""$r/script" >>"#))
+        let step = try #require(runner.range(of: "repo_step\n")), script = try #require(runner.range(of: #""$d/script" >>"#))
         #expect(step.lowerBound < script.lowerBound)
         #expect(runner.contains(#"if [ "$code" -eq 0 ] && [ "$repo_code" -ne 0 ]; then repo_step; code=$?; fi"#))
         #expect(runner.contains(#""repo":%s"#))
-        let lock = try #require(runner.range(of: "flock 9 || exit 1")), done = try #require(runner.range(of: #"then rm -rf "$s"; exit 0; fi"#))
-        #expect(lock.lowerBound < done.lowerBound, "a queued runner checks again, under the lock, that its files did not finish meanwhile")
-        #expect(runner.contains(#"rm -rf "$r" && mv "$s" "$r""#), "each runner runs its own start's files")
+        #expect(runner.contains(#""script_sha256":"%s","start_sha256":"%s","repo":%s"#) && runner.contains(#"sum=$(sha256sum "$d/script" | cut -d' ' -f1)"#),
+                "script_sha256 stays the script's own digest; the repo step only joins start_sha256")
+        #expect(runner.contains(#"if grep -q "\"state\":\"done\".*\"start_sha256\":\"$key\"""#), "the same script with another repo runs again")
         let start = CloudMachineBootstrap.startCommand(CloudMachineBootstrap.stagingDirectory("ab"))
-        #expect(start.contains(#""$s/run" "$s""#), "the runner gets its start's folder")
-        #expect(!start.contains(#"mv -f"#), "a start never moves files another runner may be about to run")
-        #expect(!start.contains("rm -rf"), "only the runner, under the lock, drops a start's files")
+        let held = try #require(start.range(of: "flock -n 6")), moved = try #require(start.range(of: #"as_u mv -f "$s/$f" "$d/$f""#))
+        let released = try #require(start.range(of: "exec 6<&-"))
+        #expect(held.lowerBound < moved.lowerBound && moved.lowerBound < released.lowerBound,
+                "a start's files replace the bootstrap folder's only while it holds the runner's lock: never under a running runner")
+        #expect(start.contains(#"flock -n 6 || { as_u rm -rf "$s" || true; echo running; exit 0; }"#), "a start while a runner runs drops its own files")
     }
 }
