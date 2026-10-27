@@ -296,10 +296,6 @@
   isolation: isolate;
   will-change: transform;
   box-sizing: border-box;
-  /* The card is portalled beside the masked scroller. Keep its backdrop blur in a stable layer so
-     opening or dismissing the preview does not invalidate the transcript's painted surface. */
-  isolation: isolate;
-  will-change: transform;
   /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
      none clears it through --acpmux-minimap-rim. Glass, as the chat's other hover cards (the link
      preview, the tooltips): the tooltip tint over the shared blur, never an opaque fill (Leo
