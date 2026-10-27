@@ -819,7 +819,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py: a job
+    # holding a signing secret pins a literal runner label. A repository variable could be
+    # repointed onto a reused machine, where keychain material can outlive the job, so this
+    # job stays off the pooled selectors the rest of this workflow uses.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -955,7 +959,11 @@ jobs:
     # Holds only the release App credentials (CMUX_RELEASE_APP_*). The approval
     # was given to release-surface-ack on this run; guard.approvedBy() reads it.
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py: a job
+    # holding a signing secret pins a literal runner label. A repository variable could be
+    # repointed onto a reused machine, where keychain material can outlive the job, so this
+    # job stays off the pooled selectors the rest of this workflow uses.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -1619,7 +1627,7 @@ jobs:
     # slot per run, so a rescued re-run on Blacksmith never holds this slot.
     # report-nightly-failure drops a build replaced here before it started.
     concurrency:
-      group: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && vars.CI_SIDE_LANE_RUNNER != '' && 'nightly-next-build-app-warm' || format('nightly-build-app-{0}', github.run_id) }}
+      group: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER != '' && 'nightly-next-build-app-warm' || format('nightly-build-app-{0}', github.run_id) }}
       cancel-in-progress: false
     outputs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
@@ -3069,7 +3077,11 @@ jobs:
     # Secret-bearing signing and notarization stay on the trusted Blacksmith
     # macOS pool; credentials remain in this protected environment and never
     # move through an artifact or worker disk.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}
+    # Rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py: a job
+    # holding a signing secret pins a literal runner label. A repository variable could be
+    # repointed onto a reused machine, where keychain material can outlive the job, so this
+    # job stays off the pooled selectors the rest of this workflow uses.
+    runs-on: macos-26
     # Start the standalone Computer Use helper submission before Codesign apps
     # so Apple's first wait overlaps useful work; finish it before the final
     # DMG. The job budget covers both waits (see the notarize step).
@@ -4250,7 +4262,11 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, find-nightly-next-recovery]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.find-nightly-next-recovery.outputs.found == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}
+    # Rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py: a job
+    # holding a signing secret pins a literal runner label. A repository variable could be
+    # repointed onto a reused machine, where keychain material can outlive the job, so this
+    # job stays off the pooled selectors the rest of this workflow uses.
+    runs-on: macos-26
     # An accepted continuation builds, signs and notarizes the DMG around the
     # stapled app (notarize-nightly-dmg.sh, CMUX_STAPLE_APP_IN_DMG): a 20m wait
     # and packaging per candidate; a failed one moves on to the next of 3.
@@ -4566,7 +4582,11 @@ jobs:
       refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py: a job
+    # holding a signing secret pins a literal runner label. A repository variable could be
+    # repointed onto a reused machine, where keychain material can outlive the job, so this
+    # job stays off the pooled selectors the rest of this workflow uses.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
@@ -5549,7 +5569,11 @@ jobs:
       dmg_sha256: ${{ steps.handoff.outputs.dmg_sha256 }}
       minimum_system_version: ${{ steps.handoff.outputs.minimum_system_version }}
       stapled_app_fallback_id: ${{ steps.notarize.outputs.stapled_app_fallback == 'true' && steps.notarize.outputs.stapled_app_pending_id || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}
+    # Rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py: a job
+    # holding a signing secret pins a literal runner label. A repository variable could be
+    # repointed onto a reused machine, where keychain material can outlive the job, so this
+    # job stays off the pooled selectors the rest of this workflow uses.
+    runs-on: macos-26
     # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
     # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
     # -bundle) and a later run continues that exact submission
@@ -6004,7 +6028,11 @@ jobs:
     # Publishes only a DMG whose sha256 verify-nightly-identity-legacy tested,
     # then resolves the attempt (retire, keep or mark the submission; count a
     # failure) for the whole sign, verify and publish chain. Runs no bundle code.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}
+    # Rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py: a job
+    # holding a signing secret pins a literal runner label. A repository variable could be
+    # repointed onto a reused machine, where keychain material can outlive the job, so this
+    # job stays off the pooled selectors the rest of this workflow uses.
+    runs-on: macos-26
     timeout-minutes: 30
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -6328,7 +6356,11 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}
+    # Rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py: a job
+    # holding a signing secret pins a literal runner label. A repository variable could be
+    # repointed onto a reused machine, where keychain material can outlive the job, so this
+    # job stays off the pooled selectors the rest of this workflow uses.
+    runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
@@ -6599,7 +6631,11 @@ jobs:
     if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
     environment: content-signing
     # The content-signing key remains scoped to this protected environment.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Rule 7 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py: a job
+    # holding a signing secret pins a literal runner label. A repository variable could be
+    # repointed onto a reused machine, where keychain material can outlive the job, so this
+    # job stays off the pooled selectors the rest of this workflow uses.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read

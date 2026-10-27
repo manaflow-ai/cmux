@@ -17,6 +17,18 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 SINGLE_HOST = re.compile(r"cmux22|glaeda-runner-[a-z0-9][a-z0-9-]*", re.IGNORECASE)
+# Repository variables that select a runner; a secret-bearing job may not read one.
+SHARED_RUNNER_VARIABLES = re.compile(
+    r"vars\.(LINUX_RUNNER|LINUX_ARM64_RUNNER|LINUX_RUNNER_DARWIN_CROSS|WINDOWS_RUNNER"
+    r"|MACOS_RUNNER_[A-Z0-9_]+|CI_NIGHTLY_DECIDE_RUNNER|CI_TRUSTED_RUNNER"
+    r"|CI_SIDE_LANE_RUNNER|CI_SEED_TRUSTED_POOL)\b"
+)
+# The nightly jobs that hold signing, notarization or release-publishing material.
+SECRET_BEARING_NIGHTLY_JOBS = (
+    "promote-nightly-next", "promote-nightly-next-acked", "build-sign-notarize-nightly",
+    "recover-nightly-next-notarization", "publish-nightly", "sign-nightly-identity-legacy",
+    "publish-nightly-identity-legacy", "generate-nightly-deltas", "sign-release-notes",
+)
 OLD_NIGHTLY_RUNNER = re.compile(r"CI_NIGHTLY_(?:NEXT_)?TRUSTED_(?:POOL|RUNNER)")
 # The cmux-tui nightly calls the shared package builder, which keeps its own
 # fallbacks for other callers; the nightly must override every runner input.
@@ -101,17 +113,52 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         self.assertIn("vars.MACOS_RUNNER_26", runs_on)
         self.assertIn("blacksmith-12vcpu-macos-26", runs_on)
 
-    def test_secret_bearing_nightlies_use_the_trusted_owned_pool(self) -> None:
+    def test_secret_bearing_nightlies_pin_a_literal_runner(self) -> None:
+        """A job holding signing material names its runner outright.
+
+        Rule 7 of test_ci_signing_keychain_is_deleted_before_bundle_code.py: a
+        repository variable can be repointed onto a reused machine, where
+        keychain material outlives the job, so a secret-bearing job may not
+        select its runner through one. Pooling the rest of the nightly is what
+        this file is for; these jobs are the exception, and which runners may
+        hold signing secrets is a runner-trust decision, not a routing one.
+        """
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
         for name in ("build-sign-notarize-nightly", "sign-nightly-identity-legacy",
                      "publish-nightly-identity-legacy"):
             job = text[text.index(f"\n  {name}:"):]
             match = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE)
             with self.subTest(job=name):
-                self.assertNotIn("vars.CI_SEED_TRUSTED_POOL", match.group(1))
-                self.assertIn("vars.MACOS_RUNNER_26", match.group(1))
-                self.assertIn("blacksmith-12vcpu-macos-26", match.group(1))
-                self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", match.group(1))
+                runs_on = match.group(1)
+                self.assertNotIn("vars.", runs_on,
+                                 "a secret-bearing nightly must not pick its runner from a variable")
+                self.assertNotRegex(runs_on, SINGLE_HOST)
+
+    def test_no_secret_bearing_job_reads_a_shared_runner_variable(self) -> None:
+        """The rule this file used to carry for every nightly, kept where it still holds.
+
+        Leo, 2026-10-24, retired the blanket "no nightly on Blacksmith" rule
+        ("blacksmith runners we can simply trust ... build, sign, notarize and
+        publish may run on one Blacksmith runner in the release environment")
+        and "nightly-next build, sign and publish run on any machine dev builds
+        can use ... with no pinned host". So pooled selectors are right for
+        nightly work in general. They are still wrong for a job that holds a
+        signing secret, for the reused-machine reason in rule 7, and a literal
+        Blacksmith label satisfies both.
+        """
+        text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
+        failures = []
+        for name in SECRET_BEARING_NIGHTLY_JOBS:
+            start = text.find(f"\n  {name}:")
+            if start < 0:
+                continue
+            match = re.search(r"^    runs-on: (.+)$", text[start:], re.MULTILINE)
+            if match and SHARED_RUNNER_VARIABLES.search(match.group(1)):
+                failures.append(f"{name}: {match.group(1).strip()}")
+        self.assertEqual(
+            failures, [],
+            "a secret-bearing nightly picks its runner from a shared variable; name a literal label",
+        )
 
     def test_secret_free_prepare_fallback_does_not_requeue_a_retry_on_the_side_pool(self) -> None:
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")

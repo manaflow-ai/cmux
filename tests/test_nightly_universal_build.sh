@@ -1338,7 +1338,7 @@ for expected in \
   "name: cmux-nightly-identity-signed" \
   "dmg_sha256: \${{ steps.handoff.outputs.dmg_sha256 }}" \
   "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}"; do
+  "runs-on: macos-26"; do
   grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
 for expected in \
