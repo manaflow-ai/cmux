@@ -376,6 +376,54 @@ fn a_connection_is_classed_when_its_hello_window_closes() {
     mux.shutdown();
 }
 
+/// `server-threads` names the connection each connection thread works
+/// for, with the class and the facts it comes from, feature on or off: the
+/// QoS audit (scripts/cmux-next/qos-audit.py) judges the person's
+/// connection threads by it (RUN-4).
+#[test]
+fn server_threads_names_a_connection_threads_connection() {
+    let mux = crate::Mux::new_for_test("connection-qos-row", crate::SurfaceOptions::default());
+    let (server, mut client) = UnixStream::pair().unwrap();
+    client.set_read_timeout(Some(WAIT)).unwrap();
+    let handler = {
+        let mux = mux.clone();
+        cmux_threads::spawn(
+            "mux-test-qos-row",
+            crate::server::line_connection::CONNECTION_READER_QOS,
+            move || handle_connection(mux, Box::new(server)),
+        )
+        .unwrap()
+    };
+    let mut reader = BufReader::new(client.try_clone().unwrap());
+    let reply = exchange(&mut client, &mut reader, json!({"id": 1, "cmd": "ping"}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let id = *mux.control_clients.client_ids().first().expect("the connection's client");
+
+    let snapshot = serde_json::to_value(crate::server::server_stats::server_threads(&mux)).unwrap();
+    let rows = snapshot["threads"].as_array().unwrap();
+    let row = rows
+        .iter()
+        .find(|row| row["name"] == "mux-test-qos-row")
+        .unwrap_or_else(|| panic!("the reader has a row: {snapshot}"));
+    let connection = &row["connection"];
+    assert_eq!(connection["client"], id, "{row}");
+    assert_eq!(connection["class"], "automation", "{row}");
+    assert_eq!(connection["transport"], "unix", "{row}");
+    assert_eq!(connection["origin"], "agent", "{row}");
+    assert_eq!(connection["remote_device"], false, "{row}");
+    assert_eq!(connection["peer_pid"], std::process::id(), "{row}");
+    for writer in rows.iter().filter(|row| row["name"] == "mux-line-out") {
+        assert!(
+            writer["connection"].is_null(),
+            "a writer is no reader or request thread: {writer}"
+        );
+    }
+
+    client.shutdown(Shutdown::Both).unwrap();
+    handler.join().unwrap();
+    mux.shutdown();
+}
+
 /// The reader classes its connection once, at the first line after the
 /// hello window closed.
 #[test]
