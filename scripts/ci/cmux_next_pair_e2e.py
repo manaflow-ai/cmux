@@ -11,10 +11,11 @@ single-use token can approve the phone. The page's link (`cmux.mobilePairing.sta
 is opened on the simulator iPhone, signed in to the same account, as the Camera opens a scanned
 code; the step passes when the Mac logs `phone <id8> paired from this Mac's pairing code`.
 
-Screens: the Mac's Mobile Pairing page, the phone's Settings > Devices before and after, and its
-scanner sheet with the camera off (needs `axe`). On a ref without the feature the Mac shows no
-code: the pairing is skipped and the Devices screen is the "before". The token is never printed:
-`t=` is redacted in every log line and file. Ends the Mac app it started (its own PID) and the
+Screens: the Mac's Mobile Pairing page while it shows no code (a code's image carries its token,
+so it is never saved), the phone's Settings > Devices before and after, and its scanner sheet with
+the camera off (needs `axe`). On a ref without the feature the Mac shows no code: the pairing is
+skipped, the run passes, and the Devices screen is the "before"; on a ref with it, no code fails.
+The token is never printed: `t=` is redacted in every log line and file. Ends the Mac app it started (its own PID) and the
 tag's daemons (tag_teardown.py), and removes the app's state and its Keychain items.
 
 Why the dev Cloud and not loopback: the gate the code must not weaken is the account check, and
@@ -42,8 +43,10 @@ def redact(text):
 def shows_a_code():
     """Whether this ref's Mobile Pairing page sends a pairing code (`qr`): on a ref without it no
     code is the expected "before"; on one with it, no code is a failure."""
-    src = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextPages/MobilePairing/MobilePairingPageProvider.swift")
-    return os.path.exists(src) and 'reply["qr"]' in open(src).read()
+    src = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")
+    if not os.path.exists(src):
+        raise SystemExit(f"Mobile Pairing page provider not found at {src}: update shows_a_code()")
+    return 'reply["qr"]' in open(src).read()
 
 
 def dev_credential():
@@ -183,14 +186,15 @@ def main():
             last.update(value)
         return value
 
-    # The Mac page's shots show the pairing code (this Mac's device id, team and a token): they stay
-    # in the fleet artifact (screens/private/) and are never published; the phone's shots carry none.
-    private = os.path.join(screens, "private")
-    os.makedirs(private, exist_ok=True)
-
     def mac_shot(name):
-        r = rpc("debug.page", {"page": PAGE, "action": "snapshot", "path": os.path.join(private, f"{name}.png")})
-        return f"screens/private/{name}.png" if r.get("path") else f"no snapshot ({r.get('error')})"
+        """The Mac page as rendered, only while it shows no code: a code's image carries a live token
+        (text redaction can't reach it), so then the page's QR element is only counted, never saved."""
+        if status().get("qr"):
+            shown = rpc("debug.page", {"page": PAGE, "action": "query", "selector": "img.pairing-qr"})
+            count = len(shown.get("elements") or shown.get("matches") or []) if isinstance(shown, dict) else 0
+            return f"no snapshot while a code shows ({count or 'no'} QR element on the page)"
+        r = rpc("debug.page", {"page": PAGE, "action": "snapshot", "path": os.path.join(screens, f"{name}.png")})
+        return f"screens/{name}.png" if r.get("path") else f"no snapshot ({r.get('error')})"
 
     simctl = ["xcrun", "simctl", "--set", a.sims]
     phone_env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL=email, SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=password)

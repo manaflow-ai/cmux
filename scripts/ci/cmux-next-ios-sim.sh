@@ -26,7 +26,8 @@
 #           (reload.sh), and pairing by its QR code end to end
 #           (cmux_next_pair_e2e.py): the Mac's Mobile Pairing link, opened on
 #           the iPhone, pairs it with no Allow prompt and no test seed. Screens
-#           of the Mac page, the phone's Settings > Devices (a base ref gives
+#           of the Mac page (never while it shows a code: its image carries
+#           the token), the phone's Settings > Devices (a base ref gives
 #           the "before") and its scanner with the camera off; the Mac's
 #           pairing log, hostd's log and paired-devices.json, keys redacted.
 #
