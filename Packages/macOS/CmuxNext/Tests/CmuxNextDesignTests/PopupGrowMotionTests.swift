@@ -7,10 +7,8 @@ import CmuxNextDesignTokens
 /// better"). At 120 fps the card appeared at full size in one frame and, on close, held for about
 /// 75 ms and then vanished: the open and close faded the window's alpha, which the glass card
 /// did not show, and grew it from 0.97 on a 0.135 s spring, too small and short to read as
-/// coming out of the pill. Every native popup (`NativePopupHost`, `PopupFade`, the group
-/// editors, the corner panels) shares `openPopup` / `closePopup`, so the fix is there: the
-/// window stays opaque, and the card's own layer fades and grows from 0.95 about the pill on
-/// the `popover` spring (~0.25 s); the close mirrors it, faster.
+/// coming out of the pill. Native popups now show in one frame by default; an explicit entrance
+/// opt-in still exercises the shared card motion, and every close fades and shrinks faster.
 @MainActor @Suite(.serialized) struct PopupGrowMotionTests {
     private static let pivot = CGPoint(x: 150, y: 200)
 
@@ -40,8 +38,7 @@ import CmuxNextDesignTokens
         (value as? NSValue).map { $0.caTransform3DValue.m11 }
     }
 
-    @Test(.enabled("needs a screen and animation speed on, or every popup snaps") { await Self.queuesAnimations() })
-    func anOpenFadesAndGrowsTheCardOutOfItsControlWithTheWindowOpaque() throws {
+    @Test func anOpenWithoutEntranceShowsTheCardAtOnce() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
@@ -49,21 +46,11 @@ import CmuxNextDesignTokens
 
         window.openPopup(pivot: Self.pivot)
 
-        #expect(window.alphaValue == 1, "the window alpha fade does not show on the glass card")
-        let fade = try #require(layer.animation(forKey: "opacity") as? CABasicAnimation, "the card does not fade in")
-        #expect((fade.fromValue as? NSNumber)?.floatValue == 0)
+        #expect(window.alphaValue == 1)
+        #expect(layer.animation(forKey: "opacity") == nil, "the card fades in")
+        #expect(layer.animation(forKey: "sublayerTransform") == nil, "the card grows in")
         #expect(layer.opacity == 1)
-        let grow = try #require(layer.animation(forKey: "sublayerTransform") as? CASpringAnimation, "the card does not grow")
-        let from = try #require(Self.scale(grow.fromValue))
-        #expect(abs(from - 0.95) < 0.001, "grows from \(from), too little to read as coming out of the control")
-        // The pivot stays put: the card grows out of the control, not out of its own middle.
-        let start = try #require(grow.fromValue as? NSValue).caTransform3DValue
-        #expect(abs(start.m41 + Self.pivot.x * start.m11 - Self.pivot.x) < 0.01)
-        #expect(abs(start.m42 + Self.pivot.y * start.m22 - Self.pivot.y) < 0.01)
-        // Spring ~0.25 s: visibly a motion, never sluggish.
-        let response = 2 * Double.pi / sqrt(grow.stiffness / grow.mass)
-        #expect(abs(response - 0.25) < 0.02, "spring response \(response)")
-        #expect(grow.damping / (2 * sqrt(grow.stiffness * grow.mass)) < 1, "no hint of spring")
+        #expect(CATransform3DIsIdentity(layer.sublayerTransform))
     }
 
     @Test(.enabled("needs a screen and animation speed on, or every popup snaps") { await Self.queuesAnimations() })
@@ -72,7 +59,7 @@ import CmuxNextDesignTokens
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
         defer { window.orderOut(nil) }
-        window.openPopup(pivot: Self.pivot)
+        window.openPopup(pivot: Self.pivot, entrance: true)
         let openGrow = try #require(layer.animation(forKey: "sublayerTransform"))
 
         var ended = false
@@ -101,7 +88,7 @@ import CmuxNextDesignTokens
         let (window, layer) = try Self.popupWindow()
         defer { window.resetPopupScale(); window.orderOut(nil) }
 
-        window.openPopup(pivot: Self.pivot)
+        window.openPopup(pivot: Self.pivot, entrance: true)
 
         #expect(window.alphaValue == 1)
         #expect(layer.animation(forKey: "sublayerTransform") == nil, "Reduce Motion: no grow")

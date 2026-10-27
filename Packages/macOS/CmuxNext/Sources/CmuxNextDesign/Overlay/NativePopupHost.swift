@@ -67,7 +67,7 @@ public final class NativePopupHost {
     @discardableResult
     public func show(size: CGSize, anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
                      trailing: Bool = false, centered: Bool = false, makeKey: Bool = false,
-                     entrance: Bool = true) -> (frame: CGRect, side: PopupPlacement.Side)? {
+                     entrance: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
         guard window.isVisible, let screen = PopupPlacement.screen(for: anchor, fallback: window) else { return nil }
         let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
                                                  centered: centered, screen: screen.visibleFrame)

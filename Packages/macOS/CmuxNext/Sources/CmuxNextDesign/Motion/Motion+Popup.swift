@@ -29,10 +29,13 @@ public extension NSWindow {
         return CGPoint(x: x, y: y)
     }
 
-    /// Fades the popup's card in and grows it about `pivot`. A fresh open
-    /// (the owner left the window at alpha 0) starts from nothing; a reopen
-    /// during the close continues from what is on screen.
-    func openPopup(pivot: CGPoint) {
+    /// Opens the popup at `pivot`. Menus and popovers appear in one frame by
+    /// default; the command palette is the one product surface that opts into
+    /// the entrance motion explicitly. A fresh animated open (the owner left
+    /// the window at alpha 0) starts from nothing; a reopen during the close
+    /// continues from what is on screen.
+    func openPopup(pivot: CGPoint, entrance: Bool = false) {
+        guard entrance else { return showPopupAtOnce() }
         guard let content = contentView else {
             alphaValue = 1
             return
