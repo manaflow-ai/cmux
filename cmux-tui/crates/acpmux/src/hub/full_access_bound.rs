@@ -892,6 +892,111 @@ mod tests {
         assert_eq!(end, "turn_error", "a message the off push cut was written after it returned");
     }
 
+    /// Review 40 of #23322: an ancestor's answer checked under the old bound holds an off push
+    /// until the answer is written to the asking agent, not only handed to the ask.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_off_push_waits_for_an_ancestors_answer_until_it_is_written() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let asking = {
+            let (hub, child) = (hub.clone(), child.clone());
+            let text = vec![json!({"type": "text", "text": "question: Pick?"})];
+            tokio::spawn(async move {
+                hub.prompt_with(&child, text, "test", false, PromptOptions::default()).await
+            })
+        };
+        let pending = async {
+            loop {
+                if let Some(id) = child.permissions.lock().unwrap().pending.keys().next() {
+                    return id.clone();
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        };
+        let id = tokio::time::timeout(WAIT, pending).await.expect("the child asks");
+        let (arrived, release) = pause_input(&hub, &child, "outcome").await;
+        let answer = {
+            let (hub, parent, child) = (hub.clone(), parent.clone(), child.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        let push = push_off(&hub);
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let returned = push.is_finished();
+        let _ = release.send(());
+        tokio::time::timeout(WAIT, push).await.expect("the push returns").unwrap();
+        let answered = answer.await.unwrap();
+        asking.abort();
+        assert!(answered.is_ok(), "{answered:?}");
+        assert!(
+            !returned,
+            "an off push returned while an answer checked under the old bound was queued"
+        );
+    }
+
+    /// Starts a turn on `child` that asks the question "Pick?": the ask's permission id.
+    async fn ask_pick(
+        hub: &Arc<Hub>,
+        child: &Arc<Session>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let asking = {
+            let (hub, child) = (hub.clone(), child.clone());
+            let text = vec![json!({"type": "text", "text": "question: Pick?"})];
+            tokio::spawn(async move {
+                let _ =
+                    hub.prompt_with(&child, text, "test", false, PromptOptions::default()).await;
+            })
+        };
+        let pending = async {
+            loop {
+                if let Some(id) = child.permissions.lock().unwrap().pending.keys().next() {
+                    return id.clone();
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        };
+        (tokio::time::timeout(WAIT, pending).await.expect("the child asks"), asking)
+    }
+
+    /// Review 81 of #23322: two ancestors answer one question at once. The answer that lost
+    /// never takes away the fence of the one that won, so an off push still waits for the
+    /// winning answer until it is written.
+    #[tokio::test]
+    async fn a_losing_ancestor_answer_leaves_the_winners_answer_fenced() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let (arrived, release) = pause_input(&hub, &child, "outcome").await;
+        // The later answer is checked first and pauses right before it answers.
+        let (at_tx, at) = tokio::sync::oneshot::channel();
+        let (go, go_rx) = tokio::sync::oneshot::channel();
+        *hub.family_write_seam.lock().unwrap() = Some((at_tx, go_rx));
+        let late = {
+            let (hub, parent, child, id) = (hub.clone(), parent.clone(), child.clone(), id.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "B"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, at).await.expect("the later answer is checked").unwrap();
+        // It goes on only once this thread waits: the first answer wins, then the later one
+        // loses, before the asking task writes the winner.
+        let _ = go.send(());
+        let first = hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "A"})).await;
+        let late = late.await.unwrap();
+        assert!(first.is_ok() != late.is_ok(), "one answer wins: {first:?}, {late:?}");
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        let push = push_off(&hub);
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let returned = push.is_finished();
+        let _ = release.send(());
+        tokio::time::timeout(WAIT, push).await.expect("the push returns").unwrap();
+        asking.abort();
+        assert!(
+            !returned,
+            "an off push returned while the winning answer, checked under the old bound, was queued"
+        );
+    }
+
     /// Review 81 of #23322: a message its agent's writer already took when the transport stops
     /// taking input is cut by ending that agent at once. The push returns in bounded time even
     /// while the chat's agent slot is held elsewhere (a stop waiting on its host), and the
@@ -935,6 +1040,67 @@ mod tests {
         assert_eq!(end, "turn_error", "a message the off push cut reached its agent");
     }
 
+    /// Review 84 of #23322: an answer that lost to another settles its fence, so the next off
+    /// push does not wait on it.
+    #[tokio::test]
+    async fn a_losing_ancestor_answer_holds_no_later_push() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        // The later answer is checked first and pauses right before it answers.
+        let (at_tx, at) = tokio::sync::oneshot::channel();
+        let (go, go_rx) = tokio::sync::oneshot::channel();
+        *hub.family_write_seam.lock().unwrap() = Some((at_tx, go_rx));
+        let late = {
+            let (hub, parent, child, id) = (hub.clone(), parent.clone(), child.clone(), id.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "B"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, at).await.expect("the later answer is checked").unwrap();
+        let first = hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "A"})).await;
+        let _ = go.send(());
+        let late = late.await.unwrap();
+        assert!(first.is_ok() && late.is_err(), "the first answer wins: {first:?}, {late:?}");
+        // The winner is written.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let started = std::time::Instant::now();
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        asking.abort();
+        let took = started.elapsed();
+        assert!(
+            took < std::time::Duration::from_millis(500),
+            "an off push waited {took:?} on an answer that lost"
+        );
+    }
+
+    /// Review 84 of #23322: an answer the off push cut while queued never reaches the agent,
+    /// which still waits for one: the question is asked again, under the bound now.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cut_ancestor_answer_is_asked_again() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let (arrived, release) = pause_input(&hub, &child, "outcome").await;
+        let answer = {
+            let (hub, parent, child) = (hub.clone(), parent.clone(), child.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        let answered = answer.await.unwrap();
+        let again = async {
+            while child.permissions.lock().unwrap().pending.is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        };
+        let asked = tokio::time::timeout(std::time::Duration::from_secs(5), again).await;
+        asking.abort();
+        assert!(answered.is_ok(), "{answered:?}");
+        assert!(asked.is_ok(), "a cut answer left its agent waiting on a question nobody is asked");
+    }
+
     /// Review 86 of #23322: a family prompt that fails before its write (its PDF attachment has
     /// no folder to go to) settles its fence, so the next off push does not wait on it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -959,6 +1125,35 @@ mod tests {
             took < std::time::Duration::from_millis(500),
             "an off push waited {took:?} on a prompt that failed before its write"
         );
+    }
+
+    /// Review 86 of #23322: a question asked again after a restart (`reregister_permission`)
+    /// whose ancestor's answer an off push cut is not asked again once a stop cancelled it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cut_answer_to_a_cancelled_question_is_not_asked_again() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let request = child.permissions.lock().unwrap().pending[&id].request.clone();
+        let agent = hub.child_for(&child).await.expect("a running agent");
+        let again = "asked-again".to_owned();
+        hub.reregister_permission(&child, &agent, json!(9999), again.clone(), request, None);
+        let (arrived, release) = pause_input(&hub, &child, "\"id\":9999").await;
+        let answer = {
+            let (hub, parent, child, again) =
+                (hub.clone(), parent.clone(), child.clone(), again.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &again, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        hub.cancel_pending_permissions(&child);
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        let _ = answer.await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let reasked = child.permissions.lock().unwrap().pending.contains_key(&again);
+        asking.abort();
+        assert!(!reasked, "a question a stop cancelled was asked again");
     }
 
     /// Review 86 of #23322: a family check ranks both sessions under the one bound its operation

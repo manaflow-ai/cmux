@@ -4,6 +4,7 @@
 //! replayed entries are in the log, then rebuild the turn and permission
 //! state that died with the previous daemon from that complete log.
 
+use super::person::ANSWERED_BY_SLOT;
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
@@ -44,6 +45,9 @@ pub(super) struct OpenWork {
     /// `permission_request` records by agent request id: (permissionId,
     /// request, logged decision when there is one).
     permissions: HashMap<String, (String, Value, Option<Value>)>,
+    /// Of those, the agent request ids whose logged decision an ancestor session gave
+    /// (`answeredBy.session`, `subsession_answer.rs`).
+    ancestor_answers: std::collections::HashSet<String>,
     /// Largest `hostSeq` logged under this incarnation. Every entry kind is
     /// logged in entry order before its ack, so this is the logged prefix.
     last_host_seq: u64,
@@ -399,6 +403,7 @@ impl Hub {
         let mut answered: std::collections::HashSet<String> = Default::default();
         let mut asked: HashMap<String, (String, Value, Option<Value>)> = HashMap::new();
         let mut by_permission: HashMap<String, String> = HashMap::new();
+        let mut ancestors = std::collections::HashSet::new();
         // permissionId -> the ids of its "allow always" options.
         let mut lasting: HashMap<String, Vec<String>> = HashMap::new();
         let always = |request: Option<&Value>| -> Vec<String> {
@@ -545,6 +550,16 @@ impl Hub {
                         && let Some(entry) = asked.get_mut(aid)
                     {
                         entry.2 = e.msg.get("outcome").cloned();
+                        // Beside the outcome, or inside it as a re-asked prompt's answer was
+                        // logged before review 84 of #23322.
+                        let inside = format!("/outcome/{ANSWERED_BY_SLOT}/session");
+                        if e.msg.pointer("/answeredBy/session").is_some()
+                            || e.msg.pointer(&inside).is_some()
+                        {
+                            ancestors.insert(aid.clone());
+                        } else {
+                            ancestors.remove(aid);
+                        }
                     }
                 }
                 ("out", method::SESSION_PROMPT) if current && work.turn.is_some() => {
@@ -600,6 +615,7 @@ impl Hub {
             .filter(|(id, _, _, _)| !answered.contains(&id.to_string()))
             .collect();
         work.permissions = asked;
+        work.ancestor_answers = ancestors;
         work
     }
 
@@ -748,11 +764,40 @@ impl Hub {
                     continue;
                 }
                 match decided {
+                    // An ancestor's answer that never reached the agent: checked and written
+                    // under the family gate, as a new one is (`subsession_answer.rs`). Under MDM's
+                    // off, or once an off push cut it, it is asked again, decided under the bound
+                    // now, never resent unchecked (reviews 82 and 84 of #23322; with MDM unset it
+                    // is sent as before).
+                    Some(outcome) if work.ancestor_answers.contains(&id.to_string()) => {
+                        let hold = self.family_hold().await;
+                        if hold.bound.off {
+                            drop(hold);
+                            self.reregister_permission(
+                                session,
+                                child,
+                                id,
+                                permission_id,
+                                request,
+                                None,
+                            );
+                            continue;
+                        }
+                        pause_replayed_answer().await;
+                        let fence = self.hold_until_written(session, hold);
+                        let answer = Ok(permission_answer(outcome));
+                        let _ = child.respond_fenced(id.clone(), answer, Some(&fence)).await;
+                        let asked = Some((epoch, turn_id.clone()));
+                        let again = (id, permission_id, request, asked);
+                        self.ask_again_once_cut(session, child, fence, again);
+                    }
                     // Decided but the answer never reached the agent: send it.
                     Some(outcome) => {
                         let _ = child.respond(id, Ok(permission_answer(outcome))).await;
                     }
-                    None => self.reregister_permission(session, child, id, permission_id, request),
+                    None => {
+                        self.reregister_permission(session, child, id, permission_id, request, None)
+                    }
                 }
                 continue;
             }
@@ -768,13 +813,16 @@ impl Hub {
 
     /// A permission prompt the previous daemon showed: keep the same id so a
     /// client answers it as before, and answer the agent's original request.
-    fn reregister_permission(
+    /// `asked`: the permission epoch and turn its previous answer was sent under; a stop or a
+    /// new turn since cancels it instead (review 86 of #23322).
+    pub(super) fn reregister_permission(
         self: &Arc<Self>,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         agent_request_id: Value,
         permission_id: String,
         mut request: Value,
+        asked: Option<(u64, Option<String>)>,
     ) {
         // A record from a daemon without question normalization gets it here,
         // so its answers are checked like a new ask's.
@@ -784,7 +832,21 @@ impl Hub {
         self.stamp_permission_display(session, &mut request);
         let (tx, rx) = oneshot::channel();
         let decision_nonce = super::person::new_nonce();
-        session.permissions.lock().unwrap().pending.insert(
+        let mut state = session.permissions.lock().unwrap();
+        if let Some((epoch, turn)) = &asked
+            && (session.permission_epoch.load(Ordering::SeqCst) != *epoch
+                || super::permissions::stale_turn(session, turn))
+        {
+            drop(state);
+            let c = child.clone();
+            let cancelled = Ok(permission_answer(json!({"outcome": "cancelled"})));
+            // task-owner: one answer to the agent's ask, which a stop cancelled.
+            tokio::spawn(async move {
+                let _ = c.respond(agent_request_id, cancelled).await;
+            });
+            return;
+        }
+        state.pending.insert(
             permission_id.clone(),
             PendingPermission {
                 // The agent's own ask, judged like a fresh one (a re-adopted AskUserQuestion).
@@ -796,6 +858,7 @@ impl Hub {
                 prev_status: SessionStatus::Waiting,
             },
         );
+        drop(state);
         // The prompt's new nonce under this daemon run, for a relayed allow
         // (`person.rs`): clients get it as `_acpmux/permission_pending`.
         self.append(
@@ -803,7 +866,7 @@ impl Hub {
             "mux",
             "permission_reissued",
             json!({"permissionId": permission_id, "decisionNonce": decision_nonce,
-                   "personInstance": self.person.instance(), "request": request,
+                   "personInstance": self.person.instance(), "request": request.clone(),
                    "agentRequestId": agent_request_id.clone()}),
         );
         self.set_status(session, SessionStatus::Waiting);
@@ -811,13 +874,15 @@ impl Hub {
         let s = session.clone();
         let c = child.clone();
         tokio::spawn(async move {
-            let outcome = rx.await.unwrap_or_else(|_| json!({"outcome": "cancelled"}));
-            hub.append(
-                &s,
-                "mux",
-                "permission_decision",
-                json!({"permissionId": permission_id, "outcome": outcome}),
-            );
+            let mut outcome = rx.await.unwrap_or_else(|_| json!({"outcome": "cancelled"}));
+            // Who answered, beside the outcome as an ask logs it, so the next restart knows an
+            // ancestor's answer; never sent to the agent (review 84 of #23322).
+            let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
+            let mut decision = json!({"permissionId": permission_id, "outcome": outcome.clone()});
+            if let Some(by) = answered_by {
+                decision["answeredBy"] = by;
+            }
+            hub.append(&s, "mux", "permission_decision", decision);
             {
                 let state = s.permissions.lock().unwrap();
                 if state.pending.is_empty()
@@ -832,8 +897,55 @@ impl Hub {
                     hub.set_status(&s, next);
                 }
             }
-            let _ = c.respond(agent_request_id, Ok(permission_answer(outcome))).await;
+            // An ancestor's answer: written under its fence (`subsession_answer.rs`).
+            let fence = hub.answer_fences.lock().unwrap().remove(&permission_id);
+            let asked =
+                Some((s.permission_epoch.load(Ordering::SeqCst), s.turn().map(|t| t.turn_id)));
+            let answer = Ok(permission_answer(outcome));
+            let _ = c.respond_fenced(agent_request_id.clone(), answer, fence.as_ref()).await;
+            if let Some(fence) = fence {
+                let again = (agent_request_id, permission_id, request, asked);
+                hub.ask_again_once_cut(&s, &c, fence, again);
+            }
         });
+    }
+
+    /// An ancestor's answer to the prompt `permission_id`, sent under `fence`: once an off push
+    /// cut it while queued it never reaches the agent, which still waits, so the prompt is asked
+    /// again (review 84 of #23322), unless a stop or a new turn since `again.3` cancelled it.
+    fn ask_again_once_cut(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        fence: crate::agent::Fence,
+        again: ReAsk,
+    ) {
+        let (hub, s, c) = (self.clone(), session.clone(), child.clone());
+        // task-owner: ends once the answer settles (every carrier settles it).
+        tokio::spawn(async move {
+            fence.settled().await;
+            // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
+            if fence.is_cut() && c.is_alive().await {
+                let (id, permission_id, request, asked) = again;
+                hub.reregister_permission(&s, &c, id, permission_id, request, asked);
+            }
+        });
+    }
+}
+
+/// A prompt to ask again (`Hub::ask_again_once_cut`): the agent's request id, the permission id,
+/// the request, and the permission epoch and turn its answer was sent under.
+type ReAsk = (Value, String, Value, Option<(u64, Option<String>)>);
+
+/// Debug builds only: a test pauses a restart's resend of an ancestor's answer 3 s right after
+/// its check, so it can push MDM's off then: the pause writes the file
+/// `ACPMUX_TEST_PAUSE_REPLAYED_ANSWER` names first (`durable_agents.rs`). Release builds have
+/// no seam.
+async fn pause_replayed_answer() {
+    #[cfg(debug_assertions)]
+    if let Some(marker) = std::env::var_os("ACPMUX_TEST_PAUSE_REPLAYED_ANSWER") {
+        let _ = std::fs::write(marker, "");
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     }
 }
 
@@ -890,7 +1002,11 @@ async fn turn_answer(
     }
 }
 
-fn permission_answer(outcome: Value) -> Value {
+fn permission_answer(mut outcome: Value) -> Value {
+    // Who answered is audit only (`ANSWERED_BY_SLOT`), never sent to the agent.
+    if let Some(o) = outcome.as_object_mut() {
+        o.remove(ANSWERED_BY_SLOT);
+    }
     let mut out = json!({"outcome": outcome});
     if let Some(m) = out["outcome"].get("_meta").cloned() {
         out["_meta"] = m;

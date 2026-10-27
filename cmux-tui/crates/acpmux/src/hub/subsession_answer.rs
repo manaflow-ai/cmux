@@ -147,9 +147,9 @@ impl Hub {
     /// `_acpmux/subsession/answer`: `caller` answers the pending question
     /// `permission_id` of `target`, a descendant on the write path (module docs).
     pub async fn subsession_answer(
-        &self,
+        self: &Arc<Self>,
         caller: &Session,
-        target: &Session,
+        target: &Arc<Session>,
         permission_id: &str,
         answers: Value,
     ) -> Result<Value, RpcError> {
@@ -164,6 +164,19 @@ impl Hub {
                 data(),
             ));
         }
+        self.ancestor_answer(caller, target, permission_id, answers).await
+    }
+
+    /// `subsession_answer`, the setting letting ancestors answer.
+    pub(super) async fn ancestor_answer(
+        self: &Arc<Self>,
+        caller: &Session,
+        target: &Arc<Session>,
+        permission_id: &str,
+        answers: Value,
+    ) -> Result<Value, RpcError> {
+        let child = target.meta().name.clone();
+        let data = || json!({"sessionId": target.id, "permissionId": permission_id});
         let (option, answers) = {
             let state =
                 target.permissions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -184,16 +197,28 @@ impl Hub {
             };
             (option, harness_answers(question, answers))
         };
-        // Held until the answer is delivered: an MDM off push waits for it (`family_gate`).
-        let family_gate = self.family_gate.read().await;
-        self.receiver_check(caller, target).await?;
+        // Held until the answer is written to the agent: an MDM off push waits for it, or cuts it
+        // (`hold_until_written`).
+        let hold = self.family_hold().await;
+        self.receiver_check_under(caller, target, hold.bound).await?;
+        let fence = self.hold_until_written(target, hold);
+        // Cut unless it wins, when the asking task has it: a losing, refused or dropped answer
+        // settles its fence, so no push waits on it (review 84 of #23322).
+        let mut unsent = crate::agent::CutOnDrop(Some(&fence));
         let control = if Self::web_turn(caller) || Self::web_turn(target) {
             Control::Web
         } else {
             Control::Local
         };
         let answered_by = json!({"session": caller.id, "name": caller.meta().name});
-        let answerer = super::person::Answerer { ancestor: Some(&caller.id), ..Default::default() };
+        let answerer = super::person::Answerer {
+            ancestor: Some(&caller.id),
+            fence: Some(&fence),
+            ..Default::default()
+        };
+        // Tests only: a pause right before the answer is given (`full_access_bound::WriteSeam`).
+        #[cfg(test)]
+        self.pause_at_family_write().await;
         self.respond_permission(
             target,
             permission_id,
@@ -204,7 +229,7 @@ impl Hub {
             control,
         )
         .await?;
-        drop(family_gate);
+        unsent.0 = None;
         Ok(json!({"answered": true, "sessionId": target.id, "permissionId": permission_id}))
     }
 }

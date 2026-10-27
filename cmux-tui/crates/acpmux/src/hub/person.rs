@@ -324,6 +324,8 @@ pub struct Answerer<'a> {
     pub approver: Option<(&'a str, &'a Value)>,
     /// A caller session answering its descendant's question: set by the hub, never by a request.
     pub(crate) ancestor: Option<&'a str>,
+    /// That answer's fence (`subsession_answer.rs`): handed to the asking task only if it wins.
+    pub(crate) fence: Option<&'a crate::agent::Fence>,
     /// The person who answered (`author.rs`), recorded in `answeredBy`: it proves nothing.
     pub author: Option<&'a crate::author::Author>,
 }
@@ -344,7 +346,7 @@ impl<'a> Answerer<'a> {
             (Some(nonce), Some(signed)) => Some((nonce, signed)),
             _ => None,
         };
-        Self { person, decision, approver, ancestor: None, author: None }
+        Self { person, decision, approver, ancestor: None, fence: None, author: None }
     }
 }
 
