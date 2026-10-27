@@ -5,7 +5,7 @@ import type { ProviderId } from "../vms/drivers";
 import type { RunSnapshotRow } from "./view";
 import { isArtifactDigest, type RunStatus, type SandboxRunOutcome, type SandboxRunReceipt } from "./model";
 
-/** Characters of terminal output a receipt keeps; the full output stays in the Run journal. */
+/** Characters of terminal output a receipt keeps (redacted); a sandbox journals no raw output. */
 export const SANDBOX_REPLY_MAX_CHARS = 4_000;
 
 const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g;
@@ -72,7 +72,14 @@ const TOKEN_SHAPES = [
  * A YAML block scalar under a secret-named key (`password: |-` then its indented lines): the
  * indented lines are the value.
  */
-const YAML_SECRET_BLOCK = new RegExp(String.raw`((?:^|\n)([ \t]*)["']?[A-Za-z0-9_-]*${SECRET_NAME}[A-Za-z0-9_-]*["']?[ \t]*:[ \t]*[|>][-+0-9]*[ \t]*(?:#[^\n]*)?\n)((?:\2[ \t]+[^\n]*(?:\n|$)|[ \t]*\n)+)`, "gi");
+const YAML_SECRET_HEADER = String.raw`["']?[A-Za-z0-9_-]*${SECRET_NAME}[A-Za-z0-9_-]*["']?[ \t]*:[ \t]*[|>][-+0-9]*[ \t]*(?:#[^\n]*)?`;
+const YAML_SECRET_BLOCK = new RegExp(String.raw`((?:^|\n)([ \t]*)${YAML_SECRET_HEADER}\n)((?:\2[ \t]+[^\n]*(?:\n|$)|[ \t]*\n)+)`, "gi");
+const YAML_SECRET_HEADER_LINE = new RegExp(String.raw`^[ \t]*${YAML_SECRET_HEADER}$`, "i");
+
+/** Whether `line` (no newline) opens a YAML block scalar under a secret key, as the redactor reads one. */
+export function isYamlSecretHeader(line: string): boolean {
+  return YAML_SECRET_HEADER_LINE.test(line);
+}
 
 /** A PEM or OpenSSH private key block, whole (the receipt never needs one). */
 const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|$)/g;
@@ -126,6 +133,7 @@ function storedOutcome(value: Record<string, unknown> | null | undefined): Sandb
     signal: num("signal"),
     timedOut: value.timedOut === true,
     bootMs: num("bootMs"),
+    error: typeof value.error === "string" ? value.error : null,
   };
 }
 
@@ -151,7 +159,7 @@ export function sandboxReceiptFor(snapshot: RunSnapshotRow, provider: ProviderId
     environment: "sandboxed",
     status,
     image: { id: run.imageId, version: run.imageVersion ?? null },
-    ...receiptOutcome(outcome, attempt?.exitCode ?? null, attempt?.error ?? run.error, handles),
+    ...receiptOutcome(outcome, attempt?.exitCode ?? null, outcome?.error ?? attempt?.error ?? run.error, handles),
     artifacts: snapshot.artifacts.map((artifact) => ({
       name: redactReceiptText(artifact.name, handles),
       // A bare `type/subtype`; parameters (`; token=…`) or anything else is not shown.
