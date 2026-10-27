@@ -38,6 +38,7 @@ impl<T> LockShared<T> for Mutex<T> {
                   is a silent wrong default, so poison escalates to Fatal (p10-stability.md E)"
     )]
     fn lock_shared(&self) -> MutexGuard<'_, T> {
+        // crash-allow: poison of shared terminal state escalates to Fatal (p10-stability.md E).
         self.lock().expect("INVARIANT: no panic while shared terminal state is locked")
     }
 }
