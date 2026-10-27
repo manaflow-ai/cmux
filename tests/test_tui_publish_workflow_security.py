@@ -2393,8 +2393,12 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     assert "publish-tree-tested" in promote["needs"]
     assert "needs.publish-tree.result" not in promote["if"]
     assert "needs.publish-tree-tested.result == 'success'" in promote["if"]
+    # request-nightly-next.sh checks the marker through tree-commit-marker.sh
+    # daemon-tested, the same check the tree-commit marker writer uses.
     script = (ROOT / "scripts/cmux-next/request-nightly-next.sh").read_text()
-    assert "daemon-tests.json" in script and '"separate"' in script
+    assert "tree-commit-marker.sh\" daemon-tested" in script
+    checker = (ROOT / "scripts/cmux-next/tree-commit-marker.sh").read_text()
+    assert "daemon-tests.json" in checker and '"separate"' in checker
 
 
 

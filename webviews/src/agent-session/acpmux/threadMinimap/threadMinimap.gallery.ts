@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { setBookmarkTransport } from "./bookmarks";
 import { threadMinimapLayout } from "./layout.experiment";
 import { LANDING_OFFSET } from "./model";
@@ -73,6 +73,37 @@ const rowsOf = (list: Array<[string, string]>) =>
     summary(199.6 - index * 2, { status: "completed" }),
   ]);
 const rows = rowsOf(all);
+const cardRows = [
+  user("Summarize the current rollout and compare it with the previous release", 18),
+  assistant(
+    "**Ready to ship** `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`\n\nThe rollout is staged by workspace.\n\n- Canary first\n- Then the full fleet\n\nSee [PR #25794](https://github.com/manaflow-ai/cmux/pull/25794) for the edge fix.",
+    17.8,
+  ),
+  summary(17.6, { durationMs: 92_000, toolCount: 4 }),
+  user("Investigate the disconnected peer and show the useful failure details", 16),
+  assistant("The peer disappeared while the agent was waiting for its answer.", 15.8),
+  summary(15.6, { status: "failed", error: "peer disconnected while waiting for the agent to answer" }),
+  user("Check the changed files and link the review", 14),
+  activity(
+    [
+      tool("Edit src/App.tsx", "edit", "completed", {
+        diffs: [{ path: "src/App.tsx", newText: "updated" }],
+        locations: [{ path: "src/App.tsx" }, { path: "README.md" }],
+      }),
+      tool("Run tests", "execute", "completed"),
+    ],
+    13.8,
+    { toolCount: 2 },
+  ),
+  assistant(
+    "The files are ready; [PR #25794](https://github.com/manaflow-ai/cmux/pull/25794) carries the review.",
+    13.6,
+  ),
+  summary(13.4, { durationMs: 34_000, toolCount: 2 }),
+  user("Use a long token and keep the card readable", 12),
+  assistant("A very-long-token-without-spaces-stays-contained while the card keeps its useful context.", 11.8),
+  summary(11.6, { durationMs: 12_000, toolCount: 1 }),
+];
 /// Seventy prompts: past the rail's room (64 rows or 70% of the window), so its rows scroll.
 const long = rowsOf([
   ...all,
@@ -110,6 +141,30 @@ export default agentPaneEntry({
     ],
   },
   variants: {
+    "card-markdown": {
+      note: "Prompt and reply card: the prompt gets two lines, the reply keeps four lines of Markdown-shaped paragraphs and list items, and the glass card sizes to its content.",
+      snapshot: chat(cardRows, { title: "Minimap card Markdown preview" }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-tick="0"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__reply"));
+      },
+    },
+    "card-failure": {
+      note: "A failed turn keeps a clear failure icon and the complete peer-disconnected reason in a three-line block, separate from the reply preview.",
+      snapshot: chat(cardRows, { title: "Minimap card failure reason" }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-tick="1"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__failure[data-failure="true"]'));
+      },
+    },
+    "card-metadata": {
+      note: "Metadata row: local time, duration, tool and file counts, and a linked PR. Long tokens and links stay within the content-sized card cap.",
+      snapshot: chat(cardRows, { title: "Minimap card metadata" }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-tick="2"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__meta-token[data-meta="files"]'));
+      },
+    },
     rest: {
       note: "At rest mid-thread. Compact (the default, the wave): every unbookmarked tick stays a quiet 6 px and the prompts on screen are brighter; only a bookmarked prompt has a white dot. Full height: the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Off: no minimap, the left edge empty.",
       snapshot: chat(rows, { title: "Thread minimap at rest" }),
