@@ -4,22 +4,23 @@ import Foundation
 
 /// The attach reader's side of one terminal stream: snapshot order (``TerminalSnapshotSequencer``),
 /// then each admitted event either straight to the view's lane (live output while the
-/// ``TerminalEchoRoute`` is open) or onto the ``TerminalEventQueue`` the driver consumes.
+/// ``TerminalEchoRoute`` is open), held behind the marker in flight (live output while only output
+/// came after it), or onto the ``TerminalEventQueue`` the driver consumes.
 ///
 /// Live output therefore reaches the lane in one call on the reader thread: no AsyncStream, no task
-/// and no cooperative pool thread between the socket and the parser. Back-pressure is the lane's
-/// capacity, waited for on the reader thread (``TerminalEventQueue/waitForLane(_:)``), so a slow
-/// parser stops the socket and the daemon's bounded mailbox ends a stalled view with `overflow`, as
-/// the stream's own high water does.
+/// and no cooperative pool thread between the socket and the parser. After a record the route opens
+/// again one round trip later even while output keeps coming: the output that came meanwhile waits
+/// here and the marker's acknowledgement hands it to the lane. Back-pressure is the lane's capacity,
+/// and the hold limit while output waits for a marker, both waited for on the reader thread
+/// (``TerminalEventQueue/waitForLane(_:)``, ``TerminalEventQueue/waitWhileFull()``), so a slow parser
+/// stops the socket and the daemon's bounded mailbox ends a stalled view with `overflow`, as the
+/// stream's own high water does.
 ///
-/// Records and markers are queued under one lock, so a marker is always behind the record that
-/// asked for it; the waits (the queue's high water, the lane's capacity) run outside it.
+/// Records, markers and held output are queued under one lock, so a marker is always behind the
+/// record that asked for it and held output reaches the lane before any later chunk; the hold limit
+/// is set and released under it too. The waits (the queue's high water, the lane's capacity, the hold
+/// limit) run outside it.
 final class TerminalEchoRouter: Sendable {
-    private struct State {
-        var sequencer = TerminalSnapshotSequencer()
-        var route = TerminalEchoRoute()
-    }
-
     /// What the reader does with an event once it is out of the lock.
     private enum Next {
         case drop
@@ -28,14 +29,22 @@ final class TerminalEchoRouter: Sendable {
         case queued
     }
 
-    private let state = Mutex(State())
+    private struct State {
+        var sequencer = TerminalSnapshotSequencer()
+        var route: TerminalEchoRoute
+    }
+
+    private let state: Mutex<State>
     private let queue: TerminalEventQueue
     /// Where decoded echoes are marked (``TypingLatencyProbe/shared``, or a test's).
     private let probe: TypingLatencyProbe
 
-    init(queue: TerminalEventQueue, probe: TypingLatencyProbe = .shared) {
+    /// - Parameter holdLimit: Bytes of output held behind a marker above which the reader waits for the
+    ///   marker's acknowledgement: the view's lane capacity (`TerminalOutputLane.highWater`).
+    init(queue: TerminalEventQueue, holdLimit: Int = 2 << 20, probe: TypingLatencyProbe = .shared) {
         self.queue = queue
         self.probe = probe
+        state = Mutex(State(route: TerminalEchoRoute(holdLimit: holdLimit)))
     }
 
     /// Reader thread, in stream order: one decoded attach line. A size state goes to `sizeState`
@@ -48,15 +57,20 @@ final class TerminalEchoRouter: Sendable {
             case .sizeState(let size, let participant):
                 return .sizeState(size, participant: participant)
             case .closed:
-                state.route.close()
+                queueHeld(state.route.close())
                 queue.finish(event)
                 return .queued
-            case .output(let data, _):
+            case .output(let data, let colors):
                 probe.outputDecoded(flow: decoded.flow)
-                if state.route.isOpen, let sink = state.route.sink { return .lane(sink, data, flow: decoded.flow) }
-                queue.pushWithoutWaiting(event)
-                if let flow = decoded.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) } // rides behind its chunk
+                switch state.route.route(data, colors: colors, flow: decoded.flow) {
+                case .lane(let sink): return .lane(sink, data, flow: decoded.flow)
+                case .held(let full):
+                    if full { queue.holdForMarker() }
+                    return .queued
+                case .stream: queueOutput(TerminalEchoRoute.Held(data: data, colors: colors, flow: decoded.flow))
+                }
             default:
+                queueHeld(state.route.takeHeld())
                 queue.pushWithoutWaiting(event)
             }
             if let marker = state.route.recordQueued() { queue.pushWithoutWaiting(.outputResume(self.marker(marker))) }
@@ -73,14 +87,24 @@ final class TerminalEchoRouter: Sendable {
     /// Any thread: the view's lane for live output (nil: none; output stays on the stream).
     func setSink(_ sink: TerminalEchoSink?) {
         state.withLock { state in
-            if let marker = state.route.install(sink) { queue.pushWithoutWaiting(.outputResume(self.marker(marker))) }
+            let (held, marker) = state.route.install(sink)
+            queueHeld(held)
+            if let marker { queue.pushWithoutWaiting(.outputResume(self.marker(marker))) }
         }
     }
 
     /// The link detached: output stays on the stream, and a reader waiting for the lane goes on.
     func close() {
-        state.withLock { $0.route.close() }
+        state.withLock { queueHeld($0.route.close()) }
         queue.releaseLane(closing: true)
+    }
+
+    /// Reader thread: the connection closed. Ends the stream after any output still held.
+    func finish(_ last: TerminalChannelEvent) {
+        state.withLock { state in
+            queueHeld(state.route.close())
+            queue.finish(last)
+        }
     }
 
     /// Whether the next output chunk goes straight to the lane (tests, diagnostics).
@@ -90,9 +114,32 @@ final class TerminalEchoRouter: Sendable {
         TerminalOutputMarker(sequence: sequence) { [weak self] sequence in self?.acknowledge(sequence) }
     }
 
+    /// The consumer applied everything before marker `sequence`: the output held behind it goes to the
+    /// lane, still under the lock so no later chunk overtakes it, and the reader waiting on it reads on.
     private func acknowledge(_ sequence: UInt64) {
         state.withLock { state in
-            if let marker = state.route.acknowledge(sequence) { queue.pushWithoutWaiting(.outputResume(self.marker(marker))) }
+            switch state.route.acknowledge(sequence) {
+            case .nothing: break
+            case .marker(let next): queue.pushWithoutWaiting(.outputResume(self.marker(next)))
+            case .open(let sink, let held):
+                // The reader's next chunk goes by the open route and waits on the lane if it is still full.
+                for chunk in held { _ = sink.enqueueEcho(chunk.data, flow: chunk.flow, wake: {}) }
+                queue.releaseMarkerHold()
+            }
         }
+    }
+
+    /// Under the lock: output held behind a marker goes onto the stream, in order, ahead of the record queued
+    /// next; nothing is held any more, so the hold limit no longer holds the reader.
+    private func queueHeld(_ held: [TerminalEchoRoute.Held]) {
+        guard !held.isEmpty else { return }
+        held.forEach(queueOutput)
+        queue.releaseMarkerHold()
+    }
+
+    /// Under the lock: one output chunk onto the stream, and the echo of its press right behind it.
+    private func queueOutput(_ chunk: TerminalEchoRoute.Held) {
+        queue.pushWithoutWaiting(.output(chunk.data, colors: chunk.colors))
+        if let flow = chunk.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) }
     }
 }

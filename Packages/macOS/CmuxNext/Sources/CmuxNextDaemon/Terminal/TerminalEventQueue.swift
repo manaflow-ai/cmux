@@ -16,7 +16,9 @@ import Foundation
 /// handshake). Consecutive plain output chunks are merged on the way out.
 ///
 /// Live output that goes straight to the view's lane (``TerminalEchoRouter``)
-/// parks the same reader on the lane's capacity instead (``waitForLane(_:)``).
+/// parks the same reader on the lane's capacity instead (``waitForLane(_:)``), and
+/// output the router holds behind a marker parks it on the router's hold limit
+/// (``holdForMarker()``).
 final class TerminalEventQueue: Sendable {
     let highWater: Int
     let lowWater: Int
@@ -44,13 +46,16 @@ final class TerminalEventQueue: Sendable {
         var readerParked = false
         /// The view's lane is above its capacity: the reader waits until the lane wakes it (``releaseLane(closing:)``).
         var laneHeld = false
-        /// The link detached: the lane never holds the reader again.
+        /// Output held behind a marker is above the router's hold limit: the reader waits until the marker is
+        /// acknowledged (``releaseMarkerHold()``).
+        var markerHeld = false
+        /// The link detached: neither the lane nor a marker holds the reader again.
         var laneClosed = false
 
-        /// Whether the reader must wait now (not finished, and the lane holds it or the queue is armed and above
-        /// `highWater`); marks it parked if so.
+        /// Whether the reader must wait now (not finished, and the lane or a marker holds it or the queue is armed
+        /// and above `highWater`); marks it parked if so.
         mutating func parkReader(above highWater: Int) -> Bool {
-            readerParked = !finished && (laneHeld || (armed && outputBytes > highWater))
+            readerParked = !finished && (laneHeld || markerHeld || (armed && outputBytes > highWater))
             return readerParked
         }
 
@@ -131,12 +136,35 @@ final class TerminalEventQueue: Sendable {
         parkReader()
     }
 
-    /// Any thread: the lane drained below its capacity or closed, or (`closing`) the link detached and the lane
-    /// never holds the reader again; a reader waiting for the lane goes on.
+    /// Any thread: the lane drained below its capacity or closed, or (`closing`) the link detached and neither
+    /// the lane nor a marker holds the reader again; a reader waiting for the lane goes on.
     func releaseLane(closing: Bool = false) {
         let release = state.withLock { state -> Bool in
             state.laneHeld = false
-            if closing { state.laneClosed = true }
+            if closing {
+                state.laneClosed = true
+                state.markerHeld = false
+            }
+            return state.releaseReader()
+        }
+        if release { readerWake.signal() }
+    }
+
+    /// Under the router's lock: the output held behind a marker is above the router's hold limit, so the
+    /// reader's next ``waitWhileFull()`` waits until ``releaseMarkerHold()``, which the router calls under the
+    /// same lock: an acknowledgement is never missed, and an older one never releases a newer hold.
+    func holdForMarker() {
+        state.withLock { state in
+            let closed = state.laneClosed
+            state.markerHeld = !closed
+        }
+    }
+
+    /// Under the router's lock: the marker the held output waited behind was acknowledged (the output went to
+    /// the lane), or the output went onto the stream; a reader waiting on it goes on.
+    func releaseMarkerHold() {
+        let release = state.withLock { state -> Bool in
+            state.markerHeld = false
             return state.releaseReader()
         }
         if release { readerWake.signal() }

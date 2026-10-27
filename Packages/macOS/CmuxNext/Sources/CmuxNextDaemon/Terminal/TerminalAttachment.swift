@@ -167,9 +167,9 @@ public actor TerminalAttachment: TerminalByteChannel {
             },
             onClose: { reason in
                 switch reason {
-                case .closedByClient: queue.finish(.closed(.detachedByClient))
-                case .daemonShutdown: queue.finish(.closed(.connectionLost("daemon shut down")))
-                case .lost(let detail): queue.finish(.closed(.connectionLost(detail)))
+                case .closedByClient: router.finish(.closed(.detachedByClient))
+                case .daemonShutdown: router.finish(.closed(.connectionLost("daemon shut down")))
+                case .lost(let detail): router.finish(.closed(.connectionLost(detail)))
                 }
             }
         )
