@@ -16,8 +16,14 @@
  * whose upper end the report does not carry, is the bucket's lower bound and
  * is marked `atLeast`. An enumeration has no percentiles; its value counts
  * are listed instead.
+ *
+ * Nightly samples. `nightlyHistogramSamples` keeps what the merge drops: each
+ * install's buckets per build, with every bucket's value range from the
+ * catalog, for `scripts/cmux-next/field-histograms.py` (task 126), which
+ * resamples installs for its bootstrap interval. Install ids become per-run
+ * pseudonyms, so the export holds no stored identifier.
  */
-import { bucketRange, histogramDefinition, type HistogramUnit } from "../../services/hangReports/histogramCatalog";
+import { bucketRange, histogramDefinition, type HistogramDefinition, type HistogramUnit } from "../../services/hangReports/histogramCatalog";
 import { compareVersions } from "./topFrames";
 
 export type StoredHistogram = {
@@ -30,13 +36,15 @@ export type StoredFieldReport = {
   readonly installId: string;
   readonly receivedDay: string;
   readonly appVersion: string | null;
+  /** The `app_build` column; the payload's `app.build` wins when present. */
+  readonly appBuild?: string | null;
   readonly payload: {
     readonly schema?: number;
-    readonly app?: { readonly version?: string };
+    readonly app?: { readonly version?: string; readonly build?: string };
     readonly histograms?: ReadonlyArray<StoredHistogram>;
     readonly launch_sections?: ReadonlyArray<{
       readonly id?: string;
-      readonly profile?: { readonly version?: string };
+      readonly profile?: { readonly version?: string; readonly build?: string };
       readonly histograms?: ReadonlyArray<StoredHistogram>;
     }>;
     readonly dropped?: {
@@ -76,6 +84,33 @@ export type DroppedTotals = {
   readonly labels: number;
 };
 
+/** Export format of `nightlyHistogramSamples`, checked by field-histograms.py. */
+export const NIGHTLY_EXPORT_FORMAT = "cmux-field-histograms/1";
+
+/** One bucket with its catalog value range: `[low, high, count]`, `high` null for the overflow bucket. */
+export type RangedBucket = readonly [number, number | null, number];
+
+export type NightlyHistogram = {
+  readonly name: string;
+  readonly unit: HistogramUnit;
+  readonly buckets: ReadonlyArray<RangedBucket>;
+};
+
+/** One install's buckets of one build: the unit of resampling in field-histograms.py. */
+export type NightlyHistogramSample = {
+  readonly install: string;
+  readonly version: string;
+  readonly build: string;
+  readonly histograms: ReadonlyArray<NightlyHistogram>;
+};
+
+type SampleAccumulator = {
+  readonly install: string;
+  readonly version: string;
+  readonly build: string;
+  readonly names: Map<string, Map<number, number>>;
+};
+
 type Accumulator = {
   readonly name: string;
   readonly version: string;
@@ -90,19 +125,40 @@ const UNKNOWN_VERSION = "unknown";
 /** Sum every schema 3 histogram by name, version and day, sorted by those keys. */
 export function mergeFieldHistograms(reports: ReadonlyArray<StoredFieldReport>): MergedFieldHistogram[] {
   const groups = new Map<string, Accumulator>();
-  const seenSections = new Set<string>();
-  for (const report of reports) {
-    if (report.payload.schema !== 3) continue;
-    const reportVersion = report.payload.app?.version ?? report.appVersion ?? UNKNOWN_VERSION;
-    addAll(groups, report, reportVersion, report.payload.histograms ?? []);
-    for (const section of report.payload.launch_sections ?? []) {
-      const id = section.id?.toLowerCase();
-      if (id !== undefined && seenSections.has(id)) continue;
-      if (id !== undefined) seenSections.add(id);
-      addAll(groups, report, section.profile?.version ?? UNKNOWN_VERSION, section.histograms ?? []);
-    }
-  }
+  forEachHistogramSource(reports, (report, version, _build, histograms) => addAll(groups, report, version, histograms));
   return [...groups.values()].sort(compareGroups).map(summarize);
+}
+
+/**
+ * Each install's buckets per build, summed, for the histograms with ordered
+ * values and known bucket ends (log-linear and linear layouts). A source
+ * with no build cannot be placed in Nightly order and is left out, as is a
+ * bucket no sample of the layout can take.
+ */
+export function nightlyHistogramSamples(reports: ReadonlyArray<StoredFieldReport>): NightlyHistogramSample[] {
+  const pseudonyms = new Map<string, string>();
+  const samples = new Map<string, SampleAccumulator>();
+  forEachHistogramSource(reports, (report, version, build, histograms) => {
+    if (build === null) return;
+    let install = pseudonyms.get(report.installId);
+    if (install === undefined) {
+      install = `install-${pseudonyms.size + 1}`;
+      pseudonyms.set(report.installId, install);
+    }
+    const key = `${install}\u0000${version}\u0000${build}`;
+    let sample = samples.get(key);
+    if (!sample) {
+      sample = { install, version, build, names: new Map() };
+      samples.set(key, sample);
+    }
+    addOrdered(sample.names, histograms);
+  });
+  return [...samples.values()].flatMap(({ install, version, build, names }) => {
+    const histograms = [...names.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .flatMap(([name, counts]) => rangedHistogram(name, counts) ?? []);
+    return histograms.length > 0 ? [{ install, version, build, histograms }] : [];
+  });
 }
 
 /** The names, keys and records ingest dropped, summed. */
@@ -137,6 +193,62 @@ export function percentile(
     return range.high === null ? { value: range.low, atLeast: true } : { value: range.high, atLeast: false };
   }
   return null;
+}
+
+type HistogramSourceVisitor = (
+  report: StoredFieldReport,
+  version: string,
+  build: string | null,
+  histograms: ReadonlyArray<StoredHistogram>,
+) => void;
+
+/**
+ * Every schema 3 histogram list once: a report's own under its app version
+ * and build, each launch section under its profile's, a resent section once.
+ */
+function forEachHistogramSource(reports: ReadonlyArray<StoredFieldReport>, visit: HistogramSourceVisitor): void {
+  const seenSections = new Set<string>();
+  for (const report of reports) {
+    if (report.payload.schema !== 3) continue;
+    const version = report.payload.app?.version ?? report.appVersion ?? UNKNOWN_VERSION;
+    visit(report, version, report.payload.app?.build ?? report.appBuild ?? null, report.payload.histograms ?? []);
+    for (const section of report.payload.launch_sections ?? []) {
+      const id = section.id?.toLowerCase();
+      if (id !== undefined && seenSections.has(id)) continue;
+      if (id !== undefined) seenSections.add(id);
+      visit(report, section.profile?.version ?? UNKNOWN_VERSION, section.profile?.build ?? null, section.histograms ?? []);
+    }
+  }
+}
+
+/** The catalog entry of `name` when its values are ordered and every bucket's ends are known. */
+function orderedDefinition(name: string): HistogramDefinition | null {
+  const definition = histogramDefinition(name);
+  if (!definition) return null;
+  return definition.layout.kind === "logLinear" || definition.layout.kind === "linear" ? definition : null;
+}
+
+function addOrdered(names: Map<string, Map<number, number>>, histograms: ReadonlyArray<StoredHistogram>): void {
+  for (const histogram of histograms) {
+    if (orderedDefinition(histogram.name) === null) continue;
+    let counts = names.get(histogram.name);
+    if (!counts) {
+      counts = new Map();
+      names.set(histogram.name, counts);
+    }
+    for (const [index, count] of histogram.buckets) counts.set(index, (counts.get(index) ?? 0) + count);
+  }
+}
+
+function rangedHistogram(name: string, counts: ReadonlyMap<number, number>): NightlyHistogram | null {
+  const definition = orderedDefinition(name);
+  if (!definition) return null;
+  const buckets: RangedBucket[] = [];
+  for (const [index, count] of [...counts.entries()].sort((a, b) => a[0] - b[0])) {
+    const range = bucketRange(definition.layout, index);
+    if (range) buckets.push([range.low, range.high, count]);
+  }
+  return buckets.length > 0 ? { name, unit: definition.unit, buckets } : null;
 }
 
 function addAll(

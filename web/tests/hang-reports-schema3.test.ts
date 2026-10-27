@@ -11,7 +11,13 @@ import {
   logLinearIndex,
 } from "../services/hangReports/histogramCatalog";
 import { HangReportsRepository, type HangReportRow, type HangReportsRepositoryShape } from "../services/hangReports/repository";
-import { droppedTotals, mergeFieldHistograms, percentile, type StoredFieldReport } from "../scripts/hang-reports/histograms";
+import {
+  droppedTotals,
+  mergeFieldHistograms,
+  nightlyHistogramSamples,
+  percentile,
+  type StoredFieldReport,
+} from "../scripts/hang-reports/histograms";
 
 const NOW = new Date("2026-10-23T15:30:00Z");
 const REPORT_ID = "7a2e4c1d-3b5f-4e6a-8c9d-1f2e3d4c5b6a";
@@ -499,5 +505,61 @@ describe("hang report histogram merge", () => {
       .toEqual({ value: 2000, atLeast: true });
     expect(percentile("stability.unclean_exit", [[0, 1]], 0.5)).toBeNull();
     expect(percentile("not.in.catalog", [[8, 1]], 0.5)).toBeNull();
+  });
+});
+
+describe("hang report Nightly samples", () => {
+  const INSTALL_A = "0b8d4a51-6c9e-4f0f-8f53-3c2d7b4f9e20";
+  const INSTALL_B = "1b8d4a51-6c9e-4f0f-8f53-3c2d7b4f9e20";
+  const stored = (installId: string, appBuild: string | null, payload: StoredFieldReport["payload"]): StoredFieldReport =>
+    ({ installId, receivedDay: "2026-10-26", appVersion: "0.72.0", appBuild, payload });
+  const section = { id: "6F1D2C3B-4A59-4E8D-9C7B-0A1B2C3D4E5F", profile: { version: "0.71.0", build: "2100" } };
+
+  test("sums each install's ordered histograms per build with catalog bucket ranges", () => {
+    const samples = nightlyHistogramSamples([
+      stored(INSTALL_A, "2200", {
+        schema: 3,
+        app: { version: "0.72.0", build: "2200" },
+        histograms: [
+          { name: "key.frame.view", buckets: [[40, 3], [48, 1]] },
+          { name: "stability.unclean_exit", buckets: [[0, 1]] },
+          { name: "chromium.EventLatency.KeyPressed.TotalLatency", buckets: [[1000, 2]] },
+          { name: "not.in.catalog", buckets: [[40, 1]] },
+          { name: "smoothness.dropped_pct.motion", buckets: [[7, 2], [101, 1]] },
+        ],
+        launch_sections: [{ ...section, histograms: [{ name: "launch.first_frame.cold", buckets: [[44, 1]] }] }],
+      }),
+      // A second report of the same install and build sums in; its resent section counts once.
+      stored(INSTALL_A, "2200", {
+        schema: 3,
+        app: { version: "0.72.0", build: "2200" },
+        histograms: [{ name: "key.frame.view", buckets: [[40, 1], [5, 9]] }],
+        launch_sections: [{ ...section, histograms: [{ name: "launch.first_frame.cold", buckets: [[44, 1]] }] }],
+      }),
+      // No build in the payload: the column's build places it.
+      stored(INSTALL_B, "2200", { schema: 3, histograms: [{ name: "main.turn", buckets: [[30, 2]] }] }),
+      stored(INSTALL_B, null, { schema: 3, histograms: [{ name: "main.turn", buckets: [[30, 2]] }] }),
+      stored(INSTALL_B, "2200", { schema: 2 }),
+    ]);
+    expect(samples).toEqual([
+      {
+        install: "install-1", version: "0.72.0", build: "2200",
+        histograms: [
+          // Bucket 40 is 1024..1279, bucket 48 4096..5119; bucket 5 no sample takes.
+          { name: "key.frame.view", unit: "us", buckets: [[1024, 1279, 4], [4096, 5119, 1]] },
+          // Linear 0..100: bucket 101 is the overflow bucket.
+          { name: "smoothness.dropped_pct.motion", unit: "pct", buckets: [[7, 7, 2], [101, null, 1]] },
+        ],
+      },
+      {
+        install: "install-1", version: "0.71.0", build: "2100",
+        histograms: [{ name: "launch.first_frame.cold", unit: "ms", buckets: [[2048, 2559, 1]] }],
+      },
+      {
+        install: "install-2", version: "0.72.0", build: "2200",
+        histograms: [{ name: "main.turn", unit: "us", buckets: [[192, 223, 2]] }],
+      },
+    ]);
+    expect(JSON.stringify(samples)).not.toContain(INSTALL_A);
   });
 });

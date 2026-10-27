@@ -8,12 +8,21 @@
  * Prints p50/p95/p99 per histogram name, app version and server UTC day.
  * Every query runs inside one `begin read only` transaction. Merge and
  * percentile rules live in `scripts/hang-reports/histograms.ts`.
+ *
+ * `--nightlies` writes instead each install's buckets per build (channel
+ * `nightly` unless `--channel` says otherwise), the input of the by-hand
+ * Nightly-to-Nightly comparison:
+ *
+ *   DATABASE_URL=... bun scripts/hang-reports-histograms.ts --nightlies --days 30 > nightlies.json
+ *   python3 ../scripts/cmux-next/field-histograms.py nightlies.json
  */
 import postgres from "postgres";
 
 import {
   droppedTotals,
   mergeFieldHistograms,
+  NIGHTLY_EXPORT_FORMAT,
+  nightlyHistogramSamples,
   type MergedFieldHistogram,
   type PercentileValue,
   type StoredFieldReport,
@@ -24,6 +33,7 @@ type Options = {
   readonly channel: string | null;
   readonly namePrefix: string | null;
   readonly json: boolean;
+  readonly nightlies: boolean;
 };
 
 function parseOptions(argv: readonly string[]): Options {
@@ -36,7 +46,14 @@ function parseOptions(argv: readonly string[]): Options {
   };
   const days = value("--days") ?? "7";
   if (!/^\d+$/.test(days) || Number(days) < 1) throw new Error("--days must be a positive integer");
-  return { days: Number(days), channel: value("--channel"), namePrefix: value("--name"), json: argv.includes("--json") };
+  const nightlies = argv.includes("--nightlies");
+  return {
+    days: Number(days),
+    channel: value("--channel") ?? (nightlies ? "nightly" : null),
+    namePrefix: value("--name"),
+    json: argv.includes("--json"),
+    nightlies,
+  };
 }
 
 async function loadReports(databaseURL: string, options: Options): Promise<StoredFieldReport[]> {
@@ -46,9 +63,10 @@ async function loadReports(databaseURL: string, options: Options): Promise<Store
       install_id: string;
       received_day: string;
       app_version: string | null;
+      app_build: string | null;
       payload: StoredFieldReport["payload"];
     }[]>`
-      select install_id, received_day::text as received_day, app_version, payload
+      select install_id, received_day::text as received_day, app_version, app_build, payload
       from hang_reports
       where received_at >= now() - make_interval(days => ${options.days})
         and payload->>'schema' = '3'
@@ -58,6 +76,7 @@ async function loadReports(databaseURL: string, options: Options): Promise<Store
       installId: row.install_id,
       receivedDay: row.received_day,
       appVersion: row.app_version,
+      appBuild: row.app_build,
       payload: row.payload,
     }));
   } finally {
@@ -89,6 +108,15 @@ async function main(): Promise<void> {
   const databaseURL = process.env.DATABASE_URL?.trim();
   if (!databaseURL) throw new Error("DATABASE_URL is required");
   const reports = await loadReports(databaseURL, options);
+  if (options.nightlies) {
+    console.log(JSON.stringify({
+      format: NIGHTLY_EXPORT_FORMAT,
+      days: options.days,
+      channel: options.channel,
+      samples: nightlyHistogramSamples(reports),
+    }));
+    return;
+  }
   const merged = mergeFieldHistograms(reports)
     .filter((row) => !options.namePrefix || row.name.startsWith(options.namePrefix));
   if (options.json) {
