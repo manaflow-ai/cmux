@@ -208,6 +208,8 @@
         "Verify recovered DMG artifact": {"nightly_only": "statically verifies the notarized stapled recovered DMG and records its exact digest without launching app code"}
       },
       "publish-nightly": {
+        "Read the live nightly-next feed before the write": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the published feed read-back and the shipped app's channels"},
+        "Read the live nightly-next feed back": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the published feed read-back and the shipped app's channels"},
         "Read the Dev ring switch live": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the Dev ring switch is read live when publishing"},
         "Keep the live feed's newest Nightly item beside the new build": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release-ring tags"},
         "Tag the new build's items from the live Dev ring switch": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the Dev ring switch is read live when publishing"},
@@ -302,6 +304,7 @@
         "Verify stapled cmux NIGHTLY DMG artifact": {"nightly_only": "statically verifies the notarized stapled legacy DMG and records its exact digest without launching app code"},
         "Hand the tested app's Info.plist to publish": {"nightly_only": "mounts the tested legacy DMG read-only and copies its app's Info.plist", "note": "tests/test_nightly_legacy_publish_linux.py checks it follows the verify step and the tested digest"}},
       "publish-nightly-identity-legacy": {
+        "Read the old feed back": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the published feed read-back and the shipped app's channels"},
         "Mint the release App token that reads the Dev ring switch": {"nightly_only": "mints release GitHub App token"},
         "Read the Dev ring switch live": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the Dev ring switch is read live when publishing"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},

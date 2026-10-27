@@ -1508,6 +1508,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_dev_ring.py
 
+      - name: Validate the published feed read-back and the shipped app's channels
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_live_feed_check.py
+
       - name: Validate the old feed's publication and appcast writer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_legacy_publish_linux.py
