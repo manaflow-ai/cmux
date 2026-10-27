@@ -669,10 +669,14 @@ async fn a_refused_prompt_leaves_none_of_its_own_uploads_behind() {
     assert!(echoed.contains(&format!("image:{}", sha(&png(256 << 10)))), "{echoed}");
     assert!(folder(&up.0).is_dir(), "a prompt that ran lost its upload");
 
-    let cancel = json!({"sessionId": session, "uploadId": up.0});
-    let cancelled = c.call(method::MUX_FILE_PUT_CANCEL, cancel).await;
-    assert!(cancelled.get("error").is_none(), "{cancelled}");
-    assert!(!folder(&up.0).exists(), "cancel left a finished upload");
+    // Only its owner's cancel deletes it: none without its token, nor with another.
+    for token in [None, Some("0123456789abcdef0123456789abcdef"), Some(up.1.as_str())] {
+        let cancel = json!({"sessionId": session, "uploadId": up.0, "ownerToken": token});
+        let cancelled = c.call(method::MUX_FILE_PUT_CANCEL, cancel).await;
+        assert!(cancelled.get("error").is_none(), "{cancelled}");
+        let left = folder(&up.0).exists();
+        assert_eq!(left, token != Some(up.1.as_str()), "cancel with {token:?}");
+    }
 
     // A reference that marks someone else's upload as its own deletes nothing on a refusal: not
     // with `owned: true`, nor with a token that is not the upload's.
@@ -687,6 +691,73 @@ async fn a_refused_prompt_leaves_none_of_its_own_uploads_behind() {
     }
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(folder(&theirs.0).is_dir(), "a forged owned reference deleted another upload");
+}
+
+/// A queued send (`--no-wait`) whose prompt id the outbox has already deletes only the uploads it
+/// began for itself: not one the earlier delivery names (in any spelling of its id), nor one it
+/// names with a token that is not its owner's.
+#[tokio::test]
+async fn a_repeated_queued_send_deletes_only_its_own_new_uploads() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("attach-owned-outbox").await;
+    let folder = |id: &str| home().join("uploads").join(&session).join(id);
+    let pid = v7();
+    let queue = |blocks: Vec<Value>| {
+        let mut prompt = vec![json!({"type": "text", "text": "see"})];
+        prompt.extend(blocks);
+        json!({"request": {"sessionId": session, "prompt": prompt,
+            "_meta": {"acpmux": {"promptId": pid}}}})
+    };
+    let first = upload(&mut c, &session, "a.png", &png(64 << 10)).await;
+    let queued = c.call("_acpmux/send_queue", queue(vec![owned_ref(&first, "a.png")])).await;
+    let delivery = queued["result"]["deliveryId"].clone();
+    assert!(delivery.is_string(), "{queued}");
+    let status = json!({"deliveryId": delivery, "waitMs": 10_000});
+    let status = c.call("_acpmux/send_status", status).await;
+    assert_eq!(status["result"]["status"], "delivered", "{status}");
+
+    let theirs = upload(&mut c, &session, "b.png", &png(64 << 10)).await;
+    let mine = upload(&mut c, &session, "c.png", &png(64 << 10)).await;
+    let upper = (first.0.to_uppercase(), first.1.clone());
+    let mut forged = owned_ref(&theirs, "b.png");
+    forged["_meta"]["acpmux"]["upload"]["owned"] = json!("0123456789abcdef0123456789abcdef");
+    let again = queue(vec![owned_ref(&upper, "a.png"), forged, owned_ref(&mine, "c.png")]);
+    let again = c.call("_acpmux/send_queue", again).await;
+    assert_eq!(again["result"]["deliveryId"], delivery, "{again}");
+    assert!(gone(&folder(&mine.0)).await, "the repeat left the upload it began for itself");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(folder(&first.0).is_dir(), "the repeat deleted the delivered prompt's upload");
+    assert!(folder(&theirs.0).is_dir(), "a forged token deleted another upload");
+}
+
+/// A cancel through a peer link deletes a finished upload on the peer only with its owner token.
+#[tokio::test]
+async fn a_cancel_through_a_peer_deletes_only_with_the_owner_token() {
+    let b = hub();
+    let dir = std::env::temp_dir().join(format!("send-attach-cancel-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let auth = PeerAuth::create(&dir).unwrap();
+    let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&dir)).unwrap();
+    let l = bind_ws("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let ws_auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
+    tokio::spawn(serve_ws_with(b.clone(), l, "tok".into(), ws_auth));
+    let mut cb = client(&b, Origin::Local);
+    let remote = cb.new_session("cancel-far").await;
+    let a = hub();
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(token), true)
+        .await
+        .unwrap();
+    let mut ca = client(&a, Origin::Local);
+    let up = upload(&mut cb, &remote, "a.png", &png(64 << 10)).await;
+    let folder = home().join("uploads").join(&remote).join(&up.0);
+    for token in [None, Some("0123456789abcdef0123456789abcdef"), Some(up.1.as_str())] {
+        let cancel = json!({"sessionId": "b/cancel-far", "uploadId": up.0, "ownerToken": token});
+        let cancelled = ca.call(method::MUX_FILE_PUT_CANCEL, cancel).await;
+        assert!(cancelled.get("error").is_none(), "{cancelled}");
+        assert_eq!(folder.exists(), token != Some(up.1.as_str()), "cancel with {token:?}");
+    }
 }
 
 /// A prompt queued behind a running turn and taken out of the queue unrun deletes the uploads it

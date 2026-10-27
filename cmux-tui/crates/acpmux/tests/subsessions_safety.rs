@@ -661,22 +661,32 @@ async fn an_agent_a_web_turn_drove_sends_no_files_from_its_shell_or_its_tools() 
         json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}}),
         json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "send_message",
             "arguments": {"sessionId": child, "text": "see this", "attachments": [missing]}}}),
+        // No files: a text message, which it may send.
+        json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "send_message",
+            "arguments": {"sessionId": child, "text": "just text", "attachments": []}}}),
     ] {
         stdin.write_all(format!("{line}\n").as_bytes()).await.unwrap();
     }
-    let answer = loop {
+    let mut answers = std::collections::HashMap::new();
+    while answers.len() < 2 {
         let line = tokio::time::timeout(Duration::from_secs(60), lines.next_line()).await;
         let v: Value = serde_json::from_str(&line.unwrap().unwrap().unwrap()).unwrap();
-        if v["id"] == 2 {
-            break v;
+        if let Some(id @ (2 | 3)) = v["id"].as_i64() {
+            answers.insert(id, v);
         }
-    };
-    assert_eq!(answer["result"]["isError"], true, "{answer}");
-    let text = answer["result"]["content"][0]["text"].as_str().unwrap_or_default();
-    assert!(text.contains("remote device"), "read the path first: {answer}");
+    }
+    let text =
+        |a: &Value| a["result"]["content"][0]["text"].as_str().unwrap_or_default().to_owned();
+    let refused = &answers[&2];
+    assert_eq!(refused["result"]["isError"], true, "{refused}");
+    assert!(text(refused).contains("remote device"), "read the path first: {refused}");
+    let plain = &answers[&3];
+    assert_ne!(plain["result"]["isError"], true, "a text message was refused: {plain}");
     let events = app.events(&child).await;
     let sent: Vec<_> = events.iter().filter(|e| e["kind"] == "user_message").collect();
-    assert_eq!(sent.len(), 1, "only its start prompt reached the child: {sent:?}");
+    let texts: Vec<_> =
+        sent.iter().map(|e| e["msg"]["text"].as_str().unwrap_or_default()).collect();
+    assert!(!texts.contains(&"see this"), "a message with files reached the child: {sent:?}");
     let uploads = std::env::var_os("ACPMUX_HOME").map(PathBuf::from).unwrap().join("uploads");
     let saved = std::fs::read_dir(uploads.join(&child)).map(|d| d.count()).unwrap_or(0);
     assert_eq!(saved, 0, "an upload was begun for the child");
