@@ -5886,6 +5886,21 @@ function AcpmuxPane() {
     if (!preview && sandbox.mode === "sandboxed") sandbox.setMode("persistent");
   }, [preview, sandbox]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
+  /// The chat view shows the tab's run as a card (SandboxRunView), which offers its own Check again.
+  const sandboxCard =
+    viewedSandbox !== undefined ||
+    (sandboxView !== undefined && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed"));
+  /// The newest read didn't answer and no card says so: a notice does (the chat's, or the New Tab
+  /// page's, where Sandboxed waits for a read that answers).
+  const sandboxUncheckedNotice = sandbox.unread && !sandboxCard && (preview || sandboxView !== undefined);
+  const sandboxUnchecked = (
+    <output className="acpmux-switch-notice acpmux-folder-choice">
+      <span>{t("sandbox.unchecked")}</span>{" "}
+      <button type="button" className="acpmux-folder-choice-button" onClick={() => void sandbox.read()}>
+        {t("sandbox.checkAgain")}
+      </button>
+    </output>
+  );
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
@@ -9045,24 +9060,9 @@ function AcpmuxPane() {
             offered here. */}
         {/* The newest read of the host's sandbox state didn't answer: say so, with Check again. The
             run the tab last knew stays in view. With nothing known, Labs only (without it there is no
-            Sandboxed send to lose); a card in the chat view (failed, or running) has its own Check again. */}
-        <Notice
-          id="sandbox-unchecked"
-          tier="status"
-          when={
-            sandbox.unread &&
-            !sandboxHoldsChat &&
-            !viewedSandbox &&
-            (preview || sandboxView !== undefined) &&
-            sandboxView?.state !== "failed"
-          }
-        >
-          <output className="acpmux-switch-notice acpmux-folder-choice">
-            <span>{t("sandbox.unchecked")}</span>{" "}
-            <button type="button" className="acpmux-folder-choice-button" onClick={() => void sandbox.read()}>
-              {t("sandbox.checkAgain")}
-            </button>
-          </output>
+            Sandboxed send to lose); a card in the chat view has its own Check again. */}
+        <Notice id="sandbox-unchecked" tier="status" when={sandboxUncheckedNotice}>
+          {sandboxUnchecked}
         </Notice>
         <Notice id="sandbox-elsewhere" tier="status" when={sandboxElsewhere && !sandboxHoldsChat}>
           <output className="acpmux-switch-notice acpmux-folder-choice">
@@ -9698,7 +9698,12 @@ function AcpmuxPane() {
               upload={uploadFiles}
               dictating={isWaitingForWords(dictation.state)}
               dictationField={newTabDictationField}
-              notice={<DictationNotice dictation={dictation} />}
+              notice={
+                <>
+                  <DictationNotice dictation={dictation} />
+                  {sandboxUncheckedNotice && sandboxUnchecked}
+                </>
+              }
               // The host answers only for a page on this Mac; another machine's keeps the refusal.
               {...(!quick ? { localPaths } : {})}
               template={screenTemplate(shownTemplate(newTab))}
