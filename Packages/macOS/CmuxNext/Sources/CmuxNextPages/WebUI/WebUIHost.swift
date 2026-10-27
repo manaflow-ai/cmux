@@ -70,12 +70,21 @@ public final class WebUIHost {
     /// closing it still deinits (p13-webui-061 makes every tab close call ``close(_:)``).
     private let opened = NSHashTable<PageWebView>.weakObjects()
     /// Follows `web-dev.json` (``WebDevOverride``): a change reaches the pages as a web update does
-    /// (``webBundleDidChange()``). Armed at the first page open, so a launch that shows no page reads
-    /// nothing; the first page loads bundled and reloads once the file is read.
+    /// (``webBundleDidChange()``). Armed by the first page made, whether ``open(_:)`` makes it or the
+    /// page host pool builds or hands out a spare (the app passes ``WebDevOverrideWatcher/start(configDirectory:)``
+    /// as the pool's ``PageHostPool/willServe``), so a launch that shows no page reads nothing; the
+    /// first page loads bundled and reloads once the file is read.
     public let devOverride = WebDevOverrideWatcher()
-    /// A web files change reloads only the shown pages; hidden and frozen ones reload when they show
-    /// (feature `webUpdateReloadOnShow`, ``webBundleDidChange()``). Off: every page reloads at the change.
+    /// A web files change reloads only the shown pages; hidden and frozen ones reload after they show,
+    /// once they allow it (feature `webUpdateReloadOnShow`, ``webBundleDidChange()``, ``bundleSafePoint``).
+    /// Off: every page reloads at the change.
     package var bundleReloadsOnShow = false
+    /// Takes the registry's pages that show with web files they have not loaded (the app's web
+    /// updates): it asks each before it reloads it (``WebBundleSafePoint``).
+    package var bundleSafePoint: (any WebBundleSafePoint)? {
+        get { registry.bundleSafePoint }
+        set { registry.bundleSafePoint = newValue }
+    }
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Yields when a page's oracle reading may have changed (the `webviews` facet's wait, p15-oracle-215): a page
     /// ``observeOracleState(of:)`` hooked posted ``PageRouter/oracleStateChangedOp`` or its document loaded.
@@ -210,7 +219,8 @@ extension WebUIHost: WebBundleHost {
     }
 
     /// With ``bundleReloadsOnShow``, shown pages reload now; hidden and frozen ones are marked and
-    /// reload when they show (``PageWebView/bundleStale``), so a frozen page is never woken, and the
+    /// reload after they show, once they allow it (``PageWebView/bundleStale``, ``bundleSafePoint``),
+    /// so a frozen page is never woken, and the
     /// preloaded page is dropped and made again from the new files. Without it, every page that
     /// holds a document reloads now. The parked spare is marked either way and its claim loads the
     /// new files. A document kept meanwhile keeps loading its lazy chunks from the files it started

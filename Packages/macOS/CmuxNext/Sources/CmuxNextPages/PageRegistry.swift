@@ -12,11 +12,13 @@ public final class PageRegistry {
     private static let views = NSHashTable<PageWebView>.weakObjects()
     private static var serials: [ObjectIdentifier: UInt64] = [:]
     private static var nextSerial: UInt64 = 0
+    private static weak var safePoint: (any WebBundleSafePoint)?
 
     /// This registry's own stores; nil for ``processWide``, which uses the static ones.
     private let ownViews: NSHashTable<PageWebView>?
     private var ownSerials: [ObjectIdentifier: UInt64] = [:]
     private var ownNextSerial: UInt64 = 0
+    private weak var ownSafePoint: (any WebBundleSafePoint)?
 
     /// An empty registry.
     public init() {
@@ -42,6 +44,14 @@ public final class PageRegistry {
     private var lastSerial: UInt64 {
         get { ownViews == nil ? Self.nextSerial : ownNextSerial }
         set { if ownViews == nil { Self.nextSerial = newValue } else { ownNextSerial = newValue } }
+    }
+
+    /// Takes each listed page that shows with web files it has not loaded (``PageWebView/bundleStale``):
+    /// the app's web updates, set through ``WebUIHost/bundleSafePoint``. Nil: such a page keeps its
+    /// document until a swap reloads it.
+    package var bundleSafePoint: (any WebBundleSafePoint)? {
+        get { ownViews == nil ? Self.safePoint : ownSafePoint }
+        set { if ownViews == nil { Self.safePoint = newValue } else { ownSafePoint = newValue } }
     }
 
     func add(_ view: PageWebView) {

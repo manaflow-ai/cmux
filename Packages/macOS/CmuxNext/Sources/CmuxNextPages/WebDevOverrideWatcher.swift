@@ -6,9 +6,9 @@ public import Foundation
 /// pages that show and marks the others to reload when they show (``WebUIHost/webBundleDidChange()``),
 /// the same path a web UI update takes. Does nothing unless ``WebDevOverride/isEnabled``.
 ///
-/// The host owns the one watcher (``WebUIHost/devOverride``) and starts it at its first page open,
-/// so a launch that shows no page reads nothing (the first page loads bundled and reloads once the
-/// file is read).
+/// The host owns the one watcher (``WebUIHost/devOverride``); the first page made starts it, through
+/// ``WebUIHost/open(_:)`` or the page host pool's spare (``PageHostPool/willServe``), so a launch that
+/// shows no page reads nothing (the first page loads bundled and reloads once the file is read).
 public final class WebDevOverrideWatcher {
     private var fileWatcher: ConfigFileWatcher?
     private var manifestWatcher: ConfigFileWatcher?

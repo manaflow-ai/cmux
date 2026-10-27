@@ -8,20 +8,23 @@ import Testing
 /// `webUpdateReloadOnShow` it asks only the pages the page host shows, so a hidden or frozen page,
 /// which cannot answer, never holds the swap; the swap reloads the shown page and leaves the others
 /// to reload when they show. Without it every page that holds a document is asked and reloads.
+/// A stale page that shows is asked first and reloads only when it allows it, so a reload never loses
+/// what it holds (``WebUpdates/staleShown(_:)``).
 @MainActor @Suite(.serialized)
 struct WebUpdatesFrozenPagesTests {
     /// A page as the safe point sees it: whether it shows, what it answers, what the swap did to it.
     @MainActor private final class Page: WebBundlePage {
-        let bundleShown: Bool
+        var bundleShown: Bool
         let bundleHasDocument = true
         let bundleParked = false
         let bundleLoading = false
         let bundleDocument: URL?
         /// What the page answers when asked; a frozen page cannot answer and would hold the swap.
-        let answer: String?
+        var answer: String?
         private(set) var asks = 0
         private(set) var reloads = 0
-        private(set) var stale = false
+        private(set) var bundleStale = false
+        var stale: Bool { bundleStale }
 
         init(shown: Bool, index: Int, answer: String? = nil, hiddenAnswer: String? = "page.frozen") {
             bundleShown = shown
@@ -34,8 +37,17 @@ struct WebUpdatesFrozenPagesTests {
             return answer
         }
 
-        func reloadForBundle() { reloads += 1 }
-        func markBundleStale() { stale = true }
+        func reloadForBundle() {
+            reloads += 1
+            bundleStale = false
+        }
+        func markBundleStale() { bundleStale = true }
+
+        /// A tab switch shows the page; it answers `answer` from now on.
+        func show(answering answer: String?) {
+            bundleShown = true
+            self.answer = answer
+        }
     }
 
     /// The page host: its pages, and the swap as ``WebUIHost`` performs it.
@@ -105,6 +117,64 @@ struct WebUpdatesFrozenPagesTests {
         await web.look()
         #expect(web.pending == nil, "the swap was held by \(web.heldBy ?? "nothing")")
         #expect(pages.allSatisfy { $0.asks == 2 && $0.reloads == 1 && !$0.stale })
+    }
+
+    /// A hidden page holds text in a field its document does not keep: at its show it says so, and it
+    /// is not reloaded; it keeps its document and stays stale, and the next quiet look reloads it once
+    /// it allows it.
+    @Test func aStalePageThatHoldsSomethingAtItsShowIsNotReloadedAndStaysStale() async {
+        let pages = [Page(shown: true, index: 0), Page(shown: false, index: 1)]
+        let host = Host(pages: pages)
+        let web = webUpdates(host)
+        web.ready(Self.update, version: nil)
+        await web.look()
+        #expect(web.pending == nil)
+        let hidden = pages[1]
+        #expect(hidden.stale && hidden.reloads == 0)
+
+        hidden.show(answering: "field.unsaved")
+        await web.askAtShow(hidden)
+        #expect(hidden.asks == 1, "the page was not asked at its show")
+        #expect(hidden.reloads == 0, "the show reloaded a page that held what a reload loses")
+        #expect(hidden.stale)
+        #expect(web.heldBy == "field.unsaved")
+        #expect(web.hasLookWork, "no later look would reload the page")
+
+        // A later look under the same rules: still held, then allowed.
+        await web.look()
+        #expect(hidden.reloads == 0 && hidden.stale)
+        hidden.answer = nil
+        await web.look()
+        #expect(hidden.reloads == 1)
+        #expect(!hidden.stale)
+        #expect(!web.hasLookWork)
+        #expect(pages[0].reloads == 1, "a page that was not stale reloaded again")
+        web.safePoint.cancel()
+    }
+
+    @Test func aStalePageThatHoldsNothingReloadsAtItsShow() async {
+        let pages = [Page(shown: true, index: 0), Page(shown: false, index: 1)]
+        let web = webUpdates(Host(pages: pages))
+        web.ready(Self.update, version: nil)
+        await web.look()
+        let hidden = pages[1]
+        hidden.show(answering: nil)
+        await web.askAtShow(hidden)
+        #expect(hidden.asks == 1)
+        #expect(hidden.reloads == 1)
+        #expect(!hidden.stale)
+        #expect(!web.hasLookWork)
+    }
+
+    @Test func aStalePageHiddenAgainBeforeItAnswersIsNotReloaded() async {
+        let page = Page(shown: false, index: 0)
+        let web = webUpdates(Host(pages: [page]))
+        web.ready(Self.update, version: nil)
+        await web.look()
+        #expect(page.stale)
+        // Never shown: the show's ask does nothing.
+        await web.askAtShow(page)
+        #expect(page.asks == 0 && page.reloads == 0 && page.stale)
     }
 
     @Test func withTheFeatureOffAHiddenPageThatCannotAnswerHoldsTheSwap() async {

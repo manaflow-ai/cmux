@@ -1775,12 +1775,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A web UI update or web-dev.json change asks and reloads only the cmux pages that show; hidden and frozen pages reload when they next show, and the preloaded page is made again. Off: every page that holds a document is asked and reloads at the swap.
+    /// A web UI update or web-dev.json change asks and reloads only the cmux pages that show; hidden and frozen pages are asked when they next show and reload once they allow it, and the preloaded page is made again. Off: every page that holds a document is asked and reloads at the swap.
     public static let webUpdateReloadOnShow = Feature(
         index: 102,
         name: "webUpdateReloadOnShow",
         owner: "PL-webui",
-        description: "A web UI update or web-dev.json change asks and reloads only the cmux pages that show; hidden and frozen pages reload when they next show, and the preloaded page is made again. Off: every page that holds a document is asked and reloads at the swap.",
+        description: "A web UI update or web-dev.json change asks and reloads only the cmux pages that show; hidden and frozen pages are asked when they next show and reload once they allow it, and the preloaded page is made again. Off: every page that holds a document is asked and reloads at the swap.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

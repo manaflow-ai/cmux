@@ -29,9 +29,9 @@ extension PageWebView {
     /// - Returns: Chromium, or WebKit and why.
     public static func engineDecision(for descriptor: PageDescriptor, options: PageEngineOptions,
                                       hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting) -> PageEngineDecision {
-        // A live web override reaches only WebKit pages. Its watch is armed by the page's host at its
-        // first open in either engine (``WebUIHost/devOverride``), so a launch whose first page is a
-        // Chromium one still reads web-dev.json.
+        // A live web override reaches only WebKit pages. Its watch is armed by the first page made in
+        // either engine, by the host or the pool (``WebUIHost/devOverride``), so a launch whose first
+        // page is a Chromium one still reads web-dev.json.
         return engineDecisionNow(for: descriptor, options: options, hosting: hosting)
     }
 
@@ -72,9 +72,11 @@ extension PageWebView {
     /// pushes); the glass feed stops while the page is hidden and pushes what changed on the show's
     /// next frame (``GlassBackdropFeed/setPageShown(_:)``); a page whose renderer died while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``); a page
     /// that hangs shows its "Page unresponsive" card only while it shows (``PageHangNotice``); a page
-    /// whose web files changed while it was hidden reloads as it shows (``bundleStale``, set only with
-    /// feature `webUpdateReloadOnShow`), unless its crash reload already loads it. A parked spare keeps
-    /// its mark for its claim (``retarget(descriptor:routes:route:documentAttributes:surface:dynamicResources:)``).
+    /// whose web files changed while it was hidden (``bundleStale``, set only with feature
+    /// `webUpdateReloadOnShow`) is handed to the safe point as it shows (``WebBundleSafePoint``), which
+    /// asks it before it reloads, so a reload never loses what it holds; its crash reload loads the
+    /// new files instead. A parked spare keeps its mark for its claim
+    /// (``retarget(descriptor:routes:route:documentAttributes:surface:dynamicResources:)``).
     func setEngineVisible(_ visible: Bool) {
         engineVisible = visible
         if visible { thawPage() }
@@ -83,10 +85,9 @@ extension PageWebView {
         chromiumSession?.hang.visibilityChanged(visible)
         holdDeliveryWhileHidden(visible: visible)
         let showsStale = visible && bundleStale && !isParkedSpare
-        let reloadsStale = showsStale && !crash.needsReload
-        if showsStale { bundleStale = false }
+        if showsStale, crash.needsReload { bundleStale = false }
         crash.engineVisibilityChanged(visible, page: self)
-        if reloadsStale { reloadPage() }
+        if showsStale, bundleStale { pageRegistry.bundleSafePoint?.staleShown(self) }
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
         #endif

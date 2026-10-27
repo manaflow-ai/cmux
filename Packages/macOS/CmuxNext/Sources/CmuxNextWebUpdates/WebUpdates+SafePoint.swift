@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextPages
+package import CmuxNextPages
 import CmuxNextUpdater
 import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
@@ -7,25 +7,59 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
 import CoreGraphics
 
-// The safe point (plans/cmux-next/web-ota.md, ``WebSwapGate``). While an update is pending, one
-// DemandTimer (`web-updates.safe-point`) books the next look; a look either swaps or books the
-// next one. It stops when nothing is pending: a swap (here or `updates.web.apply`) cancels it, and
-// a look that finds nothing pending books none. Each look asks the pages the swap reloads now
-// (``WebBundleHost/bundleAskedPages``, the WebKit pages the update folder serves; twice), in the
-// page's own world, through `window.cmuxWebSwap.hold()` (webviews/src/pages/shared/webSwap.ts), and
-// never waits on a page past ``WebSwapGate/answerWithin``. With feature `webUpdateReloadOnShow` those
+// The safe point (plans/cmux-next/web-ota.md, ``WebSwapGate``). While an update is pending or a
+// shown page waits to reload, one DemandTimer (`web-updates.safe-point`) books the next look; a look
+// either swaps (or reloads those pages) or books the next one. It stops when nothing waits: a swap
+// (here or `updates.web.apply`) cancels it, and a look that finds nothing waiting books none. Each
+// look asks the pages the swap reloads now (``WebBundleHost/bundleAskedPages``, the WebKit pages the
+// update folder serves; twice), in the page's own world, through `window.cmuxWebSwap.hold()`
+// (webviews/src/pages/shared/webSwap.ts), and never waits on a page past ``WebSwapGate/answerWithin``. With feature `webUpdateReloadOnShow` those
 // are the shown pages only: a hidden or frozen page is never asked, so it never holds the swap; it
-// keeps its document, which loads its lazy chunks from its own files (``WebBundleOverlay/Pin``), and
-// reloads when it shows (p13-webui.md 3.C).
-extension WebUpdates {
+// keeps its document, which loads its lazy chunks from its own files (``WebBundleOverlay/Pin``). As
+// it shows it is asked at once and reloads when it answers null; else it stays stale and the same
+// looks, under the same rules, ask it until it allows the reload (``staleShown(_:)``, p13-webui.md 3.C).
+extension WebUpdates: WebBundleSafePoint {
     /// The pages the swap reloads now (``WebBundleHost/bundleAskedPages``); none before the host exists.
     var askedPages: [any WebBundlePage] { pages()?.bundleAskedPages ?? [] }
+
+    /// The pages that show with files a swap replaced (``WebBundleHost/staleShownPages``).
+    var staleShownPages: [any WebBundlePage] { pages()?.staleShownPages ?? [] }
+
+    /// What a look asks: the pages the pending swap reloads, else the shown pages still on replaced files.
+    var lookPages: [any WebBundlePage] { pending != nil ? askedPages : staleShownPages }
+
+    /// A look has work: an update is pending, or a shown page still waits to reload.
+    var hasLookWork: Bool { pending != nil || !staleShownPages.isEmpty }
+
+    /// `page` shows with files a swap replaced: asked now, it reloads when a reload keeps all it
+    /// holds; else it keeps its document and the safe point asks it again (``askAtShow(_:)``).
+    package func staleShown(_ page: any WebBundlePage) {
+        // task-owner: one ask of a page as it shows; WebSwapGate.answerWithin bounds the answer
+        Task { [weak self] in await self?.askAtShow(page) }
+    }
+
+    /// Asks `page`, which shows with files a swap replaced, whether a reload keeps all it holds: it
+    /// reloads when it does and is still the same shown, stale, idle document; else the next look
+    /// asks it again. A pending swap asks and reloads it at its own safe point.
+    func askAtShow(_ page: any WebBundlePage) async {
+        guard pending == nil, page.bundleStale, page.bundleShown else { return }
+        let document = page.bundleDocument
+        let held: String? = await Self.askAll([page]).first ?? "page.no-answer"
+        // Hidden again (its next show asks again), reloaded meanwhile, or a swap now pending.
+        guard pending == nil, page.bundleStale, page.bundleShown else { return }
+        if held == nil, !page.bundleLoading, page.bundleDocument == document {
+            page.reloadForBundle()
+            return
+        }
+        heldBy = held ?? "page.changed"
+        scheduleSafePoint()
+    }
 
     /// Books the next look: at once while no page would reload, after ``WebSwapGate/grace`` behind other
     /// apps, else when the input quiet period could end. Replaces a booked look.
     func scheduleSafePoint() {
-        guard pending != nil else { return safePoint.cancel() }
-        let wait: Duration = if askedPages.isEmpty {
+        guard hasLookWork else { return safePoint.cancel() }
+        let wait: Duration = if lookPages.isEmpty {
             .zero
         } else if NSApp?.isActive ?? false {
             .milliseconds(Int(max(0, WebSwapGate.seconds(WebSwapGate.quietInput) - Self.idleSeconds()) * 1000))
@@ -38,21 +72,24 @@ extension WebUpdates {
     /// Swaps when the app and every page the swap reloads allow it, else books the next look. Those
     /// pages are asked twice, all at once each time; the second pass and the checks after it run right
     /// before the swap, so a page that got busy (or started loading) after its first answer holds it.
+    /// With no update pending, the shown pages still on replaced files are asked the same way and
+    /// reload when they allow it.
     func look() async {
-        guard pending != nil, !looking else { return }
+        guard hasLookWork, !looking else { return }
         looking = true
         defer { looking = false }
         let generation = pendingGeneration
+        let swaps = pending != nil
         var decision = appDecision()
         if decision == .askPages {
-            let asked = askedPages
+            let asked = lookPages
             let documents = asked.map(\.bundleDocument)
             decision = WebSwapGate.pages(await Self.askAll(asked))
             if decision == .swap { decision = WebSwapGate.pages(await Self.askAll(asked)) }
             // A page that came up, navigated or started loading while the pages answered was not
             // asked about what it shows now: it is asked next time.
             if decision == .swap,
-               Set(askedPages.map { ObjectIdentifier($0) }) != Set(asked.map { ObjectIdentifier($0) })
+               Set(lookPages.map { ObjectIdentifier($0) }) != Set(asked.map { ObjectIdentifier($0) })
                || asked.map(\.bundleDocument) != documents || asked.contains(where: \.bundleLoading) {
                 decision = .later(after: .seconds(1), reason: "page.changed")
             }
@@ -62,20 +99,29 @@ extension WebUpdates {
                 if case .later = again { decision = again }
             }
         }
-        guard pending != nil else { return }
-        // Another update was handed over while the pages answered: look again for that one.
-        if generation != pendingGeneration { decision = .later(after: .zero, reason: "update.new") }
+        guard hasLookWork else { return }
+        // Another update was handed over, or one swapped, while the pages answered: look again.
+        if generation != pendingGeneration || swaps != (pending != nil) {
+            decision = .later(after: .zero, reason: "update.new")
+        }
         switch decision {
         case .swap, .askPages:
-            applyPending()
+            if swaps { applyPending() } else { reloadStaleShown() }
         case .later(let after, let reason):
             heldBy = reason
             safePoint.schedule(after: after) { @MainActor [weak self] in await self?.look() }
         }
     }
 
+    /// Reloads the shown pages still on files a swap replaced, which allowed it at this look.
+    private func reloadStaleShown() {
+        heldBy = nil
+        safePoint.cancel()
+        for page in staleShownPages { page.reloadForBundle() }
+    }
+
     private func appDecision() -> WebSwapGate.Decision {
-        let pagesShown = !askedPages.isEmpty
+        let pagesShown = !lookPages.isEmpty
         if let appGate { return appGate(pagesShown) }
         let away = resignedAt.map { WebSwapGate.seconds(.now - $0) } ?? .infinity
         return WebSwapGate.app(pagesShown: pagesShown, active: NSApp?.isActive ?? false,

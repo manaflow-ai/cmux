@@ -8,12 +8,19 @@ import WebKit
 /// A change of the served web files through the page host (p13-webui-071, p13-webui.md 3.C). It
 /// reaches only the WebKit pages the update folder serves (a Chromium page keeps its bundled files).
 /// With feature `webUpdateReloadOnShow` only the shown page is asked and reloaded; hidden and frozen
-/// pages get no call, stay frozen, and reload once when they show, as Chrome loads a background tab
-/// marked `SetNeedsReload` only when it is shown (content/browser/renderer_host/navigation_controller_impl.cc).
-/// Without it every page that holds a document reloads at the change. The pool's parked spare is
-/// never reloaded at the change: its claim loads the new files.
+/// pages get no call and stay frozen, as Chrome loads a background tab marked `SetNeedsReload` only
+/// when it is shown (content/browser/renderer_host/navigation_controller_impl.cc). Their show does not
+/// reload them: it hands them to the safe point, which asks them first (``WebBundleSafePoint``), since
+/// their document may hold what a reload loses. Without it every page that holds a document reloads at
+/// the change. The pool's parked spare is never reloaded at the change: its claim loads the new files.
 @MainActor @Suite(.serialized)
 struct WebUIHostWebBundleTests {
+    /// The safe point: records the pages handed to it as they show stale.
+    @MainActor private final class SafePoint: WebBundleSafePoint {
+        private(set) var shown: [ObjectIdentifier] = []
+        func staleShown(_ page: any WebBundlePage) { shown.append(ObjectIdentifier(page)) }
+    }
+
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.web-bundle", resource: "web-bundle", processGroup: .privileged, namespaces: [])
 
@@ -58,8 +65,10 @@ struct WebUIHostWebBundleTests {
 
     /// The page's side of the change, in either engine (Chromium fakes count the calls): the shown page
     /// is asked and reloads; a frozen page gets no call, stays frozen, and reloads once at its show.
-    @Test func oneShownAndFourFrozenPagesGiveOneAskAndOneReloadAndTheFrozenOnesReloadWhenShown() async throws {
+    @Test func oneShownAndFourFrozenPagesGiveOneAskAndOneReloadAndTheFrozenOnesGoToTheSafePointWhenShown() async throws {
         let host = makeHost(chromium: FakeChromiumHosting(), reloadsOnShow: true)
+        let safePoint = SafePoint()
+        host.bundleSafePoint = safePoint
         let (window, views) = try await openPages(5, host: host)
         defer {
             for view in views { host.close(view) }
@@ -91,17 +100,22 @@ struct WebUIHostWebBundleTests {
             #expect(page.bundleStale)
         }
 
-        // A tab switch shows one: it thaws and reloads in its show; the others still wait.
+        // A tab switch shows one: it thaws and goes to the safe point, which asks it before any reload;
+        // its show does not reload it, and it stays stale until the safe point reloads it.
         frozen[0].isHidden = false
-        #expect(try fake(frozen[0]).reloads == before[0].reloads + 1)
-        #expect(!frozen[0].bundleStale)
+        #expect(safePoint.shown == ids([frozen[0]]))
+        #expect(try fake(frozen[0]).reloads == before[0].reloads, "the show reloaded a page without asking it")
+        #expect(frozen[0].bundleStale)
         for (index, page) in frozen.enumerated().dropFirst() {
             #expect(try fake(page).reloads == before[index].reloads && page.bundleStale)
         }
-        // Shown again later: no second reload.
+        // The safe point found it free: one reload, and a later show hands it over no more.
+        frozen[0].reloadForBundle()
+        #expect(try fake(frozen[0]).reloads == before[0].reloads + 1)
         frozen[0].isHidden = true
         frozen[0].isHidden = false
         #expect(try fake(frozen[0]).reloads == before[0].reloads + 1)
+        #expect(safePoint.shown.count == 1)
         withExtendedLifetime(window) {}
     }
 
@@ -139,6 +153,8 @@ struct WebUIHostWebBundleTests {
     @Test(arguments: [true, false])
     func webKitPagesReloadAtTheChangeOrAtTheirShow(reloadsOnShow: Bool) async throws {
         let host = makeHost(chromium: nil, reloadsOnShow: reloadsOnShow)
+        let safePoint = SafePoint()
+        host.bundleSafePoint = safePoint
         let (window, views) = try await openPages(2, host: host)
         defer {
             for view in views { host.close(view) }
@@ -154,7 +170,10 @@ struct WebUIHostWebBundleTests {
         #expect(!shown.bundleStale)
         #expect(hidden.bundleStale == reloadsOnShow)
         hidden.isHidden = false
-        #expect(!hidden.bundleStale)
+        // Its show hands it to the safe point, which asks it before it reloads it.
+        #expect(hidden.bundleStale == reloadsOnShow)
+        #expect(safePoint.shown == (reloadsOnShow ? ids([hidden]) : []))
+        #expect(ids(host.staleShownPages) == (reloadsOnShow ? ids([hidden]) : []))
         withExtendedLifetime(window) {}
     }
 
@@ -209,5 +228,20 @@ struct WebUIHostWebBundleTests {
         // Claimed: out of the parking; the claim reloads it (``PageWebView/retarget``), not its show.
         spare.removeFromSuperview()
         #expect(spare.bundleStale && !spare.claimKeepsDocument)
+    }
+
+    /// The pool's spares are pages ``WebUIHost/open(_:)`` never makes: a claim the pool may serve arms
+    /// the web-dev.json watch as an open does (``PageHostPool/willServe``), with no page opened.
+    @Test func aPoolClaimWithNoOpenArmsTheDevOverrideWatch() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let memory = PageTestMemory()
+        let pool = PageHostPool(memory: memory.coordinator, activity: { 0 }, isTrackingMenu: { false })
+        defer { pool.dropSpare() }
+        var armed = 0
+        pool.willServe = { armed += 1 }
+        try #require(PageWebView.engineDecision(for: .settings, options: pool.options).engine == .webKit,
+                     "Settings would open in Chromium, which the pool never serves")
+        #expect(pool.claim(.settings, routes: [], window: nil) == nil, "no spare is ready")
+        #expect(armed == 1, "a pool claim made no open and left web-dev.json unread")
     }
 }

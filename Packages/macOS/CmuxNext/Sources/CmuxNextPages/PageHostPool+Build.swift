@@ -49,6 +49,7 @@ extension PageHostPool {
                 scheduleBuild()
             }
         }
+        willServe?()
         guard let recipe = measure("pool.makeSpare.configure", {
             PageWebView.pooledHostRecipe(.settings, options: options)
         }) else { return }

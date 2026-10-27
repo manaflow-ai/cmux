@@ -63,6 +63,10 @@ public final class PageHostPool {
     /// The frame a claimed host delivers its router envelopes on, as a page ``WebUIHost`` opens does
     /// (``WebUIHost/scriptFrames``, `pageScriptFrames`). Nil: each envelope is its own script.
     package var scriptFrames: PageScriptFrame?
+    /// Called before the pool builds a spare and at each claim it may serve, as ``WebUIHost/open(_:)``
+    /// does for its pages: the app arms the `web-dev.json` watch there (``WebUIHost/devOverride``), so
+    /// a launch whose first pages are spares still reads it. Nil: nothing to arm.
+    package var willServe: (@MainActor () -> Void)?
 
     final class WeakHost {
         weak var view: PageWebView?
@@ -112,6 +116,7 @@ public final class PageHostPool {
         // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
         let decision = PageWebView.engineDecision(for: descriptor, options: options)
         guard decision.engine == .webKit else { return nil }
+        willServe?()
         madeVisible = true
         isLikely = true
         if target == nil, let window { follow(window) }

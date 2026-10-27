@@ -44,6 +44,7 @@ import CmuxNextTrace
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWakeups
+import CmuxNextWebUpdates
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
@@ -439,6 +440,8 @@ final class AppServices {
         let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
                                 hoverFrameInput: hoverFrameInput)
         pool.scriptFrames = pageScriptFrame
+        // A spare is a page as webUI.open makes one: the first arms the web-dev.json watch.
+        pool.willServe = { [weak self] in self?.webUI.devOverride.start() }
         return pool
     }()
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
@@ -457,6 +460,8 @@ final class AppServices {
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
         host.bundleReloadsOnShow = features.isEnabled(.webUpdateReloadOnShow)
+        // A page that shows with files a swap replaced reloads at the web updates' safe point.
+        host.bundleSafePoint = WebUpdates.shared
         return host
     }()
     /// The frame cmux pages deliver their router envelopes on, one board task per page per frame
