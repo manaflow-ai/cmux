@@ -175,7 +175,7 @@ extension ChromiumHostPageView {
 extension ChromiumHostPageView: NSMenuItemValidation {
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if let command = Self.editCommand(for: menuItem.action) { return runsEditCommand(command) }
-        switch menuItem.action {
+        return switch menuItem.action {
         case #selector(startSpeaking(_:)): selectedPageText != nil
         case #selector(stopSpeaking(_:)): speech.isSpeaking
         default: true
