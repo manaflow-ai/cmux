@@ -203,8 +203,16 @@ ISOLATED_DEINIT = re.compile(r"^\s*isolated\s+deinit\b")
 PLAIN_DEINIT = re.compile(r"^\s*deinit\b")
 TASK_LOCAL_BINDING = re.compile(r"\.withValue\s*\(")
 TASK_LOCAL_HELPER = "CmuxNextActions/TaskLocal+InTask.swift"
-# NSWorkspace.shared.open(x) with one argument, and the Finder reveal calls.
-WORKSPACE_SYNC = re.compile(r"NSWorkspace\.shared\.(open\((?:[^,()]|\([^()]*\))*\)|activateFileViewerSelecting\(|selectFile\(|openFile\(|launchApplication\()")
+# Every synchronous NSWorkspace open or Finder reveal, with any arguments: on NSWorkspace.shared, and on
+# any receiver (a local alias, an injected workspace) for the calls only NSWorkspace has: the reveals, an
+# open with an app and a configuration, an open with an NSWorkspace.OpenConfiguration, and an open with a
+# configuration on a receiver named like a workspace.
+WORKSPACE_SYNC = re.compile(
+    r"NSWorkspace\.shared\.(open|openFile|activateFileViewerSelecting|selectFile|launchApplication)\("
+    r"|\.(activateFileViewerSelecting|selectFile)\("
+    r"|\.open\([^\n]*\bwithApplicationAt:[^\n]*\bconfiguration:"
+    r"|\.open\([^\n]*NSWorkspace\.OpenConfiguration\("
+    r"|\b\w*[Ww]orkspace[?!]?\.open\([^\n]*\bconfiguration:")
 WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")

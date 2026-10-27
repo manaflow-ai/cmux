@@ -55,7 +55,10 @@ STORIES = (
     scheduler.StorySpec("t2-soak", "T2", 1800, "bench"),
     scheduler.StorySpec("linux-diff", "linux", 900, "release"),
 )
-SHARD_MAP = scheduler.ShardMap.from_document(gen.generate(STORIES))
+# The fixture lab: its bench class is an M2 Pro (BENCH), a host class of its own, so unlike the real cmux20-bench
+# (gen_shard_map.LAYOUT) it runs T1 too.
+LAYOUT = {**gen.LAYOUT, "cmux20-bench": {"shards": 1, "tiers": ("T1", "T2")}}
+SHARD_MAP = scheduler.ShardMap.from_document(gen.generate(STORIES, LAYOUT))
 
 
 def ACCEPT(plan):
@@ -155,9 +158,43 @@ class ShardMapTests(unittest.TestCase):
         self.assertEqual(loads, [210, 210])
         self.assertEqual(gen.pack([("d", 60), ("c", 90), ("b", 120), ("a", 150)], 2), (bins, loads))
 
+    def test_pinned_stories_keep_their_shard_and_new_ones_fill_the_least_loaded(self):
+        # A fresh pack would put "e" (200) first on shard 0 and move the others; pinned, only "e" is placed.
+        bins, loads = gen.pack([("a", 150), ("b", 120), ("c", 90), ("d", 60), ("e", 200)], 2,
+                               pinned={"a": 0, "d": 0, "b": 1, "c": 1, "gone": 1})
+        self.assertEqual(bins, [["a", "d", "e"], ["b", "c"]])
+        self.assertEqual(loads, [410, 210])
+        # A pinned index the layout no longer has is packed like a new story.
+        self.assertEqual(gen.pack([("a", 150), ("b", 120)], 1, pinned={"a": 0, "b": 3}), ([["a", "b"]], [270]))
+
+    def test_regenerating_after_a_new_story_moves_no_existing_story(self):
+        current = gen.generate(STORIES, LAYOUT)
+        grown = STORIES + (scheduler.StorySpec("t1-new", "T1", 5000, "bench"),
+                           scheduler.StorySpec("t0-new", "T0", 30, "bench"))
+        sticky = gen.generate(grown, LAYOUT, previous=current)
+        before, after = gen.bindings(current), gen.bindings(sticky)
+        for key, stories in before.items():
+            for story_id, index in stories.items():
+                self.assertEqual(after[key][story_id], index, (key, story_id))
+        self.assertEqual({key: set(s) - set(before.get(key, {})) for key, s in after.items()
+                          if set(s) - set(before.get(key, {}))},
+                         {key: {"t1-new"} for key in after if key[1] == "T1"} | {("m6", "T0"): {"t0-new"}})
+        # --repack is the fresh pack, the same as no previous map.
+        self.assertEqual(gen.generate(grown, LAYOUT), gen.generate(grown, LAYOUT, previous=None))
+        self.assertEqual(gen.bindings({"schema": "other"}), {})
+
+    def test_the_checked_in_map_keeps_the_bindings_it_had_before_the_typing_stories(self):
+        # p12-perf-process-050 added seven typing stories; a full repack would have moved seven T1 stories between
+        # the two m6 minis (and so each of their series onto another host). The sticky map keeps them.
+        shard_map = scheduler.ShardMap.load(LAB / "shard_map.json")
+        for story_id in ("launch-cold-realistic", "omnibar", "tab-switch"):
+            self.assertEqual(shard_map.owner("m6", "T1", story_id), 0, story_id)
+        for story_id in ("launch-cold", "launch-warm-realistic", "memory-hidden", "new-surfaces-matrix"):
+            self.assertEqual(shard_map.owner("m6", "T1", story_id), 1, story_id)
+
     def test_every_sharded_story_has_one_owner_per_class_of_its_tier(self):
         for story in STORIES:
-            for lab_class, spec in gen.LAYOUT.items():
+            for lab_class, spec in LAYOUT.items():
                 owners = [i for i, shard in enumerate(SHARD_MAP.shards(lab_class))
                           if story.id in shard.get(story.tier, ())]
                 expected = 1 if story.tier in spec["tiers"] else 0
@@ -170,17 +207,17 @@ class ShardMapTests(unittest.TestCase):
 
     def test_a_shard_over_its_tier_interval_is_flagged(self):
         heavy = STORIES + tuple(scheduler.StorySpec(f"t1-heavy-{i}", "T1", 1800, "bench") for i in range(4))
-        lines = gen.overloads(gen.generate(heavy))
+        lines = gen.overloads(gen.generate(heavy, LAYOUT))
         self.assertEqual([line.split(":")[0] for line in lines], ["aws-m4pro/0", "cmux20-bench/0"])
         self.assertTrue(all("T1 takes 8400 s" in line for line in lines))
-        self.assertEqual(gen.overloads(gen.generate(STORIES)), [])
+        self.assertEqual(gen.overloads(gen.generate(STORIES, LAYOUT)), [])
         with tempfile.TemporaryDirectory() as tmp:
             original = gen.catalog_stories
             gen.catalog_stories = lambda _root: heavy
             try:
                 err = io.StringIO()
                 gen.run("shard-map", argparse.Namespace(root=Path(tmp), check=True), io.StringIO(), err)
-                self.assertIn("warning: cmux20-bench/0: T1 takes 8400 s", err.getvalue())
+                self.assertIn("warning: aws-m4pro/0: T1 takes 8400 s", err.getvalue())  # gen.LAYOUT: bench runs no T1
             finally:
                 gen.catalog_stories = original
 
@@ -588,7 +625,7 @@ class LowerWorkTests(unittest.TestCase):
 
     def test_an_overloaded_t1_shard_still_runs_t2_and_its_daily_aa(self):
         heavy = STORIES + tuple(scheduler.StorySpec(f"t1-heavy-{i}", "T1", 1800, "bench") for i in range(4))
-        shard_map = scheduler.ShardMap.from_document(gen.generate(heavy))
+        shard_map = scheduler.ShardMap.from_document(gen.generate(heavy, LAYOUT))
         load = sum(s.seconds for s in heavy if s.tier == "T1")
         self.assertGreater(load, scheduler.T1_INTERVAL.total_seconds())  # bench holds all T1: 8400 s > 7200 s
         sim = Sim(merges_per_hour=6, stories=heavy, shard_map=shard_map)

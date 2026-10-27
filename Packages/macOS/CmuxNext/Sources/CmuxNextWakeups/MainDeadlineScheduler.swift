@@ -87,6 +87,10 @@ public final class MainDeadlineScheduler {
     /// The queue's next fire in `CLOCK_UPTIME_RAW` nanoseconds; nil when nothing is pending.
     public var nextFireNanos: UInt64? { wakeups.nextFireDate }
 
+    /// Now on the queue's clock: an owner that keeps its own due times (``MainDeadline/schedule(after:_:)`` takes a
+    /// delay) reads them here, so its times and the wakes share one clock.
+    public var uptime: Duration { .nanoseconds(Int64(clamping: now)) }
+
     // MARK: MainDeadline's side
 
     /// Now, on the queue's clock (uptime ns).

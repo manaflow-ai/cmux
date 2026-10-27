@@ -16,7 +16,7 @@ import Testing
     /// second `start` arms nothing more, and `stop` ends the sampling. The next deadline is armed
     /// only after the sample is recorded, so waiting for it is waiting for the record.
     @Test func theEmitterSamplesOncePerInterval() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let histograms = MemoryHistograms(pressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), discardKinds: [])
         let reads = Reads()
         let emitter = MemoryFootprintEmitter(

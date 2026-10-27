@@ -121,7 +121,8 @@ import Testing
     @Test func aSameDocumentNavigationWithANewTitleCounts() {
         var activity = PageBackgroundActivity()
         activity.hide("spa", look: .init(document: 4, title: "Chat - general", icon: icon))
-        #expect(activity.note("spa", look: .init(document: 4, title: "Chat - random", icon: icon)))
+        let counted = activity.note("spa", look: .init(document: 4, title: "Chat - random", icon: icon))
+        #expect(counted)
         #expect(activity.contains("spa"))
     }
 

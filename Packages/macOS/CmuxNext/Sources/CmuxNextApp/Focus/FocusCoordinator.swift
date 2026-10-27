@@ -2,7 +2,9 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextSignposts
+import CmuxNextWakeups
 
 /// Applies reducer effects to the real world (AppKit, WebKit, CEF, layout,
 /// registry context). `FocusEffectApplier` in the app; a recorder in tests.
@@ -33,6 +35,14 @@ final class FocusCoordinator {
     weak var applier: (any FocusEffectApplying)?
     /// The window this coordinator focuses in (`debug.pane_focus` times its commit).
     weak var window: NSWindow?
+    /// Times each pane focus move (`switch.pane_focus`, `debug.pane_focus`); tests pass their own.
+    var paneFocusTimer = DebugPaneFocus.timer
+    /// The key whose binding runs now (the key router's ``KeyRouter/keyInput``): a move's input stage.
+    var keyInput: KeyInputScope?
+    /// The input event being dispatched (the app's ``InputDispatchContext``): a move's input stage when no binding runs.
+    var inputDispatch: InputDispatchContext?
+    /// The app's crash keys: what has the keyboard in the key window's focused pane (``CrashKeySlots/Key/paneKind``).
+    var crashKeys: CrashKeySlots?
     private var queue: [FocusEvent] = []
     private var isRunning = false
     /// Tabs left while their address bar had the keyboard (Chrome restores it on return).
@@ -62,6 +72,8 @@ final class FocusCoordinator {
 
     /// Called after every reduction, before its effects run.
     var observer: ((Observation) -> Void)?
+    /// Told when an event opens or closes an overlay of this window (the palette, a sheet, the group editor).
+    var overlayChanges: OverlayChangeFeed?
     /// Called once the queue drained and every effect ran (notifications).
     var settledObserver: ((FocusState) -> Void)?
 
@@ -81,12 +93,13 @@ final class FocusCoordinator {
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
-        // debug.pane_focus: a drain that lands on another pane is one timed move (a key, a click, pane.focus).
+        // switch.pane_focus: an intent's drain that lands on another pane is one timed move (a key, a click, pane.focus).
         let paneBefore = reduced.pane
-        DebugPaneFocus.began(self)
+        let timed = DebugPaneFocus.began(self, for: event)
         defer {
-            if reduced.pane != paneBefore, reduced.pane != nil { DebugPaneFocus.shown(self, in: window) } else { DebugPaneFocus.dropped(self) }
+            if reduced.pane != paneBefore, reduced.pane != nil { DebugPaneFocus.shown(self, in: window) } else if timed { DebugPaneFocus.dropped(self) }
             if reduced.pane != paneBefore { paneMoved(from: paneBefore) }
+            noteCrashKeyPane()
         }
         // The settled observer can send or reduce a pending topology: what it queued runs too. The
         // queue holds this event, so the drain runs at least once, and it ends when the queue is empty.
@@ -119,6 +132,7 @@ final class FocusCoordinator {
                     queue.append(.focusTarget(.addressBar, source: .programmatic))
                 }
                 observer?(.reduced(event, before: previous, after: reduced, changed: result.changed || !effects.isEmpty))
+                if reduced.overlays != previous.overlays { overlayChanges?.signal() }
                 guard !effects.isEmpty, let applier else { continue }
                 isApplying = true
                 applier.apply(effects, state: reduced)
@@ -179,6 +193,12 @@ final class FocusCoordinator {
         pendingTopologies.removeAll { $0.owner == id }
     }
 
+    /// Whether `owner` has a topology queued (`setNeedsTopology`) that was not built yet.
+    func hasPendingTopology(for owner: AnyObject) -> Bool {
+        let id = ObjectIdentifier(owner)
+        return pendingTopologies.contains { $0.owner == id }
+    }
+
     private func reducePendingTopologies() {
         guard !pendingTopologies.isEmpty else { return }
         let pending = pendingTopologies
@@ -186,6 +206,13 @@ final class FocusCoordinator {
         for entry in pending {
             if let topology = entry.build() { send(.topology(topology)) }
         }
+    }
+
+    /// Names what has the keyboard in the focused pane in the crash keys, from the key window (or a coordinator
+    /// with no window, in tests): one relaxed store per drain.
+    private func noteCrashKeyPane() {
+        guard let crashKeys, window?.isKeyWindow != false else { return }
+        crashKeys.set(.paneKind, CrashKeySlots.PaneKind(focus: reduced.resolved)?.rawValue ?? 0)
     }
 
     /// Stamps the focused pane's move with the presentation of the frame that shows it (``closeAim``).
@@ -260,10 +287,17 @@ final class FocusCoordinator {
 }
 
 extension FocusEvent.Source {
-    /// Mouse or keyboard from the event AppKit is dispatching, else programmatic (`NSApp.currentEvent`
-    /// stays the last event after its dispatch, so it counts only inside `sendEvent`; cx-3hw0i.2).
+    /// Mouse or keyboard from the event the action answers (`InputEventTap.actionEvent`: a context menu's
+    /// own choice), only while the app dispatches one; else programmatic: a CLI run after a click is not the
+    /// mouse (cx-3hw0i.2).
     static var current: FocusEvent.Source {
-        switch (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true ? NSApp.currentEvent?.type : nil {
+        let app = NSApp as? CmuxApplication
+        return of(app?.inputDispatch?.event == nil ? nil : app?.inputTap?.actionEvent)
+    }
+
+    /// Mouse or keyboard from `event`, the input an action answers; programmatic for none.
+    static func of(_ event: NSEvent?) -> FocusEvent.Source {
+        switch event?.type {
         case .keyDown, .keyUp, .flagsChanged: .keyboard
         case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp, .leftMouseDragged: .mouse
         default: .programmatic
@@ -275,5 +309,20 @@ extension FocusEvent.Source {
     static var intent: FocusEvent.Source {
         let source = current
         return source == .programmatic ? .cli : source
+    }
+}
+
+extension CrashKeySlots.PaneKind {
+    /// What has the keyboard in the focused pane for `focus`; nil when the keyboard is outside the panes (the
+    /// sidebar, a text field, an overlay, nothing).
+    init?(focus: FocusState.Resolved) {
+        switch focus {
+        case .terminal: self = .terminal
+        case .browserPage, .addressBar, .findBar, .devTools: self = .browser
+        case .agentPage, .conversation: self = .agent
+        case .page: self = .page
+        case .emptyPane: self = .empty
+        case .sidebar, .sidebarField, .textField, .overlay, .none: return nil
+        }
     }
 }

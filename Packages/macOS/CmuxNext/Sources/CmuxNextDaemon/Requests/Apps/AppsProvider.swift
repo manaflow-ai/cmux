@@ -9,7 +9,7 @@ import Foundation
 /// includes `agent_cli`, so older daemons keep the existing families.
 public struct AppsProviderRegisterRequest: DaemonRequest {
     public typealias Response = JSONValue
-    public static let command = "apps-provider-register"
+    public static let commandName: DaemonCommandName = "apps-provider-register"
 
     public var families: [String]
 
@@ -24,7 +24,7 @@ public struct AppsProviderRegisterRequest: DaemonRequest {
 /// retryable, details?}`.
 public struct AppsProviderResultRequest: DaemonRequest {
     public typealias Response = JSONValue
-    public static let command = "apps-provider-result"
+    public static let commandName: DaemonCommandName = "apps-provider-result"
 
     public var requestID: UInt64
     public var ok: Bool
@@ -37,7 +37,7 @@ public struct AppsProviderResultRequest: DaemonRequest {
     }
 
     enum CodingKeys: String, CodingKey {
-        case requestID, ok
+        case requestID = "request_id", ok
     }
 }
 

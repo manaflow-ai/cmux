@@ -209,6 +209,7 @@ fn replace_host(
             root,
             adoption,
             Some(program_status),
+            mux.host_reaper(),
         ) {
             Ok(attachment) => attachment,
             Err(error) => {
@@ -229,6 +230,7 @@ fn replace_host(
         record.host_pid,
         attachment.record.host_pid,
     );
+    mux.note_holder_exit();
     attachment.keep_pty_custody(custody);
     Some(attachment)
 }

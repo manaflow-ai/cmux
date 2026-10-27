@@ -369,7 +369,7 @@ final class ChatLayout: UICollectionViewLayout {
         return a
     }
 
-    static var longConnectors = !ProcessInfo.processInfo.arguments.contains("--no-long-connectors")
+    static let longConnectors = !ProcessInfo.processInfo.arguments.contains("--no-long-connectors")
     /// Content y of a connector's top (the root's vertical center).
     func connectorTop(_ c: (reply: Int, root: Int?)) -> CGFloat {
         guard let r = c.root else { return rowsTop }
@@ -551,7 +551,7 @@ final class RowCell: UICollectionViewCell {
     /// text off main while its previous bitmap stays (drawing the whole bubble on main per token was the
     /// largest part of a streaming frame); a shorter one draws on main as before (cheap, and its look is
     /// unchanged).
-    static var streamOffMainHeight: CGFloat = 160
+    static let streamOffMainHeight: CGFloat = 160 // cmux: let (no shared mutable state)
     /// Streaming rows that kept their previous bitmap while the next one is drawn off main (tests).
     static var streamKeptBitmaps = 0
     /// Whether `spec` is a tall streaming bubble's text row (it draws off main: `streamOffMainHeight`).
@@ -660,7 +660,7 @@ final class RowCell: UICollectionViewCell {
         // Circular ends with a flat top and bottom, as Messages' (its stills: the top row fully covered between the
         // ends). UIBezierPath(roundedRect:cornerRadius:) curves continuously at this radius: no flat part at all.
         let r = RowDraw.typingBubble.height / 2
-        typingBody.path = CGPath(roundedRect: typingBody.bounds, cornerWidth: r, cornerHeight: r, transform: nil)
+        typingBody.path = CGPath.roundedRect(typingBody.bounds, cornerWidth: r, cornerHeight: r)
         let typing = Fixture.typingColors(inactive: inactive)
         typingBody.fillColor = typing.fill.cgColor
         connector.fillColor = nil
@@ -792,7 +792,7 @@ final class RowCell: UICollectionViewCell {
         let frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: s.height + 2 * RowDraw.margin)
         if let img = RowBitmaps.shared.image(for: s, scale: renderScale) {
             CATransaction.begin(); CATransaction.setDisableActions(true)
-            Reclaimer.release(bitmap.contents)
+            Reclaimer.release(bitmap.bitmapContents)
             bitmap.frame = frame
             bitmap.contents = img
             shown(s, img, scale: renderScale)
@@ -868,10 +868,10 @@ final class RowCell: UICollectionViewCell {
         //   until the new bitmap arrives, then swap both in one transaction.
         // Old bitmaps are freed off the main thread (vm_deallocate blocked main
         // for up to 291 ms in the uikit-virtual profile).
-        Reclaimer.release(receiptOld.contents)
+        Reclaimer.release(receiptOld.bitmapContents)
         let deferred = !RowCell.deferredKeys.isEmpty && RowCell.deferredKeys.contains(spec.key)
         if let img = RowBitmaps.shared.image(for: spec, scale: renderScale) {
-            Reclaimer.release(bitmap.contents)
+            Reclaimer.release(bitmap.bitmapContents)
             MediaPlaceholder.clear(bitmap)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
@@ -899,7 +899,7 @@ final class RowCell: UICollectionViewCell {
             RowCell.mainDrawSpent += CACurrentMediaTime() - t0
             if let img { RowBitmaps.shared.insert([(spec, img)], scale: renderScale) } // an unallocated bitmap is not cached
             RowCell.syncRenders += 1
-            Reclaimer.release(bitmap.contents)
+            Reclaimer.release(bitmap.bitmapContents)
             MediaPlaceholder.clear(bitmap)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
@@ -914,7 +914,7 @@ final class RowCell: UICollectionViewCell {
             var queued = false
             if deferred {
                 RowCell.deferredRenders += 1
-                Reclaimer.release(bitmap.contents)
+                Reclaimer.release(bitmap.bitmapContents)
                 MediaPlaceholder.clear(bitmap)
                 bitmap.frame = bitmapFrame
                 bitmap.contents = nil
@@ -949,7 +949,7 @@ final class RowCell: UICollectionViewCell {
                 }
             } else {
                 RowCell.overBudget += 1
-                Reclaimer.release(bitmap.contents)
+                Reclaimer.release(bitmap.bitmapContents)
                 MediaPlaceholder.clear(bitmap)
                 bitmap.frame = bitmapFrame
                 bitmap.contents = nil
@@ -971,7 +971,7 @@ final class RowCell: UICollectionViewCell {
                       self.spec == want || (self.spec?.key == want.key && RowCell.streamDrawsOffMain(want)
                                             && self.drawn.map { $0.spec != want } ?? true) else { return }
                 CATransaction.begin(); CATransaction.setDisableActions(true)
-                Reclaimer.release(self.bitmap.contents)
+                Reclaimer.release(self.bitmap.bitmapContents)
                 MediaPlaceholder.clear(self.bitmap)
                 self.bitmap.frame = bitmapFrame
                 self.bitmap.contents = img
@@ -1003,7 +1003,7 @@ final class RowCell: UICollectionViewCell {
         }
         guard bitmap.contents == nil || (bitmap.contents as AnyObject) !== (img as AnyObject) else { return }
         let span = RowDraw.drawSpan(spec)
-        Reclaimer.release(bitmap.contents)
+        Reclaimer.release(bitmap.bitmapContents)
         MediaPlaceholder.clear(bitmap)
         bitmap.frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
         bitmap.contents = img
@@ -1050,8 +1050,15 @@ final class RowCell: UICollectionViewCell {
             DispatchQueue.concurrentPerform(iterations: specs.count) { i in
                 // checked reads and writes (crash ratchet)
                 let r0 = CACurrentMediaTime()
-                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] { out[slot] = RowBitmaps.render(spec, scale: sc) }
-                if let slot = ms.checkedIndex(i) { ms[slot] = (CACurrentMediaTime() - r0) * 1000 }
+                if let spec = specs[checked: i], let sc = scales[checked: i] {
+                    let image = RowBitmaps.render(spec, scale: sc)
+                    // SAFETY: out is the images array's storage, lent for this closure, which concurrentPerform does
+                    // not outlive; `checkedWrite` checks i against its bounds and changes only element i (the buffer
+                    // value itself is not written), and iteration i is the only writer of element i.
+                    unsafe out.checkedWrite(image, at: i)
+                }
+                // SAFETY: as above, for rowMs.
+                unsafe ms.checkedWrite((CACurrentMediaTime() - r0) * 1000, at: i)
             }
             }
         }
@@ -1069,7 +1076,7 @@ final class RowCell: UICollectionViewCell {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for (k, (cell, spec, frame, sc)) in q.enumerated() where cell.spec == spec && cell.renderScale == sc {
             guard let img = images[k] else { continue }
-            Reclaimer.release(cell.bitmap.contents)
+            Reclaimer.release(cell.bitmap.bitmapContents)
             MediaPlaceholder.clear(cell.bitmap)
             cell.bitmap.frame = frame
             cell.bitmap.contents = img
@@ -1582,7 +1589,7 @@ final class RowCell: UICollectionViewCell {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         receiptOld.frame = bitmap.frame
         let span = RowDraw.drawSpan(spec)
-        Reclaimer.release(receiptOld.contents)
+        Reclaimer.release(receiptOld.bitmapContents)
         if receiptOld.superlayer == nil { contentView.layer.insertSublayer(receiptOld, above: bitmap) }
         var reuse: CGImage?
         #if !canImport(UIKit)
@@ -1627,8 +1634,9 @@ final class RowCell: UICollectionViewCell {
             a.isRemovedOnCompletion = false
             a.calculationMode = .linear
             if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
-            // cmux: under Reduce Motion the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
-            else if MessagesLabHomeView.reducesMotion { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
+            // cmux: under Reduce Motion or the host's still loops (Energy Saver) the dots stand at the first dot's
+            // peak, played once (cx-sya4n: nothing loops; p14-energy-027).
+            else if MessagesLabHomeView.stillsLoops { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
             hi.add(a, forKey: "dots")
         }
     }
@@ -1639,8 +1647,8 @@ final class RowCell: UICollectionViewCell {
     func startTypingBreath(insert: CFTimeInterval) {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard Springs.typingStillPhase == nil else { return }
-        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
-        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
+        // cmux: no breathing under Reduce Motion or the host's still loops, and a running breath stops (cx-sya4n).
+        if MessagesLabHomeView.stillsLoops { stopTypingBreath(); return }
         let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
         // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
         // fixed point to b: e x (a - b).
@@ -1739,8 +1747,8 @@ final class RowCell: UICollectionViewCell {
     /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
     var needsTypingBreath: Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
-        // cmux: no breathing under Reduce Motion (cx-sya4n).
-        Springs.typingStillPhase == nil && !MessagesLabHomeView.reducesMotion && typingContainer.animation(forKey: "breath.transform.scale") == nil
+        // cmux: no breathing under Reduce Motion or the host's still loops (cx-sya4n).
+        Springs.typingStillPhase == nil && !MessagesLabHomeView.stillsLoops && typingContainer.animation(forKey: "breath.transform.scale") == nil
 #else
         false
 #endif

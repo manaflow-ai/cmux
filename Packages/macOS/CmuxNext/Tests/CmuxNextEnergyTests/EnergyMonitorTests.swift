@@ -178,10 +178,10 @@ struct EnergyMonitorTests {
 
     @Test func theBatteryIsTheInternalOneAndItsChargeIsCurrentOverFull() {
         let ups: [String: Any] = [kIOPSTypeKey: kIOPSUPSType, kIOPSCurrentCapacityKey: 90, kIOPSMaxCapacityKey: 100]
-        let internal: [String: Any] = [kIOPSTypeKey: kIOPSInternalBatteryType, kIOPSCurrentCapacityKey: 3_100, kIOPSMaxCapacityKey: 4_000]
+        let internalBattery: [String: Any] = [kIOPSTypeKey: kIOPSInternalBatteryType, kIOPSCurrentCapacityKey: 3_100, kIOPSMaxCapacityKey: 4_000]
         #expect(BatteryLevel(descriptions: []) == BatteryLevel())
         #expect(!BatteryLevel(descriptions: [ups]).hasBattery)
-        let battery = BatteryLevel(descriptions: [ups, internal])
+        let battery = BatteryLevel(descriptions: [ups, internalBattery])
         #expect(battery.hasBattery && battery.percent == 78)
         #expect(BatteryLevel.percent(current: 19, full: 100) == 19)
         #expect(BatteryLevel.percent(current: 120, full: 100) == 100)

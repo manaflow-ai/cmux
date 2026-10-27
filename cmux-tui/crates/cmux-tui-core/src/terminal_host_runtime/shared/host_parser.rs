@@ -4,6 +4,7 @@
 //! after every command.
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -13,7 +14,7 @@ use ghostty_vt::Callbacks;
 
 use super::super::*;
 use super::clipboard_read::*;
-use super::host_shared::HostShared;
+use super::host_shared::{HostLoop, HostShared};
 use super::host_state::*;
 
 /// State the parser shares with the terminal's callbacks.
@@ -154,12 +155,15 @@ pub(crate) fn run_host_parser(
     let flush_pending_responses = || {
         let responses = std::mem::take(&mut *pending_responses.lock().recover_poison());
         if !responses.is_empty() {
-            let mut writer = parser_host.writer.lock().recover_poison();
+            let mut writer = parser_host.pty_writer();
             let _ = writer.write_all(&responses);
             let _ = writer.flush();
         }
     };
-    while let Ok(command) = parser_command_receiver.recv() {
+    let hang_watch = HostLoop::Parser.register();
+    while let Ok(command) = waits::recv(&parser_command_receiver) {
+        // One hang-watch scope per command, after its wait.
+        let _item = HostLoop::Parser.watch(&hang_watch);
         // One `task.host_parse` slice per command, after its wait: terminal hash, command kind
         // and, for Output, its bytes.
         let _parse = cmux_trace::trace_scope!(

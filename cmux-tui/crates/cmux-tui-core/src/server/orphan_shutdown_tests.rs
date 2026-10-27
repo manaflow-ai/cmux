@@ -22,7 +22,7 @@ fn client_presence_is_signalled_on_every_connect_and_leave() {
     let mux = mux("presence");
     let calls = Arc::new(AtomicUsize::new(0));
     let seen = calls.clone();
-    mux.set_client_presence_observer(move || {
+    mux.add_client_presence_observer(move || {
         seen.fetch_add(1, Ordering::SeqCst);
     });
     let client = connect(&mux);
@@ -31,6 +31,24 @@ fn client_presence_is_signalled_on_every_connect_and_leave() {
     assert!(disconnect_client(&mux, client, false));
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(mux.client_count(), 0);
+}
+
+#[test]
+fn idle_exit_and_orphan_exit_both_hear_client_presence() {
+    // The DEV orphan exit and the leftover idle exit watch the same owner.
+    let mux = mux("two-observers");
+    let calls = [Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0))];
+    for seen in &calls {
+        let seen = seen.clone();
+        mux.add_client_presence_observer(move || {
+            seen.fetch_add(1, Ordering::SeqCst);
+        });
+    }
+    let client = connect(&mux);
+    assert!(disconnect_client(&mux, client, false));
+    for seen in &calls {
+        assert_eq!(seen.load(Ordering::SeqCst), 2);
+    }
 }
 
 #[test]

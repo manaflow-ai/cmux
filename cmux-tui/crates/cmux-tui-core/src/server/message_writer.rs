@@ -5,24 +5,32 @@
 //! Order (spec/transports.md "Reply and event order"): replies and the items
 //! of control-sequence streams (`start_control_stream`) share the
 //! connection's control FIFO, so a reply is written after every control event
-//! enqueued before it; every other stream keeps its own FIFO.
+//! enqueued before it; every other stream keeps its own FIFO. A framed
+//! request's reply is a frame in that same FIFO (`send_reply`). Every other
+//! stream rides a lane (`StreamLane`): input streams before the control FIFO,
+//! bulk and background streams after it (server/outbound_lanes.rs).
 
 use super::AttachWireShape;
 use super::BudgetedText;
 use super::RenderService;
 use super::VtStateMessage;
 use super::api_revision_wire;
+use super::attach_streams::AttachStreamAdmission;
+use super::attach_streams::AttachStreamError;
+use super::attach_streams::ClientStreamId;
 use super::conversation_tabs_wire;
+use super::frame_dispatch::FrameCall;
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::mux::ResourceWaitWake;
 use crate::panic_free::RecoverPoison;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
+use cmux_ipc::{FrameHeader, StreamLane};
+use cmux_threads::sync::Mutex;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -36,26 +44,50 @@ pub(super) struct OutboundStream {
     /// The stream rides the connection's control sequence (stream 0): its
     /// items share the reply FIFO. False for every other stream.
     pub(super) control_sequence: bool,
+    /// The outbound lane of a stream outside the control sequence.
+    pub(super) lane: StreamLane,
     pub(super) terminal_enqueued: Arc<AtomicBool>,
     pub(super) overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
     /// Fired by `close`, so stream loops block instead of polling `is_open`.
     pub(super) closed: InterruptSet,
+    /// The id the client minted for this stream (attach-streams-v1): every
+    /// item carries it as `"stream"` and the terminal is `stream-end`.
+    pub(super) client_stream: Option<ClientStreamId>,
+    /// Run when the writer takes an item of this stream while it held its
+    /// backpressure cap: the producer's drain task (p05-ipc-079), which
+    /// stopped at the cap instead of waiting for room.
+    pub(super) space_hook: Arc<crate::stream_interrupt::ReadyHook>,
 }
 
 impl OutboundStream {
+    #[cfg(test)]
     pub(super) fn new(id: u64, overflow_text: Arc<BudgetedText>) -> Self {
-        Self::with_sequence(id, overflow_text, false)
+        Self::with_sequence(id, overflow_text, false, StreamLane::Bulk)
     }
 
-    fn with_sequence(id: u64, overflow_text: Arc<BudgetedText>, control_sequence: bool) -> Self {
+    pub(super) fn with_sequence(
+        id: u64,
+        overflow_text: Arc<BudgetedText>,
+        control_sequence: bool,
+        lane: StreamLane,
+    ) -> Self {
         Self {
             id,
             open: Arc::new(AtomicBool::new(true)),
             control_sequence,
+            lane,
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
             overflow_text: Arc::new(Mutex::new(overflow_text)),
             closed: InterruptSet::default(),
+            client_stream: None,
+            space_hook: Arc::default(),
         }
+    }
+
+    /// Runs `hook` each time the writer takes an item of this stream while
+    /// it was at its backpressure cap. False when a hook is set already.
+    pub(super) fn on_space(&self, hook: impl Fn() + Send + Sync + 'static) -> bool {
+        self.space_hook.set(hook)
     }
 
     pub(super) fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
@@ -76,6 +108,11 @@ impl OutboundStream {
     }
 }
 
+/// A non-blocking producer's wake for when the connection's queue has room
+/// for its stream's ordered terminal
+/// ([`MessageSink::try_send_ordered_terminal`]).
+pub(super) type RoomWaker = Box<dyn FnOnce() + Send>;
+
 pub(super) trait MessageSink: Send + Sync {
     fn send_initial(&self, text: Arc<BudgetedText>, stream: &OutboundStream)
     -> std::io::Result<()>;
@@ -88,6 +125,43 @@ pub(super) trait MessageSink: Send + Sync {
         self.send_stream(text, stream)
     }
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
+    /// Whether `stream` holds fewer queued items than its backpressure cap:
+    /// a producer that does not wait sends only then
+    /// ([`OutboundStream::on_space`] wakes it once there is room).
+    fn stream_has_room(&self, _stream: &OutboundStream) -> bool {
+        true
+    }
+    /// Takes `stream`'s client-minted id on this connection until its
+    /// terminal is queued (attach-streams-v1), within the connection's and
+    /// `admission`'s daemon-wide caps.
+    fn claim_client_stream(
+        &self,
+        _stream: &OutboundStream,
+        _admission: &Arc<AttachStreamAdmission>,
+    ) -> Result<(), AttachStreamError> {
+        Err(AttachStreamError::Unsupported)
+    }
+    /// The open stream holding client-minted `id` on this connection.
+    fn client_stream(&self, _id: ClientStreamId) -> Option<OutboundStream> {
+        None
+    }
+    /// `text` as the payload of a frame with `header`, in the control FIFO
+    /// with replies and control events. Only a local Unix connection that
+    /// granted frames carries them.
+    fn send_frame(&self, _header: FrameHeader, _text: Arc<BudgetedText>) -> std::io::Result<()> {
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "this sink carries no frames"))
+    }
+    /// `text` as the payload of a frame with `header` on `stream`'s FIFO,
+    /// cut at the connection's BULK_FRAME_MAX. Only a local Unix connection
+    /// that granted frames carries them.
+    fn send_stream_frame(
+        &self,
+        _header: FrameHeader,
+        _text: Arc<BudgetedText>,
+        _stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "this sink carries no frames"))
+    }
     fn send_terminal(
         &self,
         text: Arc<BudgetedText>,
@@ -98,6 +172,19 @@ pub(super) trait MessageSink: Send + Sync {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()>;
+    /// [`Self::send_ordered_terminal`] for a producer that must not wait (a
+    /// drain on the sequenced pool): `Ok(false)` while the stream or the
+    /// connection has no room for it, and the sink holds `on_room` until an
+    /// item leaves its queue or it closes. A sink with no budget to wait on
+    /// queues it at once.
+    fn try_send_ordered_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+        _on_room: RoomWaker,
+    ) -> std::io::Result<bool> {
+        self.send_ordered_terminal(text, stream).map(|()| true)
+    }
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
     }
@@ -128,6 +215,13 @@ pub(super) struct MessageWriter {
     pub(super) conversation_tabs: Arc<conversation_tabs_wire::NegotiatedTabs>,
     /// Negotiated API revision (server/api_revision_wire.rs).
     pub(super) api_revision: Arc<api_revision_wire::NegotiatedRevision>,
+    /// The framed request this writer answers (`replying_to`): its reply
+    /// leaves as that request's REPLY or ERROR frame. `None` on the
+    /// connection's own writer and for every line.
+    pub(super) reply: Option<Arc<FrameCall>>,
+    /// The connection's caller class for `debug-daemon-locks`, read by its
+    /// reader and dispatcher with no lock (server/origin_gate.rs sets it).
+    pub(super) lock_caller: Arc<crate::diagnostics::LockCallerCell>,
 }
 
 impl MessageWriter {
@@ -149,13 +243,83 @@ impl MessageWriter {
             closed: InterruptSet::default(),
             conversation_tabs: Arc::default(),
             api_revision: Arc::default(),
+            reply: None,
+            lock_caller: Arc::default(),
         }
     }
 
+    /// This connection's writer, answering the framed request `call`: like
+    /// the responder Mojo hands a method with a response
+    /// (chromium mojo/public/cpp/bindings/lib/interface_endpoint_client.cc,
+    /// `ResponderThunk`), it knows where the reply goes. Everything else it
+    /// sends goes where the connection's writer sends it.
+    pub(super) fn replying_to(&self, call: Arc<FrameCall>) -> Self {
+        Self { reply: Some(call), ..self.clone() }
+    }
+
+    /// The connection's writer, answering no framed request.
+    pub(super) fn connection_writer(&self) -> Self {
+        Self { reply: None, ..self.clone() }
+    }
+
+    /// The framed request this writer answers.
+    pub(super) fn frame_call(&self) -> Option<&Arc<FrameCall>> {
+        self.reply.as_ref()
+    }
+
+    /// The reply to the request this writer answers: a JSON line, or, for a
+    /// framed request, the same JSON as its REPLY frame (ERROR when `ok` is
+    /// false). Only the first reply of a framed request is framed.
+    pub(super) fn send_reply(&self, reply: &Value) -> std::io::Result<()> {
+        if self.reply.as_ref().is_none_or(|call| call.is_answered()) {
+            return self.send_control(reply);
+        }
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let ok = reply.get("ok") != Some(&Value::Bool(false));
+        let result = self.render_service.serialize_control(reply).and_then(|text| {
+            self.send_framed_reply(
+                self.project_api_revision(self.project_conversation_tabs(text)?)?,
+                ok,
+            )
+        });
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
+    /// `text`, projected already, as the framed request's reply, if this
+    /// writer answers one that has none yet; else as a control line.
+    fn send_framed_reply(&self, text: Arc<BudgetedText>, ok: bool) -> std::io::Result<()> {
+        match self.reply.as_ref().filter(|call| call.claim_reply()) {
+            Some(call) => {
+                let header = call.reply_header(ok, text.len()).map_err(|bad| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, bad.to_string())
+                })?;
+                self.sink.send_frame(header, text)
+            }
+            None => self.sink.send_control(text),
+        }
+    }
+
+    /// A bulk stream: snapshots, replays and output nobody is typing into.
     pub(super) fn start_stream(&self, overflow: &Value) -> std::io::Result<OutboundStream> {
-        Ok(OutboundStream::new(
+        self.start_stream_on(StreamLane::Bulk, overflow)
+    }
+
+    /// A stream with its own FIFO on `lane`.
+    pub(super) fn start_stream_on(
+        &self,
+        lane: StreamLane,
+        overflow: &Value,
+    ) -> std::io::Result<OutboundStream> {
+        Ok(OutboundStream::with_sequence(
             self.next_stream_id.fetch_add(1, Ordering::Relaxed),
             self.render_service.serialize_control(overflow)?,
+            false,
+            lane,
         ))
     }
 
@@ -169,7 +333,19 @@ impl MessageWriter {
             self.next_stream_id.fetch_add(1, Ordering::Relaxed),
             self.render_service.serialize_control(overflow)?,
             true,
+            StreamLane::Bulk,
         ))
+    }
+
+    /// The stream's overflow terminal (`overflow`, or `stream-end{overflow}`
+    /// on a client-minted stream), dropping what the stream still queues.
+    pub(super) fn send_overflow_terminal(&self, stream: &OutboundStream) -> std::io::Result<()> {
+        let text = stream.overflow_text.lock().recover_poison().clone();
+        let result = self.sink.send_terminal(text, stream);
+        if result.is_err() {
+            self.close();
+        }
+        result
     }
 
     pub(super) fn update_stream_overflow(
@@ -191,8 +367,31 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize(value)
+            .serialize_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_stream(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    /// A frame on `stream` whose payload is `text`: one longer than the
+    /// connection's BULK_FRAME_MAX leaves in chunks, so replies and
+    /// input-lane items pass it between chunks.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "p05-ipc-076 OUTPUT/SNAPSHOT frames are its first producer")
+    )]
+    pub(super) fn send_stream_frame(
+        &self,
+        header: FrameHeader,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.send_stream_frame(header, text, stream);
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
@@ -210,10 +409,44 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self
-            .render_service
-            .serialize(value)
-            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
+        self.send_encoded_backpressured(self.encode(value, stream), stream)
+    }
+
+    /// The first half of [`Self::send_stream_backpressured`]: `value` as
+    /// the text it sends on `stream` (tagged with its client-minted id, if
+    /// any). An echo thread watches this half as its frame's work, not the
+    /// hand-off that waits for room.
+    pub(super) fn encode<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: &OutboundStream,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        self.render_service.serialize_for(value, stream.client_stream)
+    }
+
+    /// [`Self::encode`] of an attach frame in `shape`.
+    pub(super) fn encode_attach_frame(
+        &self,
+        surface: SurfaceId,
+        frame: &AttachFrame,
+        shape: AttachWireShape,
+        stream: &OutboundStream,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        self.render_service.serialize_attach_frame_for(surface, frame, shape, stream.client_stream)
+    }
+
+    /// The second half of [`Self::send_stream_backpressured`]: hand the
+    /// encoded text to the stream, waiting while its queue is full. A failed
+    /// encode or hand-off closes the stream, as the whole send does.
+    pub(super) fn send_encoded_backpressured(
+        &self,
+        encoded: std::io::Result<Arc<BudgetedText>>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = encoded.and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
@@ -230,7 +463,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize(value)
+            .serialize_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_initial(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
@@ -248,7 +481,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize_vt_state(value)
+            .serialize_vt_state_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_initial(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
@@ -256,7 +489,9 @@ impl MessageWriter {
         result
     }
 
-    pub(super) fn send_attach_frame_backpressured(
+    /// An attach frame on `stream` for a producer that checked
+    /// [`MessageSink::stream_has_room`] first: it never waits.
+    pub(super) fn send_attach_frame(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
@@ -267,9 +502,8 @@ impl MessageWriter {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self
-            .render_service
-            .serialize_attach_frame(surface, frame, shape)
-            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
+            .encode_attach_frame(surface, frame, shape, stream)
+            .and_then(|text| self.sink.send_stream(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
@@ -286,7 +520,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize_control(value)
+            .serialize_control_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_terminal(text, stream));
         if result.is_err() {
             self.close();
@@ -304,7 +538,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize_control(value)
+            .serialize_control_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_ordered_terminal(text, stream));
         if result.is_err() {
             self.close();
@@ -326,6 +560,8 @@ impl MessageWriter {
         result
     }
 
+    /// A successful reply serialized ahead (`vt-state` writes its budgeted
+    /// reply itself); like `send_reply`, the REPLY frame of a framed request.
     pub(super) fn send_serialized_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
@@ -333,7 +569,7 @@ impl MessageWriter {
         let result = self
             .project_conversation_tabs(text)
             .and_then(|text| self.project_api_revision(text))
-            .and_then(|text| self.sink.send_control(text));
+            .and_then(|text| self.send_framed_reply(text, true));
         if result.is_err() {
             self.close();
         }

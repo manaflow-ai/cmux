@@ -232,7 +232,6 @@ impl Presentation for ShimPresentation {
     }
 
     fn input(&mut self, browser: i32, call: &RpCall) -> bool {
-        // SAFETY (every arm): the CStrings and pointer arrays outlive the call.
         let done = match call {
             RpCall::SendKey { down, code, key, text, unmodified_text, modifiers, commands } => {
                 let (code, key, text, unmodified) =
@@ -241,6 +240,9 @@ impl Presentation for ShimPresentation {
                 let values: Vec<CString> = commands.iter().map(|(_, v)| cstr(v)).collect();
                 let name_ptrs: Vec<*const c_char> = names.iter().map(|c| c.as_ptr()).collect();
                 let value_ptrs: Vec<*const c_char> = values.iter().map(|c| c.as_ptr()).collect();
+                // SAFETY: the four CStrings, `names`, `values` and both pointer arrays outlive the
+                // call; both arrays hold `name_ptrs.len()` entries, the count passed. UI thread
+                // by this type's contract.
                 unsafe {
                     rb_shim_send_key(
                         browser,
@@ -256,11 +258,15 @@ impl Presentation for ShimPresentation {
                     )
                 }
             }
-            RpCall::PageMouse { kind, x, y, button, click_count, modifiers } => unsafe {
-                rb_shim_send_mouse(browser, *kind, *x, *y, *button, *click_count, *modifiers)
-            },
+            RpCall::PageMouse { kind, x, y, button, click_count, modifiers } => {
+                // SAFETY: plain values; UI thread.
+                unsafe {
+                    rb_shim_send_mouse(browser, *kind, *x, *y, *button, *click_count, *modifiers)
+                }
+            }
             RpCall::SurfaceMouse { surface, kind, x, y, button, click_count, modifiers } => {
                 let surface = c_int::try_from(*surface).unwrap_or(c_int::MAX);
+                // SAFETY: plain values; UI thread.
                 unsafe {
                     rb_shim_surface_send_mouse(
                         surface,
@@ -273,27 +279,32 @@ impl Presentation for ShimPresentation {
                     )
                 }
             }
-            RpCall::SendWheel { x, y, dx, dy, precise, phase, momentum_phase, modifiers } => unsafe {
-                rb_shim_send_wheel(
-                    browser,
-                    *x,
-                    *y,
-                    *dx,
-                    *dy,
-                    c_int::from(*precise),
-                    *phase,
-                    *momentum_phase,
-                    *modifiers,
-                )
-            },
-            RpCall::SendPinch { phase, scale, x, y } => unsafe {
-                rb_shim_send_pinch(browser, *phase, *scale, *x, *y)
-            },
+            RpCall::SendWheel { x, y, dx, dy, precise, phase, momentum_phase, modifiers } => {
+                // SAFETY: plain values; UI thread.
+                unsafe {
+                    rb_shim_send_wheel(
+                        browser,
+                        *x,
+                        *y,
+                        *dx,
+                        *dy,
+                        c_int::from(*precise),
+                        *phase,
+                        *momentum_phase,
+                        *modifiers,
+                    )
+                }
+            }
+            RpCall::SendPinch { phase, scale, x, y } => {
+                // SAFETY: plain values; UI thread.
+                unsafe { rb_shim_send_pinch(browser, *phase, *scale, *x, *y) }
+            }
             RpCall::ImeSetComposition {
                 text, selection_start, selection_end, replacement, ..
             } => {
                 let text = cstr(text);
                 let (a, b) = range(*replacement);
+                // SAFETY: `text` outlives the call; the rest are plain values. UI thread.
                 unsafe {
                     rb_shim_ime_set_composition(
                         browser,
@@ -308,12 +319,17 @@ impl Presentation for ShimPresentation {
             RpCall::ImeCommit { text, replacement } => {
                 let text = cstr(text);
                 let (a, b) = range(*replacement);
+                // SAFETY: `text` outlives the call; the rest are plain values. UI thread.
                 unsafe { rb_shim_ime_commit(browser, text.as_ptr(), a, b) }
             }
-            RpCall::ImeFinish { keep_selection } => unsafe {
-                rb_shim_ime_finish(browser, c_int::from(*keep_selection))
-            },
-            RpCall::ImeCancel => unsafe { rb_shim_ime_cancel(browser) },
+            RpCall::ImeFinish { keep_selection } => {
+                // SAFETY: plain values; UI thread.
+                unsafe { rb_shim_ime_finish(browser, c_int::from(*keep_selection)) }
+            }
+            RpCall::ImeCancel => {
+                // SAFETY: plain value; UI thread.
+                unsafe { rb_shim_ime_cancel(browser) }
+            }
         };
         done == 1
     }

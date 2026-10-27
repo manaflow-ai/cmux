@@ -6,16 +6,15 @@ import Testing
 /// own link opener after a real gesture, and never to the system's URL handler.
 @MainActor
 struct AgentPaneAppLinkTests {
-    private let source = AgentPaneSource.bundled(URL(string: "cmux-agent://pane/index.html")!)
     private let workspace = URL(string: "cmux://workspace/ws_0123456789abcdef0123456789abcdef")!
 
     @Test func aClickedAppLinkLeavesThePaneAndAnUnclickedOneIsCancelled() {
-        #expect(AgentPaneNavigation.decision(for: workspace, source: source, userClicked: true) == .openOutside(workspace))
-        #expect(AgentPaneNavigation.decision(for: workspace, source: source, userClicked: false) == .cancel)
+        #expect(AgentPaneNavigation.decision(for: workspace, userClicked: true) == .openOutside(workspace))
+        #expect(AgentPaneNavigation.decision(for: workspace, userClicked: false) == .cancel)
         let ssh = URL(string: "ssh://host")!
-        #expect(AgentPaneNavigation.decision(for: ssh, source: source, userClicked: true) == .cancel)
+        #expect(AgentPaneNavigation.decision(for: ssh, userClicked: true) == .cancel)
         let script = URL(string: "javascript:alert(1)")!
-        #expect(AgentPaneNavigation.decision(for: script, source: source, userClicked: true) == .cancel)
+        #expect(AgentPaneNavigation.decision(for: script, userClicked: true) == .cancel)
     }
 
     @Test func anAppLinkGoesToTheAppOpenerOnlyWithAGesture() {
@@ -29,6 +28,19 @@ struct AgentPaneAppLinkTests {
                                                 openApp: { app.append($0); return true }))
         #expect(app == [workspace])
         #expect(system.isEmpty, "an app link went to the system")
+    }
+
+    /// The old host's document (`cmux-agent://pane/index.html`) is served by nothing now: the page's
+    /// main frame never goes there, clicked or not, and neither does a frame inside it.
+    @Test func theOldHostsDocumentIsCancelledInTheMainFrameAndInAFrame() {
+        let old = URL(string: "cmux-agent://pane/index.html")!
+        for clicked in [false, true] {
+            #expect(AgentPaneNavigation.decision(for: old, userClicked: clicked) == .cancel)
+            #expect(AgentPaneNavigation.decision(for: old, userClicked: clicked, mainFrame: false) == .cancel)
+        }
+        // The pane's own schemes are never app links, whatever their host says.
+        #expect(!AgentPaneNavigation.isCmuxAppLink(URL(string: "cmux-agent://pane/x")!))
+        #expect(!AgentPaneNavigation.isCmuxAppLink(URL(string: "cmux-page://pane/x")!))
     }
 
     @Test func onlyCmuxSchemesWithAKnownHostAreAppLinks() {

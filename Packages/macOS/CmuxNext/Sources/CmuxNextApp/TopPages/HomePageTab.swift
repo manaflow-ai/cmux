@@ -21,6 +21,8 @@ final class HomePageTab: InternalPageProvider {
     private var views: [String: TopHomePageView] = [:]
     /// The order the tabs opened in (`debug.home` lists them so).
     private var order: [String] = []
+    /// Bumped when a tab's view is made or goes: `views` is plain storage, so a reader of ``tabs`` hears it.
+    private let installs = PageInstallCounter()
     /// The saved list width every Home tab shares (`HomeSidebarWidth` keeps
     /// one width per key; one key per tab would grow without bound).
     static let widthKey = "home-tab"
@@ -38,17 +40,20 @@ final class HomePageTab: InternalPageProvider {
         let view = TopHomePageView(services: services, windowKey: { Self.widthKey })
         views[key] = view
         order.append(key)
+        installs.bump()
         return view
     }
 
     func tabClosed(_ key: String) {
         views[key] = nil
         order.removeAll { $0 == key }
+        installs.bump()
     }
 
-    /// Open Home tabs by provider key, in the order they opened.
+    /// Open Home tabs by provider key, in the order they opened; observed (a view made or gone).
     var tabs: [(key: String, view: TopHomePageView)] {
-        order.compactMap { key in views[key].map { (key, $0) } }
+        _ = installs.revision
+        return order.compactMap { key in views[key].map { (key, $0) } }
     }
 
     /// The transcript a Home tab shows (its conversation's native view).

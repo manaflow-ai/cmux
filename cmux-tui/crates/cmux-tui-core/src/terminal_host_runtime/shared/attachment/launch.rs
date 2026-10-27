@@ -3,7 +3,7 @@
 //! one-shot owner connection, and a surface adoption bounded by the Kitty
 //! graphics quota.
 
-use std::fs;
+use cmux_threads::checked::fs as files;
 use std::path::PathBuf;
 
 use super::super::super::sys::{
@@ -264,7 +264,7 @@ fn launch_terminal_host_seeded_in(
     crate::debug_spans::mark("host.launch_ready");
 
     let record: TerminalHostRecord = serde_json::from_slice(
-        &fs::read(&record_path).context("read terminal-host discovery record")?,
+        &files::read(&record_path).context("read terminal-host discovery record")?,
     )?;
     validate_terminal_host_record(&record_path, &record)?;
     if record.terminal_id != terminal_hex

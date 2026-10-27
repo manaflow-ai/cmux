@@ -1,4 +1,4 @@
-@preconcurrency public import Sparkle
+public import Foundation
 
 /// Opt-in background installs for hosts that never prompt (cmux-next): found updates download
 /// silently, and the ready update waits for ``installStagedUpdate()``. Off by default, which
@@ -32,7 +32,7 @@ extension UpdateController {
     }
 
     /// The downloaded update waiting for ``installStagedUpdate()``, or nil.
-    public var stagedUpdate: SUAppcastItem? {
+    public var stagedUpdate: UpdateAppcastItem? {
         driver.stagedItem
     }
 

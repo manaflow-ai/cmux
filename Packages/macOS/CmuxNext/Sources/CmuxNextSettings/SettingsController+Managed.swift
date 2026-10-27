@@ -1,3 +1,5 @@
+import AppKit
+public import CmuxNextWakeups
 public import Foundation
 
 extension SettingsController {
@@ -6,6 +8,16 @@ extension SettingsController {
     /// for a profile change, and the managed files are only wake-up hints.
     public func managedPreferencesMayHaveChanged() {
         requestReload()
+    }
+
+    /// Calls ``managedPreferencesMayHaveChanged()`` on each app activation, through the app's one
+    /// activation observer on `events` (the event-driven backstop next to the managed-file watchers).
+    /// The app follows after the first frame: the launch read and the watchers' first reload cover the launch.
+    public func followActivation(on events: AppEvents) {
+        // raw-observer-allow: this is the AppEvents subscription recipe R-notif asks for (the app's one observer); only the notice's name matches
+        activation = events.subscribe(NSApplication.didBecomeActiveNotification, owner: "Settings.managedActivation") { [weak self] in
+            self?.managedPreferencesMayHaveChanged()
+        }
     }
 
     /// Sets the device-scoped values of the managing team's policy (decision
@@ -21,9 +33,25 @@ extension SettingsController {
     /// Writes the managed-settings status file after every applied load
     /// whose content changed (osquery, Fleet, Jamf extension attributes,
     /// `cmux mdm status --json`). Call before `start()`.
-    public func writeManagedStatus(to url: URL, context: ManagedStatusReport.Context) {
-        statusTarget = (url, context)
+    ///
+    /// - Parameters:
+    ///   - url: The status file.
+    ///   - context: The app's version and bundle ID in the report.
+    ///   - post: Runs each file write off the main thread, in order (the app posts it as an afterStartup
+    ///     files-lane task: nobody waits for the file at launch). The default runs it on a detached task.
+    public func writeManagedStatus(to url: URL, context: ManagedStatusReport.Context,
+                                   post: @escaping @MainActor (_ write: @escaping @Sendable () -> Void) -> Void = { write in
+                                       _ = Task.detached(priority: .utility) { write() }
+                                   }) {
+        statusTarget = ManagedStatusTarget(url: url, context: context, post: post)
         lastStatusBody = nil
+    }
+
+    /// Where the managed-settings status file goes and how its write runs (``writeManagedStatus(to:context:post:)``).
+    struct ManagedStatusTarget {
+        let url: URL
+        let context: ManagedStatusReport.Context
+        let post: @MainActor (_ write: @escaping @Sendable () -> Void) -> Void
     }
 
     func reportManagedStatus(managed: ManagedPreferences, team: TeamPolicyLayer, effective: EffectiveSettings) {
@@ -32,10 +60,11 @@ extension SettingsController {
         guard body != lastStatusBody else { return }
         lastStatusBody = body
         let document = ManagedStatusReport.document(body: body, writtenAt: Date())
-        Task.detached(priority: .utility) {
+        let url = target.url
+        target.post {
             do {
-                try FileManager.default.createDirectory(at: target.url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try Data((document.prettyText() + "\n").utf8).write(to: target.url, options: .atomic)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data((document.prettyText() + "\n").utf8).write(to: url, options: .atomic)
             } catch {
                 // Best effort: the file is a convenience for local tooling; the backend report is the record.
             }
@@ -68,7 +97,7 @@ extension SettingsController {
                 Task { @MainActor in self?.requestReload() }
             }
         }
-        managedWatchers.forEach { $0.start() }
+        managedWatchers.forEach { $0.startWithoutWaiting() }
     }
 
     func stopManagedWatchers() {

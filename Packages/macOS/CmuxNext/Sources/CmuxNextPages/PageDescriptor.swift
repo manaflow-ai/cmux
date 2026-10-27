@@ -68,8 +68,11 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.actions = actions
         self.commands = commands
         self.confirmedOps = confirmedOps
-        // Only a first-party page may widen its policy (PageID); any other id gets the strict one.
-        self.csp = PageID.isFirstParty(id) ? csp : .strict
+        // Only a first-party page may widen its policy (PageID); any other id gets the strict one. Every
+        // page the app ships imports the shared chunks; an app page never does.
+        var policy = PageID.isFirstParty(id) ? csp : .strict
+        policy.sharedChunks = PageID.isReserved(id)
+        self.csp = policy
         // One file name inside the root, never a path.
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
         self.dynamicPrefixes = dynamicPrefixes
@@ -147,6 +150,10 @@ public nonisolated struct PageNativeOp {
     public static let popupHide = "cmux.app.popup.hide"
     /// Stream every page may subscribe to: the popup's `pick`, `highlight` and `dismiss`.
     public static let pagePopup = "cmux.page.popup"
+    /// Built in for every page (p13-webui-032): `{reason, on}` sets or ends one of the page's own
+    /// keep reasons (`user_edits`, ``PageKeepReasons/pageSettable``), which keep it from freezing or
+    /// being discarded while hidden. The page can only add reasons; they end with its document.
+    public static let keepAlive = "cmux.page.keepAlive"
     /// Built in for every page: a right-click menu (`ui/ContextMenu.tsx`) shown as a standard macOS
     /// menu (``WebContextMenu``); answers `{picked: id}` once it closes, `picked` null when dismissed.
     public static let contextMenu = "cmux.app.contextMenu.show"

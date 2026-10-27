@@ -21,9 +21,22 @@ extension ActionRegistry {
     }
 
     /// Performs with a target and typed arguments (palette, CLI, context menus). Fails when a required argument is missing.
+    ///
+    /// With no ``turnObserver`` (Release) the run adds one nil check; with one, the end of the
+    /// outermost turn is reported to it (``ActionRunObserver``).
+    // perf-hot: <1us action-perform
     @discardableResult
     public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
-        settlingPreview(for: id) { settle in performNow(id, invocation: invocation, settle: settle) }
+        guard let turnObserver else {
+            return settlingPreview(for: id) { settle in performNow(id, invocation: invocation, settle: settle) }
+        }
+        observedPerformDepth += 1
+        let ran = settlingPreview(for: id) { settle in performNow(id, invocation: invocation, settle: settle) }
+        observedPerformDepth -= 1
+        if observedPerformDepth == 0 {
+            turnObserver.performTurnEnded(ActionTurn(id: canonicalID(for: id), origin: invocation.origin, ran: ran))
+        }
+        return ran
     }
 
     /// `settle` puts a preview of another action back; every path that does work calls it first,

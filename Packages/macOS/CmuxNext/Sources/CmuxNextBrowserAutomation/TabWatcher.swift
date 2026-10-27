@@ -1,12 +1,12 @@
 import CmuxNextBrowser
 import CmuxNextWakeups
 import Foundation
-import Observation
 
 /// Watches a driven tab, no polling:
 /// - its navigation events (`WebKitTab.observeNavigationEvents`) go to the
 ///   load waits, which key them by navigation;
-/// - from its engine-neutral state (`WebKitTab.state`, Observation):
+/// - from its engine-neutral state (`WebKitTab.state`, one automation-class
+///   ``ServiceObservation``, p06-scheduler-036: the person's input goes first):
 /// - a web content process exit emits `tab.crashed` and fails every wait;
 /// - a web view URL change (KVO) outside a load is a same-document
 ///   navigation (fragment, pushState): `tab.navigated {sameDocument: true}`
@@ -22,14 +22,19 @@ final class TabWatcher {
     private var urlObservation: NSKeyValueObservation?
     private var loadingObservation: NSKeyValueObservation?
     private var navigationObserver: UUID?
+    private var exitObservation: ServiceObservation<BrowserProcessExit?>?
 
-    init(tab: WebKitTab, session: TabSession, emit: @escaping (String, [String: DriverJSON]) -> Void) {
+    init(tab: WebKitTab, session: TabSession, work: MainWorkScheduler, emit: @escaping (String, [String: DriverJSON]) -> Void) {
         self.tab = tab
         self.session = session
         self.emit = emit
         lastURL = tab.webView.url
         lastExit = tab.state.processExit
-        observe()
+        exitObservation = ServiceObservation(.automation, owner: "browser-automation.tab-exit", on: work) { [weak tab] in
+            tab?.state.processExit
+        } apply: { [weak self] exit in
+            self?.processExited(exit)
+        }
         // Commits, finishes and failures, keyed by navigation (LoadWaits).
         navigationObserver = tab.observeNavigationEvents { [weak session] event in session?.waits.navigationEvent(event) }
         // A load that never started a navigation ended: same-document (LoadWaits).
@@ -44,6 +49,8 @@ final class TabWatcher {
 
     func stop() {
         stopped = true
+        exitObservation?.cancel()
+        exitObservation = nil
         urlObservation?.invalidate()
         urlObservation = nil
         loadingObservation?.invalidate()
@@ -75,23 +82,10 @@ final class TabWatcher {
         return a != b && base(a) == base(b)
     }
 
-    private func observe() {
-        guard !stopped, let tab else { return }
-        let state = withObservationTracking {
-            tab.state
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.observe() }
-        }
-        apply(state, tab: tab)
-    }
-
-    private func apply(_ state: BrowserTabState, tab: WebKitTab) {
-        guard let session else { return }
-        let target = DriverJSON.string(tab.id.rawValue)
-        if let exit = state.processExit, exit != lastExit {
-            lastExit = exit
-            session.waits.failAll(DriverError(.closed, "the page's web content process ended"))
-            emit("tab.crashed", ["targetId": target])
-        }
+    private func processExited(_ exit: BrowserProcessExit?) {
+        guard !stopped, let tab, let session, let exit, exit != lastExit else { return }
+        lastExit = exit
+        session.waits.failAll(DriverError(.closed, "the page's web content process ended"))
+        emit("tab.crashed", ["targetId": .string(tab.id.rawValue)])
     }
 }

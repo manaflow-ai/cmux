@@ -12,6 +12,8 @@ import java.util.Objects;
 
 /** Immutable frontend-projection-changed event. Protocol v7; streams: subscribe. */
 public final class FrontendProjectionChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final String frontend;
     private final String mutationId;
     private final String origin;
@@ -20,6 +22,7 @@ public final class FrontendProjectionChangedEvent implements WireValue, DeltaStr
     private final String subjectKey;
 
     private FrontendProjectionChangedEvent(Builder builder) {
+        this.cause = builder.cause;
         if (!builder.frontendSet) throw new IllegalArgumentException("frontend is required");
         this.frontend = Wire.nonNull(builder.frontend, "frontend");
         if (!builder.mutationIdSet) throw new IllegalArgumentException("mutation_id is required");
@@ -36,6 +39,7 @@ public final class FrontendProjectionChangedEvent implements WireValue, DeltaStr
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<EventCause> cause() { return cause; }
     public String frontend() { return frontend; }
     public String mutationId() { return mutationId; }
     public String origin() { return origin; }
@@ -48,6 +52,10 @@ public final class FrontendProjectionChangedEvent implements WireValue, DeltaStr
         Map<String, Object> object = Wire.object(value, "FrontendProjectionChangedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "frontend-projection-changed", "FrontendProjectionChangedEvent.event");
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawFrontend = Wire.required(object, "frontend");
         builder.frontend(Wire.string(rawFrontend, "FrontendProjectionChangedEvent.frontend"));
         Object rawMutationId = Wire.required(object, "mutation_id");
@@ -67,6 +75,7 @@ public final class FrontendProjectionChangedEvent implements WireValue, DeltaStr
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "frontend-projection-changed");
+        Wire.put(object, "cause", cause);
         Wire.put(object, "frontend", frontend);
         Wire.put(object, "mutation_id", mutationId);
         Wire.put(object, "origin", origin);
@@ -79,16 +88,17 @@ public final class FrontendProjectionChangedEvent implements WireValue, DeltaStr
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof FrontendProjectionChangedEvent that)) return false;
-        return Objects.equals(frontend, that.frontend) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(projectionRevision, that.projectionRevision) && Objects.equals(scope, that.scope) && Objects.equals(subjectKey, that.subjectKey);
+        return Objects.equals(cause, that.cause) && Objects.equals(frontend, that.frontend) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(projectionRevision, that.projectionRevision) && Objects.equals(scope, that.scope) && Objects.equals(subjectKey, that.subjectKey);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(frontend, mutationId, origin, projectionRevision, scope, subjectKey); }
+    public int hashCode() { return Objects.hash(cause, frontend, mutationId, origin, projectionRevision, scope, subjectKey); }
 
     @Override
     public String toString() { return "FrontendProjectionChangedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<EventCause> cause = Field.omitted();
         private String frontend;
         private boolean frontendSet;
         private String mutationId;
@@ -102,6 +112,10 @@ public final class FrontendProjectionChangedEvent implements WireValue, DeltaStr
         private String subjectKey;
         private boolean subjectKeySet;
 
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
+            return this;
+        }
         public Builder frontend(String value) {
             this.frontend = value;
             this.frontendSet = true;

@@ -10,6 +10,10 @@ public import AppKit
 ///   (Chromium pages are child `NSWindow`s ordered above the whole parent
 ///   content), when the root's window adopts it (``OverlayPlaneHosting``).
 ///
+/// On a render-server spring each pane's chrome is placed once, at rest, and rides its host's spring
+/// in the host's group (`PaneHostView.springToRest`); cross-pane overlays (the drop highlight) are not
+/// tied to one pane and stay placed in the plane.
+///
 /// The plane never takes hits; overlays that need the mouse are reported as
 /// ``LayoutRootView/interactiveOverlayRects`` instead.
 public final class OverlayPlane: NSView {
@@ -34,6 +38,15 @@ public final class OverlayPlane: NSView {
 
     /// Whether the plane lives in its home (not adopted by a window overlay).
     public var isHome: Bool { superview === home }
+
+    /// Called after the plane moved between its home and a window overlay (``isHome`` changed or may
+    /// have): the window shows content child windows exactly while it holds the plane.
+    var onHomeChange: (() -> Void)?
+
+    override public func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        onHomeChange?()
+    }
 
     /// The home's bounds in window coordinates (nil outside a window).
     public var homeRectInWindow: CGRect? {

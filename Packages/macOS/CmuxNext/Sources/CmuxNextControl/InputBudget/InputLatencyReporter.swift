@@ -1,5 +1,8 @@
 public import CmuxNextInputCore
 internal import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The off-main half of input latency: folds the closed-slot batches the input ring's writer
 /// hands over into an ``InputLatencyLedger`` (histograms per kind x target x entrypoint x
@@ -133,7 +136,7 @@ public final class InputLatencyReporter: Sendable {
         private var folded: UInt64 = 0
         /// The reader has not ended: accepted batches will still be folded.
         private var reading = true
-        private var waiters: [(target: UInt64, continuation: CheckedContinuation<Void, Never>)] = []
+        private var waiters: [(target: UInt64, continuation: OnceContinuation<Void, OnceContinuationError>)] = []
 
         func fold(_ batch: InputLatencyBatch) {
             ledger.fold(batch)
@@ -194,15 +197,18 @@ public final class InputLatencyReporter: Sendable {
 
         private func waitFolded(_ target: UInt64) async {
             while reading, folded < target {
-                await withCheckedContinuation { continuation in waiters.append((target, continuation)) }
+                // A waiter dropped unresumed reads the progress again, as a resumed one does.
+                _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
+                    waiters.append((target, continuation))
+                }
             }
         }
 
         private func resumeWaiters(where ready: (UInt64) -> Bool) {
             guard !waiters.isEmpty else { return }
-            var waiting: [(target: UInt64, continuation: CheckedContinuation<Void, Never>)] = []
+            var waiting: [(target: UInt64, continuation: OnceContinuation<Void, OnceContinuationError>)] = []
             for waiter in waiters {
-                if ready(waiter.target) { waiter.continuation.resume() } else { waiting.append(waiter) }
+                if ready(waiter.target) { waiter.continuation.resume(returning: ()) } else { waiting.append(waiter) }
             }
             waiters = waiting
         }

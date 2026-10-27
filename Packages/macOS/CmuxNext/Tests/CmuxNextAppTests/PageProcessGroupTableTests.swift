@@ -143,7 +143,7 @@ import Testing
             SettingsBackdropThumbnails.prefix, SettingsIconAssets.prefix,
         ])
         let outside: Set<String> = [
-            MarkdownPageResource.asset, MarkdownPageResource.remoteImage, DiffPatchSource.prefix, MuseumArtSession.thumbnailPrefix,
+            MarkdownPageResource.asset, MarkdownPageResource.remoteImage, DiffPatchResolver.prefix, MuseumArtSession.thumbnailPrefix,
         ]
         let served = Set(Self.shipped.flatMap(\.dynamicPrefixes))
         #expect(PageCapability.appOnlyPrefixes.isDisjoint(with: outside))

@@ -2,45 +2,64 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextLaunch
 import CmuxNextPages
-
-extension LaunchImageHold {
-    /// The app's one hold, shared by the panes that show launch images and the work that waits for them.
-    static let shared = LaunchImageHold()
-}
+import CmuxNextWakeups
 
 extension PaneContentView {
     /// Draws `image` (an agent page's last frame, `AgentPaneLaunchImages`)
     /// under the content, top-left at its point size, until the live page
     /// paints: an agent page is transparent until then, so the pane never
-    /// shows empty at launch.
-    func showLaunchImage(_ image: NSImage) {
-        clearLaunchImage()
+    /// shows empty at launch. While it shows in the window, `hold` holds startup open.
+    func showLaunchImage(_ image: NSImage, hold: LaunchImageHold) {
         let view = NSView(frame: contentHost.bounds)
         view.wantsLayer = true
-        view.autoresizingMask = [.width, .height]
         view.layer?.contentsGravity = .topLeft
         view.layer?.contentsScale = image.recommendedLayerContentsScale(window?.backingScaleFactor ?? 2)
         view.layer?.contents = image.layerContents(forContentsScale: view.layer?.contentsScale ?? 2)
-        contentHost.addSubview(view, positioned: .below, relativeTo: nil)
-        launchImageView = view
-        LaunchImageHold.shared.began()
+        putUpLaunchImage(view, positioned: .below, hold: hold)
         DebugTimings.markLaunch("agent_pane.launch_image_shown")
-        launchImageDeadline.schedule(after: LaunchImageHold.imageLimit) { @MainActor [weak self] in self?.clearLaunchImage() }
+    }
+
+    /// Draws a browser page's picture from the last quit (`BrowserLaunchPictures`) over the content, until its
+    /// page shows its first content: a browser's toolbar and theme color would cover it from under. It takes no
+    /// click (`BrowserLaunchPictureView`). While it shows in the window, `hold` holds startup open.
+    func showLaunchPicture(_ view: BrowserLaunchPictureView, hold: LaunchImageHold) {
+        view.frame = contentHost.bounds
+        putUpLaunchImage(view, positioned: .above, hold: hold)
+    }
+
+    /// Puts `view` up as the pane's launch image, replacing the last one, until its limit.
+    private func putUpLaunchImage(_ view: NSView, positioned place: NSWindow.OrderingMode, hold: LaunchImageHold) {
+        // Before the old image goes, so a replaced image never ends the hold for a turn.
+        let share = hold.began()
+        clearLaunchImage()
+        view.autoresizingMask = [.width, .height]
+        contentHost.addSubview(view, positioned: place, relativeTo: nil)
+        launchImageView = view
+        launchImageShare = share
+        launchImageDeadline.schedule(after: LaunchImageHold.imageLimit) { [weak self] in self?.clearLaunchImage(.visiblePaneTimedOut) }
     }
 
     /// Removes the launch image (the page painted, or the pane shows another tab).
-    func clearLaunchImage() {
+    ///
+    /// - Parameter reason: Why it goes, for the startup ref the last image ends.
+    func clearLaunchImage(_ reason: StartupInProgressRef.Reason = .visiblePaneLoadedIdle) {
         launchImageDeadline.cancel()
-        if launchImageView != nil { DebugTimings.markLaunch("agent_pane.launch_image_cleared") }
         if let launchImageView {
+            DebugTimings.markLaunch("agent_pane.launch_image_cleared")
             launchImageView.removeFromSuperview()
             self.launchImageView = nil
-            LaunchImageHold.shared.ended()
         }
+        endLaunchImageShare(reason)
         // A page that has not painted when the image goes (its limit) shows its loading state.
         let cleared = onLaunchImageCleared
         onLaunchImageCleared = nil
         cleared?()
+    }
+
+    /// Ends the launch image's share of the startup hold; the image itself stays until it goes.
+    func endLaunchImageShare(_ reason: StartupInProgressRef.Reason) {
+        launchImageShare?.end(reason)
+        launchImageShare = nil
     }
 }
 
@@ -58,13 +77,15 @@ extension VisiblePaneRefs {
     }
 
     /// Every launch window on screen, or kept off screen until its content is installed, with what it shows.
+    /// A restored window that shows and waits for its launch build (p08-startup-062) is one loading window.
     func windows(of manager: WindowManager) -> [Window] {
         _ = (manager.services.paneMounts.generation, manager.services.cache.pageInstalls.revision)
-        return manager.controllers.compactMap { controller -> Window? in
+        let built = manager.controllers.compactMap { controller -> Window? in
             let id = controller.state.id
             guard manager.awaitingContent[id] != nil || Window.isOnScreen(controller.window) else { return nil }
             return Window(id: id, content: content(of: controller))
         }
+        return built + (manager.launchWindows?.waitingVisible ?? []).map { Window(id: $0, content: .loading) }
     }
 
     /// The window's top page, else its shown workspace's panes on screen; nothing installed yet (the
@@ -76,7 +97,9 @@ extension VisiblePaneRefs {
             return .page(Pane(key: "window:\(controller.state.id):\(route)", state: state))
         }
         guard let content = controller.content, !content.isParked else { return .loading }
-        let onScreen = content.panes.values.filter { Window.isOnScreen($0.view) }
+        // While the launch holds panes off screen (p08-startup-065), only the panes the layout reports on screen hold startup.
+        let onlyVisible = controller.services.launchPanes.holdsPanes
+        let onScreen = content.panes.values.filter { Window.isOnScreen($0.view) && (!onlyVisible || $0.isVisible) }
         return .workspace(onScreen: onScreen.map { Pane(key: $0.paneKey, state: state(of: $0)) }, layoutPanes: content.modelPanes.count)
     }
 
@@ -109,4 +132,43 @@ extension BrowserTabState {
     /// A shown page's launch content signal: a load ended in it (finished, stopped or failed), or its
     /// process ended. A stand-in tab (deferred, hibernated) loads nothing and needs none.
     var launchLoadEnded: Bool { hasEndedLoad || processExit != nil }
+}
+
+/// One pane of the launch window as its build behind the picture shows it, focused pane first (p08-startup-060).
+extension PaneController: LaunchWindowPane {
+    /// The launch window's build behind its picture holds its content until its own slice (`showForLaunch`), so no
+    /// turn builds every pane; the build ends when the phase is built.
+    var launchHeld: Bool {
+        guard !launchReleased, let phase = services.windows.launchPicture, !phase.isBuilt else { return false }
+        return state?.id == services.windows.launchWindowID
+    }
+
+    func showForLaunch() {
+        launchReleased = true
+        services.presentation.cancel(self)
+        showSelected()
+    }
+
+    /// The build ended before this pane's slice (another screen, scrolled away): it shows as usual now.
+    func releaseFromLaunch() {
+        guard !launchReleased else { return }
+        launchReleased = true
+        services.presentation.setNeedsShowSelected(self)
+    }
+
+    /// A terminal's first frame after its first content is applied; a page's first contentful paint, an agent's or
+    /// internal page's first paint (each content's `createTabFirstFrame`); native content at its commit.
+    func whenLaunchContentDrawn(_ drawn: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? {
+        switch currentContent {
+        case .terminal(let entry)? where showsLiveTerminal: return entry.session.whenContentFrameDrawn(drawn)
+        case let content? where !content.isTerminal: return content.createTabFirstFrame.wait { _ in drawn() }
+        default:
+            drawn()
+            return nil
+        }
+    }
+
+    func launchArea(in picture: NSView) -> CGRect {
+        view.window == nil || !isVisible ? .zero : view.convert(view.bounds, to: picture) // the layout's viewport presence
+    }
 }

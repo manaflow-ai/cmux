@@ -8,7 +8,7 @@ import Foundation
 /// `apps-list`: `{revision, apps: [record]}`.
 public struct AppsListRequest: DaemonRequest {
     public typealias Response = JSONValue
-    public static let command = "apps-list"
+    public static let commandName: DaemonCommandName = "apps-list"
 
     public init() {}
 }
@@ -18,7 +18,7 @@ public struct AppsListRequest: DaemonRequest {
 /// cmux app connection (Gate A2), whatever `origin` says.
 public struct AppsSetRequest: DaemonRequest {
     public typealias Response = JSONValue
-    public static let command = "apps-set"
+    public static let commandName: DaemonCommandName = "apps-set"
 
     public struct Grant: Encodable, Sendable {
         public var scope: String
@@ -50,12 +50,16 @@ public struct AppsSetRequest: DaemonRequest {
         self.sandboxed = sandboxed
         self.grant = grant
     }
+
+    enum CodingKeys: String, CodingKey {
+        case idempotencyKey = "idempotency_key", app, origin, installed, enabled, hidden, sandboxed, grant
+    }
 }
 
 /// `apps-logs`: `{lines: [{level, message, ts_ms}]}`; `follow` streams `apps-log` events.
 public struct AppsLogsRequest: DaemonRequest {
     public typealias Response = JSONValue
-    public static let command = "apps-logs"
+    public static let commandName: DaemonCommandName = "apps-logs"
 
     public var app: String
     public var follow: Bool

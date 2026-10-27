@@ -108,9 +108,9 @@ public final class IPhoneHostService {
     private(set) var knownPhones: [MobileHostKnownPhone] = []
     /// Why the last list read or removal failed, shown under the list; nil when it worked.
     private(set) var phonesError: String?
-    /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
-    /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
-    internal(set) var paired: MobileHostPairedDevices?
+    /// The signed-in user's pairing (cmux-next-ios verify/phone-approvals.md): every pairing decision
+    /// is its own; this service shows the prompt and saves and pushes the list as each step says.
+    internal(set) var pairing = MobileHostPairing()
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -119,8 +119,6 @@ public final class IPhoneHostService {
     @ObservationIgnored var dependencies: Dependencies?
     @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored let supervisor = MobileHostSupervisor()
-    /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
-    internal(set) var prompts = MobileHostPairPrompts()
     /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
     @ObservationIgnored var pairDialog: (id: Int, request: MobileHostPairRequest)?
     /// The banner and Dock bounce that tell the person about a request while cmux is not in front.

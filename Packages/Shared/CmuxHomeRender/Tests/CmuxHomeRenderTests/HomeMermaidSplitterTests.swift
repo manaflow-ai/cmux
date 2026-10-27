@@ -43,6 +43,24 @@ import Testing
         #expect(roundTrips(streaming) == [.text(streaming)])
     }
 
+    /// p07-memory-082: only an opening Mermaid fence line that is not closed yet is a diagram on its
+    /// way (the transcript then warms the renderer); the bare word in prose, another language's open
+    /// fence, or a fence already closed is not.
+    @Test(arguments: [
+        ("Drawing it:\n```mermaid\ngraph TD\nA-->B", true),
+        ("~~~ Mermaid\ngraph LR", true),
+        ("```mermaid\ngraph TD\n```\nand the next:\n```mermaid\nsequenceDiagram", true),
+        ("I cannot draw a mermaid diagram here.", false),
+        ("```swift\n// a mermaid comment", false),
+        ("```mermaid\ngraph TD\nA-->B\n```", false),
+        ("    ```mermaid\n    graph TD", false),
+    ])
+    func anOpenMermaidFenceOpensADiagram(_ text: String, _ opens: Bool) {
+        let split = splitter.split(text)
+        #expect(split.opensDiagram == opens)
+        #expect(split.segments == splitter.segments(in: text))
+    }
+
     @Test func tildesInfoWordsCaseAndIndentation() {
         let segments = roundTrips("  ~~~ Mermaid {theme}\r\n  graph LR\r\n    A-->B\r\n  ~~~~\r\nok")
         #expect(segments.first == .mermaid(source: "graph LR\n  A-->B", fenced: "  ~~~ Mermaid {theme}\r\n  graph LR\r\n    A-->B\r\n  ~~~~\r"))

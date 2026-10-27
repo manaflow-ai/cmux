@@ -73,19 +73,22 @@ final class ComposeInlineAttachmentView: NSView {
     override func mouseExited(with event: NSEvent) { showsRemove = false }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
-    /// Right-click: the picture's or file's own rows (Copy, Save As…, Open in Default App; the shared
-    /// ``HomeContentMenu``) and Remove Attachment. The draft's file comes from the field that holds this view.
+    /// Right-click: the picture's or file's own rows (Copy, Save As…, the host's file menu or Open in
+    /// Default App; the pane's shared ``HomeContentMenu``) and Remove Attachment. The draft's file comes
+    /// from the field that holds this view; it opens where the pane's attachments open (``HomeAttachmentOpen``).
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let attachment else { return nil }
-        var field: NSView? = superview
-        while let v = field, !(v is FieldTextView) { field = v.superview }
-        let lookup = (field as? FieldTextView)?.draftAttachmentFile
+        let ancestors = sequence(first: self as NSView) { $0.superview }
+        // Both are main-actor objects, read when a row runs, on the main actor.
+        let field = ancestors.first { $0 is FieldTextView } as? FieldTextView
+        let controller = (ancestors.first { $0 is HostView } as? HostView)?.controller
         let id = attachment.attachmentID
-        let resolve: @MainActor @Sendable () async -> URL? = { lookup?(id) }
+        let resolve: @MainActor @Sendable () async -> URL? = { [weak field] in field?.draftAttachmentFile(id) }
         let menu = NSMenu()
-        HomeContentMenu(attachmentRows: HomeAttachmentRows(window: window))
-            .attachmentItems(name: attachment.model.fileName, resolve: resolve) {
-                if let file = lookup?(id) { NSWorkspace.shared.open(file) }
+        (controller?.contentMenu ?? HomeContentMenu(attachmentRows: HomeAttachmentRows(window: window)))
+            .attachmentItems(name: attachment.model.fileName, resolve: resolve) { [weak field, weak controller] in
+                guard let file = field?.draftAttachmentFile(id) else { return }
+                HomeAttachmentOpen.open(file, host: controller?.fileHost, appLink: controller?.onAppLink)
             }.forEach(menu.addItem)
         menu.addItem(.separator())
         menu.addItem(MenuAction(title: CmuxStrings.removeAttachment, symbol: "xmark.circle") { [weak self] in self?.removeClicked() })

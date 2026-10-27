@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
+import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 import Testing
@@ -25,14 +26,11 @@ private func texts(under root: NSView) -> [String] {
     views(under: root).compactMap { ($0 as? NSTextField)?.stringValue }
 }
 
-/// Lets the views' Observation updates (main-actor tasks) run until `condition` holds.
+/// Lets the views' FrameObservation applies (main run loop passes on a linkless scheduler) run
+/// until `condition` holds.
 @MainActor
-private func settle(_ condition: () -> Bool) async -> Bool {
-    for _ in 0..<200 {
-        if condition() { return true }
-        await Task.yield()
-    }
-    return condition()
+private func settle(_ condition: () -> Bool) -> Bool {
+    runMainLoop(until: condition)
 }
 
 /// Mac Screen's surfaces are AppKit (plans/cmux-next/no-swiftui-DESIGN.md): no hosting bridge,
@@ -52,15 +50,16 @@ struct MacScreenAppKitViewTests {
 
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}))
+        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
     }
 
     @Test func noSurfaceBuildsAHostingView() throws {
         let pages = makePages()
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let home = pages.makeView(for: "home")
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
-        let prompt = MacScreenApprovalPrompt()
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID, deadlines: linklessDeadlines()) { nil }, name: "Studio", preferences: ScreenPreferences(),
+                                 node: shownNode(), on: linklessMainWork())
+        let prompt = MacScreenApprovalPrompt(deadlines: linklessDeadlines())
         prompt.present = { _ in }
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", scope: .view)])
         let approval = MacScreenApprovalView(prompt: prompt)
@@ -86,14 +85,15 @@ struct MacScreenAppKitViewTests {
         #expect(texts(under: tab).contains(L.t("macScreen.home.yourDevices", "Your Devices")))
         // A model change redraws the page without a new view.
         pages.hubConfigured = false
-        #expect(await settle { texts(under: tab).contains(invalid) })
+        #expect(settle { texts(under: tab).contains(invalid) })
         #expect(!texts(under: tab).contains(signIn))
         pages.tabClosed("home")
         window.close()
     }
 
     @Test func connectCardButtonsAskTheHubAndTheCardFollows() async throws {
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID, deadlines: linklessDeadlines()) { nil }, name: "Studio", preferences: ScreenPreferences(),
+                                 node: shownNode(), on: linklessMainWork())
         let window = window(pane.view)
         #expect(pane.model.card == .hubConnect)
         #expect(texts(under: pane.view.chrome.card).contains(String(format: L.t("macScreen.hub.connectTitle", "Connect to %@"), "Studio")))
@@ -105,7 +105,7 @@ struct MacScreenAppKitViewTests {
         // Signed out: the hub refuses at once, and the card says so.
         #expect(pane.model.card == .hubRefused(.notSignedIn, requested: .full))
         let refusedTitle = L.t("macScreen.hub.signedOutTitle", "Not Signed In")
-        #expect(await settle { texts(under: pane.view.chrome.card).contains(refusedTitle) })
+        #expect(settle { texts(under: pane.view.chrome.card).contains(refusedTitle) })
         #expect(findView("macScreen.card.retry", under: pane.view.chrome.card) is NSButton)
         pane.view.layoutSubtreeIfNeeded()
         let card = pane.view.chrome.card.frame
@@ -116,7 +116,8 @@ struct MacScreenAppKitViewTests {
     }
 
     @Test func toolbarShowsTheNameAndHidesStreamControlsBeforeASession() async throws {
-        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID, deadlines: linklessDeadlines()) { nil }, name: "Studio", preferences: ScreenPreferences(),
+                                 node: shownNode(), on: linklessMainWork())
         let window = window(pane.view)
         let toolbar = pane.view.chrome.toolbar
         #expect(texts(under: toolbar).contains("Studio"))
@@ -124,13 +125,13 @@ struct MacScreenAppKitViewTests {
             #expect(findView(id, under: toolbar)?.isHidden == true, "\(id)")
         }
         pane.model.name = "Studio 2"
-        #expect(await settle { texts(under: toolbar).contains("Studio 2") })
+        #expect(settle { texts(under: toolbar).contains("Studio 2") })
         pane.close()
         window.close()
     }
 
     @Test func approvalShowsTheRequestAndItsFourAnswers() throws {
-        let prompt = MacScreenApprovalPrompt()
+        let prompt = MacScreenApprovalPrompt(deadlines: linklessDeadlines())
         prompt.present = { _ in }
         let fingerprint = String(repeating: "ab", count: 32)
         prompt.update([SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: fingerprint, scope: .full)])

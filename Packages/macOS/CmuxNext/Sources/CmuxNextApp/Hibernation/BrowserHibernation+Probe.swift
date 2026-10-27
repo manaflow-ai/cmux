@@ -10,12 +10,14 @@ extension BrowserHibernation {
     /// Asks hidden page `tab` what it does (`PageProbe`). Runs no page code: whether a `beforeunload`
     /// handler would ask is learned only right before a discard (`asksBeforeUnload`).
     static func probe(_ tab: any BrowserTab) async -> PageProbe {
+        // A cmux page or a remote stream runs no site script here and holds no form, media or capture: nothing to ask.
+        if tab is any BrowserAppPage || tab is any BrowserStreamedPage { return PageProbe() }
         do {
             let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
                 (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated, gesture: .cmux), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
+                  let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Bool] else { return unanswered(tab) }
             // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
             let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
             // A video in Picture in Picture plays on in its floating window, paused or muted alike.
@@ -51,7 +53,7 @@ extension BrowserHibernation {
     /// An agent called hidden page `key` within `agentGrace` or holds its lease (its next call
     /// would wait on a thaw); what the page shows then is the agent's doing.
     func isAgentDriven(_ key: String) -> Bool {
-        if let used = agentUsedAt[key], ContinuousClock.now - used < .seconds(Self.agentGrace) { return true }
+        if let used = agentUsedAt[key], now() - used < .seconds(Self.agentGrace) { return true }
         return leased.contains(key)
     }
 
@@ -68,18 +70,23 @@ extension BrowserHibernation {
     func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant = .now) -> HibernationPlanner.Candidate {
         let tab = entry.tab
         let capturing = (tab as? any PageInfoProviding).map { !$0.pageInfoInUse.union($0.pageInfoActivity.inUse).isEmpty } ?? false
+        // A cmux page restores only when `memoryDiscardPageTabs` is on (`discardsAppPages`), a remote stream
+        // only when `memoryDiscardRemoteTabs` is (`discardsStreamedPages`).
+        let restores = (tab as? any BrowserHibernationSource)?.supportsHibernation == true && (discardsAppPages || !(tab is any BrowserAppPage))
+            && (discardsStreamedPages || !(tab is any BrowserStreamedPage))
         var candidate = HibernationPlanner.Candidate(
             key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
             hasDevTools: (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? false, isCapturing: capturing,
-            canRestore: (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false,
+            canRestore: restores,
             showsFormSubmission: (tab as? any BrowserHibernationSource)?.showsFormSubmission ?? false
         )
-        candidate.recentFocusCount = recentFocusCount(key, now: now)
+        candidate.recentFocusCount = focusHistory.count(key, now: now)
         candidate.memoryBytes = memoryBytes[key]
         candidate.isDownloading = isDownloading(key)
         candidate.hasAgentLease = leased.contains(key)
         candidate.allowsNotifications = (tab as? any BrowserHibernationSource)?.allowsNotifications ?? false
         candidate.hasBackgroundActivity = activity.contains(key)
+        candidate.discardAttempted = discardAttempts.contains(key)
         if let audible {
             // The tab's own media report keeps it with no probe; the end of its sound starts the minute.
             candidate.isAudible = (tab as? any BrowserAudibleReporting)?.isAudible == true
@@ -92,8 +99,9 @@ extension BrowserHibernation {
     /// a stand-in's move): with `recentlyAudibleProtection` its sound is followed from now on, shown
     /// or hidden, through its one audible bit (`BrowserAudibleReporting`), as Chrome's page node
     /// follows its audio from creation. A page that plays nothing (a hibernated placeholder, an app
-    /// page) drops the old page's watch.
+    /// page) drops the old page's watch. A Chromium page follows its tab's node (``followVisibility(_:_:)``).
     func pageDidMount(_ key: String, _ page: any BrowserTab) {
+        followVisibility(key, page)
         guard let audible else { return }
         guard let speaker = page as? any BrowserAudibleReporting else { return audible.unwatch(key) }
         audible.watch(key, speaker) { [weak speaker] in speaker?.isAudible == true }
@@ -107,12 +115,19 @@ extension BrowserHibernation {
     /// Whether hidden page `key` would ask before it unloads (`BrowserTab.asksBeforeUnload()`): runs
     /// its handlers once per hidden period; a page that asked, or could not be asked, stays.
     func asksBeforeUnload(_ key: String, _ tab: any BrowserTab) async -> Bool {
-        if askedBeforeUnload.contains(key) { return true }
-        let asks = (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + .seconds(2)) { @MainActor in
+        if discardAttempts.contains(key) { return true }
+        return (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + .seconds(2)) { @MainActor in
             try await tab.asksBeforeUnload()
         }) ?? true
-        if asks { askedBeforeUnload.insert(key) }
-        return asks
+    }
+
+    /// Hidden page `key`'s discard was tried and did not finish (`why`): it stays until shown
+    /// (`DiscardRule.discardAttempted`, Chrome's `DiscardAttemptMarker` of page_discarding_helper.cc), and the
+    /// replan gives its slot to the next candidate now.
+    func discardFailed(_ key: String, _ why: CannotDiscardReason) {
+        discardAttempts.mark(key)
+        cache?.trace(key, "discard attempted (\(why.rawValue))")
+        replan()
     }
 }
 
@@ -130,6 +145,8 @@ extension BrowserHibernation {
     /// replans. A sample already running gives its reading when it lands.
     private func sampleMemory() {
         guard let measureMemory, memoryReadings.begin() else { return }
+        // task-owner: one memory sample; `memoryReadings` admits one at a time
+        // main-hop-allow: measureMemory is the app's resource sampler, a main-actor async seam whose process reads run off main; the readings land in its one resume
         Task { @MainActor [weak self] in
             let sample = await measureMemory()
             guard let self else { return }
@@ -184,7 +201,7 @@ extension BrowserHibernation {
             return
         }
         let delay = max(next - ContinuousClock.now, .zero) + .milliseconds(50)
-        growthDeadline.schedule(after: delay) { @MainActor [weak self] in self?.readFrozenGrowth() }
+        growthDeadline.schedule(after: delay) { [weak self] in self?.readFrozenGrowth() }
     }
 
     /// The one-shot reading due at `now` (its deadline's): one sample of every page's memory serves

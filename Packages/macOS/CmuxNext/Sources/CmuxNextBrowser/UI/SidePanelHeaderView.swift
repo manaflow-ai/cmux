@@ -62,6 +62,7 @@ final class SidePanelHeaderView: NSView {
         moreInfo.isHidden = !state.showsMoreInfo
     }
 
+    // visibility-walk-allow: a layer color and a text color in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()

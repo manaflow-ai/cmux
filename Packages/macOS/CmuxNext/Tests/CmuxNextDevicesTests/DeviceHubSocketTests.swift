@@ -1,5 +1,6 @@
 @testable import CmuxNextDevices
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -149,5 +150,73 @@ final class EventLog: @unchecked Sendable {
         task.cancel()
         await task.value
         #expect(connection.sent.first == #"{"type":"ping"}"#)
+    }
+
+    /// The keepalive is a DemandTimer armed on read silence (p14-energy-019c): it asks WakeLeeway's
+    /// tolerance for its interval, every frame from the server pushes it back, and it pings only
+    /// after a whole interval with no frame, then again an interval after that.
+    @Test(.timeLimit(.minutes(1))) func theKeepalivePingsOnlyAfterSilence() async throws {
+        let connection = FakeConnection([])
+        final class Scripted: DeviceHubSocketConnection, @unchecked Sendable {
+            let inner: FakeConnection
+            let pinged: AsyncStream<Void>.Continuation
+            let frames: AsyncStream<String>
+            let feed: AsyncStream<String>.Continuation
+            init(_ inner: FakeConnection, pinged: AsyncStream<Void>.Continuation) {
+                self.inner = inner
+                self.pinged = pinged
+                (frames, feed) = AsyncStream.makeStream(of: String.self)
+            }
+            func receive() async throws -> String {
+                for await frame in frames { return frame }
+                throw CancellationError()
+            }
+            func send(_ text: String) async throws {
+                try await inner.send(text)
+                pinged.yield()
+            }
+            func close() {
+                inner.close()
+                feed.finish()
+            }
+        }
+        let (pings, pinged) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        let (pushes, pushed) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        struct One: DeviceHubSocketConnector {
+            let connection: Scripted
+            func connect() async throws -> any DeviceHubSocketConnection { connection }
+        }
+        let scripted = Scripted(connection, pinged: pinged)
+        let clock = ManualClock()
+        let socket = DeviceHubSocket(connector: One(connection: scripted), pingInterval: .seconds(30), clock: clock)
+        let task = Task {
+            await socket.run { event in
+                if case .push = event { pushed.yield() }
+            }
+        }
+        try await clock.waitForSleeper()
+        #expect(clock.sleepRequests.last?.deadline.offset == .seconds(30))
+        #expect(clock.sleepRequests.last?.tolerance == WakeLeeway.window(delay: .seconds(30)).tolerance)
+        #expect(clock.sleepRequests.last?.tolerance == .seconds(1))
+
+        // A frame at 20 s moves the ping to 50 s: nothing is due at 30 s.
+        clock.advance(by: .seconds(20))
+        scripted.feed.yield(#"{"type":"devices.changed"}"#)
+        for await _ in pushes { break }
+        try await clock.waitForSleeper()
+        #expect(clock.sleepRequests.last?.deadline.offset == .seconds(50))
+        clock.advance(by: .seconds(10))
+        #expect(clock.sleeperCount == 1)
+        #expect(connection.sent.isEmpty)
+
+        // A whole interval of silence sends the ping and arms the next one.
+        clock.advance(by: .seconds(20))
+        for await _ in pings { break }
+        try await clock.waitForSleeper()
+        #expect(clock.sleepRequests.last?.deadline.offset == .seconds(80))
+        #expect(connection.sent == [#"{"type":"ping"}"#])
+        task.cancel()
+        await task.value
+        #expect(clock.sleeperCount == 0)
     }
 }

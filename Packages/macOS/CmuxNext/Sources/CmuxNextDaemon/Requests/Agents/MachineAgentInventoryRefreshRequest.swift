@@ -7,7 +7,7 @@
 public nonisolated struct MachineAgentInventoryRefreshRequest: DaemonRequest {
     public typealias Response = AgentInventoryRefreshReceipt
     /// The registry-only native carrier command.
-    public static let command = "agent-inventory-refresh"
+    public static let commandName: DaemonCommandName = "agent-inventory-refresh"
     /// Negotiates the registry-only operation and its required owner fence.
     public static let requiredCapability: String? = "agent-inventory-refresh-v1"
     /// The exact public machine ID selected from the admitted catalog.
@@ -17,5 +17,9 @@ public nonisolated struct MachineAgentInventoryRefreshRequest: DaemonRequest {
     /// - Parameter expectedMachineID: The opaque catalog ID, never a routing alias.
     public init(expectedMachineID: ResourceID) {
         self.expectedMachineID = expectedMachineID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case expectedMachineID = "expected_machine_id"
     }
 }

@@ -76,11 +76,12 @@ extension TraceRing {
 
     /// Stores `mask` into the black box's header `categories` word and, while a recording runs, the
     /// recording ring's (trace.md "Header": mirrored on each change), so a reader of either file knows what
-    /// it recorded.
+    /// it recorded. Sequentially consistent, as the runtime's category stores: a publish's re-check then orders
+    /// its mirror before any later writer's (``TraceRuntime``).
     func mirrorCategories(_ mask: UInt64) {
-        blackBoxRing?.pointee.storage.word(TraceRingOffsets.categories).store(mask, ordering: .relaxed)
+        blackBoxRing?.pointee.storage.word(TraceRingOffsets.categories).store(mask, ordering: .sequentiallyConsistent)
         if let active = activeRing, active.pointee.slot == TraceRingActive.recordingSlot {
-            active.pointee.storage.word(TraceRingOffsets.categories).store(mask, ordering: .relaxed)
+            active.pointee.storage.word(TraceRingOffsets.categories).store(mask, ordering: .sequentiallyConsistent)
         }
     }
 

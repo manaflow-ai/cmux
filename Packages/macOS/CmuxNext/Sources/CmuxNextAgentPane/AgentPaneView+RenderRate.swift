@@ -13,15 +13,18 @@ extension AgentPaneView {
 
     /// Whether the page renders at the display's full rate. Setting it
     /// changes the live page's preferences and re-shows the page so WebKit
-    /// applies them.
+    /// applies them. A Chromium page has no WebKit rate: Chromium renders at
+    /// the display's rate.
     public var rendersAtFullRate: Bool {
-        get { webView.configuration.preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature) == false }
+        get {
+            guard let webKit = page.webKitEngine else { return true }
+            return webKit.configuration.preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature) == false
+        }
         set {
-            // A Chromium page has no WebKit rate: Chromium renders at the display's rate.
-            guard page?.showsChromium != true, newValue != rendersAtFullRate else { return }
+            guard let webKit = page.webKitEngine, newValue != rendersAtFullRate else { return }
             // A WebKit without the feature has no rate to re-apply.
-            guard webView.configuration.preferences.setWebKitFeature(WebKitRenderRate.near60FPSFeature, enabled: !newValue) else { return }
-            reapplyRenderRate()
+            guard webKit.configuration.preferences.setWebKitFeature(WebKitRenderRate.near60FPSFeature, enabled: !newValue) else { return }
+            reapplyRenderRate(on: webKit)
         }
     }
 
@@ -29,7 +32,7 @@ extension AgentPaneView {
     /// shared re-show hides the web view for a moment under a snapshot of
     /// the page. The adaptive rate changes only after a scroll settles, so
     /// the snapshot matches what is on screen.
-    private func reapplyRenderRate() {
-        rateReapply = WebKitRenderRate.reshow(webView, replacing: rateReapply, snapshot: snapshotPage, clock: clock)
+    private func reapplyRenderRate(on webKit: WKWebView) {
+        rateReapply = WebKitRenderRate.reshow(webKit, replacing: rateReapply, snapshot: snapshotPage, clock: clock)
     }
 }

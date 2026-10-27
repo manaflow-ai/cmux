@@ -14,7 +14,7 @@ struct CmuxToastSurfaceTests {
     /// the shared neutral glass, FloatingGlassStyleTests).
     @Test func reduceTransparencyMakesTheToastAnOpaqueThemeSurface() throws {
         let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Closed “New Tab”", action: .undo()),
-                                 reduceTransparency: ReduceTransparency(system: { true }, changes: NotificationCenter()))
+                                 reduceTransparency: ReduceTransparency(system: { true }))
         let surface = try Self.surface(of: view)
         #expect(surface.material == .opaque)
         let fill = try #require(surface.subviews.first?.layer?.backgroundColor)

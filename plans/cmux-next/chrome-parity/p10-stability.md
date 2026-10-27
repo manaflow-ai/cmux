@@ -1092,6 +1092,12 @@ Dropped, with reasons:
   record polls > 2 ms with spawn location into the hang JSONL. RUSTFLAGS only in the lab lane.
 - Acceptance: Default builds unchanged; no Cargo.lock change in this task.
 - Test phase: acpmux under the lab profile with a sleeping task records one slow poll.
+- Scope as built: the acpmux daemon's runtime (`$ACPMUX_HOME/hangs.jsonl`) and the cmux-tui owner's remote
+  daemon worker (`owner-hangs-<session>.jsonl`; the mux server runs on threads, covered by 032's scopes). The
+  first slow poll per spawn site is a `slow_poll` record; the totals are one `slow_poll_summary` when the
+  watch ends. Time in compensated `block_in_place` calls is not counted. Not watched, on purpose: acpmux's
+  agent host (its own process, no hang log yet), CLI subcommands and short block_on-only runtimes (no tasks);
+  other crates' `cmux-stability` features stay unused until a runtime there is watched.
 
 #### p10-stability-034 stability-health.py
 - Files: scripts/cmux-next/stability-health.py, scripts/cmux-next/tests/test_stability_health.py
@@ -1543,7 +1549,7 @@ Common acceptance: the Q10 report shows 0 deny hits in the files; baseline lower
 
 #### p10-stability-146 Chromium host kind in child-crash-e2e (F2)
 - Files: scripts/cmux-next/child-crash-e2e.py
-- Change: Kind `host`: with browserHost.helperPrototype on, SIGKILL the host and navigate to
+- Change: Kind `host`: with browserHost.helper on, SIGKILL the host and navigate to
   chrome://inducebrowsercrashforrealz; cmux stays up, pages show the crash page and reload after restart.
 - Acceptance: Skips with a clear reason when the build lacks the host. Test: `child-crash-e2e.py --only host`.
 

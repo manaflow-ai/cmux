@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "directionalPrewarm",
+  "owner": "PL-switch",
+  "description": "After Next or Previous Tab or Sidebar Item from a key, the sleeping browser page of the item one more step that way wakes in the background, so a held key finds it awake; a step the other way drops those wakes. Never in Low Power Mode on battery or under memory pressure.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["tab-switch", "sidebar"],
+  "sticky": false,
+  "runtimeMutable": false
+}

@@ -1,0 +1,9 @@
+ctrl+k ctrl+x y	toggleSidebar	surfaceKind == terminal
+// keybindings.json
+[
+  {
+    "key": "ctrl+k ctrl+x y",
+    "command": "toggleSidebar",
+    "when": "surfaceKind == terminal"
+  }
+]

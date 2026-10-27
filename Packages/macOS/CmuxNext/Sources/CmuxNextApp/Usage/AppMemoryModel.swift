@@ -39,7 +39,7 @@ struct AppMemoryModel: MemorySnapshotModel {
 
     func terminalSurface(_ tabID: String) -> MemoryTerminalSurface? {
         guard let entry = services.cache.existingTerminal(tabID) else { return nil }
-        return MemoryTerminalSurface(estimateBytes: entry.session.surfaceView.memoryEstimateBytes.map { Int(clamping: $0) },
+        return MemoryTerminalSurface(estimateBytes: entry.session.memoryEstimateBytes.map { Int(clamping: $0) },
                                      rendering: services.cache.ledger.isRendering(tabID))
     }
 
@@ -56,18 +56,21 @@ struct AppMemoryModel: MemorySnapshotModel {
     var memoryTerminal: MemoryDiagnosticsSnapshot.Terminal {
         let cache = services.cache
         let rendering = cache.terminals.keys.filter { cache.ledger.isRendering($0) }.count
+        // Hidden: away from the viewport, outside the keep-alive band (whose surfaces stay resident).
+        let hidden = cache.terminals.filter { cache.ledger.isAway($0.key) }.values
+        let hiddenBytes = hidden.reduce(0) { $0 + Int(clamping: $1.session.pausedNonvolatileIOSurfaceBytes) }
         return MemoryDiagnosticsSnapshot.Terminal(
             warmCapacity: cache.warmBudget.terminalCapacity, surfaces: cache.terminals.count, rendering: rendering,
-            hiddenNonvolatileIOSurfaceBytes: nil, lastFrames: cache.lastFrames.count)
+            hiddenNonvolatileIOSurfaceBytes: hiddenBytes, lastFrames: cache.lastFrames.count)
     }
 
     var memorySpares: [MemoryDiagnosticsSnapshot.Spare] {
         var spares: [MemoryDiagnosticsSnapshot.Spare] = []
         if let view = services.newTabSpares.spareView {
-            spares.append(.init(pool: "new_tab", processKind: .webkitWebContent, pid: WebContentProcess.identifier(of: view.webView)))
+            spares.append(.init(pool: "new_tab", processKind: .webkitWebContent, pid: Self.webContentProcess(of: view.page)))
         }
         if let host = services.pageHostPool.spareHost {
-            spares.append(.init(pool: "page_host", processKind: .webkitWebContent, pid: WebContentProcess.identifier(of: host.webKitView)))
+            spares.append(.init(pool: "page_host", processKind: .webkitWebContent, pid: Self.webContentProcess(of: host)))
         }
         return spares
     }
@@ -85,11 +88,17 @@ struct AppMemoryModel: MemorySnapshotModel {
             if case .pids(let list) = AppResourceSource.contentProcesses(of: entry.tab) { list.forEach(add) }
         }
         if let agentTabs = services.madeAgentTabs {
-            for view in agentTabs.views.values { add(WebContentProcess.identifier(of: view.webView)) }
+            for view in agentTabs.views.values { add(webContentProcess(of: view.page)) }
         }
-        if let view = services.newTabSpares.spareView { add(WebContentProcess.identifier(of: view.webView)) }
-        if let host = services.pageHostPool.spareHost { add(WebContentProcess.identifier(of: host.webKitView)) }
+        if let view = services.newTabSpares.spareView { add(webContentProcess(of: view.page)) }
+        if let host = services.pageHostPool.spareHost { add(webContentProcess(of: host)) }
         return pids
+    }
+
+    /// The WebContent process of `page` while WebKit shows it; nil while Chromium does (its renderer
+    /// is a Chromium helper, counted with the helpers).
+    static func webContentProcess(of page: PageWebView) -> Int32? {
+        page.webKitEngine.flatMap { WebContentProcess.identifier(of: $0) }
     }
 
     /// The app process, its Chromium helpers and the WebContent processes in `snapshot`, each with

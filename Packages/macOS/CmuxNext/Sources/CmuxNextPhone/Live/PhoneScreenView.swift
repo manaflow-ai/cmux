@@ -1,5 +1,8 @@
 public import AppKit
 import AVFoundation
+import CmuxNextInput
+import CmuxNextInputCore
+import CmuxNextWakeups
 import IOSurface
 
 /// The phone's screen inside a phone tab. It shows either the simulator's
@@ -10,7 +13,8 @@ import IOSurface
 @MainActor
 public final class PhoneScreenView: NSView {
     private let content = CALayer()
-    private static let contentsChanged = privateSelector("setContentsChanged")
+    /// The layer's private `setContentsChanged`, resolved on the first repeated frame (nil when it lacks it).
+    private lazy var markContentsChanged: (() -> Void)? = privateAction(content, "setContentsChanged")
     /// Hardware-decoded H.264 frames (Android live screens), shown over `content` while streaming.
     private var video: AVSampleBufferDisplayLayer?
     private var contentSize: CGSize = .zero
@@ -23,6 +27,13 @@ public final class PhoneScreenView: NSView {
     var onKey: (@MainActor (UInt16, Bool) -> Bool)?
     /// Called when the screen becomes visible or hidden (tab switch, window occlusion, minimize).
     var onVisibilityChange: (@MainActor (Bool) -> Void)?
+    /// The windows' frame-aligned pointer input (feature `pointerFrameRemoteInput`): touch moves reach
+    /// the phone at most twice per display frame. Nil sends each drag event at once.
+    var pointerFrames: FrameInputCoalescers? {
+        didSet { if pointerFrames !== oldValue { dropFramePointer() } }
+    }
+    /// This view's consumer of its window's coalescer, made on the first drag in a window.
+    private var framePointer: PointerFrameConsumer?
 
     override public init(frame: NSRect) {
         super.init(frame: frame)
@@ -45,9 +56,9 @@ public final class PhoneScreenView: NSView {
         CATransaction.setDisableActions(true)
         if content.contents as AnyObject? !== surface {
             content.contents = surface
-        } else if content.responds(to: Self.contentsChanged) {
+        } else if let markContentsChanged {
             // Core Animation re-reads an IOSurface it already shows only when told its contents changed.
-            _ = content.perform(Self.contentsChanged)
+            markContentsChanged()
         } else {
             content.contents = nil
             content.contents = surface
@@ -118,15 +129,30 @@ public final class PhoneScreenView: NSView {
     override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override public func mouseDown(with event: NSEvent) {
+        flushPointer()
         window?.makeFirstResponder(self)
-        touch(.began, event)
+        touch(.began, at: event.locationInWindow)
     }
 
-    override public func mouseDragged(with event: NSEvent) { touch(.moved, event) }
-    override public func mouseUp(with event: NSEvent) { touch(.ended, event) }
+    /// A touch move; with ``pointerFrames`` a frame interval's first move goes at once and the rest
+    /// once at the window's frame, to the latest point (Chromium's rAF-aligned input).
+    override public func mouseDragged(with event: NSEvent) { // perf-hot: 2us pointer-coalesce (every drag over a phone screen)
+        guard onTouch != nil else { return }
+        if let consumer = framePointerConsumer() {
+            consumer.post(event)
+        } else {
+            touch(.moved, at: event.locationInWindow)
+        }
+    }
 
-    private func touch(_ phase: PhoneTouch.Phase, _ event: NSEvent) {
-        let local = convert(event.locationInWindow, from: nil)
+    override public func mouseUp(with event: NSEvent) {
+        // The last move lands before the touch ends.
+        flushPointer()
+        touch(.ended, at: event.locationInWindow)
+    }
+
+    private func touch(_ phase: PhoneTouch.Phase, at windowPoint: NSPoint) {
+        let local = convert(windowPoint, from: nil)
         // Clamp drags that leave the screen so the touch still ends on it.
         let rect = mapping.drawnRect
         let clamped = CGPoint(x: min(max(local.x, rect.minX), rect.maxX), y: min(max(local.y, rect.minY), rect.maxY))
@@ -135,18 +161,43 @@ public final class PhoneScreenView: NSView {
     }
 
     override public func keyDown(with event: NSEvent) {
+        flushPointer()
         // Command shortcuts stay with cmux; everything else types on the phone.
         if event.modifierFlags.contains(.command) || onKey?(event.keyCode, true) != true { super.keyDown(with: event) }
     }
 
     override public func keyUp(with event: NSEvent) {
+        flushPointer()
         if event.modifierFlags.contains(.command) || onKey?(event.keyCode, false) != true { super.keyUp(with: event) }
+    }
+
+    // MARK: Frame-aligned touch moves
+
+    /// Delivers the move that waits for the frame now: a touch edge or a key is about to go, and
+    /// must not pass it.
+    func flushPointer() { framePointer?.flush() }
+
+    private func framePointerConsumer() -> PointerFrameConsumer? {
+        if let framePointer { return framePointer }
+        guard let pointerFrames, let window else { return nil }
+        let consumer = pointerFrames.coalescer(for: window).consumer(owner: "PhoneScreenView") { [weak self] input in
+            self?.touch(.moved, at: NSPoint(x: input.latest.location.x, y: input.latest.location.y))
+        }
+        framePointer = consumer
+        return consumer
+    }
+
+    private func dropFramePointer() {
+        framePointer?.cancel()
+        framePointer = nil
     }
 
     // MARK: Visibility
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // The coalescer is the old window's: what waits there is for a window the view left.
+        dropFramePointer()
         occlusion?.cancel()
         occlusion = nil
         if let window {

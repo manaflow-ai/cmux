@@ -100,7 +100,9 @@ final class IconPickerProvider: PageProvider {
         first.catalog = catalog
         first.maxEmojiVersion = maxEmojiVersion
         onEvent(first.event)
-        return PageSubscription { [weak self] in self?.listener = nil }
+        // Only the first event of a load carries the symbol catalog, so none may drop. The warm page
+        // is hidden between pickers, and a session begun then must not replace that first event.
+        return PageSubscription(frozenDelivery: .ordered) { [weak self] in self?.listener = nil }
     }
 
     /// Ends the open session once; later finishes (a double click, a late reply) do nothing.

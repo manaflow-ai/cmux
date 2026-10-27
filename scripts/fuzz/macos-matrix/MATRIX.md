@@ -35,6 +35,7 @@ cmux worktree, with a done fleet DEV build job (`cmux-ci build cmux --ref SHA --
 
 ```bash
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14,15                         # smoke, about 3 min a major
+scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14,15 --suite threads         # p02-threads RUN-10
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 15 --suite fuzz --seed 7 --minutes 20
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14 --suite repro:incognito-close-14
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14,15,26 --suite chaos             # one row per fault
@@ -77,6 +78,22 @@ under the router's 2 s request deadline),
 `design_on` and `design_off` (Ctrl-Opt-Cmd-D over VNC adds and removes the design-mode overlay), `page_info` (View
 Site Information opens its panel), `settings` (Settings opens and paints), `alive`, `quit`
 (`quitEndEverything` ends the process within 30 s; else a `sample` and a kill). A crash report fails the run.
+
+### Threads suite
+
+`os-matrix.sh --build JOB --os 14,15 --suite threads` runs `threads.py` (the smoke's plumbing, a DEV build of
+perf/chrome-parity or later): chrome-parity p02-threads RUN-10. The blocking detector tells the shared pool from a
+dedicated queue by libdispatch's queue label (`com.apple.root.`), which is not API (risk 6 of
+plans/cmux-next/chrome-parity/p02-threads.md), so the suite checks it on each macOS. Steps: `launch`, `window`,
+then `debug.pool_context`'s cases: `pool_task` (a seam call in a `Task.detached` is `pool`), `pool_global` (in a
+`DispatchQueue.global` block, `pool`), `lane_files` (in a `.files` lane item, `lane`), `lane_cpu` (in a `.cpu`
+item, `cpu-lane`); `recorded` (`debug.blocking` lists the pool and cpu-lane calls' sites in those contexts and not
+the `.files` one); `raise` (`WorkHandle.raise` of a running best-effort item lifts its thread's `pth_curpri` while
+its requested QoS stays utility: `pthread_override_qos_class_start_np` on this macOS); `threads` (`debug.threads`
+reads the main thread at user-interactive, dispatch labels and the task role); `alive`, `quit`. `result.json`'s
+`labels` keeps each case's queue label, to compare majors; `debug.threads`' QoS audit counts are a finding, not the
+verdict (RUN-3 judges them). A case that gets the wrong context on one major is a fix to p02-threads-005's
+`BlockingContext` (the fallback: the thread's task-local mark plus "not a registered queue").
 
 ### Chaos suite
 
@@ -133,6 +150,10 @@ has the exit code, stdout, stderr, the runner commit (`runner_ref`) and the sour
 - Probes: `url-root-parent` (issue #4529): `"/.."` on 14.8.7 and 15.7.7, `"/"` on 26.6.2 (2026-10-24).
 - `key-change-cost` (issue #24913): ms of one key-window change between a window and its child window, with
   0-120 hidden workspace-like view trees in the window and out of it (does a hidden tree cost a key change?).
+- `render-motion-survival` (spike p03-rendering-016, rendering-DESIGN.md "Spike 016"): whether an additive
+  render-server spring on a pane's backing layer, and on a motion container around it, survives AppKit layout,
+  an ancestor resize, `wantsLayer`, a new backing layer, a window style change and full screen. FAIL when the
+  motion container loses its spring.
 
 ### cmux-unit and xctrace in the guest
 
