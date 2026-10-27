@@ -5969,6 +5969,12 @@ jobs:
             python3 "$PUBLISH_TOOLING/ci/publish-nightly-next-r2.py" write-feed --feed "nightly-out/$appcast" \
               --github-output "$GITHUB_OUTPUT"
           done
+          # Release push: the presence worker re-reads the public nightly-next
+          # feed and tells connected NEXT apps at once. No secret (it only reads
+          # an allowlisted public appcast, and a build only ever moves up); a
+          # failure never fails the step, and the worker's minute cron catches up.
+          curl -fsS -X POST --max-time 10 --retry 3 "https://presence.cmux.dev/releases/v1/poke?feed=nightly-next" \
+            || echo "::warning::release poke failed; the minute cron will catch up"
 
       # The marker is written only after immutable assets, aliases, release
       # metadata, and every appcast have succeeded. A rerun can therefore use
