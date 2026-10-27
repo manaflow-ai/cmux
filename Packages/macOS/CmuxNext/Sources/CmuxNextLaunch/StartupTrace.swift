@@ -44,7 +44,7 @@ public final class StartupTrace: Sendable {
     /// The periodic drain: armed by the first record not yet written, at most one at a time.
     private let flushTimer: DemandTimer
     /// Recording until the trace closes: one load, so a closed trace costs its callers no lock.
-    private let recording = Atomic<Bool>(true)
+    let recording = Atomic<Bool>(true)
     // concurrency-allow: the ring's append and swap, held for one array append or one swap, never across I/O (lock carve-out: no I/O, no wait under it).
     private let state: Mutex<State>
     /// Records pending before a drain is posted: about one write's worth.

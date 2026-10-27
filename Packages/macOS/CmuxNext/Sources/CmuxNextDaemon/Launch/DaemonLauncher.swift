@@ -50,12 +50,14 @@ public struct DaemonLauncher: Sendable {
         /// (`CMUX_NEXT_TUI_BIN`) is still probed, and never gets `webSocketPageOrigins` (``pageListenerArguments(_:)``).
         public var binaryIsBundled: Bool
         public var webSocketPageOrigins: [String] // the page origins the owner's loopback WebSocket admits; empty: no listener
+        public var startupTrace: DaemonStartupTrace? // `CMUX_TRACE_STARTUP`'s daemon file: only `server ensure` passes it on; nil: none
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
                     runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
                     terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil,
-                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false, webSocketPageOrigins: [String] = []) {
-            self.binary = binary
+                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false, webSocketPageOrigins: [String] = [],
+                    startupTrace: DaemonStartupTrace? = nil) {
+            (self.binary, self.startupTrace) = (binary, startupTrace)
             self.binaryIsBundled = binaryIsBundled
             self.webSocketPageOrigins = webSocketPageOrigins
             self.session = session
@@ -137,7 +139,7 @@ public struct DaemonLauncher: Sendable {
     /// build (``appNames(build:applicationSupport:)``; never an inherited `CMUX_TAG`), login-shell environment captured
     /// once per launch and remembered for the next (`LoginEnvironmentCache`). `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
     /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns;
-    /// `daemonEnvironment` joins only `server ensure`; every cmux-tui process takes `CMUX_APPS_FIRST_PARTY_DIR` out of its
+    /// `daemonEnvironment` and `startupTrace` join only `server ensure`; every cmux-tui process takes `CMUX_APPS_FIRST_PARTY_DIR` out of its
     /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
     /// `resolvedTerminalEnvironment` adds the keys the app looks up on the disk off the main thread (Ghostty's `TERM`
     /// and resources), awaited when `server ensure` builds its environment, over `terminalEnvironment`.
@@ -151,7 +153,7 @@ public struct DaemonLauncher: Sendable {
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
         applicationSupport: URL = DaemonLauncher.applicationSupportDirectory(),
-        wireStats: DaemonWireStats? = nil
+        wireStats: DaemonWireStats? = nil, startupTrace: DaemonStartupTrace? = nil
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
@@ -160,7 +162,8 @@ public struct DaemonLauncher: Sendable {
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
                                           installKey: keyStore?.loadOrCreate(),
-                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle), webSocketPageOrigins: webSocketPageOrigins)
+                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle), webSocketPageOrigins: webSocketPageOrigins,
+                                          startupTrace: startupTrace)
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         // A terminal the daemon starts with no caller env gets this env; its
@@ -315,9 +318,9 @@ public struct DaemonLauncher: Sendable {
     // MARK: - Ensure
 
     /// Environment for `server ensure`: the provider's, plus the state
-    /// directory, config file and a fixed runtime base.
+    /// directory, config file, a fixed runtime base and, before its deadline, the startup trace (``DaemonStartupTrace``).
     func ensureEnvironment() async -> [String: String] {
-        var environment = await environmentProvider()
+        var environment = await environmentProvider().merging(configuration.startupTrace?.environment ?? [:]) { _, trace in trace }
         if let stateDirectory = configuration.stateDirectory { environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
         // XDG_RUNTIME_DIR would win over TMPDIR in cmux-tui's socket lookup.

@@ -407,7 +407,7 @@ public final class CEFEngine: BrowserEngine {
         return makeReadyTab(configuration)
     }
 
-    /// Hands the stores, sign-in tabs, wait deadlines and host supervisor (``CEFRuntimeSource/backend``) to the
+    /// Hands the stores, sign-in tabs, wait deadlines, host supervisor (``CEFRuntimeSource/backend``) and startup trace to the
     /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
     /// Chromium's first use, not at launch).
     private func adoptStores(in runtime: CEFRuntime = .shared) {
@@ -416,6 +416,7 @@ public final class CEFEngine: BrowserEngine {
                       hostResizeFence: runtimeSource.fencesHostResizes, hostPopupMenus: runtimeSource.drawsHostPopupMenus,
                       hostSuggestions: runtimeSource.drawsHostSuggestions, hostFileDialogs: runtimeSource.hostFileDialogs)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
+        runtime.startupTraceRequest = runtimeSource.startupTrace
     }
 
     /// Starts Chromium in this process or in the Chromium Host, as the source's backend says;

@@ -4,6 +4,7 @@ import CmuxNextChromiumWarmup
 import CmuxNextCompat
 import CmuxNextCrashReporting
 import CmuxNextFeatures
+import CmuxNextLaunch
 import CmuxNextSettings
 import CmuxNextWakeups
 import Observation
@@ -110,6 +111,10 @@ extension AppServices {
         chromiumRuntime.source.drawsHostSuggestions = features.isEnabled(.chromiumHostSuggestions) // p01-process-061
         // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
         chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
+        // CMUX_TRACE_STARTUP: Chromium writes its own startup trace beside the app's while the app's records (p08-startup-099).
+        if let trace = environment.startupTrace {
+            chromiumRuntime.source.startupTrace = { trace.childTrace(.chromium).map { ChromiumStartupTrace(seconds: $0.seconds, file: $0.file) } }
+        }
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,

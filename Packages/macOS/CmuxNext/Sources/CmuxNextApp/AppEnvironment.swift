@@ -99,6 +99,9 @@ struct AppEnvironment: Sendable {
     /// hermetic home the `terminals` facet rewrites to `$ROOT` and `$HOME` before hashing (schemas/oracle/README.md).
     var oracleRoot: String?
     var launchHome: String?
+    /// The launch's startup trace (`CMUX_TRACE_STARTUP`), set by `main` only while one records: Chromium's start
+    /// asks it for Chromium's own `--trace-startup` file (p08-startup-099). Nil: no Chromium tracing switch.
+    var startupTrace: StartupTrace?
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).

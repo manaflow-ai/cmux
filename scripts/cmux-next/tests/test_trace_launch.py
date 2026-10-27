@@ -14,6 +14,9 @@
    sampled OS thread's.
 3. A cut file (StartupTrace's 64 KiB chunks after a crash, a killed Chromium) gives its whole events; a B with no E
    ends at the file's last time.
+3b. The three startup tracks (p08-startup 099): the summary names the sources that left a file (app, daemon,
+   Chromium) and warns about one the launch should have left: the app's always, the daemon's when the launch spawned
+   it (`daemon.spawned`), Chromium's when it started (`cef.initialize_started`).
 4. Existing scenarios are unchanged: a stress or light recording has no launch section, and --scenario still takes
    stress-storm and light-storm (default stress-storm).
 5. The record path: the measured launch's window runs inside BenchApp.launch's on_start (no socket call into the
@@ -128,6 +131,11 @@ class LaunchSummary(unittest.TestCase):
         self.assertIn("Main-thread turns of 4 ms or more (2; watchdog records dropped 0):", text)
         self.assertNotIn("WARNING: the watchdog ring dropped", text)
         self.assertIn("startup-cef.json: chromium, 2 events, TRUNCATED", text)
+
+    def test_three_startup_tracks(self):
+        tracks = self.launch["startup_tracks"]
+        self.assertEqual(tracks, {"present": ["app", "daemon", "chromium"], "missing": []})
+        self.assertIn("startup tracks: app, daemon, chromium", read(os.path.join(self.out, "SUMMARY.txt")))
 
     def test_files_on_one_clock(self):
         files = self.summary["sources"]["startup_files"]
@@ -250,6 +258,20 @@ class StartupFiles(unittest.TestCase):
         self.assertIn("not CLOCK_UPTIME_RAW", warning)
         prefixed = [{"ph": "i", "name": "socket_bound", "ts": 10.0}]
         self.assertEqual(trace.startup_clock(prefixed, {"daemon.socket_bound": 10.0 + 4e6}, (0, 1), "daemon.")[0], 4e6)
+
+
+    def test_startup_tracks_name_the_missing_ones(self):
+        files = {"startup-app.json": {"source": "app", "events": 9}, "startup-cef.json": {"source": "chromium", "events": 0}}
+        quiet = trace.startup_tracks(files, {})  # a warm launch (no spawn) that never started Chromium
+        self.assertEqual(quiet, {"present": ["app"], "missing": []})
+        both = trace.startup_tracks(files, {"daemon.spawned": {}, "cef.initialize_started": {}})
+        self.assertEqual([(gap["source"], gap["mark"]) for gap in both["missing"]],
+                         [("daemon", "daemon.spawned"), ("chromium", "cef.initialize_started")])
+        none = trace.startup_tracks({}, {})
+        self.assertEqual((none["present"], [gap["source"] for gap in none["missing"]]), ([], ["app"]))
+        text = "\n".join(trace.launch_text({"startup_tracks": both}, {}))
+        self.assertIn("startup tracks: app", text)
+        self.assertIn("WARNING: no chromium startup trace although the launch marked cef.initialize_started", text)
 
 
 class ExistingScenarios(unittest.TestCase):
@@ -431,7 +453,7 @@ class RecordPath(unittest.TestCase):
     def test_trace_app_launch_environment(self):
         app_dir = os.path.join(self.out, "cmux DEV fixture.app")
         os.makedirs(app_dir)
-        opts = types.SimpleNamespace(scenario="launch-warm", hang_ms=8, no_cef=False, cdp_port=0)
+        opts = types.SimpleNamespace(scenario="launch-warm", hang_ms=8, no_cef=False, cdp_port=0, release=False)
         launch = trace.TraceApp(app_dir, self.out, opts)
         self.assertIsNone(launch.cdp_port)
         self.assertEqual(launch.bench.extra_env["CMUX_NEXT_HANG_THRESHOLD_MS"], "4")
@@ -439,7 +461,7 @@ class RecordPath(unittest.TestCase):
         self.assertEqual(env["CMUX_TRACE_STARTUP"], "7")
         self.assertEqual(env["CMUX_TRACE_STARTUP_FILE"], os.path.join(self.out, "startup", "startup-app.json"))
         storm = trace.TraceApp(app_dir, self.out, types.SimpleNamespace(scenario="light-storm", hang_ms=8, no_cef=False,
-                                                                        cdp_port=4321))
+                                                                        cdp_port=4321, release=False))
         self.assertEqual(storm.cdp_port, 4321)  # unchanged for the storms
         self.assertEqual(storm.bench.extra_env["CMUX_NEXT_HANG_THRESHOLD_MS"], "8")
 

@@ -43,6 +43,10 @@ public final class CEFRuntimeSource {
     /// go to the host as paths (feature `chromiumHostFileDialogs`, set by the App; ``ChromiumHostFiles``).
     /// Nil leaves Chromium's own panel, which in host mode opens in the host. Read when the runtime adopts the source.
     public var hostFileDialogs: (any ChromiumFileDialogAnswering)?
+    /// The launch's `CMUX_TRACE_STARTUP` (set by the App only while it records): asked once, when Chromium starts,
+    /// for Chromium's own startup trace file and seconds left (``ChromiumStartupTrace``). Nil, or nil from it: no
+    /// tracing switch.
+    public var startupTrace: (@MainActor () -> ChromiumStartupTrace?)?
 
     /// Creates a source.
     ///

@@ -20,19 +20,21 @@ extension DaemonService {
     /// later `start` reports why). `resolvedTerminalEnvironment`: as in `DaemonLauncher.forApp`. `work` is the app's
     /// one ``BackgroundWork`` (the launcher's disk steps). Its connect milestones (`daemon.connect_started`,
     /// `spawned`, `identified`, `snapshot_received`) go to the launch timings, once each, for the connection the
-    /// service attaches.
+    /// service attaches. `startupTrace`: the daemon's startup trace file a cold launch's owner writes (p08-startup-099).
     public nonisolated static func prestart(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false,
                                      echoesPlacementShift: Bool = false,
                                      wireStats: DaemonWireStats? = nil,
-                                     hangWatch: (any HangWatchScoping)? = nil) -> DaemonPrestart? {
+                                     hangWatch: (any HangWatchScoping)? = nil,
+                                     startupTrace: DaemonStartupTrace? = nil) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(work: work, build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
                                                 resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
-                                                webSocketPageOrigins: pageOrigins, wireStats: wireStats) else { return nil }
+                                                webSocketPageOrigins: pageOrigins, wireStats: wireStats,
+                                                startupTrace: startupTrace) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift,

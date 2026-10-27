@@ -3857,6 +3857,28 @@ def startup_source(name):
     return os.path.splitext(name)[0]
 
 
+# The processes that write a startup trace (p08-startup 099), each with the launch mark that says it should have
+# (None: always) and what to check when it did not: the daemon traces only a start the launch's `server ensure`
+# spawned (a running owner started before the trace), Chromium only a start inside the app's trace window.
+STARTUP_TRACK_SOURCES = (
+    ("app", None, "the app read no CMUX_TRACE_STARTUP, or its file was not written"),
+    ("daemon", "daemon.spawned", "a daemon that reads CMUX_TUI_TRACE_STARTUP_FILE writes it"),
+    ("chromium", "cef.initialize_started", "Chromium got --trace-startup-file and writes it at its deadline: the "
+                                           "launch must last past it"),
+)
+
+
+def startup_tracks(files, marks):
+    """{"present": the sources with events in DIR/startup, in app, daemon, chromium order, "missing": the ones the
+    launch should have left (STARTUP_TRACK_SOURCES: always, or when it marked their start) and did not}."""
+    present = {info["source"] for info in (files or {}).values() if info.get("events")}
+    order = [source for source, _, _ in STARTUP_TRACK_SOURCES]
+    missing = [{"source": source, "mark": mark, "why": why} for source, mark, why in STARTUP_TRACK_SOURCES
+               if source not in present and (mark is None or mark in marks)]
+    return {"present": sorted(present, key=lambda s: (order.index(s) if s in order else len(order), s)),
+            "missing": missing}
+
+
 def mark_name(event):
     """The launch mark an instant stands for: its `mark` argument, else its name."""
     return (event.get("args") or {}).get("mark") or event.get("name")
@@ -4168,6 +4190,12 @@ def launch_text(launch, files):
                      + f" [{turn['source']}]" + (f" in {turn['step']}" if turn["step"] else "")
                      + (": " + " < ".join(str(f)[:80] for f in turn["frames"][:4]) if turn["frames"] else "")
                      + ("; tasks: " + "; ".join(t["task"][:60] for t in turn["tasks"]) if turn["tasks"] else ""))
+    tracks = launch.get("startup_tracks")
+    if tracks:
+        lines.append(f"  startup tracks: {', '.join(tracks['present']) or 'none'}")
+        for gap in tracks["missing"]:
+            lines.append(f"  WARNING: no {gap['source']} startup trace" + (f" although the launch marked {gap['mark']}"
+                                                                          if gap["mark"] else "") + f" ({gap['why']})")
     for name, info in (files or {}).items():
         lines.append(f"  startup file {name}: {info['source']}, {info['events']} events"
                      + (", TRUNCATED (whole events before the cut kept)" if info["truncated"] else "")
@@ -4378,6 +4406,7 @@ def build(out):
     if meta.get("scenario") in LAUNCH_SCENARIOS:
         summary["launch"] = launch_summary(meta, signposts, samples, offset_us, app_pid, threads_by_pid, stall_records,
                                            app_trace, hangs.get("dropped"))
+        summary["launch"]["startup_tracks"] = startup_tracks(startup_info, launch_marks(signposts, app_pid))
     summary["sources"] = {
         "trace": trace_path, "trace_bytes": os.path.getsize(trace_path), "events": len(events),
         "samples": len(samples), "sampled_processes": len(names), "xctrace_clock": offset_how,

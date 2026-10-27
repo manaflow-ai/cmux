@@ -47,6 +47,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// PL-memory's cmux page sharing table (``pageSchemeProcessPerSite``): each cmux page host that may
     /// share a renderer, with its cap (``CEFPageSchemes/siteCaps(_:)``). Empty: no switch.
     var pageSiteCaps: [PageSiteCap] = []
+    /// Chromium's startup trace while the app's `CMUX_TRACE_STARTUP` records (``ChromiumStartupTrace``); nil: no switch.
+    var startupTrace: ChromiumStartupTrace?
 
     /// The switches a bench run may set: the pair Web Page Replay needs to serve a recorded archive
     /// (catapult web_page_replay_go/README.md: `--host-resolver-rules` maps every host to the replay
@@ -151,6 +153,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // built-in entry Chromium keeps in the profile. The shim merges this
         // into CEF's list.
         if keepsUnpackedEnabled { result.append("disable-features=ExtensionDisableUnsupportedDeveloper") }
+        result.append(contentsOf: startupTrace?.switches ?? [])
         result.append(contentsOf: benchSwitches)
         result.append(contentsOf: extraSwitches)
         return result
@@ -330,7 +333,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         builtInExtensionsAtFirstTab: Bool = false,
         keepsUnpackedEnabled: Bool = false,
         agentPageMainFrameCap: Int? = nil,
-        pageSiteCaps: [PageSiteCap] = []
+        pageSiteCaps: [PageSiteCap] = [],
+        startupTrace: ChromiumStartupTrace? = nil
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let developmentBundle = bundle.contains(".debug") || bundle.hasSuffix(".dev")
@@ -363,7 +367,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             extraSwitches: extra,
             benchSwitches: bench,
             agentPageMainFrameCap: agentPageMainFrameCap,
-            pageSiteCaps: pageSiteCaps
+            pageSiteCaps: pageSiteCaps,
+            startupTrace: startupTrace
         )
     }
 

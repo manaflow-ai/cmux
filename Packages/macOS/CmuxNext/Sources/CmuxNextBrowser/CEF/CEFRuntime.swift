@@ -170,8 +170,8 @@ final class CEFRuntime {
     /// What the pump's input policy reads, from the engine made last (feature `cefPumpInputPolicy`,
     /// ``CEFPumpInputPolicy``); read at start with ``input``. Nil: the pump never holds for input.
     var pumpInput: CEFPumpInputSeams?
-    /// The feature `chromiumSpareAfterFirstTab`, asked at start (the App supplies it).
-    var spareAfterFirstTabFeature: @MainActor () -> Bool = { false }
+    var spareAfterFirstTabFeature: @MainActor () -> Bool = { false } // the feature `chromiumSpareAfterFirstTab`, asked at start (the App supplies it)
+    var startupTraceRequest: (@MainActor () -> ChromiumStartupTrace?)? // Chromium's startup trace, asked at start (``CEFRuntimeSource/startupTrace``)
     private(set) var builtInAdBlockerLoaded = false  // this Chromium has the built-in uBlock Origin (at start or first tabs)
     let builtInLoader = CEFBuiltInExtensionLoader()  // built-in extensions at each profile's first tab (chromiumAdBlockerAtFirstTab)
     let surfaceCopies = CEFSurfaceCopies()  // pages' surface copies waiting for Chromium (fork API 38, p13-webui-078)
@@ -521,7 +521,7 @@ final class CEFRuntime {
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment, builtInExtensions: builtInPlan.folders,
             builtInExtensionsAtFirstTab: builtInLoader.start(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1),
-            keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty)
+            keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty), startupTrace: startupTraceRequest?()
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         processReusePerRendererDevTools = switchSet.arguments.contains(CEFSwitches.processReusePerRendererDevTools)
