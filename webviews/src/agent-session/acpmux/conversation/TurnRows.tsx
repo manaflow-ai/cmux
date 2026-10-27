@@ -510,8 +510,16 @@ function TurnFailure({
   const codeRouter = useCodeRouterChoice(kind, route, retry !== undefined);
   const offerArm = experimentArm(codeRouterOffer);
   const offerLeads = codeRouter !== undefined && offerArm === "primary";
+  // CodeRouter's button fills only when it is the card's only way out: not beside Switch model, Retry,
+  // Sign in again or Compact, which each lead.
   const offerFilled =
-    offerLeads || (codeRouter !== undefined && offerArm === "button" && !offersSwitch && !offersRetry);
+    offerLeads ||
+    (codeRouter !== undefined &&
+      offerArm === "button" &&
+      !offersSwitch &&
+      !offersRetry &&
+      !signInFirst &&
+      !compactFirst);
   const switchButton = offersSwitch && (
     <button
       type="button"
