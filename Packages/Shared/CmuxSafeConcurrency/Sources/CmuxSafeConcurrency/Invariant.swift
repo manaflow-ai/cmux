@@ -1,7 +1,10 @@
 internal import CmuxSafeConcurrencyAtomics
 
-/// One failed ``Invariant/notFatalUntil(_:_:build:in:fileID:line:)`` or
-/// ``Invariant/dumpWillBeCheck(_:_:in:fileID:line:)``: the first failure of its site in this launch.
+#if INVARIANT_REPORT && DEBUG
+#error("INVARIANT_REPORT is for -O builds (reload.sh --invariant-report); Debug already traps on debug checks")
+#endif
+
+/// One failed report-tier call: the first failure of its site in this launch.
 public struct InvariantEvent: Sendable {
     /// Which call failed.
     public enum Kind: Sendable, Equatable {
@@ -9,6 +12,10 @@ public struct InvariantEvent: Sendable {
         case notFatalUntil(build: UInt64)
         /// ``Invariant/dumpWillBeCheck(_:_:in:fileID:line:)``: it never traps.
         case dumpWillBeCheck
+        /// ``Invariant/debugCheck(_:_:in:fileID:line:)`` in a nightly-assert build (``Invariant/reportsDebugChecks``).
+        case debugCheck
+        /// `assert()` or `assertionFailure()` in a nightly-assert build, in a file that imports CmuxSafeConcurrency.
+        case assertion
     }
 
     public let kind: Kind
@@ -50,6 +57,12 @@ public protocol InvariantEventSink: Sendable {
 ///   where the caller has a real way to recover.
 /// - ``dumpWillBeCheck(_:_:in:fileID:line:)``, Chrome's `DUMP_WILL_BE_CHECK`: reports and goes on in every
 ///   build. Rare; each site needs a `swift.dump_will_be_check` allowlist entry that names the code that recovers.
+///
+/// Below the three tiers, ``debugCheck(_:_:in:fileID:line:)`` is Chrome's `DCHECK`: it traps in a Debug build and
+/// is compiled out of an -O build, like `assert()`. The nightly-assert variant (`-DINVARIANT_REPORT`, an -O build
+/// for a sampled slice of Nightly: Chrome's DCHECK canary, `DCHECK_IS_CONFIGURABLE` in base/dcheck_is_on.h and
+/// base/check.cc) keeps every debug check and every `assert()` of a file that imports this module, and reports
+/// each failing site once per launch through the same table and sink; none of them traps there.
 ///
 /// Input from outside the process (a file, a peer frame, a decoded message) never goes here: it gets a typed
 /// error at its boundary.
@@ -151,6 +164,42 @@ public final class Invariant: @unchecked Sendable { // crash-allow: every word o
         if condition() { return false }
         return invariant.failed(.dumpWillBeCheck, id, fileID: fileID, line: line)
     }
+
+    /// Chrome's `DCHECK`: when `condition` is false, traps in a Debug build; an -O build does not evaluate
+    /// `condition`. In the nightly-assert variant (``reportsDebugChecks``) it evaluates `condition` and reports the
+    /// site's first failure of the launch, then goes on. The caller does not handle the failure: a condition that
+    /// can fail in production with a way to recover is ``notFatalUntil(_:_:build:in:fileID:line:)``.
+    ///
+    /// - Parameter invariant: The table and sink of a nightly-assert report; ``process`` unless a test passes its own.
+    @inlinable
+    public static func debugCheck(_ condition: @autoclosure () -> Bool, _ id: StaticString,
+                                  in invariant: Invariant = .process,
+                                  fileID: StaticString = #fileID, line: UInt = #line) {
+        #if INVARIANT_REPORT
+        if !condition() { _ = invariant.failed(.debugCheck, id, fileID: fileID, line: line) }
+        #else
+        if _isDebugAssertConfiguration(), !condition() { trap(id, fileID: fileID, line: line) }
+        #endif
+    }
+
+    /// Whether this is the nightly-assert variant (`-DINVARIANT_REPORT`): debug checks and `assert()` report
+    /// instead of being compiled out. scripts/cmux-next/check-no-bench-hooks.sh refuses such an app for Release
+    /// and RC.
+    public static var reportsDebugChecks: Bool {
+        #if INVARIANT_REPORT
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    #if INVARIANT_REPORT
+    /// The launch line of a nightly-assert app (CmuxNextCrashReporting's `InvariantSink.install`), and the text
+    /// scripts/cmux-next/check-no-bench-hooks.sh finds in its main executable: present only when the flag reached
+    /// this module.
+    public static let reportBuildMarker: StaticString =
+        "CMUX_INVARIANT_REPORT_BUILD: nightly-assert, debug checks report; never Release or RC"
+    #endif
 
     /// Whether a ``notFatalUntil(_:_:build:in:fileID:line:)`` failure traps: only once the running build is known
     /// and at or past the build the call names.
@@ -294,3 +343,24 @@ public final class Invariant: @unchecked Sendable { // crash-allow: every word o
         fatalError("invariant \(id) failed at \(fileID):\(line)")
     }
 }
+
+#if INVARIANT_REPORT
+// The nightly-assert variant's assert() and assertionFailure(). With the standard library's signatures they
+// shadow Swift.assert and Swift.assertionFailure in every file that imports CmuxSafeConcurrency (a module's
+// declaration shadows the standard library's with the same signature), as Chrome's DCHECK becomes a dump in a
+// DCHECK_IS_CONFIGURABLE build (base/check.cc). Only this -O variant compiles them.
+
+/// Reports the site's first failure of the launch (``InvariantEvent/Kind/assertion``) and goes on.
+@inlinable
+public func assert(_ condition: @autoclosure () -> Bool, _ message: @autoclosure () -> String = String(),
+                   file: StaticString = #file, line: UInt = #line) {
+    if !condition() { _ = Invariant.process.failed(.assertion, "assert", fileID: file, line: line) }
+}
+
+/// Reports the site's first call of the launch (``InvariantEvent/Kind/assertion``) and goes on.
+@inlinable
+public func assertionFailure(_ message: @autoclosure () -> String = String(),
+                             file: StaticString = #file, line: UInt = #line) {
+    _ = Invariant.process.failed(.assertion, "assertionFailure", fileID: file, line: line)
+}
+#endif

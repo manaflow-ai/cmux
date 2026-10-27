@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-no-bench-hooks.sh [--expect] <app bundle>
+# check-no-bench-hooks.sh [--expect] [--invariant-report] <app bundle>
 # A bench build (scripts/reload.sh --config bench: Release optimization, -DDEBUG -DCMUX_BENCH_HOOKS)
 # keeps the debug.* control commands in an optimized app for the fleet benches. It must never ship:
 # its main executable carries the marker CMUX_BENCH_HOOKS_BUILD (Sources/CmuxNextApp/BenchHooksMarker.swift,
@@ -10,14 +10,46 @@
 # their handles and registry entries only under DEBUG || CMUX_BENCH_HOOKS, so a tagged debug build
 # (CMUXBuildConfiguration debug, scripts/reload.sh) is the one app that may name them. No app but a bench
 # one may contain the flags test public key (schemas/features/bench-test-signing-key.json).
+#
+# The nightly-assert variant (scripts/reload.sh --invariant-report: an -O build with -DINVARIANT_REPORT,
+# p10-stability-202, Chrome's DCHECK canary) reports debug checks and assert(); its main executable carries
+# CMUX_INVARIANT_REPORT_BUILD (Invariant.reportBuildMarker in CmuxSafeConcurrency). Without --invariant-report
+# the check fails when that marker is there, so the release, RC and main nightly pipelines refuse it. With
+# --invariant-report (reload.sh --invariant-report, the sampled Nightly slice's build) it fails when the marker
+# is missing or when the app is a Release or RC bundle (com.cmuxterm.app, com.cmuxterm.app.rc).
 set -euo pipefail
 expect=0
-if [[ "${1:-}" == --expect ]]; then expect=1; shift; fi
-[[ $# -eq 1 && -d "$1" ]] || { echo "usage: $0 [--expect] <app bundle>" >&2; exit 2; }
+invariant_report=0
+while [[ $# -gt 1 ]]; do
+  case "$1" in
+    --expect) expect=1; shift ;;
+    --invariant-report) invariant_report=1; shift ;;
+    *) break ;;
+  esac
+done
+[[ $# -eq 1 && -d "$1" ]] || { echo "usage: $0 [--expect] [--invariant-report] <app bundle>" >&2; exit 2; }
 app="$1"
 exe_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2>/dev/null || true)"
 exe="$app/Contents/MacOS/$exe_name"
 [[ -n "$exe_name" && -f "$exe" ]] || { echo "error: no main executable in $app" >&2; exit 2; }
+invariant_marker="CMUX_INVARIANT_REPORT""_BUILD"
+if (( invariant_report )); then
+  bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist" 2>/dev/null || true)"
+  case "$bundle_id" in
+    com.cmuxterm.app | com.cmuxterm.app.rc)
+      echo "error: $app ($bundle_id) is a Release or RC bundle; the nightly-assert variant (INVARIANT_REPORT) ships only to a sampled Nightly slice" >&2
+      exit 1
+      ;;
+  esac
+  if ! LC_ALL=C grep -aq "$invariant_marker" "$exe"; then
+    echo "error: $app has no $invariant_marker; the -DINVARIANT_REPORT flag did not reach CmuxSafeConcurrency" >&2
+    exit 1
+  fi
+  echo "invariant report: present in $exe_name (nightly-assert build)"
+elif LC_ALL=C grep -aq "$invariant_marker" "$exe"; then
+  echo "error: $app is a nightly-assert build (INVARIANT_REPORT: debug checks and assert() report); only the sampled Nightly slice ships it, never Release or RC" >&2
+  exit 1
+fi
 marker="CMUX_BENCH_HOOKS""_BUILD"
 if LC_ALL=C grep -aq "$marker" "$exe"; then
   if (( expect )); then echo "bench hooks: present in $exe_name (bench build)"; exit 0; fi

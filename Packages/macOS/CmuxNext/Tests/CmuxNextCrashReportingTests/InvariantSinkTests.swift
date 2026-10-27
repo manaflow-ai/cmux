@@ -148,6 +148,24 @@ private final class HeldLane: Sendable {
         #expect(dump.tags?["invariant_tier"] == "dump_will_be_check")
     }
 
+    @Test func aNightlyAssertEventNamesItsTierAndVariant() {
+        let debugCheck = InvariantSink.event(for: InvariantEvent(kind: .debugCheck, id: "dcheck",
+                                                                 fileID: "Module/File.swift", line: 9),
+                                             addresses: [], nightlyAssert: true)
+        #expect(debugCheck.level == .warning)
+        #expect(debugCheck.tags?["invariant_tier"] == "debug_check")
+        #expect(debugCheck.tags?["build_variant"] == "nightly-assert")
+        #expect(debugCheck.fingerprint == ["invariant", "dcheck", "Module/File.swift:9"])
+        let assertion = InvariantSink.event(for: InvariantEvent(kind: .assertion, id: "assert",
+                                                                fileID: "Module/File.swift", line: 11),
+                                            addresses: [], nightlyAssert: true)
+        #expect(assertion.tags?["invariant_tier"] == "assert")
+        let standard = InvariantSink.event(for: InvariantEvent(kind: .dumpWillBeCheck, id: "dump",
+                                                               fileID: "Module/File.swift", line: 13),
+                                           addresses: [], nightlyAssert: false)
+        #expect(standard.tags?["build_variant"] == nil, "only the nightly-assert variant is tagged")
+    }
+
     @Test func theRunningBuildIsAWholeBundleVersion() {
         #expect(InvariantSink.runningBuild(bundleVersion: "2026102612301") == 2_026_102_612_301)
         #expect(InvariantSink.runningBuild(bundleVersion: "1.2.3") == nil, "a dotted DEV version never traps")

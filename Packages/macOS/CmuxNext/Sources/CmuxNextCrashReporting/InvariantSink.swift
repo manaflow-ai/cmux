@@ -1,9 +1,11 @@
 public import CmuxSafeConcurrency
 public import Foundation
 public import Sentry
+import os
 
 /// The app's ``InvariantEventSink`` (p10-stability-099): the first failure of each
-/// `Invariant.notFatalUntil` / `Invariant.dumpWillBeCheck` site in a launch becomes one Sentry event, built
+/// `Invariant.notFatalUntil` / `Invariant.dumpWillBeCheck` site in a launch (and, in the nightly-assert variant,
+/// of each `Invariant.debugCheck` and `assert()` site, p10-stability-202) becomes one Sentry event, built
 /// and sent on the crash-reporting lane, never on the thread that failed.
 ///
 /// On the caller's thread ``deliver(_:)`` reads one stored flag, takes the stack's return addresses
@@ -45,11 +47,20 @@ public final class InvariantSink: InvariantEventSink {
     /// Installs this launch's running build and a sink for `reporter` into `invariant` (the process's by
     /// default). Call once from the composition root, after `reporter.start`, so the sink sees its consent.
     ///
+    /// A nightly-assert build (`-DINVARIANT_REPORT`, p10-stability-202) also writes one launch line here,
+    /// `Invariant.reportBuildMarker`: it exists only when the flag reached CmuxSafeConcurrency, and its text is the
+    /// marker scripts/cmux-next/check-no-bench-hooks.sh looks for in the main executable (Release and RC refuse it).
+    ///
     /// - Returns: Whether they were installed; false when the invariant already had an installation.
     @discardableResult
     public static func install(reporter: CrashReporter, bundleVersion: String?,
                                into invariant: Invariant = .process) -> Bool {
-        invariant.install(build: runningBuild(bundleVersion: bundleVersion), sink: InvariantSink(reporter: reporter))
+        #if INVARIANT_REPORT
+        Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
+            .notice("\(Invariant.reportBuildMarker.description, privacy: .public)")
+        #endif
+        return invariant.install(build: runningBuild(bundleVersion: bundleVersion),
+                                 sink: InvariantSink(reporter: reporter))
     }
 
     /// The running build `Invariant.notFatalUntil` compares with: `CFBundleVersion` when it is a whole number
@@ -67,8 +78,10 @@ public final class InvariantSink: InvariantEventSink {
     }
 
     /// The Sentry event of `failure`, grouped by its site (not its stack). Resolves debug images (dladdr):
-    /// call on the lane.
-    static func event(for failure: InvariantEvent, addresses: [UInt]) -> Event {
+    /// call on the lane. An event of the nightly-assert variant (`nightlyAssert`, p10-stability-202) is tagged
+    /// `build_variant: nightly-assert`.
+    static func event(for failure: InvariantEvent, addresses: [UInt],
+                      nightlyAssert: Bool = Invariant.reportsDebugChecks) -> Event {
         let level: SentryLevel
         let tier: String
         switch failure.kind {
@@ -78,6 +91,12 @@ public final class InvariantSink: InvariantEventSink {
         case .dumpWillBeCheck:
             level = .warning
             tier = "dump_will_be_check"
+        case .debugCheck:
+            level = .warning
+            tier = "debug_check"
+        case .assertion:
+            level = .warning
+            tier = "assert"
         }
         let id = failure.id.description
         let event = Event(level: level)
@@ -110,6 +129,7 @@ public final class InvariantSink: InvariantEventSink {
         }
         var tags = ["invariant_id": id, "invariant_tier": tier]
         if case .notFatalUntil(let build) = failure.kind { tags["invariant_fatal_build"] = String(build) }
+        if nightlyAssert { tags["build_variant"] = "nightly-assert" }
         event.tags = tags
         event.fingerprint = ["invariant", id, failure.site]
         return event
