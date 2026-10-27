@@ -176,7 +176,9 @@ for line in sys.stdin:
     print(json.dumps({'id':r['id'],'result':result}), flush=True)
 "#).unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
-    let mut owner = Owner::start(&home.0, &codex, &holder).await.unwrap();
+    let mut terminate =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+    let mut owner = Owner::start(&home.0, &codex, &holder, &mut terminate).await.unwrap().unwrap();
     // An abrupt parent exit closes its lock descriptor before the child exits.
     // The child must keep the lock, or a replacement could rotate concurrently.
     drop(holder);
@@ -196,4 +198,39 @@ for line in sys.stdin:
     assert_eq!(error_code(&login_error), "codex_auth_account_changed");
     owner.stop().await;
     assert!(prepare(&home.0).is_ok());
+}
+
+#[tokio::test]
+async fn stalled_owner_cancellation_releases_inherited_lock() {
+    let home = Home::new();
+    let holder = prepare(&home.0).unwrap();
+    let codex = home.0.join("stalled-codex");
+    std::fs::write(
+        &codex,
+        r#"#!/bin/sh
+sleep 30
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let (sender, mut receiver) = tokio::sync::oneshot::channel();
+    let mut start = Box::pin(Owner::start_with_cancel(
+        &home.0,
+        &codex,
+        &holder,
+        StartupCancellation::Channel(&mut receiver),
+    ));
+    tokio::select! {
+        _ = &mut start => panic!("stalled startup unexpectedly returned"),
+        _ = tokio::time::sleep(Duration::from_millis(100)) => sender.send(()).unwrap(),
+    }
+    assert!(start.await.unwrap().is_none(), "shutdown must cancel startup after reaping Codex");
+    drop(holder);
+    for _ in 0..20 {
+        if prepare(&home.0).is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("a cancelled startup must not strand broker.lock");
 }
