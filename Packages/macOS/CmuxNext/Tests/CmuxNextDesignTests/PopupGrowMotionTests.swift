@@ -33,12 +33,15 @@ import CmuxNextDesignTokens
         return Motion.speed != .off && !DisplaySleep.shared.isAsleep(screen)
     }
 
+    static func hasScreen() async -> Bool { NSScreen.main != nil }
+
     /// The x scale a `sublayerTransform` value holds.
     private static func scale(_ value: Any?) -> CGFloat? {
         (value as? NSValue).map { $0.caTransform3DValue.m11 }
     }
 
-    @Test func anOpenWithoutEntranceShowsTheCardAtOnce() throws {
+    @Test(.enabled("needs a screen to order a popup window") { await Self.hasScreen() })
+    func anOpenWithoutEntranceShowsTheCardAtOnce() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
