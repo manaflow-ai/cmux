@@ -15,7 +15,8 @@ import CmuxNextWakeups
 /// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
 /// (``HangReportsController``), whose sink does nothing while they are off, as each committed key's `key.frame`
 /// time (`AppServices.inputFrameSignposts`); with the main thread's phase
-/// (`main_thread_phase`, `cef_pump`). The blocking detector's new call sites go to ``BlockingReportSink``.
+/// (`main_thread_phase`, `cef_pump`) and the `hang.cef` tag inside the Chromium message pump. The blocking
+/// detector's new call sites go to ``BlockingReportSink``.
 @MainActor
 enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
@@ -50,7 +51,7 @@ enum WatchdogReporting {
             send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) })))
         watchdog.onHang = { hang in
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
-                                phase: hang.phase, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
+                                phase: hang.phase, cef: hang.cef, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses, task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass))
         }
         // A watched thread still in its hang-watch scope 2 s past its budget (p09-observability-068): a crash report
@@ -74,7 +75,8 @@ enum WatchdogReporting {
             }
         }
         watchdog.onStall = { record in
-            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue)
+            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue,
+                                cef: record.details["cef"]?.boolValue == true)
             collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
         }
         // A slow key frame takes the black box (one compare, then one atomic load while reports are off).

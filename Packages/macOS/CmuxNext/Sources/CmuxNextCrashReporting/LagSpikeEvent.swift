@@ -19,12 +19,16 @@ public nonisolated struct LagSpikeEvent: Sendable {
     /// Counts and states that describe the app at the spike (window count,
     /// for example). Values must hold no user content.
     public let context: [String: String]
+    /// The stall's sample caught the main thread inside the Chromium message pump (the stall record's `cef`):
+    /// the `hang.cef` tag (`true`); false sets no tag.
+    public let cef: Bool
 
-    public init(duration: Duration, cpu: Duration, addresses: [UInt], context: [String: String] = [:]) {
+    public init(duration: Duration, cpu: Duration, addresses: [UInt], context: [String: String] = [:], cef: Bool = false) {
         self.duration = duration
         self.cpu = cpu
         self.addresses = addresses
         self.context = context
+        self.cef = cef
     }
 
     /// The duration bucket: `250-500ms`, `500ms-1s`, `1-2s` or `2s+`.
@@ -75,6 +79,7 @@ public nonisolated struct LagSpikeEvent: Sendable {
             "stall_bucket": bucket,
             "stall_blocked": mostlyBlocked ? "yes" : "no",
         ]
+        if cef { event.tags?["hang.cef"] = "true" }
         var extra: [String: Any] = [
             "stall_ms": Int(duration / .milliseconds(1)),
             "cpu_ms": Int(cpu / .milliseconds(1)),

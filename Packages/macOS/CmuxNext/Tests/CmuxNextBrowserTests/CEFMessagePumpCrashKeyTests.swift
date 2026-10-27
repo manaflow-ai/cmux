@@ -1,3 +1,4 @@
+import CmuxNextTrace
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -26,7 +27,7 @@ import Testing
         var during: [UInt64] = []
         let timer = Timer()
         let pump = CEFMessagePump(work: { during.append(keys.value(.cefState)) }, timer: timer,
-                                  clock: { 100 }, ledger: WakeupLedger(), crashKeys: keys)
+                                  clock: { 100 }, ledger: WakeupLedger(), crashKeys: keys, trace: TraceRuntime(role: .app))
         pump.start()
         timer.fire()
         #expect(during == [Self.inPump], "in the pump while CefDoMessageLoopWork runs")
@@ -49,7 +50,7 @@ import Testing
             nested = true
             timer.fire() // the nested run loop fires the pump's timer: a reentrant fire runs no work
             seen.append(keys.value(.cefState))
-        }, timer: timer, clock: { 100 }, ledger: WakeupLedger(), crashKeys: keys)
+        }, timer: timer, clock: { 100 }, ledger: WakeupLedger(), crashKeys: keys, trace: TraceRuntime(role: .app))
         pump.start()
         timer.fire()
         #expect(seen == [Self.inPump, Self.running], "in the pump, then not once the nested loop fired it")
@@ -62,7 +63,7 @@ import Testing
         var passes = 0
         let timer = Timer()
         let pump = CEFMessagePump(work: { passes += 1 }, timer: timer, clock: { 100 },
-                                  ledger: WakeupLedger(), crashKeys: nil)
+                                  ledger: WakeupLedger(), crashKeys: nil, trace: TraceRuntime(role: .app))
         pump.start()
         timer.fire()
         #expect(passes == 1)
