@@ -122,8 +122,10 @@ struct Hosted {
     /// The reader stopped (an entry could not be logged): the agent is not
     /// usable through this link; the next request adopts the host again.
     broken: std::sync::atomic::AtomicBool,
-    /// The host's last entry when it was last reattached (`reattach`): until `logged` reaches it,
-    /// what the host replays is not all in the session log.
+    /// How far the host replays on this link (`learn_replay_end`): until `logged` reaches it, what
+    /// the host kept while no reader logged it is not all in the session log. `u64::MAX` while it is
+    /// not known (from a reattach or an adoption until it is learned, or for good when the host did
+    /// not say).
     replay_to: std::sync::atomic::AtomicU64,
 }
 
@@ -1483,28 +1485,53 @@ impl ChildAgent {
     /// open request, answer waiter and turn of this process: resume after
     /// the last logged entry on a new owner connection. No recovery runs:
     /// this process still holds the state the recovery would rebuild.
-    /// It returns the host's last entry (`Adopted::last_h`), which the reader replays up to.
-    pub async fn reattach(self: &Arc<Self>) -> Result<u64> {
+    /// Its replay counts as pending until `learn_replay_end` learns how far it goes.
+    pub async fn reattach(self: &Arc<Self>) -> Result<()> {
         use crate::agent_host::link::{Connect, connect};
-        let Some(h) = &self.hosted else { return Ok(0) };
+        let Some(h) = &self.hosted else { return Ok(()) };
         let record = h.link().record.clone();
         let after = *h.logged.borrow();
-        let (link, last_h): (Arc<crate::agent_host::link::Link>, u64) =
-            match connect(record, after).await? {
-                Connect::Ready(link, adopted) => (Arc::from(link), adopted.last_h),
-                Connect::Incompatible { .. } => {
-                    return Err(anyhow!("agent host refused this build"));
-                }
-            };
-        // Before the link counts as whole again: no check sees it neither broken nor replaying.
-        h.replay_to.store(last_h, Ordering::SeqCst);
-        *h.link.write_or_recover() = link.clone();
+        let link: Arc<crate::agent_host::link::Link> = match connect(record, after).await? {
+            Connect::Ready(link, _) => Arc::from(link),
+            Connect::Incompatible { .. } => return Err(anyhow!("agent host refused this build")),
+        };
+        {
+            // Under the link's lock, which `learn_replay_end` keeps an end under: an end learned
+            // through the old link never stands for this one.
+            let mut current = h.link.write_or_recover();
+            h.replay_to.store(u64::MAX, Ordering::SeqCst);
+            *current = link.clone();
+        }
         h.broken.store(false, Ordering::SeqCst);
         self.start_reader(link);
-        Ok(last_h)
+        Ok(())
     }
 
-    /// Whether a reattached host's replay is not all in the session log yet (`reattach`).
+    /// An adopted host's replay counts as pending until `learn_replay_end` learns how far it goes.
+    pub fn mark_replay_unknown(&self) {
+        if let Some(h) = &self.hosted {
+            let _current = h.link.write_or_recover();
+            h.replay_to.store(u64::MAX, Ordering::SeqCst);
+        }
+    }
+
+    /// Learns how far the host replays on its current link (`Link::replay_end_within`), and keeps
+    /// it for `replay_pending` while that link is current. None when the host did not answer
+    /// within `budget`: the replay then never counts as complete through this link. A direct
+    /// child replays nothing.
+    pub async fn learn_replay_end(&self, budget: std::time::Duration) -> Option<u64> {
+        let Some(h) = &self.hosted else { return Some(0) };
+        let link = h.link();
+        let end = link.replay_end_within(budget).await.ok()?;
+        let current = h.link.read_or_recover();
+        if Arc::ptr_eq(&current, &link) {
+            h.replay_to.store(end, Ordering::SeqCst);
+        }
+        Some(end)
+    }
+
+    /// Whether a reattached or adopted host's replay is not all in the session log yet, or not
+    /// known to be (`learn_replay_end`).
     pub fn replay_pending(&self) -> bool {
         #[cfg(test)]
         if TEST_REPLAYING.load(Ordering::SeqCst) == self.generation {

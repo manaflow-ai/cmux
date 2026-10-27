@@ -158,9 +158,9 @@ impl Hub {
                 return None;
             }
             match child.reattach().await {
-                Ok(last_h) => {
+                Ok(()) => {
                     self.append(session, "mux", "host_reattached", json!({"reason": "link_lost"}));
-                    return self.judged_after_reattach(session, child, last_h, &off).await;
+                    return self.judged_after_reattach(session, child, &off).await;
                 }
                 Err(e) => {
                     tracing::warn!(session = %session.id, "agent host reattach after a lost link failed: {e:#}");
@@ -170,8 +170,8 @@ impl Hub {
         }
         if let Some(child) = current.filter(|c| c.is_broken()) {
             match child.reattach().await {
-                Ok(last_h) => {
-                    return self.judged_after_reattach(session, &child, last_h, &off).await;
+                Ok(()) => {
+                    return self.judged_after_reattach(session, &child, &off).await;
                 }
                 Err(e) => {
                     tracing::warn!(session = %session.id, "agent host reattach failed: {e:#}")
@@ -213,18 +213,25 @@ impl Hub {
     /// one read of it, with any off pushed since) it is handed out at once, and the next off judges
     /// its replay: an earlier read of its log no longer holds (`FloorState::left_host_read`), and
     /// until the replay is all in the log the agent counts as full access (review 1 of #26057).
+    /// The replay runs to what the host numbered before it handled this daemon's `Resume`, not to
+    /// its hello (`ChildAgent::learn_replay_end`, review 3); with MDM unset that is learned in the
+    /// background, and nothing waits on it.
     async fn judged_after_reattach(
         &self,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
-        last_h: u64,
         off: &OffLatch,
     ) -> Option<Arc<ChildAgent>> {
         session.floor.left_host_read.store(false, Ordering::SeqCst);
         if !off.off() {
+            let learning = child.clone();
+            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
             return Some(child.clone());
         }
-        let replayed = child.wait_replayed(last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        let replayed = match child.learn_replay_end(REPLAY_STALL).await {
+            Some(end) => child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await,
+            None => false,
+        };
         session.floor.left_host_read.store(false, Ordering::SeqCst);
         let ended = if replayed {
             self.end_if_runs_full_access(session, true).await
@@ -424,6 +431,8 @@ impl Hub {
                 return Ok(());
             }
         };
+        // Its replay is not known to be in the log until its end is learned (below).
+        child.mark_replay_unknown();
         let proven = self.adopt_caller_token(&session.id, caller_token);
         // A fork through an adopted agent asks for the list it started with
         // (`spawn.rs` decides it at session/new for a spawned one).
@@ -470,8 +479,17 @@ impl Hub {
         // read the log before the replay reached it. With MDM unset the agent is handed out, and
         // the next off reads the log the replay added to: an earlier read of it no longer holds
         // (review 2 of #26057).
+        // The replay runs to what the host numbered before it handled this daemon's `Resume`, which
+        // may be past its hello's `last_h` (review 3 of #26057): under MDM's off that end is learned
+        // and waited for before the judgement; with MDM unset it is learned in the background and
+        // nothing waits on it, as before.
         session.floor.left_host_read.store(false, Ordering::SeqCst);
         if off.off() {
+            let replayed = replayed
+                && match child.learn_replay_end(REPLAY_STALL).await {
+                    Some(end) => child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await,
+                    None => false,
+                };
             let ended = if replayed {
                 self.end_if_runs_full_access(session, true).await
             } else {
@@ -480,6 +498,9 @@ impl Hub {
             if ended != FullAccessEnd::NotInFullAccess {
                 return Ok(());
             }
+        } else {
+            let learning = child.clone();
+            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
         }
         self.append(
             session,
