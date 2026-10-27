@@ -59,7 +59,8 @@
       "args": {
         "method": "screen.update",
         "params": {
-          "pinned": false
+          "pinned": true,
+          "color": "#336699"
         },
         "idempotencyKey": "screen-update-ok.call"
       },
@@ -71,7 +72,53 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "pinned and color change in one commit"
+    },
+    {
+      "id": "pinned",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/extra/pinned",
+        "equals": true,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "colored",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/extra/color",
+        "equals": "#336699",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "screen": "$step:fx-workspace#/value/screen_id"
+      },
+      "args": {
+        "method": "screen.update",
+        "params": {
+          "pinned": true,
+          "color": "#336699"
+        },
+        "idempotencyKey": "screen-update-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

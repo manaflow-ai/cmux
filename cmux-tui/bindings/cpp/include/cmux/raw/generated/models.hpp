@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169";
+inline constexpr std::string_view kProtocolIrSha256 = "0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -26,6 +26,14 @@ struct AgentCliJobPath;
 struct AgentCliJobReceipt;
 struct AgentCliJobResolution;
 struct AgentCliStoredIntent;
+enum class AgentInventoryAuth;
+enum class AgentInventoryChannel;
+enum class AgentInventoryFamily;
+struct AgentInventoryHarness;
+struct AgentInventoryRefreshResult;
+struct AgentInventoryResult;
+struct AgentInventoryWatchActive;
+struct AgentInventoryWatchResult;
 enum class AgentPresenceActivity;
 struct AgentRecord;
 enum class AgentReportSource;
@@ -74,9 +82,13 @@ struct BrowserRuntimeRow;
 struct BrowserRuntimeStartResult;
 struct BrowserRuntimeStatusResult;
 struct BrowserRuntimeStopResult;
+struct CancelStreamResult;
 struct CellPixelFailure;
 struct CellPixelResize;
 struct CellPixelSurface;
+struct ClientHelloFeaturePending;
+struct ClientHelloFeatureReport;
+struct ClientHelloFeatures;
 struct ClientHelloPageOperations;
 struct ClientHelloResult;
 struct ClientInfo;
@@ -229,6 +241,8 @@ struct ServerStatsLockSite;
 struct ServerStatsLockStall;
 struct ServerStatsLockWait;
 struct ServerStatsLockWaits;
+struct ServerStatsMethodLatency;
+struct ServerStatsPercentiles;
 struct ServerStatsRegistryLock;
 struct ServerStatsRequestLatency;
 struct ServerStatsRequestPathIo;
@@ -329,6 +343,9 @@ struct AgentCliIntentsSettleRequest;
 struct AgentCliIntentsSettleResult;
 struct AgentCliUpdateJobRequest;
 struct AgentCliUpdateJobResolveRequest;
+struct AgentInventoryRequest;
+struct AgentInventoryRefreshRequest;
+struct AgentInventoryWatchRequest;
 struct AgentSessionAttachRequest;
 struct AgentSessionCancelRequest;
 struct AgentSessionCancelResult;
@@ -403,6 +420,7 @@ struct BrowserRuntimeStopRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
 struct CancelRequestRequest;
+struct CancelStreamRequest;
 struct ChiefInspectRequest;
 struct ChiefInspectResult;
 struct ClearHistoryRequest;
@@ -505,6 +523,8 @@ struct CreateTabGroupRequest;
 struct CreateTerminalRequest;
 struct CreateWorkspaceRequest;
 struct CreateWorkspaceGroupRequest;
+struct DebugDaemonLocksRequest;
+struct DebugDaemonLocksResult;
 struct DeleteBookmarkRequest;
 struct DeleteBookmarkResult;
 struct DeleteBrowserProfileRequest;
@@ -669,7 +689,11 @@ struct SelectWorkspaceRequest;
 struct SendRequest;
 struct SendResult;
 struct SendKeyRequest;
+struct ServerBlockingRequest;
+struct ServerBlockingResult;
 struct ServerStatsRequest;
+struct ServerThreadsRequest;
+struct ServerThreadsResult;
 struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
@@ -808,9 +832,11 @@ struct ScreenClosedEvent;
 struct ScreenRenamedEvent;
 struct ScriptLogEvent;
 struct ScrollChangedEvent;
+struct ServerDiagnosticSiteEvent;
 struct SettingsChangedEvent;
 struct SizeStateEvent;
 struct StatusEvent;
+struct StreamEndEvent;
 struct SurfaceExitedEvent;
 struct SurfaceOutputEvent;
 struct SurfaceResizeFailedEvent;
@@ -843,6 +869,7 @@ struct AgentCliJobResolutionIndeterminate;
 struct AgentCliJobResolutionNotFound;
 struct AgentCliJobResolutionPending;
 struct AgentCliJobResolutionPrepared;
+enum class CancelStreamResultOutcome;
 enum class CopyResultMode;
 struct DeclarativeLayoutLeaf;
 struct DeclarativeLayoutSplit;
@@ -879,7 +906,9 @@ enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 enum class KeybindingsChangedEventOrigin;
+enum class ServerDiagnosticSiteEventFamily;
 enum class SettingsChangedEventOrigin;
+enum class StreamEndEventReason;
 struct CloudAttachmentUploadResultStoredPoster;
 struct CloudAttachmentUploadResultStoredPreview;
 struct ConversationAttachmentUploadResultStoredPoster;
@@ -1184,6 +1213,12 @@ struct AgentCliUpdateJobResolveRequest {
     friend bool operator==(const AgentCliUpdateJobResolveRequest&, const AgentCliUpdateJobResolveRequest&) = default;
 };
 
+enum class AgentInventoryAuth {
+    signed_in,
+    signed_out,
+    unknown,
+};
+
 struct AgentInventoryChangedEvent {
     std::string machine{};
     std::uint64_t revision{};
@@ -1191,11 +1226,93 @@ struct AgentInventoryChangedEvent {
     friend bool operator==(const AgentInventoryChangedEvent&, const AgentInventoryChangedEvent&) = default;
 };
 
+enum class AgentInventoryChannel {
+    npm,
+    bun,
+    brew,
+    brew_cask,
+    native,
+    launcher,
+    standalone,
+    missing,
+};
+
+enum class AgentInventoryFamily {
+    claude,
+    codex,
+    opencode,
+    pi,
+    chief,
+    gemini,
+    amp,
+    copilot,
+    cursor,
+};
+
+struct AgentInventoryHarness {
+    AgentInventoryAuth auth{};
+    AgentInventoryChannel channel{};
+    std::uint64_t checked_at{};
+    std::optional<AgentInventoryFamily> family{};
+    std::string id{};
+    std::optional<std::string> latest{};
+    std::optional<std::uint64_t> latest_checked_at{};
+    bool outdated{};
+    std::optional<std::string> version{};
+    friend bool operator==(const AgentInventoryHarness&, const AgentInventoryHarness&) = default;
+};
+
+struct AgentInventoryRefreshRequest {
+    std::string expected_machine_id{};
+    friend bool operator==(const AgentInventoryRefreshRequest&, const AgentInventoryRefreshRequest&) = default;
+};
+
+struct AgentInventoryRefreshResult {
+    std::vector<AgentInventoryHarness> harnesses{};
+    std::string machine{};
+    friend bool operator==(const AgentInventoryRefreshResult&, const AgentInventoryRefreshResult&) = default;
+};
+
+struct AgentInventoryRequest {
+    std::optional<std::string> expected_machine_id{};
+    friend bool operator==(const AgentInventoryRequest&, const AgentInventoryRequest&) = default;
+};
+
+struct AgentInventoryResult {
+    std::vector<AgentInventoryHarness> harnesses{};
+    friend bool operator==(const AgentInventoryResult&, const AgentInventoryResult&) = default;
+};
+
+struct AgentInventoryWatchActive {
+    std::string machine{};
+    std::uint64_t revision{};
+    std::string watch_id{};
+    friend bool operator==(const AgentInventoryWatchActive&, const AgentInventoryWatchActive&) = default;
+};
+
 struct AgentInventoryWatchEndedEvent {
     std::string machine{};
     std::string reason{};
     std::string watch_id{};
     friend bool operator==(const AgentInventoryWatchEndedEvent&, const AgentInventoryWatchEndedEvent&) = default;
+};
+
+struct AgentInventoryWatchRequest {
+    std::optional<bool> admission_receipt{};
+    bool enabled{};
+    std::string expected_machine_id{};
+    std::optional<std::string> expected_watch_id{};
+    friend bool operator==(const AgentInventoryWatchRequest&, const AgentInventoryWatchRequest&) = default;
+};
+
+struct EmptyResult {
+    friend bool operator==(const EmptyResult&, const EmptyResult&) = default;
+};
+
+struct AgentInventoryWatchResult {
+    using Variant = std::variant<AgentInventoryWatchActive, EmptyResult>;
+    Variant value{};
+    friend bool operator==(const AgentInventoryWatchResult&, const AgentInventoryWatchResult&) = default;
 };
 
 enum class AgentPresenceActivity {
@@ -1850,6 +1967,7 @@ struct AttachSurfaceRequest {
     std::optional<bool> snapshot_images{};
     std::optional<bool> snapshot_local_history{};
     Field<std::uint16_t> snapshot_version{};
+    Field<std::uint16_t> stream{};
     Field<Id> surface{};
     Field<std::uint64_t> viewer_backlog_bytes{};
     friend bool operator==(const AttachSurfaceRequest&, const AttachSurfaceRequest&) = default;
@@ -2168,6 +2286,22 @@ struct CancelRequestRequest {
     friend bool operator==(const CancelRequestRequest&, const CancelRequestRequest&) = default;
 };
 
+struct CancelStreamRequest {
+    std::uint16_t stream{};
+    friend bool operator==(const CancelStreamRequest&, const CancelStreamRequest&) = default;
+};
+
+enum class CancelStreamResultOutcome {
+    applied,
+    ended,
+};
+
+struct CancelStreamResult {
+    CancelStreamResultOutcome outcome{};
+    std::uint16_t stream{};
+    friend bool operator==(const CancelStreamResult&, const CancelStreamResult&) = default;
+};
+
 struct CellPixelFailure {
     std::string error{};
     Id surface{};
@@ -2410,6 +2544,26 @@ struct ClientFocusResult {
     friend bool operator==(const ClientFocusResult&, const ClientFocusResult&) = default;
 };
 
+struct ClientHelloFeaturePending {
+    bool app{};
+    bool daemon{};
+    std::string name{};
+    friend bool operator==(const ClientHelloFeaturePending&, const ClientHelloFeaturePending&) = default;
+};
+
+struct ClientHelloFeatureReport {
+    std::vector<std::string> applied{};
+    std::string hash{};
+    std::vector<ClientHelloFeaturePending> pending{};
+    friend bool operator==(const ClientHelloFeatureReport&, const ClientHelloFeatureReport&) = default;
+};
+
+struct ClientHelloFeatures {
+    std::optional<std::string> hash{};
+    std::map<std::string, bool, std::less<>> values{};
+    friend bool operator==(const ClientHelloFeatures&, const ClientHelloFeatures&) = default;
+};
+
 struct ClientHelloPageOperations {
     std::vector<std::string> confirm{};
     std::vector<std::string> gesture{};
@@ -2418,6 +2572,7 @@ struct ClientHelloPageOperations {
 };
 
 struct ClientHelloRequest {
+    Field<ClientHelloFeatures> features{};
     std::optional<std::string> install_id{};
     Field<std::string> page{};
     std::optional<std::string> proof{};
@@ -2427,6 +2582,7 @@ struct ClientHelloRequest {
 
 struct ClientHelloResult {
     std::string connection_id{};
+    std::optional<ClientHelloFeatureReport> features{};
     std::optional<std::string> install_id{};
     std::optional<std::string> nonce{};
     std::optional<std::string> page{};
@@ -3666,6 +3822,15 @@ struct DeadPane {
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
 };
 
+struct DebugDaemonLocksRequest {
+    friend bool operator==(const DebugDaemonLocksRequest&, const DebugDaemonLocksRequest&) = default;
+};
+
+struct DebugDaemonLocksResult {
+    Json value{};
+    friend bool operator==(const DebugDaemonLocksResult&, const DebugDaemonLocksResult&) = default;
+};
+
 struct DeleteBookmarkRequest {
     std::string bookmark{};
     Field<std::string> mutation_id{};
@@ -3727,6 +3892,7 @@ struct DeleteWorkspaceGroupRequest {
 
 struct DetachAttachedViewRequest {
     Field<std::string> lease{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     Field<std::string> view{};
     friend bool operator==(const DetachAttachedViewRequest&, const DetachAttachedViewRequest&) = default;
@@ -3770,10 +3936,6 @@ struct DetachedEvent {
 struct EmptyEvent {
     std::optional<EventCause> cause{};
     friend bool operator==(const EmptyEvent&, const EmptyEvent&) = default;
-};
-
-struct EmptyResult {
-    friend bool operator==(const EmptyResult&, const EmptyResult&) = default;
 };
 
 struct ExportLayoutRequest {
@@ -4393,6 +4555,7 @@ struct IdentifyResult {
     Field<std::uint32_t> api_revision{};
     Field<std::string> build_commit{};
     Field<std::string> build_id{};
+    Field<std::uint32_t> bulk_frame_max{};
     std::optional<std::vector<std::string>> capabilities{};
     Field<std::string> cli_path{};
     Field<std::string> crate_version{};
@@ -5691,6 +5854,7 @@ struct RegisterBrowserProviderRequest {
 
 struct ReleaseAttachedViewSizeRequest {
     Field<std::string> lease{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     Field<std::string> view{};
     friend bool operator==(const ReleaseAttachedViewSizeRequest&, const ReleaseAttachedViewSizeRequest&) = default;
@@ -5916,6 +6080,7 @@ struct ResizeAttachedViewRequest {
     Field<SizingIdentity> identity{};
     Field<std::string> lease{};
     std::uint16_t rows{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     Field<std::string> view{};
     friend bool operator==(const ResizeAttachedViewRequest&, const ResizeAttachedViewRequest&) = default;
@@ -6185,6 +6350,33 @@ struct SendResult {
     friend bool operator==(const SendResult&, const SendResult&) = default;
 };
 
+struct ServerBlockingRequest {
+    friend bool operator==(const ServerBlockingRequest&, const ServerBlockingRequest&) = default;
+};
+
+struct ServerBlockingResult {
+    Json value{};
+    friend bool operator==(const ServerBlockingResult&, const ServerBlockingResult&) = default;
+};
+
+enum class ServerDiagnosticSiteEventFamily {
+    blocking,
+    inversion,
+    hang,
+};
+
+struct ServerDiagnosticSiteEvent {
+    std::optional<EventCause> cause{};
+    std::optional<std::string> crate{};
+    ServerDiagnosticSiteEventFamily family{};
+    std::optional<std::string> file_hash{};
+    std::string kind{};
+    std::optional<bool> lane_sync{};
+    std::optional<std::uint32_t> line{};
+    std::optional<std::string> method{};
+    friend bool operator==(const ServerDiagnosticSiteEvent&, const ServerDiagnosticSiteEvent&) = default;
+};
+
 struct ServerStatsConnections {
     std::uint64_t accepted{};
     std::uint64_t active{};
@@ -6333,6 +6525,26 @@ struct ServerStatsLockWaits {
     friend bool operator==(const ServerStatsLockWaits&, const ServerStatsLockWaits&) = default;
 };
 
+struct ServerStatsPercentiles {
+    std::uint64_t count{};
+    std::uint64_t max{};
+    std::uint64_t p50{};
+    std::uint64_t p95{};
+    std::uint64_t p99{};
+    friend bool operator==(const ServerStatsPercentiles&, const ServerStatsPercentiles&) = default;
+};
+
+struct ServerStatsMethodLatency {
+    std::string class_{};
+    ServerStatsPercentiles handler_us{};
+    std::optional<std::uint16_t> id{};
+    ServerStatsPercentiles latency_us{};
+    ServerStatsPercentiles lock_wait_us{};
+    std::string method{};
+    std::uint16_t trace_id{};
+    friend bool operator==(const ServerStatsMethodLatency&, const ServerStatsMethodLatency&) = default;
+};
+
 struct ServerStatsRegistryLock {
     std::uint64_t contended_acquisitions{};
     ServerStatsHistogram hold_us{};
@@ -6450,6 +6662,7 @@ struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsHistogram> dispatch_queue_us{};
     std::optional<ServerStatsIpc> ipc{};
+    std::optional<std::vector<ServerStatsMethodLatency>> ipc_methods{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     std::optional<ServerStatsLockClasses> lock_classes{};
     ServerStatsRegistryLock registry_lock{};
@@ -6461,6 +6674,15 @@ struct ServerStatsResult {
     std::uint64_t uptime_ms{};
     std::optional<ServerStatsWritePath> write_path{};
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
+};
+
+struct ServerThreadsRequest {
+    friend bool operator==(const ServerThreadsRequest&, const ServerThreadsRequest&) = default;
+};
+
+struct ServerThreadsResult {
+    Json value{};
+    friend bool operator==(const ServerThreadsResult&, const ServerThreadsResult&) = default;
 };
 
 struct SetCellPixelsRequest {
@@ -6767,6 +6989,7 @@ struct SnapshotRequestRequest {
     Field<SnapshotRequestHave> have{};
     Field<std::string> reason{};
     Field<std::string> request_id{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     friend bool operator==(const SnapshotRequestRequest&, const SnapshotRequestRequest&) = default;
 };
@@ -6808,6 +7031,19 @@ struct StatusEvent {
     std::optional<EventCause> cause{};
     std::string message{};
     friend bool operator==(const StatusEvent&, const StatusEvent&) = default;
+};
+
+enum class StreamEndEventReason {
+    canceled,
+    detached,
+    overflow,
+    attach_failed,
+};
+
+struct StreamEndEvent {
+    StreamEndEventReason reason{};
+    std::uint16_t stream{};
+    friend bool operator==(const StreamEndEvent&, const StreamEndEvent&) = default;
 };
 
 struct SubscribeActivityRequest {
@@ -7630,6 +7866,54 @@ struct Codec<AgentCliStoredIntent> {
 };
 
 template <>
+struct Codec<AgentInventoryAuth> {
+    static Result<Json> encode(const AgentInventoryAuth& value);
+    static Result<AgentInventoryAuth> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryChannel> {
+    static Result<Json> encode(const AgentInventoryChannel& value);
+    static Result<AgentInventoryChannel> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryFamily> {
+    static Result<Json> encode(const AgentInventoryFamily& value);
+    static Result<AgentInventoryFamily> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryHarness> {
+    static Result<Json> encode(const AgentInventoryHarness& value);
+    static Result<AgentInventoryHarness> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryRefreshResult> {
+    static Result<Json> encode(const AgentInventoryRefreshResult& value);
+    static Result<AgentInventoryRefreshResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryResult> {
+    static Result<Json> encode(const AgentInventoryResult& value);
+    static Result<AgentInventoryResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryWatchActive> {
+    static Result<Json> encode(const AgentInventoryWatchActive& value);
+    static Result<AgentInventoryWatchActive> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryWatchResult> {
+    static Result<Json> encode(const AgentInventoryWatchResult& value);
+    static Result<AgentInventoryWatchResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentPresenceActivity> {
     static Result<Json> encode(const AgentPresenceActivity& value);
     static Result<AgentPresenceActivity> decode(const Json& value);
@@ -7918,6 +8202,12 @@ struct Codec<BrowserRuntimeStopResult> {
 };
 
 template <>
+struct Codec<CancelStreamResult> {
+    static Result<Json> encode(const CancelStreamResult& value);
+    static Result<CancelStreamResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<CellPixelFailure> {
     static Result<Json> encode(const CellPixelFailure& value);
     static Result<CellPixelFailure> decode(const Json& value);
@@ -7933,6 +8223,24 @@ template <>
 struct Codec<CellPixelSurface> {
     static Result<Json> encode(const CellPixelSurface& value);
     static Result<CellPixelSurface> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloFeaturePending> {
+    static Result<Json> encode(const ClientHelloFeaturePending& value);
+    static Result<ClientHelloFeaturePending> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloFeatureReport> {
+    static Result<Json> encode(const ClientHelloFeatureReport& value);
+    static Result<ClientHelloFeatureReport> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloFeatures> {
+    static Result<Json> encode(const ClientHelloFeatures& value);
+    static Result<ClientHelloFeatures> decode(const Json& value);
 };
 
 template <>
@@ -8848,6 +9156,18 @@ struct Codec<ServerStatsLockWaits> {
 };
 
 template <>
+struct Codec<ServerStatsMethodLatency> {
+    static Result<Json> encode(const ServerStatsMethodLatency& value);
+    static Result<ServerStatsMethodLatency> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsPercentiles> {
+    static Result<Json> encode(const ServerStatsPercentiles& value);
+    static Result<ServerStatsPercentiles> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsRegistryLock> {
     static Result<Json> encode(const ServerStatsRegistryLock& value);
     static Result<ServerStatsRegistryLock> decode(const Json& value);
@@ -9448,6 +9768,24 @@ struct Codec<AgentCliUpdateJobResolveRequest> {
 };
 
 template <>
+struct Codec<AgentInventoryRequest> {
+    static Result<Json> encode(const AgentInventoryRequest& value);
+    static Result<AgentInventoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryRefreshRequest> {
+    static Result<Json> encode(const AgentInventoryRefreshRequest& value);
+    static Result<AgentInventoryRefreshRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryWatchRequest> {
+    static Result<Json> encode(const AgentInventoryWatchRequest& value);
+    static Result<AgentInventoryWatchRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentSessionAttachRequest> {
     static Result<Json> encode(const AgentSessionAttachRequest& value);
     static Result<AgentSessionAttachRequest> decode(const Json& value);
@@ -9889,6 +10227,12 @@ template <>
 struct Codec<CancelRequestRequest> {
     static Result<Json> encode(const CancelRequestRequest& value);
     static Result<CancelRequestRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelStreamRequest> {
+    static Result<Json> encode(const CancelStreamRequest& value);
+    static Result<CancelStreamRequest> decode(const Json& value);
 };
 
 template <>
@@ -10501,6 +10845,18 @@ template <>
 struct Codec<CreateWorkspaceGroupRequest> {
     static Result<Json> encode(const CreateWorkspaceGroupRequest& value);
     static Result<CreateWorkspaceGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DebugDaemonLocksRequest> {
+    static Result<Json> encode(const DebugDaemonLocksRequest& value);
+    static Result<DebugDaemonLocksRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DebugDaemonLocksResult> {
+    static Result<Json> encode(const DebugDaemonLocksResult& value);
+    static Result<DebugDaemonLocksResult> decode(const Json& value);
 };
 
 template <>
@@ -11488,9 +11844,33 @@ struct Codec<SendKeyRequest> {
 };
 
 template <>
+struct Codec<ServerBlockingRequest> {
+    static Result<Json> encode(const ServerBlockingRequest& value);
+    static Result<ServerBlockingRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerBlockingResult> {
+    static Result<Json> encode(const ServerBlockingResult& value);
+    static Result<ServerBlockingResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsRequest> {
     static Result<Json> encode(const ServerStatsRequest& value);
     static Result<ServerStatsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerThreadsRequest> {
+    static Result<Json> encode(const ServerThreadsRequest& value);
+    static Result<ServerThreadsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerThreadsResult> {
+    static Result<Json> encode(const ServerThreadsResult& value);
+    static Result<ServerThreadsResult> decode(const Json& value);
 };
 
 template <>
@@ -12322,6 +12702,12 @@ struct Codec<ScrollChangedEvent> {
 };
 
 template <>
+struct Codec<ServerDiagnosticSiteEvent> {
+    static Result<Json> encode(const ServerDiagnosticSiteEvent& value);
+    static Result<ServerDiagnosticSiteEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<SettingsChangedEvent> {
     static Result<Json> encode(const SettingsChangedEvent& value);
     static Result<SettingsChangedEvent> decode(const Json& value);
@@ -12337,6 +12723,12 @@ template <>
 struct Codec<StatusEvent> {
     static Result<Json> encode(const StatusEvent& value);
     static Result<StatusEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<StreamEndEvent> {
+    static Result<Json> encode(const StreamEndEvent& value);
+    static Result<StreamEndEvent> decode(const Json& value);
 };
 
 template <>
@@ -12529,6 +12921,12 @@ template <>
 struct Codec<AgentCliJobResolutionPrepared> {
     static Result<Json> encode(const AgentCliJobResolutionPrepared& value);
     static Result<AgentCliJobResolutionPrepared> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelStreamResultOutcome> {
+    static Result<Json> encode(const CancelStreamResultOutcome& value);
+    static Result<CancelStreamResultOutcome> decode(const Json& value);
 };
 
 template <>
@@ -12748,9 +13146,21 @@ struct Codec<KeybindingsChangedEventOrigin> {
 };
 
 template <>
+struct Codec<ServerDiagnosticSiteEventFamily> {
+    static Result<Json> encode(const ServerDiagnosticSiteEventFamily& value);
+    static Result<ServerDiagnosticSiteEventFamily> decode(const Json& value);
+};
+
+template <>
 struct Codec<SettingsChangedEventOrigin> {
     static Result<Json> encode(const SettingsChangedEventOrigin& value);
     static Result<SettingsChangedEventOrigin> decode(const Json& value);
+};
+
+template <>
+struct Codec<StreamEndEventReason> {
+    static Result<Json> encode(const StreamEndEventReason& value);
+    static Result<StreamEndEventReason> decode(const Json& value);
 };
 
 template <>

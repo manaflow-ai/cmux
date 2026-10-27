@@ -7,7 +7,6 @@ import CmuxNextPagesTestSupport
 import CmuxNextSettings
 import Foundation
 import Testing
-import WebKit
 
 /// `debug.webui` (p13-webui-001): the census names every page with its engine, state and renderer,
 /// attributes each Chromium helper to what it runs, and counts what reaches a page only while it is
@@ -33,7 +32,7 @@ struct DebugWebUITests {
     private func makeHost(_ hosting: FakeChromiumHosting?) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: nil,
                   memory: QuietMemoryRegistry(),
-                  clock: PageTestClock.never)
+                  deadlines: LifecycleDeadlineRig.never)
     }
 
     private func makeWindow() -> NSWindow {
@@ -43,7 +42,7 @@ struct DebugWebUITests {
         return window
     }
 
-    private func census(_ host: WebUIHost, newTabSpare: WKWebView? = nil, spareClients: [Int32] = [],
+    private func census(_ host: WebUIHost, newTabSpare: PageWebView? = nil, spareClients: [Int32] = [],
                         browserTabs: [WebUICensus.Host] = []) -> WebUICensus {
         WebUICensus(pages: host.registry.pages(), registry: host.registry, newTabSpare: newTabSpare,
                     spareWindows: [WebUICensus.Host(name: "cef_window", state: "live", rendererClients: spareClients)],
@@ -231,7 +230,7 @@ struct DebugWebUITests {
         let window = makeWindow()
         window.contentView?.addSubview(shown)
 
-        let rows = try #require(census(host, newTabSpare: spare.webKitView).report(helpers: [])["pages"]?.arrayValue)
+        let rows = try #require(census(host, newTabSpare: spare).report(helpers: [])["pages"]?.arrayValue)
         #expect(rows.count == 2)
         let spareRow = try #require(rows.first)
         #expect(spareRow["engine"]?.stringValue == "webkit")
@@ -245,15 +244,18 @@ struct DebugWebUITests {
         #expect(shownRow["window_number"]?.doubleValue == Double(window.windowNumber))
         #expect(keepReasons(shownRow).contains("visible"))
         // Only a spare with no page view gets a row of its own.
-        #expect(census(host, newTabSpare: spare.webKitView).report(helpers: [])["spares"]?.arrayValue?.count == 1)
+        #expect(census(host, newTabSpare: spare).report(helpers: [])["spares"]?.arrayValue?.count == 1)
     }
 
-    /// A New Tab spare web view the census has no page view for (none of the pages it was given
-    /// shows it) still gets a `spares` row with its WebContent pid.
+    /// A New Tab spare the census has no row for (none of the pages it was given is the spare)
+    /// still gets a `spares` row with its WebContent pid.
     @Test func aViewlessNewTabSpareGetsASpareRow() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = makeHost(nil)
-        let spares = try #require(census(host, newTabSpare: WKWebView()).report(helpers: [])["spares"]?.arrayValue)
+        let elsewhere = makeHost(nil)
+        let spare = try #require(elsewhere.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
+        defer { elsewhere.close(spare) }
+        let spares = try #require(census(host, newTabSpare: spare).report(helpers: [])["spares"]?.arrayValue)
         #expect(spares.count == 2)
         let newTab = try #require(spares.first { $0["spare"]?.stringValue == "new_tab" })
         #expect(newTab["state"] == .null)

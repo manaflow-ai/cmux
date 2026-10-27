@@ -282,6 +282,8 @@ import Testing
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         throw .cannotStart("not started in this test")
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// Stand-in shim functions. `create_window` reports the browser started. `tab_add` and

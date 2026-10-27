@@ -93,6 +93,7 @@ final class HomeFirstRunView: NSView {
     func setAgents(_ list: [HomeAgentGlance]) {
         let shown = HomeAgentGlance.shortlist(list)
         guard shown != agents else { return }
+        needsLayout = true
         // A rebuild drops the old rows; keep keyboard focus on the same agent, or the column.
         let focused = zip(agents, agentRows).first { window?.firstResponder === $0.1 }?.0.id
         agents = shown
@@ -111,7 +112,6 @@ final class HomeFirstRunView: NSView {
         }
         arrange()
         applyStoredColors()
-        needsLayout = true
         if let focused {
             window?.makeFirstResponder(zip(shown, agentRows).first { $0.0.id == focused }?.1 ?? agent)
         }
@@ -175,14 +175,15 @@ final class HomeFirstRunView: NSView {
     func setPetShown(_ shown: Bool) {
         let title = shown ? HomeStrings.firstRunHidePet : HomeStrings.firstRunShowPet
         guard pet.title != title else { return }
+        pet.needsLayout = true
         pet.label.stringValue = title
         pet.setAccessibilityLabel(title)
-        pet.needsLayout = true
     }
 
     /// Applies the live interface scale to this native empty state.
     func applyScale(_ scale: CGFloat) {
         guard self.scale != scale else { return }
+        needsLayout = true
         self.scale = scale
         switchCard.applyScale(scale)
         hero.applyScale(scale)
@@ -190,17 +191,25 @@ final class HomeFirstRunView: NSView {
         applySpacing()
         for row in rows { row.applyScale(scale) }
         invalidateIntrinsicContentSize()
-        needsLayout = true
     }
 
     /// The rows' shortcuts and the Switching card's keys, as the live
     /// binding table has them (cmux.json and keybindings.json included); nil
-    /// hides a row's shortcut, nil `switching` hides the card.
+    /// hides a row's shortcut, nil `switching` hides the card. A row lays
+    /// itself out for a new shortcut; the panel only for a new card.
     func setShortcuts(terminal: String?, agent: String?, switching: HomeSwitchKeys?) {
         self.terminal.shortcut = terminal
         self.agent.shortcut = agent
-        switchCard.apply(switching)
+        setSwitchKeys(switching)
+    }
+
+    /// Hide on the Switching card: the card goes, the rows keep their shortcuts.
+    func hideSwitchCard() { setSwitchKeys(nil) }
+
+    private func setSwitchKeys(_ keys: HomeSwitchKeys?) {
+        guard switchCard.keys != keys else { return }
         needsLayout = true
+        switchCard.apply(keys)
     }
 
     /// Colours from the theme (caller runs inside `performWithTheme`): text
@@ -272,10 +281,11 @@ final class HomeFirstRunRow: NSView {
     /// The action's shortcut, drawn at the trailing edge; nil draws none.
     var shortcut: String? {
         didSet {
+            guard shortcut != oldValue else { return }
+            needsLayout = true
             shortcutLabel.stringValue = shortcut ?? ""
             shortcutLabel.isHidden = shortcut == nil
             setAccessibilityHelp(shortcut)
-            needsLayout = true
         }
     }
 
@@ -316,13 +326,14 @@ final class HomeFirstRunRow: NSView {
 
     /// Applies the live interface scale to the row's type, icon and geometry.
     func applyScale(_ scale: CGFloat) {
+        guard self.scale != scale else { return }
+        needsLayout = true
         self.scale = scale
         surface.layer?.cornerRadius = Self.cornerRadius * scale
         glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13 * scale))
         label.font = .systemFont(ofSize: 13 * scale)
         shortcutLabel.font = .systemFont(ofSize: 12 * scale)
         invalidateIntrinsicContentSize()
-        needsLayout = true
     }
 
     /// Colours from the theme (caller runs inside `performWithTheme`).
@@ -364,7 +375,7 @@ final class HomeFirstRunRow: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }

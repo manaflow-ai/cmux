@@ -94,7 +94,7 @@ struct CmxIrohIdentityRepositoryTests {
         let entropy = TestIdentityEntropy()
         let repository = CmxIrohIdentityRepository(
             secureStore: store,
-            installState: CmxIrohUserDefaultsInstallStateStore(defaults: defaults),
+            installState: try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName)),
             randomBytes: { entropy.nextBytes() },
             marker: { entropy.nextMarker() }
         )
@@ -124,7 +124,7 @@ struct CmxIrohIdentityRepositoryTests {
         let store = TestControllableSecureIdentityStore()
         let repository = CmxIrohIdentityRepository(
             secureStore: store,
-            installState: CmxIrohUserDefaultsInstallStateStore(defaults: defaults),
+            installState: try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName)),
             randomBytes: { Data(repeating: 7, count: 32) },
             marker: { "install-marker" }
         )

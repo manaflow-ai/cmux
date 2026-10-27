@@ -210,11 +210,13 @@ Launch path (`Packages/macOS/CmuxNext/Sources`):
 - No cmux window sets `isRestorable = false` except `BrowserPopupWindow`; AppKit state restoration runs.
 
 Chromium:
-- ChromiumWarmup (task 018): the launch check, a hidden need's preload, `CefInitialize` and the spare
-  window are afterStartup posts on `LaunchOrder.startup` (a person's signal maps the framework at once).
-  idleInput 750 ms, counted from the app's last input, with one DemandTimer (`ChromiumWarmup.idle`)
-  armed only after input while a step waits; maxWait 60 s from a step's first post, checked at the
-  post, the idle deadline and the end of menu tracking. No launch timer. Chromium is the default engine,
+- ChromiumWarmup (p06-scheduler-050, task 018): the launch check, `CefInitialize` and the spare window are
+  idle tasks of the main-thread scheduler, posted once startup settled (`ChromiumWarmupIdle`); the
+  preload's framework read waits behind the startup fence (p08-startup-045). inputQuiet 750 ms, counted from
+  the app's last input, with one deadline (`ChromiumWarmup.quiet`) only after input while a step waits;
+  maxDelay 5 s (500 ms for a spare), then background work. No launch timer. `CefInitialize` runs in its idle
+  task's own turn (`CEFEngine.initializeLoaded` after `libraryLoadEnded`, `CEFLoadedStart`), not in a later
+  continuation; the Chromium Host's launch start (`startWithoutIdleWait`) awaits it. Chromium is the default engine,
   and cmux pages (Home, New Tab, agent pages) are hosted in Chromium (`PageWebView.chromiumHosting`,
   perf-lead F3). `CEFEngine.makeTab` -> `CEFRuntime.shared.start` runs at once for a restored visible
   Chromium tab. 11 `CEFRuntime.shared.start(` sites (9 are user features: passwords, passkeys).
@@ -1057,6 +1059,12 @@ consistency test.
 `OwnerPanicForwarder.swift`, `Startup/Startup+Platform.swift`. Change: forwarder starts and the DiagnosticReports listing
 become `.bestEffort` lane posts behind the fence; handlers and LayoutPassGuard stay. Acceptance: no forwarder file calls
 before completion; previous-run report still sent in the same launch.
+As built (cp/p08-startup-078): feature `crashForwardersAfterStartup` (default off). `CmuxNextCrashReporting/CrashForwarders`
+holds the three forwarders; `CrashForwarders.post(on:)` posts their first pass and watches as one
+`.afterStartup` post `CrashReporting.forwarders` on `.lane(.files, .bestEffort)`, so it waits for completion and the fence.
+Finding acpmux (`AcpmuxEnvironment.resolve`: executable checks and the signature check) moves into that post too.
+`Startup/Startup+Platform.swift` does not exist on this branch; the wiring is the one `AppServices.init` line.
+Off, the forwarders start at once as before. Sentry's handlers, the invariant sink and LayoutPassGuard install at launch.
 
 **079 Q2 remainder.** Files: `Startup/Startup+{Control,Terminal,Settings,Platform,Core}.swift`. Change: priorities for
 hangReports.start, settings.start, keybindingsFile.start, mouseSideButtons, DaemonPrompts, TerminalHooks, themes.start and

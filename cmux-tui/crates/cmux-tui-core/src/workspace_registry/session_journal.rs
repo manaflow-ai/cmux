@@ -169,7 +169,7 @@ pub(crate) struct TerminalOutputRecordsWindow {
 /// A short-lived WAL reader owned by one subscriber thread. It never shares
 /// the registry writer connection or its mutex.
 pub(crate) struct SessionJournalReader {
-    connection: Connection,
+    pub(super) connection: Connection,
 }
 
 pub(crate) struct JournalRestoreCursor {

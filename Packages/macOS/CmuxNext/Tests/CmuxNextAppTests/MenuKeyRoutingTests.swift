@@ -46,7 +46,7 @@ import CmuxNextFocusUI
 
     private static func harness(userConfig: String) throws -> Harness {
         _ = NSApplication.shared
-        _ = GhosttyRuntime.shared
+        GhosttyRuntime.startedForTests()
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.windows.ordersWindowsIn = false
         let controller = try #require(services.windows.openWindow(workspaces: ["c11-workspace"]))

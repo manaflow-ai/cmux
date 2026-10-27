@@ -78,6 +78,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 110,
             rows: 35,
+            stream: None,
         },
         &writer,
     )
@@ -95,6 +96,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 70,
             rows: 20,
+            stream: None,
         },
         &writer,
     )
@@ -117,6 +119,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
                 identity: None,
                 cols: 40,
                 rows: 10,
+                stream: None,
             },
             &writer,
         )
@@ -135,6 +138,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 40,
             rows: 10,
+            stream: None,
         },
         &foreign_writer,
     )
@@ -149,6 +153,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             surface: surface.id,
             lease: Some(first_lease.clone()),
             view: None,
+            stream: None,
         },
         &writer,
     )
@@ -162,6 +167,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             surface: surface.id,
             lease: Some(first_lease.clone()),
             view: None,
+            stream: None,
         },
         &writer,
     )
@@ -176,11 +182,13 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 60,
             rows: 18,
+            stream: None,
         },
         Command::ReleaseAttachedViewSize {
             surface: surface.id,
             lease: Some(first_lease.clone()),
             view: None,
+            stream: None,
         },
     ] {
         let retired = handle_command(&mux, client, command, &writer).unwrap();
@@ -197,6 +205,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 90,
             rows: 28,
+            stream: None,
         },
         &writer,
     )
@@ -215,6 +224,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 55,
             rows: 16,
+            stream: None,
         },
         &writer,
     )
@@ -245,6 +255,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             surface: surface.id,
             lease: Some(second_lease),
             view: None,
+            stream: None,
         },
         &writer,
     )
@@ -310,6 +321,7 @@ fn attachment_resize_waits_for_detach_lifecycle_and_becomes_superseded() {
                 identity: None,
                 cols: 80,
                 rows: 24,
+                stream: None,
             },
             &resize_writer,
         );
@@ -387,6 +399,7 @@ fn terminal_view_leases_converge_after_500_rapid_attach_resize_detach_cycles() {
                 identity: None,
                 cols: resized.0,
                 rows: resized.1,
+                stream: None,
             },
             &writer,
         )
@@ -404,6 +417,7 @@ fn terminal_view_leases_converge_after_500_rapid_attach_resize_detach_cycles() {
                 identity: None,
                 cols: 40,
                 rows: 10,
+                stream: None,
             },
             &writer,
         )
@@ -449,9 +463,36 @@ fn failed_first_attach_restores_pre_attach_surface_geometry() {
 
     rollback_failed_attach(&mux, client, surface.id, stream.id, marked.size_rollback);
 
-    assert_eq!(surface.size(), (120, 40));
+    // The browser takes the restored size on its own worker; the rollback
+    // does not wait for it (p02-threads-221).
+    settle_browser_size(&surface, (120, 40));
     assert_eq!(mux.client_surface_size(surface.id, client), None);
     assert!(!mux.control_clients.attached_client_ids().contains(&client));
+}
+
+/// p02-threads-221: a failed attach's size rollback runs on the request
+/// thread, and the wait for the browser to take the restored size never does.
+#[test]
+fn attach_rollback_on_a_request_thread_never_waits_for_the_browser() {
+    let mux = test_mux();
+    let surface = sizing_browser(&mux, (120, 40));
+    let writer = test_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+    mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+    let resize =
+        mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
+    settle_browser_size(&surface, (80, 24));
+
+    let request_mux = mux.clone();
+    let surface_id = surface.id;
+    let rolled_back = crate::mux::mux_work::on_request_thread_in_panic_mode(move || {
+        request_mux.rollback_surface_size_client(surface_id, client, resize.rollback);
+    });
+
+    assert!(rolled_back.is_ok(), "the rollback blocked its request thread");
+    assert_eq!(mux.client_surface_size(surface.id, client), None);
+    settle_browser_size(&surface, (120, 40));
 }
 
 #[test]

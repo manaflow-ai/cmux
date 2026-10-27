@@ -36,7 +36,7 @@ public final class WebKitSetupGate {
         thread.name = "cmux-next webkit setup probe"
         thread.qualityOfService = .utility
         thread.start()
-        timer.schedule(after: Self.timeout) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: Self.timeout) { [weak self] in
             if self?.state == .probing { self?.state = .slow }
         }
     }

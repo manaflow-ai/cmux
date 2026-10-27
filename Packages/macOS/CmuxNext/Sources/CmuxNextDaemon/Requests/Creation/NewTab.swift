@@ -65,9 +65,9 @@ public struct SpawnOptions: Sendable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case cwd, cols, rows, argv, command, name, env, keep, terminalID
+        case cwd, cols, rows, argv, command, name, env, keep, terminalID = "terminal_id"
         case shellArgs = "shell_args"
-        case paneID, tabID, splitID
+        case paneID = "pane_id", tabID = "tab_id", splitID = "split_id"
     }
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)

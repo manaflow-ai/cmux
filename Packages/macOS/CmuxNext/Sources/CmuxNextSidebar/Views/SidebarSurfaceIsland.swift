@@ -22,6 +22,20 @@ public protocol SidebarSurfaceIsland: AnyObject {
     var onDismiss: (() -> Void)? { get set }
     /// The sidebar went away: the page cancels its subscriptions.
     func close()
+    /// A hover asks for the surface: a page not made yet, or let go while it waited, is made now; its height
+    /// arrives through ``onHeightChange``.
+    func willShow()
+    /// The surface shows (its popover opened).
+    func didShow()
+    /// The surface waits parked in its card (made, or its popover closed).
+    func didPark()
+}
+
+extension SidebarSurfaceIsland {
+    /// A surface that keeps its page while it waits has nothing to make or report.
+    public func willShow() {}
+    public func didShow() {}
+    public func didPark() {}
 }
 
 /// Makes the update surfaces (set by the App on each sidebar).
@@ -70,7 +84,7 @@ final class SidebarPopoverIslandHost: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }
@@ -118,7 +132,7 @@ extension SidebarViewComponents {
                 "height": String(Double(updateCardView.highlights?.contentHeight ?? -1)),
                 "parked": String(updateCardView.highlights?.view.superview === updateCardView.parking),
                 "window": String(updateCardView.window != nil),
-                "hiddenAncestor": String(updateCardView.isHiddenOrHasHiddenAncestor)]
+                "hiddenAncestor": String(updateCardView.isHiddenOrHasHiddenAncestor)] // visibility-walk-allow: a debug.update_surfaces proof read
     }
 
     /// Proofs (`debug.update_surfaces {action: "state"}`): which update
@@ -134,13 +148,13 @@ extension SidebarViewComponents {
 
     /// Proofs (`debug.update_surfaces`): the Updated card's x while the card shows.
     public var debugUpdatedCloseButton: NSView? {
-        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.closeButton
+        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.closeButton // visibility-walk-allow: a debug.update_surfaces hit-test target
     }
 
     /// Proofs (`debug.update_surfaces`): the Updated card's page view while it shows, for a
     /// window hit test at its x.
     public var debugUpdatedPageView: NSView? {
-        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.island?.view
+        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.island?.view // visibility-walk-allow: a debug.update_surfaces hit-test target
     }
 }
 #endif

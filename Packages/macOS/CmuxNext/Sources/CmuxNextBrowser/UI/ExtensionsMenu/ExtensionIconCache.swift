@@ -21,6 +21,9 @@ final class ExtensionIconCache {
         self.side = side
     }
 
+    /// Drops every decoded icon (the bubble's rows went); the next render decodes them again.
+    func removeAll() { images.removeAll() }
+
     /// The bundled icon of `info` (its largest up to 128 pixels), else the toolbar icon `png`,
     /// else Chrome's puzzle piece named for VoiceOver.
     func image(for info: BrowserExtensionInfo, png: Data?) -> NSImage {
@@ -43,7 +46,9 @@ final class ExtensionIconCache {
     /// nothing.
     private func downsampled(_ image: NSImage) -> NSImage {
         let pixels = Int(side * 2)
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
+        // SAFETY: `bitmapDataPlanes` is nil, so AppKit allocates the pixel buffer and frees it with
+        // the rep; the drawing below reaches it only through NSGraphicsContext.
+        guard let rep = unsafe NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
                                          samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                          bytesPerRow: 0, bitsPerPixel: 0),
               let context = NSGraphicsContext(bitmapImageRep: rep) else {
