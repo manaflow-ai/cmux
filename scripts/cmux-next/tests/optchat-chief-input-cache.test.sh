@@ -70,12 +70,14 @@ done
 mkdir -p "$CARGO_TARGET_DIR/$target/release"
 printf '#!/bin/sh\necho %s\n' "$OPTCHAT_BUILD_COMMIT" > "$CARGO_TARGET_DIR/$target/release/optchat-chief"
 chmod 755 "$CARGO_TARGET_DIR/$target/release/optchat-chief"
-# rustc's packed dSYM, when the build asks for line tables in one.
-dsym="$CARGO_TARGET_DIR/$target/release/optchat-chief.dSYM"
-rm -rf "$dsym"
+# rustc's packed dSYM, when the build asks for line tables in one: written in
+# deps/ and linked into release/ by a relative symlink, as cargo does.
+dsym="$CARGO_TARGET_DIR/$target/release/deps/optchat-chief-abc123.dSYM"
+rm -rf "$dsym" "$CARGO_TARGET_DIR/$target/release/optchat-chief.dSYM"
 if [[ "${CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO:-}" == packed && "${CARGO_PROFILE_RELEASE_DEBUG:-}" == line-tables-only ]]; then
   mkdir -p "$dsym/Contents/Resources/DWARF"
   echo "$OPTCHAT_BUILD_COMMIT" > "$dsym/Contents/Resources/DWARF/optchat-chief"
+  ln -s deps/optchat-chief-abc123.dSYM "$CARGO_TARGET_DIR/$target/release/optchat-chief.dSYM"
 fi
 echo "$OPTCHAT_BUILD_COMMIT" >> "$FAKE_CARGO_LOG"
 EOF
@@ -99,6 +101,7 @@ first=$(git -C "$src" rev-parse --short=11 HEAD)
 # Its dSYM is delivered beside --output (nightly.yml uploads it to Sentry).
 chief_dwarf="$TMP/out/optchat-chief.dSYM/Contents/Resources/DWARF/optchat-chief"
 [[ "$(cat "$chief_dwarf" 2>/dev/null)" == "$first" ]] || fail "the build delivered no dSYM beside $TMP/out/optchat-chief"
+[[ ! -L "$TMP/out/optchat-chief.dSYM" ]] || fail "the delivered dSYM is a link, not a folder"
 
 # A commit that changes nothing the Chief reads reuses the binary.
 echo two > "$src/docs/notes.md"; commit two

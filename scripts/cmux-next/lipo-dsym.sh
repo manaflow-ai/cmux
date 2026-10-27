@@ -32,10 +32,12 @@ dwarf_of() {
   printf '%s\n' "${files[0]}"
 }
 
+# cargo leaves release/<bin>.dSYM as a relative symlink into deps/, and cp -R
+# copies a symlink operand as a link, so each slice is taken at its real path.
 slices=()
 for dsym in "$@"; do
   if [[ -d "$dsym/Contents/Resources/DWARF" ]]; then
-    slices+=("$dsym")
+    slices+=("$(cd "$dsym" && pwd -P)")
   else
     echo "note: lipo-dsym: no dSYM at $dsym; skipped" >&2
   fi

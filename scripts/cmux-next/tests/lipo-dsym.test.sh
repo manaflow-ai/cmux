@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # lipo-dsym.sh keeps the dSYM of a lipo-merged binary (p09-observability-085):
-# one slice dSYM is copied; two are merged by lipo -create of their DWARF
+# one slice dSYM is copied (also through cargo's symlink); two are merged by lipo -create of their DWARF
 # files; a missing slice is skipped; with no slice left, or when lipo fails,
 # the output (also a stale one) is removed and the exit status stays 0, so
 # symbolication never fails a build. lipo is a stand-in.
@@ -51,6 +51,24 @@ run "$out" "$TMP/arm64/tool.dSYM" "$TMP/x86_64/tool.dSYM" || fail "two slices fa
 [[ "$(cat "$out/Contents/Info.plist")" == "plist of arm64" ]] || fail "the merged dSYM lost its Info.plist"
 [[ "$(ls "$out/Contents/Resources/DWARF")" == tool ]] || fail "the merged dSYM has more than its one DWARF file"
 [[ -z "$(ls -d "$out".tmp.* 2>/dev/null)" ]] || fail "a temporary dSYM was left behind"
+
+# 2b. Slices that are cargo's relative symlinks (release/<bin>.dSYM -> deps/<bin>-<hash>.dSYM):
+# the output is a real folder that holds the DWARF file, never a copied link.
+cargo_dsym() { # <release dir> <dwarf contents>
+  dsym "$1/deps/tool-abc.dSYM" "$2"
+  ln -s deps/tool-abc.dSYM "$1/tool.dSYM"
+}
+cargo_dsym "$TMP/arm64-link/release" arm64
+cargo_dsym "$TMP/x86_64-link/release" x86_64
+run "$out" "$TMP/arm64-link/release/tool.dSYM" || fail "one linked slice failed: $(cat "$TMP/err")"
+[[ -d "$out" && ! -L "$out" ]] || fail "one linked slice was copied as a link"
+[[ -f "$dwarf" && "$(cat "$dwarf")" == arm64 ]] || fail "one linked slice has no DWARF file"
+run "$out" "$TMP/arm64-link/release/tool.dSYM" "$TMP/x86_64-link/release/tool.dSYM" ||
+  fail "two linked slices failed: $(cat "$TMP/err")"
+[[ -d "$out" && ! -L "$out" ]] || fail "two linked slices were copied as a link"
+[[ -f "$dwarf" && "$(cat "$dwarf")" == $'arm64\nx86_64' ]] || fail "two linked slices were not merged: $(cat "$dwarf" 2>&1)"
+[[ "$(cat "$TMP/arm64-link/release/deps/tool-abc.dSYM/Contents/Resources/DWARF/tool")" == arm64 ]] ||
+  fail "the merge wrote into the first slice's dSYM"
 
 # 3. A missing slice is skipped with a note; the other is kept.
 run "$out" "$TMP/arm64/tool.dSYM" "$TMP/missing/tool.dSYM" || fail "a missing slice failed the build"

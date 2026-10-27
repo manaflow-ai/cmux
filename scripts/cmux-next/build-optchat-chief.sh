@@ -109,7 +109,7 @@ deliver() {
     chmod 755 "$output"
     # Its dSYM goes along (nightly.yml uploads <output>.dSYM to Sentry).
     rm -rf "$output.dSYM"
-    if [[ -d "$cache_bin.dSYM" ]]; then cp -R "$cache_bin.dSYM" "$output.dSYM"; fi
+    if [[ -d "$cache_bin.dSYM" ]]; then cp -RL "$cache_bin.dSYM" "$output.dSYM"; fi
     found="$output"
   fi
   if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$found"; else echo "optchat-chief $verb at $found"; fi
