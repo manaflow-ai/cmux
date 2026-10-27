@@ -12,6 +12,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -285,20 +286,79 @@ class Parity(unittest.TestCase):
         self.assertFalse(scoped.covers("/daemon/x", "t", "retry/settled"))
         self.assertFalse(scoped.covers("/daemon/x", "u", "call/settled"))
 
-    def test_a_pair_that_did_not_pass_on_both_sides_is_not_compared(self) -> None:
+    def write_run(self, tmp: str, results: Dict[str, str]) -> Path:
+        """A run dir where every case in `results` has one equal settled checkpoint at the call step."""
+        run = Path(tmp)
+        rows = [{"case": c, "suite": c.split("/")[0], "step": "call", "checkpoint": "settled", "index": 0,
+                 "snapshot": snapshot(name="a")} for c in results]
+        (run / "checkpoints.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        (run / "receipt.json").write_text(json.dumps({"cases": {c: {"result": r} for c, r in results.items()}}))
+        return run
+
+    def pair(self, name: str) -> Dict[str, str]:
+        return {**self.PAIR, "mcp": f"mcp/{name}", "twin": f"daemon-ops/{name}"}
+
+    def test_a_pair_that_failed_the_same_way_on_both_sides_is_not_compared(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            run = Path(tmp)
-            rows = [{"case": c, "suite": c.split("/")[0], "step": "call", "checkpoint": "settled", "index": 0,
-                     "snapshot": snapshot(name="a")} for c in ("mcp/x-ok", "daemon-ops/x-ok", "mcp/y-ok",
-                                                                "daemon-ops/y-ok")]
-            (run / "checkpoints.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-            (run / "receipt.json").write_text(json.dumps({"cases": {
-                "mcp/x-ok": {"result": "Pass"}, "daemon-ops/x-ok": {"result": "Pass"},
-                "mcp/y-ok": {"result": "Timeout"}, "daemon-ops/y-ok": {"result": "Timeout"}}}))
-            coverage = {"parity": [self.PAIR, {**self.PAIR, "mcp": "mcp/y-ok", "twin": "daemon-ops/y-ok"}]}
-            report = driver_mcp.parity([run], coverage, [])
+            run = self.write_run(tmp, {"mcp/x-ok": "Pass", "daemon-ops/x-ok": "Pass",
+                                       "mcp/y-ok": "Timeout", "daemon-ops/y-ok": "Timeout"})
+            report = driver_mcp.parity([run], {"parity": [self.PAIR, self.pair("y-ok")]}, [])
             self.assertEqual((report["compared"], report["divergent"]), (1, 0))
             self.assertEqual(report["not_compared"][0]["mcp"], "mcp/y-ok")
+            self.assertEqual(report["not_compared"][0]["why"], "both results Timeout")
+
+    def test_a_pair_whose_results_differ_is_divergent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self.write_run(tmp, {"mcp/x-ok": "Pass", "daemon-ops/x-ok": "Pass",
+                                       "mcp/y-ok": "Failure", "daemon-ops/y-ok": "Pass",
+                                       "mcp/z-ok": "Crash", "daemon-ops/z-ok": "Timeout",
+                                       "mcp/w-ok": "Pass"})
+            coverage = {"parity": [self.PAIR, self.pair("y-ok"), self.pair("z-ok"), self.pair("w-ok")]}
+            report = driver_mcp.parity([run], coverage, [])
+            self.assertEqual((report["compared"], report["divergent"], report["not_compared"]), (4, 3, []))
+            self.assertEqual([p["result"] for p in report["pairs"]], [
+                {"mcp": "Failure", "twin": "Pass"}, {"mcp": "Crash", "twin": "Timeout"}, {"mcp": "Pass", "twin": None}])
+            with mock.patch("builtins.print"):
+                args = ["parity", str(run), "--coverage", str(run / "coverage.json"), "--reasons", str(run / "r.json")]
+                (run / "coverage.json").write_text(json.dumps({"parity": [self.PAIR, self.pair("y-ok")]}))
+                (run / "r.json").write_text(json.dumps({"differences": []}))
+                self.assertEqual(driver_mcp.main(args), 1)
+                (run / "coverage.json").write_text(json.dumps({"parity": [self.PAIR]}))
+                self.assertEqual(driver_mcp.main(args), 0)
+
+    def test_a_pair_masked_whole_from_the_entry_step_on_is_not_compared(self) -> None:
+        data = runs({"mcp/x-ok": [("fx", "settled", 0, {"id": "a"}), ("call", "settled", 1, {"name": "a"}),
+                                  ("retry", "settled", 2, {"name": "a"})],
+                     "daemon-ops/x-ok": [("fx", "settled", 0, {"id": "a"}), ("call", "settled", 1, {"name": "b"}),
+                                         ("retry", "settled", 2, {"name": "b"})]})
+        whole = driver_mcp.Reason("/daemon", "r" * 30, ("x",), ("call/settled", "retry/*"))
+        verdict = driver_mcp.compare_pair(self.PAIR, data, [whole])
+        self.assertEqual((verdict["checkpoints"], verdict["masked"], verdict["reasoned"]), (0, 2, []))
+        # A narrower reason still compares the checkpoint, and a whole mask on one checkpoint leaves the others.
+        verdict = driver_mcp.compare_pair(self.PAIR, data, [driver_mcp.Reason("/daemon/name", "r" * 30)])
+        self.assertEqual((verdict["checkpoints"], verdict["masked"], len(verdict["reasoned"])), (2, 0, 2))
+        verdict = driver_mcp.compare_pair(self.PAIR, data, [driver_mcp.Reason("/daemon", "r" * 30, (), ("call/*",))])
+        self.assertEqual((verdict["checkpoints"], verdict["masked"], len(verdict["differences"])), (1, 1, 1))
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self.write_run(tmp, {"mcp/x-ok": "Pass", "daemon-ops/x-ok": "Pass"})
+            whole_call = driver_mcp.Reason("/daemon", "r" * 30, (), ("call/settled",))
+            report = driver_mcp.parity([run], {"parity": [self.PAIR]}, [whole_call])
+            self.assertEqual(report["compared"], 0)
+            self.assertIn("masked whole", report["not_compared"][0]["why"])
+
+    def test_no_checked_in_reason_masks_a_pair_whole(self) -> None:
+        """Every pair's checkpoints from the entry step on keep something compared under the checked-in reasons."""
+        reasons = driver_mcp.load_reasons()
+        coverage = json.loads(driver_mcp.COVERAGE_FILE.read_text())
+        for pair in coverage["parity"]:
+            if pair["entry"] != "resource.call":
+                continue
+            case = json.loads((driver_mcp.CORPUS / f"{pair['mcp'].split('/', 1)[1]}.json").read_text())
+            ids = [step["id"] for step in case["steps"]]
+            after = case["steps"][ids.index(pair["step"]):]
+            ats = [f"{s['id']}/{cp}" for s in after for cp in (s.get("checkpoint") or ["settled"])]
+            masked = [at for at in ats if any(r.masks_facet("daemon", pair["tool"], at) for r in reasons)]
+            self.assertLess(len(masked), len(ats), pair)
 
     def test_the_checked_in_reasons_load(self) -> None:
         reasons = driver_mcp.load_reasons()

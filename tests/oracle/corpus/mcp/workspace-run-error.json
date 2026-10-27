@@ -62,9 +62,7 @@
         "arguments": {
           "workspace": "$step:fx-workspace#/value/workspace_id",
           "argv": [
-            "/bin/sh",
-            "-c",
-            "exit 0"
+            "/bin/cat"
           ],
           "correlation_key": "",
           "idempotency_key": "workspace-run-error.call"
@@ -79,6 +77,19 @@
         "settled"
       ],
       "note": "the daemon-ops call as the MCP tool workspace_run; correlation_key breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+    },
+    {
+      "id": "one-tab",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/tab_ids",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 1
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

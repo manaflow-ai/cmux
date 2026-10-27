@@ -32,8 +32,11 @@ references read the raw result.
 Parity (spec 3F.4, product parity mcp vs cli): `parity RUN_DIR...` compares each pair of cases that
 tests/oracle/corpus/mcp/coverage.json names (gen_mcp.py): an mcp case and its twin, the same steps with the
 call through another entrypoint (the daemon-ops case's resource.call on the VM, the CLI twin's `cmux` verb on
-the fleet). At every checkpoint both have, the snapshots must be equal but for the receipt facets (cli, mcp)
-and the differences `_parity.json` gives a reason for.
+the fleet). Both cases must end with the same result: a pair whose results differ (or whose case is missing
+on one side) is divergent, and a pair that fails the same way on both sides is not compared. At every checkpoint
+both have, the snapshots must be equal but for the receipt facets (cli, mcp) and the differences
+`_parity.json` gives a reason for; a pair whose checkpoints from the entry step on are all masked whole by a
+reason is not compared.
 
 Chrome reference (chromium/src): third_party/blink/web_tests/external/wpt runs one test against several
 products (third_party/blink/tools/run_wpt_tests.py --product), and content/browser/devtools/protocol's
@@ -590,6 +593,10 @@ class Reason:
             return False
         return all(p == "*" or fnmatch.fnmatchcase(q, p) for p, q in zip(pattern, parts))
 
+    def masks_facet(self, facet: str, tool: str, at: str) -> bool:
+        """The reason covers the whole facet at this checkpoint: nothing in it is compared there."""
+        return self.pointer.count("/") == 1 and self.covers(f"/{facet}", tool, at)
+
 
 def load_reasons(path: Path = PARITY_FILE) -> List[Reason]:
     """_parity.json: the reasoned differences, each a pointer pattern (`*` per segment; a prefix covers its
@@ -612,15 +619,17 @@ def compare_pair(pair: Mapping[str, Any], runs: Runs, reasons: Sequence[Reason])
     """One pair's verdict: the checkpoints compared, the unreasoned and the reasoned differences. Only the
     checkpoints from the entry step on are the entrypoint's: every step before it is the same in both cases, so
     a difference there is the case's own flake (`before_entry`, counted and never a parity divergence), as a CQ
-    failure that also fails without the patch is not the CL's (base/test/launcher/test_launcher.cc retries)."""
+    failure that also fails without the patch is not the CL's (base/test/launcher/test_launcher.cc retries). A
+    checkpoint where reasons cover every compared facet whole compares nothing: it counts as `masked`, not as a
+    compared checkpoint."""
     mcp, twin, tool = pair["mcp"], pair["twin"], pair.get("tool", "")
     keys = sorted({(step, cp) for (case, step, cp) in runs if case == mcp} &
                   {(step, cp) for (case, step, cp) in runs if case == twin},
                   key=lambda key: (runs[(mcp, *key)].index, key[1]))
     entry = runs.get((mcp, pair.get("step", ""), "settled")) or runs.get((mcp, pair.get("step", ""), "before"))
     first = entry.index if entry is not None else 0
-    out: Dict[str, Any] = {"mcp": mcp, "twin": twin, "tool": tool, "checkpoints": 0, "differences": [],
-                           "reasoned": [], "before_entry": 0}
+    out: Dict[str, Any] = {"mcp": mcp, "twin": twin, "tool": tool, "checkpoints": 0, "masked": 0,
+                           "differences": [], "reasoned": [], "before_entry": 0}
     for step, checkpoint in keys:
         index = runs[(mcp, step, checkpoint)].index
         a = flat(compared_facets(runs[(mcp, step, checkpoint)].snapshot))
@@ -628,8 +637,12 @@ def compare_pair(pair: Mapping[str, Any], runs: Runs, reasons: Sequence[Reason])
         if index < first:
             out["before_entry"] += sum(1 for pointer in set(a) | set(b) if a.get(pointer, MISSING) != b.get(pointer, MISSING))
             continue
-        out["checkpoints"] += 1
         at = f"{step}/{checkpoint}"
+        facets = {pointer.split("/")[1] for pointer in set(a) | set(b)}
+        if facets and all(any(r.masks_facet(facet, tool, at) for r in reasons) for facet in facets):
+            out["masked"] += 1
+            continue
+        out["checkpoints"] += 1
         for pointer in sorted(set(a) | set(b)):
             left, right = a.get(pointer, MISSING), b.get(pointer, MISSING)
             if left == right:
@@ -652,18 +665,25 @@ def parity(run_dirs: Sequence[Path], coverage: Mapping[str, Any], reasons: Seque
         results.update(load_results(run_dir))
     pairs, not_compared = [], []
     for pair in coverage.get("parity") or ():
-        states = {results.get(pair["mcp"]), results.get(pair["twin"])}
-        if not states <= {"Pass"}:
-            not_compared.append({**pair, "why": f"results {results.get(pair['mcp'])} / {results.get(pair['twin'])}"})
+        mcp, twin = results.get(pair["mcp"]), results.get(pair["twin"])
+        if mcp != twin:
+            # One entrypoint passed and the other did not, they failed differently, or one side did not run.
+            pairs.append({**pair, "result": {"mcp": mcp, "twin": twin}, "differences": [], "reasoned": []})
+            continue
+        if mcp != "Pass":
+            not_compared.append({**pair, "why": f"both results {mcp}"})
             continue
         verdict = compare_pair(pair, runs, reasons)
         if verdict["checkpoints"] == 0:
-            not_compared.append({**pair, "why": "no checkpoint in both runs"})
+            why = ("every checkpoint from the entry step on is masked whole by _parity.json" if verdict["masked"]
+                   else "no checkpoint in both runs")
+            not_compared.append({**pair, "why": why})
             continue
         pairs.append(verdict)
-    divergent = [p for p in pairs if p["differences"]]
+    divergent = [p for p in pairs if p["differences"] or "result" in p]
     return {"compared": len(pairs), "divergent": len(divergent), "not_compared": not_compared,
-            "reasoned": sum(len(p["reasoned"]) for p in pairs), "pairs": divergent + [p for p in pairs if p["reasoned"]]}
+            "reasoned": sum(len(p["reasoned"]) for p in pairs),
+            "pairs": divergent + [p for p in pairs if p["reasoned"] and p not in divergent]}
 
 
 # ---------------------------------------------------------------------------------------------------------

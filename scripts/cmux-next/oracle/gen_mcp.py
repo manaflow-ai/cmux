@@ -35,7 +35,8 @@ check run compares it with the build). Each tool gets cases by its kind:
   blocks it (no live catalog).
 
 A case no product can run yet is written whole into `_blocked.json` with its reason (oracle.py skips `_` files);
-`coverage.json` lists every tool and every MCP-offered action with its cases or its reason, and `parity` the
+`coverage.json` lists every tool and every MCP-offered action with its cases or its reason (and, for `oracle.py
+check --coverage`, their `total`, `covered`, `excluded` with the reason and `missing`), and `parity` the
 pairs driver_mcp.py compares. `_parity.json` (hand-written, read here) gives each known MCP-vs-twin difference a
 reason; gen refuses an entry without one.
 
@@ -678,8 +679,7 @@ def generate(tools: Tools, parity_doc: Mapping[str, Any], *, daemon_ops: Path = 
     action_catalog = action_catalog or gen_actions.Catalog.load()
     add_actions(out, action_catalog, gen_actions.load_tuning(actions_dir, action_catalog))
     reasons = parity_doc.get("differences") or []
-    covered_tools = sum(1 for record in out.tools.values()
-                        if any(k in record and k not in record.get("blocked", {}) for k in CASE_KINDS))
+    covered_tools = sum(1 for record in out.tools.values() if tool_covered(record))
     out.files[BLOCKED] = {
         "$comment": f"Blocked cases of the mcp suite, written whole by {GENERATOR}; oracle.py does not run `_` files. "
                     f"Each moves to its own case file when its reason goes. Do not edit: regenerate.",
@@ -687,6 +687,7 @@ def generate(tools: Tools, parity_doc: Mapping[str, Any], *, daemon_ops: Path = 
         "cases": dict(sorted(out.blocked.items())),
     }
     action_runnable = sum(1 for a in out.actions.values() if "blocked" not in a)
+    covered, excluded, missing = coverage_contract(out.tools, out.actions)
     out.files[COVERAGE] = {
         "generator": GENERATOR,
         "suite": SUITE,
@@ -695,6 +696,10 @@ def generate(tools: Tools, parity_doc: Mapping[str, Any], *, daemon_ops: Path = 
         "daemon_ops_coverage_sha256": hashlib.sha256(render(ops_coverage).encode("utf-8")).hexdigest(),
         "action_catalog": action_catalog_label(action_catalog),
         "verdicts": "not run",
+        "total": len(out.tools) + len(out.actions),
+        "covered": len(covered),
+        "excluded": excluded,
+        "missing": missing,
         "total_tools": len(out.tools),
         "covered_tools": covered_tools,
         "cases": len([n for n in out.files if n not in (BLOCKED, COVERAGE)]),
@@ -708,6 +713,39 @@ def generate(tools: Tools, parity_doc: Mapping[str, Any], *, daemon_ops: Path = 
         "parity": out.parity,
     }
     return out.files
+
+
+def tool_covered(record: Mapping[str, Any]) -> bool:
+    return any(kind in record and kind not in record.get("blocked", {}) for kind in CASE_KINDS)
+
+
+def coverage_contract(tools: Mapping[str, Mapping[str, Any]], actions: Mapping[str, Mapping[str, Any]]
+                      ) -> Tuple[List[str], Dict[str, str], List[str]]:
+    """oracle.py coverage_lines' keys over every tool (`tool:<name>`) and MCP-offered action (`action:<id>`): the
+    covered ones (a tool with a runnable case, an action with its runnable pair), the excluded ones with their
+    reason (a tool's gap or blocks, an action's block) and the missing ones (neither)."""
+    covered: List[str] = []
+    excluded: Dict[str, str] = {}
+    missing: List[str] = []
+    for name, record in sorted(tools.items()):
+        key = f"tool:{name}"
+        reason = "; ".join(filter(None, [record.get("gap"), *(f"{kind}: {why}" for kind, why in
+                                                                sorted((record.get("blocked") or {}).items()))]))
+        if tool_covered(record):
+            covered.append(key)
+        elif reason:
+            excluded[key] = reason
+        else:
+            missing.append(key)
+    for ident, record in sorted(actions.items()):
+        key = f"action:{ident}"
+        if "blocked" in record:
+            excluded[key] = record["blocked"]
+        elif "mcp" in record and "cli" in record:
+            covered.append(key)
+        else:
+            missing.append(key)
+    return covered, excluded, missing
 
 
 def action_catalog_label(catalog: Optional[gen_actions.Catalog]) -> str:
@@ -938,6 +976,37 @@ class GenMcpSelfTest(unittest.TestCase):
             path.write_text(json.dumps({"differences": [{"pointer": "daemon", "reason": "x" * 30}]}))
             with self.assertRaisesRegex(GenError, "pointer"):
                 check_parity_reasons(path)
+
+    def test_the_oracle_coverage_check_counts_every_tool_and_action(self) -> None:
+        import oracle  # noqa: E402  (oracle.py check --coverage reads coverage.json through coverage_lines)
+
+        tools = [name for name in self.tools.by_name if not name.startswith("app_")]
+        self.assertEqual(self.coverage["total"], len(tools) + self.coverage["mcp_actions"])
+        self.assertEqual(self.coverage["covered"], self.coverage["covered_tools"] + self.coverage["runnable_action_pairs"])
+        self.assertGreater(self.coverage["covered"], 100)
+        self.assertEqual(self.coverage["missing"], [])
+        self.assertEqual(self.coverage["covered"] + len(self.coverage["excluded"]), self.coverage["total"])
+        self.assertIn("tool:render", self.coverage["excluded"])
+        self.assertIn("tool:git_status", self.coverage["excluded"])
+        self.assertEqual(sum(key.startswith("action:") for key in self.coverage["excluded"]),
+                         self.coverage["mcp_actions"] - self.coverage["runnable_action_pairs"])
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / SUITE
+            out.mkdir()
+            (out / COVERAGE).write_text(render(self.coverage), encoding="utf-8")
+            lines, errors = oracle.coverage_lines(Path(tmp))
+            self.assertEqual(errors, [])
+            self.assertEqual(lines, [f"{SUITE}: {self.coverage['covered']}/{self.coverage['total']} "
+                                     f"({len(self.coverage['excluded'])} excluded with a reason)"])
+            # A tool with no runnable case and no reason is uncovered, and the check says so.
+            tools_doc = {name: dict(record) for name, record in self.coverage["tools"].items()}
+            tools_doc["render"].pop("gap")
+            covered, excluded, missing = coverage_contract(tools_doc, self.coverage["actions"])
+            self.assertEqual(missing, ["tool:render"])
+            (out / COVERAGE).write_text(render({**self.coverage, "covered": len(covered), "excluded": excluded,
+                                                "missing": missing}), encoding="utf-8")
+            _, errors = oracle.coverage_lines(Path(tmp))
+            self.assertEqual(errors, [f"{SUITE}: 1 uncovered: tool:render"])
 
     def test_regeneration_is_byte_stable_and_check_finds_drift(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

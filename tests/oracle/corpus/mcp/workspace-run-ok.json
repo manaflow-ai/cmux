@@ -62,9 +62,7 @@
         "arguments": {
           "workspace": "$step:fx-workspace#/value/workspace_id",
           "argv": [
-            "/bin/sh",
-            "-c",
-            "exit 0"
+            "/bin/cat"
           ],
           "idempotency_key": "workspace-run-ok.call"
         }
@@ -77,7 +75,40 @@
         "before",
         "settled"
       ],
-      "note": "the daemon-ops call as the MCP tool workspace_run; every required field from its catalog type"
+      "note": "the daemon-ops call as the MCP tool workspace_run; the command (cat, which runs until the teardown ends it; a command that exits closes its tab, after the reply, so no checkpoint could hold it) runs in a new terminal tab of the workspace, which becomes the focused tab"
+    },
+    {
+      "id": "two-tabs",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/tab_ids",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 2
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "run-tab-focused",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/tabs/1/focused",
+        "equals": true,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "running",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/1/lifecycle",
+        "equals": "running",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     },
     {
       "id": "retry",
@@ -91,9 +122,7 @@
         "method": "workspace.run",
         "params": {
           "argv": [
-            "/bin/sh",
-            "-c",
-            "exit 0"
+            "/bin/cat"
           ]
         },
         "idempotencyKey": "workspace-run-ok.call"

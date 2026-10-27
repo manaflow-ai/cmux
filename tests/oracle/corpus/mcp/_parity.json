@@ -1,5 +1,5 @@
 {
-  "$comment": "Known differences between an mcp case and its twin (coverage.json parity) at a checkpoint from the entry step on, each with its reason; driver_mcp.py parity reports any other difference as a divergence. Receipt facets (cli, mcp) are never compared, and steps before the entry step are the same in both cases (a difference there is the case's own flake, counted as before_entry). `pointer` is an RFC 6901 pointer pattern into the facets (`*` matches one segment, a prefix covers its subtree); `tools` and `at` (`step/checkpoint` glob patterns) narrow it. Hand-written; gen_mcp.py refuses an entry without a reason. Observed on 6 VM runs of mcp,daemon-ops at the task's base (p15-oracle-209).",
+  "$comment": "Known differences between an mcp case and its twin (coverage.json parity) at a checkpoint from the entry step on, each with its reason; driver_mcp.py parity reports any other difference as a divergence. Receipt facets (cli, mcp) are never compared, and steps before the entry step are the same in both cases (a difference there is the case's own flake, counted as before_entry). `pointer` is an RFC 6901 pointer pattern into the facets (`*` matches one segment, a prefix covers its subtree); `tools` and `at` (`step/checkpoint` glob patterns) narrow it. Hand-written; gen_mcp.py refuses an entry without a reason. Observed on 6 VM runs of mcp,daemon-ops at the task's base (p15-oracle-209) and 3 more after its fixer.",
   "differences": [
     {
       "pointer": "/daemon/session/clients",
@@ -29,10 +29,10 @@
       "reason": "The call types `exit 7` into the shell, which then exits and its workspace closes on its own, after the reply. The settled checkpoint races that exit: the resource.call twin captures it at once, the MCP call later (a server process, its handshake, its connection leaving), so the MCP side usually sees the workspace gone. The `exited` step after it holds both sides to the same exit record."
     },
     {
-      "pointer": "/daemon",
-      "tools": ["workspace_run"],
-      "at": ["call/settled", "retry/*"],
-      "reason": "The run's command exits on its own after the reply and its terminal is then dead or its tab closed; the call's and the retry's checkpoints race that exit, and the MCP call reaches them later than the resource.call twin. Seen in 2 of 6 VM runs."
+      "pointer": "/daemon/session/terminals/0/title",
+      "tools": ["terminal_input_mouse"],
+      "at": ["call/settled"],
+      "reason": "The program sets the title oracle-reported when it has read the mouse report the call sends, after the reply; the settled checkpoint races that write, and the MCP call reaches it later than the resource.call twin. The `reported` step after it holds both sides to the same title. Seen in 1 of 9 VM runs."
     },
     {
       "pointer": "/daemon/session/terminals/*/tab_id",
