@@ -44,6 +44,9 @@ lock() {
 generation() {
   raw=$(head -c 32 "$lock_file" 2>/dev/null || :; echo x)
   raw=${raw%x}
+  # Command substitution drops NUL bytes: what was parsed must be the whole file.
+  size=$(wc -c 2>/dev/null <"$lock_file" || echo 0)
+  [ "$size" -eq "${#raw}" ] || { echo corrupt; return; }
   [ -n "$raw" ] || { echo 0; return; }
   digits=${raw%"$nl"}
   case "$digits" in

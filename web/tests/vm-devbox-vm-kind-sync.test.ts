@@ -228,7 +228,12 @@ describe("the image's cmux-vm-kind-sync", () => {
 if [ -n "\${HOLD_DIR:-}" ] && [ ! -e "$HOLD_DIR/held" ]; then
   : > "$HOLD_DIR/held"
   i=0
-  while [ ! -e "$HOLD_DIR/release" ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i + 1)); done
+  while [ ! -e "$HOLD_DIR/release" ]; do
+    # Never rename late: a timeout fails the test instead of hiding a regression.
+    [ $i -lt 400 ] || { : > "$HOLD_DIR/timed-out"; exit 1; }
+    sleep 0.05
+    i=$((i + 1))
+  done
 fi
 PATH="\${PATH#*:}" exec mv "$@"
 `,
@@ -243,12 +248,13 @@ PATH="\${PATH#*:}" exec mv "$@"
     expect(readFileSync(kindFile(root), "utf8")).toBe("team\n");
     writeFileSync(path.join(root, "release"), "");
     await late;
+    expect(existsSync(path.join(root, "timed-out"))).toBe(false);
     expect(readFileSync(kindFile(root), "utf8")).toBe("team\n");
     expect(generation(root)).toBe("8");
   });
 
   test("a generation file that is not 1 to 9 digits and one newline is corrupt", async () => {
-    for (const raw of ["1\n2", "7 \n", "7\n\n", "7\r\n"]) {
+    for (const raw of ["1\n2", "7 \n", "7\n\n", "7\r\n", "7\u0000", "\u0000"]) {
       const root = guestRoot();
       writeFileSync(kindFile(root), "owner\n");
       writeFileSync(lockFile(root), raw);
