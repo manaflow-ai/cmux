@@ -15,6 +15,19 @@ struct MinidumpFixture {
     var timeStamp: UInt32 = 1_790_000_000
     var processType = "renderer"
     var mainModulePath = Self.homePath
+    /// The exception stream's code: 1 is EXC_BAD_ACCESS; ``ChromiumMinidump/simulatedExceptionCode`` a dump
+    /// written without a crash.
+    var exceptionCode: UInt32 = 1
+    /// The `ver` annotation (write-crash-reporter-cfg.sh's ProductVersion).
+    var ver = "0.62.0+4711 cef154.0.8037.98-30"
+
+    /// Where the helper module is loaded, and the crashing thread's pc and (pointer-signed) lr inside it.
+    static let moduleBase: UInt64 = 0x1_0000_0000
+    static let crashPC: UInt64 = 0x1_0000_1234
+    static let crashLR: UInt64 = 0x1_0000_0100
+    static let signedLR: UInt64 = 0x002A_0001_0000_0100
+    /// The module's CodeView GUID bytes (all 0xAB) as a debug id.
+    static let debugID = "abababab-abab-abab-abab-abababababab"
 
     private var bytes: [UInt8] = []
 
@@ -26,14 +39,21 @@ struct MinidumpFixture {
 
         // Thread list: one thread, its context, and its stack memory (in a memory list stream).
         let stack = append(Array(("....." + Self.stackSecret + ".....").utf8))
-        let context = append([UInt8](repeating: 0xC7, count: 64))
+        // A MinidumpContextARM64: flags, cpsr and x0-x28 filled with 0xC7, then fp, lr (x30), sp and pc.
+        let contextSize = 272
+        let context = append([UInt8](repeating: 0xC7, count: contextSize))
+        put32(context, 0x0040_0002)
+        put64(context + 240, 0)
+        put64(context + 248, Self.signedLR)
+        put64(context + 256, 0x7000_0100)
+        put64(context + 264, Self.crashPC)
         let threads = reserve(4 + 48)
         put32(threads, 1)
         put32(threads + 4, 7)  // ThreadId
         put64(threads + 4 + 24, 0x7000_0000)  // Stack.StartOfMemoryRange
         put32(threads + 4 + 32, UInt32(Self.stackSecret.utf8.count + 10))
         put32(threads + 4 + 36, UInt32(stack))
-        put32(threads + 4 + 40, 64)
+        put32(threads + 4 + 40, UInt32(contextSize))
         put32(threads + 4 + 44, UInt32(context))
         let memoryList = reserve(4 + 16)
         put32(memoryList, 1)
@@ -48,7 +68,7 @@ struct MinidumpFixture {
         let cv = append(codeView)
         let modules = reserve(4 + 108)
         put32(modules, 1)
-        put64(modules + 4, 0x1_0000_0000)
+        put64(modules + 4, Self.moduleBase)
         put32(modules + 4 + 8, 0x4000)
         put32(modules + 4 + 20, UInt32(name))
         put32(modules + 4 + 76, UInt32(codeView.count))
@@ -57,8 +77,8 @@ struct MinidumpFixture {
         // Exception stream.
         let exception = reserve(168)
         put32(exception, 7)
-        put32(exception + 8, 0xC000_0005)
-        put32(exception + 160, 64)
+        put32(exception + 8, exceptionCode)
+        put32(exception + 160, UInt32(contextSize))
         put32(exception + 164, UInt32(context))
 
         // Misc info: the pid.
@@ -71,7 +91,7 @@ struct MinidumpFixture {
         let message = append(Array(Self.crashInfoMessage.utf8))
 
         // Crashpad info: process simple annotations and one module's crash keys and list annotations.
-        let simple = dictionary([("prod", "cmux-next"), ("ver", "154.0.8037.98-cef30"), ("url", Self.plantedURL),
+        let simple = dictionary([("prod", "cmux-next"), ("ver", ver), ("url", Self.plantedURL),
                                  ("plat", "OS X")])
         let objects = annotationList([("ptype", processType), ("url-chunk-1-of-1", Self.plantedURL), ("osarch", "arm64")])
         let listText = appendUTF8String(Self.plantedURL)

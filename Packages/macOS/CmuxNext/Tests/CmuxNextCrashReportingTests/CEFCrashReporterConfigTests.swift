@@ -5,22 +5,25 @@ import Testing
 /// p09-observability-105: the crash_reporter.cfg embed-cef.sh writes for a Crashpad build is parsed as CEF parses
 /// it, and cmux forwards dumps only from a config with no ServerURL.
 @Suite struct CEFCrashReporterConfigTests {
-    /// The file embed-cef.sh writes with CMUX_NEXT_CEF_CRASHPAD=1.
+    /// The file write-crash-reporter-cfg.sh writes with CMUX_NEXT_CEF_CRASHPAD=1.
     static let embedded = """
-    # Written by scripts/cmux-next/embed-cef.sh (p09-observability-105).
+    # Written by scripts/cmux-next/write-crash-reporter-cfg.sh (p09-observability-105).
     # No ServerURL: Crashpad keeps reports on disk and never uploads them.
     [Config]
     ProductName=cmux-next
-    ProductVersion=154.0.8037.98-cef30
+    ProductVersion=0.62.0+4711 cef154.0.8037.98-30
     BrowserCrashForwardingEnabled=true
     MaxDatabaseSizeInMb=50
     MaxDatabaseAgeInDays=7
     """
 
-    @Test func theEmbeddedConfigHasNoServerURL() {
+    @Test func theEmbeddedConfigHasNoServerURL() throws {
         let config = CEFCrashReporterConfig(text: Self.embedded)
         #expect(config.serverURL == nil)
         #expect(config.config["ProductName"] == "cmux-next")
+        let ver = try #require(config.config["ProductVersion"])
+        #expect(ChromiumMinidump.isPlainValue(ver), "the annotation survives redaction")
+        #expect(ChromiumMinidump.CrashedBuild(ver: ver)?.build == "4711")
         #expect(config.config["BrowserCrashForwardingEnabled"] == "true")
         #expect(config.crashKeys.isEmpty)
     }

@@ -2152,6 +2152,11 @@ jobs:
           if [[ "$BUILD_TRACK" == nightly-next ]]; then
             swift_flags="${swift_flags:+$swift_flags }-DCMUX_BLOCKING_CHECKS"
           fi
+          # Crashpad in the Chromium processes of nightly-next (p09-observability-105): embed-cef.sh embeds the
+          # framework's crash handler and writes crash_reporter.cfg with no ServerURL; "Inject nightly identities"
+          # stamps the Nightly version into it.
+          crashpad=0
+          if [[ "$BUILD_TRACK" == nightly-next ]]; then crashpad=1; fi
           echo "swift flags: ${swift_flags:-none}"
           build_args=(build)
           if [[ -n "$swift_flags" ]]; then
@@ -2197,7 +2202,7 @@ jobs:
             --derived-data build-universal --configuration Release --archs "$archs" \
             --log "$RUNNER_TEMP/helper-prebuild.log" -- \
           ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
-            env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+            env CMUX_SKIP_ZIG_BUILD=1 CMUX_NEXT_CEF_CRASHPAD="$crashpad" xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -skipPackagePluginValidation \
             -clonedSourcePackagesDirPath .spm-cache \
@@ -3805,6 +3810,10 @@ jobs:
             fi
             /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NIGHTLY_MARKETING_VERSION}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$app_plist"
+            # Crashpad's dumps name the cmux build that crashed (p09-observability-105): the same version.
+            if [ -f "$app_dir/cmux.app/Contents/Resources/crash_reporter.cfg" ]; then
+              scripts/cmux-next/write-crash-reporter-cfg.sh "$app_dir/cmux.app" "$NIGHTLY_MARKETING_VERSION" "$NIGHTLY_BUILD"
+            fi
             /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$app_plist"
             if [ "$CHANNEL_APP_NAME" != cmux ]; then

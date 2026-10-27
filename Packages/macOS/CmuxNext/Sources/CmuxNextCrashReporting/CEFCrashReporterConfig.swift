@@ -4,10 +4,10 @@ public import Foundation
 /// The app bundle's `crash_reporter.cfg` (p09-observability-105), which turns Crashpad on in every Chromium
 /// process: CEF reads it from the main bundle's Resources (libcef/common/crash_reporter_client.cc,
 /// GetCrashConfigPath and ReadCrashConfigFile) and, when it is there, starts Crashpad
-/// (libcef/common/crash_reporting.cc, InitCrashReporter). `scripts/cmux-next/embed-cef.sh` writes it only for a
-/// build that asks for it (`CMUX_NEXT_CEF_CRASHPAD=1`, the Nightly configuration), with no `ServerURL`: Crashpad
-/// then keeps reports in its local database and never uploads, and cmux forwards them redacted
-/// (`ChromiumMinidumpForwarder`, only with hang report consent).
+/// (libcef/common/crash_reporting.cc, InitCrashReporter). `scripts/cmux-next/write-crash-reporter-cfg.sh` writes it
+/// only for a build that asks for it (`CMUX_NEXT_CEF_CRASHPAD=1`: nightly-next builds), with no `ServerURL`:
+/// Crashpad then keeps reports in its local database and never uploads, and cmux forwards each crash
+/// (`ChromiumMinidumpForwarder`: the redacted dump with hang report consent, a crash summary without it).
 ///
 /// ```swift
 /// let database = CEFCrashReporterConfig.minidumpDatabase(resources: Bundle.main.resourceURL,

@@ -10,7 +10,8 @@
 #   Contents/Frameworks/libcmux_cef_shim_remote.dylib           (with the host: the shim ABI
 #                                                                cmux loads in host mode)
 #   Contents/Resources/crash_reporter.cfg                       (CMUX_NEXT_CEF_CRASHPAD=1 only: Crashpad,
-#                                                                no ServerURL)
+#                                                                no ServerURL; nightly-next builds set it)
+#   ...Framework.framework/Helpers/chrome_crashpad_handler     (CMUX_NEXT_CEF_CRASHPAD=1 only)
 #
 # then signs them inside out with the build's identity (ad hoc for dev
 # builds) through sign-cef.sh. Xcode signs the outer app afterwards; release
@@ -113,6 +114,17 @@ if [[ -z "$cef_dir" ]]; then
   echo "warning: no CEF artifact for ARCHS=${ARCHS:-}; not embedding CEF"
   remove_embed
   exit 0
+fi
+
+# Crashpad (p09-observability-105): Chromium starts its handler from the
+# framework's Helpers folder (components/crash/core/app/crashpad_mac.mm,
+# FrameworkBundlePath()/Helpers/chrome_crashpad_handler), so a Crashpad build
+# needs it there. Without it no process writes a minidump.
+crashpad="${CMUX_NEXT_CEF_CRASHPAD:-0}"
+crashpad_handler="Helpers/chrome_crashpad_handler"
+if [[ "$crashpad" == "1" && ! -f "$cef_dir/$FW_NAME/$crashpad_handler" ]]; then
+  echo "error: CMUX_NEXT_CEF_CRASHPAD=1 but the CEF artifact has no $FW_NAME/$crashpad_handler" >&2
+  exit 1
 fi
 
 product="${PRODUCT_NAME:?}"
@@ -220,7 +232,7 @@ mkdir -p "$frameworks"
 stamp_dir="${DERIVED_FILE_DIR:-${TMPDIR:-/tmp}}/cmux-cef-embed"
 mkdir -p "$stamp_dir"
 source_stamp="$stamp_dir/source"
-source_value="$cef_dir $LAYOUT"
+source_value="$cef_dir $LAYOUT crashpad=$crashpad"
 # Chromium ships 228 locale catalogs. Keep every catalog CEF resolves for
 # cmux's 21 app languages and their regional macOS variants, including
 # es_419, pt_PT and en_GB. Unsupported app languages bs and km fall back to en.
@@ -246,9 +258,15 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   fw="$frameworks/$FW_NAME"
   rm -rf "$fw"
   mkdir -p "$fw/Versions/A"
+  fw_items=("$FW_BINARY" Libraries Resources)
+  if [[ "$crashpad" == "1" ]]; then fw_items+=(Helpers); fi
   for item in "$FW_BINARY" Libraries Resources; do
     ditto "$cef_dir/$FW_NAME/$item" "$fw/Versions/A/$item"
   done
+  if [[ "$crashpad" == "1" ]]; then
+    # Only the handler: nothing else in the artifact's Helpers runs in cmux.
+    ditto "$cef_dir/$FW_NAME/$crashpad_handler" "$fw/Versions/A/$crashpad_handler"
+  fi
   prune_cef_locales "$fw/Versions/A/Resources"
   # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
   # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
@@ -271,7 +289,7 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   # copy (cef-license/README.md). Release gate: bundle-map.json.
   "$SCRIPT_DIR/install-cef-license.sh" "$cef_dir" "$fw/Versions/A/Resources"
   ln -s A "$fw/Versions/Current"
-  for item in "$FW_BINARY" Libraries Resources; do
+  for item in "${fw_items[@]}"; do
     ln -s "Versions/Current/$item" "$fw/$item"
   done
   printf '%s' "$source_value" > "$source_stamp"
@@ -373,34 +391,18 @@ printf '%s' "$shim_key $product" > "$binary_stamp"
 # 3c. Crashpad (p09-observability-105). CEF starts Crashpad in every Chromium
 # process when the main bundle's Resources holds crash_reporter.cfg
 # (libcef/common/crash_reporter_client.cc). Only a build that asks for it gets
-# one (CMUX_NEXT_CEF_CRASHPAD=1, the Nightly configuration), and never with a
-# ServerURL: Crashpad keeps reports in its local database, and the app forwards
-# them redacted, with hang report consent only (ChromiumMinidumpForwarder).
-# BrowserCrashForwardingEnabled keeps the browser process's .ips. "ver" names
-# the Chromium build and the fork API; the event's release names cmux's.
-if [[ "${CMUX_NEXT_CEF_CRASHPAD:-0}" == "1" ]]; then
-  cef_build="$(/usr/bin/python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); print(m["chromium"] + "-cef" + str(m.get("cmux_cef_api_version", 0)))' "$SCRIPT_DIR/cef-manifest.json")"
-  mkdir -p "$app/Contents/Resources"
-  tmp_cfg="$(mktemp)"
-  cat > "$tmp_cfg" <<CFG
-# Written by scripts/cmux-next/embed-cef.sh (p09-observability-105).
-# No ServerURL: Crashpad keeps reports on disk and never uploads them.
-[Config]
-ProductName=cmux-next
-ProductVersion=$cef_build
-BrowserCrashForwardingEnabled=true
-MaxDatabaseSizeInMb=50
-MaxDatabaseAgeInDays=7
-CFG
-  chmod 644 "$tmp_cfg"
-  if ! cmp -s "$tmp_cfg" "$crash_cfg"; then mv "$tmp_cfg" "$crash_cfg"; else rm -f "$tmp_cfg"; fi
+# one (CMUX_NEXT_CEF_CRASHPAD=1: nightly-next builds), with no ServerURL
+# (write-crash-reporter-cfg.sh). The app forwards each dump redacted with hang
+# report consent, and otherwise as a crash summary (ChromiumMinidumpForwarder).
+if [[ "$crashpad" == "1" ]]; then
+  "$SCRIPT_DIR/write-crash-reporter-cfg.sh" "$app" "${MARKETING_VERSION:-1.0}" "${CURRENT_PROJECT_VERSION:-1}"
 else
   rm -f "$crash_cfg"
 fi
 
 # 4. Sign inside out, unless nothing changed since the last signature.
 stamp="$stamp_dir/signed"
-stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key ${host_key:-no-host} $product $identity"
+stamp_value="$(basename "$cef_dir") $LAYOUT crashpad=$crashpad $shim_key ${host_key:-no-host} $product $identity"
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$stamp_value" ]] &&
   codesign --verify "$frameworks/$FW_NAME" >/dev/null 2>&1 &&
   codesign --verify "$frameworks/$product Helper.app" >/dev/null 2>&1; then

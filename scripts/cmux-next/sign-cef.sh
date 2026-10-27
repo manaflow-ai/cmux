@@ -2,6 +2,8 @@
 # Signs the Chromium engine embedded by embed-cef.sh, inside out:
 #
 #   Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries/*.dylib
+#   Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Helpers/chrome_crashpad_handler
+#                                                          (Crashpad builds only, embed-cef.sh)
 #   Contents/Frameworks/Chromium Embedded Framework.framework
 #   Contents/Frameworks/libcmux_cef_shim.dylib
 #   Contents/Frameworks/libcmux_cef_shim_remote.dylib      (Debug builds only, with the host)
@@ -51,6 +53,11 @@ ENT
 for lib in "$framework/Versions/A/Libraries/"*.dylib; do
   [[ -f "$lib" ]] && codesign "${flags[@]}" "$lib"
 done
+# Crashpad's handler is an executable nested in the framework: signed before
+# the framework seals it, with the hardened runtime like every other binary and
+# no entitlements (Chromium signs chrome_crashpad_handler the same way).
+crashpad_handler="$framework/Versions/A/Helpers/chrome_crashpad_handler"
+if [[ -f "$crashpad_handler" ]]; then codesign "${flags[@]}" "$crashpad_handler"; fi
 codesign "${flags[@]}" "$framework"
 for shim in "$frameworks/libcmux_cef_shim.dylib" "$frameworks/libcmux_cef_shim_remote.dylib"; do
   if [[ -f "$shim" ]]; then codesign "${flags[@]}" "$shim"; fi

@@ -26,6 +26,7 @@ public nonisolated struct MinidumpUploadRequest: Sendable, Equatable {
         public var release: String
         public var dist: String
         public var environment: String
+        /// `fatal` for a crash; `warning` for a dump written without one (``ChromiumMinidump/isSimulated``).
         public var level = "fatal"
         public var platform = "native"
         public var tags: [String: String]

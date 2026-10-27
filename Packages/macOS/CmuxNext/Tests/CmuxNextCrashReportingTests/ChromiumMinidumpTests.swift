@@ -12,8 +12,29 @@ import Testing
         let dump = try ChromiumMinidump(data: original)
         #expect(!dump.redacted.containsText("planted.example"))
         #expect(!dump.redacted.containsText("url-chunk"))
-        #expect(dump.annotations == ["prod": "cmux-next", "ver": "154.0.8037.98-cef30", "plat": "OS X",
+        #expect(dump.annotations == ["prod": "cmux-next", "ver": "0.62.0+4711 cef154.0.8037.98-30", "plat": "OS X",
                                      "ptype": "renderer", "osarch": "arm64"])
+    }
+
+    @Test func theCrashSiteExceptionAndModulesAreRead() throws {
+        var fixture = MinidumpFixture()
+        let dump = try ChromiumMinidump(data: fixture.data())
+        #expect(dump.exceptionCode == 1)
+        #expect(!dump.isSimulated)
+        #expect(dump.crashPC == MinidumpFixture.crashPC)
+        #expect(dump.crashLR == MinidumpFixture.crashLR, "the address mask strips the pointer signature")
+        #expect(dump.modules == [ChromiumMinidump.Module(name: MinidumpFixture.helperName, base: MinidumpFixture.moduleBase,
+                                                         size: 0x4000, debugID: MinidumpFixture.debugID)])
+        fixture.exceptionCode = ChromiumMinidump.simulatedExceptionCode
+        #expect(try ChromiumMinidump(data: fixture.data()).isSimulated, "Crashpad's DumpWithoutCrashing code")
+    }
+
+    @Test func theCrashedBuildComesFromTheVerAnnotation() throws {
+        var fixture = MinidumpFixture()
+        let build = try #require(try ChromiumMinidump(data: fixture.data()).crashedBuild)
+        #expect(build.version == "0.62.0" && build.build == "4711" && build.chromium == "154.0.8037.98-30")
+        fixture.ver = "154.0.8037.98-cef30"
+        #expect(try ChromiumMinidump(data: fixture.data()).crashedBuild == nil, "a ver without a cmux build names none")
     }
 
     @Test func stackMemoryPathsAndMessagesAreLeftOut() throws {

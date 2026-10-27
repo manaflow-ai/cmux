@@ -11,6 +11,15 @@ nonisolated struct MinidumpRedactor {
     var timeStamp: UInt32 = 0
     var mainModule: String?
     var annotations: [String: String] = [:]
+    /// The exception stream's `ExceptionCode` (on macOS the Mach exception, or Crashpad's simulated-dump code).
+    var exceptionCode: UInt32?
+    /// The crashing thread's program counter and link register, from the exception stream's context.
+    var crashPC: UInt64?
+    var crashLR: UInt64?
+    /// Each module's file name, load address, size and debug id, in list order.
+    var modules: [ChromiumMinidump.Module] = []
+    /// `MinidumpCrashpadInfo.address_mask`: the address bits of a signed (arm64e) pointer; 0 when absent.
+    var addressMask: UInt64 = 0
 
     static let signature: UInt32 = 0x504D_444D  // "MDMP"
     static let headerSize = 32
@@ -29,6 +38,12 @@ nonisolated struct MinidumpRedactor {
     static let stringAnnotation: UInt16 = 1
     /// `CodeViewRecordPDB70`'s signature, "RSDS".
     static let codeViewPDB70: UInt32 = 0x5344_5352
+    /// `MinidumpContextARM64` (minidump_context.h): flags, `pc` after `x0`-`x30` and `sp`, `lr` is `x30`.
+    static let contextARM64: UInt32 = 0x0040_0000
+    static let arm64PC = 264, arm64LR = 248
+    /// `MinidumpContextAMD64`: `rip`.
+    static let contextAMD64: UInt32 = 0x0010_0000
+    static let amd64PC = 248
 
     // Stream types (dbghelp.h MINIDUMP_STREAM_TYPE, minidump_extensions.h).
     static let threadListStream: UInt32 = 3
@@ -105,6 +120,8 @@ nonisolated struct MinidumpRedactor {
             let module = rva + 4 + index * Self.moduleSize
             let name = try keepUTF16FileName(at: Int(u32(module + 20)))
             if index == 0 { mainModule = name }
+            let base = try u64(module), imageSize = try u32(module + 8), debugID = try codeViewUUID(location: module + 76)
+            modules.append(ChromiumMinidump.Module(name: name ?? "", base: base, size: imageSize, debugID: debugID))
             try keepCodeView(location: module + 76)
             // MiscRecord (IMAGE_DEBUG_MISC) can name a path; Crashpad writes none on macOS. Not kept.
             try put32(module + 84, 0)
@@ -115,7 +132,21 @@ nonisolated struct MinidumpRedactor {
     /// `MINIDUMP_EXCEPTION_STREAM` and the crashing thread's context.
     mutating func keepException(at rva: Int) throws(ChromiumMinidump.Failure) {
         try mark(rva, Self.exceptionStreamSize)
+        exceptionCode = try u32(rva + 8)
         try markLocation(rva + 160)
+        try readCrashContext(size: Int(u32(rva + 160)), at: Int(u32(rva + 164)))
+    }
+
+    /// The crashing thread's program counter (and, on arm64, link register) from its CPU context.
+    mutating func readCrashContext(size: Int, at rva: Int) throws(ChromiumMinidump.Failure) {
+        guard rva != 0, size >= 4 else { return }
+        let flags = try u32(rva)
+        if flags & Self.contextARM64 != 0, size >= Self.arm64PC + 8 {
+            crashPC = try u64(rva + Self.arm64PC)
+            crashLR = try u64(rva + Self.arm64LR)
+        } else if flags & Self.contextAMD64 != 0, size >= Self.amd64PC + 8 {
+            crashPC = try u64(rva + Self.amd64PC)
+        }
     }
 
     /// `MINIDUMP_SYSTEM_INFO` and its OS build string.
@@ -148,6 +179,7 @@ nonisolated struct MinidumpRedactor {
         // A shorter layout is not read: its bytes stay zero.
         guard length >= Self.crashpadInfoSize else { return }
         try mark(rva, min(length, Self.crashpadInfoFullSize))
+        if length >= Self.crashpadInfoFullSize { addressMask = try u64(rva + 56) }
         // client_id: Crashpad's install-wide id, the same in every report of this Mac.
         for offset in 20..<36 { bytes[rva + offset] = 0 }
         try keepSimpleAnnotations(location: rva + 36)
@@ -276,6 +308,19 @@ nonisolated struct MinidumpRedactor {
         let kept = min(24 + name.count + 1, length)
         try put32(location, UInt32(kept))
         try mark(rva, kept)
+    }
+
+    /// The Mach-O UUID of a `CodeViewRecordPDB70` (Crashpad writes the UUID as its GUID, data fields
+    /// little-endian), formatted as Sentry's debug id; nil for another record kind.
+    func codeViewUUID(location: Int) throws(ChromiumMinidump.Failure) -> String? {
+        let length = try Int(u32(location))
+        let rva = try Int(u32(location + 4))
+        guard length >= 24, rva != 0, try u32(rva) == Self.codeViewPDB70 else { return nil }
+        let guid = rva + 4
+        try check(guid, 16)
+        let data1 = try u32(guid), data2 = try u16(guid + 4), data3 = try u16(guid + 6)
+        let tail = bytes[(guid + 8)..<(guid + 16)].map { String(format: "%02x", $0) }
+        return String(format: "%08x-%04x-%04x-", data1, data2, data3) + tail[0..<2].joined() + "-" + tail[2...].joined()
     }
 
     /// A `MinidumpUTF8String`'s text, nil at address 0.

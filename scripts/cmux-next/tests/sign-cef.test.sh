@@ -61,4 +61,22 @@ sign "$TMP/debug" || status=$?
 last="$(tail -n 1 "$TMP/debug/codesign.log")"
 [[ "$last" == *"Contents/MacOS/app Chromium Host" && "$last" != *--entitlements* ]] || fail "the host was not signed last without entitlements: $last"
 
+# 3. A Crashpad build (embed-cef.sh, CMUX_NEXT_CEF_CRASHPAD=1): the framework's handler is signed before the
+# framework seals it, with the hardened runtime for a real identity.
+mkdir "$TMP/crashpad"
+bundle "$TMP/crashpad"
+handler_dir="$TMP/crashpad/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Helpers"
+mkdir -p "$handler_dir"
+: > "$handler_dir/chrome_crashpad_handler"
+CODESIGN_LOG="$TMP/crashpad/codesign.log" CMUX_TIMESTAMP=none PATH="$TMP/bin:/usr/bin:/bin" \
+  /bin/bash "$ROOT/scripts/cmux-next/sign-cef.sh" "$TMP/crashpad/app.app" "Developer ID Application: Test" ||
+  fail "sign-cef.sh failed for a Crashpad bundle"
+log="$(cat "$TMP/crashpad/codesign.log")"
+handler_line="$(grep -n '/Helpers/chrome_crashpad_handler$' <<<"$log" | head -n 1 | cut -d: -f1 || true)"
+framework_line="$(grep -n 'Chromium Embedded Framework.framework$' <<<"$log" | head -n 1 | cut -d: -f1)"
+[[ -n "$handler_line" ]] || fail "the Crashpad handler was not signed: $log"
+(( handler_line < framework_line )) || fail "the Crashpad handler was signed after its framework: $log"
+grep -q -- '--options runtime.*/Helpers/chrome_crashpad_handler$' <<<"$log" || fail "the Crashpad handler has no hardened runtime: $log"
+if grep -q -- '--entitlements .*chrome_crashpad_handler$' <<<"$log"; then fail "the Crashpad handler got entitlements: $log"; fi
+
 echo "sign-cef tests: ok"

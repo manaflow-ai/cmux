@@ -70,6 +70,8 @@ final class HangReportsController {
     /// main at best effort; only View Hang Report, a person's click, is user-blocking.
     private let work: BackgroundWork
     private let mainWork: MainWorkScheduler
+    /// Told each decision, so Chromium minidumps upload exactly while hang reports are on (p09-observability-105).
+    private let minidumpConsent: ChromiumMinidumpForwarder.Consent?
 
     private struct Asking {
         let settings: SettingsController
@@ -79,7 +81,9 @@ final class HangReportsController {
 
     init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard,
          activityFeed: MainThreadActivityFeed? = nil, memory: HiddenWorkspaceMemory? = nil, daemonMetrics: DaemonMetricsFold? = nil,
-         daemonPID: @escaping @MainActor @Sendable () -> Int32? = { nil }, work: BackgroundWork, mainWork: MainWorkScheduler) {
+         daemonPID: @escaping @MainActor @Sendable () -> Int32? = { nil }, work: BackgroundWork, mainWork: MainWorkScheduler,
+         minidumpConsent: ChromiumMinidumpForwarder.Consent? = nil) {
+        self.minidumpConsent = minidumpConsent
         self.service = service
         self.activityFeed = activityFeed
         self.memory = memory
@@ -98,7 +102,8 @@ final class HangReportsController {
     /// samples at the report triggers too, and runs where nothing is sent. `wireSchema` is schema 3 only while the
     /// `hangReportsSchema3` feature says cmux.com accepts it. `features` reads the features hash and overrides the
     /// app runs with, at each report. `blockingSites` reads the blocking detector's main-thread sites (and reset count), whose counts a
-    /// schema-3 report carries by hashed site id.
+    /// schema-3 report carries by hashed site id. `minidumpConsent` is told each decision (Chromium minidumps upload only
+    /// while hang reports are on).
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
                               work: BackgroundWork, mainWork: MainWorkScheduler,
@@ -106,6 +111,7 @@ final class HangReportsController {
                               wireSchema: HangReport.WireSchema = .deployed,
                               features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
                               blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() },
+                              minidumpConsent: ChromiumMinidumpForwarder.Consent? = nil,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -144,7 +150,8 @@ final class HangReportsController {
         let daemonMetrics = DaemonMetricsFold(reader: ChildMetricsReader(role: .daemon, directory: metricsFolder), metrics: Metrics(),
                                               work: work)
         return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed, memory: memory,
-                                     daemonMetrics: daemonMetrics, daemonPID: daemonPID, work: work, mainWork: mainWork)
+                                     daemonMetrics: daemonMetrics, daemonPID: daemonPID, work: work, mainWork: mainWork,
+                                     minidumpConsent: minidumpConsent)
     }
 
     /// The local daemon's request latency into the app's histograms, before a report reads them (no socket request).
@@ -261,6 +268,7 @@ final class HangReportsController {
     private func apply(_ on: Bool, settingOn: Bool) async {
         guard let service else { return }
         if !settingOn { defaults.removeObject(forKey: Self.consentKey) }
+        minidumpConsent?.decide(on)
         await service.setEnabled(on)
         // The catalog's Release intervals reach MetricKit only while reports are on.
         SignpostMetricKitMirror.shared.setOn(on)

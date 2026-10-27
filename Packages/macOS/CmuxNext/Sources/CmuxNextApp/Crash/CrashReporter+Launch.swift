@@ -55,6 +55,8 @@ struct AppCrashReporting: Sendable {
     /// daemon's (`$ACPMUX_HOME/panics.jsonl`); nil outside the app process. With reports off they
     /// only mark reports done.
     let forwarders: CrashForwarders?
+    /// The hang report decision the Chromium minidump forwarder waits for (``HangReportsController`` sets it).
+    let minidumpConsent = ChromiumMinidumpForwarder.Consent()
 
     /// - Parameters:
     ///   - features: The features the app runs with, put on the Sentry scope right after it starts
@@ -86,11 +88,13 @@ struct AppCrashReporting: Sendable {
             bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends,
             minidumps: ChromiumMinidumpForwarder.forThisApp(
                 policy: reporter.policy, sends: sends, stateFile: stateDirectory.appending(path: "chromium-minidumps.json"),
-                consentKey: HangReportsController.consentKey, devOptInKey: HangReportsController.devOptInKey,
+                consent: minidumpConsent, devOptInKey: HangReportsController.devOptInKey,
                 database: { [resources = Bundle.main.resourceURL, bundleID = Bundle.main.bundleIdentifier] in
                     CEFCrashReporterConfig.minidumpDatabase(
                         resources: resources, chromiumRoot: CEFProfileStorage.forApplication(bundleIdentifier: bundleID).root)
                 }))
+        // Dumps that waited for the hang report decision go in one more pass once it comes.
+        minidumpConsent.whenWaitEnds { [weak system] in system?.forwardSoon() }
         let ownerPanics = OwnerPanicForwarder(
             log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory),
                                          session: environment.daemonSession),

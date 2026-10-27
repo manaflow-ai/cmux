@@ -18,7 +18,12 @@ import os
 ///
 /// With Crashpad on (p09-observability-105), each pass first runs the
 /// ``ChromiumMinidumpForwarder``, and a helper report of a process whose
-/// minidump it sent is the same crash: it is marked done, not sent again.
+/// minidump it sent (or keeps for a later pass) is the same crash: it is
+/// marked done, not sent again.
+///
+/// Passes never overlap: one asked for while another runs (``forwardSoon()``
+/// on the queue during the launch pass on a files lane) runs right after it,
+/// on that thread.
 public final class SystemCrashForwarder: Sendable {
     /// Where macOS writes the current user's crash reports.
     public static let standardDirectory = FileManager.default.homeDirectoryForCurrentUser
@@ -28,6 +33,13 @@ public final class SystemCrashForwarder: Sendable {
     /// A report that does not parse yet and is younger than this may still
     /// be in the writing: it stays pending (the watermark stops before it).
     static let writeGrace: TimeInterval = 60
+
+    /// The folder watch, and whether a pass runs or is asked for again.
+    private struct Passes {
+        var watcher: (any DispatchSourceFileSystemObject)?
+        var running = false
+        var again = false
+    }
 
     struct State: Codable, Equatable {
         /// Reports modified at or before this time are done.
@@ -48,7 +60,7 @@ public final class SystemCrashForwarder: Sendable {
     /// The Chromium minidumps, sent first in each pass; nil without Crashpad.
     private let minidumps: ChromiumMinidumpForwarder?
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.crash-forwarder", qos: .utility)
-    private let watcher = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
+    private let passes = Mutex(Passes())
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
 
     public init(directory: URL = SystemCrashForwarder.standardDirectory, stateFile: URL, bundlePath: String,
@@ -79,11 +91,42 @@ public final class SystemCrashForwarder: Sendable {
         watch()
     }
 
+    /// One more pass on the forwarder's queue (the hang report decision a
+    /// minidump pass waited for came).
+    public func forwardSoon() {
+        queue.async { [self] in forwardNew(now: Date()) }
+    }
+
     /// Sends the Chromium minidumps, then the reports newer than the saved
     /// watermark and moves it. The first run only sets the watermark. Returns
-    /// the report files sent.
+    /// the report files sent; empty when another pass runs, which then runs
+    /// once more.
     @discardableResult
     public func forwardNew(now: Date) -> [URL] {
+        let starts = passes.withLock { passes -> Bool in
+            guard !passes.running else {
+                passes.again = true
+                return false
+            }
+            passes.running = true
+            return true
+        }
+        guard starts else { return [] }
+        var sent = pass(now: now)
+        while passes.withLock({ passes -> Bool in
+            guard passes.again else {
+                passes.running = false
+                return false
+            }
+            passes.again = false
+            return true
+        }) {
+            sent += pass(now: Date())
+        }
+        return sent
+    }
+
+    private func pass(now: Date) -> [URL] {
         let minidumpPIDs = minidumps?.forwardNew(now: now)
         guard var state = loadState() else {
             save(State(watermark: now.timeIntervalSince1970, sentAtWatermark: []))
@@ -142,7 +185,7 @@ public final class SystemCrashForwarder: Sendable {
                                                                queue: queue)
         source.setEventHandler { [weak self] in self?.forwardNew(now: Date()) }
         source.setCancelHandler { close(descriptor) }
-        watcher.withLock { $0 = source }
+        passes.withLock { $0.watcher = source }
         source.resume()
     }
 

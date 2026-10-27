@@ -77,11 +77,16 @@ public nonisolated struct CrashReportingPolicy: Sendable, Equatable {
         let identity = Self.identity(bundleID: bundleID, isDebugBuild: isDebugBuild)
         channel = identity?.channel
         devTag = identity?.tag
-        release = "cmux-next@\(shortVersion)+\(build)"
+        release = Self.release(shortVersion: shortVersion, build: build)
         dist = build
         let devAllowed = identity?.channel != .dev || processEnvironment[Self.devOptInKey] == "1"
         shouldStart = identity != nil && devAllowed && telemetryOptIn && !managedDisablesTelemetry
             && !Self.isTestProcess(processEnvironment)
+    }
+
+    /// The Sentry release of a cmux-next build: `cmux-next@<version>+<build>`.
+    public static func release(shortVersion: String, build: String) -> String {
+        "cmux-next@\(shortVersion)+\(build)"
     }
 
     /// The user's choice in `defaults`: on until the user turns it off.

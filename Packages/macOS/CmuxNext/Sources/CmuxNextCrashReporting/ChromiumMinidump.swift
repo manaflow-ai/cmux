@@ -20,9 +20,41 @@ public nonisolated struct ChromiumMinidump: Sendable, Equatable {
         case truncated(offset: Int)
     }
 
-    /// The annotations that may leave the Mac: Chromium's process type, product, version, platform and
-    /// architecture (components/crash/core/app/crashpad.cc, the handler's process annotations).
+    /// One loaded image: what Sentry needs to symbolicate an address in it.
+    public struct Module: Sendable, Equatable {
+        /// The file name (no folder).
+        public let name: String
+        public let base: UInt64
+        public let size: UInt32
+        /// The Mach-O UUID (Sentry's debug id), nil without a PDB 7.0 CodeView record.
+        public let debugID: String?
+    }
+
+    /// The cmux build a dump's process belonged to, from its `ver` annotation, which
+    /// `scripts/cmux-next/write-crash-reporter-cfg.sh` sets to `<version>+<build> cef<chromium>-<api>`.
+    public struct CrashedBuild: Sendable, Equatable {
+        public let version: String
+        public let build: String
+        /// `<chromium>-<api>`, when the annotation names it.
+        public let chromium: String?
+
+        /// Nil for a `ver` in another form (a dump from a build before the cmux version was recorded).
+        init?(ver: String) {
+            let parts = ver.split(separator: " ", maxSplits: 1).map(String.init)
+            let release = parts.first?.split(separator: "+", maxSplits: 1).map(String.init) ?? []
+            guard release.count == 2, !release[0].isEmpty, !release[1].isEmpty else { return nil }
+            version = release[0]
+            build = release[1]
+            chromium = parts.count == 2 && parts[1].hasPrefix("cef") ? String(parts[1].dropFirst(3)) : nil
+        }
+    }
+
+    /// The annotations that may leave the Mac: Chromium's process type, product, version (the cmux build), platform
+    /// and architecture (components/crash/core/app/crashpad.cc, the handler's process annotations).
     public static let allowedAnnotations: Set<String> = ["ptype", "prod", "ver", "plat", "osarch"]
+    /// Crashpad's exception code for a dump written without a crash (`DumpWithoutCrashing`, `CRASHPAD_SIMULATE_CRASH`):
+    /// `kMachExceptionSimulated` (crashpad/util/mach/exception_types.h), "CPsx".
+    public static let simulatedExceptionCode: UInt32 = 0x4350_7378
     /// The longest annotation value kept.
     static let maxAnnotationValueBytes = 64
 
@@ -34,11 +66,24 @@ public nonisolated struct ChromiumMinidump: Sendable, Equatable {
     public let mainModule: String?
     /// The annotations kept, by name.
     public let annotations: [String: String]
+    /// The exception stream's code: the Mach exception, or ``simulatedExceptionCode``; nil without the stream.
+    public let exceptionCode: UInt32?
+    /// The crashing thread's program counter and link register (arm64), pointer authentication bits removed.
+    public let crashPC: UInt64?
+    public let crashLR: UInt64?
+    /// The loaded images, the main executable first.
+    public let modules: [Module]
     /// The redacted dump: the bytes that may be sent.
     public let redacted: Data
 
     /// Chromium's process type (`renderer`, `gpu-process`, `utility`, ...); nil for the browser process.
     public var processType: String? { annotations["ptype"] }
+
+    /// Whether the process wrote the dump without crashing (it may still run): a report, not a crash.
+    public var isSimulated: Bool { exceptionCode == Self.simulatedExceptionCode }
+
+    /// The cmux build that wrote the dump, when its `ver` annotation names one.
+    public var crashedBuild: CrashedBuild? { annotations["ver"].flatMap(CrashedBuild.init(ver:)) }
 
     /// Reads and redacts a dump.
     /// - Parameters:
@@ -51,6 +96,11 @@ public nonisolated struct ChromiumMinidump: Sendable, Equatable {
         writtenAt = Date(timeIntervalSince1970: TimeInterval(redactor.timeStamp))
         mainModule = redactor.mainModule
         annotations = redactor.annotations
+        exceptionCode = redactor.exceptionCode
+        let mask = redactor.addressMask
+        crashPC = redactor.crashPC.map { mask == 0 ? $0 : $0 & mask }
+        crashLR = redactor.crashLR.map { mask == 0 ? $0 : $0 & mask }
+        modules = redactor.modules
         redacted = Data(redactor.output())
     }
 
