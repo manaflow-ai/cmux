@@ -130,6 +130,8 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
         // Abandoned (the source and the deadline dropped without an answer) is not an exit.
         return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             // The wait's bounded deadline (rare: one per handoff); cancelled at the exit event.
+            // timer-class-allow: off main: the deadline only answers the exit wait on the source's queue and posts
+            // no main-thread job; DemandTimer is the off-main deadline (p06 section E)
             let deadline = DemandTimer(owner: "agent-pane.process-exit", clock: clock)
             let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-exit.\(pid)", qos: .userInitiated)
             // crash-allow: an immutable let; a dispatch source is a thread-safe libdispatch object (handlers, resume, cancel from any thread).
