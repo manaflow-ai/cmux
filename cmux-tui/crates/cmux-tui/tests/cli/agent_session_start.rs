@@ -381,6 +381,10 @@ fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
     let surface = ssh.own_agent_tab();
     let reply = ssh.start_chat_as(surface, "owner");
     assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+    // A machine whose root removed every Cloud sign still reads as a Cloud VM
+    // when the caller says so: only `owner` goes on.
+    let reply = ssh.start_chat_as(surface, "team");
+    assert_eq!(reply["error_code"], "agent_session.host_unverified", "{reply}");
     let identity = owner.rpc(json!({"id": 1, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(capabilities.contains("agent-session-start-vm-kind-v1"), "{identity}");

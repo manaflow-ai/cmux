@@ -263,19 +263,15 @@ extension AgentTabStore {
                 // the page's first send, never when the tab opens.
                 guard started else { return nil }
                 guard daemon.supports(DaemonCapability.agentSessionStart.rawValue) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
-                let cloud = services.machines.session(daemon.machineID)
-                let (isCloud, cloudLink) = (cloud != nil, cloud?.link)
-                let servesVMKind = daemon.supports(DaemonCapability.agentSessionStartVMKind.rawValue)
+                // A Cloud machine (the app's own record, never the guest's) starts a chat only on
+                // the Cloud API's owner answer on the link the start goes over, checked as it is
+                // sent, through any daemon (an app-server link has none: no owner word).
+                let cloudLink: CloudMachineLink?? = services.machines.session(daemon.machineID).map(\.link)
+                let ownerLink = cloudLink.map { link -> AgentSessionAttachClient.OwnerLink in { await link?.ownerLink } }
                 host.start = { [weak tabs] cwd, harness, personKey in
                     guard let tabs else { throw CancellationError() }
-                    // The Cloud API's answer for this caller on the link in use, read at each start
-                    // and never kept past that link (an app-server link has none: no owner word).
-                    let ownsVM = await cloudLink?.callerOwnsVM ?? false
-                    guard AgentTabRemoteStart.mayStart(cloud: isCloud, callerOwnsVM: ownsVM, servesVMKind: servesVMKind) else {
-                        throw AgentRemoteStartRefusal(code: "agent_session.host_unverified", machine: machine)
-                    }
                     return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey,
-                                                          callerOwnsVM: ownsVM, endpoint: endpoint)
+                                                          ownerLink: ownerLink, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.

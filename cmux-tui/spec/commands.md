@@ -9482,7 +9482,12 @@ go on; any other Cloud VM goes on only with `vm_kind: "owner"` and otherwise
 answers `agent_session.host_unverified`. `vm_kind`
 (`agent-session-start-vm-kind-v1`) is the Cloud API's `vmKind` for the
 caller, as the caller read it on its link to this machine (attach-endpoint);
-only the exact string `owner` counts, any other value is no word. The VM's own
+only the exact string `owner` counts. Any other value says the caller knows
+this machine is a Cloud VM it does not own, so it answers
+`agent_session.host_unverified` on any host (a guest's root can remove every
+Cloud sign the daemon reads). The app starts a chat on a machine it knows as
+Cloud only on the `owner` answer for the link the start goes over, through any
+daemon. The VM's own
 kind `owner` (written at a machine bind) never allows a start by itself: the
 agents there keep sudo and can write it. A chat move in
 (`agent-transfer-receive`) and `agent-session-trust` still take it. The session starts with permission policy `ask`
