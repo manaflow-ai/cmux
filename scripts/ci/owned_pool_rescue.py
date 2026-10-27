@@ -1611,9 +1611,6 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
     held = ""
     current, floor = budget_seconds, floor_seconds
     while outcome == "rescue":
-        if held and now() >= deadline:
-            # watch() reports a stuck job before its deadline check, so the hold ends here.
-            return "stop", "watch limit reached", held
         # A re-run the picker places again takes the owned machines free now first: nothing to hold.
         if repicks(target):
             break
@@ -1629,6 +1626,10 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
             # finished run. A ci.yml attempt-1 full re-run never gets here (repicks(), above).
             names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
             return "refused", f"{names} refused by {job_pool(turned_away[0])} at job start", held
+        if held and now() >= deadline:
+            # watch() reports a stuck job before its deadline check, so the hold ends here (after the
+            # refusal look above, so a refusal on the last look still gets its re-run).
+            return "stop", "watch limit reached", held
         verdict, label = move_verdict(client, target, now=now(), sleep=sleep, log=log)
         if verdict == "free" or verdict == "busy" and floor is not None and floor >= OWNED_WAIT_FLOOR_SECONDS:
             break
@@ -1687,18 +1688,22 @@ def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
 # blacksmith-6vcpu-macos-26 was stalled, and 53 s later this rescue moved both onto that label, where they
 # queued 23 minutes.
 OWNED_WAIT_FLOOR_SECONDS = simple_pool_picker.BLACKSMITH_STALL_MINUTES * 60
-# A Blacksmith macOS label a workflow names.
+# A Blacksmith macOS label a workflow names, and a retry route a picker job computes (ci.yml's
+# macos_pr_retry_runner, test-ios.yml's retry_runs_on), which may be any picker label.
 BLACKSMITH_MACOS_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+")
+PICKED_RETRY = re.compile(r"\boutputs\.[A-Za-z0-9_-]*retry[A-Za-z0-9_-]*")
 
 
 def retry_labels(workflow_text: str | None) -> set[str]:
     """The picker Blacksmith labels a re-run of the workflow may take, as far as its file shows.
 
     Every picker label the file names anywhere counts: runs-on fallbacks, matrix entries, and the inputs it
-    passes a reusable workflow (cmux-tui.yml's macos_retry_runner). A file that names none or cannot be
-    read may route anywhere (a picker's retry output), so every picker label counts, and the rescue judges
-    the worst of them (move_verdict())."""
+    passes a reusable workflow (cmux-tui.yml's macos_retry_runner). A file that names none, cannot be
+    read, or routes a retry through a picker job's output (PICKED_RETRY) may route anywhere, so every
+    picker label counts, and the rescue judges the worst of them (move_verdict())."""
     every = set(simple_pool_picker.BLACKSMITH)
+    if PICKED_RETRY.search(workflow_text or ""):
+        return every
     found = set(BLACKSMITH_MACOS_LABEL.findall(workflow_text or "")) & every
     return found or every
 

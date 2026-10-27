@@ -1354,6 +1354,9 @@ class BlacksmithStall(unittest.TestCase):
             "    runs-on: ${{ matrix.pool }}\n"))
         self.assertEqual(rescue.retry_labels((ROOT / ".github/workflows/cmux-tui.yml").read_text()),
                          {"blacksmith-6vcpu-macos-15"})
+        # A retry route a picker job computes may be any picker label, whatever else the file names.
+        for name in ("ci.yml", "test-e2e.yml", "test-ios.yml", "ios-screenshots.yml"):
+            self.assertEqual(rescue.retry_labels((ROOT / ".github/workflows" / name).read_text()), every, name)
 
     def test_only_the_labels_a_workflow_names_decide(self):
         target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
@@ -1522,6 +1525,19 @@ class BlacksmithStall(unittest.TestCase):
         outcome, _, _ = rescue.hold_for_destination(
             api, target, "rescue", "stuck", budget_seconds=90, floor_seconds=90,
             deadline=START + dt.timedelta(hours=1), now=clock.now, sleep=clock.sleep, log=lambda _: None, seen={})
+        self.assertEqual(outcome, "refused")
+
+    def test_a_refusal_on_the_last_look_of_a_hold_is_rerun(self):
+        clock = Clock()
+        refused_job = {**job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT]), "status": "completed",
+                       "conclusion": "failure", "runner_name": "mini", "started_at": stamp(1),
+                       "completed_at": stamp(5), "steps": [{"name": "Set up job", "conclusion": "failure"}]}
+        api = FakeAPI(clock, lambda seconds: [refused_job],
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30), workflow=DEV_WORKFLOW)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        outcome, _, _ = rescue.hold_for_destination(
+            api, target, "rescue", "stuck", budget_seconds=90, floor_seconds=90,
+            deadline=START, now=clock.now, sleep=clock.sleep, log=lambda _: None, seen={})
         self.assertEqual(outcome, "refused")
 
     def test_a_superseded_main_attempt_is_still_cancelled_while_blacksmith_stalls(self):
