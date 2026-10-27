@@ -19,6 +19,7 @@ public actor CloudCodexBroker {
     private var previousModeByMachine: [String: Data?] = [:]
     private var loadedPreviousMode: Set<String> = []
     private var installedAccess: [String: Data] = [:]
+    private var uncertainInstallations: [String: (prior: Data?, candidate: Data)] = [:]
     private var pendingStageFiles: [String: (String, String)] = [:]
     private var accessRemovalAttempted: Set<String> = []
     private var targets: [String: CloudCodexBrokerTarget] = [:]
@@ -149,7 +150,8 @@ public actor CloudCodexBroker {
             pendingStageFiles.removeValue(forKey: target.machineID)
         }
         // A registration awaiting its first grant owns no VM auth files.
-        guard let installed = installedAccess[target.machineID] else {
+        let uncertain = uncertainInstallations[target.machineID]
+        guard installedAccess[target.machineID] != nil || uncertain != nil else {
             previousModeByMachine.removeValue(forKey: target.machineID)
             loadedPreviousMode.remove(target.machineID)
             accessRemovalAttempted.remove(target.machineID)
@@ -170,7 +172,10 @@ public actor CloudCodexBroker {
             throw CloudCodexBrokerError.targetOffline
         }
         let currentAccess = try await target.readFile(Self.accessPath)
-        if (currentAccess == installed || (currentAccess == nil && accessRemovalAttempted.contains(target.machineID))),
+        let installed = installedAccess[target.machineID]
+        let knownCandidate = uncertain?.candidate
+        let matchesOwnedInstallation = currentAccess == installed || currentAccess == knownCandidate
+        if (matchesOwnedInstallation || (currentAccess == nil && accessRemovalAttempted.contains(target.machineID))),
            try await target.readFile(Self.modePath) == Data("own\n".utf8) {
             accessRemovalAttempted.insert(target.machineID)
             if currentAccess != nil { try await target.removeFile(Self.accessPath) }
@@ -179,6 +184,7 @@ public actor CloudCodexBroker {
             } else { try await target.removeFile(Self.modePath) }
         }
         installedAccess.removeValue(forKey: target.machineID)
+        uncertainInstallations.removeValue(forKey: target.machineID)
         accessRemovalAttempted.remove(target.machineID)
         previousModeByMachine.removeValue(forKey: target.machineID)
         loadedPreviousMode.remove(target.machineID)
@@ -302,6 +308,7 @@ public actor CloudCodexBroker {
             try await ensureScope()
             try await target.removeFile(stageAccess)
             try await target.removeFile(stageMode)
+            pendingStageFiles.removeValue(forKey: target.machineID)
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
         } catch {
@@ -316,6 +323,7 @@ public actor CloudCodexBroker {
                 } catch {
                     // Retain transport until revocation can reconcile this installation.
                     installedAccess[target.machineID] = priorInstallation
+                    uncertainInstallations[target.machineID] = (prior: priorInstallation, candidate: data)
                     pendingRevocations.insert(target.machineID)
                     reconciliationFailed = true
                 }
