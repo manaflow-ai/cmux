@@ -943,6 +943,7 @@ USAGE
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
   cmux wg hub --config <wg-quick file> --socket <unix socket>
+  cmux wg dial --hub <unix socket> <host> <port>
 ";
 
 const ROOT_HELP_PROCESS_SUFFIX: &str = "\

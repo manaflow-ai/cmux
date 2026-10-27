@@ -21,3 +21,8 @@
 （--control 指定時は `"control"` も含みます）。
 AllowedIPs 内のリテラル IP のみ接続します。それ以外は SOCKS 応答 0x02、名前は 0x08 です。
 SIGTERM または SIGINT で終了し、ソケットを削除します。
+
+          cmux wg dial --hub パス ホスト ポート
+
+`wg dial` は実行中のハブ経由で HOST:PORT への TCP ストリームを 1 本、標準入出力で
+中継します（ssh の ProxyCommand 用）。HOST はハブの AllowedIPs 内のアドレスである必要があります。

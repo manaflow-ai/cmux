@@ -3,8 +3,7 @@
    one 16px glyph size (HEADER_GLYPH), nothing on press (composer-no-hover-highlight). In the chat header's row they are
    plain glyphs with no fill, border or shadow of their own at rest or on hover (Leo 2026-10-25: "why do the icons have
    their own background border situation instead of just being, you know, good"): muted at rest, the text's ink on
-   hover, while a menu is open and while a toggle's panel is open; the 24px square stays the hit target. The one fill
-   is the side panel's toggle while its panel is open, so it reads as toggled (below). The "..." menu
+   hover, while a menu is open and while a toggle's panel is open; the 24px square stays the hit target. The "..." menu
    (src/ui Menu) sits on the menu surface. */
 .acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
 .acpmux-header-tool-group{display:flex;align-items:center;gap:2px;min-width:0}
@@ -16,15 +15,6 @@
 .acpmux-header-tools .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tools .acpmux-header-tool[data-popup-open]{color:var(--agent-text)}
 /* On: a toggle whose panel is open (aria-pressed, cx-00n1): the text's ink, and the panel toggle's glyph its filled form. */
 .acpmux-header-tools .acpmux-header-tool[aria-pressed=true]{color:var(--agent-text)}
-/* The side panel's toggle (PanelToggle.tsx) reads as pressed while its panel is open: the ink alone did not show it
-   (Leo, 2026-10-26: "why is the button not toggled?"), so it takes a soft fill on its 24px square, a step up on hover.
-   The other looks are the gallery's comparison only (data-pressed-look). */
-.acpmux-header-tools .acpmux-header-panel-toggle[aria-pressed=true]{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
-.acpmux-header-tools .acpmux-header-panel-toggle[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 16%,transparent)}
-.acpmux-header-tools .acpmux-header-panel-toggle[aria-pressed=true][data-pressed-look]{background:none}
-.acpmux-header-tools .acpmux-header-panel-toggle[aria-pressed=true][data-pressed-look=accent]{color:var(--agent-accent,var(--agent-text))}
-.acpmux-header-tools .acpmux-header-panel-toggle[data-pressed-look=dot]{position:relative}
-.acpmux-header-tools .acpmux-header-panel-toggle[aria-pressed=true][data-pressed-look=dot]::after{content:"";position:absolute;bottom:2px;left:50%;border:2px solid currentColor;border-radius:50%;translate:-50% 0}
 /* Start Agent's floating chat (FloatingChat.tsx) borrows the tool's square and keeps its soft tint on hover and while on. */
 .acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool[data-popup-open],.acpmux-floating-bar .acpmux-header-tool[data-popup-open]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-floating-header .acpmux-header-tool[aria-pressed=true],.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-text) 11%,transparent);color:var(--agent-text)}

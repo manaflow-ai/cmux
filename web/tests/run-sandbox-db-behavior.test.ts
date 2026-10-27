@@ -128,6 +128,40 @@ describe("sandboxed Run lifecycle in the repository", () => {
     }
   });
 
+  dbTest("a sandboxed attempt is never attachable, and only its own marked VM row is its VM", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const { toRunSnapshotView } = await import("../services/runs/view");
+      const sandbox = await startedAttempt(userId);
+      const persistent = await startedAttempt(userId, "persistent");
+      for (const target of [sandbox, persistent]) {
+        await sql!`update run_attempts set provider_workspace_id = 'ws-1', provider_terminal_id = 'term-1' where id = ${target.attemptId}`;
+        // The terminal event opens the handoff window (sandbox) or the attach window (persistent).
+        await repo().ingestRunEvent({ runId: target.runId, attemptId: target.attemptId, ...target.lease, externalId: "end", attemptSequence: 1, kind: "attempt.succeeded" });
+      }
+      await expect(repo().mintRunAttachTicket({ runId: sandbox.runId, attemptId: sandbox.attemptId, userId })).rejects.toThrow("sandboxed");
+      expect(toRunSnapshotView(await repo().getRun(sandbox.runId, userId)).attempts[0]?.attachable).toBe(false);
+      expect(toRunSnapshotView(await repo().getRun(persistent.runId, userId)).attempts[0]?.attachable).toBe(true);
+      expect((await repo().mintRunAttachTicket({ runId: persistent.runId, attemptId: persistent.attemptId, userId })).ticket).toBeTruthy();
+
+      // A VM id from an event is the attempt's VM only with the launcher's keyed, marked row for that user.
+      const owned = { providerVmId: `vm-${sandbox.attemptId}`, runId: sandbox.runId, attemptId: sandbox.attemptId, userId };
+      expect(await repo().sandboxVmOwnedByAttempt(owned)).toBe(false);
+      const key = `sandbox-run:${sandbox.runId}:attempt:${sandbox.attemptId}`;
+      // Another user's row with that VM id and key is not this attempt's VM.
+      await insertSandboxVm(`other-${userId}`, key, owned.providerVmId);
+      expect(await repo().sandboxVmOwnedByAttempt(owned)).toBe(false);
+      // This user's row without the server-set marker is not either.
+      await sql!`update cloud_vms set user_id = ${userId}, billing_team_id = ${userId}, provider_metadata = '{}'::jsonb where provider_vm_id = ${owned.providerVmId}`;
+      expect(await repo().sandboxVmOwnedByAttempt(owned)).toBe(false);
+      await sql!`update cloud_vms set provider_metadata = ${sql!.json({ cmuxSandboxRun: key })} where provider_vm_id = ${owned.providerVmId}`;
+      expect(await repo().sandboxVmOwnedByAttempt(owned)).toBe(true);
+    } finally {
+      await sql!`delete from cloud_vms where user_id in ${sql!([userId, `other-${userId}`])}`;
+      await removeRuns(userId);
+    }
+  });
+
   dbTest("forced cancellation of a vanished launcher makes the VM due now", async () => {
     const userId = `sandbox-${randomUUID()}`;
     try {

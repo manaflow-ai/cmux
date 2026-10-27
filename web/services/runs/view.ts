@@ -139,10 +139,13 @@ function placementFor(
 function attemptView(
   attempt: typeof runAttempts.$inferSelect,
   backendProvider: BackendProvider,
+  sandboxed: boolean,
   now = Date.now(),
 ): RunAttemptView {
   const retainedUntil = iso(attempt.terminalRetainUntil);
-  const attachable = !!attempt.providerVmId
+  // A sandboxed attempt's retained handle only waits for its destroy: never attachable.
+  const attachable = !sandboxed
+    && !!attempt.providerVmId
     && !!attempt.providerWorkspaceId
     && !!attempt.providerTerminalId
     && !!attempt.terminalRetainUntil
@@ -214,7 +217,7 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
   };
   return {
     run,
-    attempts: snapshot.attempts.map((attempt) => attemptView(attempt, backendProvider)),
+    attempts: snapshot.attempts.map((attempt) => attemptView(attempt, backendProvider, snapshot.run.environment === "sandboxed")),
     artifacts: snapshot.artifacts.map(artifactView),
   };
 }
