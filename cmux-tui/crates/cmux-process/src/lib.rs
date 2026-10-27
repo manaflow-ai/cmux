@@ -46,6 +46,7 @@ mod child_setup;
 mod command;
 #[cfg(unix)]
 mod fd;
+mod reap;
 #[cfg(target_vendor = "apple")]
 mod spawn_apple;
 mod stdio;
@@ -54,5 +55,6 @@ mod tests;
 
 pub use child::Child;
 pub use command::Command;
+pub use reap::{REAPER_THREAD_NAME, Wait, reap_in_background};
 pub use std::process::{ExitStatus, Output};
 pub use stdio::Stdio;

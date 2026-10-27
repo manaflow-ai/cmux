@@ -160,7 +160,7 @@ pub struct LinkCell {
 pub fn open(target: &str, cwd: &str) -> String {
     let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     if is_url_start(target) {
-        let _ = std::process::Command::new(opener).arg(target).spawn();
+        spawn_reaped(std::process::Command::new(opener).arg(target));
         return format!("opened {target}");
     }
     let (path, line) = split_line(target);
@@ -185,10 +185,17 @@ pub fn open(target: &str, cwd: &str) -> String {
                     cmd.arg(&abs);
                 }
             }
-            let _ = cmd.spawn();
+            spawn_reaped(&mut cmd);
             return format!("opened {} in {base}", abs.display());
         }
     }
-    let _ = std::process::Command::new(opener).arg(&abs).spawn();
+    spawn_reaped(std::process::Command::new(opener).arg(&abs));
     format!("opened {}", abs.display())
+}
+
+/// Starts an opener or editor and reaps it when it ends: the TUI outlives it.
+fn spawn_reaped(command: &mut std::process::Command) {
+    if let Ok(child) = command.spawn() {
+        let _ = cmux_process::reap_in_background(child);
+    }
 }

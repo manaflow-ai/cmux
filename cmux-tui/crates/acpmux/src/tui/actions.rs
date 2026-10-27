@@ -531,13 +531,10 @@ impl App {
                         Some(id) => format!("{u}&session={id}"),
                         None => u.clone(),
                     };
-                    let _ = std::process::Command::new(if cfg!(target_os = "macos") {
-                        "open"
-                    } else {
-                        "xdg-open"
-                    })
-                    .arg(&url)
-                    .spawn();
+                    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+                    if let Ok(child) = std::process::Command::new(opener).arg(&url).spawn() {
+                        let _ = cmux_process::reap_in_background(child);
+                    }
                     self.status = "opened the web dashboard".into();
                 }
             }

@@ -32,6 +32,8 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 [dependencies]
 cmux-blocking.workspace = true
 cmux-lock-rank.workspace = true
+# Openers and the detached daemon are reaped (`cmux_process::reap_in_background`).
+cmux-process.workspace = true
 # Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
 cmux-memory.workspace = true
 # The daemon's features and their sources, shared with the cmux-tui owner (the leftover

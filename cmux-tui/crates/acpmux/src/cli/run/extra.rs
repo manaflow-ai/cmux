@@ -417,13 +417,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             println!("{url}");
             if !no_open {
-                let _ = std::process::Command::new(if cfg!(target_os = "macos") {
-                    "open"
-                } else {
-                    "xdg-open"
-                })
-                .arg(&url)
-                .spawn();
+                let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+                if let Ok(child) = std::process::Command::new(opener).arg(&url).spawn() {
+                    let _ = cmux_process::reap_in_background(child);
+                }
             }
             Ok(())
         }

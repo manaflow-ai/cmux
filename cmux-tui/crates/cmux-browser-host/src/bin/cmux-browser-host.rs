@@ -416,7 +416,7 @@ mod unix {
             });
         }
         let exe = std::env::current_exe().map_err(|e| format!("cannot find myself: {e}"))?;
-        std::process::Command::new(exe)
+        let host = std::process::Command::new(exe)
             .args(["serve", "--socket"])
             .arg(&options.socket)
             .stdin(std::process::Stdio::null())
@@ -427,6 +427,10 @@ mod unix {
             .process_group(0)
             .spawn()
             .map_err(|e| format!("cannot start the browser host: {e}"))?;
+        // This client may outlive the host it started: it must not keep it as
+        // a zombie. The host runs either way; a reaper that cannot start
+        // leaves only a zombie.
+        let _ = cmux_process::reap_in_background(host);
         wait_for(&options.socket)
             .map_err(|()| format!("the browser host did not start on {}", options.socket.display()))
     }

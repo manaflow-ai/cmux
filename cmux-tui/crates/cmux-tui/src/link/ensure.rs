@@ -419,7 +419,10 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
         .new_session()
         .inherit_fd(writer.as_fd(), READY_FD)?;
     // The spawn uses up the builder's copy of the write end.
-    command.spawn().context("start cmux link serve")?;
+    let link = command.spawn().context("start cmux link serve")?;
+    // This caller may outlive the link: it must not keep it as a zombie. The
+    // link runs either way; a reaper that cannot start leaves only a zombie.
+    let _ = cmux_process::reap_in_background(link);
     // Close this process's copy so end of file means the link closed it.
     drop(writer);
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);

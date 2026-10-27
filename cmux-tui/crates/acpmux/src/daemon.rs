@@ -1087,7 +1087,12 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
             });
         }
     }
-    cmd.spawn().context("spawn acpmux daemon")?;
+    let daemon = cmd.spawn().context("spawn acpmux daemon")?;
+    // A caller that outlives the daemon must not keep it as a zombie. The
+    // daemon runs either way, so a reaper that cannot start is only logged.
+    if let Err(error) = cmux_process::reap_in_background(daemon) {
+        tracing::warn!(%error, "the acpmux daemon started but its reaper thread did not");
+    }
     // Close this process's copy so end of file means the daemon closed it.
     drop(writer);
     if let (Some(key), Some((ours, theirs))) = (key, pair) {

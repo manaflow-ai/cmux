@@ -185,6 +185,11 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
     }
     let child =
         command.spawn().with_context(|| format!("cannot start {} host serve", exe.display()))?;
+    let pid = child.id();
+    // The caller may outlive `serve`, or see it exit before it listened:
+    // either way it must not keep it as a zombie. `serve` runs either way; a
+    // reaper that cannot start leaves only a zombie.
+    let _ = cmux_process::reap_in_background(child);
     #[cfg(unix)]
     {
         // Only the child may hold the write end now: EOF then means it exited.
@@ -192,7 +197,7 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
         drop(ready_writer);
         wait_ready(ready_reader, &log)?;
     }
-    Ok(child.id())
+    Ok(pid)
 }
 
 #[cfg(unix)]

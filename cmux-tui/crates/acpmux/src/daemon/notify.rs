@@ -10,8 +10,14 @@ use std::sync::Arc;
 /// agent pair the runaway guard paused (`hub/agent_pairs.rs`).
 pub(super) async fn notify_loop(hub: Arc<Hub>) {
     let mut rx = hub.subscribe();
+    // The hooks still running: each one is waited for, so none stays a zombie.
+    let mut hooks = tokio::task::JoinSet::new();
     loop {
-        let ev = match rx.recv().await {
+        let received = tokio::select! {
+            received = rx.recv() => received,
+            Some(_) = hooks.join_next(), if !hooks.is_empty() => continue,
+        };
+        let ev = match received {
             Ok(e) => e,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
             Err(_) => break,
@@ -63,11 +69,14 @@ pub(super) async fn notify_loop(hub: Arc<Hub>) {
             .env("ACPMUX_SESSION_NAME", &name)
             .env("ACPMUX_TEXT", &text);
         crate::config::scrub_nested_claude_env_tokio(&mut c);
-        let _ = c
-            .stdin(std::process::Stdio::null())
+        c.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
+            .stderr(std::process::Stdio::null());
+        if let Ok(mut hook) = c.spawn() {
+            hooks.spawn(async move {
+                let _ = hook.wait().await;
+            });
+        }
     }
 }
 

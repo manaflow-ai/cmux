@@ -33,3 +33,5 @@ rquickjs = "0.14"
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+# A host started in the background is reaped (`cmux_process::reap_in_background`).
+cmux-process.workspace = true
