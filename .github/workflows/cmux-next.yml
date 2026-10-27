@@ -5734,7 +5734,7 @@ jobs:
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
           # One deadline for the pending post and the wait (40 min); the terminal post comes after it
-          # (at most 110 s), so the step (50 min) and the App token (60 min) always outlast both.
+          # (at most 110 s per context, 220 s for both), so the step (50 min) and the App token (60 min) always outlast both.
           deadline=$((SECONDS + ${WAIT_SECONDS:-2400}))
           # The context and its previous name, posted together until every reader takes the new one.
           contexts=(cmux-next/compile cmux-next/linux-compile)
