@@ -323,11 +323,11 @@ public final class CEFEngine: BrowserEngine {
     public var startReport: CEFStartReport { CEFRuntime.shared.report }
 
     /// External message pump counters (for `debug.cef`); nil before CEF runs.
-    public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
+    public var pumpStats: InProcessCEFBackend.Stats? { CEFRuntime.shared.inProcess?.stats }
 
     /// Starts the pump's input-policy counters over (`debug.input` action `reset`).
     public func resetPumpInputCounters() {
-        CEFRuntime.shared.pump?.resetInputCounters()
+        CEFRuntime.shared.inProcess?.resetInputCounters()
     }
 
     /// What the fork's page tracker read from host views (for `debug.cef`).

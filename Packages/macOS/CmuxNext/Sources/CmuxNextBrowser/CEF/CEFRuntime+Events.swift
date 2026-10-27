@@ -290,7 +290,7 @@ extension CEFRuntime {
         if let shim { shutdownSequence?.windowsOpen(Int(shim.windowCount())) }
         shutdownSequence?.browserClosed(remaining: tabsByBrowser.count + pendingWindows.count)
         shutdownProgressed()
-        pump?.scheduleNow()
+        inProcess?.scheduleNow()
     }
 
     private func forkTabEvent(_ kind: CEFForkTabEvent, browser: Int32, window: Int32, value: Int) {
@@ -405,7 +405,7 @@ extension CEFRuntime {
         shutdownSequence = sequence
         noteCrashKeyShuttingDown()
         shim.closeAll()
-        pump?.pumpNow()
+        inProcess?.drain()
         shutdownProgressed()
         if shutdownSequence?.phase != .readyToShutdown {
             // A waiter dropped unresumed (abandoned) ends the wait as the timeout does.
@@ -422,7 +422,7 @@ extension CEFRuntime {
         spareWindow.createTrace.endUnanswered()
         devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { _ in true }, with: BrowserTabError.closed)
-        pump?.stop()
+        inProcess?.stop()
         guard shutdownSequence?.phase == .readyToShutdown else {
             logger.error("CEF shutdown timed out; exiting without CefShutdown")
             state = .shutDown

@@ -2,8 +2,8 @@ import CmuxNextTrace
 import CmuxNextWakeups
 
 /// Chromium's state in the app's crash keys (p10-stability-207, ``CrashKeySlots/Key/cefState``): a crash
-/// record says whether Chromium was starting, running, inside a message pump pass (``CEFMessagePump`` sets that
-/// one), shutting down or failed, as Chrome's own crash keys name the browser's lifecycle
+/// record says whether Chromium was starting, running, inside a message pump pass (the in-process
+/// backend's pump sets that one, ``InProcessCEFBackend``), shutting down or failed, as Chrome's own crash keys name the browser's lifecycle
 /// (components/crash/core/common/crash_key.h).
 extension CEFRuntime {
     /// Names this runtime's state in `keys` from now on (the engine the app makes passes the app's slots).

@@ -44,7 +44,7 @@ nonisolated struct CEFPumpRequestDelivery {
         let deliver: @Sendable () -> Void = {
             // main-proof: deliver runs only in the Thread.isMainThread branch or as a CFRunLoopGetMain() block (below)
             MainActor.assumeIsolated {
-                guard let pump = CEFRuntime.from(address)?.pump else { return }
+                guard let pump = CEFRuntime.from(address)?.inProcess?.pump else { return }
                 request(pump, fromChromiumThread)
             }
         }

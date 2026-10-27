@@ -74,7 +74,7 @@ import Testing
         var tracker = CEFTrackerStats()
         tracker.hostedPages = 2
         tracker.clipReads = 5
-        let pump = CEFPumpStats()
+        let pump = InProcessCEFBackend.Stats()
 
         let hosted = DebugCEF.engineCounters(backend: .host, pump: pump, tracker: tracker)
         #expect(hosted["pump"] == nil)

@@ -47,7 +47,7 @@ import Foundation
 /// recording (``SignpostName/cefPump``), never in the black box. Only the in-process pump
 /// emits it and its `cef.pump` histogram sample (task 060): in host mode the app has no pump, the host emits its own (104).
 ///
-/// Only the in-process backend makes one (``CEFInProcessPump``). In host mode the app has no
+/// Only the in-process backend makes one (``InProcessCEFBackend``). In host mode the app has no
 /// pump, no ``CEFPumpTimer`` and no schedule callback; the Chromium Host runs `CefRunMessageLoop`.
 ///
 /// Each pass runs with the crash keys' CEF state at ``CrashKeySlots/CEFState/inPump`` and

@@ -186,7 +186,7 @@ enum DebugCEF {
     /// page tracker's (`tracker`). In host mode the pump and the fork's tracker run in the Chromium
     /// Host; this process still counts its hosted page views (`ChromiumHostPageView`), so `tracker`
     /// has `hosted_pages` alone.
-    static func engineCounters(backend: BrowserBackend, pump: CEFPumpStats?, tracker: CEFTrackerStats) -> [String: JSONValue] {
+    static func engineCounters(backend: BrowserBackend, pump: InProcessCEFBackend.Stats?, tracker: CEFTrackerStats) -> [String: JSONValue] {
         guard backend == .inProcess else {
             return ["tracker": .object(["hosted_pages": .number(Double(tracker.hostedPages))])]
         }
@@ -196,7 +196,7 @@ enum DebugCEF {
     }
 
     /// Pump wakeups per second = the change of `work_runs` over an interval.
-    static func pumpReport(_ stats: CEFPumpStats) -> JSONValue {
+    static func pumpReport(_ stats: InProcessCEFBackend.Stats) -> JSONValue {
         .object([
             "work_runs": .number(Double(stats.workRuns)),
             "immediate_requests": .number(Double(stats.immediateRequests)),

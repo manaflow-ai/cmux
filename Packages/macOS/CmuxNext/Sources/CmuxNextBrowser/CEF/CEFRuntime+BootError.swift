@@ -11,7 +11,7 @@ extension CEFRuntime {
         case framework(String)
         /// Host mode: no Chromium Host to attach to (the reason).
         case host(String)
-        /// NSApp is not a CefAppProtocol NSApplication subclass.
+        /// In process: NSApp does not adopt CEF's application protocol (``InProcessCEFBackend``).
         case application
         case initialize
         /// Every slot of ``CEFRuntime/callbacks`` holds a live runtime: the shim's callbacks would have no context.
@@ -26,7 +26,7 @@ extension CEFRuntime {
             case .untrusted(let item): "runtime signature: \(item)"
             case .shim(let error): "shim: \(error)"
             case .framework(let message), .host(let message): message
-            case .application: "NSApp does not conform to CefAppProtocol"
+            case .application: "NSApp does not adopt CEF's application protocol (in-process backend)"
             case .initialize: "CefInitialize failed"
             case .callbackSlots(let error): "no callback slot for the runtime: \(error)"
             case .quit: "the app quit before the framework load"

@@ -11,27 +11,12 @@ import CmuxNextFocusUI
 import CmuxNextInput
 import os
 
-/// Chromium's application protocols (base/message_loop/message_pump_apple.h,
-/// include/cef_application_mac.h), declared under their Objective-C names.
-/// The runtime keeps the first protocol registered under a name and remaps
-/// later references to it, so the CEF shim's `@protocol(CefAppProtocol)` and
-/// Chromium's `@protocol(CrAppProtocol)` resolve to these, and
-/// `CmuxApplication` conforms statically: nothing is injected at runtime.
-@objc(CrAppProtocol) protocol ChromiumAppProtocol: NSObjectProtocol {
-    @objc(isHandlingSendEvent) func isHandlingSendEvent() -> Bool
-}
-
-@objc(CrAppControlProtocol) protocol ChromiumAppControlProtocol: ChromiumAppProtocol {
-    @objc(setHandlingSendEvent:) func setHandlingSendEvent(_ handlingSendEvent: Bool)
-}
-
-@objc(CefAppProtocol) protocol CEFAppProtocol: ChromiumAppControlProtocol {}
-
 /// The app's NSApplication.
 ///
-/// - CEF: Chromium must know when an event is being dispatched through
-///   `sendEvent:` (nested run loops, menu tracking), so this class tracks it
-///   and conforms to `CefAppProtocol` before `CefInitialize`.
+/// - Sending event: whether an event is being dispatched through `sendEvent:`
+///   (nested run loops, menu tracking) is tracked here (``isHandlingSendEvent()``);
+///   app focus rules read it, and in-process Chromium reads it through
+///   ``InProcessCEFApplication`` (``InProcessCEFBackend``).
 /// - Keys: every key-down of the process passes ``keyDownInterceptor`` (the
 ///   `KeyRouter`) before any window or responder, including Chromium page
 ///   windows that are key themselves, so system and navigation shortcuts
@@ -39,7 +24,7 @@ import os
 /// - `CMUX_NEXT_NO_ACTIVATE=1` (``refusesActivation``): every activation
 ///   request, from AppKit, CEF/Chromium, or app code, is dropped, so an agent
 ///   run never takes focus from the user's frontmost app.
-final class CmuxApplication: NSApplication, CEFAppProtocol {
+final class CmuxApplication: NSApplication, InProcessCEFApplication {
     private var handlingSendEvent = false
     /// The event in dispatch reached AppKit's `sendEvent` (no cmux stage consumed it): the tap's
     /// dispatch-end outcome. A nested dispatch keeps its own and gives the outer one back.

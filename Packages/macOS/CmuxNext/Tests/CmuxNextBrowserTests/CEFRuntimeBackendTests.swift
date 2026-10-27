@@ -22,7 +22,7 @@ import Testing
         #expect(runtime.state == .ready)
         #expect(supervisor.asked == 1)
         #expect(RemoteSpy.attachedFDs == [wire.fd])
-        #expect(runtime.pump == nil, "host mode started the message pump")
+        #expect(runtime.inProcess == nil, "host mode made the in-process backend")
         #expect(runtime.layout == nil, "host mode resolved the framework layout")
         #expect(RemoteSpy.prepareApplicationCalls == 0)
         #expect(RemoteSpy.initializeFrameworkPaths == [""], "host mode sent a framework path to initialize")
@@ -44,7 +44,7 @@ import Testing
         try await runtime.start(layout: nil, environment: [:], trigger: "test")
 
         #expect(timers.made == 0, "host mode made a CEFPumpTimer")
-        #expect(runtime.inProcessPump == nil, "host mode started the message pump")
+        #expect(runtime.inProcess == nil, "host mode started the message pump")
         #expect(RemoteSpy.initializeScheduleCallbacks == [false], "host mode gave initialize a schedule callback")
         #expect(RemoteSpy.scheduleDelayedCalls == 0, "host mode asked for the fork's delayed work")
 
@@ -80,7 +80,32 @@ import Testing
         #expect(RemoteSpy.initializeScheduleCallbacks == [true], "the in-process initialize got no schedule callback")
         #expect(RemoteSpy.scheduleDelayedCalls == 1)
         #expect(timers.made == 1)
-        #expect(runtime.inProcessPump != nil)
+        #expect(runtime.inProcess != nil)
+    }
+
+    /// Task 102: the in-process backend checks NSApp before it makes anything. An NSApp without CEF's
+    /// application protocol fails the start with no pump, no timer, no request for the fork's delayed work
+    /// and no `CefInitialize`.
+    @Test func anNSAppWithoutCEFsProtocolMakesNoInProcessBackend() async throws {
+        RemoteSpy.reset()
+        RemoteSpy.prepareApplicationResult = 0
+        let shim = try CEFShimLibrary.resolving(RemoteSpy.symbol)
+        let root = Self.scratch()
+        let library = CEFLoadedLibrary(shim: shim, shimABI: RemoteSpy.abi,
+                                       layout: CEFRuntimeLayout(frameworksDirectory: root, mainBundle: root, helperApp: root),
+                                       locale: CEFLocale(locale: CEFLocale.fallback, acceptLanguages: CEFLocale.fallback),
+                                       loadDuration: .zero)
+        let timers = PumpTimerCounter()
+        let runtime = CEFRuntime(storage: CEFProfileStorage(root: root), makePumpTimer: { _ in timers.make() })
+        runtime.loadInProcess = { _ in .success(library) }
+
+        await Self.expectFailed(runtime)
+
+        #expect(RemoteSpy.prepareApplicationCalls == 1)
+        #expect(runtime.inProcess == nil, "an NSApp CEF refuses got an in-process backend")
+        #expect(timers.made == 0)
+        #expect(RemoteSpy.scheduleDelayedCalls == 0)
+        #expect(RemoteSpy.initializeScheduleCallbacks.isEmpty, "CefInitialize ran after the NSApp check failed")
     }
 
     /// The attach points the remote shim's REPLY frames at the runtime's one reply table: the token
@@ -364,7 +389,7 @@ import Testing
         symbol: @escaping @Sendable (String) -> UnsafeMutableRawPointer? = RemoteSpy.symbol,
         helloDeadline: Duration = .seconds(30),
         clock: any Clock<Duration> = ContinuousClock(),
-        makePumpTimer: CEFInProcessPump.MakeTimer? = nil
+        makePumpTimer: InProcessCEFBackend.MakeTimer? = nil
     ) -> CEFRuntime {
         let runtime = CEFRuntime(storage: CEFProfileStorage(root: scratch()), makePumpTimer: makePumpTimer)
         runtime.loadInProcess = { _ in
@@ -460,6 +485,8 @@ private nonisolated enum RemoteSpy {
     nonisolated(unsafe) static var inProcessLoads = 0
     nonisolated(unsafe) static var attachedFDs: [Int32] = []
     nonisolated(unsafe) static var prepareApplicationCalls = 0
+    /// What `cmux_shim_prepare_application` returns (0: NSApp does not adopt CEF's application protocol).
+    nonisolated(unsafe) static var prepareApplicationResult: Int32 = 1
     nonisolated(unsafe) static var initializeFrameworkPaths: [String] = []
     /// Whether each initialize got a schedule callback.
     nonisolated(unsafe) static var initializeScheduleCallbacks: [Bool] = []
@@ -487,6 +514,7 @@ private nonisolated enum RemoteSpy {
         inProcessLoads = 0
         attachedFDs = []
         prepareApplicationCalls = 0
+        prepareApplicationResult = 1
         initializeFrameworkPaths = []
         initializeScheduleCallbacks = []
         scheduleDelayedCalls = 0
@@ -525,7 +553,7 @@ private nonisolated enum RemoteSpy {
         let forkAPIVersion: @convention(c) () -> Int32 = { RemoteSpy.forkAPI }
         let prepareApplication: @convention(c) () -> Int32 = {
             RemoteSpy.prepareApplicationCalls += 1
-            return 1
+            return RemoteSpy.prepareApplicationResult
         }
         let initialize: @convention(c) (
             UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,

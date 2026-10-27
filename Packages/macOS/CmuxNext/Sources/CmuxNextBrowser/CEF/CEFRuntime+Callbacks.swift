@@ -17,9 +17,9 @@ extension CEFRuntime {
         unsafe callbacks.target(forContext: UnsafeMutableRawPointer(bitPattern: address))
     }
 
-    /// The pump's cross-thread gate behind a callback context, from any thread (a `nonisolated let`
+    /// The in-process pump's cross-thread gate behind a callback context, from any thread (a `nonisolated let`
     /// of the runtime the token names).
-    nonisolated static func pumpGate(at address: UInt) -> CEFPumpCrossThreadGate? {
+    nonisolated static func pumpGate(at address: UInt) -> InProcessCEFBackend.RequestGate? {
         // SAFETY: as for `from(_:)`; only the runtime's `nonisolated let` gate is read.
         unsafe callbacks.target(forContext: UnsafeMutableRawPointer(bitPattern: address))?.pumpGate
     }

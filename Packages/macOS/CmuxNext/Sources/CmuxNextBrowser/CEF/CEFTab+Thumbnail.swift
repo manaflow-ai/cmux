@@ -3,7 +3,7 @@ public import CoreGraphics
 /// The leave-time tab thumbnail of a Chromium page.
 ///
 /// `Page.captureScreenshot` encodes the image in the browser process on its
-/// UI thread, which is the app's main thread (`CEFMessagePump`). A full
+/// UI thread: the app's main thread in process (``InProcessCEFBackend``). A full
 /// viewport PNG of a real page took 80-140 ms there (browser perf report,
 /// root cause R3), once per tab switch. A fast-mode JPEG of the same
 /// pixels takes about a quarter of that and is plenty for a thumbnail that

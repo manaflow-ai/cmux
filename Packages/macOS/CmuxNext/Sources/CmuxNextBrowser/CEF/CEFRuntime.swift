@@ -34,15 +34,14 @@ final class CEFRuntime {
     let mergedEvents = CEFMergedEvents<CEFTab>.tabs() // tabs' high-rate events merged per frame (feature `cefMergedEvents`)
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
-    /// The in-process backend's external message pump, made by the in-process initialize only. Nil before
-    /// the start and always in host mode (``CEFInProcessPump``).
-    private(set) var inProcessPump: CEFInProcessPump?
-    var pump: CEFMessagePump? { inProcessPump?.pump }
-    /// The pump's gate for requests from Chromium threads, which find it through the callback context (the
-    /// runtime) off the main thread. Host mode never reads it: it gives CEF no schedule callback.
-    nonisolated let pumpGate = CEFPumpCrossThreadGate()
+    /// The in-process backend (``InProcessCEFBackend``: NSApp check and external message pump), made by the
+    /// in-process initialize only. Nil before the start and always in host mode.
+    private(set) var inProcess: InProcessCEFBackend?
+    /// The in-process pump's gate for requests from Chromium threads, which find it through the callback
+    /// context (the runtime) off the main thread. Host mode never reads it: it gives CEF no schedule callback.
+    nonisolated let pumpGate = InProcessCEFBackend.RequestGate()
     /// Makes the in-process pump's one timer on ``wakeUps`` (a test's counter).
-    private let makePumpTimer: CEFInProcessPump.MakeTimer
+    private let makePumpTimer: InProcessCEFBackend.MakeTimer
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
     // Routing tables (main thread).
@@ -229,14 +228,14 @@ final class CEFRuntime {
     private(set) lazy var memoryPressureVote = CEFMemoryPressureVote.sending(to: self)
 
     private init() {
-        makePumpTimer = CEFInProcessPump.wakeUpQueueTimer
+        makePumpTimer = InProcessCEFBackend.wakeUpQueueTimer
     }
 
     /// A runtime that has not started, its profiles under `storage` (tests start it against seams).
     /// `makePumpTimer` makes the in-process pump's timer; nil: one on ``wakeUps``.
-    init(storage: CEFProfileStorage, makePumpTimer: CEFInProcessPump.MakeTimer? = nil) {
+    init(storage: CEFProfileStorage, makePumpTimer: InProcessCEFBackend.MakeTimer? = nil) {
         self.storage = storage
-        self.makePumpTimer = makePumpTimer ?? CEFInProcessPump.wakeUpQueueTimer
+        self.makePumpTimer = makePumpTimer ?? InProcessCEFBackend.wakeUpQueueTimer
     }
 
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
@@ -277,7 +276,7 @@ final class CEFRuntime {
         self.deferredEvents = deferredEvents
         self.shim = deferredEvents?.serveMirror(from: shim, helloNow: true) ?? shim
         self.storage = storage
-        makePumpTimer = CEFInProcessPump.wakeUpQueueTimer
+        makePumpTimer = InProcessCEFBackend.wakeUpQueueTimer
         state = .ready
     }
 
@@ -500,17 +499,15 @@ final class CEFRuntime {
         deferredEvents = CEFDeferredEvents.requested(by: environment, inHostMode: inHostMode)
         // Chromium is not up yet: CONTEXT_INITIALIZED's batch carries the mirror's counts.
         let shim = deferredEvents?.serveMirror(from: library.shim, helloNow: false) ?? library.shim
-        // The app's NSApplication subclass must conform (CmuxApplication); the shim no longer
-        // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
-        if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
+        // In process: NSApp's check and the pump (InProcessCEFBackend). In host mode the host's NSApp runs Chromium.
+        if case .inProcess(let loaded) = library {
+            try startInProcessBackend(shim)
+            layout = loaded.layout
+        }
         self.shim = shim
         if case .host = library {
             showHostNativeUI(shim, forkAPIVersion: shim.forkAPIVersion())
             answerHostFileDialogs(shim)
-        }
-        if case .inProcess(let loaded) = library {
-            layout = loaded.layout
-            startInProcessPump(shim)
         }
 
         let builtInPlan = inputs.builtInPlan
@@ -576,7 +573,7 @@ final class CEFRuntime {
                                    schedule, cefEventCallback, cefKeyCallback)
         }
         guard ok == 1 else {
-            pump?.stop()
+            inProcess?.stop()
             throw .initialize
         }
         installDevToolsKeyPolicy()
@@ -609,21 +606,16 @@ final class CEFRuntime {
         }
     }
 
-    /// Makes and starts the in-process backend's pump (``CEFInProcessPump``); host mode never calls this.
-    private func startInProcessPump(_ shim: CEFShimLibrary) {
-        guard inProcessPump == nil else { return }
-        var policy: CEFPumpInputPolicy?
-        if let pumpInput, let input {
-            policy = CEFPumpInputPolicy(pending: pumpInput.pending, dispatches: CEFPumpTapDispatches(tap: input),
-                                        refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget)
-        }
-        let owner = CEFInProcessPump(
-            shim: shim, wakeUps: wakeUps, gate: pumpGate, makeTimer: makePumpTimer, inputPolicy: policy, crashKeys: crashKeys,
-            logger: logger,
-            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } }
+    /// Makes the in-process backend, which checks NSApp and starts the pump (``InProcessCEFBackend``); host mode
+    /// never calls this.
+    private func startInProcessBackend(_ shim: CEFShimLibrary) throws(BootError) {
+        guard inProcess == nil else { return }
+        var policyInput: (seams: CEFPumpInputSeams, tap: InputEventTap)?
+        if let pumpInput, let input { policyInput = (seams: pumpInput, tap: input) }
+        inProcess = try InProcessCEFBackend(
+            shim: shim, wakeUps: wakeUps, gate: pumpGate, makeTimer: makePumpTimer, input: policyInput, crashKeys: crashKeys,
+            logger: logger, windowPending: { [weak self] in self?.pendingWindows.isEmpty == false }
         )
-        inProcessPump = owner
-        owner.pump.start()
     }
 
     /// The request context key of a pane's store (`CEFProfileStorage.contextKey`).

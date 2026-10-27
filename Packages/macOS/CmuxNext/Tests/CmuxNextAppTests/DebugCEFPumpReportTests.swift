@@ -8,7 +8,7 @@ import Testing
 /// input was pending by every input target and by the bound, the holds, and one pass's p99.
 @MainActor @Suite struct DebugCEFPumpReportTests {
     @Test func thePumpReportHasTheInputPolicyKeys() throws {
-        var stats = CEFPumpStats()
+        var stats = InProcessCEFBackend.Stats()
         stats.deferredForInput = 3
         stats.passesWhileInputPending.boundExpired = 2
         stats.passTimes.record(nanos: 1_500_000)
@@ -26,7 +26,7 @@ import Testing
 
     /// split-spring --suite=cef-idle reads `early_passes` (p14-energy-018).
     @Test func thePumpReportHasEarlyPasses() {
-        var stats = CEFPumpStats()
+        var stats = InProcessCEFBackend.Stats()
         stats.earlyPasses = 4
         #expect(DebugCEF.pumpReport(stats)["early_passes"] == .number(4))
     }
