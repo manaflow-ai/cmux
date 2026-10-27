@@ -77,7 +77,9 @@ struct ContextMenuEssentialsTests {
         let entries = ContextMenuCatalog.shared.selectionEntries(for: .workspaceRow)
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
         let shown = rows(menu)
-        #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "workspace.moveToNewGroup", "—",
+        // One verb for a selection: the row is Group Selected Workspaces, the action Cmd-Shift-G runs,
+        // not a second "Add to New Group" that does the same thing under another name.
+        #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "groupSelectedWorkspaces", "—",
                           "workspace.duplicate", "palette.moveWorkspaceToTop", "palette.toggleWorkspacePin", "workspace.toggleAudioMute", "—",
                           "More", "—", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "—",
                           "reopenClosedWorkspace"])
