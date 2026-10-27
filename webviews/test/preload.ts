@@ -15,7 +15,7 @@ export {};
 // checkout state. Best effort: a missing translation fails strings.test.ts, not every file.
 {
   const { writeStrings } = await import("../scripts/pages/gen-strings.mjs");
-  writeStrings({ ifStale: false, bestEffort: true, log: () => {} });
+  writeStrings({ ifStale: true, bestEffort: true, log: () => {} });
 }
 
 // react-dom picks the animationend event name once, when it first loads: without

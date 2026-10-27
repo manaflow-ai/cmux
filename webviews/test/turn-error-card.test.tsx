@@ -9,6 +9,8 @@ import { failureCopy, failureKind, failureRecovery, offersOwnRoute } from "../sr
 import { codeRouterOffer, ownRouteOf, readChatAccounts } from "../src/agent-session/acpmux/chatAccounts";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
+import { cloudCredentialRecovery } from "../src/agent-session/acpmux/cloudCredentialRecovery";
+
 const t = translatorFor("en");
 const claude = { name: "Claude Code", harness: "claude" };
 
@@ -213,7 +215,9 @@ test("cloud credential transfer retries only the failed prompt after a successfu
     "The provider rejected Claude Code’s credentials on this Cloud machine (HTTP 401). Set them up again to continue.",
   );
   expect(card().textContent).not.toContain("private.internal");
-  const transferButton = [...host.querySelectorAll("button")].find((element) => element.textContent === "Set up Claude credentials");
+  const transferButton = [...host.querySelectorAll("button")].find(
+    (element) => element.textContent === "Set up Claude Code credentials",
+  );
   expect(transferButton).toBeDefined();
   await act(async () => transferButton!.click());
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -393,4 +397,32 @@ test("a failed turn with no prompt row to send again offers no Retry", async () 
   );
   expect(card().getAttribute("data-failure-kind")).toBe("agent-exited");
   expect(button("Retry")).toBeUndefined();
+});
+
+test("native Cloud context offers recovery and only transferred success permits retry", async () => {
+  const calls: unknown[] = [];
+  let response: unknown = { transferred: true };
+  const call = async (method: string, params: Record<string, unknown>) => {
+    calls.push({ method, params });
+    return response;
+  };
+  // A real daemon summary supplies only its harness, not host or hostKind.
+  const summary = { harness: "claude" };
+  const recover = cloudCredentialRecovery(true, "provider-vm-1", "chat-1", summary.harness, call)!;
+  expect(calls).toEqual([]);
+  expect(await recover()).toBe(true);
+  expect(calls).toEqual([
+    {
+      method: "chat.cloudCredentialTransfer",
+      params: {
+        provider: "claude",
+        machineID: "provider-vm-1",
+        sessionId: "chat-1",
+      },
+    },
+  ]);
+  for (response of [{ transferred: false }, true, undefined]) expect(await recover()).toBe(false);
+  expect(cloudCredentialRecovery(true, undefined, "chat-1", "claude", call)).toBeUndefined();
+  expect(cloudCredentialRecovery(false, "provider-vm-1", "chat-1", "claude", call)).toBeUndefined();
+  expect(cloudCredentialRecovery(true, "provider-vm-1", "chat-1", "opencode", call)).toBeUndefined();
 });
