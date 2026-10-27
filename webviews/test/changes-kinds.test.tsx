@@ -341,6 +341,36 @@ test("a partial checkpoint for Last turn never says no test changed", async () =
   }
 });
 
+test("a partial checkpoint with Keep or Undo choices pending never says no test changed", async () => {
+  const { readTurnCheckpoint, turnDisplay } = await import("../src/agent-session/acpmux/changes/turnCheckpoint");
+  const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
+  const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-before\n+after\n";
+  const listed = { path: "src/a.ts", status: "modified", additions: 1, deletions: 1, patch };
+  for (const omitted of [{ files_omitted: 1 }, { untracked_skipped: 1 }]) {
+    const load = readTurnCheckpoint({
+      checkpoint_id: "c1",
+      complete: true,
+      diff: { root: "/repo", files: [listed], ...omitted },
+    });
+    expect(load.state).toBe("loaded");
+    // Unsent choices keep the tool-call view; the checkpoint still says files were left out.
+    const display = turnDisplay(translatorFor("en"), turn(["/repo/src/a.ts"]), load, true);
+    expect(display.source).toBe("tools");
+    expect(display.partial).toBe(true);
+    const container = dom.window.document.getElementById("root")!;
+    const root = createRoot(container);
+    try {
+      await act(async () =>
+        root.render(<DiffPanel files={display.files} turn={display} root="/repo" onClose={() => {}} />),
+      );
+      await settle();
+      expect(container.querySelector(".acpmux-diff-no-tests")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  }
+});
+
 test("a view opened on a relative tool path keeps that generated file open once the checkpoint lists it by its absolute path", async () => {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
