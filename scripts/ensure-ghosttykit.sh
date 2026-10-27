@@ -13,9 +13,11 @@ Usage: scripts/ensure-ghosttykit.sh [--variant fast|safe]
   --variant fast  (default) GhosttyKit.xcframework from the ghostty submodule,
                   -Doptimize=ReleaseFast, linked at ./GhosttyKit.xcframework.
   --variant safe  The ReleaseSafe lab libghostty: GhosttyNextKit.xcframework
-                  from the ghostty-next gitlink, built with the pinned flavor's
-                  flags (ghostty-next next/build-xcframework.sh) but
-                  -Doptimize=ReleaseSafe, under its own cache key, linked at
+                  from the commit and flavor that Packages/Shared/CmuxGhosttyKit/
+                  Package.swift pins (ghostty-next must be checked out there),
+                  built with that flavor's flags (ghostty-next
+                  next/build-xcframework.sh) but -Doptimize=ReleaseSafe,
+                  under its own cache key, linked at
                   Packages/Shared/CmuxGhosttyKit/Variants/safe/. The package
                   uses it only when CMUX_GHOSTTYKIT_VARIANT=safe, which
                   scripts/reload.sh sets for --config asan|tsan|ubsan alone.
@@ -113,68 +115,52 @@ PY
 
 CACHE_ROOT="${CMUX_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/cmux/ghosttykit}"
 
-# One lock directory per build key, so concurrent setups build a key once.
-LOCK_TIMEOUT=300
-LOCK_DIR=""
-LOCK_MKDIR_ERR=""
-LOCK_ACQUIRED=0
-cleanup_lock() {
-  if [[ "$LOCK_ACQUIRED" == "1" ]]; then
-    rmdir "$LOCK_DIR" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup_lock EXIT
+# One lock file per build key, so concurrent setups build a key once. The lock
+# is flock(2) on a descriptor this shell keeps open, so the kernel releases it
+# when the holder exits, crashed or not, and a live holder is never taken over
+# however long its build runs.
 print_sanitized_lock_error() {
-  [[ -n "$LOCK_MKDIR_ERR" ]] || return 0
-
-  local line
+  local lock_file="$1" message="$2" line
+  [[ -n "$message" ]] || return 0
   while IFS= read -r line; do
-    line="${line//$LOCK_DIR/<GhosttyKit cache lock>}"
+    line="${line//$lock_file/<GhosttyKit cache lock>}"
     line="${line//$CACHE_ROOT/<GhosttyKit cache>}"
     if [[ -n "${HOME:-}" ]]; then
       line="${line//$HOME/~}"
     fi
     printf '  %s\n' "$line" >&2
-  done <<< "$LOCK_MKDIR_ERR"
+  done <<< "$message"
 }
-lock_mkdir_failed_because_contention() {
-  if [[ -d "$LOCK_DIR" ]]; then
-    return 0
+# Takes the exclusive flock of lock file $2 on descriptor $1 (8 or 9) until this
+# process exits; $3 names what it guards in the waiting message.
+acquire_lock() {
+  local fd="$1" lock_file="$2" label="$3" open_err
+  if ! open_err="$( { : >>"$lock_file"; } 2>&1 )"; then
+    echo "error: could not create the GhosttyKit cache lock." >&2
+    print_sanitized_lock_error "$lock_file" "$open_err"
+    echo "Check that the GhosttyKit cache directory is writable." >&2
+    exit 1
   fi
-  [[ ! -e "$LOCK_DIR" && "$LOCK_MKDIR_ERR" =~ [Ff]ile[[:space:]]exists ]]
+  case "$fd" in
+    8) exec 8>>"$lock_file" ;;
+    9) exec 9>>"$lock_file" ;;
+    *) echo "error: acquire_lock takes descriptor 8 or 9, not '$fd'" >&2; exit 1 ;;
+  esac
+  # The flock belongs to the open file, which this shell keeps after python exits.
+  python3 - "$fd" "$label" <<'PY'
+import fcntl
+import sys
+
+fd = int(sys.argv[1])
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print(f"==> Waiting for the GhosttyKit lock for {sys.argv[2]} (another setup holds it)...", flush=True)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+PY
 }
-# Takes LOCK_DIR, the cache lock of build key $1; a lock held past LOCK_TIMEOUT is stale and removed.
 acquire_cache_lock() {
-  local key="$1" start=$SECONDS
-  while true; do
-    if LOCK_MKDIR_ERR="$(mkdir "$LOCK_DIR" 2>&1)"; then
-      LOCK_ACQUIRED=1
-      return 0
-    fi
-    if ! lock_mkdir_failed_because_contention; then
-      echo "error: could not create the GhosttyKit cache lock." >&2
-      echo "The underlying mkdir command failed while creating the lock directory." >&2
-      print_sanitized_lock_error
-      echo "Check that the GhosttyKit cache directory is writable." >&2
-      exit 1
-    fi
-    if (( SECONDS - start > LOCK_TIMEOUT )); then
-      echo "==> Lock stale (>${LOCK_TIMEOUT}s), removing and retrying..."
-      if ! rmdir "$LOCK_DIR" 2>/dev/null; then
-        # Another waiter may have won the race and removed the stale lock.
-        # Retry the acquisition in that case; report any genuine removal error.
-        if [[ ! -e "$LOCK_DIR" ]]; then
-          continue
-        fi
-        echo "error: the stale GhosttyKit cache lock could not be removed automatically." >&2
-        echo "Check for another setup process, then remove the stale .lock directory under the GhosttyKit cache." >&2
-        exit 1
-      fi
-      continue
-    fi
-    echo "==> Waiting for GhosttyKit cache lock for $key..."
-    sleep 1
-  done
+  acquire_lock 9 "$CACHE_ROOT/$1.flock" "$1"
 }
 
 # Refreshes the ranlib index of every macOS static archive under $1: Xcode 26 can
@@ -209,6 +195,8 @@ refresh_macos_archive_indexes() {
 NEXT_DIR="$PROJECT_DIR/ghostty-next"
 SAFE_VARIANT_LINK="$PROJECT_DIR/Packages/Shared/CmuxGhosttyKit/Variants/safe/GhosttyNextKit.xcframework"
 SAFE_VARIANT_REVISION="v1"
+SAFE_TMP_DIR=""
+trap '[[ -z "$SAFE_TMP_DIR" ]] || rm -rf "$SAFE_TMP_DIR"' EXIT
 
 # Prints the flags=( ... ) of ghostty-next's next/build-xcframework.sh (the
 # pinned flavor's `zig build` flags), one per line, -Doptimize=ReleaseSafe in
@@ -238,11 +226,15 @@ safe_variant_flags() {
 }
 
 build_safe_variant() {
-  local cached="$1" zig_version="$2" flags_text="$3" flag zig built tmp_dir
+  local cached="$1" zig_version="$2" flags_text="$3" flag zig built tree_lock
   local -a flags=()
   while IFS= read -r flag; do
     [[ -n "$flag" ]] && flags+=("$flag")
   done <<< "$flags_text"
+  # zig build writes macos/GhosttyNextKit.xcframework in this checkout's
+  # ghostty-next, whatever the key: one build per source tree at a time.
+  tree_lock="$CACHE_ROOT/.ghostty-next-tree-$(printf '%s' "$NEXT_DIR" | hash_stdin).flock"
+  acquire_lock 8 "$tree_lock" "the ghostty-next build tree"
   zig="$("$NEXT_DIR/next/install-zig.sh" "$CACHE_ROOT/zig" | tail -n 1)"
   if [[ ! -x "$zig" || "$("$zig" version)" != "$zig_version" ]]; then
     echo "error: ghostty-next's next/install-zig.sh gave no Zig $zig_version" >&2
@@ -251,28 +243,46 @@ build_safe_variant() {
   if [[ -x "$SCRIPT_DIR/ensure-metal-toolchain.sh" ]]; then
     "$SCRIPT_DIR/ensure-metal-toolchain.sh"
   fi
+  SAFE_TMP_DIR="$(mktemp -d "$CACHE_ROOT/.ghosttynextkit-safe-tmp.XXXXXX")"
   built="$NEXT_DIR/macos/GhosttyNextKit.xcframework"
   rm -rf "$built"
   echo "==> Building ReleaseSafe GhosttyNextKit.xcframework: zig build ${flags[*]}"
   (
     cd "$NEXT_DIR"
     # build.zig runs `zig env`, so the pinned Zig leads PATH; archive members
-    # carry no timestamps (as next/build-xcframework.sh builds).
+    # carry no timestamps (as next/build-xcframework.sh builds). The install
+    # prefix is private: the xcframework build installs share/{ghostty,terminfo},
+    # and scripts/cmux-next/bundle-ghostty-resources.sh bundles
+    # ghostty-next/zig-out/share in place of Resources/ghostty when it exists.
     PATH="$(dirname "$zig"):$PATH"
     export PATH ZERO_AR_DATE=1
-    "$zig" build "${flags[@]}" --summary failures
+    "$zig" build "${flags[@]}" --prefix "$SAFE_TMP_DIR/zig-out" --summary failures
   )
   if [[ ! -d "$built" ]]; then
     echo "error: zig build made no $built" >&2
     exit 1
   fi
-  tmp_dir="$(mktemp -d "$CACHE_ROOT/.ghosttynextkit-safe-tmp.XXXXXX")"
-  mv "$built" "$tmp_dir/GhosttyNextKit.xcframework"
+  mv "$built" "$SAFE_TMP_DIR/GhosttyNextKit.xcframework"
   mkdir -p "$(dirname "$cached")"
-  rm -rf "$cached"
-  mv "$tmp_dir/GhosttyNextKit.xcframework" "$cached"
-  rmdir "$tmp_dir"
+  # The key lock is held and $cached is absent, so this rename publishes the
+  # complete build at once and replaces nothing another reload links.
+  mv "$SAFE_TMP_DIR/GhosttyNextKit.xcframework" "$cached"
+  rm -rf "$SAFE_TMP_DIR"
+  SAFE_TMP_DIR=""
   echo "==> Cached ReleaseSafe GhosttyNextKit.xcframework at $cached"
+}
+
+# Prints "<commit> <flavor>" of the GhosttyNextKit binaryTarget url that
+# Packages/Shared/CmuxGhosttyKit/Package.swift pins: the libghostty the fast
+# build ships.
+pinned_ghosttynextkit() {
+  local package="$PROJECT_DIR/Packages/Shared/CmuxGhosttyKit/Package.swift" pins
+  pins="$(sed -n 's|.*/releases/download/xcframework-\([0-9a-f]\{40\}\)-\([A-Za-z0-9._-]*\)/GhosttyNextKit\.xcframework\.zip".*|\1 \2|p' "$package" 2>/dev/null || true)"
+  if [[ -z "$pins" || "$pins" == *$'\n'* ]]; then
+    echo "error: ${package#"$PROJECT_DIR"/} pins no single GhosttyNextKit xcframework-<commit>-<flavor> url" >&2
+    return 1
+  fi
+  printf '%s\n' "$pins"
 }
 
 ensure_safe_variant() {
@@ -281,12 +291,25 @@ ensure_safe_variant() {
     echo "error: the ghostty-next submodule is missing. Run: git submodule update --init ghostty-next" >&2
     exit 1
   fi
-  local next_sha flavor zig_version flags_text key dirty cached
+  local next_sha flavor zig_version flags_text key dirty cached pins pin_sha pin_flavor
+  pins="$(pinned_ghosttynextkit)" || exit 1
+  read -r pin_sha pin_flavor <<< "$pins"
   next_sha="$(git -C "$NEXT_DIR" rev-parse HEAD)"
   flavor="$(sed -n 's/^GHOSTTYKIT_FLAVOR=//p' "$toolchain")"
   zig_version="$(sed -n 's/^ZIG_VERSION=//p' "$toolchain")"
   if [[ -z "$flavor" || -z "$zig_version" ]]; then
     echo "error: ghostty-next's next/toolchain.env names no GHOSTTYKIT_FLAVOR or ZIG_VERSION" >&2
+    exit 1
+  fi
+  # The lab build is the shipped commit and flavor with ReleaseSafe only; a
+  # checkout at another commit would test code that does not ship.
+  if [[ "$next_sha" != "$pin_sha" ]]; then
+    echo "error: ghostty-next is checked out at $next_sha, but Package.swift's GhosttyNextKit pin is $pin_sha." >&2
+    echo "The safe variant builds the pinned commit only. Run: git submodule update ghostty-next" >&2
+    exit 1
+  fi
+  if [[ "$flavor" != "$pin_flavor" ]]; then
+    echo "error: ghostty-next's next/toolchain.env has GHOSTTYKIT_FLAVOR=$flavor, but Package.swift's GhosttyNextKit pin is flavor $pin_flavor." >&2
     exit 1
   fi
   flags_text="$(safe_variant_flags "$build_script")" || exit 1
@@ -298,7 +321,6 @@ ensure_safe_variant() {
   cached="$CACHE_ROOT/$key/GhosttyNextKit.xcframework"
   mkdir -p "$CACHE_ROOT"
   echo "==> GhosttyNextKit safe variant build key: $key"
-  LOCK_DIR="$CACHE_ROOT/$key.lock"
   acquire_cache_lock "$key"
   if [[ -d "$cached" ]]; then
     echo "==> Reusing cached ReleaseSafe GhosttyNextKit.xcframework"
@@ -353,7 +375,6 @@ CACHE_XCFRAMEWORK="$CACHE_DIR/GhosttyKit.xcframework"
 LOCAL_XCFRAMEWORK="$PROJECT_DIR/ghostty/macos/GhosttyKit.xcframework"
 LOCAL_KEY_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_state_key"
 LEGACY_LOCAL_SHA_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_sha"
-LOCK_DIR="$CACHE_ROOT/$GHOSTTY_KEY.lock"
 GHOSTTYKIT_CHECKSUMS_FILE="${CMUX_GHOSTTYKIT_CHECKSUMS_FILE:-$SCRIPT_DIR/ghosttykit-checksums.txt}"
 GHOSTTYKIT_ARCHIVE_VALIDATOR="${CMUX_GHOSTTYKIT_ARCHIVE_VALIDATOR:-$SCRIPT_DIR/validate-xcframework-archive.py}"
 

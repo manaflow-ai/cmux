@@ -8,6 +8,7 @@ Packages/Shared/CmuxGhosttyKit/Variants/safe. Zig is a stub that records its
 arguments, so this runs on Linux.
 """
 
+import fcntl
 import os
 from pathlib import Path
 import shutil
@@ -51,12 +52,17 @@ class EnsureGhosttyKitSafeVariantTests(unittest.TestCase):
         # The pinned-Zig installer prints a stub Zig that records its arguments and makes the xcframework.
         zig = self.root / "zig-bin" / "zig"
         zig.parent.mkdir()
+        # Like build.zig, it installs share/ into the --prefix (zig-out by default).
         zig.write_text(
             '#!/usr/bin/env bash\nset -eu\n'
             'if [[ "$1" == version ]]; then echo 0.16.0; exit 0; fi\n'
             'printf "%s\\n" "$*" >> "$TEST_ROOT/zig-calls"\n'
+            'if [[ -f "$TEST_ROOT/zig-fails" ]]; then exit 1; fi\n'
+            'prefix=zig-out\n'
+            'while [[ $# -gt 0 ]]; do [[ "$1" == --prefix ]] && prefix="$2"; shift; done\n'
+            'mkdir -p "$prefix/share/ghostty/themes" "$prefix/share/terminfo"\n'
             'mkdir -p macos/GhosttyNextKit.xcframework/macos-arm64_x86_64\n'
-            'printf "%s\\n" "$*" > macos/GhosttyNextKit.xcframework/flags\n'
+            'printf "built\\n" > macos/GhosttyNextKit.xcframework/flags\n'
         )
         zig.chmod(0o755)
         installer = tools / "install-zig.sh"
@@ -64,6 +70,18 @@ class EnsureGhosttyKitSafeVariantTests(unittest.TestCase):
         installer.chmod(0o755)
         self.git("init", "-q")
         self.commit()
+        self.write_pin(self.git("rev-parse", "HEAD"), "apple-v6")
+
+    def write_pin(self, sha, flavor):
+        package = self.root / "Packages/Shared/CmuxGhosttyKit/Package.swift"
+        package.parent.mkdir(parents=True, exist_ok=True)
+        package.write_text(
+            '        .binaryTarget(\n'
+            '            name: "GhosttyNextKit",\n'
+            '            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/'
+            f'xcframework-{sha}-{flavor}/GhosttyNextKit.xcframework.zip",\n'
+            '            checksum: "0000"\n'
+            '        ),\n')
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -111,6 +129,10 @@ class EnsureGhosttyKitSafeVariantTests(unittest.TestCase):
         self.assertEqual(self.link().resolve(), cached.resolve())
         self.assertFalse((self.next / "macos/GhosttyNextKit.xcframework").exists(),
                          "the build output stays in the cache, not in the submodule")
+        self.assertIn("--prefix", calls[0])
+        self.assertFalse((self.next / "zig-out").exists(),
+                         "bundle-ghostty-resources.sh bundles ghostty-next/zig-out/share when it exists")
+        self.assertEqual(list((self.root / "cache").glob(".ghosttynextkit-safe-tmp.*")), [])
 
         again = self.run_script("--variant=safe")
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
@@ -125,9 +147,71 @@ class EnsureGhosttyKitSafeVariantTests(unittest.TestCase):
         self.assertEqual(len(self.zig_calls()), 2, "a dirty tree is not the clean commit's build")
         self.assertRegex(result.stdout, r"releasesafe-v1-dirty-[0-9a-f]{64}")
 
+    def test_refuses_a_checkout_that_is_not_the_pinned_commit(self):
+        pinned = self.git("rev-parse", "HEAD")
+        (self.next / "src.zig").write_text("// a newer ghostty-next commit\n")
+        self.commit()
+        result = self.run_script("--variant", "safe")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"GhosttyNextKit pin is {pinned}", result.stderr)
+        self.assertIn("git submodule update ghostty-next", result.stderr)
+        self.assertEqual(self.zig_calls(), [])
+        self.assertFalse(self.link().exists())
+
+    def test_refuses_a_flavor_that_is_not_the_pinned_flavor(self):
+        self.write_pin(self.git("rev-parse", "HEAD"), "apple-v5")
+        result = self.run_script("--variant", "safe")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("GHOSTTYKIT_FLAVOR=apple-v6", result.stderr)
+        self.assertIn("flavor apple-v5", result.stderr)
+        self.assertEqual(self.zig_calls(), [])
+
+    def test_refuses_a_package_without_a_pin(self):
+        (self.root / "Packages/Shared/CmuxGhosttyKit/Package.swift").write_text("// no pin\n")
+        result = self.run_script("--variant", "safe")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("pins no single GhosttyNextKit", result.stderr)
+        self.assertEqual(self.zig_calls(), [])
+
+    def test_waits_for_a_live_lock_holder_however_long_it_builds(self):
+        key = f"next-{self.git('rev-parse', 'HEAD')}-apple-v6-releasesafe-v1"
+        cache = self.root / "cache"
+        cache.mkdir()
+        # The flock(2) the script takes, held here as a slow first setup would hold it.
+        with open(cache / f"{key}.flock", "a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            waiter = subprocess.Popen(
+                ["bash", str(self.root / "scripts/ensure-ghosttykit.sh"), "--variant", "safe"],
+                cwd=self.root, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            try:
+                for line in waiter.stdout:
+                    if "Waiting for the GhosttyKit lock" in line:
+                        break
+                else:
+                    self.fail(f"the second setup never waited (exit {waiter.wait()})")
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    waiter.wait(timeout=2)
+                self.assertEqual(self.zig_calls(), [], "a waiter never builds while the holder lives")
+            finally:
+                fcntl.flock(held, fcntl.LOCK_UN)
+            with waiter.stdout:
+                rest = waiter.stdout.read()
+            self.assertEqual(waiter.wait(timeout=60), 0, rest)
+        self.assertEqual(len(self.zig_calls()), 1)
+        self.assertTrue(self.link().is_symlink())
+
+    def test_a_failed_build_publishes_nothing(self):
+        (self.root / "zig-fails").write_text("")
+        result = self.run_script("--variant", "safe")
+        self.assertNotEqual(result.returncode, 0)
+        entries = [path.name for path in (self.root / "cache").iterdir() if path.is_dir()]
+        self.assertEqual(entries, [], "no cache entry and no temporary directory is left")
+        self.assertFalse(self.link().exists())
+
     def test_refuses_a_build_script_without_release_fast(self):
         self.write_build_script("Debug")
         self.commit()
+        self.write_pin(self.git("rev-parse", "HEAD"), "apple-v6")
         result = self.run_script("--variant", "safe")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("-Doptimize=Debug", result.stderr)
