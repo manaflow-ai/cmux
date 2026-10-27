@@ -3,10 +3,13 @@
 
 use serde_json::json;
 
+use super::tasks::{StatusChange, StatusMove};
 use super::{OpResult, Reject, Tx, conflict, forbidden, invalid, not_found};
 use crate::event::{Entity, EventKind};
 use crate::ids::{AgentClass, AgentRef, Principal, is_valid_id, prefix};
-use crate::model::{AgentFlow, AgentSession, Attention, Category, SessionLinks, SessionStatus};
+use crate::model::{
+    AgentFlow, AgentSession, Attention, Category, SessionLinks, SessionStatus, Task,
+};
 use crate::op::{SessionAttach, SessionClaim, SessionUpdate, TaskDelegate};
 
 /// Status transitions an agent may report with `task.session.update`.
@@ -195,8 +198,8 @@ impl Tx<'_> {
         s.status = SessionStatus::Working;
         s.started_at = Some(self.now);
         let snapshot = s.clone();
-        self.push_session_status(snapshot, session.status);
-        self.flow_after(&p.session, SessionStatus::Working)?;
+        self.push_session_status(snapshot.clone(), session.status);
+        self.flow_after(&snapshot, SessionStatus::Working);
         Ok(self.session_result(&p.session))
     }
 
@@ -252,8 +255,8 @@ impl Tx<'_> {
         }
         let snapshot = s.clone();
         if from != new_status {
-            self.push_session_status(snapshot, from);
-            self.flow_after(&p.session, new_status)?;
+            self.push_session_status(snapshot.clone(), from);
+            self.flow_after(&snapshot, new_status);
         } else {
             self.events.push(EventKind::upsert(
                 "task.agent_session.updated",
@@ -275,19 +278,24 @@ impl Tx<'_> {
         if session.status.is_terminal() {
             return Ok(self.session_result(id));
         }
-        self.end_session(id, SessionStatus::Canceled)?;
+        let session = self.record_session_end(session, SessionStatus::Canceled);
+        self.flow_after(&session, SessionStatus::Canceled);
         Ok(self.session_result(id))
     }
 
-    /// End a non-terminal session (cancel paths) and apply the flow.
-    pub(crate) fn end_session(&mut self, id: &str, status: SessionStatus) -> Result<(), Reject> {
-        let s = self.state.sessions.get_mut(id).ok_or_else(|| not_found("agent session", id))?;
-        let from = s.status;
-        s.status = status;
-        s.ended_at = Some(self.now);
-        let snapshot = s.clone();
-        self.push_session_status(snapshot, from);
-        self.flow_after(id, status)
+    /// End the non-terminal `session` (the stored session, as the caller
+    /// holds it): store it and emit its status change. The caller applies
+    /// the flow.
+    pub(crate) fn record_session_end(
+        &mut self,
+        mut session: AgentSession,
+        status: SessionStatus,
+    ) -> AgentSession {
+        let from = std::mem::replace(&mut session.status, status);
+        session.ended_at = Some(self.now);
+        self.state.sessions.insert(session.id.clone(), session.clone());
+        self.push_session_status(session.clone(), from);
+        session
     }
 
     fn push_session_status(&mut self, session: AgentSession, from: SessionStatus) {
@@ -305,14 +313,25 @@ impl Tx<'_> {
         OpResult { id: id.to_owned(), key }
     }
 
+    /// Apply the flow to the session's task, when it has a live one.
+    fn flow_after(&mut self, session: &AgentSession, status: SessionStatus) {
+        let Some(task) = self.state.tasks.get(&session.task).cloned() else { return };
+        if task.deleted {
+            return;
+        }
+        self.flow(task, session, status);
+    }
+
     /// Status follows agent activity. Monotonic: never lowers the category
     /// rank, never overrides an explicit change made after the session began.
-    fn flow_after(&mut self, session_id: &str, status: SessionStatus) -> Result<(), Reject> {
-        let session = self.session(session_id)?;
-        let Some(task) = self.state.tasks.get(&session.task).cloned() else { return Ok(()) };
-        if task.deleted {
-            return Ok(());
-        }
+    /// `task` is the session's stored task as the caller holds it; returns
+    /// it as stored after the flow.
+    pub(crate) fn flow(
+        &mut self,
+        mut task: Task,
+        session: &AgentSession,
+        status: SessionStatus,
+    ) -> Task {
         let attention = match status {
             SessionStatus::AwaitingInput => Some(Some(Attention::NeedsInput)),
             SessionStatus::Failed => Some(Some(Attention::Failed)),
@@ -339,26 +358,25 @@ impl Tx<'_> {
             other => other,
         };
         if let Some(attention) = attention
-            && let Some(t) = self.state.tasks.get_mut(&task.id)
-            && (t.attention != attention || drop_delegate)
+            && (task.attention != attention || drop_delegate)
         {
-            t.attention = attention;
-            t.updated_at = self.now;
+            task.attention = attention;
+            task.updated_at = self.now;
             if drop_delegate {
-                t.delegate = None;
+                task.delegate = None;
             }
-            let snapshot = t.clone();
+            self.state.tasks.insert(task.id.clone(), task.clone());
             self.events.push(EventKind::upsert(
                 "task.updated",
-                Entity::Task(Box::new(snapshot)),
+                Entity::Task(Box::new(task.clone())),
                 json!({"fields": ["attention"], "by_agent_flow": true}),
             ));
         }
         if self.state.settings.agent_flow == AgentFlow::Off {
-            return Ok(());
+            return task;
         }
         if task.manual_status_at.is_some_and(|at| at > session.created_at) {
-            return Ok(());
+            return task;
         }
         let target = match status {
             SessionStatus::Working => Some(self.state.settings.started_status.clone()),
@@ -368,16 +386,17 @@ impl Tx<'_> {
         let Some((target, to)) =
             target.and_then(|t| self.state.status_category(&t).map(|to| (t, to)))
         else {
-            return Ok(());
+            return task;
         };
-        let Some(current) = self.state.category_of(&task) else { return Ok(()) };
+        let Some(current) = self.state.category_of(&task) else { return task };
         let forward = to.rank() > current.rank()
             || (status == SessionStatus::Done
                 && to == Category::Started
                 && current == Category::Started);
-        if forward && to.rank() >= current.rank() && task.status != target {
-            self.set_status(&task.id, &target, super::tasks::StatusMove::Flow)?;
+        if !(forward && to.rank() >= current.rank() && task.status != target) {
+            return task;
         }
-        Ok(())
+        let change = StatusChange { from: current, to, to_status: target, mode: StatusMove::Flow };
+        self.apply_status(task, change)
     }
 }
