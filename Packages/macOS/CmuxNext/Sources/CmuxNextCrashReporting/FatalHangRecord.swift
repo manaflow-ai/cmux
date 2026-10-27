@@ -115,6 +115,30 @@ public nonisolated struct FatalHangRecord: Codable, Sendable, Equatable {
         }
     }
 
+    /// The image index of a ``crashKeyFrames`` word whose address no recorded image holds (its low 48 bits are the
+    /// raw address).
+    public static let crashKeyNoImage = Int(UInt16.max)
+
+    /// The frames as the crash-key page's `hang_in_progress_frames` words (`CrashKeyPage.packedFrame`): the image's
+    /// index in ``images`` (high 16 bits; ``crashKeyNoImage`` for none) and the offset in it (low 48 bits).
+    public var crashKeyFrames: [UInt64] {
+        frames.map { CrashKeyPage.packedFrame(image: $0.image ?? Self.crashKeyNoImage, offset: $0.offset) }
+    }
+
+    /// The images' UUIDs as the crash-key page's `hang_in_progress_images` words: two per image in ``images``' order,
+    /// each UUID's 16 bytes as two little-endian words (as the page header's build UUID).
+    public var crashKeyImageUUIDWords: [UInt64] {
+        images.flatMap { Self.uuidWords($0.uuid) }
+    }
+
+    /// The 16 bytes of a UUID string as two little-endian words; zeros when it is not 32 hex digits.
+    static func uuidWords(_ uuid: String) -> [UInt64] {
+        let digits = uuid.compactMap(\.hexDigitValue)
+        guard digits.count == 32 else { return [0, 0] }
+        let bytes = stride(from: 0, to: 32, by: 2).map { UInt64(digits[$0] << 4 | digits[$0 + 1]) }
+        return [0, 8].map { start in (0 ..< 8).reduce(UInt64(0)) { word, index in word | bytes[start + index] << (8 * UInt64(index)) } }
+    }
+
     /// The images as the live hang event describes them.
     var eventImages: [MainThreadHangEvent.Image] {
         images.map { MainThreadHangEvent.Image(base: $0.base, size: $0.size, uuid: $0.uuid, path: $0.name) }
@@ -184,16 +208,26 @@ extension FatalHangRecord {
 }
 
 extension CrashReporter {
+    /// Sends one event with the scope it goes out with (Sentry's `capture(event:scope:)`); tests pass their own.
+    public typealias ScopedCapture = @Sendable (Event, Scope) -> Void
+
+    /// Sentry's capture with the given scope.
+    public static let sentryCapture: ScopedCapture = { SentrySDK.capture(event: $0, scope: $1) }
+
     /// Sends the previous run's fatal app hang (``FatalHangRecord/event()``), with the run's black box as
     /// `blackbox.txt` when one is given (``blackboxAttachment(_:hangReportsOptIn:)``). Does nothing while crash
     /// reporting is off.
-    public nonisolated func reportFatalHang(_ record: FatalHangRecord, blackbox: Attachment?) {
+    public nonisolated func reportFatalHang(_ record: FatalHangRecord, blackbox: Attachment?,
+                                            capture: ScopedCapture = CrashReporter.sentryCapture) {
         guard isStarted else { return }
-        let event = record.event()
-        guard let blackbox else {
-            SentrySDK.capture(event: event)
-            return
-        }
-        SentrySDK.capture(event: event) { scope in scope.addAttachment(blackbox) }
+        Self.sendFatalHang(record, blackbox: blackbox, capture: capture)
+    }
+
+    /// Captures `record`'s event with a clean scope, as the helper-crash forwarders do (`SystemCrashForwarder`):
+    /// this launch's breadcrumbs, tags and contexts (its app version and build) do not describe the run that hung.
+    static func sendFatalHang(_ record: FatalHangRecord, blackbox: Attachment?, capture: ScopedCapture) {
+        let scope = Scope()
+        if let blackbox { scope.addAttachment(blackbox) }
+        capture(record.event(), scope)
     }
 }

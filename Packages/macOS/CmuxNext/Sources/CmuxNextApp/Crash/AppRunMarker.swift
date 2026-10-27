@@ -130,7 +130,7 @@ final class AppRunMarker {
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
                                          exception: root.appending(path: "run.exception"))
         previousExit = previous?.uncleanExit(bootSession: bootSession)
-        previousUnreported = previousExit == nil || previousExit == .crash ? nil : previous
+        previousUnreported = previous?.unreported(bootSession: bootSession)
         let recovered = previous?.forRecovery(bootSession: bootSession)
         recovery = LaunchRecovery.decide(previous: recovered)
         marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: recovered),
@@ -312,5 +312,12 @@ extension PreviousRun {
     /// is neither a crash nor a restart loop.
     nonisolated func forRecovery(bootSession current: String?) -> PreviousRun? {
         uncleanExit(bootSession: current) == .systemShutdown ? nil : self
+    }
+
+    /// The run, seen from boot `current`, when it ended with no handler of its own and not as asked (killed, or
+    /// the Mac shut down), so no crash report covers its end; nil after a quit or a crash (p09-observability-110).
+    nonisolated func unreported(bootSession current: String?) -> PreviousRun? {
+        let exit = uncleanExit(bootSession: current)
+        return exit == nil || exit == .crash ? nil : self
     }
 }

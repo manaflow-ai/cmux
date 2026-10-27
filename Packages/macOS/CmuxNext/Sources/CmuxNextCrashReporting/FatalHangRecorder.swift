@@ -2,13 +2,14 @@ public import CmuxNextCompat
 public import CmuxNextTrace
 public import Foundation
 import Darwin
+import Sentry
 
 /// Keeps the run's fatal-hang record (``FatalHangRecord``) on disk while a main-thread hang lasts
 /// (p09-observability-110), from the main-thread watchdog's thread: written at the hang threshold (2 s) with the
 /// stack, rewritten at each checkpoint with the time so far, removed when the main thread answers again. A run
 /// that the person or the system ends while it hangs (Force Quit, SIGKILL) leaves the file, and the next launch
-/// reports it (``takePrevious(in:run:currentPID:)``). The crash-key page's `hang_in_progress_start` and
-/// `hang_in_progress_frame_count` follow the file.
+/// reports it (``takePrevious(in:run:currentPID:)``). The crash-key page's `hang_in_progress` slots (start, frame
+/// count, frames and images, `CrashKeyPage.beginHang`) follow the file, so a crash during the hang carries it too.
 ///
 /// Every write is synchronous on the calling thread, a few KiB to a temporary file and a rename, with no fsync:
 /// the kernel's file cache outlives the process (a SIGKILL), and only a power loss can lose the record, which
@@ -70,8 +71,9 @@ public final class FatalHangRecorder: Sendable {
                                      startUptimeNanos: startUptimeNanos, elapsedNanos: elapsedNanos, addresses: addresses,
                                      phase: phase, attribution: attribution, release: release, dist: dist)
         current.withLock { $0 = record }
-        runtime.setCrashKey(.hangInProgressFrameCount, UInt64(record.frames.count))
-        runtime.setCrashKey(.hangInProgressStart, startUptimeNanos) // last: a nonzero start says the count is set
+        // The images and frames first, then the count and the start (CrashKeyPage.beginHang's order).
+        runtime.crashKeys?.beginHang(startNanos: startUptimeNanos, frames: record.crashKeyFrames,
+                                     imageUUIDWords: record.crashKeyImageUUIDWords)
         write(record)
     }
 
@@ -93,8 +95,7 @@ public final class FatalHangRecorder: Sendable {
             return record != nil
         }
         guard had else { return }
-        runtime.setCrashKey(.hangInProgressStart, 0) // first: a zero start says no hang, whatever the count holds
-        runtime.setCrashKey(.hangInProgressFrameCount, 0)
+        runtime.crashKeys?.endHang() // a zero start says no hang; the next beginHang overwrites every frame and image
         // SAFETY: blockingUnlink reads the NUL-terminated copy of the path Swift makes for the call.
         _ = unsafe blockingUnlink(file.path)
     }
@@ -138,21 +139,35 @@ public final class FatalHangRecorder: Sendable {
 extension CrashReporter {
     /// The next launch's half of the fatal-hang report (p09-observability-110): on `work`'s files lane, takes the
     /// previous run's record (``FatalHangRecorder/takePrevious(in:run:currentPID:)``) and sends it as one "fatal app
-    /// hang" event with that run's black box (``reportFatalHang(_:blackbox:)``). A clean quit or a crash (`run` nil)
-    /// sends nothing and only clears old records. Nothing waits for it.
+    /// hang" event with that run's black box (``reportFatalHang(_:blackbox:capture:)``). A clean quit or a crash
+    /// (`run` nil), or the kill switch off (`enabled` false), sends nothing and only clears old records, so a record
+    /// a run left while the switch was on never goes out later. Nothing waits for it.
     ///
     /// - Parameters:
     ///   - directory: The records' folder (the run marker's).
     ///   - run: The previous run's pid and launch time when no crash report covers its end; else nil.
+    ///   - enabled: Whether the `fatalHangReports` kill switch is on.
     ///   - traceDirectory: The app's black-box folder.
     ///   - hangReportsOptIn: Whether this Mac said yes to hang reports: only then does `blackbox.txt` go with the event.
     ///   - work: The app's blocking-work lanes.
-    public func reportPreviousFatalHang(in directory: URL, run: (pid: Int32, launched: Date)?, traceDirectory: URL,
-                                        hangReportsOptIn: Bool, work: any MayBlockRunner) {
+    public func reportPreviousFatalHang(in directory: URL, run: (pid: Int32, launched: Date)?, enabled: Bool,
+                                        traceDirectory: URL, hangReportsOptIn: Bool, work: any MayBlockRunner) {
+        reportPreviousFatalHang(in: directory, run: run, enabled: enabled, traceDirectory: traceDirectory,
+                                hangReportsOptIn: hangReportsOptIn, work: work, consented: { [self] in isStarted },
+                                capture: Self.sentryCapture)
+    }
+
+    /// ``reportPreviousFatalHang(in:run:enabled:traceDirectory:hangReportsOptIn:work:)`` with its consent and capture
+    /// seams (tests pass their own).
+    func reportPreviousFatalHang(in directory: URL, run: (pid: Int32, launched: Date)?, enabled: Bool, traceDirectory: URL,
+                                 hangReportsOptIn: Bool, work: any MayBlockRunner, currentPID: Int32? = nil,
+                                 consented: @escaping @Sendable () -> Bool, capture: @escaping ScopedCapture) {
+        let reported = enabled ? run : nil
         work.postFiles(.bestEffort, shutdown: .skipOnShutdown) { [self] in
-            guard let record = FatalHangRecorder.takePrevious(in: directory, run: run), isStarted else { return }
+            guard let record = FatalHangRecorder.takePrevious(in: directory, run: reported, currentPID: currentPID),
+                  consented() else { return }
             let records = record.blackBoxRecords(traceDirectory: traceDirectory)
-            reportFatalHang(record, blackbox: blackboxAttachment(records, hangReportsOptIn: hangReportsOptIn))
+            Self.sendFatalHang(record, blackbox: blackboxAttachment(records, hangReportsOptIn: hangReportsOptIn), capture: capture)
         }
     }
 }

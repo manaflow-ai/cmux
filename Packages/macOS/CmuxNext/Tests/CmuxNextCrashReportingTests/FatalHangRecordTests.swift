@@ -1,3 +1,5 @@
+import CmuxNextCompat
+import CmuxNextTrace
 import Foundation
 import Sentry
 import Testing
@@ -146,5 +148,106 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: recorder.file.path))
         recorder.began(startUptimeNanos: 1, elapsedNanos: 2_000_000_000, addresses: [], phase: nil, attribution: nil)
         #expect(FatalHangRecorder.takePrevious(in: folder, run: (pid: 4242, launched: Date().addingTimeInterval(3_600)), currentPID: 1) == nil)
+    }
+
+    // MARK: the crash-key page
+
+    /// `hang_in_progress_frames` words are the image index (high 16 bits) and offset; `hang_in_progress_images` are the
+    /// UUID's bytes as two little-endian words.
+    @Test func theCrashKeyWordsAreImageAndOffsetAndTheUUIDsBytes() {
+        let record = Self.record()
+        #expect(record.crashKeyFrames == [0x10, 0x800, UInt64(FatalHangRecord.crashKeyNoImage) << 48 | 0x99])
+        // A1 B2 C3 D4 00 00 40 00 | 80 00 00 00 00 00 00 01
+        #expect(record.crashKeyImageUUIDWords == [0x0040_0000_D4C3_B2A1, 0x0100_0000_0000_0080])
+        #expect(FatalHangRecord.uuidWords("not a uuid") == [0, 0])
+    }
+
+    /// While a hang lasts the page names it with the record's frames and images, so a crash during it carries them;
+    /// once the main thread answers the page has no hang in progress.
+    @Test func aHangInProgressIsOnTheCrashKeyPageUntilItEnds() throws {
+        let folder = try Self.folder("keys")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let runtime = TraceRuntime(role: .app)
+        let page = CrashKeyPage(identity: .init(role: .app))
+        #expect(runtime.attachCrashKeys(page))
+        let recorder = FatalHangRecorder(directory: folder, release: "r", dist: "d", runtime: runtime, pid: 4242)
+        recorder.began(startUptimeNanos: 5_000_000_000, elapsedNanos: 2_000_000_000, addresses: [0x99, 0x77], phase: nil, attribution: nil)
+        let written = try JSONDecoder().decode(FatalHangRecord.self, from: Data(contentsOf: recorder.file))
+        let hang = try #require(page.snapshot().hangInProgress)
+        #expect(hang.startNanos == 5_000_000_000)
+        #expect(hang.frames == written.crashKeyFrames)
+        #expect(hang.frames.count == 2)
+        #expect(Array(hang.imageUUIDWords.prefix(written.crashKeyImageUUIDWords.count)) == written.crashKeyImageUUIDWords)
+        recorder.ended()
+        #expect(page.snapshot().hangInProgress == nil)
+    }
+
+    // MARK: the next launch's send
+
+    private struct InlineFiles: MayBlockRunner {
+        func runFiles<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
+                                   _ body: @escaping @Sendable () throws -> T) async throws -> T { try body() }
+        func runSystem<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
+                                    _ body: @escaping @Sendable () throws -> T) async throws -> T { try body() }
+        func runHostResolution<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
+                                            _ body: @escaping @Sendable () throws -> T) async throws -> T { try body() }
+        func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
+                       _ body: @escaping @Sendable () -> Void) { body() }
+    }
+
+    /// The events the capture seam got.
+    private final class Captured: Sendable {
+        let count = Atomic(0)
+    }
+
+    private static let reporter = CrashReporter(policy: CrashReportingPolicy(
+        bundleID: "com.cmuxterm.app.nightly", shortVersion: "1.0", build: "42", isDebugBuild: false,
+        telemetryOptIn: true, managedDisablesTelemetry: false, processEnvironment: [:]))
+
+    /// A run with pid 4242 that hung for 3 s and left its record in `folder`.
+    private static func plantHungRun(in folder: URL) {
+        FatalHangRecorder(directory: folder, release: "cmux-next@1.0+1", dist: "1", runtime: TraceRuntime(role: .app), pid: 4242)
+            .began(startUptimeNanos: 1, elapsedNanos: 3_000_000_000, addresses: [0x99], phase: nil, attribution: nil)
+    }
+
+    /// How many events one next-launch report of `folder` sends.
+    private static func sentEvents(in folder: URL, run: (pid: Int32, launched: Date)?, enabled: Bool) -> Int {
+        let captured = Captured()
+        reporter.reportPreviousFatalHang(in: folder, run: run, enabled: enabled, traceDirectory: folder.appending(path: "trace"),
+                                         hangReportsOptIn: false, work: InlineFiles(), currentPID: 1, consented: { true },
+                                         capture: { event, _ in
+                                             #expect(event.exceptions?.first?.type == "FatalAppHang")
+                                             #expect(event.releaseName == "cmux-next@1.0+1", "the hung build's release")
+                                             _ = captured.count.add(1, ordering: .relaxed)
+                                         })
+        return captured.count.load(ordering: .relaxed)
+    }
+
+    @Test func aKilledRunsPlantedRecordSendsOneEvent() throws {
+        let folder = try Self.folder("send")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        Self.plantHungRun(in: folder)
+        let run = (pid: Int32(4242), launched: Date().addingTimeInterval(-60))
+        #expect(Self.sentEvents(in: folder, run: run, enabled: true) == 1)
+        #expect(Self.sentEvents(in: folder, run: run, enabled: true) == 0, "a record is sent once")
+    }
+
+    /// A clean quit or a crash: the run marker gives no unreported run.
+    @Test func aQuitOrACrashSendsNone() throws {
+        let folder = try Self.folder("send-none")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        Self.plantHungRun(in: folder)
+        #expect(Self.sentEvents(in: folder, run: nil, enabled: true) == 0)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).isEmpty, "the record was not cleared")
+    }
+
+    /// The kill switch off: nothing goes out, and the record is cleared so that turning it on later sends nothing old.
+    @Test func theKillSwitchOffSendsNoneAndClearsTheRecord() throws {
+        let folder = try Self.folder("send-off")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        Self.plantHungRun(in: folder)
+        let run = (pid: Int32(4242), launched: Date().addingTimeInterval(-60))
+        #expect(Self.sentEvents(in: folder, run: run, enabled: false) == 0)
+        #expect(Self.sentEvents(in: folder, run: run, enabled: true) == 0, "a record from before the switch went off was sent")
     }
 }

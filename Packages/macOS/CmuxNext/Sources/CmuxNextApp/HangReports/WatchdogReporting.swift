@@ -62,13 +62,15 @@ enum WatchdogReporting {
         // A hang the app does not survive (p09-observability-110): the previous run's record goes out now, and this
         // run's is kept on disk while each hang lasts.
         let bundleID = services.environment.launch.bundleID, markerFolder = AppRunMarker.standardDirectory(bundleID: bundleID)
+        let fatalHangReports = services.features.isEnabled(.fatalHangReports)
         if let marker = services.crashRecovery.marker {
+            // With the kill switch off, an earlier run's record is still cleared, and nothing is sent.
             reporter.reportPreviousFatalHang(in: markerFolder, run: marker.previousUnreported.map { (pid: $0.pid, launched: $0.launched) },
-                                             traceDirectory: TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID),
+                                             enabled: fatalHangReports, traceDirectory: TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID),
                                              hangReportsOptIn: UserDefaults.standard.object(forKey: HangReportsController.consentKey) is Date,
                                              work: services.work)
         }
-        if services.crashRecovery.marker != nil, reporter.isStarted, services.features.isEnabled(.fatalHangReports) {
+        if services.crashRecovery.marker != nil, reporter.isStarted, fatalHangReports {
             let fatal = FatalHangRecorder(directory: markerFolder, release: reporter.policy.release, dist: reporter.policy.dist)
             watchdog.fatalHangs = MainThreadWatchdog.FatalHangSink(began: { hang, start in
                 fatal.began(startUptimeNanos: start, elapsedNanos: Self.nanos(hang.duration), addresses: hang.addresses, phase: hang.phase,
