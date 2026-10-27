@@ -35,12 +35,14 @@ enum UpdateFeedPosting {
         case wait
     }
 
-    /// `enabled`: `updates.showWhatsNew` ("Show What's New After Updates"). Off, the update
-    /// posts no Feed card either, and the version counts as handled so turning it on later
-    /// does not post a stale card.
-    static func step(_ highlights: UpdateHighlights?, posted: String?, enabled: Bool = true, at: Date) -> Step {
+    /// `enabled`: `updates.showWhatsNew` ("Show What's New After Updates"), nil until the
+    /// settings have been read. Off, the update posts no Feed card either, and the version
+    /// counts as handled so turning it on later does not post a stale card. Unknown, it waits:
+    /// the default (on) must not post before cmux.json says off.
+    static func step(_ highlights: UpdateHighlights?, posted: String?, enabled: Bool? = true, at: Date) -> Step {
         guard let highlights else { return .wait }
         guard posted != highlights.version else { return .done }
+        guard let enabled else { return .wait }
         guard enabled else { return .skip(version: highlights.version) }
         return card(for: highlights, at: at).map(Step.post) ?? .wait
     }
@@ -68,10 +70,13 @@ enum UpdateFeedPosting {
         let held = Held()
         // task-owner: AppServices.updateFeedObservation: ends after the one post, or with the services.
         return Task { [weak services] in
-            for await highlights in ObservationStream({ Self.highlights(updater, held: held.highlights) }) {
+            // The setting is read inside the observed closure, so its first load re-runs the step.
+            for await (highlights, enabled) in ObservationStream({
+                (Self.highlights(updater, held: held.highlights), updater.whatsNew.isItemEnabledKnown ? updater.whatsNew.isItemEnabled : nil)
+            }) {
                 guard let services else { return }
                 held.highlights = highlights
-                switch step(highlights, posted: defaults.string(forKey: postedKey), enabled: updater.whatsNew.isItemEnabled, at: Date()) {
+                switch step(highlights, posted: defaults.string(forKey: postedKey), enabled: enabled, at: Date()) {
                 case .wait: continue
                 case .done: return
                 case let .skip(version):
