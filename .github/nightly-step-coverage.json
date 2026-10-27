@@ -62,6 +62,9 @@
         "Build the web bundles (cmux-next)": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Fetch the resolved cmux-tui tree companions": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Build in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle"},
+        "Compute portable OptChat Chief input key": {"plumbing": true, "note": "computes the source key before the Mac build so the Chief cache is portable across nightly runs; no product check"},
+        "Prepare the OptChat Chief cache key": {"plumbing": true, "note": "combines the portable source key with the Mac SDK, compiler and environment identity"},
+        "Restore the OptChat Chief cache": {"plumbing": true, "note": "restores an exact source and environment keyed Chief artifact; no product check"},
         "Build the OptChat Chief (cmux-next)": {"nightly_only": "cargo build of optchat-chief for the macOS arm64 and x86_64 targets needs the macOS SDK; PR builds skip it (bundle-optchat-chief.sh exits 0 without a binary)"},
         "Build the cmux-next iPhone host (cmux-mobile-host)": {"nightly_only": "cargo build of cmux-mobile-host for macOS arm64 and x86_64 needs the macOS SDK and is never built in PR CI"},
         "Install Zig for fast cmux-tui client": {"plumbing": true},
@@ -93,6 +96,7 @@
         "Pack the nightly app for reuse": {"nightly_only": "records the nightly-next products for a later nightly-next build; a pull request never records one"},
         "Finish the dSYM upload to Sentry": {"nightly_only": "finishes Sentry dSYM upload (token)"},
         "Bundle the OptChat Chief and the iPhone host": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly helper builds beside the Release build", "note": "joins the background Chief and iPhone host builds and runs bundle-optchat-chief.sh and bundle-mobile-host.sh on the Release app; tests/test_nightly_helpers_beside_release_build.py runs the join on fixtures"},
+        "Save the OptChat Chief cache": {"plumbing": true, "note": "publishes a successfully built Chief artifact for the exact source and environment key"},
         "Stop the helper builds still running": {"plumbing": true}},
       "build-nightly-linux-inputs": {
         "Drop stale submodule checkouts (self-hosted reused workspace)": {"plumbing": true},

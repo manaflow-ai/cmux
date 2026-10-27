@@ -30,6 +30,10 @@ Environment:
                                  so a commit that changes none of them reuses the binary;
                                  keeps the 8 most recently used entries (and at
                                  most 8 commit-keyed fallback entries)
+  CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY  portable source key computed by the Linux
+                                 resolver; when set, Mac does not recompute source inputs
+  CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY=1  require a cache record to match
+                                 the source and Mac environment identities
 USAGE
 }
 
@@ -67,14 +71,25 @@ done
 cache_root="${CMUX_NEXT_OPTCHAT_CHIEF_CACHE:-$crate/target/hosted}"
 cache_dir="$cache_root/$commit/${archs// /-}"
 input_key=""
+environment_key=""
 if [[ "${CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED:-0}" == 1 ]]; then
   # A commit that changes none of the Chief's inputs (most cmux-next pushes)
   # reuses the binary an earlier commit built from the same inputs. The key
   # script exits nonzero when it cannot read them; the commit key stays then.
   key_toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$repo_root/cmux-tui/rust-toolchain.toml")"
-  if input_key="$(python3 "$repo_root/scripts/cmux-next/optchat-chief-input-key.py" --archs "$archs" --toolchain "$key_toolchain")" \
-     && [[ "$input_key" =~ ^[0-9a-f]{64}$ ]]; then
-    cache_dir="$cache_root/inputs-$input_key/${archs// /-}"
+  input_key="${CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY:-}"
+  if [[ -z "$input_key" ]]; then
+    input_key="$(python3 "$repo_root/scripts/cmux-next/optchat-chief-input-key.py" --archs "$archs" --toolchain "$key_toolchain")" || input_key=""
+  fi
+  if [[ "$input_key" =~ ^[0-9a-f]{64}$ ]]; then
+    environment_key="${CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY:-}"
+    if [[ -z "$environment_key" ]]; then
+      environment_key="$(python3 "$repo_root/scripts/cmux-next/optchat-chief-input-key.py" --environment --archs "$archs" --toolchain "$key_toolchain")" || environment_key=""
+    fi
+    [[ "$environment_key" =~ ^[0-9a-f]{64}$ ]] || environment_key=""
+    suffix=""
+    [[ -n "$environment_key" ]] && suffix="-$environment_key"
+    cache_dir="$cache_root/inputs-$input_key$suffix/${archs// /-}"
   else
     input_key=""
   fi
@@ -88,7 +103,7 @@ prune_input_keyed() {
   [[ "${CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED:-0}" == 1 ]] || return 0
   [[ -d "$cache_dir" ]] && touch "${cache_dir%/*}"
   local pattern entry count
-  for pattern in 'inputs-[0-9a-f]{64}' '[0-9a-f]{40}'; do
+  for pattern in 'inputs-[0-9a-f]{64}(-[0-9a-f]{64})?' '[0-9a-f]{40}'; do
     count=0
     while IFS= read -r entry; do
       [[ "${entry##*/}" =~ ^${pattern}$ ]] || continue
@@ -113,9 +128,22 @@ deliver() {
 }
 
 if [[ -x "$cache_bin" ]]; then
-  prune_input_keyed
-  deliver "already cached"
-  exit 0
+  if [[ "${CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY:-0}" == 1 ]]; then
+    ref="$cache_bin.ref"
+    actual_sha=""
+    [[ -L "$cache_bin" || -L "$ref" ]] || actual_sha="$(shasum -a 256 "$cache_bin" | awk '{print $1}')"
+    if [[ ! -r "$ref" ]] || [[ -L "$cache_bin" || -L "$ref" ]] || ! grep -Fxq "inputs=$input_key" "$ref" || ! grep -Fxq "environment=$environment_key" "$ref" || ! grep -Fxq "archs=$archs" "$ref" || ! grep -Fxq "sha256=$actual_sha" "$ref"; then
+      echo "cached optchat-chief identity does not match; rebuilding" >&2
+    else
+      prune_input_keyed
+      deliver "already cached"
+      exit 0
+    fi
+  else
+    prune_input_keyed
+    deliver "already cached"
+    exit 0
+  fi
 fi
 if [[ "$cached_only" -eq 1 ]]; then
   [[ "$print_path" -eq 1 ]] || echo "error: no cached optchat-chief at $cache_bin" >&2
@@ -170,6 +198,6 @@ staged="$cache_bin.tmp.$$"
 if [[ ${#slices[@]} -eq 1 ]]; then cp "${slices[0]}" "$staged"; else lipo -create "${slices[@]}" -output "$staged"; fi
 chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"
-printf '%s\n' "commit=$commit" "archs=$archs" ${input_key:+"inputs=$input_key"} "sha256=$(shasum -a 256 "$cache_bin" | awk '{print $1}')" > "$cache_bin.ref"
+printf '%s\n' "commit=$commit" "archs=$archs" ${input_key:+"inputs=$input_key"} ${environment_key:+"environment=$environment_key"} "sha256=$(shasum -a 256 "$cache_bin" | awk '{print $1}')" > "$cache_bin.ref"
 prune_input_keyed
 deliver built

@@ -143,6 +143,19 @@ keyed; expect_builds "$n" "restoring the committed page did not reuse its binary
 # Another architecture set is another binary.
 ARCHS_UNDER_TEST=x86_64 keyed; n=$((n + 1)); expect_builds "$n" "another architecture reused the arm64 binary"
 
+# The resolver's portable source key can be handed to a Mac build. The exact
+# environment identity is recorded and required on a restored artifact.
+portable_key=$(PATH="$TMP/bin:$python_dir:/usr/bin:/bin" HOME="$TMP" python3 "$src/scripts/cmux-next/optchat-chief-input-key.py" --portable --archs x86_64 --toolchain 1.95.0)
+environment_key=$(PATH="$TMP/bin:$python_dir:/usr/bin:/bin" HOME="$TMP" python3 "$src/scripts/cmux-next/optchat-chief-input-key.py" --environment --archs x86_64 --toolchain 1.95.0)
+run CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1 CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY="$portable_key" \
+  CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY="$environment_key" CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY=1 >/dev/null 2>"$TMP/err" \
+  || fail "portable keyed build failed: $(cat "$TMP/err")"
+n=$((n + 1)); expect_builds "$n" "the portable source key did not build once"
+run CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1 CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY="$portable_key" \
+  CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY="$environment_key" CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY=1 >/dev/null 2>"$TMP/err" \
+  || fail "portable keyed cache hit failed: $(cat "$TMP/err")"
+expect_builds "$n" "the portable source key rebuilt its exact cache entry"
+
 # Only the 8 most recently used input-keyed entries stay.
 entries=$(find "$TMP/cache" -maxdepth 1 -name 'inputs-*' | grep -c .)
 [[ "$entries" -le 8 ]] || fail "the input-keyed cache kept $entries entries"
