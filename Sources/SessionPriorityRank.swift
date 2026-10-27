@@ -61,18 +61,30 @@ struct SessionPriorityRank: Equatable, Sendable {
     /// then lands next to its new neighbours in the rank: after its
     /// predecessor or before its successor, whichever is higher for an upward
     /// move and lower for a downward one.
+    ///
+    /// A move that left the order as it was (to the top where the workspace
+    /// already is, or below a pinned one) affirms the requested ids' visible
+    /// place: each run of them is placed as for an upward move (ruling R24).
     mutating func recordUserMove(movedIds: [UUID], before: [UUID], after: [UUID]) {
         sync(visibleOrder: after)
-        guard before != after else { return }
         let beforeIndex = Self.indexById(before)
         let afterIndex = Self.indexById(after)
+        guard before != after else {
+            let affirmed = Set(movedIds.filter { afterIndex[$0] != nil })
+            for run in Self.contiguousRuns(of: affirmed, in: after) {
+                insert(run: run, movedUp: true, after: after, afterIndex: afterIndex)
+            }
+            return
+        }
         let requested = Set(movedIds)
         let stayed = after.filter { !requested.contains($0) && beforeIndex[$0] != nil }
         let anchored = Self.idsOnLongestIncreasingRun(stayed, positions: beforeIndex)
         var moved = Set(movedIds.filter { beforeIndex[$0] != nil && afterIndex[$0] != nil })
         moved.formUnion(stayed.filter { !anchored.contains($0) })
         for run in Self.contiguousRuns(of: moved, in: after) {
-            insert(run: run, before: beforeIndex, after: after, afterIndex: afterIndex)
+            guard let first = run.first, let firstAfter = afterIndex[first] else { continue }
+            let movedUp = firstAfter < (beforeIndex[first] ?? firstAfter)
+            insert(run: run, movedUp: movedUp, after: after, afterIndex: afterIndex)
         }
     }
 
@@ -92,10 +104,11 @@ struct SessionPriorityRank: Equatable, Sendable {
 
     // MARK: - Move placement
 
-    /// Places one contiguous run of moved ids next to its new neighbours.
+    /// Places one contiguous run of moved ids next to its new neighbours: as
+    /// high as they allow for an upward move, as low for a downward one.
     private mutating func insert(
         run: [UUID],
-        before beforeIndex: [UUID: Int],
+        movedUp: Bool,
         after: [UUID],
         afterIndex: [UUID: Int]
     ) {
@@ -110,7 +123,6 @@ struct SessionPriorityRank: Equatable, Sendable {
         let successor = lastAfter + 1 < after.count ? after[lastAfter + 1] : nil
         let afterPredecessor = predecessor.flatMap { base.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
         let atSuccessor = successor.flatMap { base.firstIndex(of: $0) } ?? base.count
-        let movedUp = firstAfter < (beforeIndex[first] ?? firstAfter)
         let insertion = movedUp
             ? min(afterPredecessor, atSuccessor)
             : max(afterPredecessor, atSuccessor)
