@@ -43,7 +43,7 @@ test("a minimap card keeps the turn metadata needed for a compact hover summary"
     at: 1_700_000_000_000,
     durationMs: 42_000,
     toolCount: 3,
-    fileCount: 2,
+    fileCount: 1,
     links: ["https://github.com/manaflow-ai/cmux/pull/25794"],
     failure: "peer disconnected while waiting for the agent to answer",
   });
