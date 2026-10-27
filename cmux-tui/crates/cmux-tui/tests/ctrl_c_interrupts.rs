@@ -42,9 +42,15 @@ struct Daemon {
 
 impl Daemon {
     fn start() -> Self {
+        Self::start_with_shell("/bin/sh")
+    }
+
+    /// A daemon whose terminals without an argv run `shell` (`SHELL`), with a
+    /// private home so no rc file of the host's account runs.
+    fn start_with_shell(shell: &str) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp").join(format!("cmux-ctrlc-{}-{stamp}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(dir.join("home")).unwrap();
         let socket = dir.join("mux.sock");
         let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
         command
@@ -56,6 +62,9 @@ impl Daemon {
             // The app's daemon is a release build, where the blocking detector
             // only records; a debug build would panic on its connection threads.
             .env("CMUX_DAEMON_BLOCKING", "record")
+            .env("SHELL", shell)
+            .env("HOME", dir.join("home"))
+            .env("ZDOTDIR", dir.join("home"))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(fs::File::create(dir.join("daemon.log")).unwrap());
@@ -206,4 +215,72 @@ fn ctrl_c_interrupts_the_program_in_a_daemon_terminal() {
     let (surface, marker, terminal) = trapping_terminal(&daemon, "key");
     request(&daemon.socket, json!({"cmd": "send-key", "surface": surface, "keys": ["ctrl+c"]}));
     assert_interrupted(&marker, "send-key ctrl+c", &terminal);
+}
+
+/// The text a terminal shows now.
+fn screen(daemon: &Daemon, surface: u64) -> String {
+    let reply = request(&daemon.socket, json!({"cmd": "read-screen", "surface": surface}));
+    reply["text"].as_str().map(str::to_owned).unwrap_or_else(|| reply.to_string())
+}
+
+/// Waits until a line of the screen is `needle` (the program's output, not
+/// the echoed command line that names it).
+fn wait_for_screen(daemon: &Daemon, surface: u64, needle: &str, what: &str) {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    loop {
+        let text = screen(daemon, surface);
+        if text.lines().any(|line| line.trim_end() == needle) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{what}: the screen never showed {needle:?}:\n{text}");
+        // test harness: poll the terminal's screen
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// The terminal the app opens: the user's login shell with cmux's shell
+/// integration (no argv), zsh where the host has it (macOS's default shell).
+/// Ctrl-C interrupts its foreground `sleep`: `$?` at the next prompt is 130
+/// (128 + SIGINT).
+#[test]
+fn ctrl_c_interrupts_a_foreground_command_in_the_login_shell() {
+    let shell = ["/bin/zsh", "/usr/bin/zsh", "/bin/bash"]
+        .into_iter()
+        .find(|shell| Path::new(shell).exists())
+        .expect("a zsh or bash");
+    let daemon = Daemon::start_with_shell(shell);
+    request(
+        &daemon.socket,
+        json!({"cmd": "new-workspace", "name": "login", "cols": 80, "rows": 24}),
+    );
+    let tree = request(&daemon.socket, json!({"cmd": "list-workspaces"}));
+    let key = tree["workspaces"]
+        .as_array()
+        .and_then(|workspaces| workspaces.iter().find(|workspace| workspace["name"] == "login"))
+        .and_then(|workspace| workspace["key"].as_str())
+        .unwrap_or_else(|| panic!("no workspace login: {tree}"))
+        .to_owned();
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "create-terminal", "key": key, "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap_or_else(|| panic!("no surface: {created}"));
+    request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": "echo SHELL-UP\r"}));
+    wait_for_screen(&daemon, surface, "SHELL-UP", "the login shell");
+    request(
+        &daemon.socket,
+        json!({"cmd": "send", "surface": surface,
+            "text": "echo SLEEP-START; sleep 600\r"}),
+    );
+    wait_for_screen(&daemon, surface, "SLEEP-START", "the foreground sleep");
+    // test harness: let the shell hand the terminal to `sleep`
+    std::thread::sleep(Duration::from_millis(500));
+    request(&daemon.socket, json!({"cmd": "send-key", "surface": surface, "keys": ["ctrl+c"]}));
+    // An interactive shell drops the rest of a list a SIGINT ended: ask for
+    // the status at the next prompt (queued input waits for it).
+    request(
+        &daemon.socket,
+        json!({"cmd": "send", "surface": surface, "text": "echo AFTER-EXIT=$?\r"}),
+    );
+    wait_for_screen(&daemon, surface, "AFTER-EXIT=130", &format!("Ctrl-C in {shell}"));
 }
