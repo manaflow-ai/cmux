@@ -256,7 +256,8 @@ extension CaptureSceneRegistry {
             let title = AgentTurnStates.title(summary)
             let generatedTitle = AgentTurnStates.title(summary, includingPrompt: false)
             AgentTurnStateStore.shared.apply(session: Self.autoNameSession, state: nil, lastMessage: nil, muted: false,
-                                              title: title, generatedTitle: generatedTitle, detail: nil, recordsTimeline: false)
+                                              title: title, generatedTitle: generatedTitle, detail: nil, recordsTimeline: false,
+                                              source: "capture-scene")
             let expected = WorkspaceAutoNameWiring(services: services).reader.rule.persistedName(
                 name: Self.firstAutoName, title: nil, front: .chat(userName: nil, title: title, generatedTitle: generatedTitle),
                 isLocalMachine: true, supportsNameSource: true, alreadyRenamed: false,
@@ -310,6 +311,7 @@ extension CaptureSceneRegistry {
         let sourceAuto = workspace.nameSource == .auto
         let tab = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == tabID })
         let sessionMatches = tab?.agentSession?.session == Self.autoNameSession
+        if let session = tab?.agentSession { AgentTurnStateStore.shared.localHost = session.host }
         let generatedMatches = tab?.agentSession.map { AgentTurnStateStore.shared.generatedTitle(for: $0) == Self.generatedAutoName } ?? false
         let view = services.agentTabs.existingView(tabID)
         let painted = view?.model.hasPainted == true
