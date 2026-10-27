@@ -52,6 +52,11 @@ public final class DaemonService {
     /// The running push of `terminalDefaultColors`, and whether a newer value waits for it.
     @ObservationIgnored var terminalColorsPush: Task<Void, Never>?
     @ObservationIgnored var terminalColorsPending = false
+    /// What a person sees, which each connection's heartbeat follows (``ConnectionPresence``); nil
+    /// counts the app as shown.
+    @ObservationIgnored public var connectionPresence: ConnectionPresence? {
+        didSet { if let connectionPresence, let connection { connection.heartbeat.follow(connectionPresence) } }
+    }
     /// The app's Energy Saver the local daemon follows (DaemonService+Energy); nil until `follow(_:on:)`.
     @ObservationIgnored var energyFollow: DaemonEnergyFollow?
     @ObservationIgnored var featureHello: DaemonFeatureHello?  // the local hellos' features (`start`); settled at the first connection
@@ -139,11 +144,24 @@ public final class DaemonService {
     }
     private nonisolated static let launchMarkSink = Mutex<@Sendable (String) -> Void>({ _ in })
 
-    /// Fires `retryWake` when the app becomes active (an ``AppEvents`` subscription: one observer for the app).
+    /// Fires `retryWake` when the app becomes active (an ``AppEvents`` subscription: one observer for the app),
+    /// and asks the heartbeat once (``becameActive()``).
     private func observeRetryEvents() {
         guard activationWatch == nil else { return }
         let wake = retryWake
-        activationWatch = appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "DaemonService.retryWake") { wake.fire() }
+        let mainWork = mainWork
+        activationWatch = appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "DaemonService.retryWake") { [weak self] in
+            wake.fire()
+            let service = self
+            mainWork.postFromAnyThread(.background, owner: "DaemonService.activation") { service?.becameActive() }
+        }
+    }
+
+    /// The app became active: with the App's presence the connection's heartbeat asks once
+    /// (p14-energy-064).
+    private func becameActive() {
+        guard connectionPresence != nil else { return }
+        connection?.heartbeat.activated()
     }
 
     /// How the first connection is going (window connecting state, control
@@ -414,6 +432,7 @@ public final class DaemonService {
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         Self.launchMark("daemon_connected")
         connection.heartbeat.follow(KeepaliveGate(mainWork.energy))
+        if let connectionPresence { connection.heartbeat.follow(connectionPresence) }
         self.connection = connection
         connection.diagnosticSites.forward(to: diagnosticSites)
         launchSnapshot.remember(identity)
