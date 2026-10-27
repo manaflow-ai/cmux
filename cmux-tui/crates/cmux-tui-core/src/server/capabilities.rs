@@ -209,7 +209,7 @@ pub(super) struct IpcTransports(AtomicU8);
 
 impl IpcTransports {
     /// The capabilities whose transport this build serves.
-    const BOUND: [IpcCapability; 0] = [];
+    const BOUND: [IpcCapability; 1] = [IpcCapability::AttachStreams];
 
     pub(super) fn bound(&self, capability: IpcCapability) -> bool {
         self.0.load(Ordering::Acquire) & capability.bit() != 0

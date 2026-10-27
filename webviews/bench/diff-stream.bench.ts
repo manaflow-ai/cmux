@@ -5,6 +5,7 @@ import { jumpToFileRows } from "../src/toolbar-model";
 import { createDiffViewerLabelResolver } from "../src/labels";
 import { streamPatch, type DiffItem, type StreamMetrics } from "../src/diff-stream";
 import { makeMixedPatch } from "./diff-fixture";
+import { perfSeries, recordPerfResults } from "../scripts/perf-result.mjs";
 
 const fileCount = Number(process.env.CMUX_DIFF_BENCH_FILES ?? 2000);
 const iterations = Number(process.env.CMUX_DIFF_BENCH_ITERATIONS ?? 5);
@@ -36,11 +37,17 @@ Object.assign(globalThis, {
 });
 
 const samples: number[] = [];
+// Per iteration, in run order, for result-v1 (PERF_RESULT_DIR): the stream's first batch, its
+// longest yield and the app's render time.
+const firstBatchSamples: (number | null)[] = [];
+const maxYieldSamples: (number | undefined)[] = [];
+const appRenderSamples: number[] = [];
 // Assigned inside callbacks, so keep TypeScript from narrowing it to `null`.
 let lastMetrics = null as StreamMetrics | null;
 let lastAppMetrics = null as ReturnType<typeof createAppRenderMetrics> | null;
 for (let index = 0; index < iterations; index += 1) {
   const appMetrics = createAppRenderMetrics();
+  let completed = null as StreamMetrics | null;
   const started = performance.now();
   await streamPatch({
     getCollapsed: () => false,
@@ -53,6 +60,7 @@ for (let index = 0; index < iterations; index += 1) {
     },
     onComplete: (metrics) => {
       lastMetrics = metrics;
+      completed = metrics;
     },
     onMetrics: () => {},
     onRename: () => {},
@@ -69,12 +77,26 @@ for (let index = 0; index < iterations; index += 1) {
   }
   lastAppMetrics = appMetrics;
   samples.push(performance.now() - started);
+  firstBatchSamples.push(completed?.firstBatchAt == null ? null : completed.firstBatchAt - completed.startedAt);
+  maxYieldSamples.push(completed?.maxYieldMs);
+  if (includeAppRender) appRenderSamples.push(appMetrics.renderMs);
 }
 
 globalThis.fetch = originalFetch;
 globalThis.document = originalDocument;
 globalThis.window = originalWindow;
 
+// Before the sort and the budget check: a lab run keeps the raw samples of a slow run too.
+recordPerfResults({
+  story: "webviews",
+  engine: "none",
+  series: [
+    perfSeries("web.diff_stream.wall", "ms", samples),
+    perfSeries("web.diff_stream.first_batch", "ms", firstBatchSamples),
+    perfSeries("web.diff_stream.max_yield", "ms", maxYieldSamples),
+    perfSeries("web.diff_stream.app_render", "ms", appRenderSamples),
+  ],
+});
 samples.sort((left, right) => left - right);
 const medianMs = percentile(samples, 50);
 const p95Ms = percentile(samples, 95);

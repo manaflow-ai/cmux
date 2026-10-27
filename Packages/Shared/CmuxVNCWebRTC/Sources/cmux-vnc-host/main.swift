@@ -79,6 +79,7 @@ func printQR(_ text: String) {
     guard let image = filter.outputImage else { return }
     let context = CIContext()
     let width = Int(image.extent.width), height = Int(image.extent.height)
+    guard width > 0, height > 0 else { return }
     var pixels = [UInt8](repeating: 255, count: width * height * 4)
     // SAFETY: the bitmap is width x height RGBA8 at rowBytes width * 4, so Core Image writes at
     // most width * 4 * height bytes, exactly pixels.count, into the array during this call only.
