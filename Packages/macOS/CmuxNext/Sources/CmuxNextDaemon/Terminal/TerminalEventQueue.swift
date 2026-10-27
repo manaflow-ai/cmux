@@ -34,6 +34,8 @@ final class TerminalEventQueue: Sendable {
         var items: [TerminalChannelEvent] = []
         var head = 0
         var outputBytes = 0
+        /// The part of `outputBytes` that is snapshot history and images.
+        var snapshotBytes = 0
         var waiter: OnceContinuation<TerminalChannelEvent?, OnceContinuationError>?
         var finished = false
         var armed = false
@@ -69,6 +71,7 @@ final class TerminalEventQueue: Sendable {
                 outputBytes -= data.count
             } else {
                 outputBytes -= TerminalEventQueue.outputSize(event)
+                snapshotBytes -= TerminalEventQueue.snapshotSize(event)
             }
             if head > 256, head * 2 > items.count {
                 items.removeFirst(head)
@@ -99,6 +102,7 @@ final class TerminalEventQueue: Sendable {
             if let waiter = state.waiter.take() { return (waiter, false) }
             state.items.append(event)
             state.outputBytes += Self.outputSize(event)
+            state.snapshotBytes += Self.snapshotSize(event)
             return (nil, state.parkReader(above: highWater))
         }
         waiter?.resume(returning: event)
@@ -121,6 +125,7 @@ final class TerminalEventQueue: Sendable {
             if let waiter = state.waiter.take() { return waiter }
             state.items.append(event)
             state.outputBytes += Self.outputSize(event)
+            state.snapshotBytes += Self.snapshotSize(event)
             return nil
         }
         waiter?.resume(returning: event)
@@ -148,6 +153,7 @@ final class TerminalEventQueue: Sendable {
             state.items.removeAll()
             state.head = 0
             state.outputBytes = 0
+            state.snapshotBytes = 0
             return (state.waiter.take(), state.releaseReader())
         }
         if release { readerWake.signal() }
@@ -183,14 +189,23 @@ final class TerminalEventQueue: Sendable {
         state.withLock { $0.outputBytes }
     }
 
+    /// The buffered bytes of live output: ``bufferedOutputBytes`` without snapshot history and images,
+    /// the burst a READY brings (an attach stream's overflow bound, TerminalAttachment+Stream).
+    var bufferedLiveOutputBytes: Int {
+        state.withLock { $0.outputBytes - $0.snapshotBytes }
+    }
+
     /// Bulk bytes: output and snapshot history. A READY, like a replay,
     /// never blocks the reader (it is one screen, sent before the attach
     /// reply on attach).
     private static func outputSize(_ event: TerminalChannelEvent) -> Int {
-        switch event {
-        case .output(let data, _): data.count
-        case .snapshot(let frame) where frame.phase != .ready: frame.data.count
-        default: 0
-        }
+        if case .output(let data, _) = event { return data.count }
+        return snapshotSize(event)
+    }
+
+    /// Snapshot history and images: the bytes after a READY.
+    private static func snapshotSize(_ event: TerminalChannelEvent) -> Int {
+        guard case .snapshot(let frame) = event, frame.phase != .ready else { return 0 }
+        return frame.data.count
     }
 }

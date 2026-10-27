@@ -88,16 +88,18 @@ struct AttachStreamTable {
         return true
     }
 
-    /// Stops delivery to the handle's stream; the id stays taken until its `stream-end`. True when the
-    /// stream was still open (so its end is still to come), false when it ended already.
+    /// Stops delivery to the handle's stream; the id stays taken until its `stream-end` or the reply of the
+    /// `cancel-stream` this asks for. True when the stream was not cancelled yet (that `cancel-stream` is due),
+    /// false when it ended or was cancelled already.
     mutating func cancel(_ handle: AttachStreamHandle) -> Bool {
         guard let entry = entries[handle.id], entry.epoch == handle.epoch else { return false }
+        if case .cancelled = entry { return false }
         entries[handle.id] = .cancelled(epoch: handle.epoch)
         return true
     }
 
-    /// Frees the handle's id when the daemon will send nothing more for it (an open that failed and
-    /// was cancelled). An id minted again since is left alone.
+    /// Frees the handle's id when the daemon will send nothing more for it (an open that failed, or the reply
+    /// of its `cancel-stream`). An id minted again since is left alone.
     mutating func release(_ handle: AttachStreamHandle) {
         guard entries[handle.id]?.epoch == handle.epoch else { return }
         entries[handle.id] = nil

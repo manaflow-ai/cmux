@@ -8,13 +8,15 @@ extension LineTransport {
     enum Waiter {
         case reply(cmd: String, ReplySlot)
         case discard(cmd: String, onError: (@Sendable (DaemonError) -> Void)?)
+        /// The reader thread hands the reply, or the connection's end, to this handler (``send(cmd:onReply:_:)``).
+        case handled(cmd: String, ReplyHandler)
         /// Its deadline passed; the late reply is dropped. The id stays
         /// pending so an id-less error still maps to the right request.
         case expired(cmd: String)
 
         var cmd: String {
             switch self {
-            case .reply(let cmd, _), .discard(let cmd, _), .expired(let cmd): cmd
+            case .reply(let cmd, _), .discard(let cmd, _), .handled(let cmd, _), .expired(let cmd): cmd
             }
         }
 
@@ -22,22 +24,27 @@ extension LineTransport {
         /// sent without waiting; otherwise dropped.
         func replyKind(ok: Bool) -> DaemonWireStats.FrameKind {
             switch self {
-            case .reply: .reply
+            case .reply, .handled: .reply
             case .discard: ok ? .droppedReply : .reply
             case .expired: .droppedReply
             }
         }
 
-        /// Where an error reply goes: the waiting slot, or the discarded request's `onError`; nil when
-        /// nobody reads it, so the reader does not parse its error fields.
+        /// Where an error reply goes: the waiting slot, the handler, or the discarded request's `onError`;
+        /// nil when nobody reads it, so the reader does not parse its error fields.
         var failure: ((DaemonError) -> Void)? {
             switch self {
             case .reply(_, let slot): { slot.resolve(.failure($0)) }
+            case .handled(_, let handler): { handler(.failure($0)) }
             case .discard(_, let onError): onError
             case .expired: nil
             }
         }
     }
+
+    /// Runs on the reader thread with a request's reply, or on the closing thread with the connection's end;
+    /// once, and never under the transport's locks.
+    typealias ReplyHandler = @Sendable (Result<Response, DaemonError>) -> Void
 
     /// An `ok:true` response line plus the number of events routed before it
     /// on this transport. Every event with index <= `eventBarrier` was
@@ -163,6 +170,15 @@ extension LineTransport {
             }
         }
         return results
+    }
+
+    /// Sends one command without waiting; `onReply` gets its reply (`ok` or an error) on the reader thread, or
+    /// the connection's end. A request refused before it was registered (a closed connection) returns its error
+    /// here and never reaches `onReply`. No deadline: the reply or the connection's end resolves it. Writes reach the socket in
+    /// call order.
+    @discardableResult
+    func send(cmd: DaemonCommandName, onReply: @escaping ReplyHandler, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
+        submit(.handled(cmd: cmd.wire, onReply), body)
     }
 }
 

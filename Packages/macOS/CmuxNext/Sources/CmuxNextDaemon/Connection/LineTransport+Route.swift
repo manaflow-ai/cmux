@@ -78,8 +78,10 @@ extension LineTransport {
         if let sent = entry.sent { recorder?.replied(sent) }
         recorder?.lineRead(waiter.replyKind(ok: envelope.ok == true))
         if envelope.ok == true {
-            if case .reply(_, let slot) = waiter {
-                slot.resolve(.success(Response(line: line, eventBarrier: barrier, recorder: recorder)))
+            switch waiter {
+            case .reply(_, let slot): slot.resolve(.success(Response(line: line, eventBarrier: barrier, recorder: recorder)))
+            case .handled(_, let handler): handler(.success(Response(line: line, eventBarrier: barrier, recorder: recorder)))
+            case .discard, .expired: break
             }
             return
         }

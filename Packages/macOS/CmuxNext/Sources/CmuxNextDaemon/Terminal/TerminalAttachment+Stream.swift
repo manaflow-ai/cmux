@@ -19,6 +19,8 @@ extension TerminalAttachment {
     /// Attaches a view of `target` on `connection`: as a stream on its control transport when the connection
     /// streams terminals and its daemon granted that (``DaemonConnectionConfiguration/terminalStreams``), else on
     /// a connection of its own to the same daemon (``attach(endpoint:target:size:claimGeometry:snapshotVersion:localHistory:images:clientName:device:hangs:createIntent:inputQueue:)``).
+    /// A streaming connection that is not ready (before its first connect, while it reconnects) is waited for
+    /// (``TerminalStreamCarrier/route(for:within:)``), never left for a connection of its own.
     /// `clientName`, `device`, `hangs` and `inputQueue` are that own connection's; a stream uses the
     /// control connection's. The returned channel behaves the same either way.
     public static func attach(
@@ -35,12 +37,15 @@ extension TerminalAttachment {
         createIntent: UInt64 = 0,
         inputQueue: DispatchQueue? = nil
     ) async throws -> TerminalAttachment {
-        if let carrier = await TerminalStreamCarrier.of(connection) {
+        let endpoint: DaemonEndpoint
+        switch try await TerminalStreamCarrier.route(for: connection) {
+        case .stream(let carrier):
             return try await attachStream(on: carrier, target: target, size: size, claimGeometry: claimGeometry,
                                           snapshotVersion: snapshotVersion, localHistory: localHistory, images: images,
                                           createIntent: createIntent)
+        case .ownConnection(let own):
+            endpoint = own
         }
-        guard let endpoint = await connection.endpoint else { throw DaemonError.notConnected }
         return try await attach(endpoint: endpoint, target: target, size: size, claimGeometry: claimGeometry,
                                 snapshotVersion: snapshotVersion, localHistory: localHistory, images: images,
                                 clientName: clientName, device: device, hangs: hangs, createIntent: createIntent,
@@ -50,7 +55,8 @@ extension TerminalAttachment {
     /// Mints the stream, binds its sink, then attaches: one request and no handshake.
     static func attachStream(
         on carrier: TerminalStreamCarrier, target: Target, size: CellSize, claimGeometry: Bool,
-        snapshotVersion: UInt16?, localHistory: Bool, images: Bool, createIntent: UInt64
+        snapshotVersion: UInt16?, localHistory: Bool, images: Bool, createIntent: UInt64,
+        timeout: Duration = TerminalAttachment.attachTimeout
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         NewTerminalTrace.shared.attachEvent(.attachStart, surface: target.surface.rawValue, intent: createIntent)
@@ -70,7 +76,7 @@ extension TerminalAttachment {
         streamed.stream = handle.id
         let response: AttachSurfaceRequest.Response
         do {
-            response = try await DaemonConnection.perform(streamed, on: transport, timeout: attachTimeout)
+            response = try await DaemonConnection.perform(streamed, on: transport, timeout: timeout)
         } catch {
             owner.abandon(after: error)
             throw error
@@ -122,17 +128,19 @@ extension TerminalAttachment {
         let handle: AttachStreamHandle
         let logger: Logger
 
-        /// Stops delivery and sends `cancel-stream` while the stream is still open on this side.
+        /// Stops delivery and sends `cancel-stream` while the stream is still open on this side. Its reply,
+        /// whatever it says, frees the id: the daemon queues the stream's `stream-end` ahead of an `applied`
+        /// reply on its control FIFO (bounded_outbound.rs), and `ended` or an error means none comes (a stream
+        /// it never opened, as an attach it refused after this side's deadline). The epoch keeps the release
+        /// off a newer stream of the id.
         func cancel() {
             guard transport.cancelAttachStream(handle) else { return }
-            let logger = logger
-            do {
-                try transport.sendNoReply(cmd: CancelStreamRequest.command, onError: { error in
-                    logger.error("cancel-stream failed: \(error.description, privacy: .public)")
-                }) { [handle] id in try WireCoding.encodeRequest(CancelStreamRequest(stream: handle.id), id: id) }
-            } catch {
-                logger.debug("cancel-stream dropped after close")
-            }
+            let (transport, handle, logger) = (transport, handle, logger)
+            let sent = transport.send(cmd: CancelStreamRequest.commandName, onReply: { reply in
+                if case .failure(let error) = reply { logger.debug("cancel-stream: \(error.description, privacy: .public)") }
+                transport.releaseAttachStream(handle)
+            }, { id in try WireCoding.encodeRequest(CancelStreamRequest(stream: handle.id), id: id) })
+            if case .failure = sent { logger.debug("cancel-stream dropped after close") }
         }
 
         /// The attach failed. Its error reply comes after any `stream-end` of the stream (both ride the
@@ -188,13 +196,15 @@ extension TerminalAttachment {
         }
 
         /// Reader thread: one item of the view's stream. A stream never blocks the shared reader: a consumer
-        /// over the queue's high water loses the stream (`overflow`), and the view reattaches as it does when
-        /// the daemon drops a slow connection.
+        /// over the queue's high water of live output loses the stream (`overflow`), and the view reattaches as
+        /// it does when the daemon drops a slow connection. A snapshot's history and images do not count: the
+        /// daemon sends them right after each READY, before the view can read, and the terminal's scrollback and
+        /// `SNAPSHOT_IMAGES_MAX_BYTES` (terminal_snapshot.rs) bound them.
         func deliver(_ item: AttachStreamDelivery, owner: StreamOwner) {
             switch item {
             case .event(let name, let line):
                 deliver(name: name, line: line)
-                if queue.bufferedOutputBytes > queue.highWater {
+                if queue.bufferedLiveOutputBytes > queue.highWater {
                     owner.cancel()
                     queue.finish(.closed(.overflow))
                 }

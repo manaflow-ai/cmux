@@ -72,8 +72,9 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// Only a `main` connection streams terminals.
     public var terminalStreams = false
     /// The device this connection's terminal streams are sized for (`shared-sizing-v1`): the views of one
-    /// connection are one sizing participant. Read only with ``terminalStreams``.
-    public var sizingDevice: TerminalSizingDevice?
+    /// connection are one sizing participant. Read at each handshake (the Mac's name is read off the main
+    /// thread), only with ``terminalStreams``.
+    public var sizingDevice: TerminalStreamsDevice?
 
     public init(
         clientName: String = "cmux-next",
@@ -91,7 +92,8 @@ public struct DaemonConnectionConfiguration: Sendable {
         sessionEvents: Bool = false,
         role: DaemonClientRole = .main,
         relayIdentity: PageRelayIdentity? = nil,
-        clientHello: ClientHelloIdentity? = nil
+        clientHello: ClientHelloIdentity? = nil,
+        terminalStreams: TerminalStreamsDevice? = nil
     ) {
         self.clientName = clientName
         self.requiredCapabilities = requiredCapabilities
@@ -109,6 +111,9 @@ public struct DaemonConnectionConfiguration: Sendable {
         self.role = role
         self.relayIdentity = relayIdentity
         self.clientHello = clientHello
+        // A device turns terminal streams on (``terminalStreams`` alone streams with no sizing device).
+        self.terminalStreams = terminalStreams != nil
+        sizingDevice = terminalStreams
     }
 }
 
@@ -138,5 +143,9 @@ extension DaemonConnectionConfiguration {
     var streamsTerminals: Bool { terminalStreams && role == .main }
 
     /// The device a streaming connection declares in `set-client-info`; nil without terminal streams.
-    var streamSizingDevice: TerminalSizingDevice? { streamsTerminals ? sizingDevice : nil }
+    var streamSizingDevice: TerminalStreamsDevice? { streamsTerminals ? sizingDevice : nil }
 }
+
+/// The device a connection's terminal streams are sized for (``DaemonConnectionConfiguration/sizingDevice``),
+/// read when the connection identifies itself.
+public typealias TerminalStreamsDevice = @Sendable () async -> TerminalSizingDevice

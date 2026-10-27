@@ -19,11 +19,11 @@ enum HandshakeLines {
     /// directly follows step 1.
     static func send(_ transport: LineTransport, configuration: DaemonConnectionConfiguration,
                      logger: Logger) async -> Replies {
+        let device = await configuration.streamSizingDevice?()
         let setup = [
             PipelinedLine(SetClientInfoRequest(name: configuration.clientName, kind: "frontend",
                                                capabilities: configuration.handshakeCapabilities,
-                                               deviceKind: configuration.streamSizingDevice?.kind,
-                                               deviceName: configuration.streamSizingDevice?.name)),
+                                               deviceKind: device?.kind, deviceName: device?.name)),
             PipelinedLine(SubscribeRequest(treeEvents: configuration.treeEvents)),
         ]
         guard let hello = configuration.clientHello else {
