@@ -106,3 +106,24 @@ async fn an_off_push_waits_for_a_host_whose_records_could_not_be_read_at_adoptio
     assert_eq!(pushed["applied"], true, "{pushed}");
     the_queued_answer_never_arrives(&daemon, &session, harness_pid).await;
 }
+
+/// Review round 4: the daemon after the resend can not list its chats (a link among them), and
+/// its adoption is held back (`ACPMUX_TEST_DELAY_LOAD_LOGS_MS`). An off push pushed at once still
+/// waits for that adoption, which ends the host no chat it knows names, so the push never returns
+/// while that host can still write the answer.
+#[tokio::test]
+async fn an_off_push_waits_for_adoption_when_the_chats_could_not_be_listed() {
+    let (mut daemon, session, _) = an_answer_queued_in_its_host("rfencelist").await;
+    let host_pid = daemon.host_record(&session)["host_pid"].as_i64().unwrap();
+    let sessions = daemon.home.join("sessions");
+    std::os::unix::fs::symlink(&daemon.home, sessions.join("a-link")).unwrap();
+    daemon.env.push(("ACPMUX_TEST_DELAY_LOAD_LOGS_MS".into(), "3000".into()));
+    daemon.start();
+    let pushed = daemon.rpc().await.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(host_pid, Duration::from_millis(500)),
+        "an off push returned while a host the chat list hid could still write its line"
+    );
+    std::fs::remove_file(sessions.join("a-link")).unwrap();
+}

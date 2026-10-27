@@ -40,11 +40,16 @@ fn no_live_lock(dir: &Path, session: Option<&str>) -> bool {
         Ok(entries) => entries,
         Err(e) => return e.kind() == std::io::ErrorKind::NotFound,
     };
-    entries.flatten().all(|e| {
-        let name = e.file_name().to_string_lossy().into_owned();
+    for entry in entries {
+        // An entry that can not be read may be a live lock: fail closed.
+        let Ok(entry) = entry else { return false };
+        let name = entry.file_name().to_string_lossy().into_owned();
         let Some((sid, nonce)) = name.strip_suffix(".live").and_then(|n| n.rsplit_once('.')) else {
-            return true;
+            continue;
         };
-        session.is_some_and(|s| s != sid) || liveness(dir, sid, nonce) == Liveness::Dead
-    })
+        if session.is_none_or(|s| s == sid) && liveness(dir, sid, nonce) != Liveness::Dead {
+            return false;
+        }
+    }
+    true
 }
