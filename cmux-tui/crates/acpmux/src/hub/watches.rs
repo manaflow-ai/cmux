@@ -397,15 +397,15 @@ mod tests {
         config::{Config, StoreMode},
         store,
     };
-    use std::{
-        os::unix::fs::PermissionsExt,
-        sync::atomic::{AtomicUsize, Ordering},
-    };
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::{Duration, sleep};
 
     #[tokio::test]
     async fn reconcile_uses_a_real_eight_worker_pool_and_dirty_requeues_once() {
         let dir = cmux_unix_socket::short_test_dir("watch-pool");
+        #[cfg(unix)]
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let mut config = Config::default();
         config.store.mode = StoreMode::Local;

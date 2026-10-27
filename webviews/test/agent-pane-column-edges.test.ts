@@ -207,12 +207,10 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
   test("the strip or queue and the card meet square in one rim, and the queue keeps room above", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const JOINS = [
-      // A new chat, before its first send, shows the strip (#20869).
-      { entry: "agent-pane.composer", variant: "new-chat", edge: ".acpmux-composer-box" },
       { entry: "agent-pane.composer", variant: "queued-paused", edge: ".acpmux-composer-box" },
       { entry: "agent-pane.composer", variant: "queued-steering", edge: ".acpmux-composer-box" },
-      // The New Tab's strip is text a few px over its card, the card's rim whole (#21133;
-      // composer-top-strip-variants.test.ts pins it), so it has no join here.
+      // A new chat's strip, the chat's as the New Tab's, is text a few px over its card, the card's
+      // rim whole (#21133; composer-top-strip-variants.test.ts pins it), so it has no join here.
     ];
     const offenders: string[] = [];
     for (const width of WIDTHS) {

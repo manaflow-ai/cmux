@@ -5,7 +5,7 @@
 .cmux-avatar[data-moving=true]{animation:cmux-avatar-row var(--avatar-duration) steps(var(--avatar-steps),jump-none) var(--avatar-iterations) forwards}
 @keyframes cmux-avatar-row{from{background-position-x:0}to{background-position-x:var(--avatar-end)}}
 @media (prefers-reduced-motion:reduce){.cmux-avatar[data-moving=true]{animation:none}}
-.cmux-avatar-sheet{display:flex;flex-wrap:wrap;gap:16px;padding:16px;color:var(--agent-text);font:var(--text-detail)/var(--text-detail--line-height) system-ui,-apple-system,sans-serif}
+.cmux-avatar-sheet{display:flex;flex-wrap:wrap;gap:16px;padding:16px;color:var(--agent-text);font:var(--text-detail)/var(--text-detail--line-height) var(--font-ui);letter-spacing:var(--text-detail--letter-spacing)}
 .cmux-avatar-sheet h3{margin:0 0 6px;font-weight:600}
 .cmux-avatar-sheet table{border-collapse:collapse}
 .cmux-avatar-sheet th{padding-right:8px;font-weight:400;text-align:left;color:var(--agent-text-secondary,var(--agent-text))}

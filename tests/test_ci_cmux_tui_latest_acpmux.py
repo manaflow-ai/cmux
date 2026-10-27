@@ -15,6 +15,8 @@ import re
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-tui-artifacts.yml"
 VERIFY_SCRIPT = ROOT / "cmux-tui/scripts/verify_published_manifest.py"
@@ -63,6 +65,29 @@ class LatestAcpmux(unittest.TestCase):
             verify._validate_manifest(latest, source="latest", expected_commit=commit, required_artifacts=ACPMUX)
         latest["binaries"].update({name: "a" * 64 for name in ACPMUX})
         verify._validate_manifest(latest, source="latest", expected_commit=commit, required_artifacts=ACPMUX)
+
+    def test_the_pre_latest_check_runs_only_where_latest_is_published(self) -> None:
+        # Off main the post-publish check covers the same immutable manifests,
+        # so the pre-latest one only added 75 s to every feat-cmux-next publish.
+        steps = {s.get("name"): s for s in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]["steps"]}
+        before = steps["Verify immutable Unix manifests before latest publish"]
+        self.assertEqual(before.get("if"), steps["Publish rolling latest artifacts"].get("if"))
+        after = steps["Verify published Unix manifests"]
+        self.assertNotIn("if", after)
+
+        def calls(run: str) -> dict[str, set[str]]:
+            found: dict[str, set[str]] = {}
+            for call in run.replace("\\\n", " ").split("verify_published_manifest.py")[1:]:
+                url = re.search(r'--manifest-url "([^"?]+)', call).group(1)
+                found[url] = set(re.findall(r"--(?:require|forbid)-artifact \S+|--require-provenance|--machine-manifest", call))
+            return found
+
+        before_calls, after_calls = calls(before["run"]), calls(after["run"])
+        self.assertTrue(before_calls)
+        for url, checks in before_calls.items():
+            with self.subTest(manifest=url):
+                self.assertIn(url, after_calls)
+                self.assertLessEqual(checks, after_calls[url])
 
 if __name__ == "__main__":
     unittest.main()

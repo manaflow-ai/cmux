@@ -223,7 +223,18 @@ jobs:
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
           state=failure
           if [[ "$GATES" == success ]]; then state=success; fi
-          # gh api prints GitHub's message on an error (curl -f hid the reason for a 403).
-          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
-            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="base $BASE" > /dev/null
+          # A rate-limit refusal is status-posting infrastructure, not a gate verdict. Keep the
+          # run green with a named warning; a missing status is never treated as a pass by the
+          # merger, which dispatches a fresh gate when it needs one. Other API failures stay red.
+          response=""
+          if ! response="$(gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="base $BASE" 2>&1)"; then
+            if grep -qiE 'rate limit exceeded|secondary rate limit|too many requests|HTTP 429' <<<"$response"; then
+              echo "::warning title=GitHub API budget::cmux-next/fast-gates status could not be posted because the installation API budget is exhausted; the run remains advisory."
+              echo "- cmux-next/fast-gates status could not be posted because the GitHub installation API budget is exhausted; a missing status is not a pass." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            printf '%s\n' "$response" >&2
+            exit 1
+          fi
           echo "$CONTEXT: $state on $HEAD_SHA (base $BASE)"

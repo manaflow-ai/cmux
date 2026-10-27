@@ -105,7 +105,7 @@ pub fn visible(message: &Message) -> bool {
 }
 
 /// The name `id` shows in Home, with its kind for anyone but the Chief.
-fn who(summary: Option<&Summary>, id: &str, me: &str) -> String {
+pub(super) fn who(summary: Option<&Summary>, id: &str, me: &str) -> String {
     if id == me {
         return "Chief".to_owned();
     }

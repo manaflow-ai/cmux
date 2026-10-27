@@ -1,10 +1,18 @@
 import { DurableObject } from "cloudflare:workers";
 import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
-import { ORIGIN_HEADER, USER_HEADER, planFor, type Env } from "./env";
+import { relayEntitlement } from "./billing";
+import { ORIGIN_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound } from "./errors";
 import { type Scope, mintTicket } from "./tickets";
 import { type IceServer, mintTurn } from "./turn";
+
+/** Who is calling: the hub user, the public origin, and the Stack token for the billing lookup (never stored). */
+interface CallContext {
+  userId: string;
+  origin: string;
+  stackToken: string | null;
+}
 
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
@@ -274,6 +282,7 @@ export class UserDO extends DurableObject<Env> {
       if (!userId) throw new ApiError(401, "unauthorized", "missing user");
       this.setOwner(userId);
       const origin = request.headers.get(ORIGIN_HEADER) ?? url.origin;
+      const stackToken = request.headers.get(STACK_TOKEN_HEADER);
       const body = new Uint8Array(await request.arrayBuffer());
       const now = Date.now();
       const h = readDeviceHeaders(request.headers, now);
@@ -287,7 +296,7 @@ export class UserDO extends DurableObject<Env> {
       this.burnSignature(h.id, h.ts, h.sig, now);
       this.sql.exec("UPDATE devices SET last_seen_at = ? WHERE id = ?", now, h.id);
       const me = { ...existing, last_seen_at: now };
-      return await this.dispatch(request, url, body, me, { userId, origin });
+      return await this.dispatch(request, url, body, me, { userId, origin, stackToken });
     } catch (err) {
       return errorResponse(err);
     }
@@ -353,14 +362,15 @@ export class UserDO extends DurableObject<Env> {
     return json({ device: publicDevice(this.device(h.id)!, this.online(h.id)) });
   }
 
-  private async dispatch(request: Request, url: URL, raw: Uint8Array, me: DeviceRow, c: { userId: string; origin: string }): Promise<Response> {
+  private async dispatch(request: Request, url: URL, raw: Uint8Array, me: DeviceRow, c: CallContext): Promise<Response> {
     const m = request.method;
     const parts = url.pathname.split("/").filter(Boolean).slice(1); // drop "v1"
     const [a, b, d] = parts;
     const n = parts.length;
 
     if (a === "me" && n === 1 && m === "GET") {
-      return json({ userId: c.userId, plan: planFor(this.env, c.userId), device: publicDevice(me, this.online(me.id)) });
+      const plan = (await relayEntitlement(this.env, c.userId, c.stackToken)) === "paid" ? "paid" : "free";
+      return json({ userId: c.userId, plan, device: publicDevice(me, this.online(me.id)) });
     }
     if (a === "user" && b === "ws" && n === 2 && m === "GET") return this.openSocket(request, me);
     if (a === "devices") {
@@ -597,7 +607,7 @@ export class UserDO extends DurableObject<Env> {
 
   // ---- sessions ----
 
-  private async requestSession(me: DeviceRow, body: Record<string, unknown>, c: { userId: string; origin: string }): Promise<Response> {
+  private async requestSession(me: DeviceRow, body: Record<string, unknown>, c: CallContext): Promise<Response> {
     const hostId = str(body.hostId, "hostId", 64);
     const scope = body.scope as Scope;
     if (scope !== "view" && scope !== "full") throw badRequest("scope must be view or full");
@@ -636,7 +646,7 @@ export class UserDO extends DurableObject<Env> {
   }
 
   /** Approves, or ends the session (approve_failed) when the Session DO or tickets cannot be set up. */
-  private async approveOrEnd(s: SessionRow, c: { userId: string; origin: string }) {
+  private async approveOrEnd(s: SessionRow, c: CallContext) {
     try {
       await this.approve(s, c);
     } catch (err) {
@@ -658,9 +668,11 @@ export class UserDO extends DurableObject<Env> {
    * other requests while this awaits, so a session ended meanwhile (sharing
    * off, removal, access lowered) is checked after every await and gets no ticket.
    */
-  private async approve(s: SessionRow, c: { userId: string; origin: string }) {
+  private async approve(s: SessionRow, c: CallContext) {
     this.sql.exec("UPDATE sessions SET state = 'approved', scope = ? WHERE id = ? AND state != 'ended'", s.scope, s.id);
     if (!this.stillOpen(s.id)) return;
+    // Ask billing now (in parallel with the Session DO init); fail closed.
+    const entitled = relayEntitlement(this.env, c.userId, c.stackToken).catch(() => "error" as const);
     const viewer = this.device(s.viewer_id)!;
     const host = this.device(s.host_id)!;
     const stub = this.env.SESSION_DO.get(this.env.SESSION_DO.idFromName(s.id));
@@ -678,7 +690,8 @@ export class UserDO extends DurableObject<Env> {
     // first makes init refuse), so there is nothing to start.
     if (!this.stillOpen(s.id)) return;
     if (!init.ok) throw new Error(`session init ${init.status}`);
-    const ice: IceServer[] = planFor(this.env, c.userId) === "paid" ? await mintTurn(this.env) : [];
+    const ice: IceServer[] = (await entitled) === "paid" ? await mintTurn(this.env) : [];
+    if (!this.stillOpen(s.id)) return;
     const signalURL = `${c.origin.replace(/^http/, "ws")}/v1/sessions/${s.id}/ws`;
     for (const [self, peer, role] of [
       [viewer, host, "viewer"],
@@ -699,7 +712,7 @@ export class UserDO extends DurableObject<Env> {
     }
   }
 
-  private async decide(me: DeviceRow, id: string, body: Record<string, unknown>, c: { userId: string; origin: string }): Promise<Response> {
+  private async decide(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext): Promise<Response> {
     const s = this.session(id);
     if (!s || (s.viewer_id !== me.id && s.host_id !== me.id)) throw notFound("session not found");
     if (s.host_id !== me.id) throw new ApiError(403, "not_host", "only the host decides");
@@ -758,11 +771,11 @@ export class UserDO extends DurableObject<Env> {
     }
   }
 
-  private async ice(me: DeviceRow, id: string, c: { userId: string }): Promise<Response> {
+  private async ice(me: DeviceRow, id: string, c: CallContext): Promise<Response> {
     const s = this.session(id);
     if (!s || (s.viewer_id !== me.id && s.host_id !== me.id)) throw notFound("session not found");
     if (s.state !== "approved" && s.state !== "live") throw new ApiError(409, "session_not_active", "session is not active");
-    const ice = planFor(this.env, c.userId) === "paid" ? await mintTurn(this.env) : [];
+    const ice = (await relayEntitlement(this.env, c.userId, c.stackToken)) === "paid" ? await mintTurn(this.env) : [];
     return json({ ice });
   }
 

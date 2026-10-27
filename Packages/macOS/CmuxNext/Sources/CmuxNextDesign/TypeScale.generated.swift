@@ -8,24 +8,50 @@ public import AppKit
 public nonisolated struct TypeScale: Sendable {
     public init() {}
 
+    /// The UI font as CSS names it (`--font-ui`), pinned by schemas/type-scale/leo-bans.json.
+    public static let family = "Inter"
+    /// The bundled TTF's own family, the name AppKit finds it by once registered (`BundledFonts`).
+    public static let fileFamily = "Inter Variable"
+    /// The bundled files (CmuxNextDesign/Resources/Fonts): the TTF registered natively, the WOFF2 pages load.
+    public static let nativeFontFile = "InterVariable.ttf"
+    public static let webFontFile = "InterVariable.woff2"
+    /// `--font-ui`: the bundled face, then the system's.
+    public static let fontStack = "\"Inter\", -apple-system, BlinkMacSystemFont, \"SF Pro Text\", system-ui, sans-serif"
+
+    /// Tracking in em at a size: trackingA + trackingB * e^(trackingC * size) (Inter's dynamic metrics).
+    public static let trackingA: CGFloat = -0.0223
+    public static let trackingB: CGFloat = 0.185
+    public static let trackingC: CGFloat = -0.1745
+
+    /// The UI font's tracking at `size` points, in em (each step's `<step>Tracking` is this at its size).
+    public static func tracking(em size: CGFloat) -> CGFloat {
+        trackingA + trackingB * exp(trackingC * size)
+    }
+
     /// Shortcuts, badges, counters, tooltips, group labels.
     @MainActor public static var caption: CGFloat { Base.caption * Typography.userScale }
     @MainActor public static var captionLineHeight: CGFloat { Base.captionLineHeight * Typography.userScale }
+    public static let captionTracking: CGFloat = 0.0048
     /// Secondary lines, metadata, section headers, footer rows.
     @MainActor public static var detail: CGFloat { Base.detail * Typography.userScale }
     @MainActor public static var detailLineHeight: CGFloat { Base.detailLineHeight * Typography.userScale }
+    public static let detailTracking: CGFloat = 0.0005
     /// Chrome text: labels, rows, menus, controls, settings.
     @MainActor public static var body: CGFloat { Base.body * Typography.userScale }
     @MainActor public static var bodyLineHeight: CGFloat { Base.bodyLineHeight * Typography.userScale }
+    public static let bodyTracking: CGFloat = -0.0032
     /// The browser address bar's text.
     @MainActor public static var field: CGFloat { Base.field * Typography.userScale }
     @MainActor public static var fieldLineHeight: CGFloat { Base.fieldLineHeight * Typography.userScale }
+    public static let fieldTracking: CGFloat = -0.0062
     /// Card and panel titles, search fields.
     @MainActor public static var title: CGFloat { Base.title * Typography.userScale }
     @MainActor public static var titleLineHeight: CGFloat { Base.titleLineHeight * Typography.userScale }
+    public static let titleTracking: CGFloat = -0.0088
     /// Page headings.
     @MainActor public static var heading: CGFloat { Base.heading * Typography.userScale }
     @MainActor public static var headingLineHeight: CGFloat { Base.headingLineHeight * Typography.userScale }
+    public static let headingTracking: CGFloat = -0.0167
 
     /// Reference sizes for off-main probes and surfaces that apply their own text scale.
     public nonisolated struct Base: Sendable {
