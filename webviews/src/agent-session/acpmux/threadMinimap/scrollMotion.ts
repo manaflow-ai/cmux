@@ -40,7 +40,8 @@ export function animateScroll(
     then?.();
     return;
   }
-  const from = node.scrollTop;
+  let from = node.scrollTop;
+  let last = from;
   const start = performance.now();
   let frame = 0;
   const end = () => {
@@ -50,7 +51,14 @@ export function animateScroll(
   };
   const step = (now: number) => {
     const progress = Math.min(1, Math.max(0, (now - start) / duration));
-    node.scrollTop = from + (target() - from) * bezierAt(curve, progress);
+    // Transcript placement can adjust the viewport while this motion is running. Rebase the
+    // origin by that external delta before writing the next frame, so the jump follows the shared
+    // row-id anchor instead of restoring its stale numeric starting offset.
+    const externalDelta = node.scrollTop - last;
+    if (Math.abs(externalDelta) > 0.5) from += externalDelta;
+    const next = from + (target() - from) * bezierAt(curve, progress);
+    node.scrollTop = next;
+    last = next;
     if (progress < 1) frame = requestAnimationFrame(step);
     else {
       end();

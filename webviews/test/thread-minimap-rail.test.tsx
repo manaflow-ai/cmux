@@ -506,3 +506,19 @@ test("the wheel and the scrolling keys over the card reach the transcript's own 
     await view.unmount();
   }
 });
+
+test("a layout correction rebases an in-flight rail jump", async () => {
+  const { animateScroll, stopScroll } = await import("../src/agent-session/acpmux/threadMinimap/scrollMotion");
+  const view = await mount(8);
+  try {
+    view.scroller.scrollTop = 1000;
+    animateScroll(view.scroller, () => 5000, 60_000, [0, 0, 1, 1]);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    view.scroller.scrollTop += 10_000;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    expect(view.scroller.scrollTop).toBeGreaterThan(9000);
+  } finally {
+    stopScroll(view.scroller);
+    await view.unmount();
+  }
+});
