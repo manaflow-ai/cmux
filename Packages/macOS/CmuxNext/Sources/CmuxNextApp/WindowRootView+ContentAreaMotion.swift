@@ -13,7 +13,9 @@ extension WindowRootView {
     /// Whether the chrome is resizing the content area now. `ShellWindow`
     /// answers `ContentAreaMotionHosting` from this, and `NSView.isInPaneMotion`
     /// reads it through the window, so it holds for every view in the window.
-    var isContentAreaInMotion: Bool { sidebar.isWidthAnimating }
+    /// A render-server slide sized the content once in its turn and only moves
+    /// it, so the content is at rest through it (`followSidebarSlide`).
+    var isContentAreaInMotion: Bool { sidebar.isWidthAnimating && sidebar.widthMotionBackend == .cpuStep }
 
     /// The window's ``slideHoldsContent``: feature `sidebarSlideHoldsContent` of `features`.
     static func slideHoldsContent(in features: FeatureList) -> @MainActor () -> Bool {
@@ -25,6 +27,10 @@ extension WindowRootView {
     /// content host: the motion is window-scoped, so a terminal anywhere in it
     /// held its grid and would otherwise hold it for good.
     func wireContentAreaMotion() {
+        sidebar.slideFollowers = { [weak self] () -> () -> [RenderSpring.Move] in
+            guard let self else { return { [] } }
+            return followSidebarSlide()
+        }
         sidebar.onWidthMotionStart = { [weak self] from, to in self?.holdContentThroughSlide(from: from, to: to) }
         sidebar.onWidthMotionChange = { [weak self] animating in
             guard !animating, let self else { return }
@@ -48,13 +54,34 @@ extension WindowRootView {
     /// The rail style opens over the content (`WindowRootView+SidebarRail`), which never resizes:
     /// nothing to hold. The card clips the held content while it holds it, square or rounded.
     /// Feature `sidebarSlideHoldsContent` (on by default; ``slideHoldsContent``) decides, at each slide's start.
+    /// A render-server slide holds nothing: the content takes its final size in the slide's one layout.
     private func holdContentThroughSlide(from: CGFloat, to: CGFloat) {
-        guard slideHoldsContent(), sidebar.model.style != .rail else {
+        guard slideHoldsContent(), sidebar.model.style != .rail, sidebar.widthMotionBackend == .cpuStep else {
             contentHost.contentHold = nil
             return
         }
         let widest = contentHost.bounds.width + max(0, from - to)
         contentHost.contentHold = MainPaneCardView.ContentHold(width: max(widest, contentHost.contentHold?.width ?? 0),
                                                                ridesTrailingEdge: sidebarSide == .right)
+    }
+
+    /// A render-server slide (`SidebarContainerView.slideFollowers`, chrome-parity p03-rendering-100): notes
+    /// where the card and the title show before the slide's one layout; the closure, called after it,
+    /// springs each one the layout moved from there to rest on the sidebar's spring, and the shade's
+    /// cut-out with the card (its path reaches past the window's sides, so the moved shade leaves no
+    /// strip unshaded). The rail style's content sits beside the rail: the open moves nothing.
+    func followSidebarSlide() -> () -> [RenderSpring.Move] {
+        let cardX = contentHost.frame.minX, titleX = titlebar.frame.minX
+        return { [weak self] in
+            guard let self else { return [] }
+            let cardShift = cardX - contentHost.frame.minX, titleShift = titleX - titlebar.frame.minX
+            let riders: [(CALayer?, CGFloat)] = [(contentHost.layer, cardShift), (mainPaneShade.shadeLayer, cardShift),
+                                                 (titlebar.isHidden ? nil : titlebar.layer, titleShift)]
+            return riders.compactMap { rider -> RenderSpring.Move? in
+                let (layer, shift) = rider
+                guard let layer, shift != 0 else { return nil }
+                return RenderSpring.Move(layer, RenderSpringKey<CGFloat>.positionX, from: layer.position.x + shift, to: layer.position.x)
+            }
+        }
     }
 }

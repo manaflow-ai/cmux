@@ -11,6 +11,10 @@ public import AppKit
 /// the window's own surface (Ghostty background, art and opacity).
 public final class MainPaneChromeShadeView: NSView {
     private let shade = CAShapeLayer()
+    /// The shade's layer, for a motion that moves the card without a layout per frame (the sidebar's
+    /// render-server slide springs it with the card). Its path covers a window width past each side, so
+    /// moved sideways it still shades the whole view.
+    public var shadeLayer: CALayer { shade }
     private var card: CGRect = .zero
     private var radius: CGFloat = 0
     private var alpha: CGFloat = 0
@@ -61,6 +65,8 @@ public final class MainPaneChromeShadeView: NSView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         shade.frame = bounds
+        // A window width past each side (`shadeLayer`); the window clips it.
+        let covered = bounds.insetBy(dx: -bounds.width, dy: 0)
         guard alpha > 0, !card.isEmpty else {
             shade.path = nil
             return
@@ -78,10 +84,10 @@ public final class MainPaneChromeShadeView: NSView {
             // (`MainPaneCardView.contentHold`) cuts no shade past the card's edge.
             let corner = min(radius, card.width / 2, card.height / 2)
             let visible = cut.intersection(CGPath(roundedRect: card, cornerWidth: corner, cornerHeight: corner, transform: nil))
-            shade.path = CGPath(rect: bounds, transform: nil).subtracting(visible)
+            shade.path = CGPath(rect: covered, transform: nil).subtracting(visible)
         } else {
             let path = CGMutablePath()
-            path.addRect(bounds)
+            path.addRect(covered)
             let corner = min(radius, card.width / 2, card.height / 2)
             path.addRoundedRect(in: card, cornerWidth: corner, cornerHeight: corner)
             shade.path = path

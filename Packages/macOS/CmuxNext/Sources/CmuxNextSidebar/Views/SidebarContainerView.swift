@@ -17,6 +17,8 @@ public import CmuxNextWakeups
 /// slides out past the window edge (a clip view hides the overflow), so
 /// rows never reflow mid-animation. Once hidden, the content is
 /// `isHidden`: it cannot hold focus, take drops or appear to VoiceOver.
+/// With `motion.renderServer` on, the width is set once and the slide runs
+/// on the render server (`SidebarContainerView+RenderSlide`).
 public final class SidebarContainerView: NSView {
     public let sidebarView: SidebarView
     public let model: SidebarModel
@@ -24,11 +26,12 @@ public final class SidebarContainerView: NSView {
     /// Built in init (lazy because it anchors self; no IUO).
     public private(set) lazy var widthConstraint: NSLayoutConstraint = widthAnchor.constraint(equalToConstant: model.displayWidth)
 
-    /// Clips the sliding panel to the container's (animating) width.
-    private let clip = NSView()
+    /// Clips the sliding panel to the container's (animating) width. Internal, not private: a
+    /// render-server slide springs it from its own file (`SidebarContainerView+RenderSlide`).
+    let clip = NSView()
     /// Holds the sidebar at `model.width`, pinned to the clip's edge that
-    /// faces the content (`side`).
-    private let panel = NSView()
+    /// faces the content (`side`). Internal for the same reason as `clip`.
+    let panel = NSView()
     /// Internal, not private: the resize drag sets it from its own file
     /// (`SidebarContainerView+Resize`).
     lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width)
@@ -77,7 +80,24 @@ public final class SidebarContainerView: NSView {
     /// Called each time a width animation starts or turns around mid-flight, with the
     /// sidebar's on-screen width and the width it animates to, before the first frame. The
     /// window sizes its content once for the whole slide from these (`MainPaneCardView.contentHold`).
+    /// A render-server slide calls it before its one layout, with ``widthMotionBackend`` already set.
     public var onWidthMotionStart: ((_ from: CGFloat, _ to: CGFloat) -> Void)?
+    /// Where the width motion runs, set at each slide's start. A main-thread slide moves the content
+    /// edge every frame; a render-server slide sizes everything once in its turn, so the content beside
+    /// it is at its final size through the slide (`WindowRootView.isContentAreaInMotion`).
+    public internal(set) var widthMotionBackend: MotionBackend = .cpuStep
+    /// Whether the slide runs on the render server (`motion.renderServer`, off by default; the window
+    /// passes the app's switch), read in each slide's turn.
+    public var rendersMotionOnServer: () -> Bool = { false }
+    /// The window's part of a render-server slide: called in its turn before its one layout, to note
+    /// where the views beside the sidebar show; the closure it returns, called after the layout, returns
+    /// the springs that carry them from there to rest (`SidebarContainerView+RenderSlide`).
+    public var slideFollowers: (() -> () -> [RenderSpring.Move])?
+    /// The slide's backends (`SidebarSlideRenderMotion`), selected by ``rendersMotionOnServer``.
+    lazy var motionBackends = MotionBackends<SidebarContainerView>(
+        SidebarContainerView.renderServerMotions, renderServer: { [weak self] in self?.rendersMotionOnServer() ?? false })
+    /// The slide the running `apply()` starts, for its render-server variant; nil outside `apply()`.
+    var pendingSlide: SidebarSlide?
     /// Paces hover refreshes while the width animates. Hover follows views
     /// sliding under a still pointer (cx-3wu5), which needs no 120 Hz: a
     /// refresh walks every hover target of the window, so one deadline is
@@ -350,6 +370,7 @@ public final class SidebarContainerView: NSView {
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
         isWidthAnimating = false
+        stopRenderSlide()
         widthConstraint.constant = targetWidth
         panelWidth.constant = model.width
         panel.isHidden = isPanelCollapsed
@@ -379,13 +400,17 @@ public final class SidebarContainerView: NSView {
         targetWidth = target
         targetCollapseMotion = collapseMotion
         if !hidden { panel.isHidden = false }
+        animationGeneration += 1
+        let generation = animationGeneration
+        pendingSlide = SidebarSlide(to: target, hidden: hidden, fadesPanel: collapseMotion.fadesPanel, generation: generation)
+        defer { pendingSlide = nil }
+        if motionBackends.begin(on: self, policy: Motion.sidebar.policy).contains(.sidebarSlide) { return }
+        widthMotionBackend = .cpuStep
         // The slide-and-fade prototype starts an expansion transparent and
         // lets the same timed transition reveal it. Slide keeps the current
         // opaque panel behavior, including when a user switches variants
         // while the sidebar is already visible.
         if !hidden { panel.alphaValue = collapseMotion.fadesPanel ? 0 : 1 }
-        animationGeneration += 1
-        let generation = animationGeneration
         // With no animation at all (Reduce Motion, the gate off) the width lands
         // in this turn and the completion clears this again at once.
         isWidthAnimating = true
@@ -423,6 +448,16 @@ public final class SidebarContainerView: NSView {
                 self.finishCollapseIfReady(generation: generation, hidden: hidden, fadesPanel: true)
             })
         }
+    }
+
+    /// A render-server slide landed: its width and its fade end together, in one group of springs.
+    func finishRenderSlide(generation: Int, hidden: Bool, fadesPanel: Bool) {
+        guard generation == animationGeneration else { return }
+        widthCompletedGeneration = generation
+        fadeCompletedGeneration = generation
+        isWidthAnimating = false
+        refreshHover()
+        finishCollapseIfReady(generation: generation, hidden: hidden, fadesPanel: fadesPanel)
     }
 
     /// Hides a collapsed panel only after each active leg reaches its target.

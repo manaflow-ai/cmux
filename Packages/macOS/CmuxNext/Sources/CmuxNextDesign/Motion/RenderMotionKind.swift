@@ -4,9 +4,8 @@
 /// - `ScreenContentView` (`ScreenContentView+Motion.swift`): ``splitClose``, ``zoom``, ``arrival``,
 ///   ``camera``, ``rows``, ``areas``, ``canvas``.
 /// - `LayoutRootView` (`LayoutRootView+Motion.swift`): ``screens``, ``dropHighlight``.
-///
-/// The sidebar slide joins, with its host `SidebarContainerView`, in the task that moves it: the seam
-/// lives here in CmuxNextDesign so the sidebar can register without depending on CmuxNextLayout.
+/// - `SidebarContainerView` (`SidebarContainerView+RenderSlide.swift`): ``sidebarSlide``. The seam lives
+///   here in CmuxNextDesign so the sidebar registers without depending on CmuxNextLayout.
 public nonisolated enum RenderMotionKind: String, Sendable, CaseIterable {
     /// A split's and a close's pane and divider springs, with the camera shift a close carries.
     case splitClose
@@ -26,4 +25,6 @@ public nonisolated enum RenderMotionKind: String, Sendable, CaseIterable {
     case screens
     /// The tab-drop highlight (`DropHighlightView`).
     case dropHighlight
+    /// The sidebar's show and hide, with the window's views beside it (`SidebarContainerView.apply()`).
+    case sidebarSlide
 }
