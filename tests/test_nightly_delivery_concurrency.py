@@ -30,6 +30,11 @@ NO_CONCURRENCY_GROUP: dict[str, tuple[str, ...]] = {
     # published from 00:13Z for over six hours).
     "cmux-next-dev-daily.yml": ("sign", "runner", "verify", "publish", "tip-dmg-build", "rcodesign",
                                 "tip-dmg", "tip", "tip-deltas"),
+    # Classic main and rc push runs build in parallel (#25959), so their
+    # continuations publish in any order. Sharing release-publish-<tag> let an
+    # older run's delta job replace a newer publish that was still pending.
+    # One R2 lease serializes the two writers instead.
+    "auto-resume-nightly-notarization.yml": ("publish", "republish-deltas"),
 }
 
 
@@ -110,6 +115,45 @@ def test_nightly_push_runs_never_share_a_build_group() -> None:
     assert load(WORKFLOWS / "nightly.yml")["concurrency"]["cancel-in-progress"] is False
 
 
+def _minutes(seconds_flag: str, run: str) -> int:
+    match = re.search(rf"{seconds_flag} (\d+)", run)
+    assert match, (seconds_flag, run)
+    return int(match.group(1)) // 60
+
+
+def test_classic_publishers_share_one_lease_that_outlives_each_job() -> None:
+    document = load(WORKFLOWS / "auto-resume-nightly-notarization.yml")
+    keys, ttls = set(), set()
+    for name in NO_CONCURRENCY_GROUP["auto-resume-nightly-notarization.yml"]:
+        job = document["jobs"][name]
+        keys.add(job["env"]["LEASE_KEY"])
+        assert "github.run_id" in job["env"]["LEASE_OWNER"] and "github.job" in job["env"]["LEASE_OWNER"], name
+        steps = job["steps"]
+        names = [step.get("name", "") for step in steps]
+        take = names.index("Take the channel publication lease")
+        release = names.index("Release the channel publication lease")
+        lock = steps[take]["run"]
+        assert "r2_cas.py lock" in lock, name
+        # The lease must outlive the whole job (it is taken after the job
+        # starts), and the wait must leave room for the work inside the timeout.
+        ttl, wait = _minutes("--ttl", lock), _minutes("--wait", lock)
+        ttls.add(ttl)
+        assert ttl > job["timeout-minutes"], (name, ttl, job["timeout-minutes"])
+        assert wait < job["timeout-minutes"] - 60, (name, wait, job["timeout-minutes"])
+        assert steps[release].get("if") == "always()", name
+        assert "r2_cas.py unlock" in steps[release]["run"], name
+        # Every read of the live feed and every write comes after the lease.
+        for index, step in enumerate(steps):
+            body = str(step.get("run", ""))
+            if any(marker in body for marker in ("live_appcast_build.py", "publish-release-assets.py",
+                                                 "upload-r2-object.py", "update-release-tag.py",
+                                                 "gh release edit")):
+                assert take < index < release, (name, step.get("name"))
+    # A waiter judges the holder's lease by its own --ttl, so every holder
+    # uses the same one, longer than any holder's timeout.
+    assert len(keys) == 1 and len(ttls) == 1, (keys, ttls)
+
+
 if __name__ == "__main__":
     test_required_delivery_workflows_exist()
     test_the_declared_list_matches_every_delivery_workflow_path()
@@ -118,4 +162,5 @@ if __name__ == "__main__":
     test_newest_wins_jobs_take_no_concurrency_group()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
     test_nightly_push_runs_never_share_a_build_group()
+    test_classic_publishers_share_one_lease_that_outlives_each_job()
     print("PASS: nightly and DEV delivery never cancel or replace waiting builds")
