@@ -81,7 +81,10 @@ if [[ -z "$app" ]]; then
     fi
     ./scripts/download-prebuilt-ghosttykit.sh
   fi
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" | tail -n 40
+  # Streamed, not `| tail -n 40`: the tail printed nothing until reload.sh exited, so a cold build or the
+  # wait for an unpublished cmux-tui tree (pin-cmux-tui.sh) showed as a step idle after the GhosttyKit line
+  # (read as a hang on cmux20-bench, steps 0b17cb3f and ef9b0ef4). reload.sh keeps xcodebuild's bulk in its own log.
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2

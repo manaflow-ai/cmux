@@ -78,7 +78,7 @@ fi
 apps=()
 case "$cmux" in
   build)
-    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfbench --config release > "$work/reload.log" 2>&1 \
+    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfbench --config release 2>&1 | tee "$work/reload.log" \
       || { tail -n 80 "$work/reload.log"; exit 1; }
     app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
     [[ -n "$app" && -d "$app" ]] || { echo "perf-bench: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
