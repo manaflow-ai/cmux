@@ -242,7 +242,9 @@ final class SidebarBridge {
         if model.layout != layout { model.layout = layout }
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
         // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.
-        rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil))
+        let elsewhere = model.docDrag.flatMap { drag in SidebarDocStore.current?.shown?.bandGroupsListedElsewhere(drag: drag) }
+        rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil),
+                  elsewhere: elsewhere)
         selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()

@@ -19,7 +19,7 @@ extension SidebarDocProjection {
     @MainActor public func arrange(_ sections: [SidebarSection], drag: SidebarDocDrag) -> [SidebarSection] {
         let projection = self
         let bandIDs = Set(projection.bandGroups.map(\.id))
-        let elsewhere = Self.listedElsewhere(projection.bandGroups, drag: drag)
+        let elsewhere = projection.bandGroupsListedElsewhere(drag: drag)
         var pulled: [String: SidebarGroup] = [:]
         var arranged = sections.map { section in
             var section = section
@@ -198,11 +198,12 @@ extension SidebarDocProjection {
     }
 
     /// The band groups holding an open workspace another window lists (`SidebarDocDrag.listedElsewhere`), themselves
-    /// or in a group under them.
-    @MainActor private static func listedElsewhere(_ groups: [Group], drag: SidebarDocDrag) -> Set<String> {
-        let parents = Dictionary(groups.map { ($0.id, $0.parent) }, uniquingKeysWith: { first, _ in first })
+    /// or in a group under them: they leave this window. It changes with window ownership alone, so the App redraws
+    /// when it does (`SidebarRows.show`'s `elsewhere`).
+    @MainActor public func bandGroupsListedElsewhere(drag: SidebarDocDrag) -> Set<String> {
+        let parents = Dictionary(bandGroups.map { ($0.id, $0.parent) }, uniquingKeysWith: { first, _ in first })
         var open = Set<String>()
-        for group in groups where group.openMembers.contains(where: drag.listedElsewhere) {
+        for group in bandGroups where group.openMembers.contains(where: drag.listedElsewhere) {
             var id: String? = group.id
             while let current = id, open.insert(current).inserted { id = parents[current] ?? nil }
         }
