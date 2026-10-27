@@ -147,7 +147,7 @@ impl Surface {
         let callbacks = Callbacks {
             on_pty_write: Some(Box::new({
                 let pending = pending_responses.clone();
-                move |bytes| pending.lock().unwrap().extend_from_slice(bytes)
+                move |bytes| pending.lock().recover_poison().extend_from_slice(bytes)
             })),
             on_title_changed: Some(Box::new({
                 let flag = title_changed.clone();
@@ -191,7 +191,7 @@ impl Surface {
         )));
         #[cfg(unix)]
         let shared_output = read_fd.map(|_| output.clone());
-        let surface = Arc::new(Surface::Pty(PtySurface {
+        let pty = PtySurface {
             meta: SurfaceMeta {
                 id,
                 resource_identity,
@@ -311,7 +311,11 @@ impl Surface {
                 frame_producer_before_upgrade,
             }),
             viewport: Mutex::new(TerminalViewportState::default()),
-        }));
+        };
+        // The reader and reaper slots, held apart from the surface so they
+        // need no `as_pty` lookup.
+        let threads = pty.terminal.clone();
+        let surface = Arc::new(Surface::Pty(pty));
 
         if let Some(reservation) = kitty_reservation
             && let Err(error) = reservation.commit(&surface, initial_kitty_limits)
@@ -331,14 +335,14 @@ impl Surface {
                 .descriptor
                 .as_ref()
                 .map(AsRawFd::as_raw_fd);
+            let reader_completion = threads.reader_completion.clone();
             move || {
-                let _reader_completion = ReaderCompletionGuard(
-                    surface
-                        .as_pty()
-                        .expect("local PTY reader owns a PTY surface")
-                        .reader_completion
-                        .clone(),
-                );
+                let _reader_completion = ReaderCompletionGuard(reader_completion);
+                #[allow(
+                    clippy::expect_used,
+                    reason = "INVARIANT: this reader holds the Surface::Pty built above"
+                )]
+                let pty = surface.as_pty().expect("INVARIANT: local PTY reader owns a PTY surface");
                 let mut would_block = crate::backoff::Backoff::new(
                     Duration::from_millis(1),
                     Duration::from_millis(50),
@@ -346,7 +350,6 @@ impl Surface {
                 let publisher =
                     output.lock().unwrap_or_else(std::sync::PoisonError::into_inner).publisher();
                 loop {
-                    let pty = surface.as_pty().expect("surface reader got non-pty surface");
                     #[cfg(unix)]
                     let ready = if let (Some(fd), Some(wake)) = (read_fd, wake_reader.as_mut()) {
                         match wait_for_local_output(fd, wake) {
@@ -402,24 +405,16 @@ impl Surface {
                     // duplicated PTY descriptor alive with that placement.
                     output.finish();
                 }
-                if let Some(pty) = surface.as_pty() {
-                    pty.publish_final_frame();
-                    pty.local_pty_drained.store(true, Ordering::Release);
-                }
+                pty.publish_final_frame();
+                pty.local_pty_drained.store(true, Ordering::Release);
                 publish_local_exit_if_ready(&surface);
             }
         })?;
-        *surface
-            .as_pty()
-            .expect("local PTY surface owns its reader")
-            .reader_thread
-            .lock()
-            .unwrap() = Some(reader_thread);
+        *threads.reader_thread.lock().recover_poison() = Some(reader_thread);
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
-        let reaper_completion =
-            surface.as_pty().expect("local PTY surface owns its reaper").reaper_completion.clone();
+        let reaper_completion = threads.reaper_completion.clone();
         reaper_completion.reset();
         // Keep the surface alive with the join handle until the child wait
         // completes. This prevents a deadline timeout from detaching a live
@@ -431,7 +426,7 @@ impl Surface {
                 let _reaper_completion = ReaderCompletionGuard(reaper_completion);
                 let end = wait();
                 if let Some(pty) = reaper_surface.as_pty() {
-                    *pty.exit.lock().unwrap() = Some(end);
+                    *pty.exit.lock().recover_poison() = Some(end);
                 }
                 close_local_terminal_master_after_exit(&reaper_surface);
                 publish_local_exit_if_ready(&reaper_surface);
@@ -443,12 +438,7 @@ impl Surface {
                 return Err(error.into());
             }
         };
-        *surface
-            .as_pty()
-            .expect("local PTY surface owns its reaper")
-            .reaper_thread
-            .lock()
-            .unwrap() = Some(reaper_thread);
+        *threads.reaper_thread.lock().recover_poison() = Some(reaper_thread);
 
         Ok(surface)
     }

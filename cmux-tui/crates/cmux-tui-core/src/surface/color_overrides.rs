@@ -73,11 +73,11 @@ pub(super) fn terminal_color_override_delta(
         };
         output.extend_from_slice(format!("\x1b[{value} q").as_bytes());
     }
-    for index in 0..256 {
-        if previous.palette[index] == next.palette[index] {
+    for (index, (before, after)) in previous.palette.iter().zip(&next.palette).enumerate() {
+        if before == after {
             continue;
         }
-        match next.palette[index] {
+        match after {
             Some(color) => output.extend_from_slice(
                 format!("\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color.r, color.g, color.b)
                     .as_bytes(),

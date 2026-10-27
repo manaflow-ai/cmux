@@ -169,7 +169,7 @@ impl SnapshotRequestGate {
     }
 
     pub(crate) fn request(&self, now: Instant) -> SnapshotAdmission {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.pending {
             return SnapshotAdmission::Collapsed;
         }
@@ -192,7 +192,7 @@ impl SnapshotRequestGate {
     /// The worker sent a snapshot at `now`, or tried and deferred it (a
     /// deferred snapshot is not pending: a later request asks again).
     pub(crate) fn sent(&self, now: Instant) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         // A request that arrived after the snapshot was taken still waits for
         // its own snapshot, so it stays pending (later requests collapse).
         state.pending = self.handle.snapshot_pending();
@@ -213,7 +213,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        let _term = pty.term.lock().unwrap();
+        let _term = pty.term.lock().recover_poison();
         let dead = pty.dead.load(Ordering::Acquire);
         let exited = dead
             && pty.host_connection_state.load(Ordering::Acquire)
@@ -228,7 +228,7 @@ impl Surface {
             // The final screen is still served once; then the stream ends.
             drop(tap);
         } else {
-            pty.taps.lock().unwrap().push(tap);
+            pty.taps.lock().recover_poison().push(tap);
         }
         let requests = SnapshotRequestGate::new(receiver.snapshot_request_handle());
         Ok(SnapshotAttachStream { receiver, lifecycle, requests })
@@ -248,7 +248,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        let term = pty.term.lock().unwrap();
+        let term = pty.term.lock().recover_poison();
         let mut data = term.encode_snapshot(SnapshotPhase::Complete)?;
         let cut = pty.snapshot_position.load();
         let (generation, offset) = cut;
@@ -284,7 +284,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        let term = pty.term.lock().unwrap();
+        let term = pty.term.lock().recover_poison();
         let ready = term.encode_snapshot(SnapshotPhase::Ready)?;
         let (generation, offset) = pty.snapshot_position.load();
         drop(term);
@@ -348,7 +348,7 @@ impl Surface {
             return Err(ghostty_vt::MarkerError::Invalid);
         };
         // Encode under the terminal lock; split and copy pages after it.
-        let snapshot = pty.term.lock().unwrap().history_snapshot(epoch, before)?;
+        let snapshot = pty.term.lock().recover_poison().history_snapshot(epoch, before)?;
         snapshot.pages(max_bytes)
     }
 
@@ -363,7 +363,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::MarkerError::Invalid);
         };
-        pty.term.lock().unwrap().read_marker_range(epoch, from, to, vt)
+        pty.term.lock().recover_poison().read_marker_range(epoch, from, to, vt)
     }
 
     /// Apply `bytes` as PTY output the way the reader does (parse, then

@@ -167,8 +167,11 @@ impl std::ops::DerefMut for TerminalSlot {
 /// [`TerminalCell`] restores the terminal before it returns any guard, and
 /// only this module builds one.
 #[cold]
+#[allow(
+    clippy::unreachable,
+    reason = "INVARIANT: TerminalCell::lock and try_lock thaw before they return a guard"
+)]
 fn not_hot() -> ! {
-    // crash-allow: TerminalCell::lock and try_lock thaw before they return a guard.
     unreachable!("a cold terminal behind a TerminalCell guard")
 }
 

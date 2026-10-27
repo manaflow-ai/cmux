@@ -228,7 +228,7 @@ impl Surface {
     pub(crate) fn requested_size(&self) -> (u16, u16) {
         #[cfg(any(unix, windows))]
         if let Surface::Pty(pty) = self
-            && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+            && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison()
             && let Some(size) = host.viewer_size()
         {
             return size;
@@ -278,7 +278,7 @@ impl Surface {
         let Surface::Pty(pty) = self else { return Ok(false) };
         #[cfg(any(unix, windows))]
         {
-            let runtime = pty.runtime.lock().unwrap();
+            let runtime = pty.runtime.lock().recover_poison();
             if let PtyRuntime::Hosted(host) = &*runtime {
                 return Ok(host.release_viewer_size()?);
             }

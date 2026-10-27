@@ -20,7 +20,7 @@ impl HostedReader {
                 return None;
             }
             let discovery = {
-                let runtime = pty.runtime.lock().unwrap();
+                let runtime = pty.runtime.lock().recover_poison();
                 match &*runtime {
                     PtyRuntime::Hosted(host) => Some(host.discovery_record()),
                     PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => None,
@@ -85,7 +85,7 @@ impl HostedReader {
             let replacement_snapshot = replacement.snapshot.clone();
             let replacement_control_responses = replacement.control_responses();
             let installed = {
-                let mut runtime = pty.runtime.lock().unwrap();
+                let mut runtime = pty.runtime.lock().recover_poison();
                 if pty.owner_detaching.load(Ordering::Acquire) {
                     replacement.disconnect();
                     return None;
@@ -129,7 +129,7 @@ impl HostedReader {
             Surface::install_clipboard_read_handler(surface);
 
             let replacement_reader = {
-                let mut runtime = pty.runtime.lock().unwrap();
+                let mut runtime = pty.runtime.lock().recover_poison();
                 let PtyRuntime::Hosted(replacement) = &mut *runtime else { return None };
                 replacement.take_reader().ok()
             };
@@ -141,7 +141,7 @@ impl HostedReader {
             };
 
             let defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-            let mut geometry = pty.geometry.lock().unwrap();
+            let mut geometry = pty.geometry.lock().recover_poison();
             let next_geometry = PtyGeometry {
                 cols: replacement_snapshot.cols,
                 rows: replacement_snapshot.rows,
@@ -211,11 +211,11 @@ impl HostedReader {
             let title = crate::terminal_title::read(&replacement_term);
             let pwd = replacement_term.pwd();
             let generation = {
-                let mut term = pty.term.lock().unwrap();
+                let mut term = pty.term.lock().recover_poison();
                 **term = replacement_term;
                 self.shell_marks = crate::prompt_mode_reset::ShellMarks::joined_midway();
                 {
-                    let mut metadata = pty.terminal_metadata.lock().unwrap();
+                    let mut metadata = pty.terminal_metadata.lock().recover_poison();
                     // The host's shell state, or this daemon's when the host
                     // hands over none.
                     match replacement_snapshot.shell_activity {
@@ -227,11 +227,11 @@ impl HostedReader {
                     }
                     *metadata = replacement_metadata;
                 }
-                pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
                 *geometry = next_geometry;
-                *pty.title.lock().unwrap() = title.clone();
+                *pty.title.lock().recover_poison() = title.clone();
                 pty.record_directory(pwd);
-                *pty.kitty_graphics_limits.lock().unwrap() =
+                *pty.kitty_graphics_limits.lock().recover_poison() =
                     replacement_snapshot.kitty_state.limits;
                 self.applied_color_overrides = replacement_snapshot.colors;
                 self.applied_color_revision = term.color_revision();
@@ -256,7 +256,7 @@ impl HostedReader {
                 replacement_snapshot.kitty_state.limits,
             ) {
                 replacement_control_responses.fail_all();
-                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison()
                     && host.identity() == identity
                 {
                     host.disconnect();

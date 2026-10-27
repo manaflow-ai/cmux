@@ -14,7 +14,7 @@ impl Surface {
         // in place: taking it and putting it back let a concurrent caller
         // see an empty slot and return while the handle was restored later.
         let reaper = {
-            let mut slot = pty.reaper_thread.lock().unwrap();
+            let mut slot = pty.reaper_thread.lock().recover_poison();
             if slot
                 .as_ref()
                 .is_some_and(|reaper| reaper.thread().id() == std::thread::current().id())
@@ -31,13 +31,13 @@ impl Surface {
                     eprintln!("cmux-tui: child reaper thread panicked during shutdown");
                 }
             } else {
-                *pty.reaper_thread.lock().unwrap() = Some(reaper);
+                *pty.reaper_thread.lock().recover_poison() = Some(reaper);
                 eprintln!(
                     "cmux-tui: child reaper did not stop before the shared shutdown deadline"
                 );
             }
         }
-        if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
+        if let Some(reader) = pty.reader_thread.lock().recover_poison().take() {
             if pty.reader_completion.wait_until(deadline) {
                 if reader.join().is_err() {
                     eprintln!("cmux-tui: terminal reader thread panicked during shutdown");
@@ -135,7 +135,7 @@ impl Surface {
                 // exists in the mux topology.
                 pty.owner_detaching.store(true, Ordering::Release);
                 {
-                    let mut runtime = pty.runtime.lock().unwrap();
+                    let mut runtime = pty.runtime.lock().recover_poison();
                     match &mut *runtime {
                         PtyRuntime::Local { killer, .. } => {
                             let _ = killer.kill();
@@ -173,18 +173,18 @@ impl Surface {
         match self {
             #[cfg(any(unix, windows))]
             Surface::Pty(pty) => {
-                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison() {
                     pty.owner_detaching.store(true, Ordering::Release);
                     host.disconnect();
                     return;
                 }
-                if matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::ExitedHosted) {
+                if matches!(&*pty.runtime.lock().recover_poison(), PtyRuntime::ExitedHosted) {
                     return;
                 }
                 // The holder keeps the shell; the next daemon re-attaches.
                 #[cfg(unix)]
                 if let PtyRuntime::Local { holder: Some(holder), .. } =
-                    &*pty.runtime.lock().unwrap()
+                    &*pty.runtime.lock().recover_poison()
                 {
                     pty.owner_detaching.store(true, Ordering::Release);
                     holder.detach();
@@ -205,7 +205,7 @@ impl Surface {
         }
         #[cfg(any(unix, windows))]
         if let Some(pty) = self.as_pty() {
-            let runtime = pty.runtime.lock().unwrap();
+            let runtime = pty.runtime.lock().recover_poison();
             if let PtyRuntime::Hosted(host) = &*runtime {
                 pty.owner_detaching.store(true, Ordering::Release);
                 let mut gap = None;
@@ -236,7 +236,7 @@ impl Surface {
     pub(crate) fn persist_host_workspace(&self, workspace_key: &str) -> anyhow::Result<()> {
         #[cfg(any(unix, windows))]
         if let Some(pty) = self.as_pty()
-            && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
+            && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().recover_poison()
         {
             return host.persist_workspace(workspace_key);
         }
@@ -250,7 +250,7 @@ impl Surface {
         #[cfg(any(unix, windows))]
         {
             let Some(pty) = self.as_pty() else { return Ok(false) };
-            let mut runtime = pty.runtime.lock().unwrap();
+            let mut runtime = pty.runtime.lock().recover_poison();
             let PtyRuntime::Hosted(host) = &mut *runtime else { return Ok(false) };
             host.activate_launched_host().map_err(anyhow::Error::new)
         }

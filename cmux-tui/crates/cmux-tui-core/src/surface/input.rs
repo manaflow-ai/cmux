@@ -241,6 +241,11 @@ impl Surface {
             term.mode(2004, false)
         };
         let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
+        #[allow(
+            clippy::unreachable,
+            reason = "INVARIANT: send_hosted_input took every hosted runtime, and a local \
+                      runtime is never replaced by a hosted one"
+        )]
         let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
             unreachable!("hosted paste returned above")
         };

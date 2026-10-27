@@ -12,9 +12,9 @@ impl Surface {
     /// readers signal progress only after applying actual output bytes.
     pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
         let pty = self.as_pty()?;
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let result = f(&mut term);
-        pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+        pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
         Some(result)
     }
 
@@ -55,12 +55,12 @@ impl Surface {
         // One request at a time per surface: the acknowledgement is awaited
         // without the runtime lock, which the reconnecting reader needs
         // before it can read the new stream.
-        let _request = pty.kitty_limits_request.lock().unwrap();
+        let _request = pty.kitty_limits_request.lock().recover_poison();
         #[cfg(any(unix, windows))]
         let next = {
-            let pending = match &*pty.runtime.lock().unwrap() {
+            let pending = match &*pty.runtime.lock().recover_poison() {
                 PtyRuntime::Hosted(host) => {
-                    if *pty.kitty_graphics_limits.lock().unwrap() == requested {
+                    if *pty.kitty_graphics_limits.lock().recover_poison() == requested {
                         return Ok(());
                     }
                     Some(host.begin_kitty_graphics_limits(requested, deadline)?)
@@ -72,7 +72,7 @@ impl Surface {
                     pending.wait()?;
                     // The host committed them; a smart host's resync reopens the
                     // mirror later, so a repeat request compares against this.
-                    *pty.kitty_graphics_limits.lock().unwrap() = requested;
+                    *pty.kitty_graphics_limits.lock().recover_poison() = requested;
                     return Ok(());
                 }
                 // Older hosts cannot carry Kitty sidecar state. Keep the
@@ -84,8 +84,8 @@ impl Surface {
         #[cfg(not(any(unix, windows)))]
         let next = requested;
         let graphics_changed = {
-            let mut term = pty.term.lock().unwrap();
-            let mut limits = pty.kitty_graphics_limits.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
+            let mut limits = pty.kitty_graphics_limits.lock().recover_poison();
             if *limits == next {
                 return Ok(());
             }
@@ -93,7 +93,7 @@ impl Surface {
             *limits = next;
             pty.resynchronize_attach_taps_locked(&mut term);
             if graphics_changed {
-                let mut render = pty.render.lock().unwrap();
+                let mut render = pty.render.lock().recover_poison();
                 render.state.clear_kitty_graphics_cache();
                 render.latest = None;
                 render.initial_graphics = None;
@@ -127,7 +127,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let text = term.viewport_text()?;
         let (cursor_col, cursor_row) = term.cursor_position().unwrap_or((0, 0));
         let cursor_visible = term.mode(25, false);
@@ -206,7 +206,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        Ok(f(&mut pty.term.lock().unwrap()))
+        Ok(f(&mut pty.term.lock().recover_poison()))
     }
 
     /// Abort an unreplayable parser sequence and run a capture while the
