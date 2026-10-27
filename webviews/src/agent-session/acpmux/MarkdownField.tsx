@@ -22,7 +22,7 @@ import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
-import { baseKeymap, chainCommands, selectAll } from "@milkdown/kit/prose/commands";
+import { baseKeymap, chainCommands, lift, selectAll } from "@milkdown/kit/prose/commands";
 import { redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
@@ -708,6 +708,23 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     });
     const blockKeys = $prose(() =>
       keymap({
+        // Milkdown replaces the base Backspace's joinBackward with joinTextblockBackward,
+        // which cannot lift a quote at the document's start and joins one into prior text.
+        // Lift its first paragraph instead, preserving text and the paragraph boundary.
+        Backspace: (state, dispatch) => {
+          const { selection } = state;
+          if (!(selection instanceof TextSelection) || !selection.empty) return false;
+          const { $from } = selection;
+          if (
+            $from.depth < 2 ||
+            $from.parentOffset !== 0 ||
+            $from.parent.type !== state.schema.nodes.paragraph ||
+            $from.node(-1).type !== state.schema.nodes.blockquote ||
+            $from.index(-1) !== 0
+          )
+            return false;
+          return lift(state, dispatch);
+        },
         "Shift-Enter": (state, dispatch, editorView) => {
           if (!lines.current) return true;
           const item = state.schema.nodes.list_item;

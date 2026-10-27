@@ -40,6 +40,8 @@ public nonisolated struct AddDeviceStrings {
         s("addDevice.network.unavailable", "cmux could not read your network. Add a computer by its name instead.")
     }
     static var yours: String { s("addDevice.network.yours", "Yours") }
+    /// A computer the network does not list, found in the person's ssh config.
+    static var sshConfig: String { s("addDevice.network.sshConfig", "From your ssh config") }
 
     static var codeHelp: String {
         s("addDevice.code.help", "The new computer shows a code like K0Q5-1M6C and four words. Type the code here, check that the words match, then approve.")
@@ -59,6 +61,7 @@ public nonisolated struct AddDeviceStrings {
         switch action {
         case .pick: s("addDevice.add", "Add")
         case .otherComputer: s("addDevice.otherComputer", "Other Computer…")
+        case .newCloudMachine: s("addDevice.newCloudMachine", "New Cloud VM…")
         case .enterCode: s("addDevice.enterCode", "Enter Code…")
         case .copyLine: copied ? s("addDevice.copied", "Copied") : s("addDevice.copyLine", "Copy Line")
         case .done: s("addDevice.done", "Done")

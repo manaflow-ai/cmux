@@ -8,6 +8,12 @@ use std::sync::Mutex;
 /// directory under the sessions root (no separator, `.`, `..` or root).
 static HARNESS_STATE_LOCK: Mutex<()> = Mutex::new(());
 
+/// Durable markers are made, rolled back and swept under one lock (`HARNESS_STATE_LOCK`), so a
+/// sweep that read a marker finishes with it before its import's rollback or a retry runs.
+pub(super) fn harness_state_lock() -> std::sync::MutexGuard<'static, ()> {
+    HARNESS_STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub(super) fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
     let tmp = path.with_extension(format!(
         "{}.importing",
@@ -17,17 +23,32 @@ pub(super) fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
         return Err(anyhow::anyhow!("transaction marker temporary path is occupied"));
     }
     let bytes = serde_json::to_vec(value)?;
-    {
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+    // The temporary file is this call's own (`create_new`): a failure before the rename takes it
+    // away, so the next write of `path` is not refused as occupied.
+    let written = (|| -> std::io::Result<()> {
         use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         file.write_all(&bytes)?;
         file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, path)
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
     }
-    std::fs::rename(&tmp, path)?;
     if let Some(parent) = path.parent() {
         std::fs::File::open(parent)?.sync_all()?;
     }
     Ok(())
+}
+
+/// Whether the durable marker at `marker` stands for the chat `outer_id`.
+fn marker_names(marker: &Path, outer_id: &str) -> bool {
+    std::fs::read(marker)
+        .ok()
+        .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+        .is_some_and(|v| v.get("outerId").and_then(Value::as_str) == Some(outer_id))
 }
 
 pub(super) fn is_plain_id(id: &str) -> bool {
@@ -64,7 +85,9 @@ impl Hub {
         let mut out = std::io::BufWriter::new(file);
         let mut event_count = 0usize;
         let mut failed: Option<anyhow::Error> = None;
-        self.store.scan(&meta.id, 0, &mut |e: EventRecord| {
+        self.store.scan(&meta.id, 0, &mut |mut e: EventRecord| {
+            // An ask carries the display line acpmux works out now, never a logged one.
+            self.display_logged(Some(&**session), &mut e);
             let written = serde_json::to_string(&e).map_err(anyhow::Error::from).and_then(|line| {
                 out.write_all(line.as_bytes())?;
                 out.write_all(b"\n")?;
@@ -191,22 +214,25 @@ impl Hub {
         meta.status = SessionStatus::Idle;
         // A family lives on one daemon: a moved-in sub-session is a root here.
         meta.subsession = None;
+        meta.lineage = None;
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
-        let session = self.make_session(meta.clone());
-        self.store.save(&meta).map_err(|e| RpcError::internal(e.to_string()))?;
+        if let Err(e) = self.store.save(&meta) {
+            let _ = self.abort_harness_state(&meta);
+            return Err(RpcError::internal(e.to_string()));
+        }
         // Copy events verbatim, preserving seq. A partial transcript is not
         // a valid import: any unreadable file or record rolls it back.
         let last = match self.copy_bundle_events(bundle, &meta.id, guarded.map(|g| g.guard.control))
         {
             Ok(last) => last,
             Err(e) => {
-                let _ = self.store.delete(&meta.id);
+                self.drop_failed_import(&meta);
                 return Err(RpcError::invalid_params(format!("import events: {e}")));
             }
         };
         if let Err(e) = self.restore_harness_state(bundle, &meta, replace_durable) {
-            let _ = self.store.delete(&meta.id);
+            self.drop_failed_import(&meta);
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
         }
         let restored = match guarded {
@@ -220,12 +246,14 @@ impl Hub {
                 match restored {
                     Ok(n) => n,
                     Err(e) => {
-                        let _ = self.store.delete(&meta.id);
+                        self.drop_failed_import(&meta);
                         return Err(RpcError::new(-32000, format!("transfer.native: {e:#}")));
                     }
                 }
             }
         };
+        // Made once nothing can fail: a failed import leaves nothing in the child index.
+        let session = self.make_session(meta.clone());
         session.seq.store(last, Ordering::SeqCst);
         session.meta.lock().unwrap().last_seq = last;
         if live {
@@ -233,7 +261,11 @@ impl Hub {
             // Its log holds the source's move (`transfer_out`), not one of this daemon's.
             *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
+        // The source's subagent retries stayed there (`subagent_retry.rs`).
+        self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
+        // Indexed again once published: a lookup before that found no session and dropped it.
+        self.child_tags.note(&session);
         self.offers.forget(&meta.id);
         self.append(
             &session,
@@ -325,10 +357,11 @@ impl Hub {
         let Some(session_dir) = self.store.session_dir(&meta.id) else { return Ok(()) };
         let Some(root) = session_dir.parent() else { return Ok(()) };
         let marker = root.join(format!(".{agent_id}.durable-transfer-state"));
+        let _state_lock = harness_state_lock();
         if std::fs::symlink_metadata(&marker).is_ok() {
             return Err(anyhow::anyhow!("durable transfer recovery marker is already present"));
         }
-        write_json_atomic(
+        let prepared = write_json_atomic(
             &marker,
             &json!({
                 "outerId": meta.id,
@@ -336,7 +369,56 @@ impl Hub {
                 "replaceDurable": replace_durable,
                 "phase": "prepared",
             }),
-        )
+        );
+        if prepared.is_err() && marker_names(&marker, &meta.id) {
+            // Renamed into place before a later step failed: no marker was here before, so it is
+            // this import's, and the failed preparation must not leave it.
+            let _ = std::fs::remove_file(&marker);
+        }
+        prepared
+    }
+
+    /// Undo a failed import's prepared durable state as a restart would (`recover_durable_marker`),
+    /// so a retry on this daemon finds no marker of it. Before its store goes: that names the
+    /// owner. A staged one (files installed, backups taken) is left whole for the next start's
+    /// sweep, which rolls it back before any chat loads. Returns whether the failed import's store
+    /// must stay for that sweep to prove the marker's owner: not for a replacement, whose owner is
+    /// the store the receive moved aside and puts back (`transfer_in.rs`).
+    #[must_use]
+    fn abort_harness_state(&self, meta: &SessionMeta) -> bool {
+        if meta.harness != "cmux-harness" {
+            return false;
+        }
+        let Some(agent_id) = meta.agent_session_id.as_deref() else { return false };
+        let Some(session_dir) = self.store.session_dir(&meta.id) else { return false };
+        let Some(root) = session_dir.parent() else { return false };
+        let marker = root.join(format!(".{agent_id}.durable-transfer-state"));
+        let _state_lock = harness_state_lock();
+        let Some(value) =
+            std::fs::read(&marker).ok().and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+        else {
+            return false;
+        };
+        if value.get("outerId").and_then(Value::as_str) != Some(meta.id.as_str()) {
+            return false;
+        }
+        if value.get("phase").and_then(Value::as_str) == Some("prepared") {
+            self.recover_durable_marker(root, &marker, agent_id);
+            return false;
+        }
+        value.get("replaceDurable").and_then(Value::as_bool) != Some(true)
+    }
+
+    /// A failed import's store goes once its durable state is rolled back (`abort_harness_state`).
+    fn drop_failed_import(&self, meta: &SessionMeta) {
+        if self.abort_harness_state(meta) {
+            // The store stays; its log writer goes, as `delete` drops it: a sweep may remove the
+            // store before a retry writes it again.
+            self.store.close_log(&meta.id);
+            tracing::warn!(session = %meta.id, "a failed import's staged durable state waits for the next start to roll it back");
+        } else {
+            let _ = self.store.delete(&meta.id);
+        }
     }
 
     fn export_harness_state(&self, meta: &SessionMeta, dir: &Path) -> Result<Value> {
@@ -611,16 +693,21 @@ impl Hub {
             if installed_pi {
                 let _ = std::fs::remove_file(&pi_target);
             }
+            let mut restored = true;
             if backed_journal {
-                let _ = std::fs::rename(&journal_backup, &journal);
+                restored &= std::fs::rename(&journal_backup, &journal).is_ok();
             }
             if backed_pi {
-                let _ = std::fs::rename(&session_backup, &pi_target);
+                restored &= std::fs::rename(&session_backup, &pi_target).is_ok();
             }
             if !journal_dir_was_present {
                 let _ = std::fs::remove_dir(&journal_dir);
             }
-            let _ = std::fs::remove_file(&durable_state);
+            // A backup that could not go back keeps the marker, staged: the next start's sweep
+            // puts it back (`recover_durable_marker`) instead of it being lost.
+            if restored {
+                let _ = std::fs::remove_file(&durable_state);
+            }
             return Err(e);
         }
         Ok(())
@@ -700,5 +787,250 @@ impl Hub {
             }
         }
         Ok(last)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A durable replacement (`transfer_in.rs`) moved the chat's store aside before its import,
+    /// which failed: the import leaves no marker, so the move can be tried again on this daemon.
+    #[tokio::test]
+    async fn a_failed_durable_replacement_leaves_no_recovery_marker() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let profile = crate::config::HarnessProfile {
+            kind: Default::default(),
+            argv: vec!["true".into()],
+            env: Default::default(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        let mut cfg = crate::config::Config::default();
+        cfg.harnesses.insert("cmux-harness".into(), profile);
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta = json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": "durable",
+            "harness": "cmux-harness", "cwd": std::env::temp_dir(), "agentSessionId": "agent-0002",
+            "status": "idle", "createdAt": 1, "updatedAt": 1,
+        });
+        let backup = dir.join("sessions").join(format!(".{id}.replacement-backup"));
+        std::fs::create_dir_all(&backup).unwrap();
+        std::fs::write(backup.join("session.json"), meta.to_string()).unwrap();
+        let bundle = dir.join("bundle");
+        std::fs::create_dir_all(bundle.join("events")).unwrap();
+        std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
+        std::fs::write(bundle.join("events").join("000001.ndjson"), "not a record\n").unwrap();
+        let marker = dir.join("sessions/.agent-0002.durable-transfer-state");
+        for attempt in ["first", "retry"] {
+            let failed = hub.import_into(&bundle, None, true, None, true, true).await;
+            let failed = failed.err().map(|e| e.message);
+            assert!(
+                failed.as_deref().is_some_and(|m| m.starts_with("import events")),
+                "{attempt}: {failed:?}"
+            );
+            assert!(!marker.exists(), "{attempt} left its recovery marker");
+        }
+        assert!(backup.join("session.json").exists(), "the moved-aside store is the receive's");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn harness_hub(dir: &Path) -> Arc<Hub> {
+        let profile = crate::config::HarnessProfile {
+            kind: Default::default(),
+            argv: vec!["true".into()],
+            env: Default::default(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        let mut cfg = crate::config::Config::default();
+        cfg.harnesses.insert("cmux-harness".into(), profile);
+        cfg.store.mode = crate::config::StoreMode::Local;
+        Hub::new(cfg.clone(), crate::store::open(&cfg.store, dir).unwrap())
+    }
+
+    fn harness_meta(id: &str, agent: &str) -> Value {
+        json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": "durable",
+            "harness": "cmux-harness", "cwd": std::env::temp_dir(), "agentSessionId": agent,
+            "status": "idle", "createdAt": 1, "updatedAt": 1,
+        })
+    }
+
+    /// Review of #25676: a marker write that fails before its rename takes its temporary file
+    /// with it, so the next write of that marker (a retry's) is not refused as occupied.
+    #[test]
+    fn a_failed_marker_write_leaves_no_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let marker = dir.join(".agent-0004.durable-transfer-state");
+        // A non-empty directory where the marker goes: the rename fails.
+        std::fs::create_dir_all(marker.join("in-the-way")).unwrap();
+        let written = write_json_atomic(&marker, &json!({"phase": "staged"}));
+        assert!(written.is_err(), "the rename onto a directory went through");
+        let tmp = dir.join(".agent-0004.durable-transfer-state.importing");
+        assert!(!tmp.exists(), "the failed write left its temporary file");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review of #25676: a prepared marker that is renamed into place before the directory sync
+    /// fails is this import's own, so the failed preparation does not leave it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_prepared_marker_whose_directory_sync_fails_does_not_stay() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        std::fs::create_dir_all(&root).unwrap();
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: SessionMeta = serde_json::from_value(harness_meta(&id, "agent-0005")).unwrap();
+        // Write and search but no read: the marker is written and renamed, the sync's open fails.
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o300)).unwrap();
+        if std::fs::read_dir(&root).is_ok() {
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            eprintln!("skipped: this user reads a directory without its read bit");
+            return;
+        }
+        let prepared = hub.prepare_harness_state(&meta, false);
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(prepared.is_err(), "the directory sync went through");
+        let marker = root.join(".agent-0005.durable-transfer-state");
+        assert!(!marker.exists(), "the failed preparation left its marker");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review 105 of #25676: a sweep on this daemon (another import's failed finalize) that read a
+    /// failed import's marker finishes with it before that import's own rollback and its retry
+    /// run, so it never removes the store and marker the retry made.
+    #[tokio::test]
+    async fn a_sweep_never_removes_a_retry_made_after_it_read_the_old_marker() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: SessionMeta = serde_json::from_value(harness_meta(&id, "agent-0009")).unwrap();
+        // The failed import: its store and its prepared marker.
+        hub.store.save(&meta).unwrap();
+        hub.prepare_harness_state(&meta, false).unwrap();
+        let (h, m) = (hub.clone(), meta.clone());
+        let retry = std::sync::Mutex::new(Some(move || {
+            h.drop_failed_import(&m);
+            h.store.save(&m).unwrap();
+            h.prepare_harness_state(&m, false).unwrap();
+        }));
+        let writer = Arc::new(std::sync::Mutex::new(None::<std::thread::JoinHandle<()>>));
+        let spawned = writer.clone();
+        let hook: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |agent| {
+            if agent != "agent-0009" {
+                return;
+            }
+            let Some(retry) = retry.lock().unwrap().take() else { return };
+            let (done, finished) = std::sync::mpsc::channel();
+            *spawned.lock().unwrap() = Some(std::thread::spawn(move || {
+                retry();
+                let _ = done.send(());
+            }));
+            let _ = finished.recv_timeout(std::time::Duration::from_millis(300));
+        });
+        *super::super::transfer_in::SWEEP_PAUSE.lock().unwrap() = Some(hook);
+        hub.recover_staged_replacements();
+        let handle = writer.lock().unwrap().take();
+        handle.expect("the sweep never read the marker").join().unwrap();
+        *super::super::transfer_in::SWEEP_PAUSE.lock().unwrap() = None;
+        assert!(
+            root.join(&id).join("session.json").exists(),
+            "the sweep removed the retry's store"
+        );
+        let marker = root.join(".agent-0009.durable-transfer-state");
+        assert!(marker.exists(), "the sweep removed the retry's marker");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review 104 of #25676: a failed staged import whose store stays for recovery keeps no open
+    /// log writer, so after a recovery on this daemon removes that store, a retry's events land
+    /// in the new log on disk, not in the removed one.
+    #[tokio::test]
+    async fn a_retry_after_a_kept_failed_import_is_recovered_writes_its_log() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: SessionMeta = serde_json::from_value(harness_meta(&id, "agent-0008")).unwrap();
+        let record = |seq: u64, kind: &str| -> EventRecord {
+            serde_json::from_value(
+                json!({"seq": seq, "at": 0, "dir": "mux", "kind": kind, "msg": {}}),
+            )
+            .unwrap()
+        };
+        // The failed import wrote its store and some of its events (`copy_bundle_events`).
+        hub.store.save(&meta).unwrap();
+        hub.store.append(&id, &record(1, "first-attempt")).unwrap();
+        let marker = root.join(".agent-0008.durable-transfer-state");
+        let staged = json!({
+            "agentId": "agent-0008", "outerId": id, "replaceDurable": false, "phase": "staged",
+            "transferId": "t-0008", "piFilename": "agent-0008.jsonl",
+            "journalDirWasPresent": false, "hadJournal": false, "hadPi": false,
+        });
+        std::fs::write(&marker, staged.to_string()).unwrap();
+        hub.drop_failed_import(&meta);
+        // Another import's failed finalize sweeps on this daemon (`import_into`).
+        hub.recover_staged_replacements();
+        assert!(!marker.exists(), "the sweep left the failed import's marker");
+        // The retry.
+        hub.store.save(&meta).unwrap();
+        hub.store.append(&id, &record(1, "retry")).unwrap();
+        let mut kinds = Vec::new();
+        let _ = hub.store.scan(&id, 0, &mut |e: EventRecord| {
+            kinds.push(e.kind);
+            true
+        });
+        assert_eq!(kinds, ["retry"], "the retry's event is not in its log on disk");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review 102 of #25676: an import that failed once its durable state was staged is never
+    /// loaded as a chat, even when its rollback cannot finish. Its marker and store wait for the
+    /// next start, whose sweep rolls it back as far as it can and loads nothing of it.
+    #[tokio::test]
+    async fn a_staged_import_that_failed_is_not_loaded_at_the_next_start() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        let id = uuid::Uuid::now_v7().to_string();
+        std::fs::create_dir_all(root.join(&id)).unwrap();
+        let owner = harness_meta(&id, "agent-0006");
+        std::fs::write(root.join(&id).join("session.json"), owner.to_string()).unwrap();
+        let journal_dir = root.join("agent-0006");
+        // The journal's path is a non-empty directory: its backup cannot be renamed back.
+        std::fs::create_dir_all(journal_dir.join("journal.ndjson").join("in-the-way")).unwrap();
+        std::fs::write(journal_dir.join("journal.ndjson.transfer-backup"), "before\n").unwrap();
+        let marker = root.join(".agent-0006.durable-transfer-state");
+        let staged = json!({
+            "agentId": "agent-0006", "outerId": id, "replaceDurable": false, "phase": "staged",
+            "transferId": "t-0006", "piFilename": "agent-0006.jsonl",
+            "journalDirWasPresent": true, "hadJournal": true, "hadPi": false,
+        });
+        std::fs::write(&marker, staged.to_string()).unwrap();
+        let meta: SessionMeta = serde_json::from_value(owner).unwrap();
+        hub.drop_failed_import(&meta);
+        drop(hub);
+        let restarted = harness_hub(&dir);
+        let loaded = restarted.sessions.lock().unwrap().contains_key(&id);
+        assert!(!loaded, "the failed import loaded as a chat at the next start");
+        assert!(!marker.exists(), "the next start left the failed import's marker");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

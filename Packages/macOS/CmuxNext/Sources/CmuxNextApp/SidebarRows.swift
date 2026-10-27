@@ -34,6 +34,9 @@ final class SidebarRows {
     /// The rows of creates the daemon has not reported yet, at their slots
     /// over the edits (`PendingWorkspaceRows`), and the home workspace.
     private var creating: (rows: [PendingWorkspaceRows.Row], home: String?) = ([], nil)
+    /// The band groups another window lists (`SidebarDocProjection.bandGroupsListedElsewhere`) as last shown:
+    /// a move of a workspace to another window changes them with no row of this one (#25776).
+    private var elsewhere: Set<String>?
 
     #if DEBUG
     /// The rows `debug.sidebar_nested_fixture` shows instead of the live ones (nested-groups prototype captures).
@@ -65,9 +68,12 @@ final class SidebarRows {
     /// Shows `live` (when given) with the pending edits applied, then the
     /// rows of the creates in flight (`creating`, when given). `unlessShown`: nothing to do when `live` and `creating`
     /// are what the rows show already (patches included), so a structural pass that lists nothing new sets no sections
-    /// (sidebar churn: at 400 workspaces each set arranged and compared every row).
-    func show(_ live: [SidebarRowSection]? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil, unlessShown: Bool = false) {
-        if unlessShown, let live, let creating, live == self.live, creating == self.creating { return }
+    /// (sidebar churn: at 400 workspaces each set arranged and compared every row). A changed `elsewhere` shows again.
+    func show(_ live: [SidebarRowSection]? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil, unlessShown: Bool = false,
+              elsewhere: Set<String>? = nil) {
+        let sameElsewhere = elsewhere == nil || elsewhere == self.elsewhere
+        if let elsewhere { self.elsewhere = elsewhere }
+        if unlessShown, let live, let creating, live == self.live, creating == self.creating, sameElsewhere { return }
         if let live { self.live = live }
         if let creating { self.creating = creating }
         #if DEBUG
