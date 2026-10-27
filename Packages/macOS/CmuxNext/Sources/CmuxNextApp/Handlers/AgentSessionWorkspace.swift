@@ -47,8 +47,13 @@ enum AgentSessionWorkspace {
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let parent = invocation.callerAgentSession.flatMap { caller in
+            let matches = context.services.agentTabs.listTabs().filter { $0.record.session == caller }
+            guard matches.count == 1, let match = matches.first else { return nil }
+            return AgentSessionParents.identity(host: match.record.host, session: caller)
+        }
         let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group,
-                            parent: invocation.callerAgentSession, services: context.services)
+                            parent: parent, services: context.services)
         context.services.registry.track(task)
     }
 
@@ -59,13 +64,14 @@ enum AgentSessionWorkspace {
     /// build has no agent page or the daemon is offline.
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
-                     group: String? = nil, parent: String? = nil, services: AppServices) throws -> ActionWork {
+                     group: String? = nil, parent: AgentSessionParents.Identity? = nil, services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
         let logger = daemon.logger
+        let targetHost = host ?? services.agentTabs.localHost ?? ""
         // A caller's key that names a listed workspace already shows the
         // session (a launcher run again): nothing is opened twice.
         if services.machines.workspace(id: key.rawValue) != nil { return Task { nil } }
@@ -109,7 +115,8 @@ enum AgentSessionWorkspace {
                 for window in services.windows.controllers {
                     window.state.selection.select(created.key, in: pane.id)
                 }
-                AgentSessionWorkspace.recordParent(parent, of: session, in: SidebarSessionTreeFeed.shared.recordedParents)
+                AgentSessionWorkspace.recordParent(parent, of: AgentSessionParents.identity(host: targetHost, session: session),
+                                                     in: SidebarSessionTreeFeed.shared.recordedParents)
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(created.key, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
@@ -126,15 +133,16 @@ enum AgentSessionWorkspace {
     /// only where the session's daemon lists no lineage of its own, so a
     /// daemon's `spawnedBy`/`startedBy` still wins. A person's open (no
     /// caller) records nothing.
-    @MainActor static func recordParent(_ caller: String?, of session: String, in parents: AgentSessionParents) {
-        parents.record(caller?.trimmingCharacters(in: .whitespacesAndNewlines), of: session)
+    @MainActor static func recordParent(_ caller: AgentSessionParents.Identity?, of child: AgentSessionParents.Identity,
+                                         in parents: AgentSessionParents) {
+        parents.record(caller, of: child)
     }
 
     /// The chat of a re-homed lane's new session as a tab of its predecessor's
     /// row `row`, selected there; the caller's `key` is the tab's creation key,
     /// so a launcher run again gets the same tab.
     private static func reuse(_ row: SidebarWorkspaceID, session: String, key: WorkspaceKey, host: String?,
-                              parent: String?, services: AppServices) -> ActionWork {
+                              parent: AgentSessionParents.Identity?, services: AppServices) -> ActionWork {
         let daemon = services.daemon
         let logger = daemon.logger
         return Task { @MainActor in
@@ -148,7 +156,8 @@ enum AgentSessionWorkspace {
                 for window in services.windows.controllers {
                     window.state.selection.select(created.key, in: pane.id)
                 }
-                AgentSessionWorkspace.recordParent(parent, of: session, in: SidebarSessionTreeFeed.shared.recordedParents)
+                AgentSessionWorkspace.recordParent(parent, of: AgentSessionParents.identity(host: host ?? services.agentTabs.localHost ?? "", session: session),
+                                                     in: SidebarSessionTreeFeed.shared.recordedParents)
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in its predecessor's workspace \(row.rawValue, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {

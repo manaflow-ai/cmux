@@ -17,6 +17,10 @@ import Testing
     private static let opened = WorkspaceID("ws-opened")
     private static let spawner = WorkspaceID("ws-spawner")
 
+    private static func identity(_ host: String = localHost, _ session: String) -> AgentSessionParents.Identity {
+        AgentSessionParents.identity(host: host, session: session)
+    }
+
     private static func chats(host: String = localHost) -> [(WorkspaceID, [AgentSessionRef])] {
         [
             (caller, [AgentSessionRef(host: host, session: "s-caller")]),
@@ -32,8 +36,8 @@ import Testing
 
     @Test func anAgentOpenedSessionWithNoDaemonLineageRecordsItsCallerAsParent() {
         let parents = AgentSessionParents(defaults: nil)
-        AgentSessionWorkspace.recordParent("s-caller", of: "s-opened", in: parents)
-        #expect(parents.parents == ["s-opened": "s-caller"])
+        AgentSessionWorkspace.recordParent(Self.identity("s-caller"), of: Self.identity("s-opened"), in: parents)
+        #expect(parents.parents == [Self.identity("s-opened"): Self.identity("s-caller")])
         // A local daemon that lists no lineage (an older acpmux).
         let lanes = ["s-caller": Self.lane("s-caller", spawnedBy: nil), "s-opened": Self.lane("s-opened", spawnedBy: nil)]
         let local = SidebarSessionTreeFeed.pass(Self.chats(), lanes: lanes, recordedParents: parents.parents,
@@ -47,9 +51,9 @@ import Testing
 
     @Test func thePersonsOpenRecordsNothing() {
         let parents = AgentSessionParents(defaults: nil)
-        AgentSessionWorkspace.recordParent(nil, of: "s-opened", in: parents)
-        AgentSessionWorkspace.recordParent("  ", of: "s-opened", in: parents)
-        AgentSessionWorkspace.recordParent("s-opened", of: "s-opened", in: parents)
+        AgentSessionWorkspace.recordParent(nil, of: Self.identity("s-opened"), in: parents)
+        AgentSessionWorkspace.recordParent(Self.identity("", "  "), of: Self.identity("s-opened"), in: parents)
+        AgentSessionWorkspace.recordParent(Self.identity("s-opened"), of: Self.identity("s-opened"), in: parents)
         #expect(parents.parents.isEmpty)
         let pass = SidebarSessionTreeFeed.pass(Self.chats(), lanes: [:], recordedParents: parents.parents,
                                                localHost: Self.localHost, pullRequests: [:])
@@ -57,7 +61,7 @@ import Testing
     }
 
     @Test func theDaemonsLineageWinsWhenItListsOne() {
-        let recorded = ["s-opened": "s-caller"]
+        let recorded = [Self.identity("s-opened"): Self.identity("s-caller")]
         // This Mac's acpmux says another session spawned it.
         let lanes = ["s-opened": Self.lane("s-opened", spawnedBy: "s-spawner")]
         let local = SidebarSessionTreeFeed.pass(Self.chats(), lanes: lanes, recordedParents: recorded,
@@ -73,7 +77,7 @@ import Testing
     /// A daemon parent no workspace here shows still wins: the child stays top level rather than
     /// nesting under the recorded caller.
     @Test func aDaemonParentNoWorkspaceShowsStillWins() {
-        let recorded = ["s-opened": "s-caller"]
+        let recorded = [Self.identity("s-opened"): Self.identity("s-caller")]
         let lanes = ["s-opened": Self.lane("s-opened", spawnedBy: "s-hidden")]
         let local = SidebarSessionTreeFeed.pass(Self.chats(), lanes: lanes, recordedParents: recorded,
                                                 localHost: Self.localHost, pullRequests: [:])
@@ -87,18 +91,18 @@ import Testing
     /// A record that would close a loop (a caller recorded under its own descendant) is refused.
     @Test func aRecordThatWouldMakeACycleIsRefused() {
         let parents = AgentSessionParents(defaults: nil)
-        parents.record("a", of: "b")
-        parents.record("b", of: "c")
-        parents.record("c", of: "a")
-        parents.record("b", of: "a")
-        #expect(parents.parents == ["b": "a", "c": "b"])
+        parents.record(Self.identity("a"), of: Self.identity("b"))
+        parents.record(Self.identity("b"), of: Self.identity("c"))
+        parents.record(Self.identity("c"), of: Self.identity("a"))
+        parents.record(Self.identity("b"), of: Self.identity("a"))
+        #expect(parents.parents == [Self.identity("b"): Self.identity("a"), Self.identity("c"): Self.identity("b")])
     }
 
     /// A recorded parent that would close a loop with the daemon's lineage is left out: the caller's
     /// workspace stays a root rather than both rows nesting under each other.
     @Test func aRecordedParentNeverLoopsWithTheDaemonsLineage() {
         // Recorded: s-caller's parent is s-opened; the daemon says s-opened was spawned by s-caller.
-        let recorded = ["s-caller": "s-opened"]
+        let recorded = [Self.identity("s-caller"): Self.identity("s-opened")]
         let lanes = ["s-opened": Self.lane("s-opened", spawnedBy: "s-caller")]
         let pass = SidebarSessionTreeFeed.pass(Self.chats(), lanes: lanes, recordedParents: recorded,
                                                localHost: Self.localHost, pullRequests: [:])
@@ -110,10 +114,29 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let first = AgentSessionParents(defaults: defaults)
-        first.record("s-caller", of: "s-opened")
-        first.record("s-spawner", of: "s-opened")
-        first.record("s-caller", of: "s-other")
+        first.record(Self.identity("s-caller"), of: Self.identity("s-opened"))
+        first.record(Self.identity("s-spawner"), of: Self.identity("s-opened"))
+        first.record(Self.identity("s-caller"), of: Self.identity("s-other"))
         let relaunched = AgentSessionParents(defaults: defaults)
-        #expect(relaunched.parents == ["s-opened": "s-spawner", "s-other": "s-caller"])
+        #expect(relaunched.parents == [Self.identity("s-opened"): Self.identity("s-spawner"),
+                                      Self.identity("s-other"): Self.identity("s-caller")])
     }
 }
+
+    @Test func sameSessionIDOnDifferentHostsResolvesRecordedParentsByHost() {
+        let parents = AgentSessionParents(defaults: nil)
+        parents.record(Self.identity("registry:a", "same-parent"), of: Self.identity("registry:a", "same-child"))
+        parents.record(Self.identity("registry:b", "same-parent"), of: Self.identity("registry:b", "same-child"))
+        let aParent = WorkspaceID("ws-a-parent"), aChild = WorkspaceID("ws-a-child")
+        let bParent = WorkspaceID("ws-b-parent"), bChild = WorkspaceID("ws-b-child")
+        let chats: [(WorkspaceID, [AgentSessionRef])] = [
+            (aParent, [AgentSessionRef(host: "registry:a", session: "same-parent")]),
+            (aChild, [AgentSessionRef(host: "registry:a", session: "same-child")]),
+            (bParent, [AgentSessionRef(host: "registry:b", session: "same-parent")]),
+            (bChild, [AgentSessionRef(host: "registry:b", session: "same-child")]),
+        ]
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], recordedParents: parents.parents,
+                                               localHost: Self.localHost, pullRequests: [:])
+        #expect(pass.state.parents[aChild] == aParent)
+        #expect(pass.state.parents[bChild] == bParent)
+    }
