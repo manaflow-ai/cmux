@@ -8,7 +8,7 @@
  * pull the text out from under the reader. Until then the viewer keeps the arrival order.
  */
 import { fileName } from "./diff-stream";
-import { FILE_KINDS, fileKind, type FileKind } from "./fileKinds";
+import { fileKind, orderByKind, type FileKind } from "./fileKinds";
 
 type KindedItem = { id: string; fileDiff?: any };
 
@@ -23,20 +23,13 @@ export function diffItemKind(item: KindedItem, generatedPaths: ReadonlySet<strin
 }
 
 /**
- * `items` in kind order. The sort is stable, so files of one kind keep the order they came in.
- * Returns the same array when every file is one kind, so the viewer re-renders nothing.
+ * `items` in kind order (fileKinds.ts `orderByKind`, which the chat's Changes view shares). The
+ * sort is stable, so files of one kind keep the order they came in. Returns the same array when
+ * every file is one kind, so the viewer re-renders nothing.
  */
 export function orderItemsByKind<T extends KindedItem>(
   items: readonly T[],
   generatedPaths: ReadonlySet<string>,
 ): readonly T[] {
-  if (items.length < 2) return items;
-  const ranked = items.map((item, index) => ({
-    item,
-    index,
-    rank: FILE_KINDS.indexOf(diffItemKind(item, generatedPaths)),
-  }));
-  if (ranked.every((entry) => entry.rank === ranked[0]!.rank)) return items;
-  ranked.sort((left, right) => left.rank - right.rank || left.index - right.index);
-  return ranked.map((entry) => entry.item);
+  return orderByKind(items, diffItemPath, generatedPaths);
 }

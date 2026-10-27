@@ -11,7 +11,7 @@ which GitHub writes, is the commit that host last compiled. Only records from th
 feat-cmux-next runs count, so a pull request cannot point a landing anywhere; a wrong or stale
 record only costs a colder compile.
 
-The order (the rulebook's routing order; no Linux builder can compile the Mac app):
+The order (the rulebook's routing order):
 1. a free owned root runner on the host whose record is nearest (fewest commits either way),
    pinned by its static label `glaeda-runner-<name>` (glaeda gives root runners one; side runners
    have none, so a side runner cannot be pinned to a host);

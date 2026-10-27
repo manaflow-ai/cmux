@@ -87,6 +87,12 @@ export type HostListRow = {
   color?: string;
   /** The key a machine's pick is under in `appearance.machineColors` (its name, trimmed and lowercased). */
   color_key?: string;
+  /**
+   * A Cloud machine cmux made: its "Dedicated agent machine" switch (acpmux vmHost), once the machine
+   * answered. Absent on every other machine (personal and SSH machines never have it). `busy`: a set is
+   * running or the machine is not reachable now; the switch is disabled.
+   */
+  vm_host?: { on: boolean; busy: boolean; error: string | null };
 };
 
 /** One browser profile row. */
@@ -426,6 +432,7 @@ export type AgentsState = {
 
 /** One Settings > Agents gesture (`cmux.settings.agents.run`). */
 export type AgentsRun =
+  | AgentsSymbolRun
   | { action: "refresh" }
   | { action: "registry"; refresh?: boolean }
   | {
@@ -443,6 +450,8 @@ export type AgentsRun =
   | { action: "doctor"; id: string; noPrompt?: boolean }
   /** A user profile's icon: a typed value, an image's base64 bytes, or Automatic (`clear`). */
   | { action: "icon"; id: string; icon?: string; data?: string; ext?: "png" | "svg"; clear?: true };
+/** The template PNG of an SF Symbol a harness icon names, as a `data:` URL (`{src}`). */
+export type AgentsSymbolRun = { action: "symbol"; name: string };
 /** One acpmux harness of Settings > Agents > Harnesses (`cmux.settings.harnesses.state`). */
 export type HarnessRow = {
   id: string;
@@ -794,6 +803,8 @@ export type SettingsOps = {
   "cmux.settings.devices.remove": [{ id: string }, { error?: string }];
   /** Native: Settings > Devices' Full access switch on a paired client machine (the person's gesture only). */
   "cmux.settings.devices.full_access": [{ id: string; on: boolean }, { error?: string }];
+  /** Native: Settings > Machines' "Dedicated agent machine" switch on a Cloud machine (on: the person's gesture only). */
+  "cmux.settings.machines.vm_host": [{ id: string; on: boolean }, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */

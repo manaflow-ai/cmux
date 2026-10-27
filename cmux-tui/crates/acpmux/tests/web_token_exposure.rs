@@ -39,6 +39,7 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
             token: None,
             // A peer token kept for a ws:// peer never leaves either.
             peer_token: Some(PEER_TOKEN.into()),
+            vm_boundary: false,
         },
     );
     cfg.peers.insert(
@@ -47,6 +48,7 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
             url: format!("ws://user:{PEER_TOKEN}@127.0.0.1:2/"),
             token: None,
             peer_token: None,
+            vm_boundary: false,
         },
     );
     cfg.store.mode = StoreMode::Memory;
