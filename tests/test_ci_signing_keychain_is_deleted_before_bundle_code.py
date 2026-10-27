@@ -34,8 +34,13 @@ statically, so a reordered step fails in review and not on a release day:
    ephemeral runner labels. The notarization scripts run in such jobs only
    with their launch smokes deferred (CMUX_DEFER_LAUNCH_SMOKES) or skipped.
    STEP_LEVEL_ONLY lists the jobs that still rely on rule 1 alone.
-7. A job that holds a signing secret runs on a literal runner label, not a
-   repository variable that could move it onto a reused machine.
+7. A job that holds a signing secret runs on an ephemeral runner (Blacksmith or
+   GitHub's hosted Linux; "blacksmith runners we can simply trust", Leo,
+   2026-10-24), never a reused machine. Its runs-on names either a literal
+   ephemeral label or one of EPHEMERAL_RUNNER_VARIABLES, whose fallback literal
+   is ephemeral too. A test cannot read a variable's live value, so
+   cmux-next-guards.yml's ci-guard-group checks it on every feat-cmux-next pull
+   request and push: pointing one of those variables at an owned mini fails it.
 
 Not covered by rule 6: other environments and credentials (artifacts,
 package registries, CI cache, Sentry, Cloudflare, Vercel, CEF R2) and a job
@@ -114,7 +119,13 @@ SMOKING_SCRIPTS = re.compile(
     r"|scripts/ci/resume-stapled-app-notarization\.sh|scripts/ci/finish-stapled-app-dmgs\.sh"
 )
 SIGNING_SECRET_REFERENCE = re.compile(r"secrets\.(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_|CONTENT_SIGNING_)")
-VARIABLE_RUNNER = re.compile(r"vars\.[A-Z0-9_]*RUNNER")
+# Rule 7. These repository variables hold only ephemeral runner labels; the
+# live-value check in cmux-next-guards.yml keeps them so. Add a variable here
+# only together with that check.
+EPHEMERAL_RUNNER_VARIABLES = ("LINUX_RUNNER", "MACOS_RUNNER_26")
+EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-)[a-z0-9.-]+$")
+RUNNER_VARIABLE = re.compile(r"vars\.([A-Za-z0-9_]+)(?:\s*\|\|\s*'([^']*)')?")
+LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "ci-guard-group")
 
 
 def commands(run: str) -> list[str]:
@@ -176,8 +187,18 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                         f"{name}: step {label!r} runs a notarization script that launches the app; "
                         "set CMUX_DEFER_LAUNCH_SMOKES: \"true\" and smoke in a job without secrets"
                     )
-    if SIGNING_SECRET_REFERENCE.search(json.dumps(job)) and VARIABLE_RUNNER.search(str(job.get("runs-on", ""))):
-        failures.append(f"{name}: holds a signing secret but picks its runner from a repository variable; use a literal ephemeral label")
+    if SIGNING_SECRET_REFERENCE.search(json.dumps(job)):
+        for variable, fallback in RUNNER_VARIABLE.findall(str(job.get("runs-on", ""))):
+            if variable not in EPHEMERAL_RUNNER_VARIABLES:
+                failures.append(
+                    f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
+                    f"ephemeral label or one of {', '.join(EPHEMERAL_RUNNER_VARIABLES)}"
+                )
+            elif fallback and not EPHEMERAL_LABEL.match(fallback):
+                failures.append(
+                    f"{name}: holds a signing secret and falls back from vars.{variable} to {fallback!r}; "
+                    "the fallback must be an ephemeral label (blacksmith-* or ubuntu-*)"
+                )
 
     text = json.dumps(job)
     if "secrets.APPLE_CERTIFICATE_BASE64" in text and name not in {
@@ -294,8 +315,26 @@ def check_scripts(failures: list[str]) -> None:
         failures.append("scripts/verify_remote_daemon_release.py: refuse --verify-cli while a signing keychain exists")
 
 
+def check_live_runner_variables(failures: list[str]) -> None:
+    """Rule 7's live half: a guard job fails when an ephemeral-only variable holds another label."""
+    path, job_name = LIVE_VALUE_CHECK
+    document = yaml.safe_load((ROOT / path).read_text(encoding="utf-8")) or {}
+    steps = ((document.get("jobs") or {}).get(job_name) or {}).get("steps") or []
+    for step in steps:
+        env = {str(k): str(v) for k, v in ((step or {}).get("env") or {}).items()}
+        run = str((step or {}).get("run", ""))
+        if all(env.get(v, "").replace(" ", "") == "${{vars.%s}}" % v for v in EPHEMERAL_RUNNER_VARIABLES) \
+                and "blacksmith-" in run and "ubuntu-" in run and "exit 1" in run:
+            return
+    failures.append(
+        f"{path} {job_name}: no step fails when {', '.join(EPHEMERAL_RUNNER_VARIABLES)} hold a label other than "
+        "blacksmith-* or ubuntu-*; signing jobs read them (rule 7)"
+    )
+
+
 def main() -> int:
     failures: list[str] = []
+    check_live_runner_variables(failures)
     signing_jobs = 0
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))

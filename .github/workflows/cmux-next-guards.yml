@@ -148,6 +148,25 @@ jobs:
             echo "::warning::no base to diff against; every routed guard group runs"
           fi
 
+      # Signing jobs (nightly.yml, cmux-tui-artifacts.yml) take their runner from these variables, so they
+      # must name ephemeral runners only: Blacksmith or GitHub's hosted Linux, never an owned mini
+      # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7). Unset falls back to a
+      # Blacksmith literal and passes.
+      - name: Runner variables that signing jobs read name ephemeral runners
+        env:
+          LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
+          MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}
+        run: |
+          bad=0
+          for name in LINUX_RUNNER MACOS_RUNNER_26; do
+            value="${!name}"
+            case "$value" in
+              ""|blacksmith-*|ubuntu-*) echo "$name=${value:-<unset>}" ;;
+              *) echo "::error::vars.$name is '$value'; signing jobs run on it, so it must be blacksmith-* or ubuntu-*"; bad=1 ;;
+            esac
+          done
+          [ "$bad" = 0 ] || exit 1
+
       # run_ci_guards.py skips ci-guards.yml's `uses:` setup steps, so this job provides their tools:
       # bun (at ci-guards.yml's pin) for preflight-agent-chat, and python3.9 beside the runner's python3
       # for release-tooling's nightly prune compatibility step (PYTHON_BIN=python3.9).
