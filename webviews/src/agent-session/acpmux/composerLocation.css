@@ -1288,9 +1288,13 @@
    in Local, SSH and Cloud sections. A section's name sits above its first row, outside the row's
    hover; each of the first nine rows ends with its ⌥⌘ digit, then the current one's check. */
 .acpmux-env-popover { min-width: 260px; }
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-section]) { position: relative; margin-top: 20px; }
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-first-section]) { margin-top: 18px; }
-.acpmux-env-row[data-section]::before {
+/* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections the same way. */
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-section]),
+.acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-section]) { position: relative; margin-top: 20px; }
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-first-section]),
+.acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-first-section]) { margin-top: 18px; }
+.acpmux-env-row[data-section]::before,
+.acpmux-location-name[data-section]::before {
   content: attr(data-section);
   position: absolute;
   top: -17px;
@@ -1337,6 +1341,16 @@
 }
 .acpmux-env-row .acpmux-env-status[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
 .acpmux-env-row .acpmux-env-status[data-connected="false"] { border: 1px solid var(--agent-muted); }
+/* A machine a chat cannot start on yet (still connecting, reconnecting, offline): greyed, its state
+   in words where the shortcut would be. */
+.acpmux-env-row[data-ready="false"],
+.acpmux-location-name[data-ready="false"] { color: var(--agent-muted); }
+.acpmux-env-row .acpmux-env-state {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--text-caption);
+}
+.acpmux-env-row .acpmux-env-state + .acpmux-location-check { margin-left: 6px; }
 /* New Cloud Machine, Move to Cloud and Bring Back Local: the name, then one quiet line of what it does. */
 .acpmux-env-new:is([data-kind="cloud"], [data-kind="local"]) .acpmux-menu-text {
   display: flex;
