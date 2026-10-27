@@ -117,19 +117,27 @@ class NightlyTrustedRouting(unittest.TestCase):
                 {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
                  'github.event_name': 'push', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
                  'vars.CI_PR_POOL_OWNED': '1', 'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
-                 'vars.CI_SEED_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6', **changes})
+                 'vars.CI_SEED_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6',
+                 # nightly-next reads pick-nightly-build-runner's owned and Blacksmith picks
+                 # (tests/test_nightly_build_runner.py covers every combination).
+                 'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
+                 'needs.pick-nightly-build-runner.outputs.dedicated': '',
+                 'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26', **changes})
         self.assertEqual(helper(), 'glaeda-side-std-xcode-26.6')
-        # The NEXT build override holds every attempt on its label; the helper never reads it, so a
-        # retry or rescue re-run leaves a busy mini for Blacksmith macOS 26.
-        self.assertEqual(helper(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-dev-std-xcode-26.6'}),
-                         'glaeda-side-std-xcode-26.6')
-        self.assertEqual(helper(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-side-std-xcode-26.6',
-                                   'github.run_attempt': 2}), 'blacksmith-6vcpu-macos-26')
+        # A retry or rescue re-run leaves a busy mini for Blacksmith macOS 26.
+        self.assertEqual(helper(**{'github.run_attempt': 2}), 'blacksmith-6vcpu-macos-26')
+        # The dedicated builder admits only build-nightly-app: the helper never takes it.
+        self.assertEqual(helper(**{'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-trusted-next-nightly',
+                                   'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-trusted-next-nightly'}),
+                         'blacksmith-6vcpu-macos-26')
         self.assertEqual(helper(**{'github.ref': 'refs/heads/main'}), 'glaeda-trusted-std-xcode-26.6')
         self.assertEqual(helper(**{'github.ref': 'refs/heads/main', 'github.event_name': 'schedule'}),
                          'glaeda-trusted-std-xcode-26.6')
-        for changes in ({'github.run_attempt': 2}, {'github.event_name': 'workflow_dispatch'},
-                        {'vars.CI_PR_POOL_OWNED': '0'}, {'vars.CI_SIDE_LANE_RUNNER': ''},
+        # A dispatch mints no routing token, so the picker offers no owned label.
+        for changes in ({'github.run_attempt': 2},
+                        {'github.event_name': 'workflow_dispatch', 'needs.pick-nightly-build-runner.outputs.owned': ''},
+                        {'github.ref': 'refs/heads/main', 'vars.CI_PR_POOL_OWNED': '0'},
+                        {'needs.pick-nightly-build-runner.outputs.owned': ''},
                         {'github.ref': 'refs/heads/main', 'vars.CI_SEED_TRUSTED_POOL': ''},
                         {'github.ref': 'refs/heads/other'}):
             with self.subTest(changes=changes):
