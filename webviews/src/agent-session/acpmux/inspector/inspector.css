@@ -129,6 +129,15 @@
 .acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
   transition: none;
 }
+
+/* A native browser/terminal pane changes the shell width outside this document. The ResizeObserver
+   writes the final Session Info shift in that same layout turn; keep the webview from starting a
+   second translate transition while the native split is still resizing. */
+.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find),
+.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-dock > *,
+.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
+  transition: none;
+}
 /* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence). Over the chat
    it travels the panel's few points. Pushing, the room it takes travels with it: entering, its right
    margin runs from minus its width (it takes no room, just past the pane's edge, which the shell
