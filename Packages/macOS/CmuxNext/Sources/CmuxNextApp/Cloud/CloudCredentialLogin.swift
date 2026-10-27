@@ -9,16 +9,17 @@ import Security
     typealias Failure = CloudCredentialTransfer.Failure
     typealias Provider = CloudCredentialTransfer.Provider
 
-    nonisolated static func name(provider: Provider, teamID: String?, userID: String) -> String {
-        let scope = SHA256.hash(data: Data((userID + ":" + (teamID ?? "personal")).utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+    nonisolated static func name(provider: Provider, teamID: String?, userID: String, machineID: String? = nil) -> String {
+        let vm = provider == .codex ? (machineID ?? "") : ""
+        let scope = SHA256.hash(data: Data((userID + ":" + (teamID ?? "personal") + ":" + vm).utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
         return "\(provider.rawValue.uppercased())_TRANSFER_\(scope)"
     }
 
-    @concurrent static func load(provider: Provider, teamID: String?, userID: String) async throws -> Data? {
+    @concurrent static func load(provider: Provider, teamID: String?, userID: String, machineID: String? = nil) async throws -> Data? {
         var result: CFTypeRef?
         let status = SecItemCopyMatching([
             kSecClass: kSecClassGenericPassword, kSecAttrService: "cmux-cloud-secret",
-            kSecAttrAccount: "*/" + name(provider: provider, teamID: teamID, userID: userID),
+            kSecAttrAccount: "*/" + name(provider: provider, teamID: teamID, userID: userID, machineID: machineID),
             kSecReturnData: true, kSecMatchLimit: kSecMatchLimitOne,
         ] as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
@@ -32,7 +33,7 @@ import Security
         return data
     }
 
-    static func store(_ value: Data, provider: Provider, teamID: String?, userID: String) async throws {
+    static func store(_ value: Data, provider: Provider, teamID: String?, userID: String, machineID: String? = nil) async throws {
         guard let binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: [:]) else { throw Failure.storeFailed }
         let envelope = try JSONSerialization.data(withJSONObject: [
             "created": Date().timeIntervalSince1970, "credential": value.base64EncodedString(),
@@ -40,7 +41,7 @@ import Security
         // The underlying store's 16 KiB bound applies to the compact envelope too.
         guard envelope.count <= 16_384 else { throw Failure.invalidCredential }
         let result = try await ProcessRunner.run(executable: binary,
-            arguments: ["cloud", "secret", "set", name(provider: provider, teamID: teamID, userID: userID)],
+            arguments: ["cloud", "secret", "set", name(provider: provider, teamID: teamID, userID: userID, machineID: machineID)],
             environment: nil, stdin: envelope, timeout: .seconds(70), clock: ContinuousClock())
         guard result.status == 0 else { throw Failure.storeFailed }
     }
@@ -94,16 +95,21 @@ import Security
         // setup-token prints its minted secret: keep ALL its output out of terminal transcripts.
         // Its browser opens normally; the parent UI displays progress while approval is pending.
         let command = provider == .claude
-            ? "CLAUDE_CONFIG_DIR=\(dir)/claude claude setup-token >\(dir)/output 2>&1"
-            : "CODEX_HOME=\(dir) codex -c 'cli_auth_credentials_store=\"file\"' login --device-auth"
+            ? "CLAUDE_CONFIG_DIR=\(dir)/claude perl -e 'alarm 300; exec @ARGV' -- claude setup-token >\(dir)/output 2>&1"
+            : "CODEX_HOME=\(dir) perl -e 'alarm 300; exec @ARGV' -- codex -c 'cli_auth_credentials_store=\"file\"' login --device-auth"
         return """
             #!/bin/bash
             umask 077
+            trap 'rm -rf -- \(dir); exit 143' INT TERM HUP
             cd \(dir) || exit 1
             unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN
             unset OPENAI_API_KEY OPENAI_BASE_URL CODEX_API_KEY CODEX_ACCESS_TOKEN
-            \(command)
-            code=$?
+            # Keep the provider's browser/Ink prompts visible in the person's terminal. The CLI
+            # itself owns what it prints; cmux never captures this transcript into diagnostics.
+            set -o pipefail
+            \(command.replacingOccurrences(of: ">\(dir)/output 2>&1", with: "2>&1 | tee \(dir)/output"))
+            code=${PIPESTATUS[0]}
+            trap - INT TERM HUP
             printf '%s' "$code" > \(dir)/status.tmp
             mv \(dir)/status.tmp \(dir)/status
             # A cancelled parent cannot own this visible terminal process; bound its lifetime and

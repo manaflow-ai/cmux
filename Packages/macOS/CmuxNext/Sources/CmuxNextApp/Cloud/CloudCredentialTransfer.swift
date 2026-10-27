@@ -24,9 +24,11 @@ import Foundation
             effects: Effects(
                 exec: { try await pinned.exec(machineID, command: $0, timeoutMs: 20_000).exitCode },
                 write: { try await pinned.writeFile(machineID, path: $0, data: $1, mode: 0o600) },
-            load: { try await CloudCredentialLogin.load(provider: provider, teamID: teamID, userID: userID) },
+            // Codex auth.json is never reused as a seed: its refresh token is VM-bound and may
+            // rotate. A new device login is required for every transfer; a broker can supersede this.
+            load: { provider == .codex ? nil : try await CloudCredentialLogin.load(provider: provider, teamID: teamID, userID: userID, machineID: machineID) },
                 acquire: { try await CloudCredentialLogin.acquire(provider: provider, openTerminal: openTerminal) },
-                store: { try await CloudCredentialLogin.store($0, provider: provider, teamID: teamID, userID: userID) }))
+                store: { try await CloudCredentialLogin.store($0, provider: provider, teamID: teamID, userID: userID, machineID: machineID) }))
     }
 
     struct Effects {

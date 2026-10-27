@@ -120,6 +120,10 @@ struct CloudCredentialTransferTests {
         if provider == .claude { #expect((object?["env"] as? [String: String])?["CLAUDE_CODE_OAUTH_TOKEN"] == String(decoding: Self.token, as: UTF8.self)) }
         else { #expect((object?["tokens"] as? [String: String])?["refresh_token"] == "refresh") }
         #expect(try String(contentsOf: home.appendingPathComponent(".config/cmux/agent-auth/\(provider.rawValue)"), encoding: .utf8) == "own\n")
+        if provider == .claude {
+            let credentials = try JSONSerialization.jsonObject(with: Data(contentsOf: home.appendingPathComponent(".claude/.credentials.json"))) as? [String: Any]
+            #expect(credentials?["claudeAiOauth"] != nil)
+        }
     }
 
     static func pythonLiteral(_ value: String) -> String { CloudCredentialInstaller.quote(value) }

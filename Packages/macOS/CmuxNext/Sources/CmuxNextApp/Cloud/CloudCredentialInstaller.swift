@@ -65,6 +65,9 @@ nonisolated enum CloudCredentialInstaller {
                 if 'apiKeyHelper' in config or any(env.get(k) for k in conflicts): raise ValueError()
                 env['CLAUDE_CODE_OAUTH_TOKEN'] = value
                 save(settings, json.dumps(config))
+                # The image launcher checks this standard Claude login marker before starting
+                # Claude; keep the token in the same private 0600 file so the next launch selects own.
+                save(home / '.claude/.credentials.json', json.dumps({'claudeAiOauth': {'accessToken': value}}))
             elif provider == 'codex':
                 config = home / '.codex/config.toml'
                 if config.is_symlink(): raise ValueError()
