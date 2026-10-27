@@ -204,6 +204,11 @@ let packageProducts: [Product] = [
 
 let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
+            name: "CmuxNextCloudCredentials",
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .target(
             name: "CmuxNextAppCore",
             dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextSidebar"],
             swiftSettings: daemonSwiftSettings
@@ -212,6 +217,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextAppCore",
+                "CmuxNextCloudCredentials",
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
                 "CmuxNextFavicons",
@@ -965,6 +971,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextChiefViews",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCloudCredentials",
                 "CmuxNextActions",
                 "CmuxNextAgentActivity",
                 "CmuxNextBridge",
