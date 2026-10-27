@@ -37,7 +37,7 @@ final class ExtensionActionToolbar {
     }()
     /// The Extensions bubble (Chrome's `ExtensionsMenuView`).
     private(set) lazy var menuController: ExtensionsMenuController = {
-        let controller = ExtensionsMenuController(mainWork: mainWork)
+        let controller = ExtensionsMenuController(work: work, mainWork: mainWork)
         controller.onShownChange = { view, shown in (view as? ChromeIconButton)?.isMenuOpen = shown }
         controller.toggleView = { [weak self] in
             guard let self else { return nil }
@@ -72,9 +72,11 @@ final class ExtensionActionToolbar {
 
     /// The app's scheduler and the tab's node (nil: node-free): the toolbar renders at its frames while the tab shows.
     private let mainWork: MainWorkScheduler, node: VisibilityNode?
+    /// Reads and decodes the extensions' icons off the main thread.
+    private let work: BackgroundWork
 
-    init(slot: NSStackView, mainWork: MainWorkScheduler, node: VisibilityNode?) {
-        (self.slot, self.mainWork, self.node) = (slot, mainWork, node)
+    init(slot: NSStackView, work: BackgroundWork, mainWork: MainWorkScheduler, node: VisibilityNode?) {
+        (self.slot, self.work, self.mainWork, self.node) = (slot, work, mainWork, node)
         trampoline.action = { [weak self] in self?.showMenu() }
     }
 
@@ -348,7 +350,7 @@ final class ExtensionActionToolbar {
     }
 
     private func makeButton(for id: String) -> ExtensionActionButton {
-        let button = ExtensionActionButton(actionID: id)
+        let button = ExtensionActionButton(actionID: id, work: work, mainWork: mainWork)
         button.onRun = { [weak self] in self?.run(id) }
         button.onMenu = { [weak self] _ in self?.showItemMenu(id) }
         button.canDrag = { [weak self] in self?.host?.extensionStore.supportsPinnedOrder == true }

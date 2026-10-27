@@ -20,7 +20,7 @@ import Testing
                                url: URL? = URL(string: "https://example.com/")) -> BrowserChromeView {
         let engine = MockBrowserEngine()
         let tab = engine.makeMockTab(BrowserTabConfiguration(initialURL: url))
-        let chrome = BrowserChromeView(tab: tab, mainWork: work, node: node)
+        let chrome = BrowserChromeView(tab: tab, work: BackgroundWork(label: "test.browser-chrome"), mainWork: work, node: node)
         chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         return chrome
     }
@@ -157,7 +157,7 @@ import Testing
         rig.timer.run(ms: 10_000)
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: nil))
         tab.showsExtensionToolbar = true
-        let toolbar = ExtensionActionToolbar(slot: NSStackView(), mainWork: rig.work, node: node)
+        let toolbar = ExtensionActionToolbar(slot: NSStackView(), work: BackgroundWork(label: "test.extensions-toolbar"), mainWork: rig.work, node: node)
         let owner = "browser.extensions.menu.prepare"
 
         toolbar.bind(tab)
@@ -185,7 +185,7 @@ import Testing
         let (window, anchor) = ExtensionsMenuPerformanceTests.window()
         defer { window.close() }
         let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
-        let controller = ExtensionsMenuController(mainWork: rig.work)
+        let controller = ExtensionsMenuController(work: BackgroundWork(label: "test.extensions-menu"), mainWork: rig.work)
         let before = tab.extensionBackend.snapshots
 
         controller.show(host: tab, handler: handler, anchor: anchor)

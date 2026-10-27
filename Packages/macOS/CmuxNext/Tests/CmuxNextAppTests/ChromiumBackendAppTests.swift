@@ -17,7 +17,7 @@ import Testing
     func aChromiumPageIsAChildWindowOnlyInProcess(hostMode: Bool) throws {
         let rig = try Rig(hostMode: hostMode)
         defer { rig.close() }
-        let content = TabContent.browser(BrowserEntry(tab: rig.tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil))
+        let content = TabContent.browser(BrowserEntry(tab: rig.tab, work: BackgroundWork(label: "test.browser-entry"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil))
 
         #expect(rig.tab.presentation == (hostMode ? .inView : .childWindow))
         #expect(content.chromiumTab === rig.tab, "a Chromium tab takes the keys as a Chromium page in either backend")
@@ -30,7 +30,7 @@ import Testing
 
     @Test func aWebKitTabIsNoChromiumTab() {
         let tab = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
-        let content = TabContent.browser(BrowserEntry(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil))
+        let content = TabContent.browser(BrowserEntry(tab: tab, work: BackgroundWork(label: "test.browser-entry"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil))
         #expect(content.chromiumTab == nil)
         #expect(content.childWindowTab == nil)
     }

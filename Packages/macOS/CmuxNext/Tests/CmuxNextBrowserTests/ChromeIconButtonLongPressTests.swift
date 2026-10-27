@@ -53,7 +53,7 @@ struct ChromeIconButtonLongPressTests {
                 tab.navigation = BrowserNavigationList(entries: entries, current: 1)
             }
             self.tab = tab
-            chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+            chrome = BrowserChromeView(tab: tab, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
             window.isReleasedWhenClosed = false
             chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
             window.contentView = chrome

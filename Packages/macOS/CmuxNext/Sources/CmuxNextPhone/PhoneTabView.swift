@@ -125,8 +125,8 @@ public final class PhoneTabView: NSView {
             do {
                 let url = try await service.frame(device.id)
                 let data = try await Self.read(url)
-                guard !Task.isCancelled, let image = NSImage(data: data) else { return }
-                self?.screen.show(image: image)
+                guard !Task.isCancelled, let frame = await Self.decode(data), !Task.isCancelled else { return }
+                self?.screen.show(image: NSImage(cgImage: frame, size: .zero))
             } catch {
                 self?.show(error)
             }
@@ -135,6 +135,12 @@ public final class PhoneTabView: NSView {
 
     nonisolated private static func read(_ url: URL) async throws -> Data {
         try Data(contentsOf: url)
+    }
+
+    /// The frame's pixels, decoded off the main thread (a phone screen is megabytes of pixels), so the screen
+    /// view's layer shows them without a decode (p03-rendering-121).
+    @concurrent nonisolated private static func decode(_ data: Data) async -> CGImage? {
+        blockingImageDecode(data)
     }
 
     func show(_ error: any Error) {

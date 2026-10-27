@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// A page's cursor as the Chromium Host reports it (`CMUX_SHIM_CURSOR`; task 045 of
 /// plans/cmux-next/chrome-parity/p01-process.md): a `cef_cursor_type_t`, or a CSS cursor image.
@@ -120,11 +121,13 @@ nonisolated enum CEFPageCursor: Equatable, Sendable {
     @MainActor private static let hidden = NSCursor(image: NSImage(size: NSSize(width: 1, height: 1)), hotSpot: .zero)
 
     /// An image cursor sized in points (pixels / scale), its hotspot too, as Chrome's
-    /// `CreateCustomCursor`; nil when the PNG does not decode.
+    /// `CreateCustomCursor`; nil when the PNG does not decode. The PNG decodes here, in the checked
+    /// seam, not at the cursor's first draw: Blink drops a cursor image past 128 DIPs a side
+    /// (`kMaximumCursorSize`, third_party/blink/renderer/core/input/event_handler.cc), so even at 2x
+    /// it stays within the main thread's image gate.
     @MainActor private static func imageCursor(png: Data, scale: Double, hotspotX: Int32, hotspotY: Int32) -> NSCursor? {
-        guard let image = NSImage(data: png), let rep = image.representations.first,
-              rep.pixelsWide > 0, rep.pixelsHigh > 0, scale > 0 else { return nil }
-        image.size = NSSize(width: Double(rep.pixelsWide) / scale, height: Double(rep.pixelsHigh) / scale)
+        guard let bitmap = blockingImageDecode(png), bitmap.width > 0, bitmap.height > 0, scale > 0 else { return nil }
+        let image = NSImage(cgImage: bitmap, size: NSSize(width: Double(bitmap.width) / scale, height: Double(bitmap.height) / scale))
         return NSCursor(image: image, hotSpot: NSPoint(x: Double(hotspotX) / scale, y: Double(hotspotY) / scale))
     }
 }

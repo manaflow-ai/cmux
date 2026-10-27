@@ -167,7 +167,7 @@ import CmuxNextWakeups
     static func chrome(width: CGFloat = 900) -> BrowserChromeView {
         let engine = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: true)
         let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
-        let chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+        let chrome = BrowserChromeView(tab: page, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = NSRect(x: 0, y: 0, width: width, height: 600)
         chrome.layoutSubtreeIfNeeded()
         return chrome

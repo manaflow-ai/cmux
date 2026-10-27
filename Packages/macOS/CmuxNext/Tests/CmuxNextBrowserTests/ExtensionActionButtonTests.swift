@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
 import Testing
 
 /// An extension action's press, drag and release from the button's own mouse events (p04-input-069): before,
@@ -10,7 +11,8 @@ struct ExtensionActionButtonTests {
     @MainActor private final class Harness {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        let button = ExtensionActionButton(actionID: "ext")
+        let button = ExtensionActionButton(actionID: "ext", work: BackgroundWork(label: "test.extension-button"),
+                                           mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         var runs = 0
         var moves: [CGFloat] = []
         var ends: [CGFloat] = []

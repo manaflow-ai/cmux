@@ -49,7 +49,7 @@ import CmuxNextWakeups
             window.contentView = pane
             window.orderFrontRegardless()
             page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
-            chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+            chrome = BrowserChromeView(tab: page, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
             pane.show(chrome)
             pane.layoutSubtreeIfNeeded()
         }

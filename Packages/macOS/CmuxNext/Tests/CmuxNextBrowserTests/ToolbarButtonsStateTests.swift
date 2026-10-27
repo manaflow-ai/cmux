@@ -90,7 +90,7 @@ import CmuxNextWakeups
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let tab = Self.chromiumTab([Self.action("a", pinned: true), Self.action("b", pinned: true)])
-        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+        let chrome = BrowserChromeView(tab: tab, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = Self.window(chrome)
         defer { window.close() }
         await Self.settle()
@@ -108,7 +108,7 @@ import CmuxNextWakeups
           arguments: ["close", "toggle", "manage", "dismiss"])
     func theExtensionsButtonIsPressedOnlyWhileItsBubbleIsOpen(_ path: String) async throws {
         let tab = Self.chromiumTab([Self.action("a", pinned: false)])
-        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+        let chrome = BrowserChromeView(tab: tab, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = Self.window(chrome)
         defer { window.close() }
         await Self.settle()
@@ -131,7 +131,7 @@ import CmuxNextWakeups
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let tab = Self.chromiumTab([Self.action("a", pinned: true), Self.action("b", pinned: false)])
-        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+        let chrome = BrowserChromeView(tab: tab, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = Self.window(chrome)
         defer { window.close() }
         await Self.settle()
@@ -146,7 +146,7 @@ import CmuxNextWakeups
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let tab = Self.chromiumTab([Self.action("a", pinned: true), Self.action("b", pinned: true)])
-        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+        let chrome = BrowserChromeView(tab: tab, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = Self.window(chrome)
         defer { window.close() }
         await Self.settle()
@@ -161,7 +161,7 @@ import CmuxNextWakeups
     @Test func aPinToggleRendersWithinAFrame() async throws {
         let pinned = (0..<6).map { Self.action("e\($0)", pinned: true) }
         let tab = Self.chromiumTab(pinned + [Self.action("x", pinned: false)])
-        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+        let chrome = BrowserChromeView(tab: tab, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = Self.window(chrome)
         defer { window.close() }
         await Self.settle()

@@ -13,7 +13,7 @@ import CmuxNextWakeups
     static func chrome(loading address: String) -> BrowserChromeView {
         let engine = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false)
         let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: address)))
-        let chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+        let chrome = BrowserChromeView(tab: page, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         chrome.layoutSubtreeIfNeeded()
         #expect(page.state.isLoading, "the page is still loading when the tab first shows")
@@ -55,7 +55,7 @@ import CmuxNextWakeups
     @Test func aPageOpenedFromTheNewTabPageShowsItsLoadBeforeItCommits() async {
         let engine = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false)
         let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: BrowserNewTabPage.chromiumURL)))
-        let chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+        let chrome = BrowserChromeView(tab: page, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         chrome.layoutSubtreeIfNeeded()
         let newTab = page.state.activeNavigation!

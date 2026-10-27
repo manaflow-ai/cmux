@@ -11,8 +11,8 @@ import CmuxNextWakeups
 /// - the bubble opens at once with the store's current list; the Chromium round trip that
 ///   refreshes it runs on the next main-actor turn and only changed rows re-render;
 /// - rows are kept between opens and laid out by frames, without Auto Layout;
-/// - icons are decoded once per file (``ExtensionIconCache``), and manifests are read once per
-///   extension folder, off the main thread (``ExtensionManifestCache``);
+/// - icons are read and decoded once per file (``ExtensionIconCache``), and manifests are read once
+///   per extension folder, off the main thread (``ExtensionManifestCache``);
 /// - the "more options" menu opens over the bubble, which stays open, instead of closing one
 ///   `NSMenu` (with its fade) and opening another.
 ///
@@ -31,7 +31,7 @@ final class ExtensionsMenuController {
     }
 
     let content: ExtensionsMenuView
-    let icons = ExtensionIconCache()
+    let icons: ExtensionIconCache
     let manifests = ExtensionManifestCache()
     private let card: ExtensionsMenuCardView
     private let panel = ExtensionsMenuPanel()
@@ -68,9 +68,11 @@ final class ExtensionsMenuController {
 
     private var observedInputs: RenderInputs?
 
-    init(style: ExtensionsMenuStyle = .standard, mainWork: MainWorkScheduler) {
+    /// `work` reads and decodes the extensions' icons off the main thread.
+    init(style: ExtensionsMenuStyle = .standard, work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.style = style
         self.mainWork = mainWork
+        icons = ExtensionIconCache(side: style.extensionIcon, work: work, mainWork: mainWork)
         content = ExtensionsMenuView(style: style)
         card = ExtensionsMenuCardView(content: content, style: style)
         popup = NativePopupHost(panel: panel)
@@ -82,6 +84,7 @@ final class ExtensionsMenuController {
         }
         popup.onDismiss = { [weak self] in self?.closed() }
         manifests.onLoad = { [weak self] in self?.render() }
+        icons.onLoad = { [weak self] in self?.render() }
         content.actions = ExtensionsMenuView.Actions(
             run: { [weak self] id in self?.run(id) },
             // A side panel extension without a popup opens its panel from its action
@@ -218,10 +221,10 @@ final class ExtensionsMenuController {
         let listed = Self.listed(host)
         manifests.load(listed)
         let before = content.frame.size
-        content.update(listed.map { info in
+        content.update(zip(listed, icons.images(for: listed, pngs: pngs)).map { info, icon in
             let facts = manifests.facts(for: info)
             return ExtensionsMenuView.Entry(
-                info: info, icon: icons.image(for: info, png: pngs[info.id] ?? nil), access: ExtensionSiteAccess(facts, url: url),
+                info: info, icon: icon, access: ExtensionSiteAccess(facts, url: url),
                 canPin: info.hasAction && store.supportsManagement,
                 hasSidePanel: Self.opensSidePanel(info, facts: facts),
                 // The Web Store lists only uBlock Origin Lite; the full one ships inside cmux.

@@ -15,10 +15,11 @@ extension TabContentCache {
     convenience init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
                      afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
                      resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
-                     terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler,
+                     terminalPointerFrames: FrameInputCoalescers? = nil, work: BackgroundWork = BackgroundWork(label: "test.tab-content"),
+                     mainWork: MainWorkScheduler,
                      imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil) {
         self.init(daemon: daemon, chromium: chromium, fileInput: fileInput, afterFrame: afterFrame, resizes: resizes,
-                  terminalModifiers: terminalModifiers, terminalPointerFrames: terminalPointerFrames, mainWork: mainWork,
+                  terminalModifiers: terminalModifiers, terminalPointerFrames: terminalPointerFrames, work: work, mainWork: mainWork,
                   deadlines: MainDeadlineScheduler(work: mainWork), appEvents: AppEvents(center: NotificationCenter()),
                   imageCaches: imageCaches, gpuResidency: gpuResidency)
     }

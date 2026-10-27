@@ -92,6 +92,8 @@ final class HomeRecipientAvatarView: NSView {
                     kCGImageSourceCreateThumbnailFromImageAlways: true,
                     kCGImageSourceCreateThumbnailWithTransform: true,
                     kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+                    // Decoded here, off the main thread, not at the disc's first draw.
+                    kCGImageSourceShouldCacheImmediately: true,
                 ])
             }.value
             guard let cgImage else { return }

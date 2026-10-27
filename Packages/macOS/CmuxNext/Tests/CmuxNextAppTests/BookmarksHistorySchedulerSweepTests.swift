@@ -131,7 +131,7 @@ struct BookmarksHistorySchedulerSweepTests {
         window.contentView?.addSubview(bar)
         bar.source = builds
         let tab = VisibilityNode(root: "test.tab", own: .hidden)
-        let entry = BrowserEntry(tab: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab(), mainWork: services.mainWork, node: nil)
+        let entry = BrowserEntry(tab: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab(), work: BackgroundWork(label: "test.browser-entry"), mainWork: services.mainWork, node: nil)
         let chrome = BookmarkService.WeakChrome(entry: entry, bar: bar,
                                                 source: BookmarkBarSourceAdapter(service: bookmarks, tabKey: "test.tab"), node: tab)
         let start = builds.count

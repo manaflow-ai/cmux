@@ -92,7 +92,7 @@ import CmuxNextWakeups
         let (window, anchor) = Self.window()
         defer { window.close() }
         let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
-        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let controller = ExtensionsMenuController(work: BackgroundWork(label: "test.extensions-menu"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         // The toolbar prepares the rows and the panel when a tab binds, off the click's path.
         let prepare = Self.mainThreadCPU { controller.prepare(host: tab) }
         let first = Self.mainThreadCPU { controller.show(host: tab, handler: handler, anchor: anchor) }
@@ -115,7 +115,7 @@ import CmuxNextWakeups
         let (window, anchor) = Self.window()
         defer { window.close() }
         let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
-        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let controller = ExtensionsMenuController(work: BackgroundWork(label: "test.extensions-menu"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.show(host: tab, handler: handler, anchor: anchor)
         try #require(controller.isShown, "\(Self.environment(window))")
         #expect(controller.icons.loads == Self.count)
@@ -130,7 +130,7 @@ import CmuxNextWakeups
         let tab = Self.tab()
         let (window, anchor) = Self.window()
         defer { window.close() }
-        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let controller = ExtensionsMenuController(work: BackgroundWork(label: "test.extensions-menu"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.show(host: tab, handler: ExtensionsMenu.DirectHandler(host: tab) { _ in }, anchor: anchor)
         try #require(controller.isShown, "\(Self.environment(window))")
         let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
@@ -158,7 +158,7 @@ import CmuxNextWakeups
         let (window, anchor) = Self.window()
         defer { window.close() }
         let before = tab.extensionBackend.snapshots
-        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let controller = ExtensionsMenuController(work: BackgroundWork(label: "test.extensions-menu"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.show(host: tab, handler: ExtensionsMenu.DirectHandler(host: tab) { _ in }, anchor: anchor)
         try #require(controller.isShown, "\(Self.environment(window))")
         #expect(tab.extensionBackend.snapshots == before, "the open asked Chromium for the list before it showed")

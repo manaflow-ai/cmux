@@ -26,7 +26,7 @@ import CmuxNextWakeups
         let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: nil))
         let entries = (0...back).map { BrowserNavigationEntry(url: URL(string: "https://example.com/\($0)"), title: "Page \($0)") }
         tab.navigation = BrowserNavigationList(entries: entries, current: back)
-        return (BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil), tab)
+        return (BrowserChromeView(tab: tab, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil), tab)
     }
 
     @Test func reloadMenuRowsAreNativeAndRun() throws {

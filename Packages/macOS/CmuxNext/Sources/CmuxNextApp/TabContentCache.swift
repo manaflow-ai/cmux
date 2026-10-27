@@ -33,7 +33,7 @@ final class TabContentCache {
     /// Given to every terminal session this cache makes: the windows' frame-aligned pointer input (feature
     /// `terminalPointerFrames`); nil: each pointer event reaches Ghostty at once.
     let terminalPointerFrames: FrameInputCoalescers?
-    let mainWork: MainWorkScheduler
+    let mainWork: MainWorkScheduler, work: BackgroundWork
     var terminals: [String: TerminalEntry] = [:] { didSet { pageRequests.services?.crashKeys?.noteTerminals(terminals.count) } }
     var browsers: [String: BrowserEntry] = [:] {
         didSet {
@@ -201,6 +201,7 @@ final class TabContentCache {
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
     ///   - terminalPointerFrames: The windows' pointer coalescers while `terminalPointerFrames` is on; nil otherwise.
+    ///   - work: The app's background lanes (`AppServices.work`), for its browser chrome (extension icons decode there).
     ///   - mainWork: The app's main-thread scheduler, for every terminal session it makes.
     ///   - deadlines: The app's one `MainDeadline` placer on `mainWork` (`AppServices.mainDeadlines`), for its WebKit tabs.
     ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`), for its WebKit tabs' app-wide notices.
@@ -212,10 +213,10 @@ final class TabContentCache {
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
-         terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
-         appEvents: AppEvents, imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil,
-         webKitProcessReuse: WebKitProcessReuse? = nil) {
-        self.imageCaches = imageCaches
+         terminalPointerFrames: FrameInputCoalescers? = nil, work: BackgroundWork, mainWork: MainWorkScheduler,
+         deadlines: MainDeadlineScheduler, appEvents: AppEvents, imageCaches: ImageCacheShares = .legacy,
+         gpuResidency: (any TerminalGPUResidency)? = nil, webKitProcessReuse: WebKitProcessReuse? = nil) {
+        (self.imageCaches, self.work) = (imageCaches, work)
         previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable)
         internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy)
         pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes, contents: .onlyCopy)
@@ -453,7 +454,7 @@ final class TabContentCache {
         (page as? CEFTab)?.devToolsObserver = self
         let incognito = chromium.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
-                                 history: incognito?.history ?? history(for: page.profileID), mainWork: mainWork, node: node(for: key))
+                                 history: incognito?.history ?? history(for: page.profileID), work: work, mainWork: mainWork, node: node(for: key))
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         mount(entry, as: key)
         return entry

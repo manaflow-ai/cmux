@@ -19,7 +19,7 @@ import CmuxNextWakeups
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
-            chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+            chrome = BrowserChromeView(tab: page, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
             chrome.frame = window.contentLayoutRect
             window.contentView = chrome
             window.orderFrontRegardless()

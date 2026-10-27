@@ -63,7 +63,7 @@ import CmuxNextWakeups
         let (window, anchor) = ExtensionsMenuPerformanceTests.window()
         defer { window.close() }
         let recorder = Recorder()
-        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let controller = ExtensionsMenuController(work: BackgroundWork(label: "test.extensions-menu"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.show(host: tab, handler: recorder, anchor: anchor)
         try #require(controller.isShown, "\(ExtensionsMenuPerformanceTests.environment(window))")
         let unpinned = try #require(controller.content.rows.first { !$0.isPinned })
@@ -80,7 +80,7 @@ import CmuxNextWakeups
         let tab = ExtensionsMenuPerformanceTests.tab(extensions: 2)
         let (window, anchor) = ExtensionsMenuPerformanceTests.window()
         defer { window.close() }
-        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let controller = ExtensionsMenuController(work: BackgroundWork(label: "test.extensions-menu"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.show(host: tab, handler: Recorder(), anchor: anchor)
         try #require(controller.isShown, "\(ExtensionsMenuPerformanceTests.environment(window))")
         let order = controller.content.focusOrder

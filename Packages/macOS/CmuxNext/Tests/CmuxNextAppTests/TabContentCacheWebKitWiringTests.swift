@@ -15,8 +15,8 @@ import Testing
         let deadlines = MainDeadlineScheduler(work: mainWork)
         let events = AppEvents(center: NotificationCenter())
         let engine = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())
-        let cache = TabContentCache(daemon: DaemonService(), chromium: ChromiumEngineSlot(engine), fileInput: NoFileInput(), mainWork: mainWork,
-                                    deadlines: deadlines, appEvents: events)
+        let cache = TabContentCache(daemon: DaemonService(), chromium: ChromiumEngineSlot(engine), fileInput: NoFileInput(),
+                                    work: BackgroundWork(label: "test.tab-content"), mainWork: mainWork, deadlines: deadlines, appEvents: events)
         #expect(cache.webKit.deadlines === deadlines, "the WebKit tabs' deadlines are not on the app's one placer")
         #expect(cache.webKit.mainWork === mainWork)
         #expect(cache.webKit.appEvents === events, "the WebKit tabs follow app notices on an AppEvents of their own")

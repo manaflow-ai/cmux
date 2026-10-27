@@ -109,8 +109,14 @@ public final class AgentActivitySocketSource: AgentActivitySource {
 
     public func image(for frame: AgentActivityFrameRef) async -> NSImage? {
         guard let reply = try? await request("activity_frame", ["blob": frame.blob, "size": "thumb"]),
-              let base64 = reply["data_base64"] as? String, let data = Data(base64Encoded: base64) else { return nil }
-        return blockingNSImage(data)
+              let base64 = reply["data_base64"] as? String, let data = Data(base64Encoded: base64),
+              let frame = await Self.decode(data) else { return nil }
+        return NSImage(cgImage: frame, size: .zero)
+    }
+
+    /// A frame's pixels, decoded off the main thread (p03-rendering-121).
+    @concurrent private nonisolated static func decode(_ data: Data) async -> CGImage? {
+        blockingImageDecode(data)
     }
 
     public func perform(_ op: AgentActivityUserOp) async throws {

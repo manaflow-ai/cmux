@@ -73,7 +73,7 @@ import CmuxNextWakeups
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+        let chrome = BrowserChromeView(tab: tab, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = window.contentLayoutRect
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()

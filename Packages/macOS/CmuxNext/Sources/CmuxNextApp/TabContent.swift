@@ -185,12 +185,13 @@ final class BrowserEntry {
     /// Owns the chrome's (weak) Extensions menu handler.
     var extensionMenuHandler: (any ExtensionMenuHandling)?
 
-    /// `mainWork` is the app's one main-thread scheduler; `node` the tab's (`TabContentCache.node(for:)`).
+    /// `work` is the app's background lanes; `mainWork` the app's one main-thread scheduler; `node` the tab's
+    /// (`TabContentCache.node(for:)`).
     init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil,
-         mainWork: MainWorkScheduler, node: VisibilityNode?) {
+         work: BackgroundWork, mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.tab = tab
         if let node { (tab as? any BrowserTabNodeAdopting)?.adoptNode(node) }
-        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, mainWork: mainWork, node: node)
+        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, work: work, mainWork: mainWork, node: node)
         chrome.history = history
         // Shortcuts route through the action registry (browser* actions).
         chrome.handlesDefaultShortcuts = false

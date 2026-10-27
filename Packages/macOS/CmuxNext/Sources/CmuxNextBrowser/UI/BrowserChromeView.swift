@@ -92,6 +92,8 @@ public final class BrowserChromeView: NSView {
     lazy var pageOverlays = PageFloatingOverlays(page: contentContainer)
     /// The app's scheduler, and the tab's node (nil: node-free, as in a debug window or a test).
     let mainWork: MainWorkScheduler, node: VisibilityNode?
+    /// The app's background lanes.
+    let work: BackgroundWork
     /// The node the chrome's view work waits on (R-appear, R-hide): the tab's, or with no tab node a root
     /// that stays visible, so that work runs at once as before. The address bar and the toolbar buttons
     /// share it.
@@ -116,7 +118,7 @@ public final class BrowserChromeView: NSView {
     public internal(set) var isOmnibarHidden = false
     private let density = DensityBinding()
     lazy var extensionToolbar: ExtensionActionToolbar = {
-        let toolbar = ExtensionActionToolbar(slot: extensionSlot, mainWork: mainWork, node: node)
+        let toolbar = ExtensionActionToolbar(slot: extensionSlot, work: work, mainWork: mainWork, node: node)
         toolbar.onPinnedCountChange = { [weak self] in self?.applyToolbarLayout() }
         // An extension popup opened while the Extensions button is not placed anchors at More.
         toolbar.menuAnchor = { [weak self] in self?.toolbarButtons.anchor(for: .overflow) }
@@ -162,9 +164,11 @@ public final class BrowserChromeView: NSView {
     public var onPageFinished: ((URL) -> Void)?
     var finishedURL: URL?
 
-    /// `mainWork` is the app's one main-thread scheduler; `node` the tab's (`TabContentCache.node(for:)`).
-    public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), mainWork: MainWorkScheduler, node: VisibilityNode?) {
-        (self.tab, self.mainWork, self.node) = (tab, mainWork, node)
+    /// `work` is the app's background lanes (the extension icons decode there); `mainWork` the app's one main-thread
+    /// scheduler; `node` the tab's (`TabContentCache.node(for:)`).
+    public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), work: BackgroundWork,
+                mainWork: MainWorkScheduler, node: VisibilityNode?) {
+        (self.tab, self.work, self.mainWork, self.node) = (tab, work, mainWork, node)
         visibilityNode = node ?? VisibilityNode(root: "browser.chrome.standalone", own: .visible)
         let find = BrowserFindModel()
         self.find = find

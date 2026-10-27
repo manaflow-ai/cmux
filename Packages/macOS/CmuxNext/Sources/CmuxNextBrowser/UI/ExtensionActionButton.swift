@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// One extension action: Chromium's icon, which already carries the badge
 /// and the disabled look laid out on the whole button, with gray hover
@@ -24,9 +25,18 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
     private var hover: PointerHover?
     private var isHovering: Bool { hover?.isHovering ?? false }
     var isPointerHovering: Bool { isHovering }
+    /// Decodes the action's icon off the main thread; `mainWork` takes it back.
+    private let work: BackgroundWork
+    private let mainWork: MainWorkScheduler
+    /// The PNG on its way (`work`): a later icon drops an earlier one's arrival.
+    private var decoding: Data?
+    /// The action's decoded icon, unsized.
+    private var decodedIcon: CGImage?
 
-    init(actionID: String) {
+    init(actionID: String, work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.actionID = actionID
+        self.work = work
+        self.mainWork = mainWork
         super.init(frame: .zero)
         isBordered = false
         bezelStyle = .regularSquare
@@ -47,7 +57,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
             if side != OmnibarStyle.buttonSize { side = OmnibarStyle.buttonSize; invalidateIntrinsicContentSize() }
             layer?.cornerRadius = OmnibarStyle.buttonCornerRadius
             // The icon is sized for the density.
-            if let shown { applyIcon(shown) }
+            if shown != nil { showIcon() }
             needsLayout = true
         }
         density.start(in: self)
@@ -66,7 +76,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         guard action != shown else { return }
         let iconChanged = action.iconPNG != shown?.iconPNG || image == nil
         shown = action
-        if iconChanged { applyIcon(action) }
+        if iconChanged { loadIcon(action.iconPNG) }
         themedToolTip = action.title.isEmpty ? action.name : action.title
         setAccessibilityLabel(action.name)
         // The badge is in the icon; VoiceOver reads it as the value.
@@ -74,15 +84,40 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         isEnabled = action.isEnabled
     }
 
-    private func applyIcon(_ action: CEFExtensionAction) {
-        // The extension's own image keeps its size (the bar's height) in the larger button.
-        let size = OmnibarStyle.barHeight
-        if let data = action.iconPNG, let icon = blockingNSImage(data) {
-            icon.size = NSSize(width: size, height: size)
-            image = icon
+    /// Decodes `png` on `work`'s `.cpu` lane and shows it when it comes; the icon shown stays
+    /// until then (the puzzle piece before the first one).
+    private func loadIcon(_ png: Data?) {
+        guard let png else {
+            (decoding, decodedIcon) = (nil, nil)
+            showIcon()
+            return
+        }
+        guard png != decoding else { return }
+        decoding = png
+        if image == nil { showIcon() }
+        // The size Chromium draws the icon at (``CEFExtensionAction/iconPixels``): a larger PNG is scaled down once.
+        let pixels = Int(CEFExtensionAction.iconPixels)
+        work.run(.userVisible, mayBlock: .cpu) {
+            IconAssetDecode.thumbnail(png, types: IconAssetDecode.bitmapTypes, maxPixelSize: pixels)
+        }.reply(on: mainWork, class: .visible, owner: "ExtensionActionButton.icon") { [weak self] bitmap in
+            self?.decoded(bitmap, from: png)
+        }
+    }
+
+    private func decoded(_ bitmap: CGImage?, from png: Data) {
+        guard png == decoding else { return }
+        (decoding, decodedIcon) = (nil, bitmap)
+        showIcon()
+    }
+
+    /// The decoded icon at the bar's height (its size in the larger button), else Chrome's puzzle
+    /// piece. A density change only resizes it.
+    private func showIcon() {
+        if let decodedIcon {
+            image = IconAssetDecode.image(decodedIcon, points: OmnibarStyle.barHeight)
         } else {
             let icon = NSImage.icon(.browserToolbarExtensions, size: OmnibarStyle.toolbarIconSize)
-            icon.accessibilityDescription = action.name
+            icon.accessibilityDescription = shown?.name
             image = icon
         }
     }

@@ -1,10 +1,16 @@
+package import AppKit
 import CmuxNextCompat
 package import Foundation
 package import ImageIO
 package import UniformTypeIdentifiers
 
-/// The one way the app decodes icon asset bytes it did not draw itself (a download, a daemon's
-/// blob): only the named formats, only up to a sane pixel count, never cached by ImageIO.
+/// The one way the app decodes icon and picture bytes it did not draw itself (a download, a daemon's
+/// blob, an extension's icon): only the named formats, only up to a sane pixel count, with no source
+/// kept in ImageIO's cache, and decoded to pixels at the target size where it runs, so the layer that shows the
+/// image draws it without a decode. Callers run it off the main thread (a BackgroundWork lane, an
+/// `@concurrent` function) and hand the image to the main thread, as Chrome's extension
+/// `ImageLoader` decodes on its thread pool and replies to the UI thread
+/// (extensions/browser/image_loader.cc).
 package nonisolated struct IconAssetDecode {
     package nonisolated init() {}
     /// What the page accepts for an Image (`IMAGE_TYPES` in webviews/src/icon-picker/AssetTab.tsx).
@@ -13,12 +19,17 @@ package nonisolated struct IconAssetDecode {
     package static let storedTypes: [String: String] = [
         "image/png": UTType.png.identifier, "image/jpeg": UTType.jpeg.identifier, "image/webp": UTType.webP.identifier,
     ]
+    /// The bitmaps an icon or a picture may come as (an extension's icon, a frame, a cursor): the
+    /// picker's types and the older formats a browser still accepts.
+    package static let bitmapTypes: Set<String> = pickerTypes.union([UTType.tiff, .bmp, .ico, .icns].map(\.identifier))
     /// Largest side and pixel count decoded at all: a small file can declare a huge bitmap.
     package static let maxSide = 16_384
     package static let maxPixels = 100_000_000
 
     /// `data` scaled to at most `maxPixelSize` on its longer side, when it is one of `types`
-    /// and its declared size is within ``maxSide`` and ``maxPixels``; nil otherwise.
+    /// and its declared size is within ``maxSide`` and ``maxPixels``; nil otherwise. The pixels
+    /// are decoded here (`kCGImageSourceShouldCacheImmediately`), on the calling thread, as a
+    /// checked CPU call, not at the image's first draw.
     package static func thumbnail(_ data: Data, types: Set<String>, maxPixelSize: Int) -> CGImage? {
         let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
         guard let source = CheckedImageSource(data, options: options),
@@ -30,9 +41,17 @@ package nonisolated struct IconAssetDecode {
         return source.thumbnail(options: [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: false,
+            kCGImageSourceShouldCacheImmediately: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
         ])
+    }
+
+    /// `bitmap` (a ``thumbnail(_:types:maxPixelSize:)``) as an image `points` on its longer side,
+    /// its aspect kept. It wraps the pixels, so the thread that draws it decodes nothing.
+    package static func image(_ bitmap: CGImage, points: CGFloat) -> NSImage {
+        let longer = CGFloat(max(bitmap.width, bitmap.height))
+        let scale = longer > 0 ? points / longer : 1
+        return NSImage(cgImage: bitmap, size: NSSize(width: CGFloat(bitmap.width) * scale, height: CGFloat(bitmap.height) * scale))
     }
 
     /// Whether `data` looks like SVG text: UTF-8 whose first non-space character is `<` (so a

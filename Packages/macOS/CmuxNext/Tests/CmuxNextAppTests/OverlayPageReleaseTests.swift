@@ -188,7 +188,7 @@ struct OverlayPageReleaseTests {
     }
 
     @Test func theExtensionsBubbleBuildsNoRowsBeforeItsFirstOpen() throws {
-        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let controller = ExtensionsMenuController(work: BackgroundWork(label: "test.extensions-menu"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.releaseWhenUnused(OverlayPagePlannerRig().terms())
         controller.prepare(host: Self.extensionsTab())  // the toolbar's idle prepare once a tab binds
         #expect(controller.content.rows.isEmpty, "a pane whose bubble never opened built its rows")
@@ -198,7 +198,7 @@ struct OverlayPageReleaseTests {
     @Test(.enabled("a bubble needs a screen to show") { await !NSScreen.screens.isEmpty })
     func theExtensionsBubblesOpenAndCloseDriveItsRelease() async throws {
         let planner = OverlayPagePlannerRig()
-        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let controller = ExtensionsMenuController(work: BackgroundWork(label: "test.extensions-menu"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.releaseWhenUnused(planner.terms())
         let tab = Self.extensionsTab()
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1024, height: 768)

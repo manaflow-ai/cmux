@@ -101,7 +101,7 @@ struct TabSwitchViewSwapBench {
         let unparked = wrap(await loadedWebView(), in: Unparked(frame: pane.contentHost.bounds))
         let browserTab = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         defer { browserTab.close() }
-        let browser = BrowserChromeView(tab: browserTab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+        let browser = BrowserChromeView(tab: browserTab, work: BackgroundWork(label: "test.browser-chrome"), mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
 
         let before = time("page-unparked", view: unparked, other: plain, pane: pane, window: window)
         let after = time("page-parked", view: parked, other: plain, pane: pane, window: window)
