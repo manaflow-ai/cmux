@@ -3705,8 +3705,10 @@ function AcpmuxPane() {
     // A held snapshot is actionable only while its owner is still the client's live selection.
     // Return a fresh sentinel for a stale render so useFolderTrustAsk's sameVisit fence rejects
     // Trust/save/refusal callbacks even when React has not painted the replacement snapshot yet.
+    // Native/gallery preview frames intentionally have no direct client; retain the unbound
+    // visit semantics there so their host-backed Trust card remains interactive.
+    if (!client) return undefined;
     if (
-      !client ||
       !rendered ||
       rendered.client !== client ||
       rendered.generation !== client.trustGeneration ||
