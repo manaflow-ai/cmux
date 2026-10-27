@@ -42,6 +42,11 @@ await requireBrowserLane("attachment-file-chip-layout.test.ts", async () => {
       expect(await chips.count()).toBe(2);
       for (const chip of await chips.all()) {
         const box = (await chip.boundingBox())!;
+        expect(
+          await chip.evaluate((node) =>
+            parseFloat(getComputedStyle(node.closest(".acpmux-attachment") ?? node).borderTopLeftRadius),
+          ),
+        ).toBeGreaterThanOrEqual(4);
         expect(await chip.evaluate((node) => parseFloat(getComputedStyle(node).columnGap))).toBeGreaterThanOrEqual(4);
         for (const selector of [".acpmux-file-chip__tail", ".acpmux-file-chip__size"]) {
           const part = (await chip.locator(selector).boundingBox())!;

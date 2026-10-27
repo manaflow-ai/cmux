@@ -57,9 +57,11 @@ export default componentEntry<Props>({
           [data-file-look=stacked] .acpmux-file-chip { height: 44px; flex-wrap: wrap; }
           [data-file-look=stacked] .acpmux-file-chip__size { width: 100%; padding-left: 22px; }
         `}</style>
-              <div className="acpmux-composer-box ui-glass" style={{ minHeight: 112 }}>
-                <AttachmentStrip attachments={files} onRemove={() => {}} />
-                <div style={{ padding: 16 }}>Please use these files.</div>
+              <div className="acpmux-composer">
+                <div className="acpmux-composer-box ui-glass" style={{ minHeight: 112 }}>
+                  <AttachmentStrip attachments={files} onRemove={() => {}} />
+                  <div style={{ padding: 16 }}>Please use these files.</div>
+                </div>
               </div>
               <div className="cv-user" style={{ marginTop: 36 }}>
                 <UserBubble
