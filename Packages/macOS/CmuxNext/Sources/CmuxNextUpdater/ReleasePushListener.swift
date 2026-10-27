@@ -17,6 +17,9 @@ import Foundation
 /// fast check (``TipUpdateCheck``) reads the feed at once and starts the check its interval would;
 /// the update flow decides what shows.
 ///
+/// The connection task keeps this object while it runs, so its owner ends it with ``stop()``
+/// (``UpdaterService`` does on every way the push stops, quit included).
+///
 /// Stop condition and cleanup: one connection task (``task``) runs while a feed is set
 /// (``refresh(feedURL:)``). ``stop()`` (the opt-in or automatic checks off, the updater disabled,
 /// the feed no longer served, and the app quitting) cancels the task, which ends the reconnect
@@ -152,6 +155,8 @@ final class ReleasePushListener {
         while !Task.isCancelled {
             let text: String?
             do { text = try await socket.receive() } catch { return heard }
+            // A frame that arrives after stop() (or after this socket was replaced) is not read.
+            guard !Task.isCancelled, self.socket === socket else { return heard }
             heard = true
             awaitingPong = false
             if let text { handle(text, feed: feed) }

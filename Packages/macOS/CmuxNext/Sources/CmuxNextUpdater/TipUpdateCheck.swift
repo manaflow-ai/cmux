@@ -36,11 +36,6 @@ import Foundation
 /// last nightly, like, four fucking hours away?"). nightly-next ships every 20 to 40 minutes, and
 /// the hourly Sparkle schedule left a NIGHTLY an hour or more behind. A newer build is asked for at
 /// once, whether or not its deltas are listed yet: the full update is never held back for them.
-///
-/// The release push (``ReleasePushListener``) reads at once instead of at the next interval
-/// (``pushed(_:updater:)``). The feed's edge may answer with the build before the pushed one for a
-/// moment, so until a read shows the pushed build the next read is ``pushRetryDelay`` away instead
-/// of an interval, at most ``pushRetries`` times; then the interval applies again.
 @MainActor
 final class TipUpdateCheck {
     /// How often the tip app reads its feed while nothing waits (an internal constant, not a setting).
@@ -62,12 +57,6 @@ final class TipUpdateCheck {
     private(set) var task: Task<Void, Never>?
     /// The newest build this check asked the driver for.
     private(set) var asked: String?
-    /// A build the release push announced that no read has shown yet, and the quick reads left for it.
-    private(set) var pushedBuild: (build: String, reads: Int)?
-    /// How soon a read follows one that did not show the pushed build yet.
-    static let pushRetryDelay: TimeInterval = 20
-    /// How many reads look for a pushed build before the interval applies again.
-    static let pushRetries = 3
     let timer: DemandTimer
 
     init(clock: any Clock<Duration>) {
@@ -88,10 +77,22 @@ final class TipUpdateCheck {
     func refresh(_ updater: UpdaterService) {
         guard mayCheck(updater) else { return timer.cancel() }
         guard task == nil, !timer.isScheduled, let interval = Self.interval(for: updater.identity) else { return }
-        timer.schedule(after: .seconds(pushedBuild == nil ? interval : min(interval, Self.pushRetryDelay))) { @MainActor [weak self, weak updater] in
+        timer.schedule(after: .seconds(interval)) { @MainActor [weak self, weak updater] in
             guard let self, let updater else { return }
             self.run(updater)
         }
+    }
+
+    /// The release push (``UpdaterService/releasePushed(_:)``): read the feed now instead of at the
+    /// interval's deadline. Joins a read in flight; nothing reads where the interval's read would not.
+    /// Returns whether a read runs.
+    @discardableResult
+    func readNow(_ updater: UpdaterService) -> Bool {
+        guard task == nil else { return true }
+        guard mayCheck(updater) else { return false }
+        timer.cancel()
+        run(updater)
+        return task != nil
     }
 
     private func mayCheck(_ updater: UpdaterService) -> Bool {
@@ -103,22 +104,6 @@ final class TipUpdateCheck {
         }
     }
 
-    /// The release push announced `build`: read the feed now (a read in flight is followed by a
-    /// quick one). With a check, download or staged update in flight, the read waits for the phase
-    /// to come back, as the interval's does.
-    func pushed(_ build: String, updater: UpdaterService) {
-        pushedBuild = (build, Self.pushRetries)
-        guard task == nil else { return }
-        timer.cancel()
-        run(updater)
-        if task == nil { refresh(updater) }
-    }
-
-    /// The push stopped: the next read is an interval away again.
-    func clearPushed() {
-        pushedBuild = nil
-    }
-
     func downloads(_ updater: UpdaterService) -> Bool {
         if let downloadsInBackground { return downloadsInBackground() }
         return updater.controller?.downloadsUpdatesInBackground ?? false
@@ -126,7 +111,6 @@ final class TipUpdateCheck {
 
     private func run(_ updater: UpdaterService) {
         guard task == nil, mayCheck(updater) else { return }
-        if let pushed = pushedBuild { pushedBuild = pushed.reads > 1 ? (pushed.build, pushed.reads - 1) : nil }
         let probe = updater.probe()
         task = Task { [weak self, weak updater] in
             let failure = await probe.value
@@ -140,7 +124,6 @@ final class TipUpdateCheck {
     /// The feed answered: a build newer than the running one (and than a rollback's skip) is checked for once.
     private func finish(failure: String?, updater: UpdaterService) {
         guard failure == nil, mayCheck(updater), case .updateAvailable(let item)? = updater.lastProbe?.outcome else { return }
-        if let pushed = pushedBuild, !AppcastSelector.isOlder(item.version, than: pushed.build) { pushedBuild = nil }
         if let skip = updater.defaults.string(forKey: UpdaterService.skipsBuildsThroughKey),
            !AppcastSelector.isOlder(skip, than: item.version) { return }
         if let asked, !AppcastSelector.isOlder(asked, than: item.version) { return }

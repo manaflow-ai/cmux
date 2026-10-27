@@ -166,6 +166,7 @@ extension UpdaterService {
         followStagedUpdate(phase)
         stagedRefresh.follow(phase, updater: self)
         tipCheck.refresh(self)
+        followReleasePush()
         switch phase {
         case .ready:
             recordStagedUpdate()

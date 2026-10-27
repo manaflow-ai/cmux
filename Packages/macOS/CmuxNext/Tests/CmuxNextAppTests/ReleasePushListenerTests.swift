@@ -114,6 +114,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func aHigherBuildStartsOneCheck() async throws {
         let h = Harness()
+        defer { h.listener.stop() }
         let socket = try await connected(h)
         #expect(h.urls == [URL(string: "wss://presence.cmux.dev/releases/v1/socket?feed=nightly-next")!])
         socket.deliver(Self.frame(200))
@@ -122,6 +123,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func anEqualOrLowerBuildStartsNone() async throws {
         let h = Harness()
+        defer { h.listener.stop() }
         let socket = try await connected(h)
         socket.deliver(Self.frame(100))
         socket.deliver(Self.frame(42))
@@ -136,6 +138,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func aDuplicateFrameStartsNone() async throws {
         let h = Harness()
+        defer { h.listener.stop() }
         let socket = try await connected(h)
         socket.deliver(Self.frame(200))
         socket.deliver(Self.frame(200))
@@ -217,6 +220,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func aDeadSocketReconnectsAfterTheBackoffAndResetsOnceHeard() async throws {
         let h = Harness()
+        defer { h.listener.stop() }
         let first = try await connected(h)
         first.cancel()
         try await reconnectWaiting(h)
@@ -241,6 +245,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func itPingsEveryMinuteAndReconnectsWhenAPingGoesUnanswered() async throws {
         let h = Harness()
+        defer { h.listener.stop() }
         let socket = try await connected(h)
         try await h.clock.waitForSleeper()
         h.clock.advance(by: ReleasePushListener.pingInterval)
@@ -263,73 +268,133 @@ import CmuxNextWakeupsTestSupport
     /// A feed whose newest build the test moves (the edge answering with the build before the pushed one).
     nonisolated final class MovingFeed: AppcastFetching, @unchecked Sendable {
         private let lock = NSLock()
+        private let pubDate: String
         private var newest = 100
         private var count = 0
+        init(pubDate: String) { self.pubDate = pubDate }
         var fetches: Int { lock.withLock { count } }
         func publish(_ build: Int) { lock.withLock { newest = build } }
         func fetch(_ url: URL) async throws -> Data {
             let build = lock.withLock { count += 1; return newest }
             return Data("""
             <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><title>cmux NEXT</title>
-            <item><title>nightly</title><sparkle:version>\(build)</sparkle:version><pubDate>\(UpdateStagedYieldsToNewerTests.pubDate(minutesAgo: 1))</pubDate></item>
+            <item><title>nightly</title><sparkle:version>\(build)</sparkle:version><pubDate>\(pubDate)</pubDate></item>
             </channel></rss>
             """.utf8)
         }
     }
 
-    @Test func theUpdaterReadsTheFeedAtOnceAndOnlyWithTheOptInOn() async throws {
+    struct Service {
+        let updater: UpdaterService
+        let clock: ManualClock
+        let feed: MovingFeed
+        let fake: Fakes
+        var sockets: [FakeSocket] { fake.sockets }
+        func configure(checks automatic: Bool = true, downloads: Bool) {
+            updater.configure(checkAutomatically: automatic, checkInterval: 3600, downloadAutomatically: downloads, ring: "nightly")
+        }
+    }
+
+    /// What the fakes saw: the sockets opened, the checks started (by the fast check or the staged
+    /// swap), the staged build, and the staged installers cancelled.
+    @MainActor final class Fakes {
+        var sockets: [FakeSocket] = []
+        var checks = 0
+        var staged: String?
+        var cancels = 0
+    }
+
+    /// A started NIGHTLY on build 100 whose feed answers with build 100; the opt-in as given.
+    func service(downloads: Bool) throws -> Service {
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.release-push", shortVersion: "0.1.0", build: "100",
                                            minimumSystemVersion: nil, infoFeedURL: Self.nightlyFeed, hasPublicKey: true)
         try #require(identity.feed().url == Self.nightlyFeed, "this Mac does not read the arm64 feed")
         let clock = ManualClock()
-        let feed = MovingFeed()
-        let updater = UpdaterService(identity: identity, prober: UpdateProber(fetcher: feed, architecture: .arm64),
+        let feed = MovingFeed(pubDate: UpdateStagedYieldsToNewerTests.pubDate(minutesAgo: 1))
+        let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: feed, architecture: .arm64),
                                      defaults: UserDefaults(suiteName: "ReleasePushListenerTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false, now: { UpdateStagedYieldsToNewerTests.now }, clock: clock)
         updater.announcementsFetch = false
         updater.notesLoader = { _ in nil }
-        var sockets: [FakeSocket] = []
-        var checks = 0
+        let fake = Fakes()
         updater.releasePush.connect = { _ in
             let socket = FakeSocket()
-            sockets.append(socket)
+            fake.sockets.append(socket)
             return socket
         }
-        updater.tipCheck.startCheck = { checks += 1 }
+        updater.tipCheck.startCheck = { fake.checks += 1 }
         updater.tipCheck.downloadsInBackground = { true }
-        func configure(checks automatic: Bool = true, downloads: Bool) {
-            updater.configure(checkAutomatically: automatic, checkInterval: 3600, downloadAutomatically: downloads, ring: "nightly")
-        }
-        configure(downloads: false)
+        updater.stagedBuild = { fake.staged }
+        updater.cancelStaged = { fake.cancels += 1; return true }
+        updater.stagedRefresh.replaceable = { true }
+        updater.stagedRefresh.startCheck = { fake.checks += 1 }
+        let s = Service(updater: updater, clock: clock, feed: feed, fake: fake)
+        s.configure(downloads: downloads)
         updater.start()
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(sockets.isEmpty && updater.releasePush.task == nil, "the push ran with automatic download and install off")
+        return s
+    }
 
-        configure(downloads: true)
-        try #require(await eventually { sockets.count == 1 }, "the push did not start with the opt-in on")
+    /// Advances to the push's next read once its deadline sleeps on the clock. The timer's task
+    /// registers its sleep off the main actor just after it is scheduled, so a deadline that was not
+    /// asleep yet is reached by a second step.
+    func nextPushRead(_ s: Service, until reached: () -> Bool) async throws {
+        try #require(await eventually { s.updater.releasePushRetry.isScheduled }, "no quick read was armed")
+        try await Task.sleep(for: .milliseconds(50))
+        s.clock.advance(by: UpdaterService.releasePushRetryDelay)
+        if await eventually(reached) { return }
+        s.clock.advance(by: UpdaterService.releasePushRetryDelay)
+        try #require(await eventually(reached), "the push's next read did not happen")
+    }
+
+    @Test func theUpdaterReadsTheFeedAtOnceAndOnlyWithTheOptInOn() async throws {
+        let s = try service(downloads: false)
+        defer { s.updater.stopReleasePush() }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(s.sockets.isEmpty && s.updater.releasePush.task == nil, "the push ran with automatic download and install off")
+
+        s.configure(downloads: true)
+        try #require(await eventually { s.sockets.count == 1 }, "the push did not start with the opt-in on")
         // The frame reads the feed at once; its edge still answers with build 100.
-        sockets[0].deliver(Self.frame(200))
-        try #require(await eventually { feed.fetches == 1 && updater.tipCheck.task == nil }, "the pushed build read no feed")
-        #expect(checks == 0)
+        s.sockets[0].deliver(Self.frame(200))
+        try #require(await eventually { s.feed.fetches == 1 && s.updater.tipCheck.task == nil }, "the pushed build read no feed")
+        #expect(s.fake.checks == 0)
         // The next read is a short wait away, not the 15-minute interval, and finds build 200.
-        feed.publish(200)
-        // Asleep on the clock: the socket's ping and the retry's deadline.
-        try #require(await eventually { clock.sleeperCount >= 2 }, "no quick read was armed")
-        clock.advance(by: .seconds(TipUpdateCheck.pushRetryDelay))
-        #expect(await eventually { checks == 1 }, "the pushed build was never checked for")
-        #expect(updater.tipCheck.pushedBuild == nil)
+        s.feed.publish(200)
+        try await nextPushRead(s) { s.fake.checks == 1 }
+        // Asked for: the next deadline finds the build reached and ends the push's reads.
+        try await nextPushRead(s) { s.updater.releasePushTarget == nil }
+        #expect(s.fake.checks == 1, "the pushed build was checked for twice")
 
         // Automatic checks off stop it, and so does the opt-in off.
-        configure(checks: false, downloads: true)
-        #expect(sockets[0].closed && updater.releasePush.task == nil, "the push kept running with automatic checks off")
-        configure(downloads: true)
-        try #require(await eventually { sockets.count == 2 })
-        configure(downloads: false)
-        #expect(sockets[1].closed && updater.releasePush.task == nil, "the socket stayed open with the opt-in off")
+        s.configure(checks: false, downloads: true)
+        #expect(s.sockets[0].closed && s.updater.releasePush.task == nil, "the push kept running with automatic checks off")
+        s.configure(downloads: true)
+        try #require(await eventually { s.sockets.count == 2 })
+        s.configure(downloads: false)
+        #expect(s.sockets[1].closed && s.updater.releasePush.task == nil, "the socket stayed open with the opt-in off")
         // The app quits: the socket closes.
-        configure(downloads: true)
-        try #require(await eventually { sockets.count == 3 })
-        updater.stopReleasePush()
-        #expect(sockets[2].closed && updater.releasePush.task == nil)
+        s.configure(downloads: true)
+        try #require(await eventually { s.sockets.count == 3 })
+        s.updater.stopReleasePush()
+        #expect(s.sockets[2].closed && s.updater.releasePush.task == nil && !s.updater.releasePushRetry.isScheduled)
+    }
+
+    @Test func aBuildPushedWhileOneDownloadsReplacesItOnceStaged() async throws {
+        let s = try service(downloads: true)
+        defer { s.updater.stopReleasePush() }
+        try #require(await eventually { s.sockets.count == 1 })
+        s.updater.debugIndicatorPhase = .checking
+        s.sockets[0].deliver(Self.frame(200))
+        try #require(await eventually { s.updater.releasePushTarget?.build == "200" })
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(s.feed.fetches == 0, "the feed was read while a check ran")
+        // Build 150 is staged; the feed's edge still answers with it, then with build 200.
+        s.feed.publish(150)
+        s.fake.staged = "150"
+        s.updater.debugIndicatorPhase = .ready(version: "1.5.0")
+        try #require(await eventually { s.feed.fetches == 1 && s.updater.stagedRefresh.task == nil }, "the staged build was not probed")
+        #expect(s.fake.cancels == 0 && s.fake.checks == 0)
+        s.feed.publish(200)
+        try await nextPushRead(s) { s.fake.cancels == 1 && s.fake.checks == 1 }
     }
 }

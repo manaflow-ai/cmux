@@ -74,6 +74,10 @@ public final class UpdaterService {
     @ObservationIgnored let tipCheck: TipUpdateCheck
     /// The release push's socket (``ReleasePushListener``), run by ``refreshReleasePush()``.
     @ObservationIgnored let releasePush: ReleasePushListener
+    /// The pushed build not seen through yet and the reads left for it (``releasePushed(_:)``).
+    @ObservationIgnored var releasePushTarget: (build: String, reads: Int)?
+    /// The next read for ``releasePushTarget`` (one-shot; cancelled when the push stops).
+    @ObservationIgnored let releasePushRetry: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -232,6 +236,7 @@ public final class UpdaterService {
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
         tipCheck = TipUpdateCheck(clock: clock)
+        releasePushRetry = DemandTimer(owner: "UpdaterService.releasePush", clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
