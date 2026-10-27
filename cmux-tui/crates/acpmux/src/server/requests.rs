@@ -1313,6 +1313,34 @@ async fn dispatch_request(
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
+        method::MUX_TAILNET_START
+        | method::MUX_TAILNET_LOGIN
+        | method::MUX_TAILNET_STATE
+        | method::MUX_TAILNET_LOGOUT => {
+            if conn.origin.web_class() || !conn.is_person() {
+                return Err(crate::hub::person::person_required(
+                    "controlling this daemon's embedded tailnet",
+                ));
+            }
+            #[cfg(feature = "tailnet")]
+            {
+                let controller = hub.tailnet_controller();
+                let snapshot = match m {
+                    method::MUX_TAILNET_START => controller.start().await,
+                    method::MUX_TAILNET_LOGIN => controller.login().await,
+                    method::MUX_TAILNET_LOGOUT => controller.logout().await,
+                    method::MUX_TAILNET_STATE => Ok(controller.snapshot()),
+                    _ => unreachable!("tailnet method matched above"),
+                }
+                .map_err(RpcError::internal)?;
+                return Ok(snapshot.to_json(true));
+            }
+            #[cfg(not(feature = "tailnet"))]
+            {
+                Err(RpcError::new(-32000, "tailnet support is not built")
+                    .with_data(json!({"reason": "not_built"})))
+            }
+        }
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => {
             crate::hub::session_pages::session_list_reply(hub.all_session_summaries(), &params)

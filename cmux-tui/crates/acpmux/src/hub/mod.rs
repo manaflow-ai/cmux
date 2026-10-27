@@ -539,6 +539,10 @@ pub struct Hub {
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
     pub pairing: Arc<crate::pairing::Pairing>,
+    /// The optional embedded tailnet node. It is initialized lazily so the
+    /// default daemon never starts or links a node without an explicit request.
+    #[cfg(feature = "tailnet")]
+    pub(crate) tailnet_controller: std::sync::OnceLock<Arc<crate::tailnet::embedded::Controller>>,
     /// Brief identities shared by dispatch, report and MCP clients.
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
@@ -663,6 +667,8 @@ impl Hub {
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
+            #[cfg(feature = "tailnet")]
+            tailnet_controller: std::sync::OnceLock::new(),
             briefs,
         });
         if let Ok(c) = hub.config.try_read() {
@@ -726,6 +732,18 @@ impl Hub {
 
     pub fn mailbox(&self) -> &Mailbox {
         &self.mailbox
+    }
+
+    #[cfg(feature = "tailnet")]
+    pub(crate) fn tailnet_controller(&self) -> Arc<crate::tailnet::embedded::Controller> {
+        self.tailnet_controller
+            .get_or_init(|| {
+                crate::tailnet::embedded::Controller::new(
+                    crate::tailnet::embedded::state_dir(&crate::config::home()),
+                    crate::hand::pair::hostname(),
+                )
+            })
+            .clone()
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
