@@ -911,11 +911,15 @@ final class ComposerTextView: UITextView {
     private var pastesAttachments: Bool {
         guard onPasteAttachments != nil, acceptsAttachments() else { return false }
         let board = UIPasteboard.general
-        guard let first = board.types.first.flatMap({ UTType($0) }) else { return false }
+        // An image copied as an image object (Photos, Safari) leads with
+        // UIKit's private `com.apple.uikit.image`, not an image type.
+        if board.hasImages, !board.hasStrings { return true }
+        // `com.apple.uikit.image` is not declared: a missing type is that object.
+        guard let first = board.types.first.flatMap({ UTType($0) }), first.isDeclared else { return board.hasImages }
         if first.conforms(to: .fileURL) { return true }
         if first.conforms(to: .image) { return board.hasImages || Self.isPastedFileType(first) }
         guard !board.hasStrings else { return false }
-        return board.hasImages || board.contains(pasteboardTypes: [UTType.fileURL.identifier]) || Self.isPastedFileType(first)
+        return board.contains(pasteboardTypes: [UTType.fileURL.identifier]) || Self.isPastedFileType(first)
     }
 
     /// A copied file's own type (Files' Copy puts the file's bytes, a PDF or

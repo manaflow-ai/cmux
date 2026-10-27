@@ -27,11 +27,15 @@ public extension UIPasteboard {
     /// Text that came with an image (cells from Numbers, a note with a
     /// picture) still pastes as text, as the copying app put it first.
     var composerPastesAttachments: Bool {
-        guard let first = types.first.flatMap({ UTType($0) }) else { return false }
+        // An image copied as an image object (Photos, Safari) leads with
+        // UIKit's private `com.apple.uikit.image`, not an image type.
+        if hasImages, !hasStrings { return true }
+        // `com.apple.uikit.image` is not declared: a missing type is that object.
+        guard let first = types.first.flatMap({ UTType($0) }), first.isDeclared else { return hasImages }
         if first.conforms(to: .fileURL) { return true }
         if first.conforms(to: .image) { return hasImages || Self.isComposerFileType(first) }
         guard !hasStrings else { return false }
-        return hasImages || contains(pasteboardTypes: [UTType.fileURL.identifier]) || Self.isComposerFileType(first)
+        return contains(pasteboardTypes: [UTType.fileURL.identifier]) || Self.isComposerFileType(first)
     }
 
     /// The pasteboard holds a copied file's own bytes (Files' Copy puts the
