@@ -711,6 +711,9 @@ export type AcpmuxSnapshot = {
   /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
   /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
   silentTurn?: true;
+  /// The current live turn's `turn_started` timestamp. A resumed session can show an older prompt
+  /// as its opener, so the live clock must count from this event instead of that history row.
+  turnStartedAtMs?: number;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;
