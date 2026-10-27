@@ -182,9 +182,11 @@ await requireBrowserLane("inline-video-controls-browser.test.ts", async () => {
       test(`${engine}, ${label}: while it plays, Open in tab and Expand take their own click, clear of the player's controls`, async () => {
         const page = await open(engine, query);
         await rest(page);
+        const before = await page.locator(".cv-media__frame").boundingBox();
         await page.locator("button.cv-media__poster").click();
         await page.locator(".cv-media__frame.is-playing").waitFor();
         await rest(page);
+        expect(await page.locator(".cv-media__frame").boundingBox()).toEqual(before);
         expect(await problems(page, true)).toEqual([]);
         await page.close();
       });

@@ -157,6 +157,11 @@ export default agentPaneEntry({
         video.style.width = "360px";
         video.style.objectFit = "contain";
         await ctx.waitFor(() => ctx.document.querySelector(".cv-media.has-short-video"));
+        // Paint the fixture resize before measuring the separate playback click.
+        const view = ctx.document.defaultView!;
+        await new Promise<void>((resolve) =>
+          view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve())),
+        );
         await playThenHover(ctx);
       },
     },
