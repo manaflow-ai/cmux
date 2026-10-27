@@ -118,10 +118,31 @@ compared, never in crash-safety-baseline.json, and never read by the CI compare 
                       and leaks its task when dropped. Use CmuxSafeConcurrency's withOnceContinuation /
                       withOnceThrowingContinuation (p10-stability-083); CmuxSafeConcurrency itself, which
                       implements them, is not counted
+    trap_api          standard-library calls that trap on a bad argument (queue Q09, p10-stability-092):
+                      `uniqueKeysWithValues:` (a duplicate key), `removeFirst()` / `removeLast()` and their
+                      `(n)` forms (an empty or short collection) with no guard, `Array/ContiguousArray/String/
+                      Data(repeating:count:)` and `repeatElement(_:count:)` (a negative count) unless the count
+                      is literal arithmetic without a minus (`64 * 1024`), a `.count`, `max(0, n)` or `max(n, 0)`, and
+                      `index(_:offsetBy:)` / `formIndex(_:offsetBy:)` without `limitedBy:` (past the end). A
+                      removal is guarded when its receiver's `isEmpty`, `count`, `first`, `last`, `hasPrefix`,
+                      `hasSuffix` or `starts` is read on the same line before it or on one of the 3 lines above
+                      (`guard !queue.isEmpty`, `while let x = queue.first`, `if s.hasPrefix("-") { s.removeFirst() }`);
+                      `popFirst()` / `popLast()` never count
+  The ratchet classes index_subscript and int_conversion are also report classes: by default over INDEX_MODULES
+  (the CI rows, counted and waived together), with --all-modules over every module of every package.
+
+REPORT BASELINE (crash-safety-report-baseline.json next to this script): the report classes' rows,
+{class: {"scope": ..., "modules": {module: hits}}}. Only --report reads it: a class with a row in the scope
+reported gains "baseline" (its total) and "over" ({module: {"baseline": b, "now": n}}) in the JSON, still exit 0.
+--report CLASS --update-report-baseline writes the classes' rows: a class's first row records the tree, after that
+a row only goes down; a row the tree is over stays, is printed, and the run exits 1. index_subscript and
+int_conversion rows are recorded only with --all-modules (their INDEX_MODULES rows are crash-safety-baseline.json's).
+The CI compare (no flag, --baseline-against, --update-baseline) never reads this file.
 
 Usage: crash_ratchet.py [--repo ROOT] [--exported-tree]
                         [--update-baseline [--record-waivers] [--base REF] | --baseline-against BASE_TREE]
-       crash_ratchet.py [--repo ROOT] [--exported-tree] --report CLASS[,CLASS]
+       crash_ratchet.py [--repo ROOT] [--exported-tree] --report CLASS[,CLASS] [--all-modules]
+                        [--update-report-baseline]
 Exit 1 when a module or crate gained a hit or a waived hit; with --update-baseline, when
 a row stays above the baseline; with --baseline-against, when a counted row rose.
 """
@@ -135,6 +156,8 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASELINE = os.path.join(HERE, "crash-safety-baseline.json")
+# Report-only rows (--report); never read by the CI compare.
+REPORT_BASELINE = os.path.join(HERE, "crash-safety-report-baseline.json")
 # The baseline's section of waived hits ({lang: {class: {module: hits}}}), beside the counted ones.
 WAIVED = "waived"
 # The section of a baseline row (section, lang, class, module) that is not waived.
@@ -373,6 +396,120 @@ def checked_slot(code, match):
     base = match.group(0)[:match.group(0).index("[")]
     inner = match.group(1).strip()
     return any(m.group(1) == inner and m.group(2) == base for m in CHECKED_SLOT.finditer(code[:match.start()]))
+
+
+# trap_api (report-only, see the docstring).
+UNIQUE_KEYS = re.compile(r"\buniqueKeysWithValues\s*:")
+REMOVE_END = re.compile(r"\bremove(?:First|Last)\s*\(")
+# The opening of a call that may be `(repeating:count:)`: its arguments (up to CALL_LINES lines on) need a top-level
+# `repeating` label to count, so a formatter's wrapped form `Array(\n    repeating: 0,\n    count: n\n)` counts too.
+REPEAT_INIT = re.compile(r"(?:(?<![\w.])(?:Array|ContiguousArray|String|Data)\s*(?:<[^()]*>)?"
+                         r"|\[[^\[\]()]+\]|(?<!\w)\.init)\s*\(")
+REPEAT_ELEMENT = re.compile(r"(?<![\w.])repeatElement\s*\(")
+OFFSET_CALL = re.compile(r"(?<![\w])(?:index|formIndex)\s*\(")
+RECEIVER = re.compile(r"((?:[A-Za-z_]\w*\??\.)*[A-Za-z_]\w*)\??\.\s*$")
+SAFE_COUNT = re.compile(r"(?:(?=[^-]*\d)[\d_\s*+<()]+|(?:[A-Za-z_]\w*(?:\(\))?\??\.)+count"
+                        r"|max\(\s*0\s*,.*\)|max\(.*,\s*0\s*\))")
+DECLARED_FUNC = re.compile(r"\bfunc\s+$")
+# A line without one of these words starts no trap_api call (skips swift_code on most lines).
+TRAP_HINT = re.compile(r"uniqueKeysWithValues|remove(?:First|Last)|repeatElement|[iI]ndex\s*\("
+                       r"|(?:Array|String|Data)\s*(?:<[^()]*>)?\s*\(|\]\s*\(|\.init\s*\(")
+# How many lines above a removal may hold its guard, and how many lines a call's arguments may continue on.
+GUARD_LINES = 3
+CALL_LINES = 3
+
+
+def call_arguments(lines, index, code, start):
+    """The argument text of the call whose "(" ends at CODE[start - 1] (CODE is LINES[INDEX] as swift_code
+    reads it), up to its closing parenthesis; the arguments may continue on the next CALL_LINES lines."""
+    text, depth, follow = code[start:], 1, index + 1
+    while True:
+        for pos, ch in enumerate(text):
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+                if depth == 0:
+                    return text[:pos]
+        if follow >= len(lines) or follow > index + CALL_LINES:
+            return text
+        text += " " + swift_code(lines[follow])
+        follow += 1
+
+
+def top_level_arguments(arguments):
+    """ARGUMENTS split at their top-level commas, each stripped."""
+    parts, depth, current = [], 0, []
+    for ch in arguments:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current).strip())
+    return [part for part in parts if part]
+
+
+def labeled(arguments, label):
+    """The value of the top-level argument LABEL in ARGUMENTS, or None."""
+    for part in top_level_arguments(arguments):
+        name, colon, value = part.partition(":")
+        if colon and name.strip() == label:
+            return value.strip()
+    return None
+
+
+def removal_guarded(lines, index, code, start):
+    """Whether the removal at CODE[start] reads its receiver's isEmpty, count, first, last, hasPrefix, hasSuffix
+    or starts before it on its line or on one of the GUARD_LINES lines above. An implicit-self removal looks for a
+    bare `isEmpty`."""
+    before = code[:start]
+    receiver = None
+    if before.rstrip().endswith("."):
+        found = RECEIVER.search(before)
+        if not found:
+            return False  # `rows[i].removeFirst()`: no name to find a guard for
+        receiver = re.sub(r"^self\.", "", found.group(1).replace("?", ""))
+        before = before[:found.start()]
+    name = r"(?:self\.)?" + re.escape(receiver) + r"\??\s*\." if receiver else r"(?:self\.)?"
+    guard = re.compile(r"(?<![\w.])" + name + r"\s*(?:isEmpty|count|first|last|hasPrefix|hasSuffix|starts)\b")
+    window = [before] + [swift_code(lines[i]) for i in range(max(0, index - GUARD_LINES), index)]
+    return any(guard.search(text) for text in window)
+
+
+def trap_api_hits(lines, index, code=None):
+    """trap_api calls that start on LINES[INDEX] (see the docstring); a comment line has none. CODE: the line as
+    swift_code reads it, when the caller has it."""
+    if not TRAP_HINT.search(lines[index]) or lines[index].lstrip().startswith("//"):
+        return 0
+    code = swift_code(lines[index]) if code is None else code
+    hits = len(UNIQUE_KEYS.findall(code))
+    for match in REMOVE_END.finditer(code):
+        if DECLARED_FUNC.search(code[:match.start()]):
+            continue
+        if not removal_guarded(lines, index, code, match.start()):
+            hits += 1
+    for match in REPEAT_INIT.finditer(code):
+        arguments = call_arguments(lines, index, code, match.end())
+        count = labeled(arguments, "count")
+        if labeled(arguments, "repeating") is not None and count is not None and not SAFE_COUNT.fullmatch(count):
+            hits += 1
+    for match in REPEAT_ELEMENT.finditer(code):
+        count = labeled(call_arguments(lines, index, code, match.end()), "count")
+        if count is not None and not SAFE_COUNT.fullmatch(count):
+            hits += 1
+    for match in OFFSET_CALL.finditer(code):
+        if DECLARED_FUNC.search(code[:match.start()]):
+            continue
+        arguments = call_arguments(lines, index, code, match.end())
+        if labeled(arguments, "offsetBy") is not None and labeled(arguments, "limitedBy") is None:
+            hits += 1
+    return hits
+
 ADD_OBSERVER = re.compile(r"\baddObserver\(")
 SELECTOR_OBSERVER = re.compile(r"addObserver\(\s*[^,()]+?,\s*selector\s*:")
 OBJC_ATTR = re.compile(r"@objc(?![\w(])")
@@ -717,42 +854,178 @@ def report_owned(kind, rel):
     return rel.replace(os.sep, "/").startswith(REPORT_OWNERS.get(kind, ()))
 
 
-def report_counts(repo, exported, kinds):
-    """{class: {module: hits}} of the report-only KINDS over package_sources(), each class outside its owner.
-    Comment lines and string contents never count (swift_code); a crash-allow does not hide a hit."""
+# Ratchet classes that are report classes too: counted over INDEX_MODULES, or every module with --all-modules.
+REPORT_INDEX = ("index_subscript", "int_conversion")
+# Report classes judged by a function of (lines, index) instead of one regex.
+REPORT_LINE = {"trap_api": trap_api_hits}
+REPORT_CLASSES = sorted(set(REPORT_SWIFT) | set(REPORT_LINE) | set(REPORT_INDEX))
+SCOPE_PACKAGES, SCOPE_INDEX_MODULES, SCOPE_ALL_MODULES = "packages", "index-modules", "all-modules"
+# A raw line that does not match its class's hint has no hit of the class (so most lines skip swift_code).
+REPORT_HINTS = {"trap_api": TRAP_HINT, "index_subscript": re.compile(r"\["),
+                "int_conversion": re.compile(r"Int(?:8|16|32|64)?\("),
+                **{kind: pattern for kind, pattern in REPORT_SWIFT.items()}}
+
+
+def report_scope(kind, all_modules):
+    """Where the report counts KIND: every package's Sources, INDEX_MODULES of them, or all their modules."""
+    if kind not in REPORT_INDEX:
+        return SCOPE_PACKAGES
+    return SCOPE_ALL_MODULES if all_modules else SCOPE_INDEX_MODULES
+
+
+def collections_by_module(repo, sources):
+    """{module: (names it declares as dictionaries and never otherwise, names it declares as an indexable
+    non-dictionary)} over SOURCES (paths relative to REPO), as module_collections() reads the index modules."""
+    declared = {}
+    for rel in sources:
+        with open(os.path.join(repo, rel), encoding="utf-8", errors="replace") as handle:
+            dicts, arrays, others = collection_kinds(handle.read().split("\n"))
+        entry = declared.setdefault(module_of(rel), (set(), set(), set()))
+        entry[0].update(dicts)
+        entry[1].update(arrays)
+        entry[2].update(others)
+    return {module: (frozenset(d - a - o), frozenset(a)) for module, (d, a, o) in declared.items()}
+
+
+def report_line_hits(kind, lines, index, code, dictionaries):
+    """KIND's hits on LINES[INDEX] (CODE is the line as swift_code reads it)."""
+    if kind in REPORT_LINE:
+        return REPORT_LINE[kind](lines, index, code)
+    if kind == "index_subscript":
+        return index_hits(code, dictionaries)
+    if kind == "int_conversion":
+        return int_conversion_hits(code)
+    return len(REPORT_SWIFT[kind].findall(code))
+
+
+def report_counts(repo, exported, kinds, all_modules=False):
+    """({class: {module: hits}}, {class: [site]}) of the report KINDS over package_sources(), each class outside
+    its owner and in its report_scope(). A site is one line with hits: {"path", "line" (1-based), "class",
+    "module", "hits"}, sorted by path and line. Comment lines and string contents never count (swift_code); a
+    crash-allow does not hide a hit."""
     counts = {kind: {} for kind in kinds}
-    for rel in package_sources(repo, exported):
-        path = os.path.join(repo, rel)
-        judged = [kind for kind in kinds if not report_owned(kind, rel)]
-        if not judged or not os.path.isfile(path):
-            continue
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            lines = handle.read().split("\n")
+    sites = {kind: [] for kind in kinds}
+    sources = [rel for rel in package_sources(repo, exported) if os.path.isfile(os.path.join(repo, rel))]
+
+    def index_scope(module):
+        return all_modules or module in INDEX_MODULES
+
+    collections = {}
+    if any(kind in REPORT_INDEX for kind in kinds):
+        collections = collections_by_module(repo, [rel for rel in sources if index_scope(module_of(rel))])
+    for rel in sources:
         module = module_of(rel)
-        for line in lines:
-            if line.lstrip().startswith("//"):
+        judged = [kind for kind in kinds if not report_owned(kind, rel)
+                  and (kind not in REPORT_INDEX or index_scope(module))]
+        if not judged:
+            continue
+        with open(os.path.join(repo, rel), encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().split("\n")
+        dictionaries = frozenset()
+        if any(kind in REPORT_INDEX for kind in judged):
+            dictionaries = file_dictionaries(lines, *collections.get(module, (frozenset(), frozenset())))
+        for index, line in enumerate(lines):
+            here = [kind for kind in judged if REPORT_HINTS[kind].search(line)]
+            if not here or line.lstrip().startswith("//"):
                 continue
             code = swift_code(line)
-            for kind in judged:
-                hits = len(REPORT_SWIFT[kind].findall(code))
+            for kind in here:
+                hits = report_line_hits(kind, lines, index, code, dictionaries)
                 if hits:
                     counts[kind][module] = counts[kind].get(module, 0) + hits
-    return counts
+                    sites[kind].append({"path": rel.replace(os.sep, "/"), "line": index + 1, "class": kind,
+                                        "module": module, "hits": hits})
+    for found in sites.values():
+        found.sort(key=lambda site: (site["path"], site["line"]))
+    return counts, sites
 
 
-def report(repo, exported, names):
-    """Prints the report-only classes NAMES (comma-separated) as JSON; exit 0 (it judges nothing), 2 for an
-    unknown class."""
+def load_report_baseline():
+    """{class: {"scope": ..., "modules": {module: hits}}} of crash-safety-report-baseline.json ({} without it)."""
+    data = load_baseline(REPORT_BASELINE) or {}
+    return {kind: row for kind, row in data.items() if not kind.startswith("_") and isinstance(row, dict)}
+
+
+def report_kinds(names):
+    """The report classes NAMES (comma-separated) asks for, or None (printed) when one is unknown or none is given."""
     kinds = [name for name in (part.strip() for part in names.split(",")) if name]
-    unknown = [kind for kind in kinds if kind not in REPORT_SWIFT]
+    unknown = [kind for kind in kinds if kind not in REPORT_CLASSES]
     if unknown or not kinds:
         print(f"crash-ratchet: unknown report class {', '.join(unknown) or '(none)'}; report classes: "
-              f"{', '.join(sorted(REPORT_SWIFT))}", file=sys.stderr)
+              f"{', '.join(REPORT_CLASSES)}", file=sys.stderr)
+        return None
+    return kinds
+
+
+def report(repo, exported, names, all_modules=False):
+    """Prints the report classes NAMES (comma-separated) as JSON, {class: {"total", "modules": {module: hits},
+    "hits": [{"path", "line", "class", "module", "hits"}]}}, each beside its report-baseline row when the row has
+    the same scope; exit 0 (it judges nothing), 2 for an unknown class."""
+    kinds = report_kinds(names)
+    if kinds is None:
         return 2
-    counts = report_counts(repo, exported, kinds)
-    out = {kind: {"total": sum(modules.values()), "modules": dict(sorted(modules.items()))}
-           for kind, modules in counts.items()}
+    counts, sites = report_counts(repo, exported, kinds, all_modules)
+    baseline = load_report_baseline()
+    out = {}
+    for kind, modules in counts.items():
+        entry = {"total": sum(modules.values()), "modules": dict(sorted(modules.items())), "hits": sites[kind]}
+        row = baseline.get(kind)
+        if row and row.get("scope") == report_scope(kind, all_modules):
+            known = row.get("modules", {})
+            entry["baseline"] = sum(known.values())
+            entry["over"] = {module: {"baseline": known.get(module, 0), "now": hits}
+                             for module, hits in sorted(modules.items()) if hits > known.get(module, 0)}
+        out[kind] = entry
     print(json.dumps(out, indent=2, sort_keys=True))
+    return 0
+
+
+REPORT_BASELINE_COMMENT = ("Report-only rows of crash_ratchet.py --report (p10-stability rule 1: no CI gates). Written "
+                           "only by --report CLASS --update-report-baseline, which records a class's first row and "
+                           "after that only lowers rows; the CI compare never reads this file.")
+
+
+def update_report_baseline(repo, exported, names, all_modules):
+    """Writes the report-baseline rows of the classes NAMES: a class's first row records the tree, after that each
+    module's row only goes down. Exit 1 when a row stays above (it is printed; the rest is written), 2 for an
+    unknown class or an index class without --all-modules (its index-module rows are the CI baseline's)."""
+    kinds = report_kinds(names)
+    if kinds is None:
+        return 2
+    narrow = [kind for kind in kinds if report_scope(kind, all_modules) == SCOPE_INDEX_MODULES]
+    if narrow:
+        print(f"crash-ratchet: the report baseline records {', '.join(narrow)} over every module only: pass "
+              "--all-modules (the index modules' rows are crash-safety-baseline.json's)", file=sys.stderr)
+        return 2
+    counts, _ = report_counts(repo, exported, kinds, all_modules)
+    data = load_baseline(REPORT_BASELINE) or {}
+    held = []
+    for kind in kinds:
+        scope, found, row = report_scope(kind, all_modules), counts[kind], data.get(kind)
+        if not isinstance(row, dict) or row.get("scope") != scope:
+            modules = dict(found)
+            print(f"crash-ratchet: report baseline: {kind} ({scope}) recorded at {sum(modules.values())}")
+        else:
+            known = row.get("modules", {})
+            modules = {}
+            for module in sorted(set(known) | set(found)):
+                now, was = found.get(module, 0), known.get(module, 0)
+                if now > was:
+                    held.append(f"{kind} {module} {was} -> {now}")
+                modules[module] = min(now, was)
+        data[kind] = {"scope": scope, "modules": {m: n for m, n in sorted(modules.items()) if n}}
+    data["_comment"] = REPORT_BASELINE_COMMENT
+    with open(REPORT_BASELINE, "w") as out:
+        json.dump(data, out, indent=1, sort_keys=True)
+        out.write("\n")
+    totals = ", ".join(f"{kind} {sum(data[kind]['modules'].values())}" for kind in kinds)
+    print(f"crash-ratchet: report baseline written: {totals}")
+    for line in held:
+        print(f"crash-ratchet: not raised: {line}")
+    if held:
+        print(f"crash-ratchet: {len(held)} report row(s) stay above the report baseline; it never raises a row. "
+              "Fix those hits.")
+        return 1
     return 0
 
 
@@ -1122,13 +1395,23 @@ def main():
     parser.add_argument("--exported-tree", action="store_true",
                         help="REPO holds only tracked files (git archive): scan every file, no git needed")
     parser.add_argument("--report", metavar="CLASS[,CLASS]",
-                        help="print these report-only classes' counts per module as JSON ("
-                        + ", ".join(sorted(REPORT_SWIFT)) + "); compares nothing")
+                        help="print these report classes' counts per module and hit sites as JSON ("
+                        + ", ".join(REPORT_CLASSES) + "); compares nothing")
+    parser.add_argument("--all-modules", action="store_true",
+                        help="with --report: count " + " and ".join(REPORT_INDEX)
+                        + " in every module, not only the index modules")
+    parser.add_argument("--update-report-baseline", action="store_true",
+                        help="with --report: lower the classes' rows in crash-safety-report-baseline.json "
+                        "(a class's first row records the tree)")
     opts = parser.parse_args()
     if opts.report is not None:
         if opts.update_baseline or opts.record_waivers or opts.base or opts.baseline_against:
             parser.error("--report only reports: it does not go with --update-baseline, --base or --baseline-against")
-        return report(opts.repo, opts.exported_tree, opts.report)
+        if opts.update_report_baseline:
+            return update_report_baseline(opts.repo, opts.exported_tree, opts.report, opts.all_modules)
+        return report(opts.repo, opts.exported_tree, opts.report, opts.all_modules)
+    if opts.all_modules or opts.update_report_baseline:
+        parser.error("--all-modules and --update-report-baseline go with --report")
     updating = opts.update_baseline or opts.record_waivers
     if opts.base and not updating:
         parser.error("--base goes with --update-baseline or --record-waivers")
