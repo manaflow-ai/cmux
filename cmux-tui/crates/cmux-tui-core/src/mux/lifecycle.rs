@@ -124,7 +124,6 @@ impl Mux {
         // An in-flight maintenance tick must not delay the rest of shutdown.
         self.stop_journal_maintenance();
         self.begin_session_shutdown();
-        self.terminal_respawns.wake_all();
         self.browser_providers.wake_waiters();
         // Held start adoptions end: each posts a retry that sees shutdown.
         self.release_startup_adoptions();
@@ -309,7 +308,6 @@ impl Mux {
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.begin_session_shutdown();
-        self.terminal_respawns.wake_all();
         self.browser_providers.wake_waiters();
         // The journal hook dispatcher waits on the shared journal.
         self.journal_kernel.wake_waiters();

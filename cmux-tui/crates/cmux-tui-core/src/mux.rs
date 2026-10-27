@@ -730,6 +730,8 @@ pub struct Mux {
     /// A start's adoptions held until the owner says ready, and the
     /// terminals a request waits on, whose adoption starts at once.
     startup_adoptions: Mutex<terminal_adoption::StartupAdoptions>,
+    /// Adoption tries running at once (`terminal_adoption::ADOPTION_REPLAYS`).
+    terminal_replays: Arc<mux_work::Permits>,
     /// Restored tab names, by tab slot, for terminals that adopt after the
     /// start: the surface takes its tab's name when it arrives. A leaf lock.
     restored_tab_names: Mutex<HashMap<SurfaceId, String>>,

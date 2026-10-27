@@ -811,10 +811,11 @@ impl Mux {
 
     /// Adopts a surviving host as a retried work item, first after
     /// `first_delay` (zero: at a start, once the owner says ready, see
-    /// [`StartupAdoptions`]), then with backoff. It runs on the System lane at
-    /// UserVisible, whose limit (5) bounds how many hosts replay at once, so a
-    /// start with hundreds of hosts does not hold every replay in memory
-    /// together.
+    /// [`StartupAdoptions`]), then with backoff. Each try holds one of the
+    /// [`ADOPTION_REPLAYS`] permits (`Mux::terminal_replays`), so a start with
+    /// hundreds of hosts does not hold every replay in memory together, and
+    /// its handshake and replay run inside `will_block`, so they hold no
+    /// System lane slot that other UserVisible and UserBlocking work needs.
     #[track_caller]
     pub(super) fn schedule_terminal_adoption_after(
         self: &Arc<Self>,
@@ -844,218 +845,6 @@ impl Mux {
             self.hold_startup_adoption(terminal_id, start);
         } else {
             start(self);
-        }
-    }
-
-    /// Posts the adoption retry of `record`'s host; `end` ends the adoption
-    /// when the retry ends, however it ends.
-    fn post_terminal_adoption(
-        &self,
-        options: SurfaceOptions,
-        record: crate::terminal_host_runtime::TerminalHostRecord,
-        record_path: std::path::PathBuf,
-        first_delay: Duration,
-        end: AdoptionEnd,
-    ) {
-        let terminal_id = record.terminal_id.clone();
-        let cleanup_id = terminal_id.clone();
-        let mut delay = first_delay;
-        let mut refusals = pending_terminals::RefusalStreak::default();
-        let posted =
-            self.post_mux_retry(first_delay, Priority::UserVisible, Lane::System, move |mux| {
-                let _end = &end;
-                // Retries back off from 100 ms, also after an immediate first try.
-                delay = delay.max(Duration::from_millis(50));
-                // A failed read proves nothing about the host: retry.
-                let Ok(terminal) =
-                    mux.workspace_registry.lock().unwrap().terminal_record(&terminal_id)
-                else {
-                    delay = (delay * 2).min(Duration::from_secs(5));
-                    return Retry::After(delay);
-                };
-                let Some(terminal) = terminal else {
-                    if cleanup_terminal_host_record(&record, &record_path) {
-                        return Retry::Done;
-                    }
-                    delay = (delay * 2).min(Duration::from_secs(5));
-                    return Retry::After(delay);
-                };
-                if matches!(
-                    terminal.lifecycle,
-                    TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-                ) {
-                    if terminal.lifecycle == TerminalLifecycle::Exited
-                        && let Err(error) = mux.detach_exited_terminal_topology(&terminal_id)
-                    {
-                        eprintln!(
-                            "cmux-tui: could not detach exited terminal \
-                             {terminal_id}: {error:#}"
-                        );
-                        delay = (delay * 2).min(Duration::from_secs(5));
-                        return Retry::After(delay);
-                    }
-                    if cleanup_terminal_host_record(&record, &record_path) {
-                        return Retry::Done;
-                    }
-                    delay = (delay * 2).min(Duration::from_secs(5));
-                    return Retry::After(delay);
-                }
-                if terminal
-                    .incarnation
-                    .as_deref()
-                    .is_some_and(|incarnation| incarnation != record.incarnation)
-                {
-                    if let Err(error) = mux.mark_terminal_ended(
-                        &terminal_id,
-                        "terminal-incarnation-mismatch",
-                        "host-incarnation-mismatch",
-                        &options,
-                    ) {
-                        eprintln!(
-                            "cmux-tui: could not reconcile exited terminal \
-                             {terminal_id}: {error:#}"
-                        );
-                        delay = (delay * 2).min(Duration::from_secs(5));
-                        return Retry::After(delay);
-                    }
-                    if cleanup_terminal_host_record(&record, &record_path) {
-                        return Retry::Done;
-                    }
-                    delay = (delay * 2).min(Duration::from_secs(5));
-                    return Retry::After(delay);
-                }
-                // Only a running row goes back to adopting: a launching one
-                // belongs to a respawn, and its new host must not be dropped.
-                if terminal.lifecycle == TerminalLifecycle::Running {
-                    let already_live = mux
-                        .resolve_terminal(&terminal_id)
-                        .ok()
-                        .flatten()
-                        .is_some_and(|resolution| resolution.surface.is_some());
-                    if already_live {
-                        return Retry::Done;
-                    }
-                    if mux
-                        .transition_terminal_lifecycle(
-                            "terminal-adopting",
-                            "retry-terminal-adoption",
-                            &terminal_id,
-                            TerminalLifecycle::Adopting,
-                            Some(&record.incarnation),
-                        )
-                        .is_err()
-                    {
-                        return Retry::Done;
-                    }
-                }
-                if terminal_host_record_liveness(&record_path, &record)
-                    == TerminalHostLiveness::Dead
-                {
-                    if let Err(error) = mux.mark_terminal_ended(
-                        &terminal_id,
-                        "terminal-host-proven-dead",
-                        "host-process-ended-before-adoption",
-                        &options,
-                    ) {
-                        eprintln!(
-                            "cmux-tui: could not reconcile exited terminal \
-                             {terminal_id}: {error:#}"
-                        );
-                        delay = (delay * 2).min(Duration::from_secs(5));
-                        return Retry::After(delay);
-                    }
-                    let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                        &record_path,
-                        &record,
-                    );
-                    return Retry::Done;
-                }
-                let restored_binding = match mux.restored_terminal_binding(&terminal_id) {
-                    Ok(binding) => binding,
-                    Err(_) => {
-                        delay = (delay * 2).min(Duration::from_secs(5));
-                        return Retry::After(delay);
-                    }
-                };
-                let adopted =
-                    mux.adopt_restored_terminal(restored_binding, &options, &record, &record_path);
-                if mux.refused_all(
-                    &mut refusals,
-                    Instant::now(),
-                    &adopted,
-                    &options,
-                    &record_path,
-                    &record,
-                ) {
-                    return Retry::Done;
-                }
-                if let Ok(surface) = adopted {
-                    if mux
-                        .finish_terminal_adoption(
-                            &terminal_id,
-                            &record.incarnation,
-                            surface.clone(),
-                        )
-                        .is_ok()
-                    {
-                        mux.ensure_template_adoption_completed(&terminal_id);
-                        mux.reap_if_dead(&surface);
-                        return Retry::Done;
-                    }
-                    let host_is_dead = surface.is_dead()
-                        || terminal_host_record_liveness(&record_path, &record)
-                            == TerminalHostLiveness::Dead;
-                    surface.disconnect_for_daemon_shutdown();
-                    if host_is_dead {
-                        if let Err(error) = mux.mark_terminal_ended(
-                            &terminal_id,
-                            "terminal-adoption-failed",
-                            "host-exited-during-adoption",
-                            &options,
-                        ) {
-                            eprintln!(
-                                "cmux-tui: could not reconcile exited terminal \
-                                 {terminal_id}: {error:#}"
-                            );
-                            delay = (delay * 2).min(Duration::from_secs(5));
-                            return Retry::After(delay);
-                        }
-                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                            &record_path,
-                            &record,
-                        );
-                        return Retry::Done;
-                    }
-                    delay = (delay * 2).min(Duration::from_secs(5));
-                    return Retry::After(delay);
-                }
-                if terminal_host_record_liveness(&record_path, &record)
-                    == TerminalHostLiveness::Dead
-                {
-                    if let Err(error) = mux.mark_terminal_ended(
-                        &terminal_id,
-                        "terminal-host-proven-dead",
-                        "host-process-ended-before-adoption",
-                        &options,
-                    ) {
-                        eprintln!(
-                            "cmux-tui: could not reconcile exited terminal \
-                             {terminal_id}: {error:#}"
-                        );
-                        delay = (delay * 2).min(Duration::from_secs(5));
-                        return Retry::After(delay);
-                    }
-                    let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                        &record_path,
-                        &record,
-                    );
-                    return Retry::Done;
-                }
-                delay = (delay * 2).min(Duration::from_secs(5));
-                Retry::After(delay)
-            });
-        if posted.is_err() {
-            self.clear_pending_terminal(&cleanup_id);
         }
     }
 
@@ -1160,6 +949,10 @@ impl Mux {
 /// (`resolve_running_terminal`); after it the reopen starts a new shell.
 const REOPEN_ADOPTION_WAIT: Duration = Duration::from_secs(10);
 
+/// Adoption tries that may run at once (`Mux::terminal_replays`): the
+/// handshakes and replays one owner takes in together.
+pub(super) const ADOPTION_REPLAYS: usize = 8;
+
 /// The longest a start's adoption waits for its owner to say ready.
 const STARTUP_READY_WAIT: Duration = Duration::from_secs(2);
 
@@ -1200,3 +993,6 @@ impl Drop for AdoptionEnd {
         mux.terminal_adoption_ended.notify_all();
     }
 }
+
+#[path = "terminal_adoption_retry.rs"]
+mod retry;

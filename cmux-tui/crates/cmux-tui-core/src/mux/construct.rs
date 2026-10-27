@@ -401,6 +401,7 @@ impl Mux {
             terminal_adoptions: Mutex::new(HashSet::new()),
             terminal_adoption_ended: Condvar::new(),
             startup_adoptions: Mutex::default(),
+            terminal_replays: mux_work::Permits::new(terminal_adoption::ADOPTION_REPLAYS),
             restored_tab_names: Mutex::new(HashMap::new()),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
@@ -470,6 +471,8 @@ impl Mux {
             mux.request_watchdog.watch_for_process();
         }
         mux.mux_work.bind(Arc::downgrade(&mux));
+        #[cfg(unix)]
+        mux.control_clients.bind_browser_runtime_owner(Arc::downgrade(&mux));
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {

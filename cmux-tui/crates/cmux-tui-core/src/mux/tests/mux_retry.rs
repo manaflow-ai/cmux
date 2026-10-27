@@ -57,6 +57,74 @@ fn shutdown_drops_a_waiting_retry_and_its_state() {
     assert!(refused.is_err());
 }
 
+/// Adoption-shaped tries (System lane, UserVisible, their wait inside
+/// `will_block`) under `ADOPTION_REPLAYS` permits: at most that many run at
+/// once, the rest park with no thread, and the System lane still runs a
+/// UserVisible item at once while every permit waits on its host. Without the
+/// permits and `will_block`, five such tries filled the lane's UserVisible
+/// limit and the probe waited behind them.
+#[test]
+fn limited_retries_bound_concurrency_and_leave_the_system_lane_free() {
+    use crate::mux::terminal_adoption::ADOPTION_REPLAYS;
+    let mux = Mux::new_for_test("mux-retry-limited", SurfaceOptions::default());
+    let tries = ADOPTION_REPLAYS + 4;
+    let (started_tx, started) = mpsc::channel();
+    let (release_tx, release) = mpsc::channel::<()>();
+    let release = Arc::new(Mutex::new(release));
+    let (done_tx, done) = mpsc::channel();
+    for index in 0..tries {
+        let (started_tx, release, done_tx) =
+            (started_tx.clone(), Arc::clone(&release), done_tx.clone());
+        mux.post_mux_retry_limited(
+            Duration::ZERO,
+            Priority::UserVisible,
+            Lane::System,
+            &mux.terminal_replays,
+            move |_| {
+                let _ = started_tx.send(index);
+                cmux_threads::work::will_block(|| {
+                    let _ = release.lock().unwrap().recv();
+                });
+                let _ = done_tx.send(index);
+                Retry::Done
+            },
+        )
+        .unwrap();
+    }
+    for _ in 0..ADOPTION_REPLAYS {
+        started.recv_timeout(WAIT).expect("a try started");
+    }
+    let deadline = Instant::now() + WAIT;
+    while mux.terminal_replays.parked() != tries - ADOPTION_REPLAYS {
+        assert!(Instant::now() < deadline, "the tries past the width did not park");
+        std::thread::yield_now();
+    }
+    assert_eq!(mux.terminal_replays.held(), ADOPTION_REPLAYS);
+    assert_eq!(started.try_recv(), Err(mpsc::TryRecvError::Empty), "a try ran past the width");
+    let (probe_tx, probe) = mpsc::channel();
+    mux.work
+        .post(Priority::UserVisible, Lane::System, cmux_threads::work::Shutdown::SkipOnShutdown, {
+            move || {
+                let _ = probe_tx.send(());
+            }
+        })
+        .unwrap();
+    assert_eq!(probe.recv_timeout(WAIT), Ok(()), "the System lane waited behind the tries");
+    for _ in 0..tries {
+        release_tx.send(()).unwrap();
+    }
+    let mut finished: Vec<usize> = (0..tries).map(|_| done.recv_timeout(WAIT).unwrap()).collect();
+    finished.sort_unstable();
+    assert_eq!(finished, (0..tries).collect::<Vec<_>>());
+    let deadline = Instant::now() + WAIT;
+    while mux.terminal_replays.held() != 0 {
+        assert!(Instant::now() < deadline, "a permit was kept");
+        std::thread::yield_now();
+    }
+    assert_eq!(mux.terminal_replays.parked(), 0);
+    mux.shutdown();
+}
+
 #[test]
 fn held_start_adoptions_start_on_ready_with_no_thread_each() {
     let mux = Mux::new_for_test("mux-retry-startup", SurfaceOptions::default());

@@ -10,7 +10,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::Duration;
 
 use cmux_threads::work::{Lane, Priority, Refused, Shutdown, Work};
@@ -106,28 +106,179 @@ impl Mux {
         attempt: impl FnMut(&Arc<Mux>) -> Retry + Send + 'static,
     ) -> Result<(), Refused> {
         let mux = self.mux_work.mux.get().cloned().ok_or(Refused)?;
-        post_retry(&self.work, mux, first_delay, priority, lane, Box::new(attempt))
+        let retry = RetryItem { mux, priority, lane, permits: None, attempt: Box::new(attempt) };
+        retry.post(&self.work, first_delay)
+    }
+
+    /// [`Self::post_mux_retry`] whose tries each hold one of `permits`: at
+    /// most its width run at once, beside the lane's own limits. A try that
+    /// finds none free waits in `permits` with no thread and no timer, and is
+    /// posted again when one frees.
+    pub(super) fn post_mux_retry_limited(
+        &self,
+        first_delay: Duration,
+        priority: Priority,
+        lane: Lane,
+        permits: &Arc<Permits>,
+        attempt: impl FnMut(&Arc<Mux>) -> Retry + Send + 'static,
+    ) -> Result<(), Refused> {
+        let mux = self.mux_work.mux.get().cloned().ok_or(Refused)?;
+        let permits = Some(Arc::downgrade(permits));
+        let retry = RetryItem { mux, priority, lane, permits, attempt: Box::new(attempt) };
+        retry.post(&self.work, first_delay)
     }
 }
 
-fn post_retry(
-    work: &Work,
-    mux: Weak<Mux>,
-    delay: Duration,
+/// [`Mux::post_mux_retry`] from a thread that holds the mux only weakly
+/// (the host-close pool). `Err` when the mux is gone or shutdown began.
+pub(super) fn post_mux_retry_from(
+    owner: &Weak<Mux>,
+    first_delay: Duration,
     priority: Priority,
     lane: Lane,
-    mut attempt: RetryAttempt,
+    attempt: impl FnMut(&Arc<Mux>) -> Retry + Send + 'static,
 ) -> Result<(), Refused> {
-    work.post_delayed(delay, priority, lane, Shutdown::ContinueOnShutdown, move || {
-        let Some(owner) = mux.upgrade() else { return };
+    let permits = None;
+    let retry =
+        RetryItem { mux: owner.clone(), priority, lane, permits, attempt: Box::new(attempt) };
+    let owner = owner.upgrade().ok_or(Refused)?;
+    retry.post(&owner.work, first_delay)
+}
+
+impl Mux {
+    /// The mux's weak reference, for a seam that posts work later from a
+    /// thread that does not hold the mux (empty before the mux is bound).
+    pub(super) fn work_owner(&self) -> Weak<Mux> {
+        self.mux_work.mux.get().cloned().unwrap_or_default()
+    }
+}
+
+/// One retried item between tries: it holds the mux and its permits
+/// weakly, so a waiting or parked try never keeps a dropped mux alive (a
+/// parked try sits in its permits).
+struct RetryItem {
+    mux: Weak<Mux>,
+    priority: Priority,
+    lane: Lane,
+    permits: Option<Weak<Permits>>,
+    attempt: RetryAttempt,
+}
+
+impl RetryItem {
+    fn post(self, work: &Work, delay: Duration) -> Result<(), Refused> {
+        let (priority, lane) = (self.priority, self.lane);
+        work.post_delayed(delay, priority, lane, Shutdown::ContinueOnShutdown, move || self.run())
+    }
+
+    fn run(mut self) {
+        let Some(owner) = self.mux.upgrade() else { return };
         if owner.shutting_down.load(Ordering::Acquire) {
             return;
         }
-        if let Retry::After(backoff) = attempt(&owner) {
+        let permits = match self.permits.as_ref().map(Weak::upgrade) {
+            None => None,
+            Some(Some(permits)) => Some(permits),
+            // The mux that owned them is gone.
+            Some(None) => return,
+        };
+        let _permit = match permits.as_ref().map(Permits::take) {
+            None => None,
+            Some(Ok(permit)) => Some(permit),
+            Some(Err(parking)) => {
+                // Posted again with no delay when a permit frees.
+                parking.park(Box::new(move || {
+                    if let Some(owner) = self.mux.upgrade() {
+                        // Refused: shutdown began, and the retry ends with it.
+                        let _ = self.post(&owner.work, Duration::ZERO);
+                    }
+                }));
+                return;
+            }
+        };
+        if let Retry::After(backoff) = (self.attempt)(&owner) {
             // Refused: shutdown began, and the retry ends with it.
-            let _ = post_retry(&owner.work, mux, backoff, priority, lane, attempt);
+            let _ = self.post(&owner.work, backoff);
         }
-    })
+    }
+}
+
+type ParkedTry = Box<dyn FnOnce() + Send>;
+
+/// A counted limit on how many items of one kind run at once, as Chrome's
+/// `PostJob` bounds a job's workers by its max concurrency
+/// (base/task/post_job.h) while the pool's own limits stay shared. An item
+/// that finds every permit taken parks; a permit that frees posts the
+/// longest-parked item again. Nothing waits on a thread for a permit.
+pub(crate) struct Permits {
+    width: usize,
+    // Lock carve-out: a leaf lock over a count and a queue; no item runs and
+    // no other lock is taken under it.
+    state: Mutex<PermitState>,
+}
+
+#[derive(Default)]
+struct PermitState {
+    held: usize,
+    parked: VecDeque<ParkedTry>,
+}
+
+impl Permits {
+    pub(crate) fn new(width: usize) -> Arc<Permits> {
+        Arc::new(Permits { width: width.max(1), state: Mutex::default() })
+    }
+
+    /// A permit, or the place to park until one frees. Parking holds the
+    /// lock, so no permit frees between the refusal and the park.
+    fn take(self: &Arc<Self>) -> Result<Permit, Parking<'_>> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.held < self.width {
+            state.held += 1;
+            return Ok(Permit { permits: Arc::clone(self) });
+        }
+        Err(Parking { state })
+    }
+
+    /// Permits held now.
+    #[cfg(test)]
+    pub(crate) fn held(&self) -> usize {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).held
+    }
+
+    /// Items parked for a permit.
+    #[cfg(test)]
+    pub(crate) fn parked(&self) -> usize {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).parked.len()
+    }
+}
+
+/// Every permit is taken: park here.
+struct Parking<'a> {
+    state: MutexGuard<'a, PermitState>,
+}
+
+impl Parking<'_> {
+    fn park(mut self, wake: ParkedTry) {
+        self.state.parked.push_back(wake);
+    }
+}
+
+/// One of a [`Permits`]' width, held for the whole of one try.
+struct Permit {
+    permits: Arc<Permits>,
+}
+
+impl Drop for Permit {
+    fn drop(&mut self) {
+        let next = {
+            let mut state = self.permits.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.held -= 1;
+            state.parked.pop_front()
+        };
+        // Outside the lock: it posts a work item.
+        if let Some(next) = next {
+            next();
+        }
+    }
 }
 
 type SequencedItem = Box<dyn FnOnce(&Weak<Mux>) + Send>;
