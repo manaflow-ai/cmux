@@ -267,7 +267,7 @@ public actor DaemonConnection {
             let mutationCauses = mutationCauses
             transport.start(
                 onCausedEvent: { [weak self] name, line, index, wireCause in
-                    let event = raw ? DaemonEvent.raw(name: name, line: line, decoder: decoder)
+                    let event = raw ? DaemonEvent.relayed(name: name, line: line)
                         : DaemonEvent.decode(name: name, line: line, decoder: decoder)
                     let envelope = DaemonEventEnvelope(
                         sequence: DaemonEventEnvelope.sequence(serial: serial, index: index), event: event, sourceID: eventSourceID,

@@ -183,7 +183,7 @@ extension DaemonStore {
         case .connected, .disconnected, .daemonShutdown, .treeChanged, .personalChanged, .sessionState, .scrollChanged, .bell,
              .frontendProjectionChanged, .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged,
              .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged,
-             .cloudConversations, .terminalClipboardRead, .terminalClipboardReadCancelled, .client, .unknown:
+             .cloudConversations, .terminalClipboardRead, .terminalClipboardReadCancelled, .client, .unknown, .relayed:
             // No confirmed tree record changes (a resync, a connection change, side state).
             break
         }

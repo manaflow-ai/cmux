@@ -328,7 +328,7 @@ extension DaemonStore {
             sideEvents.deliver(event, envelope: envelope)
             return .none
 
-        case .scrollChanged, .bell, .frontendProjectionChanged, .client:
+        case .scrollChanged, .bell, .frontendProjectionChanged, .client, .relayed:
             return .none
         }
     }

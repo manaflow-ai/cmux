@@ -179,8 +179,8 @@ final class DaemonPageRelay: PageProvider {
     /// (`cmux.history.changed` -> `history-changed`), as the daemon sent it, on the page's relay
     /// connection (page-events-v1, cx-hnmbt.9). The daemon decides which events a page hears; a
     /// stream it does not name is `unknown_op` (the page then reads without live updates). The
-    /// channel reads each event off main and hands the page its members as they arrived, a frame's
-    /// worth at a time (p05-ipc-109).
+    /// channel reads each event off main and hands the page its line undecoded, a frame's worth at a
+    /// time (p05-ipc-109): the page parses it.
     func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
         guard stream.hasPrefix("cmux.") else { throw PageError.unknownOp(stream) }
@@ -204,9 +204,10 @@ final class DaemonPageRelay: PageProvider {
 
     /// Daemon page events are change notices the page answers with a fresh read (the relay sends
     /// `{resync: true}` after an overflow), so a frozen page keeps only the newest and a gap mark
-    /// when older ones dropped. Never `.latest`: that would hide the lost changes.
+    /// when older ones dropped. Never `.latest`: that would hide the lost changes. Each event is the
+    /// daemon's line as JSON text, which the page parses (``PageEventEncoding/jsonText``).
     static func subscription(onCancel: @escaping () -> Void) -> PageSubscription {
-        PageSubscription(frozenDelivery: .resync, onCancel: onCancel)
+        PageSubscription(frozenDelivery: .resync, encoding: .jsonText, onCancel: onCancel)
     }
 
     /// The v2 idempotency key: the page's own, else its operation id (decision 31), so a resend

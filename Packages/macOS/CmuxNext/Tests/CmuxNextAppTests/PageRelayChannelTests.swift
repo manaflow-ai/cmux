@@ -3,14 +3,15 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
 /// The page relay channel off the main actor (p05-ipc-109), on the production ``DaemonPageRelay``
 /// and ``PageRelayChannel`` over the fake daemon socket of ``PageRelayChannelFreezeTests``: a page
 /// call runs no main-actor job between its caller's turn and its request on the socket, an event
-/// reaches the page member for member with no JSON text in between, and a flood of events costs
-/// the main thread at most one post per display frame for the page.
+/// reaches the page as the daemon's undecoded line (0 app JSON decodes), and a flood of events
+/// costs the main thread at most one post and one flush per display frame for the page.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1))) struct PageRelayChannelTests {
     typealias Rig = PageRelayChannelFreezeTests.Rig
@@ -33,53 +34,58 @@ import Testing
         try await call.value
     }
 
-    /// The page gets the daemon's members as they were, without the `event` member that named it.
-    @Test func anEventReachesThePageMemberForMember() async throws {
+    /// The page gets the daemon's line as the daemon sent it, as JSON text the app never decodes:
+    /// the relay connection's JSON decodes (its wire counter, where every app decode of its lines is
+    /// counted) do not move while the event reaches the page, and the page parses the text (here,
+    /// the test does) to every member, `event` included. Before, the connection decoded each line
+    /// into a `JSONValue` (1 decode per event) and the channel copied it into the page's value.
+    @Test func anEventReachesThePageWithNoAppDecode() async throws {
         let rig = try Rig()
         defer { rig.stop() }
         let page = rig.page()
         try await PageRelayChannelFreezeTests.subscribe(page, "cmux.history.changed", id: 1)
+        let decodes = rig.stats.snapshot().jsonDecodes
         rig.socket.publish(event: ["event": "history-changed", "workspace_id": "w1", "count": 3,
                                    "flags": [true, NSNull()], "nested": ["ratio": 1.5]])
         await rig.wake.frame()
         await page.sent.waitForEvents(1)
+        #expect(rig.stats.snapshot().jsonDecodes == decodes, "0 app JSON decodes per relayed event")
+        let event = try #require(page.sent.events.first)
+        #expect(event["data"] == nil, "the line goes as `json`, not as a value the app built")
+        let text = try #require(event["json"]?.stringValue, "\(event)")
         let expected: CmuxNextSettings.JSONValue = .object([
-            "workspace_id": .string("w1"), "count": .number(3), "flags": .array([.bool(true), .null]),
-            "nested": .object(["ratio": .number(1.5)]),
+            "event": .string("history-changed"), "workspace_id": .string("w1"), "count": .number(3),
+            "flags": .array([.bool(true), .null]), "nested": .object(["ratio": .number(1.5)]),
         ])
-        #expect(page.sent.events.first?["data"] == expected)
+        #expect(try CmuxNextSettings.JSONValue.parse(Data(text.utf8)) == expected)
     }
 
-    /// The conversion itself: every JSON kind moves across as it is, and only `event` is dropped.
-    @Test func pageEventKeepsEveryMemberButTheEventName() {
-        let daemon: CmuxNextDaemon.JSONValue = .object([
-            "event": .string("history-changed"), "n": .number(-2.25), "on": .bool(false), "none": .null,
-            "list": .array([.string("a"), .object(["event": .string("kept below the top")])]),
-        ])
-        let expected: CmuxNextSettings.JSONValue = .object([
-            "n": .number(-2.25), "on": .bool(false), "none": .null,
-            "list": .array([.string("a"), .object(["event": .string("kept below the top")])]),
-        ])
-        #expect(PageRelayChannel.pageEvent(daemon) == expected)
-        #expect(PageRelayChannel.pageEvent(.array([.number(1)])) == .array([.number(1)]))
-    }
-
-    /// 1,000 events in a row: each frame runs one flush for the page (one main post), and the page
-    /// gets them all or, past a frame's worth, one resync that makes it re-read.
-    @Test func aFloodOfEventsTakesAtMostOnePostPerFrame() async throws {
+    /// 1,000 events in a row on the app's wake (``FrameOutboxWake/nextFrame(owner:on:)``, as
+    /// ``DaemonPageRelay/init(services:)`` makes it) over a scheduler whose frames the test fires,
+    /// counted from the board's ledger: each frame runs at most one main post
+    /// (`PageRelayChannel.events`) and one flush (`PageRelayChannel.events.flush`) for the page, and
+    /// the page gets every event or, past a frame's worth, one resync that makes it re-read.
+    @Test func aFloodOfEventsTakesAtMostOnePostAndOneFlushPerFrame() async throws {
         let rig = try Rig()
         defer { rig.stop() }
-        let page = rig.page()
+        let frames = ManualMainFrames()
+        let owner = "PageRelayChannel.events", flushOwner = owner + ".flush"
+        let page = rig.page(eventWake: { FrameOutboxWake.nextFrame(owner: owner, on: frames.work) })
         try await PageRelayChannelFreezeTests.subscribe(page, "cmux.history.changed", id: 1)
         rig.socket.publish("history-changed", count: 1_000)
-        var frames = 0
-        while !Self.floodEnded(page.sent.events) {
-            let flushes = await rig.wake.frame()
-            frames += 1
-            #expect(flushes == 1, "one page asks for one flush per frame")
+        var ticks = 0
+        while !Self.floodEnded(page.sent.events), ticks < 2_000 {
+            let posts = frames.tasks(of: owner), flushes = frames.tasks(of: flushOwner)
+            // One frame interval: the main run loop's turns, where posts made off main arrive, then the frame.
+            frames.runTurnsBetweenFrames()
+            frames.tick()
+            ticks += 1
+            #expect(frames.tasks(of: owner) - posts <= 1, "at most one main post a frame for the page")
+            #expect(frames.tasks(of: flushOwner) - flushes <= 1, "at most one flush a frame for the page")
         }
-        #expect(frames <= 1_000)
-        #expect(rig.wake.requests <= frames + 1, "at most one post waits for the next frame")
+        #expect(Self.floodEnded(page.sent.events), "the page got the flood or a resync in \(ticks) frames")
+        #expect(frames.tasks(of: flushOwner) >= 1)
+        #expect(frames.tasks(of: owner) <= ticks + 1, "never more posts than frames")
     }
 
     /// Every event of the flood arrived, or a resync stands for the ones dropped.

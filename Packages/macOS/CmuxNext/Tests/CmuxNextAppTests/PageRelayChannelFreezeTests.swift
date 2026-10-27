@@ -30,14 +30,15 @@ import Testing
     }
 
     /// The daemon service a channel needs: an unstarted main connection (no gesture call here asks
-    /// it for a token), `origin-claim-v1`, and the fake socket for the relay connections.
+    /// it for a token), `origin-claim-v1`, and the fake socket for the relay connections, whose
+    /// wire counters (JSON decodes included) go to `stats`.
     @MainActor final class FakeRelayDaemon: PageRelayDaemon {
         let connection: DaemonConnection? = DaemonConnection(endpoint: DaemonEndpoint(socketPath: "/nonexistent/cnp-relay-main.sock"))
         let endpointProvider: DaemonConnection.EndpointProvider?
         let retryWake = RetryWake(owner: "test.page-relay")
 
-        init(socket: String) {
-            endpointProvider = { DaemonEndpoint(socketPath: socket) }
+        init(socket: String, stats: DaemonWireStats) {
+            endpointProvider = { DaemonEndpoint(socketPath: socket, wireStats: stats) }
         }
 
         func supports(_ capability: String) -> Bool { capability == DaemonClientRole.originClaimCapability }
@@ -83,6 +84,8 @@ import Testing
     @MainActor struct Rig {
         let socket: FakePageRelaySocket
         let daemon: FakeRelayDaemon
+        /// The relay connections' wire counters: every JSON decode the app does on their lines.
+        let stats = DaemonWireStats()
         let channels = PageRelayChannels()
         let work = BackgroundWork(label: "test.page-relay")
         let deadline = ManualDeadline()
@@ -91,7 +94,7 @@ import Testing
 
         init() throws {
             socket = try FakePageRelaySocket()
-            daemon = FakeRelayDaemon(socket: socket.path)
+            daemon = FakeRelayDaemon(socket: socket.path, stats: stats)
         }
 
         /// Ends the socket; the daemon lives until here, as the app's outlives its pages' relays.
@@ -99,9 +102,11 @@ import Testing
             withExtendedLifetime(daemon) { socket.stop() }
         }
 
-        func page() -> Page {
+        /// One page; its channel's events reach it on `eventWake` (default: ``wake``'s frames).
+        func page(eventWake: (() -> FrameOutboxWake)? = nil) -> Page {
             let deadline = deadline, wake = wake
-            let relay = DaemonPageRelay(daemon: daemon, channels: channels, work: work, eventWake: { wake.wake }) { deadline }
+            let relay = DaemonPageRelay(daemon: daemon, channels: channels, work: work,
+                                        eventWake: eventWake ?? { wake.wake }) { deadline }
             let router = PageRouter(descriptor: PageRelayChannelFreezeTests.descriptor, routes: [
                 PageRoute(prefix: "cmux.history.", provider: relay),
                 PageRoute(prefix: "cmux.workspace.", provider: relay),

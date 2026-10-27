@@ -39,7 +39,10 @@ must not have; and acpmux already works as a direct data-plane provider today.
     `{"t":"err","id":<u64>,"code":"<ns>.<code>","message":"...","retryable":bool,"details"?:{}}`
   - subscribe: `{"t":"sub","id":<u64>,"stream":"<ns>.<family>.<event>","filter"?:{...}}`, the
     answer is `ok` with `{"sub":<u64>}`; events are `{"t":"ev","sub":<u64>,"seq":<u64>,"data":{...}}`;
-    `{"t":"unsub","sub":<u64>}`.
+    `{"t":"unsub","sub":<u64>}`. The app's page bridge (PageRouter to webviews pageClient.ts) may send
+    an event's data as JSON text it holds undecoded, `"json":"<text>"` in place of `data` (a daemon
+    line on a page relay stream, p05-ipc-109); the page parses it, and text that does not parse
+    reads as a gap.
   - cancel: `{"t":"cancel","id":<u64>}`.
   - release a handle: `{"t":"release","handle":"<id>"}`.
   - byte stream: `{"t":"open","stream":<u32>,"op":...}` then binary frames

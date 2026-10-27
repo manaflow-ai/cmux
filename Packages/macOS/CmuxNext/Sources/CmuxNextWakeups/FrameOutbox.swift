@@ -128,10 +128,11 @@ public struct FrameOutboxWake: Sendable {
     /// the person's input and the higher classes, and never twice in one frame.
     ///
     /// - Parameters:
-    ///   - owner: Names the post and the frame queue on the board and in the watchdog's records.
+    ///   - owner: Names the post on the board and in the watchdog's records; the frame queue that
+    ///     runs the flush is `<owner>.flush` there.
     ///   - work: The app's one main-thread scheduler.
     @MainActor public static func nextFrame(owner: String, on work: MainWorkScheduler) -> FrameOutboxWake {
-        let frames = FrameBatchQueue(owner: owner, budgeted: .visible, on: work)
+        let frames = FrameBatchQueue(owner: owner + ".flush", budgeted: .visible, on: work)
         let post = work.board.owner(owner)
         return FrameOutboxWake { [weak work] flush in
             work?.postFromAnyThread(.visible, owner: post) { frames.enqueue(flush) }

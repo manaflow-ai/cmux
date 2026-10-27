@@ -80,10 +80,24 @@ type Envelope =
   | { t: "ok"; id: number; value?: unknown }
   | { t: "err"; id: number; code: string; message: string; retryable?: boolean; details?: unknown }
   | { t: "sub"; id: number; stream: string; filter?: Record<string, unknown> }
-  | { t: "ev"; sub: number; seq: number; data: unknown; opid?: string; gap?: boolean }
+  | { t: "ev"; sub: number; seq: number; data?: unknown; json?: string; opid?: string; gap?: boolean }
   | { t: "evs"; events: unknown[] }
   | { t: "unsub"; sub: number }
   | { t: "cancel"; id: number };
+
+/**
+ * An event envelope's data: its `data`, or the JSON text the host sent undecoded as `json` (a
+ * daemon event line on a page relay stream, p05-ipc-109), parsed here so the app never decodes
+ * it. Text that does not parse is a lost event: the page reads it as a gap and re-reads.
+ */
+function eventData(envelope: { data?: unknown; json?: unknown }): { data: unknown; lost: boolean } {
+  if (typeof envelope.json !== "string") return { data: envelope.data, lost: false };
+  try {
+    return { data: JSON.parse(envelope.json) as unknown, lost: false };
+  } catch {
+    return { data: null, lost: true };
+  }
+}
 
 /** A reply-capable message handler (`WKScriptMessageHandlerWithReply`). */
 export interface ReplyHandler {
@@ -396,15 +410,16 @@ export class BridgePageClient implements PageClient {
       return;
     }
     if (envelope?.t === "ev") {
-      const { sub, seq, data, opid, gap } = envelope as {
+      const { sub, seq, opid, gap } = envelope as {
         sub: number;
         seq: number;
-        data: unknown;
         opid?: unknown;
         gap?: unknown;
       };
       const meta: PageEventMeta = typeof opid === "string" ? { opid } : {};
-      if (gap === true) meta.gap = true;
+      const event = eventData(envelope);
+      if (gap === true || event.lost) meta.gap = true;
+      const { data } = event;
       const listener = this.listeners.get(sub);
       if (!listener) {
         this.hold(sub, { data, seq, meta });

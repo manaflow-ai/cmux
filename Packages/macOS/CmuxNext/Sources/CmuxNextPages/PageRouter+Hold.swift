@@ -84,7 +84,7 @@ extension PageRouter {
     /// Sends `events` in order, each with its subscription's next `seq`: one `ev` envelope, or one
     /// `evs` envelope carrying them all (a release is one script, rendered off the main actor when
     /// large). A stream that lost events marks `gap: true` (pane-protocol-decisions.md decisions 15
-    /// and 32).
+    /// and 32). A ``PageEventEncoding/jsonText`` stream's JSON text goes undecoded as `json`.
     func emit(_ events: [PageReleasedEvent]) {
         guard !events.isEmpty else { return }
         var envelopes: [JSONValue] = []
@@ -92,8 +92,12 @@ extension PageRouter {
         for item in events {
             let seq = (sequences[item.sub] ?? 0) + 1
             sequences[item.sub] = seq
-            var fields: [String: JSONValue] = ["t": "ev", "sub": .number(Double(item.sub)), "seq": .number(Double(seq)),
-                                               "data": item.event.data]
+            var fields: [String: JSONValue] = ["t": "ev", "sub": .number(Double(item.sub)), "seq": .number(Double(seq))]
+            if subscriptions[item.sub]?.encoding == .jsonText, case .string(let text) = item.event.data {
+                fields["json"] = .string(text)
+            } else {
+                fields["data"] = item.event.data
+            }
             if item.gap { fields["gap"] = .bool(true) }
             envelopes.append(.object(fields))
         }

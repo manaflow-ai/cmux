@@ -4,9 +4,10 @@ import CmuxNextCompat
 /// The page relay's handshake (request-origin.md): `identify`, then `client-hello {role:
 /// page_relay}` only when the daemon has `origin-claim-v1`, and no label. When the hello names
 /// events the page hears (`page-events-v1`), a plain `subscribe` follows: the daemon narrows that
-/// stream to those events, and the connection reports each one as it came (``DaemonEvent/raw``),
-/// so the relay forwards it without a Swift type per event. The connection is ready, and takes page calls, only after the hello result: a
-/// relay request never goes out with a client role. Without the capability the connect fails.
+/// stream to those events, and the connection reports each one as its undecoded line
+/// (``DaemonEvent/relayed(name:line:)``), so the relay forwards it with no decode in the app. The
+/// connection is ready, and takes page calls, only after the hello result: a relay request never
+/// goes out with a client role. Without the capability the connect fails.
 /// Its own type, not a `DaemonConnection` member (that type's line budget is frozen).
 enum PageRelayHandshake {
     static func run(_ transport: LineTransport, configuration: DaemonConnectionConfiguration) async throws -> DaemonIdentity {
@@ -75,13 +76,5 @@ public final class PageRelayIdentity: Sendable {
     public var gestureOperations: Set<String> {
         get { gestures.withLock { $0 } }
         set { gestures.withLock { $0 = newValue } }
-    }
-}
-
-extension DaemonEvent {
-    /// One subscribe-stream line as the daemon sent it (`.unknown` with its whole object): what a
-    /// page relay connection reports, so the relay forwards events without a Swift type for each.
-    static func raw(name: String, line: Data, decoder: WireDecoder = WireCoding.decoder()) -> DaemonEvent {
-        .unknown(name: name, payload: (try? decoder.decode(JSONValue.self, from: line)) ?? .null)
     }
 }

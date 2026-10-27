@@ -21,15 +21,17 @@ import os
 ///
 /// Events (`page-events-v1`, cx-hnmbt.9): the relay connection also subscribes when its page hears
 /// events (page-router.json `events`); the daemon narrows that stream to them. ``listen(event:on:onEvent:)``
-/// hands each one, as the daemon sent it, to the page streams that asked for it. After a reconnect
-/// or an `overflow` (events were lost) every listener gets `{resync: true}` and re-reads.
+/// hands each one, its line as the daemon sent it, to the page streams that asked for it. After a
+/// reconnect or an `overflow` (events were lost) every listener gets `{resync: true}` and re-reads.
 ///
 /// Off the main actor (p05-ipc-109): the channel's state is behind a `Mutex`, so a call reads its
 /// daemon service in the caller's turn and then runs whole off main: no main-actor job between
 /// the page's call and its request on the socket, as Chrome's browser process sends a WebUI's
 /// Mojo calls from any sequence (mojo/public/cpp/bindings/shared_remote.h). Events are read off
-/// main, their members moved into page values with no JSON text in between, and handed to the
-/// main actor at most once per display frame (``FrameOutbox``, ``PageRelayListenerTable``).
+/// main and handed to the main actor at most once per display frame (``FrameOutbox``,
+/// ``PageRelayListenerTable``), each as its undecoded line: the app routes it by the name the
+/// transport scanned from its bytes and never parses it, the page does, as a Mojo payload is
+/// decoded by its receiver (mojo/public/cpp/bindings/lib/message.cc).
 ///
 /// Against a daemon without `origin-claim-v1` there is no relay connection: page calls go on the
 /// main connection as before, with a logged warning that they are not narrowed.
@@ -141,8 +143,9 @@ nonisolated final class PageRelayChannel: Sendable {
     }
 
     /// Hands every `event` (a daemon subscribe event name, `history-changed`) the page hears to
-    /// `onEvent`, until ``PageRelayListenerTable/stopListener(_:)`` ends the returned listener. Throws
-    /// ``NoSuchEvent`` when the page's entry does not name it or the daemon has no page relay.
+    /// `onEvent` as its line's JSON text, until ``PageRelayListenerTable/stopListener(_:)`` ends the
+    /// returned listener. Throws ``NoSuchEvent`` when the page's entry does not name it or the daemon
+    /// has no page relay.
     @MainActor
     func listen(event: String, on daemon: any PageRelayDaemon,
                 onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> UInt64 {
@@ -210,7 +213,7 @@ nonisolated final class PageRelayChannel: Sendable {
                     // A reconnect: the events while it was down are lost.
                     if connectedBefore { self.events.offerGap() }
                     connectedBefore = true
-                case .unknown(name: "overflow", payload: _):
+                case .relayed(name: "overflow", line: _):
                     // The daemon ended the stream: subscribe again, then re-read, so no change
                     // falls between the re-read and the new stream.
                     do {
@@ -219,31 +222,13 @@ nonisolated final class PageRelayChannel: Sendable {
                     } catch {
                         Self.logger.warning("page relay resubscribe failed: \(String(describing: error), privacy: .public)")
                     }
-                case .unknown(let name, let payload):
-                    self.events.offer((name: name, payload: Self.pageEvent(payload)))
+                case .relayed(let name, let line):
+                    // The reader checked the line: UTF-8, one JSON object. The page parses it.
+                    self.events.offer((name: name, json: String(decoding: line, as: UTF8.self)))
                 default:
                     continue
                 }
             }
-        }
-    }
-
-    /// The page's value of an event's payload, member for member with no JSON text in between,
-    /// without the `event` member that named it.
-    static func pageEvent(_ payload: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
-        guard case .object(var members) = payload else { return pageValue(payload) }
-        members.removeValue(forKey: "event")
-        return .object(members.mapValues(pageValue))
-    }
-
-    private static func pageValue(_ value: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
-        switch value {
-        case .null: .null
-        case .bool(let flag): .bool(flag)
-        case .number(let number): .number(number)
-        case .string(let text): .string(text)
-        case .array(let items): .array(items.map(pageValue))
-        case .object(let members): .object(members.mapValues(pageValue))
         }
     }
 

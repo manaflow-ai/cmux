@@ -7,8 +7,9 @@ public import CmuxNextWakeups
 /// keeps the channel's connection (``PageRelayIdleClose``); a paused one hears nothing and does not
 /// keep it, and its page's thaw resyncs it (``PageRelayStreams``).
 public final class PageRelayListenerTable: PageRelayListeners {
-    /// One daemon event as the page gets it: its name (`history-changed`) and its members without `event`.
-    public typealias Event = (name: String, payload: JSONValue)
+    /// One daemon event as the page gets it: its name (`history-changed`) and its line as the daemon
+    /// sent it, JSON text the app never decodes. The page parses it and ignores its `event` member.
+    public typealias Event = (name: String, json: String)
 
     private struct Listener {
         let event: String
@@ -29,7 +30,8 @@ public final class PageRelayListenerTable: PageRelayListeners {
     ///
     /// - Parameters:
     ///   - event: The daemon subscribe event it hears.
-    ///   - deliver: Takes each of those events, and `{resync: true}` after events were lost.
+    ///   - deliver: Takes each of those events as a JSON text string (the stream is
+    ///     ``PageEventEncoding/jsonText``), and the value `{resync: true}` after events were lost.
     /// - Returns: The listener's id for ``pauseListener(_:)``, ``resumeListener(_:)`` and ``stopListener(_:)``.
     public func add(event: String, deliver: @escaping @MainActor (JSONValue) -> Void) -> UInt64 {
         lastID += 1
@@ -44,7 +46,7 @@ public final class PageRelayListenerTable: PageRelayListeners {
         if gap { resync() }
         for event in events {
             for listener in listeners.values where listener.event == event.name && !listener.paused {
-                listener.deliver(event.payload)
+                listener.deliver(.string(event.json))
             }
         }
     }

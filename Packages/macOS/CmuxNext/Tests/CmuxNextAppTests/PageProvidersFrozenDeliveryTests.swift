@@ -25,6 +25,7 @@ import Testing
         var cancelled = 0
         let subscription = DaemonPageRelay.subscription { cancelled += 1 }
         #expect(subscription.frozenDelivery == .resync)
+        #expect(subscription.encoding == .jsonText, "the page parses the daemon's lines (p05-ipc-109)")
         subscription.cancel()
         subscription.cancel()
         #expect(cancelled == 1)

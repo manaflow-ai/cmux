@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// ``FrameOutbox`` (p05-ipc-109): items offered on any thread reach the main actor in one batch per
@@ -93,6 +94,48 @@ import Testing
         #expect(delivered.batches.count == 1)
         #expect(delivered.batches.first?.items.isEmpty == true)
         #expect(delivered.batches.first?.gap == true)
+    }
+
+    /// The app's wake (``FrameOutboxWake/nextFrame(owner:on:)``) on a ``MainWorkScheduler`` whose
+    /// frames the test fires, counted from the board's ledger: 1,000 items offered off main, 100 a
+    /// frame for 10 frames, cost the main thread at most one post (`PageRelayChannel.events`) and
+    /// one flush (`PageRelayChannel.events.flush`) per frame. Each flush runs, and the first offer
+    /// after it posts again: no post is lost, so the outbox never stops asking.
+    @MainActor @Test func theAppsWakePostsAndFlushesAtMostOncePerFrame() async {
+        let owner = "PageRelayChannel.events", flushOwner = owner + ".flush"
+        let frames = ManualMainFrames(), delivered = Delivered()
+        let outbox = FrameOutbox<Int>(limit: 2_000, wake: .nextFrame(owner: owner, on: frames.work)) { items, gap in
+            delivered.batches.append((items: items, gap: gap))
+        }
+        var posts = 0, flushes = 0
+        for round in 0..<10 {
+            let wakes = outbox.wakeCount
+            await Task.detached { for item in (round * 100)..<(round * 100 + 100) { outbox.offer(item) } }.value
+            #expect(outbox.wakeCount == wakes + 1, "round \(round): the first offer after a flush asks again, the rest do not")
+            // The post reaches main: it runs in that turn (no frame is due), or waits for the frame.
+            let arrived = frames.runTurns { frames.tasks(of: owner) > posts || frames.work.postedCount(.visible) > 0 }
+            #expect(arrived, "round \(round): the post reached main")
+            var ticks = 0
+            while frames.tasks(of: flushOwner) == flushes, ticks < 3 {
+                let postsBefore = frames.tasks(of: owner), flushesBefore = frames.tasks(of: flushOwner)
+                frames.tick()
+                ticks += 1
+                #expect(frames.tasks(of: owner) - postsBefore <= 1, "round \(round): at most one post in a frame")
+                #expect(frames.tasks(of: flushOwner) - flushesBefore <= 1, "round \(round): at most one flush in a frame")
+            }
+            #expect(frames.tasks(of: owner) == posts + 1, "round \(round): one main post for 100 offers")
+            #expect(frames.tasks(of: flushOwner) == flushes + 1, "round \(round): the flush ran")
+            posts += 1
+            flushes += 1
+            #expect(delivered.batches.count == round + 1)
+            #expect(delivered.batches.last?.items == Array((round * 100)..<(round * 100 + 100)))
+            #expect(delivered.batches.last?.gap == false)
+        }
+        // A frame with nothing offered runs nothing.
+        frames.tick()
+        #expect(frames.tasks(of: owner) == 10)
+        #expect(frames.tasks(of: flushOwner) == 10)
+        #expect(delivered.batches.flatMap { $0.items } == Array(0..<1_000))
     }
 
     /// A flush with nothing held delivers nothing.

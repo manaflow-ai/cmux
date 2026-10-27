@@ -90,6 +90,9 @@ public enum DaemonEvent: Sendable, Hashable {
     case overflow(String)
     case daemonShutdown
     case unknown(name: String, payload: JSONValue)
+    /// A page relay connection's subscribe event (``PageRelayHandshake``): its name and its line as
+    /// the daemon sent it, undecoded. The relay hands the line to its page, which parses it (p05-ipc-109).
+    case relayed(name: String, line: Data)
 }
 
 extension DaemonEvent {

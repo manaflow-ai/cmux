@@ -52,6 +52,20 @@ describe("pageClient held events", () => {
     expect(b.map((event) => [event.seq, event.data])).toEqual([[1, { n: 1 }]]);
   });
 
+  test("an event's json text is parsed for its subscriber; text that does not parse is a gap", async () => {
+    const client = makeClient();
+    const seen: Seen[] = [];
+    await client.subscribe("cmux.test.a", (data, seq, meta) => seen.push({ data, seq, meta }));
+    client.receive({ t: "ev", sub: 7, seq: 1, json: '{"event":"history-changed","revision":4,"kinds":["visit"]}' });
+    client.receive({ t: "ev", sub: 7, seq: 2, json: "{not json" });
+    client.receive({ t: "ev", sub: 7, seq: 3, data: { resync: true } });
+    expect(seen).toEqual([
+      { data: { event: "history-changed", revision: 4, kinds: ["visit"] }, seq: 1, meta: {} },
+      { data: null, seq: 2, meta: { gap: true } },
+      { data: { resync: true }, seq: 3, meta: {} },
+    ]);
+  });
+
   test("a gap reaches the subscriber so it reads its state again", async () => {
     const client = makeClient();
     let reads = 0;
