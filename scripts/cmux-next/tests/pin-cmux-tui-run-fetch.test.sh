@@ -60,7 +60,8 @@ cat > "$TMP/bin/git" <<SHIM
 for arg; do
   if [[ "\$arg" == fetch ]]; then
     printf '%s\n' "\$*" >> "$TMP/fetches.log"
-    [[ -z "\${SLOW_FETCH:-}" ]] || sleep 30 </dev/null >/dev/null 2>&1
+    # A hanging transport child that keeps the inherited stdout and stderr open.
+    [[ -z "\${SLOW_FETCH:-}" ]] || { bash -c 'sleep 30; :' & wait; }
     break
   fi
 done
@@ -165,7 +166,7 @@ for arg; do
   if [[ "\$arg" == fetch ]]; then
     printf '%s\n' "\$*" >> "$TMP/fetches.log"
     [[ "\$*" == *" $gone"* ]] && exit 128
-    sleep 30 </dev/null >/dev/null 2>&1
+    bash -c 'sleep 30; :' & wait
     break
   fi
 done

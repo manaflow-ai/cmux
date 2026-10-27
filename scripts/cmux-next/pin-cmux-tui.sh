@@ -489,12 +489,16 @@ bounded_run_fetch() {
   left=$(( deadline - $(date +%s) ))
   (( left > 0 )) || return 1
   command -v perl >/dev/null 2>&1 || return 1
-  perl -e 'my $t = shift; my $pid = fork; defined $pid or exit 125; if (!$pid) { exec @ARGV or exit 127 }
-    $SIG{ALRM} = sub { kill "TERM", $pid; for (1 .. 20) { exit 124 if waitpid($pid, 1) > 0; select undef, undef, undef, 0.1 }
-      kill "KILL", $pid; waitpid $pid, 0; exit 124 };
-    alarm $t; waitpid $pid, 0; exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)' "$left" \
+  # The fetch runs in its own process group, and the whole group is signalled
+  # (a transport helper outlives git otherwise); it writes to no caller's pipe.
+  perl -e 'my $t = shift; my $pid = fork; defined $pid or exit 125;
+    if (!$pid) { setpgrp 0, 0; exec @ARGV or exit 127 }
+    $SIG{ALRM} = sub { kill "TERM", -$pid; for (1 .. 20) { last if waitpid($pid, 1) > 0; select undef, undef, undef, 0.1 }
+      kill "KILL", -$pid; waitpid $pid, 0; exit 124 };
+    alarm $t; waitpid $pid, 0; my $rc = $?; alarm 0; kill "KILL", -$pid;
+    exit(($rc & 127) ? 128 + ($rc & 127) : $rc >> 8)' "$left" \
     git -C "$repo_root" fetch -q --no-tags --no-recurse-submodules --no-write-fetch-head \
-    ${fetch_args[@]+"${fetch_args[@]}"} "$remote" "$@" 2>/dev/null
+    ${fetch_args[@]+"${fetch_args[@]}"} "$remote" "$@" </dev/null >/dev/null 2>&1
 }
 
 # ensure_tree_publisher <key> <sha> [fallback]: with CMUX_TUI_TREE_DISPATCH=1,
