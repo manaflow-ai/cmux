@@ -416,9 +416,17 @@ impl ServedSession {
         };
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();
-        let _ = super::spawn_connection_reader("mux-conn", move || {
-            handle_connection_with_permit(mux, stream, render_service, Some(permit));
-        });
+        let setup_mux = mux.clone();
+        let _ = super::spawn_connection_reader(
+            "mux-conn",
+            move || {
+                let peer = super::origin_gate::AcceptedPeer::resolve(&setup_mux, &*stream);
+                (stream, peer)
+            },
+            move |(stream, peer)| {
+                handle_connection_with_permit(mux, stream, peer, render_service, Some(permit));
+            },
+        );
     }
 }
 

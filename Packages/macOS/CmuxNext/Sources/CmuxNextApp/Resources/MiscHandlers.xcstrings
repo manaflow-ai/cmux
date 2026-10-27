@@ -9104,6 +9104,137 @@
         }
       }
     },
+    "handlers.browserPage.wakeDeferred": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory is low, so the hibernated page was not woken; retry later or show the tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الذاكرة منخفضة، لذا لم تُوقَظ الصفحة المُسبَتة؛ أعد المحاولة لاحقًا أو اعرض علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Memorije je malo, pa uspavana stranica nije probuđena; pokušajte kasnije ili prikažite karticu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hukommelsen er lav, så siden i dvale blev ikke vækket; prøv igen senere, eller vis fanen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Speicher ist knapp, daher wurde die ruhende Seite nicht geweckt; später erneut versuchen oder den Tab anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Queda poca memoria, así que la página hibernada no se reactivó; vuelve a intentarlo más tarde o muestra la pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mémoire est faible : la page en veille n’a pas été réveillée ; réessayez plus tard ou affichez l’onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La memoria è scarsa, quindi la pagina ibernata non è stata riattivata; riprova più tardi o mostra la scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メモリが不足しているため、休止中のページを再開しませんでした。後でもう一度試すか、タブを表示してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អង្គចងចាំទាប ដូច្នេះទំព័រដែលកំពុងសម្រាកមិនត្រូវបានដាស់ទេ សូមព្យាយាមម្តងទៀតពេលក្រោយ ឬបង្ហាញផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메모리가 부족하여 절전 중인 페이지를 깨우지 않았습니다. 나중에 다시 시도하거나 탭을 표시하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minnet er lavt, så den dvalende siden ble ikke vekket; prøv igjen senere eller vis fanen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brakuje pamięci, więc uśpiona strona nie została wybudzona; spróbuj później lub pokaż kartę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A memória está baixa, então a página hibernada não foi reativada; tente mais tarde ou mostre a aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мало памяти, поэтому спящая страница не была разбужена; повторите позже или покажите вкладку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน่วยความจำเหลือน้อย จึงไม่ได้ปลุกหน้าที่พักไว้ โปรดลองอีกครั้งภายหลังหรือแสดงแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bellek az olduğu için uykudaki sayfa uyandırılmadı; daha sonra yeniden deneyin veya sekmeyi gösterin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мало пам’яті, тому приспану сторінку не розбуджено; повторіть пізніше або покажіть вкладку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ nhớ thấp nên trang đang ngủ đông chưa được đánh thức; hãy thử lại sau hoặc hiển thị thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "内存不足，因此未唤醒休眠的页面；请稍后重试或显示该标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "記憶體不足，因此未喚醒休眠的頁面；請稍後重試或顯示該分頁"
+          }
+        }
+      }
+    },
     "handlers.misc.reactGrabFailed": {
       "extractionState": "manual",
       "localizations": {

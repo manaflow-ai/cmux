@@ -1,3 +1,5 @@
+public import CmuxNextWakeups
+
 /// Where ``CEFEngine`` finds the Chromium runtime: embedded in the app
 /// bundle, or a pack the app downloads on first use
 /// (plans/cmux-next/bundle-size-DESIGN.md section 6), and where its browser
@@ -54,6 +56,13 @@ public final class CEFRuntimeSource {
     /// Host mode, with ``watchesHostHangs``: each UI hang of the Chromium Host of 250 ms or more, for the
     /// app's hang reports (set by the App). Read at each hang.
     public var onHostHang: ((ChromiumHostHang) -> Void)?
+    /// Host mode: a page's pointer lock and keyboard lock are cmux's, and Escape ends them and the page's
+    /// fullscreen (feature `chromiumHostLocks`, set by the App; ``CEFHostLocks``). Read when the runtime
+    /// adopts the source; in process it changes nothing.
+    public var handlesHostLocks = false
+    /// The app's one ``AppEvents`` (`AppServices.appEvents`, set by the App): with ``handlesHostLocks``, a page's
+    /// pointer lock ends when the app resigns active. Read when the runtime adopts the source.
+    public var appEvents: AppEvents?
 
     /// Creates a source.
     ///

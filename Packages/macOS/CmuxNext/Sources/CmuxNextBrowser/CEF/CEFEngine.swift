@@ -414,7 +414,9 @@ public final class CEFEngine: BrowserEngine {
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
                       hostSupervisor: runtimeSource.hostSupervisor, hostWidgets: runtimeSource.showsHostWidgets, hostDrags: runtimeSource.takesHostDrags,
                       hostResizeFence: runtimeSource.fencesHostResizes, hostPopupMenus: runtimeSource.drawsHostPopupMenus,
-                      hostSuggestions: runtimeSource.drawsHostSuggestions, hostChoosers: runtimeSource.drawsHostChoosers, hostFileDialogs: runtimeSource.hostFileDialogs)
+                      hostSuggestions: runtimeSource.drawsHostSuggestions, hostChoosers: runtimeSource.drawsHostChoosers,
+                      hostFileDialogs: runtimeSource.hostFileDialogs, hostLocks: runtimeSource.handlesHostLocks,
+                      hostAppEvents: runtimeSource.appEvents)
         if runtimeSource.watchesHostHangs {
             runtime.watchHostHangs(reports: { [weak runtimeSource] hang in runtimeSource?.onHostHang?(hang) })
         }
