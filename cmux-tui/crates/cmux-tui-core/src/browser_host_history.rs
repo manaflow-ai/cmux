@@ -80,7 +80,7 @@ pub(crate) fn handle_line(
     host_pid: u32,
     line: &str,
 ) -> (Option<LinkCaller>, Value) {
-    // crash-allow: a constant id that is valid by construction.
+    #[allow(clippy::expect_used, reason = "INVARIANT: \"link\" is a valid request id")]
     let fallback = || crate::resource::RequestId::parse("link").expect("static request id");
     let wrapper: Option<serde_json::Map<String, Value>> = serde_json::from_str(line).ok();
     let Some((wrapper, request)) =

@@ -91,13 +91,13 @@ enum DebugOnboarding {
             result["counts"] = .object(["bookmarks": JSONValue(counts.bookmarks), "history": JSONValue(counts.history),
                                         "cookies": JSONValue(counts.cookies), "passwords": JSONValue(counts.passwords)])
             // Counts and reasons only: never a site, a username or a value.
-            result["password_issues"] = .object(Dictionary(uniqueKeysWithValues: summary.batches.compactMap { batch in
+            result["password_issues"] = .object(Dictionary(summary.batches.compactMap { batch in
                 batch.passwordError.map { (batch.source.sourceKey, JSONValue.string(String(describing: $0))) }
-            }))
-            result["cookie_issues"] = .object(Dictionary(uniqueKeysWithValues: summary.batches.compactMap { batch in
+            }, uniquingKeysWith: { first, _ in first }))
+            result["cookie_issues"] = .object(Dictionary(summary.batches.compactMap { batch in
                 batch.cookieError.map { (batch.source.sourceKey, JSONValue.string(String(describing: $0))) }
-            }))
-            result["targets"] = .object(Dictionary(uniqueKeysWithValues: summary.batches.map { ($0.source.sourceKey, JSONValue.string($0.source.targetProfileID)) }))
+            }, uniquingKeysWith: { first, _ in first }))
+            result["targets"] = .object(Dictionary(summary.batches.map { ($0.source.sourceKey, JSONValue.string($0.source.targetProfileID)) }, uniquingKeysWith: { first, _ in first }))
             result["failures"] = .object(summary.failures.mapValues(JSONValue.string))
         }
         let computerUse = model.computerUse

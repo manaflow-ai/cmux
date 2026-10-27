@@ -21,6 +21,7 @@ final class PageCallInFlight {
         self.continuation = continuation
         guard !cancelled else { return finish(.failure(PageError.opCancelled)) }
         // task-owner: one page call; ends with its work or the page's cancel (navigation, tab close)
+        // main-hop-allow: the work is the provider's main-actor async op (PageProvider calls run on main and await their own off-main parts); the task only runs it and answers the router's continuation once
         task = Task { @MainActor [weak self] in
             let result: Result<JSONValue, any Error>
             do { result = .success(try await work()) } catch { result = .failure(error) }
