@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
@@ -83,7 +84,8 @@ final class CloudMachineUpdates {
               let session = services.machines.session(machineID), let binary = services.cloud.move.cli else { return false }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let target = CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title,
-                                              source: Self.source(session, machines: services.machines, cli: cli, logger: logger))
+                                              source: Self.source(session, machines: services.machines, cli: cli, api: services.cloud.api,
+                                                                  logger: logger))
         // task-owner: returns once the policy queued the machine; the policy's drain owns the update
         Task { await DaemonUpdatePolicy.shared.offer(target) }
         return true
@@ -93,9 +95,10 @@ final class CloudMachineUpdates {
 
     /// The live ``CloudMachineUpdateTarget/Source`` of `session`. Each step reads the session on
     /// the main actor; nothing holds it.
-    static func source(_ session: CloudMachineSession, machines: MachineRegistry, cli: CloudMoveCLI,
+    static func source(_ session: CloudMachineSession, machines: MachineRegistry, cli: CloudMoveCLI, api: CloudAPIClient? = nil,
                        logger: Logger) -> CloudMachineUpdateTarget.Source {
         let machineID = session.machineID
+        let binary = cli.binary
         return CloudMachineUpdateTarget.Source(
             daemon: { [weak session, weak machines] in await CloudMachineUpdates.daemon(of: session, machines: machines) },
             update: { [weak session] in
@@ -105,7 +108,22 @@ final class CloudMachineUpdates {
                 logger.info("cloud machine \(machineID, privacy: .public): updating cmux-tui to the app's build")
                 return try await cli.machineUpdate(socket: socket, toBundled: true)
             },
-            reconnect: { [weak session] restarted in await session?.reconnectAfterUpdate(restarted: restarted) })
+            reconnect: { [weak session] restarted in await session?.reconnectAfterUpdate(restarted: restarted) },
+            legacy: { [weak session] build in
+                // Only the build this app pins for its own: a manifest of another build is not this app's.
+                guard let api, await CloudMachineUpdates.allowsExec(session),
+                      let pin = CloudLegacyMachineUpdate.pin(for: build.hash, besideCLI: binary),
+                      let script = CloudLegacyMachineUpdate.script else { return nil }
+                logger.info("cloud machine \(machineID, privacy: .public): too old to update in place; installing cmux-tui \(pin.commit, privacy: .public) through exec")
+                return await CloudLegacyMachineUpdate.run(pin: pin, script: script) { command, timeoutMs in
+                    try await api.exec(machineID, command: command, timeoutMs: timeoutMs)
+                }
+            })
+    }
+
+    /// Whether the Cloud API runs commands on the machine of `session` (the legacy update's channel).
+    private static func allowsExec(_ session: CloudMachineSession?) -> Bool {
+        session?.machine.allows(.exec) == true
     }
 
     /// The machine's daemon as the app sees it: connected (its build and level), refused

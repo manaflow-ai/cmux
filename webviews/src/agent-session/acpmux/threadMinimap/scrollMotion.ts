@@ -26,38 +26,119 @@ export function stopScroll(node: HTMLElement): void {
 }
 
 /// Scrolls `node` to `target()` over `duration` ms on `curve`. The target is read each frame, so rows
-/// that measure meanwhile move the landing with them. A zero duration jumps.
+/// that measure meanwhile move the landing with them. A zero duration jumps. Replacing or cancelling
+/// the ride notifies `cancelled`; a completed ride calls only `then`.
 export function animateScroll(
   node: HTMLElement,
   target: () => number,
   duration: number,
   curve: CubicBezier,
   then?: () => void,
+  cancelled?: () => void,
+): void {
+  stopScroll(node);
+  const from = node.scrollTop;
+  runScroll(
+    node,
+    duration,
+    curve,
+    (progress) => {
+      node.scrollTop = from + (target() - from) * progress;
+    },
+    then,
+    cancelled,
+  );
+}
+
+/// An explicit mouse-wheel distance on the same clock as jumps. Each step adds only its own delta
+/// to the live offset: the existing row-id anchor owns layout/prepend corrections. A notch headed
+/// to the bottom follows that moving end; one parked in history keeps exactly its wheel distance.
+export function animateScrollBy(
+  node: HTMLElement,
+  distance: number,
+  duration: number,
+  curve: CubicBezier,
+  toEnd: boolean,
+  finished: () => void,
+): { remaining(): number } {
+  let done = 0;
+  let previous = 0;
+  const left = () => (toEnd ? Math.max(0, node.scrollHeight - node.clientHeight - node.scrollTop) : distance - done);
+  runScroll(
+    node,
+    duration,
+    curve,
+    (progress) => {
+      const fraction = previous === 1 ? 1 : (progress - previous) / (1 - previous);
+      // Quantize only cumulative mouse-wheel travel. Each incremental write is a whole pixel,
+      // so WebKit cannot floor a fractional tail past the target and bounce back. The live
+      // offset (including the row-id anchor's own corrections) is never rounded or replaced.
+      const next = Math.round(distance * progress);
+      node.scrollTop += toEnd ? left() * fraction : next - done;
+      done = next;
+      previous = progress;
+    },
+    finished,
+    finished,
+    true,
+  );
+  return { remaining: left };
+}
+
+/// One owner, clock and cleanup path for both jumps and notches. The wheel installer arbitrates
+/// wheel events itself; the runner owns all other cancellation inputs for that explicit motion.
+function runScroll(
+  node: HTMLElement,
+  duration: number,
+  curve: CubicBezier,
+  write: (progress: number) => void,
+  then?: () => void,
+  cancelled?: () => void,
+  wheel = false,
 ): void {
   stopScroll(node);
   if (duration <= 0 || typeof requestAnimationFrame !== "function") {
-    node.scrollTop = target();
+    write(1);
     then?.();
     return;
   }
-  const from = node.scrollTop;
+  const doc = node.ownerDocument;
+  const owner = wheel ? (doc.defaultView ?? node) : node;
+  const inputs = wheel ? READER_INPUTS.filter((input) => input !== "wheel") : READER_INPUTS;
   const start = performance.now();
   let frame = 0;
-  const end = () => {
+  let active = true;
+  const cleanup = () => {
+    active = false;
     cancelAnimationFrame(frame);
-    for (const name of READER_INPUTS) node.removeEventListener(name, end);
+    for (const name of inputs) owner.removeEventListener(name, end, wheel);
+    if (wheel) doc.removeEventListener("visibilitychange", hidden);
     if (running.get(node) === end) running.delete(node);
   };
+  const end = () => {
+    if (!active) return;
+    cleanup();
+    cancelled?.();
+  };
+  const hidden = () => {
+    if (doc.hidden) end();
+  };
   const step = (now: number) => {
+    if (wheel && (doc.hidden || node.clientHeight === 0)) {
+      end();
+      return;
+    }
     const progress = Math.min(1, Math.max(0, (now - start) / duration));
-    node.scrollTop = from + (target() - from) * bezierAt(curve, progress);
+    write(bezierAt(curve, progress));
+    if (!active) return;
     if (progress < 1) frame = requestAnimationFrame(step);
     else {
-      end();
+      cleanup();
       then?.();
     }
   };
-  for (const name of READER_INPUTS) node.addEventListener(name, end, { passive: true });
+  for (const name of inputs) owner.addEventListener(name, end, { capture: wheel, passive: true });
+  if (wheel) doc.addEventListener("visibilitychange", hidden);
   running.set(node, end);
   frame = requestAnimationFrame(step);
 }
