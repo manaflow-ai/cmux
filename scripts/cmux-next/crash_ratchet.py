@@ -112,19 +112,36 @@ compared, never in crash-safety-baseline.json, and never read by the CI compare 
                       withOnceThrowingContinuation (p10-stability-083); CmuxSafeConcurrency itself, which
                       implements them, is not counted
 
+CLASSIFY (--classify, Q21 of plans/cmux-next/chrome-parity/p10-stability.md, task p10-stability-205): every hit of
+--report's classes (without --report: every counted, waived and banned hit of the ratchet's scan) gets exactly one
+trap class, printed as JSON with the rule that gave it; it compares nothing. `input`: the operand can come from outside
+the process (a Q14 decode entry point, its callees, peer or file bytes), so the fix is validation that returns a typed
+error to a boundary. `invariant`: an internal invariant, which goes to the Invariant API (Swift) or an
+`INVARIANT:` expect (Rust). TrapClassifier.classify holds the rules, in order; trap-classes.json holds their data.
+rust_panic_ratchet.py --classify classes clippy's hits with the same classifier.
+
+notFatalUntil builds only go up (Invariant.notFatalUntil(cond, id, build: N), task p10-stability-099):
+lowered_not_fatal_until() refuses a lowered or removed N without a `// not-fatal-until-lowered-allow: <reason>`.
+It is a local-only rule: guardrails.py's `not-fatal-until-lowered` runs it on what a push changes; CI never does.
+
 Usage: crash_ratchet.py [--repo ROOT] [--exported-tree]
                         [--update-baseline [--record-waivers] [--base REF] | --baseline-against BASE_TREE]
-       crash_ratchet.py [--repo ROOT] [--exported-tree] --report CLASS[,CLASS]
+       crash_ratchet.py [--repo ROOT] [--exported-tree] --report CLASS[,CLASS] [--classify]
+       crash_ratchet.py [--repo ROOT] [--exported-tree] --classify
 Exit 1 when a module or crate gained a hit or a waived hit; with --update-baseline, when
-a row stays above the baseline; with --baseline-against, when a counted row rose.
+a row stays above the baseline; with --baseline-against, when a counted row rose; with --classify, when a
+`// trap-class:` mark names no class or no reason.
 """
 import argparse
+import bisect
+import fnmatch
 import subprocess
 import json
 import os
 import re
 import sys
 import tempfile
+from typing import NamedTuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASELINE = os.path.join(HERE, "crash-safety-baseline.json")
@@ -637,28 +654,46 @@ def file_dictionaries(lines, module_dicts, module_arrays=None):
     return local, frozenset(module_dicts), frozenset(arrays), frozenset(module_arrays)
 
 
+class Site(NamedTuple):
+    """One line's hits of one class, by place (--classify reads these)."""
+    section: str  # counted, waived or banned (the ratchet's scan), or report (a report-only class)
+    lang: str
+    kind: str
+    module: str
+    path: str  # relative to the repo
+    line: int  # 1-based
+    hits: int
+
+
 class Scan:
     """One tree's hits: counted and waived ({lang: {class: {module: hits}}}), banned hits per
     file {(class, repo-relative path): hits}, and every counted or waived hit by its line
-    {(section, lang, class, module, stripped line): hits}, which proves a move between modules."""
+    {(section, lang, class, module, stripped line): hits}, which proves a move between modules.
+    With SITES (--classify), every hit is also kept by its place: Site rows in .sites."""
 
-    def __init__(self):
+    def __init__(self, sites=False):
         self.counts = {"swift": {}, "rust": {}}
         self.waived = {"swift": {}, "rust": {}}
         self.banned_files = {}
         self.lines = {}
+        self.sites = [] if sites else None
 
-    def add(self, waived, lang, kind, module, line, hits):
+    def add(self, waived, lang, kind, module, line, hits, rel=None, number=None):
         section = self.waived if waived else self.counts
         section[lang].setdefault(kind, {}).setdefault(module, 0)
         section[lang][kind][module] += hits
         key = (WAIVED if waived else COUNTED, lang, kind, module, line.strip())
         self.lines[key] = self.lines.get(key, 0) + hits
+        self.site(WAIVED if waived else COUNTED, lang, kind, module, rel, number, hits)
+
+    def site(self, section, lang, kind, module, rel, number, hits):
+        if self.sites is not None and rel is not None:
+            self.sites.append(Site(section, lang, kind, module, rel, number, hits))
 
 
-def scan_tree(repo, exported):
-    """The Swift and Rust hits of the tree at REPO (a checkout, or an exported tree)."""
-    scan = Scan()
+def scan_tree(repo, exported, sites=False):
+    """The Swift and Rust hits of the tree at REPO (a checkout, or an exported tree); SITES keeps each hit's place."""
+    scan = Scan(sites)
     scan_swift(repo, scan, exported)
     scan_rust(repo, scan, exported)
     return scan
@@ -688,8 +723,9 @@ def scan_swift(repo, scan, exported):
                     if kind in banned or (kind, rel) in banned_modules:
                         key = (kind, os.path.relpath(path, repo))
                         scan.banned_files[key] = scan.banned_files.get(key, 0) + hits
+                        scan.site("banned", "swift", kind, rel, key[1], index + 1, hits)
                         continue
-                    scan.add(is_allowed, "swift", kind, rel, line, hits)
+                    scan.add(is_allowed, "swift", kind, rel, line, hits, os.path.relpath(path, repo), index + 1)
 
 
 def package_sources(repo, exported):
@@ -708,10 +744,10 @@ def report_owned(kind, rel):
     return rel.replace(os.sep, "/").startswith(REPORT_OWNERS.get(kind, ()))
 
 
-def report_counts(repo, exported, kinds):
-    """{class: {module: hits}} of the report-only KINDS over package_sources(), each class outside its owner.
+def report_sites(repo, exported, kinds):
+    """Site rows (section "report") of the report-only KINDS over package_sources(), each class outside its owner.
     Comment lines and string contents never count (swift_code); a crash-allow does not hide a hit."""
-    counts = {kind: {} for kind in kinds}
+    sites = []
     for rel in package_sources(repo, exported):
         path = os.path.join(repo, rel)
         judged = [kind for kind in kinds if not report_owned(kind, rel)]
@@ -720,31 +756,504 @@ def report_counts(repo, exported, kinds):
         with open(path, encoding="utf-8", errors="replace") as handle:
             lines = handle.read().split("\n")
         module = module_of(rel)
-        for line in lines:
+        for index, line in enumerate(lines):
             if line.lstrip().startswith("//"):
                 continue
             code = swift_code(line)
             for kind in judged:
                 hits = len(REPORT_SWIFT[kind].findall(code))
                 if hits:
-                    counts[kind][module] = counts[kind].get(module, 0) + hits
+                    sites.append(Site("report", "swift", kind, module, rel, index + 1, hits))
+    return sites
+
+
+def report_counts(repo, exported, kinds):
+    """{class: {module: hits}} of the report-only KINDS (report_sites)."""
+    counts = {kind: {} for kind in kinds}
+    for site in report_sites(repo, exported, kinds):
+        counts[site.kind][site.module] = counts[site.kind].get(site.module, 0) + site.hits
     return counts
 
 
-def report(repo, exported, names):
-    """Prints the report-only classes NAMES (comma-separated) as JSON; exit 0 (it judges nothing), 2 for an
-    unknown class."""
+def report_kinds(names):
+    """The report-only classes that NAMES (comma-separated) lists, or None (printed) when one is unknown or none is."""
     kinds = [name for name in (part.strip() for part in names.split(",")) if name]
     unknown = [kind for kind in kinds if kind not in REPORT_SWIFT]
     if unknown or not kinds:
         print(f"crash-ratchet: unknown report class {', '.join(unknown) or '(none)'}; report classes: "
               f"{', '.join(sorted(REPORT_SWIFT))}", file=sys.stderr)
+        return None
+    return kinds
+
+
+def report(repo, exported, names):
+    """Prints the report-only classes NAMES (comma-separated) as JSON; exit 0 (it judges nothing), 2 for an
+    unknown class."""
+    kinds = report_kinds(names)
+    if kinds is None:
         return 2
     counts = report_counts(repo, exported, kinds)
     out = {kind: {"total": sum(modules.values()), "modules": dict(sorted(modules.items()))}
            for kind, modules in counts.items()}
     print(json.dumps(out, indent=2, sort_keys=True))
     return 0
+
+
+# ---------------------------------------------------------------- trap classes (--classify, p10-stability-205, Q21)
+TRAP_CLASSES = os.path.join(HERE, "trap-classes.json")
+TRAP_CLASS_NAMES = ("input", "invariant")
+TRAP_LANGS = ("swift", "rust")
+# `// trap-class: <class> <reason>`; a colon after the class is optional.
+TRAP_CLASS_MARK = re.compile(r"//\s*trap-class:\s*(?P<cls>[\w-]*)\s*:?\s*(?P<reason>.*?)\s*$")
+# rust-panic-free.md rule 1's spelling of a checked Rust invariant (a comment, or an #[expect]/#[allow] reason).
+INVARIANT_REASON = re.compile(r"\bINVARIANT:\s*\S")
+# The next place source_code() must read past: a comment, a string, or (Rust) a character literal or a lifetime.
+SOURCE_TOKEN = {
+    "swift": re.compile(r'//|/\*|#+"|"'),
+    "rust": re.compile(r"//|/\*|(?<![\w])b?r#*\"|'|\""),
+}
+BLOCK_COMMENT = re.compile(r"/\*|\*/")
+RUST_CHAR = re.compile(r"'(?:\\(?:u\{[0-9A-Fa-f]{1,6}\}|x[0-9A-Fa-f]{2}|.)|[^\\'\n])'")
+NOT_NEWLINE = re.compile(r"[^\n]")
+BRACE = re.compile(r"[{}]")
+# A function declaration; the name is its first group that matched. init and subscript are read up to their `(`.
+FUNCTION_DECL = {
+    "swift": re.compile(r"\bfunc\s+(?P<name>[^\s(<]+)|(?<![.\w])(?P<init>init)(?=\s*[?!]?\s*(?:<[^>]*>)?\s*\()"
+                        r"|\b(?P<subscript>subscript)(?=\s*[(<])"),
+    "rust": re.compile(r"\bfn\s+(?P<name>\w+)"),
+}
+# A line that starts another declaration ends a body-less signature (a protocol requirement).
+NEXT_DECLARATION = re.compile(
+    r"[ \t]*(?:@|#\[|(?:public|private|fileprivate|internal|open|package|static|class|final|override|mutating"
+    r"|nonisolated|var|let|case|func|init|deinit|subscript|struct|actor|enum|extension|protocol|typealias|fn|pub"
+    r"|impl|mod|const|type|trait|use)\b)")
+# A call by name: `helper(`, `self.helper(`, `Self::helper(`, `helper::<T>(`.
+CALL = re.compile(r"(?<![\w])(\w+)\s*(?:::\s*<[^<>]*>\s*)?\(")
+
+
+def block_comment_end(text, start):
+    """The offset past the block comment that opens at TEXT[START] (Swift and Rust block comments nest)."""
+    depth, j = 0, start
+    while True:
+        match = BLOCK_COMMENT.search(text, j)
+        if not match:
+            return len(text)
+        depth += 1 if match.group(0) == "/*" else -1
+        j = match.end()
+        if depth == 0:
+            return j
+
+
+def string_end(text, match, lang):
+    """The offset past the string literal that MATCH opens: Swift `"`, `\"\"\"` and `#"..."#` (an escape is `\\`
+    plus the delimiter's `#`s; an interpolation `\\(...)` may hold strings), Rust `"` and `r#"..."#`. A one-line
+    Swift string with no closing quote ends at its line."""
+    tok, n = match.group(0), len(text)
+    hashes = tok.count("#")
+    if lang == "rust" and "r" in tok:
+        close = '"' + "#" * hashes
+        end = text.find(close, match.end())
+        return n if end < 0 else end + len(close)
+    quote_at = match.end() - 1
+    quote = '"""' if lang == "swift" and text.startswith('"""', quote_at) else '"'
+    close, escape = quote + "#" * hashes, "\\" + "#" * hashes
+    j = quote_at + len(quote)
+    while j < n:
+        if lang == "swift" and text.startswith(escape + "(", j):
+            j, depth = j + len(escape) + 1, 1
+            while j < n and depth:
+                if text[j] == '"':
+                    k = text.find('"', j + 1)
+                    j = n if k < 0 else k + 1
+                    continue
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                j += 1
+        elif text.startswith(escape, j):
+            j += len(escape) + 1
+        elif text.startswith(close, j):
+            return j + len(close)
+        elif lang == "swift" and quote == '"' and text[j] == "\n":
+            return j
+        else:
+            j += 1
+    return n
+
+
+def source_code(text, lang):
+    """TEXT with its comments and its string and character literals blanked, newlines kept (offsets and line
+    numbers stay TEXT's): what SourceModel reads braces, declarations and calls in. Unlike swift_code (one line at a
+    time), it reads block comments and multi-line and raw strings across lines. A Rust `'` that opens no character
+    literal is a lifetime and stays."""
+    token, out, i, n = SOURCE_TOKEN[lang], [], 0, len(text)
+    while i < n:
+        match = token.search(text, i)
+        if not match:
+            break
+        start, tok = match.start(), match.group(0)
+        if tok == "//":
+            end = text.find("\n", start)
+            end = n if end < 0 else end
+        elif tok == "/*":
+            end = block_comment_end(text, start)
+        elif tok == "'":
+            literal = RUST_CHAR.match(text, start)
+            if not literal:
+                out.append(text[i:match.end()])
+                i = match.end()
+                continue
+            end = literal.end()
+        else:
+            end = string_end(text, match, lang)
+        out.append(text[i:start])
+        out.append(NOT_NEWLINE.sub(" ", text[start:end]))
+        i = end
+    out.append(text[i:])
+    return "".join(out)
+
+
+class Function(NamedTuple):
+    name: str
+    start: int  # 1-based line of the declaration
+    end: int  # 1-based line of the body's closing brace
+    signature: str  # code from the declaration to the body's `{`
+    body: str  # code of the body, nested functions and closures included
+
+
+def body_open(code, start, limit, lang):
+    """The offset of the `{` that opens the body of the declaration whose signature continues at CODE[START], or None
+    (no body before LIMIT, the next declaration: a protocol or trait requirement)."""
+    depth = 0
+    for j in range(start, limit):
+        ch = code[j]
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif depth == 0:
+            if ch == "{":
+                return j
+            if ch == "}" or (ch == ";" and lang == "rust"):
+                return None
+            if ch == "\n" and NEXT_DECLARATION.match(code, j + 1):
+                return None
+    return None
+
+
+def function_spans(code, lang):
+    """The functions with a body in CODE (source_code's output), in declaration order."""
+    closes, stack = {}, []
+    for brace in BRACE.finditer(code):
+        if brace.group(0) == "{":
+            stack.append(brace.start())
+        elif stack:
+            closes[stack.pop()] = brace.start()
+    starts = [0] + [m.end() for m in re.finditer("\n", code)]
+    decls = list(FUNCTION_DECL[lang].finditer(code))
+    out = []
+    for k, decl in enumerate(decls):
+        limit = decls[k + 1].start() if k + 1 < len(decls) else len(code)
+        opened = body_open(code, decl.end(), limit, lang)
+        if opened is None or opened not in closes:
+            continue
+        name = next(value for value in decl.groupdict().values() if value)
+        out.append(Function(name, bisect.bisect_right(starts, decl.start()), bisect.bisect_right(starts, closes[opened]),
+                            code[decl.start():opened], code[opened:closes[opened]]))
+    return out
+
+
+def first_marker(markers, text):
+    """The name of the first (name, pattern) of MARKERS that TEXT matches, or None."""
+    return next((name for name, pattern in markers if pattern.search(text)), None)
+
+
+class SourceModel:
+    """One file as TrapClassifier reads it: its lines (for marks), its code lines, its functions, and the functions
+    that are input-reachable, each with the rule that made it so (the Q14 proxy, a same-file call graph): a decode
+    entry point by its declaration (ENTRIES), a function whose body reads peer or file bytes (BYTE_READS), then every
+    function of the file such a function calls by name, transitively."""
+
+    def __init__(self, lang, text, entries, byte_reads):
+        self.lines = text.split("\n")
+        code = source_code(text, lang)
+        self.code_lines = code.split("\n")
+        self.functions = function_spans(code, lang)
+        self.byte_reads = byte_reads
+        self.reach = {}
+        by_name, queue = {}, []
+        for index, function in enumerate(self.functions):
+            by_name.setdefault(function.name, []).append(index)
+            entry = first_marker(entries, function.signature)
+            read = None if entry else first_marker(byte_reads, function.body)
+            if entry or read:
+                self.reach[index] = f"entry:{function.name} ({entry})" if entry else f"bytes:{function.name} ({read})"
+                queue.append(index)
+        while queue:
+            caller = self.functions[queue.pop()]
+            for name in sorted(set(CALL.findall(caller.body))):
+                for index in by_name.get(name, ()):
+                    if index not in self.reach:
+                        self.reach[index] = f"callee:{name} <- {caller.name}"
+                        queue.append(index)
+
+    def input_rule(self, number):
+        """Why line NUMBER (1-based) is input-reachable, or None: its innermost enclosing function that is reachable,
+        else a byte read on the line itself (code outside any function: a stored property's initializer)."""
+        enclosing = [i for i, f in enumerate(self.functions) if f.start <= number <= f.end]
+        for index in sorted(enclosing, key=lambda i: self.functions[i].start, reverse=True):
+            if index in self.reach:
+                return self.reach[index]
+        if 0 < number <= len(self.code_lines):
+            read = first_marker(self.byte_reads, self.code_lines[number - 1])
+            if read:
+                return f"bytes:line ({read})"
+        return None
+
+
+def trap_markers(data, key, path):
+    """{lang: [(name, compiled pattern)]} of trap-classes.json's KEY section; a bad pattern refuses the run."""
+    out = {}
+    for lang in TRAP_LANGS:
+        out[lang] = []
+        for name, pattern in sorted(data.get(key, {}).get(lang, {}).items()):
+            try:
+                out[lang].append((name, re.compile(pattern)))
+            except re.error as error:
+                refuse(f"{path}: {key}.{lang}.{name}: {error}")
+    return out
+
+
+class TrapClassifier:
+    """Classes each trap or panic hit `input` (outside input can reach its operand: validate it and return a typed
+    error to a boundary, never clamp, never default) or `invariant` (an internal invariant: the Invariant API in
+    Swift, an `INVARIANT:` expect in Rust). Chrome's checks.md draws the same line between a CHECK and handling
+    untrusted input (mojo's ReportBadMessage). The rules are in classify(); their data in trap-classes.json."""
+
+    def __init__(self, repo, path=TRAP_CLASSES):
+        if not os.path.isfile(path):
+            refuse(f"--classify reads its rules' data from {path}, which is missing")
+        try:
+            with open(path, encoding="utf-8") as handle:
+                data = json.load(handle)
+        except json.JSONDecodeError as error:
+            refuse(f"{path}: {error}")
+        self.paths = []
+        for entry in data.get("paths", []):
+            if (not entry.get("glob") or entry.get("class") not in TRAP_CLASS_NAMES
+                    or not str(entry.get("reason", "")).strip()):
+                refuse(f"{path}: a paths entry needs a glob, a class ({' or '.join(TRAP_CLASS_NAMES)}) and a "
+                       f"reason: {entry}")
+            self.paths.append((entry["glob"], entry["class"]))
+        self.entries = trap_markers(data, "entries", path)
+        self.byte_reads = trap_markers(data, "byte_reads", path)
+        self.repo, self.models, self.errors = repo, {}, set()
+
+    def model(self, lang, rel):
+        if (lang, rel) not in self.models:
+            path = os.path.join(self.repo, rel)
+            model = None
+            if os.path.isfile(path):
+                with open(path, encoding="utf-8", errors="replace") as handle:
+                    model = SourceModel(lang, handle.read(), self.entries[lang], self.byte_reads[lang])
+            self.models[(lang, rel)] = model
+        return self.models[(lang, rel)]
+
+    def classify(self, lang, rel, number):
+        """(class, rule) of the hit at line NUMBER (1-based) of REL (relative to the repo). The first rule that
+        applies decides, so every hit has exactly one class and names the rule that gave it:
+          1. annotation        `// trap-class: input <why>` or `// trap-class: invariant <why>` on the hit's line or
+                               the line above (allow_lines, the crash-allow window). A mark with another class or no
+                               reason decides nothing and is an error (--classify exits 1).
+          2. invariant-reason  Rust only: `INVARIANT: <why>` in that window (a comment, or an #[expect]/#[allow]
+                               reason): rust-panic-free.md rule 1's spelling of a checked invariant.
+          3. path:<glob>       the first trap-classes.json "paths" entry whose glob matches REL (fnmatch; `*` also
+                               matches `/`): a reviewed class for a whole crate, module or file (a wire crate).
+          4. entry:/bytes:/callee:  the Q14 reachability proxy (SourceModel): the hit is in a function whose
+                               declaration is a decode entry point (trap-classes.json "entries": Rust
+                               `fn decode|parse|from_bytes|read_frame|from_slice...`, the Q14 names; Swift
+                               `func decode|parse...` and `init(from decoder:)`), or whose body reads peer or file
+                               bytes ("byte_reads": decoders, loadUnaligned, withUnsafeBytes, file and socket reads),
+                               or in a function of the same file that one of those calls by name, transitively; or
+                               the hit's own line reads bytes. Closures and nested functions belong to the function
+                               around them. A callee in another file is not followed: give it a path entry or a mark.
+          5. default           invariant: nothing above ties the operand to outside input.
+        The proxy errs toward input (two functions with one name both count as called): the safe side, since an input
+        site gets validation and a typed error where an invariant would trap."""
+        model = self.model(lang, rel)
+        index = number - 1
+        if model and 0 <= index < len(model.lines):
+            window = allow_lines(model.lines, index)
+            for i in window:
+                mark = TRAP_CLASS_MARK.search(model.lines[i])
+                if not mark:
+                    continue
+                if mark.group("cls") in TRAP_CLASS_NAMES and mark.group("reason"):
+                    return mark.group("cls"), "annotation"
+                self.errors.add(f"{rel}:{i + 1}: a `// trap-class:` mark needs {' or '.join(TRAP_CLASS_NAMES)} "
+                                f"and a reason: {mark.group(0).strip()!r}")
+            if lang == "rust" and any(INVARIANT_REASON.search(model.lines[i]) for i in window):
+                return "invariant", "invariant-reason"
+        posix = rel.replace(os.sep, "/")
+        for glob, cls in self.paths:
+            if fnmatch.fnmatchcase(posix, glob):
+                return cls, "path:" + glob
+        why = model.input_rule(number) if model else None
+        return ("input", why) if why else ("invariant", "default")
+
+
+def classified(classifier, sites):
+    """The --classify document of SITES: every Site with its class and rule ("hits"), the hits per class
+    ("classes") and per lang.class ("kinds"), and the bad marks ("errors"). A row is one line, so all its hits share
+    one class; the per-class counts add up to every hit."""
+    rows, totals, kinds = [], dict.fromkeys(TRAP_CLASS_NAMES, 0), {}
+    for site in sorted(sites, key=lambda s: (s.path, s.line, s.lang, s.kind, s.section)):
+        cls, rule = classifier.classify(site.lang, site.path, site.line)
+        rows.append({**site._asdict(), "class": cls, "rule": rule})
+        totals[cls] += site.hits
+        kinds.setdefault(f"{site.lang}.{site.kind}", dict.fromkeys(TRAP_CLASS_NAMES, 0))[cls] += site.hits
+    return {"classes": totals, "kinds": dict(sorted(kinds.items())), "hits": rows,
+            "errors": sorted(classifier.errors)}
+
+
+def classify(repo, exported, names):
+    """Prints --classify's JSON for the report-only classes NAMES (None: every hit of the ratchet's scan). It compares
+    nothing: exit 0, 1 when a `// trap-class:` mark is bad, 2 for an unknown report class."""
+    if names is not None:
+        kinds = report_kinds(names)
+        if kinds is None:
+            return 2
+        sites = report_sites(repo, exported, kinds)
+    else:
+        sites = scan_tree(repo, exported, sites=True).sites
+    document = classified(TrapClassifier(repo), sites)
+    print(json.dumps(document, indent=1, sort_keys=True))
+    for error in document["errors"]:
+        print("crash-ratchet: classify: " + error, file=sys.stderr)
+    return 1 if document["errors"] else 0
+
+
+# ---------------------------------------------------------------- notFatalUntil builds only go up (p10-stability-205)
+# Invariant.notFatalUntil(cond, id, build: N) reports until build N, then traps (p10-stability-099), like Chrome's
+# base::NotFatalUntil::M<n>. Lowering N, or turning the site into check / dumpWillBeCheck, changes when users crash, so
+# it needs a written reason. Local only: guardrails.py's `not-fatal-until-lowered` runs this on a push's changed files.
+INVARIANT_CALL = re.compile(r"\bInvariant\s*\.\s*(?P<api>check|notFatalUntil|dumpWillBeCheck)\s*\(")
+NOT_FATAL_UNTIL_ALLOW = re.compile(r"//\s*not-fatal-until-lowered-allow:\s*\S")
+ARGUMENT_LABEL = re.compile(r"(\w+)\s*:(?!:)")
+INTEGER = re.compile(r"\d[\d_]*")
+CALL_LINES = 12  # an Invariant call's arguments may continue on this many lines
+
+
+class InvariantSite(NamedTuple):
+    api: str  # check, notFatalUntil or dumpWillBeCheck
+    id: str  # the id argument's source text (`"daemon.frame.size"`, `.frameSize`), whitespace folded
+    build: "str | None"  # the build: argument's source text
+    line: int  # 1-based
+
+
+def call_arguments(text, start):
+    """The top-level arguments (source text, stripped) of the call whose `(` is TEXT[START], or None when it does not
+    close in TEXT. String literals and `//` comments never split or close it."""
+    args, current, depth, i, n = [], [], 0, start + 1, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '"':
+            j = i + 1
+            while j < n and text[j] not in '"\n':
+                j += 2 if text[j] == "\\" else 1
+            current.append(text[i:j + 1])
+            i = j + 1
+            continue
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                args.append("".join(current).strip())
+                return [arg for arg in args if arg]
+            depth -= 1
+        elif ch == "," and depth == 0:
+            args.append("".join(current).strip())
+            current = []
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+    return None
+
+
+def invariant_sites(lines):
+    """The Invariant.check / notFatalUntil / dumpWillBeCheck calls of LINES (one Swift file) whose id it can read:
+    the `id:` argument, else the second unlabeled one (`notFatalUntil(cond, id, build: N)`)."""
+    sites = []
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("//"):
+            continue
+        for match in INVARIANT_CALL.finditer(swift_code(line)):
+            args = call_arguments("\n".join([line[match.end() - 1:]] + lines[index + 1:index + CALL_LINES]), 0)
+            if args is None:
+                continue
+            labeled, unlabeled = {}, []
+            for arg in args:
+                label = ARGUMENT_LABEL.match(arg)
+                if label:
+                    labeled[label.group(1)] = arg[label.end():].strip()
+                else:
+                    unlabeled.append(arg)
+            ident = labeled.get("id", unlabeled[1] if len(unlabeled) > 1 else None)
+            if ident:
+                sites.append(InvariantSite(match.group("api"), " ".join(ident.split()), labeled.get("build"),
+                                           index + 1))
+    return sites
+
+
+def build_number(text):
+    return int(text.replace("_", "")) if text and INTEGER.fullmatch(text) else None
+
+
+def not_fatal_change(builds, site):
+    """Why the head call SITE lowers or removes the base's notFatalUntil BUILDS (source texts) of its id, or None."""
+    shown = ", ".join(sorted(set(builds)))
+    if site.api != "notFatalUntil":
+        return f"build {shown} removed (now Invariant.{site.api})"
+    if site.build is None:
+        return f"build {shown} removed (notFatalUntil without build:)"
+    numbers = [build_number(build) for build in builds]
+    head = build_number(site.build)
+    if head is None or None in numbers:
+        return None if site.build in builds else (f"build {shown} -> {site.build} (not an integer literal: it cannot "
+                                                  "be shown not to be lower)")
+    return f"build {min(numbers)} -> {head} (lowered)" if head < min(numbers) else None
+
+
+def lowered_not_fatal_until(base_files, head_files):
+    """[(path, line, why)] for each head Invariant call that lowers or removes a notFatalUntil build the base had for
+    its id. BASE_FILES and HEAD_FILES map a path to its lines on each side (a push's changed Swift files; an id may
+    move between them). The rules (p10-stability-099: the ratchet refuses a lowered or removed N without a reason):
+      - lowered: the head call is notFatalUntil with a build below the lowest base build of the id;
+      - removed: the head call with the id is check or dumpWillBeCheck, or notFatalUntil without build:;
+      - unprovable: a build that is not an integer literal on either side, with a text no base call had (lowered);
+      - a raised build, a new id, and an id that no head call names any more (it left with its code) pass;
+      - `// not-fatal-until-lowered-allow: <reason>` on the head call's line or the line above (allow_lines)
+        passes the call."""
+    base = {}
+    for lines in base_files.values():
+        for site in invariant_sites(lines):
+            if site.api == "notFatalUntil" and site.build is not None:
+                base.setdefault(site.id, []).append(site.build)
+    found = []
+    for path, lines in sorted(head_files.items()):
+        for site in invariant_sites(lines):
+            builds = base.get(site.id)
+            if not builds or any(NOT_FATAL_UNTIL_ALLOW.search(lines[i]) for i in allow_lines(lines, site.line - 1)):
+                continue
+            why = not_fatal_change(builds, site)
+            if why:
+                found.append((path, site.line, f"Invariant.{site.api} {site.id}: {why}"))
+    return found
 
 
 def load_allowlist():
@@ -885,7 +1394,7 @@ def scan_rust(repo, scan, exported):
             for kind, pattern in RUST.items():
                 hits = len(pattern.findall(code))
                 if hits:
-                    scan.add(is_allowed, "rust", kind, rel, line, hits)
+                    scan.add(is_allowed, "rust", kind, rel, line, hits, os.path.relpath(path, repo), index + 1)
 
 
 # The baseline's path in a tree (a checkout, or a git archive export of a ref).
@@ -1115,10 +1624,16 @@ def main():
     parser.add_argument("--report", metavar="CLASS[,CLASS]",
                         help="print these report-only classes' counts per module as JSON ("
                         + ", ".join(sorted(REPORT_SWIFT)) + "); compares nothing")
+    parser.add_argument("--classify", action="store_true",
+                        help="print every hit (of --report's classes, else of the ratchet's scan) with its trap class "
+                        "(input or invariant) and the rule that gave it, as JSON; compares nothing")
     opts = parser.parse_args()
-    if opts.report is not None:
+    if opts.report is not None or opts.classify:
         if opts.update_baseline or opts.record_waivers or opts.base or opts.baseline_against:
-            parser.error("--report only reports: it does not go with --update-baseline, --base or --baseline-against")
+            parser.error("--report and --classify only report: they do not go with --update-baseline, --base or "
+                         "--baseline-against")
+        if opts.classify:
+            return classify(opts.repo, opts.exported_tree, opts.report)
         return report(opts.repo, opts.exported_tree, opts.report)
     updating = opts.update_baseline or opts.record_waivers
     if opts.base and not updating:

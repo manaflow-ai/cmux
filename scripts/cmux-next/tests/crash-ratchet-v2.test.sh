@@ -371,4 +371,86 @@ if out="$(ratchet)"; then fail "an array or Data index, or an inferred read, pas
 g reset -q
 reset
 
+# 20. --classify (p10-stability-205, Q21): every hit gets exactly one trap class, input or invariant, and the
+#     rule that gave it. Input: a decode entry point (Swift parse*, Rust decode*), its same-file callees, a body
+#     that reads file bytes, a `// trap-class: input` mark. Invariant: an `INVARIANT:` reason (Rust) or no rule.
+#     A string or a block comment never declares a function, and a bad mark is an error (exit 1).
+cp "$here/trap-classes.json" "$tmp/scripts/cmux-next/"
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+func parseHeader(_ text: String) -> Int {
+    let n = Int(text.count)
+    return width(n)
+}
+func width(_ n: Int) -> Int {
+    rows[n + 1]
+}
+func layout() -> Int {
+    let s = "func parseFake() { width(1) }"
+    /* func parseFake() {
+       width(2) } */
+    return rows[k + 1]
+}
+func load(path: URL) -> Int {
+    let data = try? Data(contentsOf: path)
+    return cells[m + 1]
+}
+func marked() -> Int {
+    // trap-class: input the count comes from a peer frame
+    return cells[m + 2]
+}
+SWIFT
+cat > "$tmp/cmux-tui/crates/x/src/lib.rs" <<'RUST'
+pub fn decode_frame(text: &str) -> usize {
+    let n: usize = text.parse().unwrap();
+    width(n)
+}
+fn width(n: usize) -> usize {
+    Some(n).expect("width")
+}
+pub fn layout() -> usize {
+    let s = "fn decode_fake() { width(1) }";
+    Some(1).unwrap()
+}
+pub fn checked() -> usize {
+    // INVARIANT: the table is built with one row
+    Some(2).expect("one row")
+}
+RUST
+g add -A
+classify() { python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --classify; }
+out="$(classify)" || fail "--classify failed on good marks: $out"
+summary="$(python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+for h in d["hits"]:
+    print(h["path"].split("/")[-1], h["line"], h["kind"], h["class"], h["rule"].split(" ")[0])
+print("classes", d["classes"]["input"], d["classes"]["invariant"], sum(h["hits"] for h in d["hits"]))
+' <<<"$out")"
+expect() { [[ "$summary" == *"$1"* ]] || fail "--classify: expected '$1' in: $summary"; }
+expect "F.swift 2 int_conversion input entry:parseHeader"
+expect "F.swift 6 index_subscript input callee:width"
+expect "F.swift 12 index_subscript invariant default"
+expect "F.swift 16 index_subscript input bytes:load"
+expect "F.swift 20 index_subscript input annotation"
+expect "lib.rs 2 unwrap input entry:decode_frame"
+expect "lib.rs 6 expect input callee:width"
+expect "lib.rs 10 unwrap invariant default"
+expect "lib.rs 14 expect invariant invariant-reason"
+# Nine hits, each in exactly one class.
+expect "classes 6 3 9"
+# --report's classes classify too.
+printf 'func parseX() async { await withCheckedContinuation { c in c.resume() } }\nfunc idle() async { await withCheckedContinuation { c in c.resume() } }\n' > "$shared/Sources/MessagesLabHome/F.swift"
+g add -A
+out="$(python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --report raw_continuation --classify)" \
+  || fail "--report raw_continuation --classify failed: $out"
+[[ "$(python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print(d["classes"])' <<<"$out")" == "{'input': 1, 'invariant': 1}" ]] \
+  || fail "--report --classify did not class one input and one invariant continuation: $out"
+# A mark without a class or a reason is an error.
+printf 'func f() -> Int {\n    // trap-class: maybe\n    return rows[k + 1]\n}\n' > "$shared/Sources/MessagesLabHome/F.swift"
+g add -A
+if out="$(classify 2>&1)"; then fail "a trap-class mark without a class passed: $out"; fi
+[[ "$out" == *"F.swift:2: a \`// trap-class:\` mark needs input or invariant and a reason"* ]] || fail "the bad mark is not named: $out"
+g reset -q
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"
