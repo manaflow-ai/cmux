@@ -102,8 +102,10 @@ final class SidebarRegionView: NSView {
     private var animatesFrames = false
     /// Frames go to their place on the drag's additive spring (`springShow`); a new view is placed at once.
     private var springsFrames = false
+    // memory: fixed not a cache: one layer per card of the shown layout; `apply` removes the layers of sections that left
     /// Card backgrounds by section: a card keeps its layer (and its spring) when sections are added, removed or reordered.
     private var cardLayers: [LayoutSectionID: CALayer] = [:]
+    // memory: fixed not a cache: one layer per line or tone step of the shown layout; `apply` removes the ones that left
     /// Section lines (lines looks), or under `appearance.borders = none`
     /// the tonal step: every other section a shade lighter. By key (the section below a line, or `tone:<section>`).
     private var lineLayers: [String: CALayer] = [:]

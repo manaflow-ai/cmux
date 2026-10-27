@@ -51,6 +51,7 @@ enum DebugHoverSweep {
         // After each retarget settles: the image the card shows and the
         // shown tab's cached page thumbnail, measured after the sweep (off
         // the main thread, outside the frame window).
+        // memory: fixed a local of one debug sweep, kept by no one: two image references per requested tab (`tabs`), dropped when the call returns
         var images: [(card: CGImage?, cached: CGImage?)] = []
         for index in indices.dropFirst() {
             let start = ContinuousClock.now

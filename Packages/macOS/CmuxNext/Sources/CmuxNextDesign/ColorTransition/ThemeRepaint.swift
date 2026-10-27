@@ -149,6 +149,7 @@ enum ThemeRepaint {
         var seen = Set<ObjectIdentifier>()
         var passes: [(views: [NSView], layout: Bool)] = []
         var blendRoots: [NSView] = []
+        // memory: fixed a local of one repaint, kept by no one: one entry per on-screen layer of the batch's views, dropped when `apply` returns
         var shown: [(layer: CALayer, colors: [(LayerColor, CGColor?)])] = []
         for request in pending {
             let roots = request.roots()
