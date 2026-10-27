@@ -17,10 +17,15 @@ Steps, each refusing with exit 4 and one reason line before anything of the DMG 
    is a Release bundle (no bench-hooks marker, no debug dylib: bench_launch.build_config).
 
 Then the legs, each from always-on signals only. The app gets no `debug.*` request: ``NightlyApp.rpc`` refuses one
-before it reaches the socket. It speaks system.ping, features.list, action.run, snapshot.get and app.quit.
-  launch    `--runs` pairs, interleaved: cold (every daemon of the bundle stopped, the cmux NEXT state moved aside,
-            `sudo -n /usr/sbin/purge`) then warm (right after the cold run quit, its daemon still running, as
-            bench-startup.py's warm mode). Each mark is the `launch.mark` signpost's own `ms=` (time since process
+before it reaches the socket. It speaks system.ping, features.list, action.run (quitKeepSessions quits it) and
+snapshot.get.
+State: the story refuses while another cmux NEXT runs. It moves the host's own cmux NEXT state aside once, before
+its first launch (``SavedState``), deletes between runs only what its own launches made, and puts the original back
+when it ends (also on a failure or SIGTERM).
+  launch    `--runs` pairs, interleaved: cold (every daemon of the bundle stopped, the state its launches made
+            deleted, `sudo -n /usr/sbin/purge`) then warm (right after the cold run quit, its daemon still running, as
+            bench-startup.py's warm mode). Without the purge right, an unrecorded launch takes the cold run's place
+            before the warm one, so a warm run never follows a stopped daemon. Each mark is the `launch.mark` signpost's own `ms=` (time since process
             start, CmuxNextSignposts LaunchSignposts.mark), streamed with `log stream --signpost`. A run whose stream
             lost messages, that did not start or that missed a mark counts in `missing_runs`. Without the purge right
             the cold runs do not run and the story exits 1 (decision D3, as launch-cold).
@@ -80,8 +85,9 @@ NEXT_APP_DIR = "cmux NEXT.app"
 VERIFY_DMG = os.path.join(ROOT, "scripts", "ci", "verify-dmg-artifact.sh")
 # cmux NEXT's state under ~/Library/Application Support/cmux: its daemon's kept session tag `cmux-next`
 # (BuildIdentity+AppNames.swift KeptNames, daemonStateDirectory) and its per-build roots (BuildIdentity.appSupport).
+# They are the person's own nightly's state: SavedState keeps them at `<root>.shipped-nightly-orig` while it runs.
 STATE_ROOTS = ("tags/cmux-next", f"builds/{NEXT_BUNDLE_ID}")
-PREV_SUFFIX = ".shipped-nightly-prev"
+ORIG_SUFFIX = ".shipped-nightly-orig"
 SUBSYSTEM = "com.cmuxterm.app.next"
 LAUNCH_PREDICATE = f'subsystem == "{SUBSYSTEM}" AND category == "launch"'
 LAUNCH_MARKS = ("main_start", "did_finish_launching_end", "first_window_frame_committed")
@@ -92,6 +98,8 @@ ACTION_SERIES = ("action.perform", "action.commit")
 ACTION_SPACING_S = 0.05  # between presses, as a person types (bench-config-parity.py)
 LAUNCH_TIMEOUT_S = 120
 QUIT_TIMEOUT_S = 30
+# A person's Quit that keeps the sessions, with no sheet (BenchApp.quit_keep_sessions): the daemon keeps running.
+QUIT_REQUEST = ("action.run", {"action": "quitKeepSessions", "args": {}, "focus": False, "origin": "script"})
 ATTACH_TIMEOUT_S = 15
 SUMMARY = "shipped-nightly-summary.json"
 FORBIDDEN_PREFIX = "debug."
@@ -229,34 +237,93 @@ def check_app(app: str, run: Callable = subprocess.run) -> Dict[str, str]:
 # ---------------------------------------------------------------- the app, with no debug.* method
 
 
-def fresh_state(app_support: str, roots: Sequence[str] = STATE_ROOTS) -> List[str]:
-    """Moves cmux NEXT's state aside (one earlier copy kept at `<root>.shipped-nightly-prev`), so a launch starts
-    from an empty saved session, as BenchApp.start_fresh does for a tag. Only while no process of it runs."""
-    moved = []
-    for relative in roots:
-        root = os.path.join(app_support, relative)
-        if not os.path.lexists(root):
-            continue
-        prev = root + PREV_SUFFIX
-        if os.path.lexists(prev):
-            shutil.rmtree(prev, ignore_errors=True)
-        os.rename(root, prev)
-        moved.append(root)
-    return moved
-
-
 def other_next_processes(app: str, table: Optional[str] = None) -> List[int]:
     """PIDs of every cmux NEXT process from another bundle path: they share this build's daemon session and state."""
     if table is None:
         table = subprocess.run(["/bin/ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
-    own = os.path.realpath(app).rstrip("/") + "/"
+    from tag_teardown import TagTeardown
+    own = TagTeardown(app)  # its in_bundle also matches the /var/... or /tmp/... spelling of a copy in $TMPDIR
     pids = []
     for line in table.splitlines():
         pid, _, command = line.strip().partition(" ")
         command = command.strip()
-        if f"/{NEXT_APP_DIR}/Contents/" in command and not command.startswith(own) and pid.isdigit():
+        if f"/{NEXT_APP_DIR}/Contents/" in command and not own.in_bundle(command) and pid.isdigit():
             pids.append(int(pid))
     return pids
+
+
+def remove_path(path: str) -> None:
+    """Deletes `path` (a folder, a file or a link); raises OSError when it cannot."""
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    elif os.path.lexists(path):
+        os.unlink(path)
+
+
+class SavedState:
+    """The host's own cmux NEXT state, kept for the person while the story runs. ``start`` moves each original root
+    aside once (to `<root>.shipped-nightly-orig`), ``reset`` deletes what the story's launches made since, ``restore``
+    deletes that and moves the originals back. Each step first checks that no other cmux NEXT runs (`others`): that
+    app reads and writes the same roots."""
+
+    def __init__(self, app_support: str, others: Callable[[], List[int]], roots: Sequence[str] = STATE_ROOTS):
+        self.roots = [os.path.join(app_support, relative) for relative in roots]
+        self.others = others
+        self.saved: List[str] = []
+        self.started = False
+
+    def _running(self) -> Optional[str]:
+        pids = self.others()
+        return f"another cmux NEXT runs (pid {', '.join(map(str, pids))})" if pids else None
+
+    def start(self) -> None:
+        """Moves the originals aside; raises Refused (and moves nothing) when it cannot do so safely."""
+        for root in self.roots:
+            if os.path.lexists(root + ORIG_SUFFIX):
+                raise Refused(f"{root + ORIG_SUFFIX} holds the state an earlier run did not put back: "
+                              f"move it back to {root} first")
+        running = self._running()
+        if running:
+            raise Refused(f"{running}: it uses the cmux NEXT state this story moves aside; quit it first")
+        try:
+            for root in self.roots:
+                if os.path.lexists(root):
+                    os.rename(root, root + ORIG_SUFFIX)
+                    self.saved.append(root)
+        except OSError as error:
+            for root in reversed(self.saved):
+                os.rename(root + ORIG_SUFFIX, root)
+            self.saved = []
+            raise Refused(f"cannot move the cmux NEXT state aside: {error}") from None
+        self.started = True
+
+    def reset(self) -> None:
+        """Deletes the state the story's own launches made (only while no other cmux NEXT runs). Raises LegError."""
+        if not self.started:
+            raise LegError("the original cmux NEXT state was not moved aside: nothing deleted")
+        running = self._running()
+        if running:
+            raise LegError(f"{running}: the state is not only the story's now, nothing deleted")
+        try:
+            for root in self.roots:
+                remove_path(root)
+        except OSError as error:
+            raise LegError(f"cannot delete the state of the earlier launch: {error}") from None
+
+    def restore(self) -> List[str]:
+        """Puts the originals back; returns the problems (an original left at its `-orig` path, never deleted)."""
+        if not self.started:
+            return []
+        try:
+            self.reset()
+            for root in list(self.saved):
+                os.rename(root + ORIG_SUFFIX, root)
+                self.saved.remove(root)
+        except (LegError, OSError) as error:
+            return [f"state: {error}; the original cmux NEXT state stays at "
+                    f"{', '.join(root + ORIG_SUFFIX for root in self.saved)}"]
+        self.started = False
+        return []
 
 
 class NightlyApp:
@@ -327,6 +394,7 @@ class NightlyApp:
         self.process = self._popen([self.binary], env=self.environment(), stdout=log, stderr=log,
                                    stdin=subprocess.DEVNULL)
         log.close()  # the child holds its own descriptor
+        self.teardown.remember()  # arms end() for what this launch starts, also when it fails below
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline and self.process.poll() is None:  # bounded poll of the app it started
             reply = self.rpc("system.ping", timeout=min(10, max(0.1, deadline - time.monotonic())))
@@ -341,11 +409,12 @@ class NightlyApp:
                        else f"the app exited with {code} before it answered")
 
     def quit(self) -> None:
-        """app.quit (the daemon keeps running: keep-on-quit), then TERM of its own pid if it did not exit."""
+        """quitKeepSessions (the daemon keeps running: keep-on-quit), then TERM of its own pid if it did not exit."""
         if self.process is None:
             return
         if self.process.poll() is None:
-            self.rpc("app.quit", {}, timeout=10)
+            method, params = QUIT_REQUEST
+            self.rpc(method, dict(params), timeout=10)  # the reply may be lost as the app quits: its exit answers
             try:
                 self.process.wait(QUIT_TIMEOUT_S)
             except subprocess.TimeoutExpired:
@@ -407,6 +476,7 @@ class LaunchStream:
         self._reader.start()
         # The log tool prints its filter line once it is attached; a spawn before it loses the first marks.
         if not self._attached.wait(attach_timeout):
+            self.stop()
             raise LegError(f"log stream printed nothing in {attach_timeout:g} s")
 
     def _drain(self) -> None:
@@ -448,8 +518,9 @@ def purge(run: Callable = subprocess.run) -> Optional[str]:
 def launch_run(app: NightlyApp, mode: str, stream_factory: Callable = LaunchStream) -> dict:
     """One launch timed by its own launch marks; the app quits after its last mark (its daemon keeps running)."""
     run = {"mode": mode, "marks": {}, "lost": 0, "error": None}
-    stream = stream_factory()
+    stream = None
     try:
+        stream = stream_factory()
         pid = app.launch()
         run["pid"] = pid
         if not stream.wait_mark(pid, FINAL_MARK, LAUNCH_TIMEOUT_S):
@@ -458,24 +529,38 @@ def launch_run(app: NightlyApp, mode: str, stream_factory: Callable = LaunchStre
     except LegError as error:
         run["error"] = str(error)
     finally:
-        stream.stop()
-        run["lost"] = stream.lost
+        if stream is not None:
+            stream.stop()
+            run["lost"] = stream.lost
         app.quit()
     return run
 
 
-def launch_leg(app: NightlyApp, runs: int, do_purge: bool, app_support: str,
+def launch_leg(app: NightlyApp, runs: int, do_purge: bool, state: SavedState,
                purger: Callable = purge, stream_factory: Callable = LaunchStream) -> dict:
-    """`runs` pairs of a cold and a warm launch. A cold launch needs the purge: without it no cold run runs."""
-    out = {"runs": [], "problems": []}
+    """`runs` pairs of a cold and a warm launch. A cold launch needs the purge: without it an unrecorded `prime`
+    launch takes its place, so the warm launch still follows a quit app whose daemon runs. A warm launch is not run
+    when the launch before it did not start; it counts in `missing_runs`."""
+    out = {"runs": [], "primes": [], "problems": []}
     for _ in range(runs):
         app.end()  # a cold launch starts with no daemon of the bundle
-        fresh_state(app_support)
+        try:
+            state.reset()
+        except LegError as error:
+            out["problems"].append(str(error))
+            break
         refusal = purger() if do_purge else "--purge not given: a launch with the file cache warm is not cold"
         if refusal:
             out["problems"].append(f"cold: {refusal}")
+            before = launch_run(app, "prime", stream_factory)
+            out["primes"].append(before)
         else:
-            out["runs"].append(launch_run(app, "cold", stream_factory))
+            before = launch_run(app, "cold", stream_factory)
+            out["runs"].append(before)
+        if before.get("pid") is None:
+            out["runs"].append({"mode": "warm", "marks": {}, "lost": 0,
+                                "error": f"not run: the {before['mode']} launch before it did not start"})
+            continue
         out["runs"].append(launch_run(app, "warm", stream_factory))
     app.end()
     return out
@@ -580,7 +665,7 @@ def action_rounds(app: NightlyApp, pid: int, rounds: int, recording_factory: Opt
             "metrics": {f"{PREFIX}{name}": series[name] for name in ACTION_SERIES if series.get(name)}}
 
 
-def session_leg(app: NightlyApp, engine: str, seconds: float, rounds: int, app_support: str, out_dir: str,
+def session_leg(app: NightlyApp, engine: str, seconds: float, rounds: int, state: SavedState, out_dir: str,
                 pages_factory: Optional[Callable] = None) -> dict:
     """One fresh launch: the tabs-10 session, its idle window, then the action rounds."""
     idle = bench_idle()
@@ -588,7 +673,7 @@ def session_leg(app: NightlyApp, engine: str, seconds: float, rounds: int, app_s
     pages = (pages_factory or idle.TabPages)()
     try:
         app.end()
-        fresh_state(app_support)
+        state.reset()
         app.config = idle.tabs10_config(engine, {})
         pid = app.launch()
         result["pid"] = pid
@@ -730,11 +815,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     summary: dict = {"story": STORY, "dmg_url": None if opts.dmg else opts.dmg_url, "runner_app": opts.app,
                      "legs": {}, "problems": []}
     code = EXIT_OK
-    app = None
+    app = state = None
     try:
         try:
             host_problem()
             installed = prepare(opts, work)
+            app = NightlyApp(installed["app"], out)
+            app.teardown.install()  # SIGTERM and SIGHUP raise SystemExit, so the finally below ends the bundle
+            app.end()  # a process an earlier run of this copy (--work) left
+            app_support = os.path.join(bench_launch.account_home(), "Library", "Application Support", "cmux")
+            state = SavedState(app_support, lambda: other_next_processes(app.app))
+            state.start()
         except Refused as error:
             summary["refused"] = str(error)
             print(f"shipped-nightly: refused: {error}", file=sys.stderr, flush=True)
@@ -746,17 +837,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         host_read = (load_by_path("perf_lab_host_env", os.path.join(PERF_LAB, "host_env.py")).host_reader(host_file)
                      if host_file else bench_launch.read_host)
         recorder = Recorder(out, build, host_read, os.environ.get(bench_launch.LAB_SESSION) or "light")
-        app_support = os.path.join(bench_launch.account_home(), "Library", "Application Support", "cmux")
-        app = NightlyApp(installed["app"], out)
-        app.teardown.install()  # SIGTERM and SIGHUP raise SystemExit, so the finally below ends the bundle
         if "launch" in opts.legs:
-            leg = launch_leg(app, opts.runs, opts.purge, app_support)
+            leg = launch_leg(app, opts.runs, opts.purge, state)
             leg["problems"] += record_all(recorder, launch_metrics(leg["runs"]), "none", app.features)
             if any(r["error"] or r["lost"] for r in leg["runs"]):
                 leg["problems"].append("a launch run is incomplete (see runs)")
             summary["legs"]["launch"] = leg
         if "session" in opts.legs:
-            leg = session_leg(app, opts.engine, opts.idle, opts.rounds, app_support, out)
+            leg = session_leg(app, opts.engine, opts.idle, opts.rounds, state, out)
             if not leg["problems"]:
                 metrics = {name: [value] for name, value in leg["idle"]["metrics"].items()}
                 metrics.update(leg["actions"]["metrics"])
@@ -767,6 +855,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     finally:
         if app is not None:
             app.close()
+        if state is not None:
+            kept = state.restore()  # after close: no process of the copy writes the state any more
+            summary["problems"] += kept
+            if kept and code == EXIT_OK:
+                code = EXIT_FAILED
         if not opts.work:
             shutil.rmtree(work, ignore_errors=True)
         with open(os.path.join(out, SUMMARY), "w") as f:
