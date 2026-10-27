@@ -1465,17 +1465,74 @@ jobs:
           path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
           key: ${{ steps.derived-data-seed-key.outputs.scoped }}${{ needs.decide.outputs.head_sha }}
 
+  # Reuses an earlier nightly's helper when its inputs (Ghostty gitlink, which
+  # pins Zig, plus the build and Zig version scripts) match this build commit,
+  # so the helper job runs on Linux and no nightly waits on a macOS 15 runner.
+  # Any lookup failure is a miss. scripts/ci/nightly_ghostty_helper_reuse.py.
+  resolve-nightly-ghostty-cli-helper:
+    needs: [decide, resolve-nightly-cmux-tui-client]
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    # A hit counts only once this run holds the helper artifact; a failed
+    # step here is a miss, so this job never stops the helper job.
+    outputs:
+      hit: ${{ steps.upload.outcome == 'success' && 'true' || 'false' }}
+    steps:
+      - name: Checkout reuse script
+        if: inputs.nightly_next_unsigned_run == ''
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Find an earlier helper with the same inputs
+        id: reuse
+        if: inputs.nightly_next_unsigned_run == ''
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          NIGHTLY_COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
+        run: python3 scripts/ci/nightly_ghostty_helper_reuse.py --build-sha "$BUILD_SHA" --archs "$NIGHTLY_COMPILE_ARCHS" --out nightly-helper
+
+      # The provenance line a later run's lookup reads from this job's log.
+      - name: Record the reused helper's build commit
+        if: steps.reuse.outputs.hit == 'true'
+        env:
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+        run: echo "ghostty-cli-helper-build=$BUILD_SHA"
+
+      - name: Upload reused Ghostty CLI helper
+        id: upload
+        if: steps.reuse.outputs.hit == 'true'
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-ghostty-cli-helper
+          path: nightly-helper/ghostty
+          if-no-files-found: error
+          retention-days: 1
+
   build-nightly-ghostty-cli-helper:
     permissions:
       contents: write
       attestations: write
       id-token: write
-    needs: [decide, resolve-nightly-cmux-tui-client]
+    needs: [decide, resolve-nightly-cmux-tui-client, resolve-nightly-ghostty-cli-helper]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
-    # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
-    # release workflow by building and verifying it on macOS 15 instead.
-    # The SDK 15 Xcode (26.3) helper build takes Blacksmith macOS 15.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || 'blacksmith-6vcpu-macos-15' }}
+    # Zig 0.15.2 cannot link the real helper on macOS 26, and Zig on Linux has
+    # no macOS SDK, so a fresh helper builds on macOS 15 with the SDK 15 Xcode.
+    # A reused helper (resolve-nightly-ghostty-cli-helper) leaves only the
+    # source archive here, which runs on Linux. Never a GitHub-hosted Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || vars.CI_NIGHTLY_NEXT_HELPER_RUNNER || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -1526,7 +1583,7 @@ jobs:
       # anything else builds. tests/test_nightly_ghostty_helper_cache.py.
       - name: Key the Ghostty CLI helper cache
         id: helper-cache-key
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' && needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'
         run: |
           set -euo pipefail
           {
@@ -1549,14 +1606,14 @@ jobs:
 
       - name: Cache the Ghostty CLI helper
         id: helper-cache
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' && needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/Library/Caches/cmux/ghostty-cli-helper
           key: ${{ steps.helper-cache-key.outputs.key }}
 
       - name: Build Ghostty CLI helper
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' && needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'
         env:
           HELPER_CACHE_HIT: ${{ steps.helper-cache.outputs.cache-hit }}
         run: |
@@ -1570,6 +1627,8 @@ jobs:
             ./scripts/build-ghostty-cli-helper.sh --universal --output nightly-helper/ghostty
             lipo nightly-helper/ghostty -verify_arch arm64 x86_64
           fi
+          # The provenance line resolve-nightly-ghostty-cli-helper reads later.
+          echo "ghostty-cli-helper-build=$(git rev-parse HEAD)"
 
       # The strip-release-bundle.sh pass that prepare-nightly-variant ran on
       # the injected helper (helpers keep their global symbols). That job is on
@@ -1580,13 +1639,15 @@ jobs:
         run: strip -S -x nightly-helper/ghostty
 
       - name: Upload Ghostty CLI helper
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' && needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-ghostty-cli-helper
           path: nightly-helper/ghostty
           if-no-files-found: error
           retention-days: 1
+          # A reuse upload that failed part-way may have left the name taken.
+          overwrite: true
 
       # cmux-next release source archive: Ghostty at its submodule revision and
       # every Zig package of the build, so the MPL-2.0 source offer for Ghostty's
