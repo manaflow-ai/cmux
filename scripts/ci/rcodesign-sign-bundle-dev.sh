@@ -45,6 +45,10 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="${1%/}"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-cmux-helper.entitlements}"
 R="${RCODESIGN:-rcodesign}"
+# rcodesign reads every RCODESIGN_* environment variable as its own config
+# (apple-codesign 0.29: Env::prefixed("RCODESIGN_")), so one the job or the
+# runner image sets would fail every call. Scrub them before any call.
+while IFS= read -r name; do unset "$name"; done < <(compgen -e | grep '^RCODESIGN_' || true)
 [[ -d "$APP_PATH/Contents" ]] || { echo "error: app bundle not found at $APP_PATH" >&2; exit 1; }
 [[ -f "$2" && -f "$HELPER_ENTITLEMENTS" ]] || { echo "error: entitlements file missing" >&2; exit 1; }
 [[ "${CMUX_SIGN_MODE:-all}" == all && -z "${CMUX_NEXT_CEF_ON_DEMAND:-}" ]] ||

@@ -821,9 +821,9 @@ jobs:
   # The DMG work runs while verify does (Leo, 2026-10-26: "And I thought we
   # were incremental..."), and only the part that needs a Mac runs on one
   # (Leo, 2026-10-26: "I THOUGHT THESE COULD JUST GO ON LINUX").
-  # tip-dmg-build needs only sign: it runs Apple's codesign --verify --deep
-  # --strict on the Linux-signed app before it builds the unsigned DMG with
-  # hdiutil. tip-dmg, on Linux, signs, notarizes and staples that DMG with
+  # tip-dmg-build needs only sign: it builds the unsigned DMG with hdiutil
+  # (verify runs Apple's codesign check, and tip publishes only after verify
+  # passed). tip-dmg, on Linux, signs, notarizes and staples that DMG with
   # rcodesign and generates the appcast. Nothing they make is public: tip-dmg
   # hands the DMG and appcast to tip in an artifact. tip, the only job that writes R2, needs
   # verify to succeed with outputs.verified 'true' (as publish does) and the
@@ -844,8 +844,8 @@ jobs:
     needs: [sign, runner]
     # The runner job is only a placement: its failure keeps Blacksmith.
     if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' }}
-    # The Mac half of the tip DMG, and all of it that needs a Mac: Apple's
-    # codesign check of the Linux signature and hdiutil's ULMO image. No
+    # The Mac half of the tip DMG, and all of it that needs a Mac: hdiutil's
+    # ULMO image. No
     # environment and no secrets: tip-dmg signs, notarizes and staples the
     # DMG on Linux. No concurrency group (a group replaces a pending run,
     # which the dev-build rule forbids).
@@ -854,8 +854,7 @@ jobs:
     # takes the runner job's dmg_label when it named one (two machines free
     # now, so verify and this job each get one), in a fresh work directory
     # removed after the job; every re-run, the owned-pool rescue's included,
-    # takes Blacksmith. It runs no bundle code (codesign --verify, ditto and
-    # hdiutil only), so the bundle-code guard's rule 6 (its OWNED_VERIFY_JOBS
+    # takes Blacksmith. It runs no bundle code (ditto and hdiutil only), so the bundle-code guard's rule 6 (its OWNED_VERIFY_JOBS
     # exception) does not apply; bundle code added here would fail that rule
     # on this runs-on.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || 'blacksmith-6vcpu-macos-26') }}
@@ -943,8 +942,9 @@ jobs:
           fi
           echo "fresh=true" >> "$GITHUB_OUTPUT"
 
-      # The signed archive the sign job made on Linux (its sha256 was checked
-      # above), checked by codesign before it goes into the DMG.
+      # The signed archive the sign job made (its sha256 was checked above).
+      # Apple's codesign check of it is verify's: tip publishes this DMG only
+      # after verify passed, for the digest verify tested.
       - name: Build the tip DMG
         id: dmg
         if: steps.feed.outputs.fresh == 'true'
@@ -953,13 +953,6 @@ jobs:
           cd "$TIP_WORK_DIR"
           mkdir -p signed tip-unsigned
           /usr/bin/ditto -x -k "signed-handoff/$APP_ARCHIVE_NAME" signed
-          # Apple's check of the Linux signature, here and not only in verify:
-          # no DMG is built, signed or submitted around an app it rejects.
-          /usr/bin/codesign --verify --deep --strict --verbose=2 "signed/$APP_NAME.app" 2>&1 | tee codesign-verify.log
-          if grep -q "sealed resource is missing or invalid" codesign-verify.log; then
-            echo "codesign reports a sealed resource missing or invalid" >&2
-            exit 1
-          fi
           dmg_root="$TIP_WORK_DIR/dmg-root"
           mkdir -p "$dmg_root"
           /usr/bin/ditto "signed/$APP_NAME.app" "$dmg_root/$APP_NAME.app"
