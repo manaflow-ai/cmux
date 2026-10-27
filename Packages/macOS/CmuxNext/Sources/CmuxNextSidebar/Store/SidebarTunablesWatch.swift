@@ -31,11 +31,27 @@ final class SidebarTunablesWatch {
         return values
     }
 
+    private let tabRows = NSHashTable<SidebarTabRowView>.weakObjects()
+    private var tabLook: SidebarTabLineLook?
+
+    /// The listed tab rows' look (`sidebar.tabLines`); `row` is redrawn when it changes.
+    func tabLook(for row: SidebarTabRowView) -> SidebarTabLineLook {
+        tabRows.add(row)
+        if let tabLook { return tabLook }
+        let look = withObservationTracking { SidebarTunables.tabLines.value } onChange: {
+            Task { @MainActor in SidebarTunablesWatch.shared.changed() }
+        }
+        tabLook = look
+        return look
+    }
+
     /// Drops the cached values and redraws the live rows. The observation
     /// runs this one main-actor hop after a change; a test that sets a
     /// tunable and draws a row in the same turn calls it right after the set.
     func changed() {
         current = nil
+        tabLook = nil
         for row in rows.allObjects { row.redrawLastConfiguration() }
+        for row in tabRows.allObjects { row.redrawLastConfiguration() }
     }
 }
