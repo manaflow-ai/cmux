@@ -265,9 +265,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
-  const kind = failed ? failureKind(row.error, route, row.errorCode) : undefined;
-  // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
-  const authenticationFailed = kind === "subscription-login" || kind === "auth";
   const label = footerLabel(t, row);
   // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
   // continue prompt as the composer would, and the button goes once that prompt shows (turns.ts).
@@ -308,6 +305,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           route={route}
           switchModel={switchModel}
           compact={compact}
+          reauthenticate={reauthenticate}
           retry={failedRetry}
           retrying={retrying}
           retryNote={retryNote}
@@ -365,11 +363,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           <PinButton rowId={row.id} />
           {text && <ReadAloudButton id={row.id} text={text} />}
           {text && row.answerId && <MessageMore rowId={row.answerId} />}
-          {authenticationFailed && reauthenticate && (
-            <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
-              {t("turn.signInAgain")}
-            </button>
-          )}
         </span>
         <MessageTime at={row.at} className="cv-turn-time" />
       </div>
@@ -389,6 +382,7 @@ function TurnFailure({
   route,
   switchModel,
   compact,
+  reauthenticate,
   retry,
   retrying = false,
   retryNote,
@@ -398,6 +392,9 @@ function TurnFailure({
   route?: FailureRoute;
   switchModel?: () => void;
   compact?: () => Promise<void>;
+  /// Runs the chat harness's login (only the CLI's own login, or an unexplained 401 on a direct
+  /// route, asks to sign in; cx-w10a).
+  reauthenticate?: () => void;
   retry?: () => void;
   /// A Retry is in flight: its button waits.
   retrying?: boolean;
@@ -417,8 +414,12 @@ function TurnFailure({
   const offersSwitch =
     switchModel &&
     ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
-  // Retry is the way out, or the second one after Switch model; never for a sign-in or trust failure.
-  const offersRetry = recovery !== undefined && retry !== undefined;
+  // An expired login leads with Sign in again, and Retry follows it for once the login is done.
+  // Where the chat has no login to run (a Cloud chat, a harness that names none), the card is as it
+  // was: Switch model or CodeRouter, and no Retry, which would fail the same way.
+  const signInFirst = recovery === "sign-in" && reauthenticate !== undefined;
+  // Retry is the way out, or the second one after Switch model, Compact or Sign in again; never for trust.
+  const offersRetry = recovery !== undefined && retry !== undefined && (recovery !== "sign-in" || signInFirst);
   // A chat that outgrew its context window fails the same way on Retry until it is compacted, so
   // Compact leads and Retry follows it; a harness without /compact keeps Retry alone.
   const compactFirst = recovery === "compact" && compact !== undefined;
@@ -476,10 +477,19 @@ function TurnFailure({
             {t("context.compact")}
           </button>
         )}
+        {signInFirst && (
+          <button
+            type="button"
+            className={`cv-turn-auth-action${offerLeads ? "" : " cv-turn-error__primary"}`}
+            onClick={reauthenticate}
+          >
+            {t("turn.signInAgain")}
+          </button>
+        )}
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst || offerLeads || compactFirst ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || offerLeads || compactFirst || signInFirst ? "" : " cv-turn-error__primary"}`}
             disabled={retrying}
             onClick={retry}
           >

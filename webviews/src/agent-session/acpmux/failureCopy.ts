@@ -137,7 +137,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
 }
 
 /// The way out a failure's card offers first: send the prompt again, move to another model (with
-/// Retry after it), or compact a chat that outgrew its context window (with Retry after it). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
+/// Retry after it), compact a chat that outgrew its context window, or sign the agent in again
+/// (each with Retry after it, for once that is done). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
 /// Whether a failed turn offers cmux's own route, CodeRouter, beside Switch model (Lawrence
 /// 2026-10-23: "good opportunity for upsell here"): a key, sign-in or capacity failure that another
 /// route fixes. Never on a chat CodeRouter already serves (sending it there again does nothing), and
@@ -147,10 +148,13 @@ export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean
   return kind === "invalid-key" || kind === "subscription-login" || kind === "auth" || kind === "rate-limited";
 }
 
-export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "compact" | undefined {
+export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "compact" | "sign-in" | undefined {
   switch (kind) {
     case "context-full":
       return "compact";
+    case "subscription-login":
+    case "auth":
+      return "sign-in";
     case "rate-limited":
     case "invalid-key":
     case "proxy-auth":
@@ -158,8 +162,6 @@ export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "
     case "trust-pending":
     case "trust-untrusted":
     case "no-team-account":
-    case "subscription-login":
-    case "auth":
       return undefined;
     default:
       return "retry";
