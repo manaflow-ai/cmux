@@ -222,7 +222,7 @@ cat > "$rust/ps.txt" <<EOF
   102     1  60000 $B/Contents/Resources/bin/cmux-tui --headless --session cmux-app-t1 --socket /tmp/t1.sock
   110     1   5000 $HX/abc/cmux-holder --owner cmux_DEV_t1:t1@102
 EOF
-printf '%s\n' $'102\tdefault\tmux-conn' $'102\tdefault\tmux-server' $'102\tdefault\tmux-session-journal-writer' \
+printf '%s\n' $'102\tdefault\tmux-conn' $'102\tuser-initiated\tmux-server' $'102\tdefault\tmux-session-journal-writer' \
   $'102\tdefault\tmux-session-journal-writer-fanout' $'110\tdefault\tholder-link' > "$rust/threads.txt"
 printf '{"bundle": "%s", "tag": "t1"}\n' "$B" > "$rust/session.json"
 python3 -I "$CENSUS" --from "$rust" --json --check-thread-doc > "$tmp/rust.json" \
@@ -244,7 +244,42 @@ python3 -I - "$tmp/table.json" <<'EOF'
 import json, sys
 doc = json.load(open(sys.argv[1]))["thread_doc"]
 assert doc["unlisted"] == [], doc["unlisted"]
-assert sorted(m["name"] for m in doc["qos_mismatch"]) == ["holder-link", "mux-conn", "mux-server"], doc["qos_mismatch"]
+assert sorted(m["name"] for m in doc["qos_mismatch"]) == ["holder-link", "mux-conn"], doc["qos_mismatch"]
+EOF
+
+# The repo's doc registers the process model's threads (p01-process-103): the Chromium Host's own threads with
+# their QoS, the terminal host's echo threads, the daemon's child-exit watchers and its other named threads, and
+# a planned label (vt-pool-v-<N>) before it lands. A host thread at another class than its row is a mismatch.
+host="$tmp/host"
+mkdir -p "$host"
+cat > "$host/ps.txt" <<EOF
+  100     1 400000 $B/Contents/MacOS/cmux DEV
+  102     1  60000 $B/Contents/Resources/bin/cmux-tui --headless --session cmux-app-t1 --socket /tmp/t1.sock
+  120   102   3000 $HX/def/cmux-tui-host __terminal-host --bootstrap-stdio
+  140   100  90000 $B/Contents/MacOS/cmux DEV Chromium Host --data x
+EOF
+printf '%s\n' $'140\tuser-interactive\tCrBrowserMain' $'140\tuser-interactive\tcom.cmuxterm.chromium-host.input' \
+  $'140\tuser-initiated\tcom.cmuxterm.chromium-host.control' $'140\tdefault\tChrome_IOThread' \
+  $'120\tuser-interactive\tterminal-host-pty' $'120\tuser-interactive\tterminal-host-client-input' \
+  $'102\tutility\tcmux-child-exit' $'102\tdefault\tcmux-process-exit' $'102\tdefault\tbrowser-runtime-events' \
+  $'102\tdefault\tpty-custody' $'102\tuser-initiated\tvt-pool-v-0' > "$host/threads.txt"
+printf '{"bundle": "%s", "tag": "t1"}\n' "$B" > "$host/session.json"
+python3 -I "$CENSUS" --from "$host" --json --check-thread-doc > "$tmp/host.json" \
+  || { echo "FAIL: the process model's threads must pass the repo's doc" >&2; cat "$tmp/host.json" >&2; exit 1; }
+python3 -I - "$tmp/host.json" <<'EOF'
+import json, sys
+doc = json.load(open(sys.argv[1]))["thread_doc"]
+assert doc["judged"] == 9 and doc["unlisted"] == [] and doc["qos_mismatch"] == [], doc
+EOF
+sed $'s/^140\tuser-interactive\tcom.cmuxterm.chromium-host.input$/140\tdefault\tcom.cmuxterm.chromium-host.input/' \
+  "$host/threads.txt" > "$host/threads.next" && mv "$host/threads.next" "$host/threads.txt"
+code=0
+python3 -I "$CENSUS" --from "$host" --json --check-thread-doc > "$tmp/host.json" || code=$?
+[[ $code -eq 1 ]] || { echo "FAIL: the host's input reader below its row's class must exit 1 (got $code)" >&2; exit 1; }
+python3 -I - "$tmp/host.json" <<'EOF'
+import json, sys
+doc = json.load(open(sys.argv[1]))["thread_doc"]
+assert [m["name"] for m in doc["qos_mismatch"]] == ["com.cmuxterm.chromium-host.input"], doc["qos_mismatch"]
 EOF
 
 # perf-stress-session.py terminal_counts: a terminal shows only as the selected tab of a pane on the shown
