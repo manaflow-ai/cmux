@@ -1,6 +1,6 @@
 //! The local runtime spawn path of a terminal surface: the parser, the
-//! reader (bytes -> terminal state -> events, `local_reader`) and the reaper
-//! thread (the end of the far side). A PTY child and an app's byte-backend
+//! reader (bytes -> terminal state -> events, `local_reader`) and the end of
+//! the far side ([`LocalEnd`]). A PTY child and an app's byte-backend
 //! terminal (`terminal_backend`) both start here, from a [`LocalLaunch`].
 
 use std::io::{Read, Write};
@@ -21,9 +21,8 @@ pub(crate) struct LocalLaunch {
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
     pub killer: Box<dyn ChildKiller + Send>,
-    /// Blocks until the far side ended; runs on the reaper thread. Dropping
-    /// it without a call must stop the far side (the PTY guard kills).
-    pub wait: Box<dyn FnOnce() -> TerminalEnd + Send>,
+    /// How the far side's end is learned.
+    pub end: LocalEnd,
     pub pid: Option<u32>,
     pub command: Vec<String>,
     pub cwd: Option<String>,
@@ -31,6 +30,19 @@ pub(crate) struct LocalLaunch {
     /// The holder terminal this launch runs on, if any (`holder_runtime`).
     #[cfg(unix)]
     pub holder: Option<Arc<crate::holder_runtime::HolderTerminal>>,
+}
+
+/// How the local runtime of one terminal learns that its far side ended.
+pub(crate) enum LocalEnd {
+    /// Blocks until the far side ended; runs on reaper thread
+    /// `surface-{id}-wait`. Dropping it without a call must stop the far
+    /// side (the PTY guard kills).
+    Wait(Box<dyn FnOnce() -> TerminalEnd + Send>),
+    /// The output stream carries the end after its last byte (a holder's
+    /// EXIT {status, end}): the reader takes it once the parser reached the
+    /// stream's end, so no thread waits. Never blocks.
+    #[cfg(unix)]
+    AtStreamEnd(Box<dyn FnOnce() -> TerminalEnd + Send>),
 }
 
 /// The surface-side inputs of [`Surface::spawn_local`].
@@ -51,7 +63,7 @@ pub(crate) struct LocalSpawn {
 
 impl Surface {
     /// Builds a local-runtime terminal surface on `launch` and starts its
-    /// reader and reaper threads.
+    /// reader and, for a [`LocalEnd::Wait`], its reaper thread.
     pub(crate) fn spawn_local(
         spawn: LocalSpawn,
         launch: LocalLaunch,
@@ -74,7 +86,7 @@ impl Surface {
             reader,
             writer,
             killer,
-            wait,
+            end,
             pid,
             command: argv,
             cwd,
@@ -285,9 +297,20 @@ impl Surface {
         }
         spawn_frame_producer(&surface)?;
 
+        // A stream that carries its end (a holder's EXIT after its last
+        // byte) ends on its reader, after the parser reached that end: no
+        // thread waits for it. Chromium does the same: a renderer's death
+        // arrives on its channel (render_process_host_impl.cc,
+        // OnChannelError -> ProcessDied), with no wait thread per child.
+        let (wait, stream_end) = match end {
+            LocalEnd::Wait(wait) => (Some(wait), None),
+            #[cfg(unix)]
+            LocalEnd::AtStreamEnd(stream_end) => (None, Some(stream_end)),
+        };
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events,
         // on the owner's read loop for a direct PTY (local_reader.rs).
-        let local_reader = local_reader::LocalReader::new(surface.clone(), output, reader);
+        let local_reader =
+            local_reader::LocalReader::new(surface.clone(), output, reader, stream_end);
         let local_reader = local_reader.start(id)?;
         *surface
             .as_pty()
@@ -296,6 +319,7 @@ impl Surface {
             .lock()
             .unwrap() = Some(local_reader);
 
+        let Some(wait) = wait else { return Ok(surface) };
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
         let reaper_completion =
@@ -374,7 +398,7 @@ impl Surface {
             reader,
             writer,
             killer: Box::new(BackendKiller(side.clone())),
-            wait: Box::new(move || wait_end(&side)),
+            end: LocalEnd::Wait(Box::new(move || wait_end(&side))),
             pid: None,
             command,
             cwd: None,

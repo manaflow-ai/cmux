@@ -10,7 +10,7 @@ use cmux_pty::ChildKiller;
 
 use super::sink::{AdoptionCuts, Pending, SinkEnd, SnapshottingReader};
 use super::{HolderService, HolderSink};
-use crate::surface::spawn::LocalLaunch;
+use crate::surface::spawn::{LocalEnd, LocalLaunch};
 use crate::terminal_end::TerminalEnd;
 use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
 
@@ -66,8 +66,8 @@ pub(super) const ADOPT_PROLOGUE_MAX_BYTES: usize = 768 * 1024;
 pub(super) const SNAPSHOT_MAX_BYTES: usize = 128 * 1024;
 
 impl HolderTerminal {
-    /// The daemon exits and leaves the shell to the holder: the reader and
-    /// the wait end without recording an end, and the holder hears DETACH
+    /// The daemon exits and leaves the shell to the holder: the reader ends
+    /// without recording an end, and the holder hears DETACH
     /// (the link's end is no strike against the terminal's stream).
     pub(crate) fn detach(&self) {
         self.sink.detach();
@@ -283,7 +283,8 @@ fn fit(prologue: Vec<u8>, max_bytes: usize) -> Vec<u8> {
 
 /// The local-runtime launch of `terminal`: output from the holder's stream,
 /// input and resize on the custody master, kill through the holder, and the
-/// end the holder reports.
+/// end its EXIT {status, end} reports after the last byte, read by the
+/// reader once the parser reached it (no `surface-{id}-wait` thread).
 pub(crate) fn holder_local_launch(
     terminal: &Arc<HolderTerminal>,
     command: Vec<String>,
@@ -294,7 +295,7 @@ pub(crate) fn holder_local_launch(
         inner: master.take_writer()?,
         master: terminal.custody.try_clone()?,
     });
-    let waited = terminal.clone();
+    let ended = terminal.clone();
     let snapshotted = Arc::downgrade(terminal);
     let reader = SnapshottingReader {
         sink: terminal.sink.clone(),
@@ -311,13 +312,13 @@ pub(crate) fn holder_local_launch(
         reader: Box::new(reader),
         writer,
         killer: Box::new(HolderKiller(terminal.clone())),
-        wait: Box::new(move || {
-            let end = waited.sink.wait_end();
+        end: LocalEnd::AtStreamEnd(Box::new(move || {
+            let end = ended.sink.stream_end();
             if end != SinkEnd::Detached {
-                waited.end();
+                ended.end();
             }
             terminal_end(end)
-        }),
+        })),
         pid: u32::try_from(terminal.pid).ok(),
         command,
         cwd,
@@ -515,8 +516,10 @@ pub(crate) mod tests {
         });
         let launch = holder_local_launch(&terminal, Vec::new(), None).unwrap();
         sink.exit(ExitStatus::Exited(0), 0);
-        let wait = launch.wait;
-        let _ = wait();
+        let LocalEnd::AtStreamEnd(stream_end) = launch.end else {
+            panic!("a holder terminal's end comes from its stream, not a wait");
+        };
+        let _ = stream_end();
         assert!(terminal.ring.lock().unwrap().is_none(), "the ended terminal kept its segment");
         terminal.keep_ring(Some(segment()));
         assert!(terminal.ring.lock().unwrap().is_none(), "an ended terminal took a segment back");

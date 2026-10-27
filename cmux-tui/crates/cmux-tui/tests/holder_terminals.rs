@@ -340,6 +340,13 @@ fn a_holder_shell_that_exits_ends_its_terminal_with_its_status() {
     let surface = created["surface"].as_u64().unwrap();
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
     daemon.track(surface);
+    // p01-process-121: the holder's EXIT ends the terminal, read by its
+    // reader after the last byte; no thread per terminal waits for it.
+    #[cfg(target_os = "linux")]
+    {
+        let waits = daemon_wait_threads(&daemon);
+        assert!(waits.is_empty(), "a holder terminal has a wait thread: {waits:?}");
+    }
     send(&daemon.socket, surface, "now");
     let deadline = Instant::now() + Duration::from_secs(20);
     let resolved = loop {
@@ -352,6 +359,20 @@ fn a_holder_shell_that_exits_ends_its_terminal_with_its_status() {
         std::thread::sleep(Duration::from_millis(50));
     };
     assert_eq!(resolved["exit"]["outcome"], json!({"kind": "exit", "code": 3}), "{resolved}");
+}
+
+/// The daemon's `surface-*-wait` threads (the census's Q7c rows), from
+/// `/proc`: thread names there are cut at 15 bytes, which keeps the suffix
+/// of every surface id this test makes.
+#[cfg(target_os = "linux")]
+fn daemon_wait_threads(daemon: &Daemon) -> Vec<String> {
+    let pid = daemon.child.as_ref().expect("the daemon runs").id();
+    fs::read_dir(format!("/proc/{pid}/task"))
+        .unwrap()
+        .filter_map(|task| fs::read_to_string(task.ok()?.path().join("comm")).ok())
+        .map(|name| name.trim().to_string())
+        .filter(|name| name.starts_with("surface-") && name.ends_with("-wait"))
+        .collect()
 }
 
 /// The `terminalHolder` feature picks the model, and the env switch it

@@ -27,9 +27,15 @@ pub(super) struct LocalReader {
     /// `None` for a holder or byte-backend terminal.
     #[cfg(unix)]
     fd: Option<RawFd>,
+    /// The far side's end when the stream carries it (`LocalEnd::AtStreamEnd`,
+    /// a holder terminal): taken once the parser reached the stream's end.
+    stream_end: Option<StreamEnd>,
     /// Dropped last, after the end is published (or on a panic).
     _completion: ReaderCompletionGuard,
 }
+
+/// The end a stream carries after its last byte (`LocalEnd::AtStreamEnd`).
+type StreamEnd = Box<dyn FnOnce() -> TerminalEnd + Send>;
 
 /// What one read did.
 enum Step {
@@ -46,6 +52,7 @@ impl LocalReader {
         surface: Arc<Surface>,
         output: Arc<Mutex<LocalOutput>>,
         reader: Box<dyn Read + Send>,
+        stream_end: Option<StreamEnd>,
     ) -> Self {
         let pty = surface.as_pty().expect("a local reader reads a PTY surface");
         let completion = ReaderCompletionGuard(pty.reader_completion.clone());
@@ -61,6 +68,7 @@ impl LocalReader {
             publisher,
             #[cfg(unix)]
             fd,
+            stream_end,
             _completion: completion,
         }
     }
@@ -149,8 +157,10 @@ impl LocalReader {
     }
 
     /// The stream ended: release the parser's descriptor, publish the final
-    /// frame and, once the far side ended too, the exit.
-    fn end(self) {
+    /// frame and, once the far side ended too, the exit. A stream that
+    /// carries its end records it here, after the parser took every byte
+    /// before it, so the final output is on screen before the exit shows.
+    fn end(mut self) {
         #[cfg(unix)]
         {
             let mut output = self.output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -160,6 +170,9 @@ impl LocalReader {
         }
         if let Some(pty) = self.surface.as_pty() {
             pty.publish_final_frame();
+            if let Some(stream_end) = self.stream_end.take() {
+                *pty.exit.lock().unwrap() = Some(stream_end());
+            }
             pty.local_pty_drained.store(true, Ordering::Release);
         }
         publish_local_exit_if_ready(&self.surface);

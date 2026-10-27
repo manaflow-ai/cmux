@@ -332,7 +332,7 @@ impl Surface {
             reader,
             writer,
             killer,
-            wait: Box::new(move || TerminalEnd::ProcessEnded(child.wait_for_exit())),
+            end: LocalEnd::Wait(Box::new(move || TerminalEnd::ProcessEnded(child.wait_for_exit()))),
             pid,
             command: argv,
             cwd,

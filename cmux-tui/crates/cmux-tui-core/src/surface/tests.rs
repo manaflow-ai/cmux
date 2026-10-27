@@ -13,6 +13,8 @@ mod cold_scrollback;
 mod colors;
 #[cfg(unix)]
 mod echo_flow;
+#[cfg(unix)]
+mod holder_exit;
 mod hosted;
 mod input;
 mod lifecycle;

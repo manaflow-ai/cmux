@@ -274,7 +274,7 @@ impl HolderSink {
     }
 
     /// The terminal ended or no holder streams it any more (set before
-    /// [`Self::wait_end`] returns).
+    /// the reader reads the stream's end).
     pub(crate) fn has_ended(&self) -> bool {
         let state = self.state.lock().recover_poison();
         state.exit.is_some() || state.lost
@@ -401,13 +401,13 @@ impl HolderSink {
         }
     }
 
-    /// The holder is gone for good: the reader drains and the wait ends lost.
+    /// The holder is gone for good: the reader drains and the stream ends lost.
     pub(crate) fn lose(&self) {
         self.state.lock().recover_poison().lost = true;
         self.changed.notify_all();
     }
 
-    /// End the reader and the wait without an end of the terminal: the
+    /// End the reader without an end of the terminal: the
     /// daemon exits and the holder keeps the shell.
     pub(crate) fn detach(&self) {
         self.state.lock().recover_poison().detached = true;
@@ -453,12 +453,12 @@ impl HolderSink {
         (n, unnumbered.min(n))
     }
 
-    /// Block until the terminal ended, was lost or the daemon detached.
-    pub(crate) fn wait_end(&self) -> SinkEnd {
-        let mut state = self.state.lock().recover_poison();
-        while state.exit.is_none() && !state.detached && !state.lost {
-            state = self.changed.wait(state).recover_poison();
-        }
+    /// How the stream ended, once the reader read its end: a read returned
+    /// 0 after the parser took every byte before the EXIT (holder EXIT
+    /// frames follow the terminal's last DATA). Never blocks; a stream that
+    /// ended with no EXIT and no detach was lost.
+    pub(crate) fn stream_end(&self) -> SinkEnd {
+        let state = self.state.lock().recover_poison();
         match (state.detached, state.exit) {
             (true, _) => SinkEnd::Detached,
             (false, Some(status)) => SinkEnd::Exited(status),
@@ -570,8 +570,16 @@ impl TerminalSink for HolderSink {
         }
     }
 
-    fn exit(&self, status: ExitStatus, _end: u64) {
-        self.state.lock().recover_poison().exit = Some(status);
+    /// The holder sends EXIT after the terminal's last byte, so the reader
+    /// reads the end only after the parser took everything up to `end`.
+    fn exit(&self, status: ExitStatus, end: u64) {
+        let mut state = self.state.lock().recover_poison();
+        if end > state.received {
+            // Never silently: bytes before the end did not come.
+            eprintln!("cmux-tui: holder terminal lost output {}..{end}", state.received);
+        }
+        state.exit = Some(status);
+        drop(state);
         self.changed.notify_all();
     }
 }
@@ -650,7 +658,34 @@ mod tests {
         assert_eq!(out, b"abcde");
         assert_eq!(sink.received(), 15);
         assert_eq!(sink.confirmed(), 15);
-        assert_eq!(sink.wait_end(), SinkEnd::Exited(ExitStatus::Exited(0)));
+        assert_eq!(sink.stream_end(), SinkEnd::Exited(ExitStatus::Exited(0)));
+    }
+
+    /// p01-process-121: the reader reads a holder terminal's end only after
+    /// the parser took every byte before its EXIT, however the EXIT and the
+    /// last bytes interleave with the reads, so its exit is never ahead of
+    /// its final output.
+    #[test]
+    fn the_end_is_read_only_after_every_byte_before_the_exit() {
+        let sink = HolderSink::new(0);
+        sink.data(0, b"final ");
+        let mut reader = SinkReader(sink.clone());
+        let mut buf = [0u8; 4];
+        assert_eq!(reader.read(&mut buf).unwrap(), 4);
+        sink.data(6, b"output");
+        sink.exit(ExitStatus::Exited(3), 12);
+        let mut out = buf.to_vec();
+        loop {
+            let n = reader.read(&mut buf).unwrap();
+            if n == 0 {
+                break;
+            }
+            assert!(sink.confirmed() < 12, "the end came before the last byte was parsed");
+            out.extend_from_slice(&buf[..n]);
+        }
+        assert_eq!(out, b"final output");
+        assert_eq!(sink.confirmed(), 12, "the end is read with every byte confirmed");
+        assert_eq!(sink.stream_end(), SinkEnd::Exited(ExitStatus::Exited(3)));
     }
 
     #[test]
@@ -663,7 +698,7 @@ mod tests {
         SinkReader(sink.clone()).read_to_end(&mut out).unwrap();
         assert_eq!(out, b"seed:shell");
         assert_eq!(sink.received(), 5);
-        assert_eq!(sink.wait_end(), SinkEnd::Lost);
+        assert_eq!(sink.stream_end(), SinkEnd::Lost);
     }
 
     #[test]
@@ -811,7 +846,7 @@ mod tests {
         sink.detach();
         let mut buf = [0u8; 8];
         assert_eq!(SinkReader(sink.clone()).read(&mut buf).unwrap(), 0);
-        assert_eq!(sink.wait_end(), SinkEnd::Detached);
+        assert_eq!(sink.stream_end(), SinkEnd::Detached);
     }
 
     /// A reopened terminal's seed (and a prologue) is not the shell's
