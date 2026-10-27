@@ -12,7 +12,7 @@ const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
-  location: { protocol: "cmux-agent:", pathname: "/index.html", search: "" },
+  location: new URL("cmux-agent://pane/index.html"),
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
   Element: dom.window.Element,
@@ -92,5 +92,48 @@ test("malformed handlers and encoded javascript URLs never receive automatic scr
     act(() => root!.render(<ArtifactPanel artifact={{ kind: "html", lang: "html", code }} onClose={() => {}} />));
     expect(button("Run")).toBeDefined();
     expect(host.querySelector("iframe")).toBeNull();
+  }
+});
+
+test("the shared page host previews passive HTML and SVG and grants scripts only after Run", async () => {
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const previous = scope.location;
+  scope.location = new URL("cmux-page://cmux.agent/");
+  try {
+    for (const kind of ["html", "svg"] as const) {
+      act(() =>
+        root!.render(
+          <ArtifactPanel
+            artifact={{ kind, lang: kind, code: kind === "html" ? "<p>shared</p>" : "<svg/>" }}
+            onClose={() => {}}
+          />,
+        ),
+      );
+      expect(host.querySelector("iframe")?.getAttribute("sandbox")).toBe("");
+    }
+    act(() =>
+      root!.render(
+        <ArtifactPanel
+          artifact={{ kind: "html", lang: "html", code: '<button onclick="this.textContent++">10</button>' }}
+          onClose={() => {}}
+        />,
+      ),
+    );
+    expect(host.querySelector("iframe")).toBeNull();
+    act(() => button("Run")!.click());
+    expect(host.querySelector("iframe")?.getAttribute("src")).toBe("cmux-page://cmux.agent/__artifact");
+    expect(host.querySelector("iframe")?.getAttribute("sandbox")).toBe("allow-scripts");
+    act(() =>
+      root!.render(
+        <ArtifactPanel
+          artifact={{ kind: "html", lang: "jsx", code: "<button>shared JSX</button>" }}
+          onClose={() => {}}
+        />,
+      ),
+    );
+    expect(button("Run")).toBeDefined();
+    expect(host.querySelector("iframe")).toBeNull();
+  } finally {
+    scope.location = previous;
   }
 });
