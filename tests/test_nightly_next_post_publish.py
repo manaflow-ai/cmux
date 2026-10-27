@@ -10,10 +10,11 @@ publication writes the feed; it must not become a dependency of
 import re
 import sys
 from pathlib import Path
+from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
-TEXT = WORKFLOW.read_text(encoding="utf-8")
+TEXT = nightly_text()
 
 
 def job(name: str) -> str:

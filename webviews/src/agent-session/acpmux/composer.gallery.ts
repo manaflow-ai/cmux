@@ -892,7 +892,7 @@ export default agentPaneEntry({
         for (const name of ["notes.md", "build-logs.zip", "repro.mov"]) {
           const chip = chips.find((entry) => entry.name === name);
           if (!chip) throw new Error(`no saved chip names ${name}`);
-          if (chip.note !== "Sent as file path") throw new Error(`${name}'s chip must say it goes as its file path`);
+          if (chip.note) throw new Error(`${name}'s chip must not expose delivery mechanics`);
           if (!chip.path.endsWith(`/${name}`) || !chip.path.includes("/Chat Uploads/"))
             throw new Error(`${name}'s chip must link the copy the host saved, not ${chip.path}`);
         }

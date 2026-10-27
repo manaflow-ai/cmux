@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 699,
-    "mcp": 617
+    "verbs": 701,
+    "mcp": 619
   },
   "nouns": [
     {
@@ -3112,6 +3112,12 @@
           "mcp": true
         },
         {
+          "command": "cmux space clear-defaults",
+          "title": "Clear Space Terminal Defaults…",
+          "id": "space.clearDefaults",
+          "mcp": true
+        },
+        {
           "command": "cmux space clear-icon",
           "title": "Remove Space Icon",
           "id": "space.clearIcon",
@@ -3984,6 +3990,12 @@
           "command": "cmux workspace mute-unmute",
           "title": "Mute/Unmute Workspace Tabs",
           "id": "workspace.toggleAudioMute",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace name-from-activity",
+          "title": "Name from Activity",
+          "id": "workspace.nameFromActivity",
           "mcp": true
         },
         {
