@@ -18,8 +18,10 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -39,6 +41,18 @@ def load():
 
 
 phase = load()
+SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+@contextlib.contextmanager
+def checkout(head=SHA, status=""):
+    """This checkout as linux_problem sees it: HEAD and `git status --porcelain`."""
+    saved = phase.checkout_state
+    phase.checkout_state = lambda: (head, status)
+    try:
+        yield
+    finally:
+        phase.checkout_state = saved
 
 
 def report(saver=False, reason=None, simulated=False, on_battery=False, percent=None, feature=True, setting="auto",
@@ -175,7 +189,6 @@ class ReplyTests(unittest.TestCase):
             call(phase.SIMULATE, phase.CLEAR)
 
 
-SHA = "0123456789abcdef0123456789abcdef01234567"
 APP = "/fleet/cmux DEV energy-p.app"
 
 
@@ -196,9 +209,10 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("# idle-budget (D2, D3, D4, D5, D6, D7, D11, D12, D13, D14, D15, D16, D17): skipped, needs --app", text)
 
     def test_dry_run_with_a_bundle_prints_every_step(self):
-        code, text = dry_run("--app", APP, "--debug-app", "/fleet/Debug/cmux DEV energy-p.app",
-                             "--chrome-app", "/Apps/Chromium.app", "--chrome-ublock", "/cache/ublock",
-                             "--linux-testbox", "tbx_energy")
+        with checkout():
+            code, text = dry_run("--app", APP, "--debug-app", "/fleet/Debug/cmux DEV energy-p.app",
+                                 "--chrome-app", "/Apps/Chromium.app", "--chrome-ublock", "/cache/ublock",
+                                 "--linux-testbox", "tbx_energy")
         self.assertEqual(code, 0)
         self.assertNotIn("skipped", text)
         self.assertIn("python3 -I scripts/cmux-next/wakeup-audit.py --strict\n", text)
@@ -228,7 +242,7 @@ class CommandLineTests(unittest.TestCase):
     def test_checks_select_their_steps(self):
         _, text = dry_run("--app", APP, "--checks", "D9,D1")
         self.assertEqual([line.split(":")[0] for line in text.splitlines() if line.startswith("# ")],
-                         ["# audit (D1)", "# rust-idle (D9)", "# rust-idle-linux (D9)"])
+                         ["# audit (D1)", "# rust-idle-linux (D9)", "# rust-idle (D9)"])
 
     def test_the_real_display_is_named_and_static_checks_bring_up_none(self):
         _, text = dry_run("--app", APP, "--checks", "D8", "--vdisplay", "0")
@@ -244,32 +258,54 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("--sessions stress-static --settle 60 --measure 60 --gate", text)
 
     def test_d9_prints_a_linux_testbox_command_not_a_workflow(self):
-        code, text = dry_run("--checks", "D9", "--linux-testbox", "tbx_energy")
+        with checkout():
+            code, text = dry_run("--checks", "D9", "--linux-testbox", "tbx_energy")
         self.assertEqual(code, 0)
-        linux = text.split("# rust-idle-linux (D9)\n", 1)[1].splitlines()
+        linux = text.split("# rust-idle-linux (D9)\n", 1)[1].split("\n# ", 1)[0].splitlines()
         pin = phase.TESTBOX_PIN.format(ref=SHA)
+        box = [phase.BOUNDED, "{}", "blacksmith", "testbox", "run", "--id", "tbx_energy"]
         self.assertEqual(linux, [
-            shlex.join(["blacksmith", "testbox", "run", "--id", "tbx_energy", pin]),
-            shlex.join(["blacksmith", "testbox", "run", "--id", "tbx_energy", phase.D9_LINUX_SCRIPT])])
+            shlex.join([*box[:1], "300", *box[2:], pin]),
+            shlex.join([*box[:1], str(phase.TESTBOX_RUN_TIMEOUT_S), *box[2:], phase.d9_linux_script(SHA)])])
         self.assertTrue(pin.startswith(f"set -euo pipefail; git fetch --no-tags origin {SHA}; git reset --hard {SHA};"))
         self.assertTrue(pin.endswith("bash scripts/ci/init-submodule.sh ghostty-next; git rev-parse HEAD"))
         self.assertNotIn(".github", text)
         self.assertNotIn("gh workflow", text)
 
+    def test_the_linux_run_comes_before_the_measuring_steps(self):
+        with checkout():
+            _, text = dry_run("--app", APP, "--linux-testbox", "tbx_energy")
+        steps = [line.split(" ")[1] for line in text.splitlines() if re.match(r"# \S+ \(D", line)]
+        self.assertEqual(steps[:3], ["audit", "rust-idle-linux", "idle-budget"])
+
+    def test_a_testbox_needs_this_checkout_clean_at_the_ref(self):
+        # A Testbox run copies this checkout's files over the box's pinned one: anything else is measured as --ref.
+        for head, status, why in ((SHA[::-1], "", f"this checkout is at {SHA[::-1][:12]}, not --ref {SHA[:12]}"),
+                                  (SHA, " M schemas/deeplinks/agent-link.json\n", "this checkout has changes or untracked files"),
+                                  (SHA, "?? skills/cmux-browser/new.md\n", "this checkout has changes or untracked files"),
+                                  (SHA, None, "this checkout has changes or untracked files")):
+            with self.subTest(status=status), checkout(head, status):
+                _, text = dry_run("--checks", "D9", "--linux-testbox", "tbx_energy")
+                self.assertIn(f"# rust-idle-linux (D9): skipped, --linux-testbox: {why}", text)
+
     def test_without_a_linux_host_the_linux_step_is_skipped_but_printed(self):
         _, text = dry_run("--checks", "D9")
         self.assertIn("# rust-idle-linux (D9): skipped, needs --linux-testbox TBX", text)
-        self.assertIn("blacksmith testbox run --id TBX 'umask 022; cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui", text)
+        self.assertIn("blacksmith testbox run --id TBX 'umask 022; if [ \"$(git rev-parse HEAD)\" != " + SHA, text)
 
-    def test_linux_local_runs_cargo_only_on_a_linux_checkout_at_the_ref(self):
+    def test_linux_local_runs_cargo_only_on_a_linux_checkout_clean_at_the_ref(self):
         saved = phase.IS_LINUX
         try:
             phase.IS_LINUX = False
             _, text = dry_run("--checks", "D9", "--linux-local")
             self.assertIn("# rust-idle-linux (D9): skipped, --linux-local runs cargo on this host, which is not Linux", text)
-            self.assertIn("bash -c 'umask 022; cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui --test idle_wakeups --no-run", text)
+            self.assertIn("bash -c 'umask 022; if [", text)
             phase.IS_LINUX = True
-            self.assertIn(f"not --ref {SHA[:12]}", phase.linux_local_problem(SHA))  # this checkout is not at SHA
+            with checkout(SHA[::-1]):
+                self.assertIn(f"not --ref {SHA[:12]}", phase.linux_problem(SHA, "--linux-local"))
+            # The crates include files from schemas/ and skills/: a change anywhere in the checkout counts.
+            with checkout(SHA, " M schemas/deeplinks/agent-link.json\n"):
+                self.assertIn("has changes or untracked files", phase.linux_problem(SHA, "--linux-local"))
         finally:
             phase.IS_LINUX = saved
 
@@ -342,11 +378,15 @@ cmux-ci: step 0123456789abcdef succeeded on aws-m4pro-3
 NEXTEST_RED = NEXTEST_OK.replace("        PASS [  32.120s] (2/10) cmux-tui::idle_wakeups",
                                  "        FAIL [  32.120s] (2/10) cmux-tui::idle_wakeups")
 LIBTEST_OK = (REPO / "scripts" / "cmux-next" / "tests" / "fixtures" / "energy-test-phase-linux-d9.log").read_text()
+TUI_DONE = "energy-test-phase: test idle_wakeups exit 0\n"
+LIBTEST_TUI = LIBTEST_OK.split(TUI_DONE)[0] + TUI_DONE  # the run up to idle_wakeups' end
 LIBTEST_RED = LIBTEST_OK.replace("test cmux_next_daemon_idle_holder_mode ... ok",
-                                 "test cmux_next_daemon_idle_holder_mode ... FAILED")
-LIBTEST_BROKEN = """   Compiling acpmux v0.1.0 (/home/runner/cmux/cmux-tui/crates/acpmux)
+                                 "test cmux_next_daemon_idle_holder_mode ... FAILED").replace(
+    TUI_DONE, "energy-test-phase: test idle_wakeups exit 101\n")
+LIBTEST_BROKEN = LIBTEST_TUI + """   Compiling acpmux v1.0.0 (/home/runner/cmux/cmux-tui/crates/acpmux)
 error[E0425]: cannot find value `clock` in this scope
 error: could not compile `acpmux` (test "daemon_idle") due to 1 previous error
+energy-test-phase: build daemon_idle exit 101
 """
 SUITES = ("Swift suite results (Packages/macOS/CmuxNext):\n"
           "suite                                            result                time\n"
@@ -552,31 +592,58 @@ class OtherJudgeTests(unittest.TestCase):
         self.assertEqual(phase.judge_d9_linux([0, 101], None, LIBTEST_BROKEN)["problems"],
                          ["Linux: error[E0425]: cannot find value `clock` in this scope",
                           "Linux: error: could not compile `acpmux` (test \"daemon_idle\") due to 1 previous error"])
-        only_tui = LIBTEST_OK.split("Running tests/daemon_idle.rs")[0]
-        self.assertEqual(phase.judge_d9_linux([0, 0], None, only_tui)["missing"], ["Linux: no passing daemon_idle test"])
+        self.assertEqual(phase.judge_d9_linux([0, 0], None, LIBTEST_TUI)["missing"],
+                         ["Linux: daemon_idle did not run to its end (no exit recorded): see rust-idle-linux.log"])
         ignored = re.sub(r"(?m)^(test acpmux_\S+ \.\.\.) ok$", r"\1 ignored", LIBTEST_OK)
         self.assertEqual(phase.judge_d9_linux([0, 0], None, ignored)["missing"], ["Linux: no passing daemon_idle test"])
 
     def test_d9_on_linux_is_not_judged_when_the_box_never_ran_the_commit(self):
         self.assertEqual(phase.judge_d9_linux([], None, None)["status"], "not judged")
-        pin = phase.judge_d9_linux([128], "command 1 exited 128: the 1 after it did not run", "fatal: not our ref")
-        self.assertEqual(pin["missing"], ["Linux: the Testbox was not pinned to the commit (exit 128; is it pushed?): rerun"])
+        stopped = "command 1 exited {}: the 1 after it did not run"
+        for code, text, why in (
+                (128, "fatal: remote error: upload-pack: not our ref 0123", "cannot fetch the commit (not our ref): push it"),
+                (1, "error: testbox tbx_energy not found", "the Testbox is gone (Blacksmith reclaims a box after 15 idle"),
+                (143, "", f"did not finish in {phase.TESTBOX_PIN_TIMEOUT_S} s (exit 143)"),
+                (2, "Permission denied (publickey)", "was not pinned to the commit (exit 2): see rust-idle-linux.log")):
+            with self.subTest(text=text):
+                pin = phase.judge_d9_linux([code], stopped.format(code), text)
+                self.assertEqual(pin["status"], "not judged")
+                self.assertIn(why, pin["missing"][0])
+        # A box that went away, a lost session or any `error:` that is not rustc's is the host's: not judged.
         gone = phase.judge_d9_linux([0, 1], None, "error: testbox tbx_energy not found")
-        self.assertEqual(gone["status"], "fail")  # an error line with no test result: red, never a pass
+        self.assertEqual(gone["status"], "not judged")
+        self.assertIn("Linux: the Testbox went away during the run: warm a new one and rerun", gone["missing"])
         lost = phase.judge_d9_linux([0, 255], None, "Connection closed by remote host")
-        self.assertEqual(lost["missing"], ["Linux: no test result (exit 255): see rust-idle-linux.log"])
+        self.assertEqual(lost["missing"], [f"Linux: {binary} did not run to its end (no exit recorded): see "
+                                           "rust-idle-linux.log" for binary in phase.D9_BINARIES])
+        infra = LIBTEST_TUI + ("error: failed to run custom build command for `ghostty-vt-sys`\n"
+                               "error: toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed\n"
+                               "energy-test-phase: build daemon_idle exit 101\n")
+        self.assertEqual(phase.judge_d9_linux([0, 101], None, infra)["missing"],
+                         ["Linux: building daemon_idle exited 101 with no compiler error: see rust-idle-linux.log"])
+        late = phase.judge_d9_linux([0, 124], None, LIBTEST_TUI)
+        self.assertIn(f"Linux: the run did not finish in {phase.TESTBOX_RUN_TIMEOUT_S} s (exit 124)", late["missing"])
+        moved = phase.judge_d9_linux([0, 65], None, f"energy-test-phase: not at {SHA}\n")
+        self.assertEqual(moved["missing"], [f"Linux: the checkout that ran is not exactly {SHA[:12]} (local files "
+                                            "copied over it?): rerun from a clean checkout at --ref"])
 
     def test_d9_on_linux_names_the_tests_that_hung_past_the_bound(self):
-        hung = LIBTEST_OK.split("test cmux_next_daemon_idle_twenty_terminals ... ok")[0] + (
-            "test cmux_next_daemon_idle_holder_mode has been running for over 60 seconds\n"
-            "test cmux_next_daemon_idle_idle_verdict_x ... ok\n")
+        hung = LIBTEST_OK.replace("test cmux_next_daemon_idle_holder_mode ... ok",
+                                  "test cmux_next_daemon_idle_holder_mode has been running for over 60 seconds").replace(
+            TUI_DONE, "energy-test-phase: test idle_wakeups exit 124\n")
         result = phase.judge_d9_linux([124], None, hung)
         self.assertEqual(result["problems"], [f"Linux: hung past {phase.D9_LINUX_TIMEOUT_S} s: idle_wakeups "
                                               "cmux_next_daemon_idle_holder_mode"])
-        self.assertEqual(phase.judge_d9_linux([137], None, "")["problems"],
-                         [f"Linux: a test binary hung past {phase.D9_LINUX_TIMEOUT_S} s (exit 137)"])
-        self.assertIn(f"timeout -k 30 {phase.D9_LINUX_TIMEOUT_S} cargo test --locked -p acpmux --test daemon_idle;",
-                      phase.D9_LINUX_SCRIPT)
+        killed = LIBTEST_OK.replace(LIBTEST_TUI, "energy-test-phase: test idle_wakeups exit 137\n")
+        self.assertEqual(phase.judge_d9_linux([137], None, killed)["problems"],
+                         [f"Linux: idle_wakeups hung past {phase.D9_LINUX_TIMEOUT_S} s (exit 137)"])
+        slow = LIBTEST_OK.replace(LIBTEST_TUI, "energy-test-phase: build idle_wakeups exit 124\n")
+        self.assertEqual(phase.judge_d9_linux([124], None, slow)["missing"],  # a slow build is not a hung test
+                         [f"Linux: building idle_wakeups did not finish in {phase.D9_LINUX_BUILD_TIMEOUT_S} s (exit 124)"])
+        script = phase.d9_linux_script(SHA)
+        self.assertIn(f"timeout -k 30 {phase.D9_LINUX_BUILD_TIMEOUT_S} cargo test --locked -p acpmux --test daemon_idle "
+                      "--no-run;", script)
+        self.assertIn(f"timeout -k 30 {phase.D9_LINUX_TIMEOUT_S} cargo test --locked -p acpmux --test daemon_idle;", script)
 
     def test_d10_every_suite_passes(self):
         self.assertEqual(phase.judge_d10(0, SUITES)["status"], "pass")
@@ -585,6 +652,67 @@ class OtherJudgeTests(unittest.TestCase):
         short = "\n".join(line for line in SUITES.splitlines() if not line.startswith("BatteryLevelTests"))
         self.assertEqual(phase.judge_d10(0, short)["missing"], ["BatteryLevelTests: no result"])
         self.assertEqual(phase.judge_d10(2, "")["status"], "not judged")
+
+
+FAKE_CARGO = r"""#!/usr/bin/env bash
+binary="${@: -1}"; [ "$binary" = --no-run ] && { binary="${@: -2:1}"; build=1; }
+if [ -n "${build:-}" ]; then
+  case " $FAKE_BROKEN " in *" $binary "*) echo 'error[E0425]: cannot find value `clock` in this scope'
+    echo "error: could not compile \`x\` (test \"$binary\") due to 1 previous error"; exit 101;; esac
+  exit 0
+fi
+echo "     Running tests/$binary.rs (target/debug/deps/$binary-0)"
+echo "test ${binary}_is_idle ... ok"
+"""
+
+
+@unittest.skipUnless(shutil.which("timeout") and shutil.which("git"), "needs GNU timeout and git")
+class LinuxScriptTests(unittest.TestCase):
+    """d9_linux_script run by bash in a scratch checkout, with a stand-in cargo: its marks are what the judge reads."""
+
+    def run_script(self, edit=None, broken=""):
+        with tempfile.TemporaryDirectory() as work:
+            repo, bin_dir = Path(work, "repo"), Path(work, "bin")
+            (repo / "cmux-tui").mkdir(parents=True)
+            (repo / "cmux-tui" / "Cargo.toml").write_text("[workspace]\n")
+            bin_dir.mkdir()
+            (bin_dir / "cargo").write_text(FAKE_CARGO)
+            (bin_dir / "cargo").chmod(0o755)
+
+            def git(*args):
+                return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True,
+                                      text=True).stdout.strip()
+
+            git("init", "-q")
+            git("add", "-A")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+            ref = git("rev-parse", "HEAD")
+            if edit:
+                (repo / edit).write_text("changed\n")
+            done = subprocess.run(["bash", "-c", phase.d9_linux_script(ref)], cwd=repo, capture_output=True, text=True,
+                                  env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_BROKEN": broken})
+            return done.returncode, done.stdout + done.stderr, ref
+
+    def test_both_binaries_run_and_pass(self):
+        code, text, _ = self.run_script()
+        self.assertEqual(code, 0, text)
+        self.assertEqual(phase.judge_d9_linux([0, code], None, text)["status"], "pass", text)
+
+    def test_a_compile_error_fails_and_the_other_binary_still_runs(self):
+        code, text, _ = self.run_script(broken="idle_wakeups")
+        self.assertEqual(code, 101, text)
+        self.assertIn("energy-test-phase: test daemon_idle exit 0", text)
+        result = phase.judge_d9_linux([0, code], None, text)
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("Linux: error[E0425]: cannot find value `clock` in this scope", result["problems"])
+
+    def test_a_checkout_that_is_not_the_ref_runs_no_test(self):
+        code, text, ref = self.run_script(edit="cmux-tui/Cargo.toml")
+        self.assertEqual(code, 65, text)
+        self.assertNotIn("Running tests/", text)
+        self.assertEqual(phase.judge_d9_linux([0, code], None, text)["missing"],
+                         [f"Linux: the checkout that ran is not exactly {ref[:12]} (local files copied over it?): "
+                          "rerun from a clean checkout at --ref"])
 
 
 SIGNED_ALL = idle_report(sessions=phase.SIGNED_IN_SESSIONS)
@@ -748,7 +876,7 @@ class RunTests(unittest.TestCase):
             self.assertEqual(report["checks"]["D9"]["missing"], ["macOS: cmux-ci: queue timeout (exit 75): rerun"])
 
     def test_a_testbox_run_pins_the_box_then_runs_both_tests(self):
-        with tempfile.TemporaryDirectory() as out:
+        with tempfile.TemporaryDirectory() as out, checkout():
             calls = []
 
             def testbox(argv, cwd, stdout, stderr):
@@ -759,11 +887,27 @@ class RunTests(unittest.TestCase):
 
             code, report = self.run_main(out, "--checks", "D9", "--linux-testbox", "tbx_energy", runner=testbox)
             self.assertEqual(code, 1)
-            linux = [argv for argv in calls if argv[0] == "blacksmith"]
-            self.assertEqual([argv[:5] for argv in linux], [["blacksmith", "testbox", "run", "--id", "tbx_energy"]] * 2)
-            self.assertIn(f"git reset --hard {SHA}", linux[0][5])
+            linux = [argv for argv in calls if argv[0] == phase.BOUNDED]
+            box = ["blacksmith", "testbox", "run", "--id", "tbx_energy"]
+            self.assertEqual([argv[:7] for argv in linux], [[phase.BOUNDED, "300", *box],
+                                                            [phase.BOUNDED, str(phase.TESTBOX_RUN_TIMEOUT_S), *box]])
+            self.assertIn(f"git reset --hard {SHA}", linux[0][7])
+            self.assertIn(f'if [ "$(git rev-parse HEAD)" != {SHA} ] || ! git diff --quiet {SHA}; then', linux[1][7])
             self.assertEqual(report["steps"]["rust-idle-linux"]["exits"], [0, 101])
             self.assertIn("Linux: FAILED idle_wakeups cmux_next_daemon_idle_holder_mode", report["checks"]["D9"]["problems"])
+
+    def test_a_testbox_run_from_another_commit_never_reaches_the_box(self):
+        with tempfile.TemporaryDirectory() as out, checkout(SHA[::-1]):
+            calls = []
+
+            def runner(argv, cwd, stdout, stderr):
+                calls.append(argv)
+                return subprocess.CompletedProcess(argv, 0)
+
+            _, report = self.run_main(out, "--checks", "D9", "--linux-testbox", "tbx_energy", runner=runner)
+            self.assertFalse([argv for argv in calls if "blacksmith" in argv])
+            self.assertIn(f"not --ref {SHA[:12]}", report["steps"]["rust-idle-linux"]["skipped"])
+            self.assertEqual(report["checks"]["D9"]["status"], "not judged")
 
     def test_a_step_that_started_on_a_busy_host_says_so(self):
         with tempfile.TemporaryDirectory() as out:

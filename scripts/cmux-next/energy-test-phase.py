@@ -22,8 +22,10 @@ commit (`--app`, for example `split-spring.sh --config=bench --build-only`'s), a
   D9          the Rust idle tests (idle_wakeups, daemon_idle) on a macOS fleet step (cmux-ci run), and on Linux
               (`cargo test -p cmux-tui --test idle_wakeups`, `-p acpmux --test daemon_idle`): on a Blacksmith Testbox
               you warmed (`--linux-testbox tbx_...`, pinned to --ref first; scripts/blacksmith-testbox-demo.sh shows the
-              warmup), or with --linux-local on this host when it is a Linux box at --ref. The fleet has no Linux class.
-              No CI job runs either
+              warmup), or with --linux-local on this host when it is a Linux box. Either way this checkout must be
+              exactly --ref with no change or untracked file (a Testbox run copies it onto the box). It runs right
+              after D1, before the measuring steps: a warmed box is reclaimed after 15 idle minutes. The fleet has no
+              Linux class. No CI job runs either
   D10         the Swift suites of D10 on a fleet step (cmux-ci run, package-test-lane.sh suite)
 
 The measuring steps run on a --vdisplay (120) Hz virtual display as the main display, the helper split-spring.sh
@@ -134,20 +136,46 @@ D8_SPLIT_SPRING = ("split-spring pane motion (0 dropped frames at 120 Hz, saver 
                    "split-spring-terminal.py cannot set energy.saver yet")
 D9_BINARIES = ("idle_wakeups", "daemon_idle")
 # D9 on Linux: each idle test binary through plain `cargo test` (libtest output), both run even when the first fails,
-# with umask 022 as cmux-tui-rust-check.sh (acpmux refuses a home other users may write).
-# Each is built first (--no-run), so its run alone is bounded: a test that blocks forever ends the binary at
-# D9_LINUX_TIMEOUT_S (exit 124), its unfinished tests named as hung, instead of holding the step and the box.
+# with umask 022 as cmux-tui-rust-check.sh (acpmux refuses a home other users may write). Each is built first
+# (--no-run) and each part has its own time limit (timeout(1), exit 124 or its -k kill 137), so a hung build is told
+# from a hung test; a test that blocks forever ends its binary with its unfinished tests named as hung. After each
+# binary the script prints `energy-test-phase: build|test <binary> exit <code>`, the line the judge reads.
 D9_LINUX_TESTS = (("cmux-tui", "idle_wakeups"), ("acpmux", "daemon_idle"))
-D9_LINUX_TIMEOUT_S = 600
+D9_LINUX_TIMEOUT_S = 600  # one test binary's run
+D9_LINUX_BUILD_TIMEOUT_S = 1800  # one binary's --no-run build: a cold box builds libghostty-vt and the workspace
 TIMEOUT_EXITS = (124, 137)  # timeout(1): the time limit, or its -k kill after it
-D9_LINUX_SCRIPT = "umask 022; cd cmux-tui && rc=0; " + " ".join(
-    f"{{ cargo test --locked -p {crate} --test {binary} --no-run && timeout -k 30 {D9_LINUX_TIMEOUT_S} "
-    f"cargo test --locked -p {crate} --test {binary}; }} || rc=$?;" for crate, binary in D9_LINUX_TESTS) + " exit $rc"
+D9_MARK = "energy-test-phase:"
+
+
+def d9_linux_script(ref):
+    """The Linux D9 run, from the repository root: refuses (not judged) a checkout that is not exactly `ref`, since
+    a Testbox run copies the local files over the box's checkout first; then both binaries, each bounded."""
+    quoted = shlex.quote(ref)
+    at_ref = (f'if [ "$(git rev-parse HEAD)" != {quoted} ] || ! git diff --quiet {quoted}; then '
+              f'echo "{D9_MARK} not at {ref}"; exit 65; fi;')
+    binaries = " ".join(
+        f"if timeout -k 30 {D9_LINUX_BUILD_TIMEOUT_S} cargo test --locked -p {crate} --test {binary} --no-run; then "
+        f"timeout -k 30 {D9_LINUX_TIMEOUT_S} cargo test --locked -p {crate} --test {binary}; t=$?; "
+        f'echo "{D9_MARK} test {binary} exit $t"; else t=$?; echo "{D9_MARK} build {binary} exit $t"; fi; '
+        f'[ "$t" = 0 ] || rc=$t;' for crate, binary in D9_LINUX_TESTS)
+    return f"umask 022; {at_ref} cd cmux-tui || exit 66; rc=0; {binaries} exit $rc"
+
+
 # Pins a Testbox (an exact checkout of main once warmed) to the measured commit, as blacksmith-testbox-demo.sh does:
 # only ghostty-next, the submodule cmux-tui builds from, stays initialized.
 TESTBOX_PIN = ("set -euo pipefail; git fetch --no-tags origin {ref}; git reset --hard {ref}; git submodule foreach "
                "--quiet 'printf \"%s\\n\" \"$sm_path\"' | xargs -r git submodule deinit --force --; "
                "bash scripts/ci/init-submodule.sh ghostty-next; git rev-parse HEAD")
+# Every Testbox command is bounded on this host (blacksmith-testbox-demo.sh's `bounded`): a hung SSH session or a box
+# that went away never holds the run. The run's bound covers both binaries' builds and tests and the file copy.
+BOUNDED = "scripts/blacksmith-bounded-command.sh"
+TESTBOX_PIN_TIMEOUT_S = 300
+TESTBOX_RUN_TIMEOUT_S = len(D9_LINUX_TESTS) * (D9_LINUX_BUILD_TIMEOUT_S + D9_LINUX_TIMEOUT_S + 60) + 300
+BOUNDED_TIMEOUT_EXITS = (*TIMEOUT_EXITS, 143)  # GNU timeout, or the bounded script's own SIGTERM (macOS)
+# A box Blacksmith reclaimed (15 minutes idle, blacksmith-testbox-keepalive.sh) or that was stopped
+# (blacksmith-testbox-cleanup.sh's patterns).
+TESTBOX_GONE_RE = re.compile(r"testbox\b.*\b(?:not found|already (?:stopped|completed))|hydration_failed|"
+                             r"(?:HTTP|status code) 40[49]\b", re.I)
 TESTBOX_ID_RE = re.compile(r"tbx_[A-Za-z0-9_-]+")
 FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 IS_LINUX = sys.platform.startswith("linux")
@@ -347,6 +375,8 @@ def plan(opts, checks=tuple(CHECKS)):
             if opts.app else []), *d7_auto_commands(tag_of(app) or opts.tag or "TAG"))
     return [
         Step("audit", ("D1",), ((py, "-I", "scripts/cmux-next/wakeup-audit.py", "--strict"),), quiet=False),
+        # Before the measuring steps: a warmed Testbox is reclaimed after 15 idle minutes, and they take far longer.
+        linux_step(opts),
         Step("idle-budget", ("D2", "D3", "D4", "D5", "D6", "D7", "D11", "D12", "D13", "D14", "D15", "D16", "D17"),
              idle("idle-budget", app, idle_sessions(checks), True), skip=no_app, ok_exits=(0, 1), display=True),
         Step("idle-budget-signed-in", ("D11", "D13", "D15"),
@@ -368,7 +398,6 @@ def plan(opts, checks=tuple(CHECKS)):
         Step("d7-auto", ("D7",), (), quiet=False, skip="" if opts.app or opts.tag else "needs --app or --tag", text=d7),
         Step("rust-idle", ("D9",), (fleet("d9", "isolated", "scripts/ci/cmux-tui-rust-check.sh", "test", "daemon_idle"),),
              quiet=False),
-        linux_step(opts),
         Step("swift-suites", ("D10",), (fleet("d10", "light", "scripts/ci/package-test-lane.sh", "suite",
                                               "Packages/macOS/CmuxNext", ",".join(D10_SUITES)),), quiet=False),
     ]
@@ -377,32 +406,40 @@ def plan(opts, checks=tuple(CHECKS)):
 def linux_step(opts):
     """D9 on Linux: the two idle test binaries on the --linux-testbox box after pinning it to --ref, or here with
     --linux-local. Skipped (its commands still printed) without either, or when this host cannot run it."""
+    script = d9_linux_script(opts.ref)
     if opts.linux_local:
-        return Step("rust-idle-linux", ("D9",), (("bash", "-c", D9_LINUX_SCRIPT),), quiet=False,
-                    skip=opts.linux_local_skip)
+        return Step("rust-idle-linux", ("D9",), (("bash", "-c", script),), quiet=False, skip=opts.linux_skip)
     box = opts.linux_testbox or "TBX"
-    run = lambda script: ("blacksmith", "testbox", "run", "--id", box, script)  # noqa: E731
-    skip = "" if opts.linux_testbox else ("needs --linux-testbox TBX (a Blacksmith Testbox you warmed, "
-                                          "scripts/blacksmith-testbox-demo.sh) or --linux-local on a Linux host")
-    return Step("rust-idle-linux", ("D9",), (run(TESTBOX_PIN.format(ref=opts.ref)), run(D9_LINUX_SCRIPT)),
-                quiet=False, skip=skip)
+    run = lambda seconds, command: (BOUNDED, str(seconds), "blacksmith", "testbox", "run", "--id", box, command)  # noqa: E731
+    skip = opts.linux_skip if opts.linux_testbox else (
+        "needs --linux-testbox TBX (a Blacksmith Testbox you warmed, scripts/blacksmith-testbox-demo.sh) or "
+        "--linux-local on a Linux host")
+    return Step("rust-idle-linux", ("D9",), (run(TESTBOX_PIN_TIMEOUT_S, TESTBOX_PIN.format(ref=opts.ref)),
+                                             run(TESTBOX_RUN_TIMEOUT_S, script)), quiet=False, skip=skip)
 
 
-def linux_local_problem(ref):
-    """Why --linux-local cannot measure `ref` on this host ("" when it can): cargo runs in this checkout, so it must be
-    a Linux host (a developer Mac never runs cargo) at exactly `ref`, with no change under cmux-tui/ and ghostty-next
-    (the submodule it builds libghostty-vt from) checked out at its gitlink."""
-    if not IS_LINUX:
-        return "--linux-local runs cargo on this host, which is not Linux (use --linux-testbox)"
-    head = head_sha()
-    if head != ref:
-        return f"--linux-local: this checkout is at {head[:12]}, not --ref {ref[:12]}"
-    if not (REPO / "ghostty-next" / "build.zig.zon").is_file():
-        return "--linux-local: ghostty-next is not checked out (bash scripts/ci/init-submodule.sh ghostty-next)"
-    status = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain", "--", "cmux-tui", "ghostty-next"],
+def checkout_state():
+    """(HEAD, `git status --porcelain` of the whole checkout, or None when git failed)."""
+    status = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain", "--untracked-files=normal"],
                             capture_output=True, text=True, check=False)
-    if status.returncode != 0 or status.stdout.strip():
-        return "--linux-local: cmux-tui/ or ghostty-next differ from --ref (commit, or measure a clean checkout)"
+    return head_sha(), status.stdout if status.returncode == 0 else None
+
+
+def linux_problem(ref, flag):
+    """Why `flag` cannot measure `ref` from this checkout ("" when it can). --linux-local runs cargo in it; a Testbox
+    run copies its files over the box's pinned checkout first. Either way it must be exactly `ref`: HEAD at `ref` and
+    nothing changed or untracked anywhere (the crates include files from schemas/ and skills/), as
+    blacksmith-testbox-demo.sh requires. --linux-local also needs a Linux host (a developer Mac never runs cargo)
+    with ghostty-next, the submodule cmux-tui builds libghostty-vt from, checked out."""
+    if flag == "--linux-local" and not IS_LINUX:
+        return "--linux-local runs cargo on this host, which is not Linux (use --linux-testbox)"
+    head, status = checkout_state()
+    if head != ref:
+        return f"{flag}: this checkout is at {head[:12]}, not --ref {ref[:12]}"
+    if status is None or status.strip():
+        return f"{flag}: this checkout has changes or untracked files (commit, or use a clean checkout at --ref)"
+    if flag == "--linux-local" and not (REPO / "ghostty-next" / "build.zig.zon").is_file():
+        return "--linux-local: ghostty-next is not checked out (bash scripts/ci/init-submodule.sh ghostty-next)"
     return ""
 
 
@@ -779,7 +816,11 @@ def judge_d9(code, text):
 LIBTEST_BINARY_RE = re.compile(r"^\s*Running (?:\S*/)?tests/(\w+)\.rs\b", re.M)
 LIBTEST_RESULT_RE = re.compile(r"^test (\S+) \.\.\. (ok|FAILED|ignored)\b", re.M)
 LIBTEST_SLOW_RE = re.compile(r"^test (\S+) has been running for over \d+ seconds$", re.M)
-COMPILE_ERROR_RE = re.compile(r"^error(?:\[E\d+\])?: .*$", re.M)
+# rustc's diagnostics and cargo's verdict on them; any other `error:` (the Blacksmith CLI, the network, rustup) is
+# the host's, not the commit's.
+RUSTC_ERROR_RE = re.compile(r"^error(?:\[E\d+\]: .*|: could not compile .*)$", re.M)
+D9_MARK_RE = re.compile(rf"^{D9_MARK} (build|test) (\w+) exit (\d+)$", re.M)
+D9_NOT_AT_REF_RE = re.compile(rf"^{D9_MARK} not at (\S+)$", re.M)
 
 
 def libtest_results(text):
@@ -795,33 +836,77 @@ def libtest_results(text):
     return results
 
 
+def d9_linux_runs(text):
+    """{binary: (build|test, exit, its output)} of d9_linux_script's output: each binary's part ends at its mark."""
+    runs, start = {}, 0
+    for mark in D9_MARK_RE.finditer(text):
+        runs[mark.group(2)] = (mark.group(1), int(mark.group(3)), text[start:mark.start()])
+        start = mark.end()
+    return runs
+
+
+def testbox_unpinned(code, text):
+    """Why the Testbox pin failed: the box is gone, it timed out, the commit is not on origin, or something else."""
+    if TESTBOX_GONE_RE.search(text):
+        return ("Linux: the Testbox is gone (Blacksmith reclaims a box after 15 idle minutes, or it was stopped): "
+                "warm a new one and rerun")
+    if code in BOUNDED_TIMEOUT_EXITS:
+        return f"Linux: pinning the Testbox to the commit did not finish in {TESTBOX_PIN_TIMEOUT_S} s (exit {code}): rerun"
+    if "not our ref" in text:
+        return "Linux: the Testbox cannot fetch the commit (not our ref): push it and rerun"
+    return f"Linux: the Testbox was not pinned to the commit (exit {code}): see rust-idle-linux.log"
+
+
+def judge_linux_binary(binary, run):
+    """(problems, missing, notes) of one idle binary's part of the run (d9_linux_runs), or of no part at all."""
+    if run is None:
+        return [], [f"Linux: {binary} did not run to its end (no exit recorded): see rust-idle-linux.log"], []
+    kind, code, text = run
+    if kind == "build":
+        if code in TIMEOUT_EXITS:
+            return [], [f"Linux: building {binary} did not finish in {D9_LINUX_BUILD_TIMEOUT_S} s (exit {code})"], []
+        errors = RUSTC_ERROR_RE.findall(text)
+        if errors:
+            return [f"Linux: {error}" for error in errors[:3]], [], []
+        return [], [f"Linux: building {binary} exited {code} with no compiler error: see rust-idle-linux.log"], []
+    rows = libtest_results(text).get(binary, [])
+    failed = [f"Linux: FAILED {binary} {test}" for test, status in rows if status == "FAILED"]
+    ignored = [f"Linux: ignored {binary} {test}" for test, status in rows if status == "ignored"]
+    if code in TIMEOUT_EXITS:
+        failed += [f"Linux: hung past {D9_LINUX_TIMEOUT_S} s: {binary} {test}" for test, status in rows
+                   if status == "running"]
+        failed = failed or [f"Linux: {binary} hung past {D9_LINUX_TIMEOUT_S} s (exit {code})"]
+    if failed:
+        return failed, [], ignored
+    if code != 0:
+        return [], [f"Linux: {binary} exited {code} with no failed test: see rust-idle-linux.log"], ignored
+    if not any(status == "ok" for _, status in rows):
+        return [], [f"Linux: no passing {binary} test"], ignored
+    return [], [], ignored
+
+
 def judge_d9_linux(exits, stopped, text):
-    """D9 on Linux from the rust-idle-linux step (`cargo test`, libtest output): every test of both idle binaries
-    passes. A Testbox that could not be pinned to the commit, or a run where no test started and nothing failed to
-    compile (a box that went away), is not judged."""
+    """D9 on Linux from the rust-idle-linux step (`cargo test`, libtest output, d9_linux_script's marks): every test
+    of both idle binaries passes. A failed test, a hung test or a compiler error fails it; a Testbox that could not be
+    pinned or went away, a checkout not at the commit, a timed-out build or a run that ended early is not judged."""
     if not exits:
         return verdict(missing=["Linux: the Rust idle tests did not run (--linux-testbox TBX or --linux-local)"])
+    text = text or ""
     if stopped:
-        return verdict(missing=[f"Linux: the Testbox was not pinned to the commit (exit {exits[0]}; is it pushed?): rerun"])
-    results = libtest_results(text or "")
-    failed = [f"Linux: FAILED {binary} {test}" for binary, rows in results.items() for test, status in rows
-              if status == "FAILED"]
-    ignored = [f"Linux: ignored {binary} {test}" for binary, rows in results.items() for test, status in rows
-               if status == "ignored"]
-    absent = [binary for binary in D9_BINARIES if not any(status == "ok" for _, status in results.get(binary, ()))]
-    code = exits[-1]
-    if code in TIMEOUT_EXITS:
-        failed += [f"Linux: hung past {D9_LINUX_TIMEOUT_S} s: {binary} {test}" for binary, rows in results.items()
-                   for test, status in rows if status == "running"]
-        failed = failed or [f"Linux: a test binary hung past {D9_LINUX_TIMEOUT_S} s (exit {code})"]
-    if failed:
-        return verdict(failed, notes=ignored)
-    if code != 0:
-        errors = COMPILE_ERROR_RE.findall(text or "")
-        if errors:
-            return verdict([f"Linux: {error}" for error in errors[:3]])
-        return verdict(missing=[f"Linux: no test result (exit {code}): see rust-idle-linux.log"])
-    return verdict(missing=[f"Linux: no passing {binary} test" for binary in absent], notes=ignored)
+        return verdict(missing=[testbox_unpinned(exits[0], text)])
+    not_at = D9_NOT_AT_REF_RE.search(text)
+    if not_at:
+        return verdict(missing=[f"Linux: the checkout that ran is not exactly {not_at.group(1)[:12]} (local files "
+                                "copied over it?): rerun from a clean checkout at --ref"])
+    runs = d9_linux_runs(text)
+    parts = [judge_linux_binary(binary, runs.get(binary)) for binary in D9_BINARIES]
+    problems, missing, notes = ([item for part in parts for item in part[index]] for index in range(3))
+    if len(runs) < len(D9_BINARIES):
+        if TESTBOX_GONE_RE.search(text):
+            missing.append("Linux: the Testbox went away during the run: warm a new one and rerun")
+        elif exits[-1] in BOUNDED_TIMEOUT_EXITS:
+            missing.append(f"Linux: the run did not finish in {TESTBOX_RUN_TIMEOUT_S} s (exit {exits[-1]})")
+    return verdict(problems, missing, notes)
 
 
 def judge_d10(code, text):
@@ -1002,7 +1087,8 @@ def main(argv=None, runner=subprocess.run, start_display=start_vdisplay):
     parser.add_argument("--cmux-ci", default="cmux-ci")
     linux = parser.add_mutually_exclusive_group()
     linux.add_argument("--linux-testbox", metavar="TBX",
-                       help="D9 on Linux: a Blacksmith Testbox you warmed (tbx_...), pinned to --ref, never stopped here")
+                       help="D9 on Linux: a Blacksmith Testbox you warmed (tbx_...), pinned to --ref, never stopped here; this "
+                            "checkout must be clean at --ref")
     linux.add_argument("--linux-local", action="store_true",
                        help="D9 on Linux: run cargo on this host (a Linux box at --ref, never a Mac)")
     parser.add_argument("--max-load", type=float, default=4)
@@ -1021,7 +1107,8 @@ def main(argv=None, runner=subprocess.run, start_display=start_vdisplay):
         parser.error(f"--linux-testbox must be a Testbox id (tbx_...), not {opts.linux_testbox!r}")
     if opts.linux_testbox and not FULL_SHA_RE.fullmatch(opts.ref):
         parser.error(f"--linux-testbox pins the box to --ref, which must be a full 40-character sha, not {opts.ref!r}")
-    opts.linux_local_skip = linux_local_problem(opts.ref) if opts.linux_local else ""
+    flag = "--linux-local" if opts.linux_local else "--linux-testbox" if opts.linux_testbox else None
+    opts.linux_skip = linux_problem(opts.ref, flag) if flag else ""
     opts.out = opts.out or str(REPO / "artifacts" / "energy-test-phase" / opts.ref[:12])
     steps = [step for step in plan(opts, checks) if set(step.checks) & set(checks)]
     if opts.dry_run:
