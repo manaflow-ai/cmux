@@ -12,19 +12,17 @@ import Observation
 
 extension SidebarBridge {
     func observeCards() {
-        cardsObservation?.cancel()
         cards?.cancel()
         priority?.cancel()
         topItems?.cancel()
         let requests = services.cache.pageRequests
-        let nowPlaying = model.followNowPlaying(services.nowPlayingSources, dismissal: requests.nowPlayingCard, settings: { [weak services] in services?.settings }, registry: services.registry,
-                                                 queries: services.workspaceQueries)
+        nowPlayingFeed = model.followNowPlaying(services.nowPlayingSources, dismissal: requests.nowPlayingCard, settings: { [weak services] in services?.settings }, registry: services.registry,
+                                                 queries: services.workspaceQueries, on: services.mainWork)
         // The Priority view (`sidebar.priorityView.*`) ends with the cards.
         priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
         cards = SidebarCardFeed.start(model: model, updater: services.updater, registry: services.registry, asks: services.machineAsks, on: services.mainWork)
         // A window's sidebar also follows its top items (`SidebarModel.followTopItems`).
         topItems = state == nil ? nil : model.followTopItems(on: services.mainWork)
-        cardsObservation = nowPlaying
     }
 }
 

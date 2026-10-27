@@ -32,8 +32,8 @@ final class SidebarBridge {
     private var appSections: SidebarAppSections?
     /// The bottom-left cards (SidebarBridge+Cards).
     var cards: ServiceObservation<SidebarCardFeed.Cards>?
-    /// The Now Playing card.
-    var cardsObservation: Task<Void, Never>?
+    /// The Now Playing card's feed (`SidebarModel.followNowPlaying`); released, it stops.
+    var nowPlayingFeed: AnyObject?
     /// The Priority view (`SidebarPriorityFeed`).
     var priority: ServiceObservation<SidebarPriorityPanel?>?
     /// The window's top items (`SidebarModel.followTopItems`); nil for a window with no saved state.
@@ -138,7 +138,7 @@ final class SidebarBridge {
         widthObservation?.cancel()
         sectionsObservation?.cancel()
         appSections?.releaseAll()
-        cardsObservation?.cancel()
+        nowPlayingFeed = nil
         cards?.cancel()
         priority?.cancel()
         topItems?.cancel()

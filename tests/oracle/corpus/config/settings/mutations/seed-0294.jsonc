@@ -1,0 +1,16 @@
+{
+	"browser": {
+		"toolbarPosition": "top"
+	},
+	// a { brace
+"home": {
+		// a { brace
+"channelsEnabled": null
+	},
+	// a { brace
+"oracleUnknown": {
+		"nested": {
+			"key": "x"
+		}
+	}
+}
