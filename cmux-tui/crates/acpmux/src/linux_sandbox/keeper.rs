@@ -891,12 +891,16 @@ mod tests {
     #[test]
     fn handoff_refuses_a_listener_from_the_keeper_network_namespace() {
         let (fd, port) = listener("127.0.0.1");
-        assert!(validate_handoff_for_test(&payload(port, None), vec![fd], port, None).is_err());
+        let notify: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
+        let error =
+            validate_handoff_with_notify(&payload(port, None), vec![fd, notify], port, None)
+                .expect_err("a host listener must fail the namespace proof");
+        assert!(error.contains("handoff listener is in the keeper network namespace"), "{error}");
     }
     #[test]
     fn handoff_without_notify_fd_is_refused() {
         let (fd, port) = listener("127.0.0.1");
-        // Bypass namespace proof only: this isolates the missing-notify failure.
+        // Missing notify is rejected before listener validation.
         assert!(validate_handoff_with_notify(&payload(port, None), vec![fd], port, None).is_err());
     }
 
