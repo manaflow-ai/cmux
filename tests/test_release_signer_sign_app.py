@@ -461,7 +461,8 @@ class HelperFirstTest(SignAppTest):
                 self.assertEqual(self.calls("signer", "sign"), [])
 
     def test_no_child_process_sees_the_notary_key(self) -> None:
-        self.run_script(p8="exported-by-the-caller")
+        result = self.run_script(p8="exported-by-the-caller", SHELLOPTS="allexport:braceexpand:hashall:interactive-comments:xtrace")
+        self.assertNotIn(self.env["ASC_API_KEY_P8_BASE64"], result.stdout + result.stderr)
         self.assertEqual({c["notary_key_env"] for c in self.calls("signer")}, {False})
         shims = [c for c in self.calls() if c["tool"] != "signer"]
         self.assertTrue(shims)

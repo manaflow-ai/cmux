@@ -48,7 +48,9 @@
 # time stamp and signature, which differ between any two runs), and so in the
 # hashes of signed files sealed as plain files (Contents/Resources/bin).
 set -euo pipefail
-# The notary key (helper-first) stays in this shell only: no child inherits it.
+# The notary key (helper-first) stays in this shell only: no child inherits it,
+# and no trace prints it (an inherited SHELLOPTS can turn on allexport or xtrace).
+set +a +x
 unset p8; declare +x p8="${ASC_API_KEY_P8_BASE64:-}"; unset ASC_API_KEY_P8_BASE64
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
