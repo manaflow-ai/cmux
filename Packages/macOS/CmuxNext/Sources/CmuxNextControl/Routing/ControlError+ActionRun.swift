@@ -36,8 +36,10 @@ extension ControlError {
     /// code; anything else is a `daemon_error`.
     static func actionWork(_ failure: ActionWorkFailure, action: String, method: String) -> ControlError {
         if let code = failure.code {
-            return ControlError(code: code, message: failure.message,
-                                data: ["action": .string(action), "reason": .string(failure.message)])
+            var data: [String: JSONValue] = failure.details.mapValues { .string($0) }
+            data["action"] = .string(action)
+            data["reason"] = .string(failure.message)
+            return ControlError(code: code, message: failure.message, data: .object(data))
         }
         if let refusal = failure.refusal {
             let outcome: ControlActionOutcome = switch refusal {

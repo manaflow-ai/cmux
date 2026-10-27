@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextDaemon
 import Foundation
 import Observation
 @testable import CmuxNextSidebar
@@ -134,18 +135,46 @@ import Testing
         #expect(told.count(.faviconsChanged) == 1, "a released observation was told")
     }
 
-    /// The App's favicon follow tells the store's observers on each favicon revision.
+    /// The App's favicon follow tells the store's observers on each favicon revision. It is a ServiceObservation
+    /// (p06-scheduler-339, R-obs): the first pass tells in the caller's turn, a revision in the follow's visible task.
     @Test func aFaviconRevisionTellsTheStoresObservers() async {
         let store = SidebarDocStore(remote: nil, mirror: nil)
         let revision = Revision()
+        let rig = MainDeadlineRig()
         let (events, observation) = Self.events(of: store)
         defer { observation.cancel() }
-        let follow = SidebarDocMachines.followFavicons(store, revision: { revision.value }, byOrigin: { [:] }, faviconKey: { _ in nil })
-        defer { follow.cancel() }
+        let follow = SidebarDocMachines.followFavicons(store, revision: { revision.value }, byOrigin: { [:] },
+                                                       faviconKey: { _ in nil }, on: rig.work)
+        defer { withExtendedLifetime(follow) {} }
         var iterator = events.makeAsyncIterator()
         #expect(await iterator.next() == .faviconsChanged, "the follow's first pass told nothing")
         revision.value += 1
+        rig.frame()
         #expect(await iterator.next() == .faviconsChanged, "a new favicon revision told nothing")
+    }
+
+    /// How often the bands follow showed its layout.
+    @MainActor final class ShownCount { var value = 0 }
+
+    /// p06-scheduler-339 fixer (rule 9, side effects while hidden): the document's bands follow is a
+    /// ServiceObservation with no visibility node, so it follows the daemon while no window shows a sidebar: a new
+    /// live workspace redraws the bands in one visible task after the change.
+    @Test func theBandsFollowRunsWithNoWindow() {
+        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let daemon = DaemonStore(), shown = ShownCount()
+        let rig = MainDeadlineRig()
+        let machines = SidebarDocMachines(stores: { [daemon] }, machine: { _ in daemon })
+        let follows = machines.follow(store, connected: { false }, serves: { false }, connectedRemotes: { [] },
+                                      shown: { _ in shown.value += 1 }, on: rig.work)
+        defer { withExtendedLifetime(follows) {} }
+        #expect(shown.value == 1, "the bands follow's first pass showed nothing")
+
+        daemon.apply(snapshot: DaemonTree(workspaceRevision: 1, workspaces: [
+            WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "w1"), name: "w1", screens: []),
+        ]))
+        #expect(shown.value == 1, "the bands redrew inside the change")
+        rig.frame()
+        #expect(shown.value == 2, "a new live workspace did not redraw the bands with no window")
     }
 
     @Test func aListFollowsTheStoreItIsGiven() {

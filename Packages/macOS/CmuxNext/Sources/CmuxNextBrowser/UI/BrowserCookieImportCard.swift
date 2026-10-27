@@ -152,7 +152,14 @@ final class CookieCardLinkButton: NSButton {
     var textFont: NSFont = BrowserMetrics.captionFont { didSet { applyTitle() } }
     private var text = ""
     private var isHovering = false { didSet { applyTitle() } }
-    private var tracking: NSTrackingArea?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func configure(title: String, target: AnyObject, action: Selector) {
         translatesAutoresizingMaskIntoConstraints = false
@@ -163,14 +170,6 @@ final class CookieCardLinkButton: NSButton {
         self.action = action
         setAccessibilityLabel(title)
         applyTitle()
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) { isHovering = true }

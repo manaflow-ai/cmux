@@ -63,6 +63,7 @@ final class AppBrowserHost {
         relay.renderWindows = tabs.renderWindows
         let driver = WebKitDriver(provider: tabs, mainWork: services.mainWork)
         driver.cookieBackups = Self.cookieBackups(bundleID: services.environment.launch.bundleID)
+        driver.cookieBackupLanes = services.work
         let credentials = AppProviderCredentials(daemon: services.daemon)
         self.credentials = credentials
         self.tabs = tabs

@@ -41,6 +41,8 @@ final class CEFHostStart {
     /// (`CEFRuntime.showHostChoosers(_:context:)`); nil otherwise. Kept for the runtime's life: the remote
     /// shim keeps cmux's handlers across hosts.
     var choosers: ChromiumHostChoosers?
+    /// Pages' pointer and keyboard locks in cmux (feature `chromiumHostLocks`, ``CEFHostLocks``; task 229); nil leaves them to Chromium.
+    var locks: CEFHostLocks?
     /// Page file choosers answered by cmux's pickers (feature `chromiumHostFileDialogs`,
     /// `CEFRuntime.fileDialogAsked`); nil leaves Chromium's own panel.
     let files: ChromiumHostFiles?
@@ -59,6 +61,8 @@ final class CEFHostStart {
     private(set) var acksWheels = false
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
+    /// The pages of a crashed host that come back on the next one (task 083, ``CEFRuntime/restorePagesOnNextHost(_:reading:)``).
+    let pageRestores = CEFHostPageRestores()
     /// The host Chromium ran on ended and its pages do not show it yet: `CEFRuntime.hostWireEnded` sets it,
     /// `CEFRuntime.hostEnded(_:)` takes it with the exit they show; the next attach clears it.
     var pagesAwaitEnd = false
@@ -181,6 +185,8 @@ final class CEFHostStart {
         do {
             // SAFETY: `remote.symbol` is dlsym on the remote dylib, never closed, whose ABI identity `make` checked.
             let shim = try unsafe CEFShimLibrary.resolving(remote.symbol, hostExports: hostExports)
+            // The fork API is a mirror read: it returns in this turn and names the host in its crash record.
+            (supervisor as? any ChromiumHostExitReporting)?.hostRuns(forkAPI: shim.forkAPIVersion())
             let locale = CEFLocale.resolve(preferredLanguages: Locale.preferredLanguages,
                                            available: CEFLocale.available(lprojNames: attachment.frameworkLocales))
             return .success(CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",
@@ -259,6 +265,15 @@ nonisolated enum CEFRuntimeBoot: Sendable {
         case .inProcess(let library):
             (library.layout.frameworkDirectory.path, library.layout.mainBundle.path, library.layout.helperExecutable.path)
         case .host: ("", "", "")
+        }
+    }
+
+    /// `cmux_shim_initialize`'s log file: `storage`'s `cef.log` in process. The host writes the log its spawn names
+    /// (`--log-file`, `cmux_host::HostLogFile`), whose end its supervisor keeps when it crashes, so host mode sends none.
+    func chromiumLogFile(_ storage: CEFProfileStorage) -> String {
+        switch self {
+        case .inProcess: storage.logFile.path
+        case .host: ""
         }
     }
 }

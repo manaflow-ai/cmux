@@ -37,10 +37,25 @@ public struct RustPanicSource: Sendable, Equatable {
     /// The acpmux daemon (`$ACPMUX_HOME/panics.jsonl`).
     public static let acpmux = RustPanicSource(process: "acpmux", fingerprintPrefix: "acpmux-panic",
                                                crashSource: "acpmux_panic_log", label: "acpmux daemon panic")
-    /// A terminal host (`cmux-tui-host`).
+    /// A terminal host (`cmux-tui-host`). Its own panic log is `terminal-host-panics-<pid>.jsonl`; its owner also
+    /// appends the host's `.crash` sidecar to the owner's log as one line with `"source": "cmux-tui-host"` before
+    /// it deletes the sidecar (cmux-tui-core `host_crash.rs`), and that line is labeled as this source.
     public static let terminalHost = RustPanicSource(process: "cmux-tui-host", fingerprintPrefix: "terminal-host-panic",
                                                      crashSource: "terminal_host_panic_log", label: "cmux-tui-host panic")
-    /// The PTY holder (`cmux-holder`), which outlives the daemon and the app.
+    /// The `source` field of a terminal host's line in the owner's log.
+    public static let terminalHostLineSource = "cmux-tui-host"
+
+    /// The source that labels one line of the log this source reads: a terminal host's line in the
+    /// owner's log is labeled as the host's, every other line as this source's.
+    /// - Parameter lineSource: The line's `source` field, if it has one.
+    /// - Returns: ``terminalHost`` for a host line in the owner's log, otherwise this source.
+    public func labeling(lineSource: String?) -> RustPanicSource {
+        self == .owner && lineSource == Self.terminalHostLineSource ? .terminalHost : self
+    }
+
+    /// The PTY holder (`cmux-holder`), which outlives the daemon and the app. Its panics go to
+    /// `holder-panics.jsonl` beside its socket, written by cmux-panic-log's std-only writer; its lines carry
+    /// `holder_pid`, `holder_socket` and `holder_wire`.
     public static let holder = RustPanicSource(process: "cmux-holder", fingerprintPrefix: "holder-panic",
                                                crashSource: "holder_panic_log", label: "cmux-holder panic")
     /// An acpmux agent host.
@@ -89,5 +104,13 @@ public struct RustPanicSource: Sendable, Equatable {
     /// - Returns: `<acpmuxHome>/panics.jsonl`.
     public static func acpmuxLog(acpmuxHome: URL) -> URL {
         acpmuxHome.appending(path: "panics.jsonl")
+    }
+
+    /// The holders' panic log: in the daemon's private holder socket directory
+    /// (cmux-tui-core `holder_runtime/service.rs`, `/tmp/cmux-hd-<uid>`), which every holder of the user shares.
+    /// - Parameter userID: The user the holders run as (`getuid()`).
+    /// - Returns: `/tmp/cmux-hd-<userID>/holder-panics.jsonl`.
+    public static func holderLog(userID: UInt32) -> URL {
+        URL(filePath: "/tmp/cmux-hd-\(userID)", directoryHint: .isDirectory).appending(path: "holder-panics.jsonl")
     }
 }

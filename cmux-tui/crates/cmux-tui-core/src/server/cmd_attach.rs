@@ -233,6 +233,14 @@ pub(super) fn attach_surface(
         }
     };
     let surface = get_surface(mux, surface_id)?;
+    // A framed attach on stream S opens S: its queued INPUT and requests go
+    // to this surface once the attach succeeds (server/pending_streams.rs).
+    if let Some(stream) = writer.frame_call().and_then(|call| call.opens()) {
+        anyhow::ensure!(
+            stream.target(surface_id),
+            "stream_ended: the stream ended before it opened"
+        );
+    }
     anyhow::ensure!(
         !mux.is_frontend_browser_surface(&surface),
         "surface {surface_id} is a frontend-rendered browser and has no daemon stream"
@@ -375,7 +383,9 @@ fn attach_view(
             let mux = worker_mux;
             let lifecycle = worker_lifecycle;
             let outbound_stream = worker_stream;
-            if waits::recv(&worker_committed).is_err() {
+            // The writer's first item is the attach's go: until the attach
+            // commits it is idle and holds no one's work (p02-threads 308).
+            if waits::idle_recv(&worker_committed).is_err() {
                 return;
             }
             let mut state = RenderClientState::new(writer.render_service.clone(), &attach.initial);
@@ -513,7 +523,9 @@ fn attach_view(
             let mux = worker_mux;
             let lifecycle = worker_lifecycle;
             let outbound_stream = worker_stream;
-            if waits::recv(&worker_committed).is_err() {
+            // The writer's first item is the attach's go: until the attach
+            // commits it is idle and holds no one's work (p02-threads 308).
+            if waits::idle_recv(&worker_committed).is_err() {
                 return;
             }
             let hangs = mux.echo_watch();
@@ -659,7 +671,9 @@ fn attach_view(
         let writer = worker_writer;
         let mux = worker_mux;
         let outbound_stream = worker_stream;
-        if waits::recv(&worker_committed).is_err() {
+        // The writer's first item is the attach's go: until the attach
+        // commits it is idle and holds no one's work (p02-threads 308).
+        if waits::idle_recv(&worker_committed).is_err() {
             return;
         }
         let hangs = mux.echo_watch();
