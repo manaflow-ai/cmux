@@ -4716,9 +4716,15 @@ export class AcpmuxDirectClient {
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
   private creating?: Promise<string | undefined>;
   async ensureSession(): Promise<string | undefined> {
-    // A failed start leaves the selection as it was; the prompt then goes where the pane is.
-    if (this.creating) await this.creating.catch(() => undefined);
-    if (!this.selectedSessionId) await this.create();
+    // This send belongs to the requested chat. A refused or empty start must not send it to
+    // the previous chat, or start the default harness instead of the one the person picked.
+    if (this.creating || !this.selectedSessionId) {
+      const sessionId = await (this.creating ?? this.create());
+      // The app also calls this before send(): an empty result must stop that preflight,
+      // otherwise send() would ensure again after the failed creation has been cleared.
+      if (!sessionId) throw new Error(translate("error.notOpen"));
+      return sessionId;
+    }
     return this.selectedSessionId;
   }
 
