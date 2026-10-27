@@ -70,20 +70,26 @@ pub(crate) fn is_upload(path: &Path) -> bool {
         && !path.components().any(|c| matches!(c, std::path::Component::ParentDir))
 }
 
+/// Held while the sweep decides on and deletes an upload, and while a prompt marks one used and
+/// checks it is there ([`touch`]): an upload in use is never deleted between the two.
+pub(crate) static IN_USE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The marker of an upload folder's last use ([`touch`]).
+const USED: &str = ".used";
+
 /// Marks the upload folder of `file` as used now, so the age sweep keeps it for another
 /// `uploadsMaxAgeDays` from its last use, not its upload: a prompt that names it, or a turn that
-/// starts with it. Best effort. Blocking.
+/// starts with it. The caller holds [`IN_USE`] across this and its check that the file is there.
+/// Best effort. Blocking.
 pub(crate) fn touch(file: &Path) {
-    if let Some(dir) = file.parent()
-        && let Ok(folder) = std::fs::File::open(dir)
-    {
-        let _ = folder.set_modified(std::time::SystemTime::now());
+    if let Some(dir) = file.parent() {
+        let _ = crate::agent_tools::write_private(&dir.join(USED), &[]);
     }
 }
 
-/// When folder `dir` last changed or was used ([`touch`]), in Unix ms; 0 when unknown.
+/// When upload folder `dir` was last used ([`touch`]), in Unix ms; 0 when never.
 fn used_at(dir: &Path) -> u64 {
-    let modified = std::fs::symlink_metadata(dir).and_then(|m| m.modified());
+    let modified = std::fs::symlink_metadata(dir.join(USED)).and_then(|m| m.modified());
     modified
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -104,7 +110,8 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
     let mut removed = 0;
     for session in real_dirs(root) {
         for upload in real_dirs(&session.path()) {
-            // Made and last used before the cutoff (`touch`).
+            // Made and last used before the cutoff (`touch`), decided and deleted under `IN_USE`.
+            let _held = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff)
                 && used_at(&upload.path()) < cutoff;
             if old && std::fs::remove_dir_all(upload.path()).is_ok() {
@@ -612,10 +619,7 @@ mod tests {
         }
     }
 
-    /// Unix: the test sets a folder's modified time, which `File::open` of a folder cannot do on
-    /// Windows.
     #[test]
-    #[cfg(unix)]
     fn the_sweep_deletes_old_uploads_and_keeps_new_ones_and_what_it_did_not_name() {
         let root = std::env::temp_dir().join(format!("acpmux-sweep-{}", uuid::Uuid::now_v7()));
         let day = 24 * 60 * 60 * 1000;
@@ -629,13 +633,11 @@ mod tests {
         let only_old = root.join("chat-b").join(named(now - 40 * day));
         let other = root.join("chat-c").join("notes");
         let v4 = root.join("chat-c").join("0190a000-0000-4000-8000-000000000000");
-        // An old upload that a prompt used yesterday stays.
+        // An old upload that a prompt used just now stays.
         let used = root.join("chat-a").join(named(now - 35 * day));
-        let long_ago = std::time::UNIX_EPOCH + Duration::from_millis(now - 90 * day);
         for dir in [&old, &new, &only_old, &other, &v4, &used] {
             std::fs::create_dir_all(dir).unwrap();
             std::fs::write(dir.join("f.txt"), b"x").unwrap();
-            std::fs::File::open(dir).unwrap().set_modified(long_ago).unwrap();
         }
         touch(&used.join("f.txt"));
         // An old-named link, and a linked session folder: neither is followed.

@@ -119,8 +119,12 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
             std::io::ErrorKind::NotFound => missing(),
             _ => refused("upload.unreadable", format!("cannot read upload {name}: {e}")),
         };
-        let mut file = crate::hub::file_uploads::open_finished(&path).map_err(unreadable)?;
-        crate::hub::file_uploads::touch(&path);
+        let mut file = {
+            // Marked used and opened as one step against the sweep (`file_uploads::IN_USE`).
+            let _held = crate::hub::file_uploads::IN_USE.lock().unwrap_or_else(|e| e.into_inner());
+            crate::hub::file_uploads::touch(&path);
+            crate::hub::file_uploads::open_finished(&path).map_err(unreadable)?
+        };
         let len = file.metadata().map_err(unreadable)?.len();
         let mut head = Vec::with_capacity(64);
         (&mut file).take(64).read_to_end(&mut head).map_err(unreadable)?;
@@ -193,6 +197,7 @@ fn still_there(blocks: &[Value]) -> Result<(), RpcError> {
         if !crate::hub::file_uploads::is_upload(path) {
             continue;
         }
+        let _held = crate::hub::file_uploads::IN_USE.lock().unwrap_or_else(|e| e.into_inner());
         crate::hub::file_uploads::touch(path);
         if !std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
             let name = block.get("name").and_then(Value::as_str).unwrap_or("a file");
@@ -253,6 +258,21 @@ pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_resolved_link_under_web_control_is_refused() {
+        // A web client's queue edit keeps a person's resolved blocks; its turn is refused.
+        let mut blocks = vec![
+            json!({"type": "text", "text": "edited"}),
+            json!({"type": "resource_link", "uri": "file:///x/a.bin", "name": "a.bin",
+                "_meta": {"acpmux": {"uploadPath": "/x/a.bin"}}}),
+        ];
+        let refused = resolve("s", true, &mut blocks).unwrap_err();
+        assert_eq!(refused.data.unwrap()["reason"], "upload.remote");
+        // The same blocks under the person's control are resolved already: nothing to read.
+        assert!(resolve("s", false, &mut blocks).is_ok());
+        assert_eq!(blocks.len(), 2);
+    }
 
     #[test]
     fn a_remote_web_prompt_is_refused_before_any_file_is_read() {
