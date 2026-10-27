@@ -212,7 +212,7 @@ public actor CloudCodexBroker {
     private var targetWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var refreshTask: Task<Void, Never>?
     private var refreshCycle = 0
-    private var refreshInFlight: Task<CloudCodexAccessGrant, Error>?
+    private var refreshInFlight: Task<CloudCodexAccessGrant, any Error>?
 
     public init(scope: CloudCodexBrokerScope,
                 currentScope: @escaping @Sendable () async -> CloudCodexBrokerScope?,
