@@ -130,13 +130,15 @@ class FailoverTests(unittest.TestCase):
 
     def test_overrides_replace_drop_and_refuse(self) -> None:
         values, problems = switch.failover_values(PIN, json.dumps({
-            "MACOS_RUNNER_15": "macos-15", "MACOS_RUNNER_26_LARGE": "",
+            "MACOS_RUNNER_15": "glaeda-side-std-xcode-26.6", "MACOS_RUNNER_26_LARGE": "",
             "MACOS_RUNNER_26": "blacksmith-12vcpu-macos-26", "CI_CLOUD_OVERFLOW_SAVED": "x",
-            "CI_PR_POOL_OWNED": "0"}))
-        self.assertEqual(values["MACOS_RUNNER_15"], "macos-15")
+            "CI_PR_POOL_OWNED": "0", "MACOS_RUNNER_PR": "macos-15"}))
+        self.assertEqual(values["MACOS_RUNNER_15"], "glaeda-side-std-xcode-26.6")
         self.assertNotIn("MACOS_RUNNER_26_LARGE", values)
         self.assertEqual(values["MACOS_RUNNER_26"], "glaeda-std-xcode-26.6")
-        self.assertEqual(len(problems), 3)
+        # A GitHub-hosted Mac is refused like a Blacksmith label: the pool keeps its owned failover.
+        self.assertEqual(values["MACOS_RUNNER_PR"], "glaeda-std-xcode-26.6")
+        self.assertEqual(len(problems), 4)
         self.assertNotIn("CI_PR_POOL_OWNED", values)
         _, problems = switch.failover_values(PIN, "[1]")
         self.assertEqual(len(problems), 1)

@@ -58,6 +58,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool  # noqa: E402
+from runner_label_policy import HOSTED_MACOS_LABEL  # noqa: E402
 
 API = "https://api.github.com"
 UTC = dt.timezone.utc
@@ -187,6 +188,10 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                     values.pop(name, None)
                 elif cloud_label(value.strip()):
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, a Blacksmith label; "
+                                    "ignored")
+                elif HOSTED_MACOS_LABEL.search(value.strip().lower()):
+                    # No job runs on a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
+                    problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, a GitHub-hosted Mac; "
                                     "ignored")
                 else:
                     values[name] = value.strip()
