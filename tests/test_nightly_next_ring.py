@@ -256,6 +256,39 @@ class WorkflowTests(unittest.TestCase):
         # The full feeds (Dev too) only when the old feed's Nightly is current and the ring is on.
         self.assertLess(job.index('elif [ "$DEV_RING" = on ]; then\n            cp next-all.xml next.xml'), target)
 
+    def test_the_next_feed_keeps_its_newest_nightly_item_before_it_goes_live(self):
+        # 2026-10-27: the /next/ feed held only the newest build, on cmux-next-dev, so a
+        # Nightly-ring app was offered nothing for hours while no verdict was written.
+        text = nightly_text()
+        job = text[text.index("\n  publish-nightly:"):text.index("\n  publish-nightly-next-github:")]
+        keep = job.index("- name: Keep the live feed's newest Nightly item beside the new build")
+        step = job[keep:job.index("\n      - ", keep + 1)]
+        self.assertIn('"$PUBLISH_TOOLING/ci/nightly_next_ring.py" legacy --new "nightly-out/$feed" "${current[@]}"', step)
+        self.assertIn('--out "nightly-out/$feed" --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE"', step)
+        self.assertIn("DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}", step)
+        # Before the live-ring retag, which then sets each kept item's channel again.
+        self.assertLess(keep, job.index("- name: Tag the new build's items from the live Dev ring switch"))
+        # Before the feed is handed to the release job and before its guard and live write.
+        self.assertLess(keep, job.index("- name: Hand the published feed to the GitHub release job"))
+        self.assertLess(keep, job.index("- name: Upload nightly-next appcasts to R2"))
+
+    def test_a_new_dev_build_leaves_the_nightly_ring_its_newest_item(self):
+        # What the step above publishes: the new Dev build beside the live feed's Nightly item,
+        # and a verdict that later passes a build the feed moved past can still promote it.
+        live = feed(item("300", "cmux-next-dev"), item("200"))
+        out, summary = ring.legacy(feed(item("400", "cmux-next-dev")), live, "on", self.verdicts_of(b200=True))
+        self.assertEqual(offered(out, NIGHTLY_RING), ["200"])
+        self.assertEqual(offered(out, DEV_RING), ["400", "300", "200"])
+        out, _ = ring.legacy(feed(item("500", "cmux-next-dev")), out, "on", self.verdicts_of(b200=True, b300=True))
+        self.assertEqual(offered(out, NIGHTLY_RING), ["300"])
+        # Ring off: the new build alone, on Nightly, as before.
+        out, summary = ring.legacy(feed(item("400")), live, "off", self.verdicts_of())
+        self.assertEqual(summary["channels"], {"400": "cmux-next"})
+
+    @staticmethod
+    def verdicts_of(**passed):
+        return lambda build: "pass" if passed.get(f"b{build}") else None
+
     def test_the_old_feed_is_merged_from_verdicts_before_its_guard(self):
         text = nightly_text()
         job = text[text.index("\n  publish-nightly-identity-legacy:"):]

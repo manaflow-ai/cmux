@@ -5967,6 +5967,12 @@ jobs:
       # secondary rate-limit backoff (runs 40357982361, 40376320918). The GitHub release copy,
       # its aliases, metadata and tag follow in publish-nightly-next-github, which never holds
       # the feed. Same bytes, so the item's EdDSA signature is unchanged.
+      - name: Keep the live feed's newest Nightly item beside the new build
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        env:
+          DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh
+
       # The build job tagged its items from its own snapshot of the switch; the feed goes out
       # tagged from the live one (a Dev item stays Dev only while the ring is on and no pass).
       - name: Tag the new build's items from the live Dev ring switch
