@@ -17,7 +17,8 @@ import Observation
 
     /// VMs whose delivered file could not be erased (for example, paused VMs).
     /// Renewal is stopped regardless; issued access expires at the provider.
-    public private(set) var pendingCleanup: Set<String> = []
+    public var pendingCleanup: Set<String> { Set(cleanupByScope.values.flatMap { $0 }) }
+    private var cleanupByScope: [CloudCodexBrokerScope: Set<String>] = [:]
     @ObservationIgnored private let root: URL
     @ObservationIgnored private let registry: CloudCodexBrokerRegistry
     @ObservationIgnored private let currentScope: @MainActor @Sendable () -> CloudCodexBrokerScope?
@@ -28,6 +29,8 @@ import Observation
     @ObservationIgnored private var cleanupWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     @ObservationIgnored private var cleanupTimers: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var teardownTasks: [CloudCodexBrokerScope: Task<Void, Never>] = [:]
+    @ObservationIgnored private var activeScopes: Set<CloudCodexBrokerScope> = []
+    @ObservationIgnored private var scopeWaiters: [CloudCodexBrokerScope: [CheckedContinuation<Void, Never>]] = [:]
     @ObservationIgnored private var stopped = false
     @ObservationIgnored private var signingOutScope: CloudCodexBrokerScope?
     /// Policy availability is an immediate fence. The holder teardown runs
@@ -74,31 +77,36 @@ import Observation
         let broker = try await registry.broker(for: scope, currentScope: { await availability() },
             executable: resolved.executable, executablePrefix: resolved.prefix,
             codexExecutable: resolved.codex, home: home(for: scope))
+        cleanupByScope.removeValue(forKey: scope)
         try check(scope)
         scopes.insert(scope)
         let vm = target(scope, machineID)
         let id = UUID()
         let task = Task {
-            do { _ = try await broker.transfer(target: vm, confirmed: true, forceRefresh: forceRefresh) }
-            catch CloudCodexBrokerError.notAuthenticated {
-                let prompt = try await broker.login(target: vm, confirmed: true)
+            await self.lockScope(scope)
+            defer { self.unlockScope(scope) }
+            try self.check(scope)
+            do {
+                do { _ = try await broker.transfer(target: vm, confirmed: true, forceRefresh: forceRefresh) }
+                catch CloudCodexBrokerError.notAuthenticated {
+                    let prompt = try await broker.login(target: vm, confirmed: true)
+                    try self.check(scope)
+                    guard await presentDeviceCode(prompt) else { throw CloudCodexBrokerError.cancelled }
+                    try self.check(scope)
+                    _ = try await broker.waitForLoginAndTransfer(target: vm, confirmed: true)
+                }
                 try self.check(scope)
-                guard await presentDeviceCode(prompt) else { throw CloudCodexBrokerError.cancelled }
-                try self.check(scope)
-                _ = try await broker.waitForLoginAndTransfer(target: vm, confirmed: true)
+            } catch {
+                // Settle failure before the next scoped transfer can register.
+                do { try await self.revokeAfterFailure(broker, target: vm) }
+                catch { self.cleanupByScope[scope, default: []].insert(machineID) }
+                throw error
             }
         }
         runs[id] = (scope, machineID, task)
         defer { runs.removeValue(forKey: id) }
-        do {
-            try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
-            try check(scope)
-        } catch {
-            // A cancelled prompt must not leave the pre-login target registered.
-            do { try await revokeAfterFailure(broker, target: vm) }
-            catch { pendingCleanup.insert(machineID) }
-            throw error
-        }
+        try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        try check(scope)
     }
 
     /// Account/team observations call this even when the user remains signed in.
@@ -129,15 +137,15 @@ import Observation
         guard scopes.contains(scope), let broker = await registry.existing(for: scope) else { return }
         do {
             try await broker.revoke(target: target(scope, machineID))
-            pendingCleanup.remove(machineID)
-        } catch { pendingCleanup.insert(machineID); throw error }
+            cleanupByScope[scope]?.remove(machineID)
+        } catch { cleanupByScope[scope, default: []].insert(machineID); throw error }
     }
 
     /// Only a successful server deletion may discard failed file cleanup.
     public func machineWasDeleted(_ machineID: String, scope: CloudCodexBrokerScope) async {
         for run in runs.values where run.0 == scope && run.1 == machineID { run.2.cancel() }
         await registry.discardDeletedTarget(machineID, scope: scope)
-        pendingCleanup.remove(machineID)
+        cleanupByScope[scope]?.remove(machineID)
     }
 
     /// Stops all renewal/processes and tries to erase delivered files. Local
@@ -145,7 +153,9 @@ import Observation
     public func shutdown() async {
         stopped = true
         for run in runs.values { run.2.cancel() }
-        for scope in scopes.union(teardownTasks.keys) { await retire(scope) }
+        let retiring = scopes.union(teardownTasks.keys)
+        for scope in retiring { beginRetirement(scope) }
+        for scope in retiring { await teardownTasks[scope]?.value }
     }
 
     /// Ends account access before Cloud signs out, without permanently stopping
@@ -153,7 +163,9 @@ import Observation
     public func signOut() async {
         signingOutScope = currentScope()
         for run in runs.values { run.2.cancel() }
-        for scope in scopes.union(teardownTasks.keys) { await retire(scope) }
+        let retiring = scopes.union(teardownTasks.keys)
+        for scope in retiring { beginRetirement(scope) }
+        for scope in retiring { await teardownTasks[scope]?.value }
     }
 
     private func revokeAfterFailure(_ broker: CloudCodexBroker, target: CloudCodexBrokerTarget) async throws {
@@ -187,9 +199,27 @@ import Observation
         // Keep the barrier visible until teardown completes. Every concurrent
         // caller must await the same task before opening a replacement holder.
         teardownTasks[scope] = Task { [registry] in
-            pendingCleanup.formUnion(await registry.remove(scope: scope))
+            let result = await registry.remove(scope: scope)
+            cleanupByScope[scope, default: []].subtract(result.attempted.subtracting(result.failed))
+            cleanupByScope[scope, default: []].formUnion(result.failed)
             teardownTasks.removeValue(forKey: scope)
         }
+    }
+
+    private func lockScope(_ scope: CloudCodexBrokerScope) async {
+        if activeScopes.insert(scope).inserted { return }
+        await withCheckedContinuation { scopeWaiters[scope, default: []].append($0) }
+    }
+
+    private func unlockScope(_ scope: CloudCodexBrokerScope) {
+        guard var waiters = scopeWaiters[scope], !waiters.isEmpty else {
+            activeScopes.remove(scope)
+            scopeWaiters.removeValue(forKey: scope)
+            return
+        }
+        let next = waiters.removeFirst()
+        scopeWaiters[scope] = waiters
+        next.resume()
     }
 
     private func retire(_ scope: CloudCodexBrokerScope) async {
