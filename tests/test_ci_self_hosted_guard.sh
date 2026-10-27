@@ -1077,10 +1077,6 @@ check_no_github_hosted_runners() {
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"
-    # Compare-only x86_64 run-time check of the Linux-built macOS binaries
-    # (continue-on-error, so a billing block cannot stop CI).
-    "cmux-tui-artifacts.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
-    "macos-cross-parity.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
   )
   local probe
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
@@ -1918,13 +1914,9 @@ check_background_macos_lane() {
   # branch and the exact compatibility-leg exceptions below.
   local lane_expr="vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15'"
   local hosted_mac='(^|[^A-Za-z0-9_-])macos-(latest|[0-9]+)(-(intel|large|xlarge|arm64))?([^A-Za-z0-9_-]|$)'
-  # The Intel compatibility leg needs a hosted image that no paid provider
-  # offers. Exact lines only. macos-14 is retired (#17068).
-  local -a hosted_exceptions=(
-    # Compare-only x86_64 run-time check of the Linux-built Mac binaries.
-    "cmux-tui-artifacts.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
-    "macos-cross-parity.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
-  )
+  # No exceptions: the x86_64 run-time checks run under Rosetta on Blacksmith
+  # (tests/test_ci_no_github_hosted_macos.py). Exact lines only if one returns.
+  local -a hosted_exceptions=()
   local failed=0 probe
 
   # Self-test: bare or other-variable hosted labels are caught; the lane
@@ -1959,7 +1951,7 @@ check_background_macos_lane() {
     [[ "$rel" == *nightly*.yml || "$rel" == *notarization*.yml ]] && continue
     printf '%s\n' "$content" | strip_background_lane_expr | grep -Eq "$hosted_mac" || continue
     allowed=0
-    for exception in "${hosted_exceptions[@]}"; do
+    for exception in ${hosted_exceptions[@]+"${hosted_exceptions[@]}"}; do
       if [[ "$rel:$content" == "$exception" ]]; then allowed=1; break; fi
     done
     [[ "$allowed" -eq 1 ]] && continue
