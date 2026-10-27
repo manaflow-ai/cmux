@@ -450,7 +450,9 @@ impl SessionMeta {
             },
             _ => return,
         };
-        let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let real = |path: &Path| {
+            cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+        };
         let default = dirs::home_dir().map(|home| real(&home.join(default)));
         if default.is_some_and(|default| default == real(dir)) {
             env.remove(var);
@@ -725,7 +727,7 @@ impl LocalStore {
     fn has_records(&self, id: &str) -> Result<bool> {
         for (_, path) in self.segments(id)? {
             // An unreadable segment counts as a log: the session is listed as before.
-            match std::fs::symlink_metadata(&path) {
+            match cmux_blocking::fs::symlink_metadata(&path) {
                 Ok(meta) if meta.len() == 0 => {}
                 _ => return Ok(true),
             }
@@ -737,7 +739,7 @@ impl LocalStore {
 /// The segments in a log's `events` folder, by index, oldest first.
 fn segments_in(dir: &Path) -> Result<Vec<(u32, PathBuf)>> {
     let mut out = Vec::new();
-    let Ok(rd) = std::fs::read_dir(dir) else {
+    let Ok(rd) = cmux_blocking::fs::read_dir(dir) else {
         return Ok(out);
     };
     for entry in rd {
@@ -939,7 +941,7 @@ impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let mut out = Vec::new();
         let mut skipped = 0usize;
-        let Ok(rd) = std::fs::read_dir(&self.root) else {
+        let Ok(rd) = cmux_blocking::fs::read_dir(&self.root) else {
             return Ok(out);
         };
         for entry in rd {
@@ -954,7 +956,7 @@ impl Store for LocalStore {
             let session = entry.path();
             crate::config::private_state_dir(&session)?;
             let events = session.join("events");
-            match std::fs::symlink_metadata(&events) {
+            match cmux_blocking::fs::symlink_metadata(&events) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
                 Ok(_) => crate::config::private_state_dir(&events)?,
@@ -990,7 +992,7 @@ impl Store for LocalStore {
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
         let path = self.dir(id).join("session.json");
-        if !path.exists() {
+        if !cmux_blocking::fs::exists(&path).unwrap_or(false) {
             return Ok(None);
         }
         let mut text = String::new();
@@ -1185,14 +1187,14 @@ impl Store for LocalStore {
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
         for _ in 0..5 {
-            if !dir.exists() {
+            if !cmux_blocking::fs::exists(&dir).unwrap_or(false) {
                 return Ok(());
             }
-            match std::fs::remove_dir_all(&dir) {
+            match cmux_blocking::fs::remove_dir_all(&dir) {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     last = Some(e);
-                    std::thread::sleep(std::time::Duration::from_millis(40));
+                    cmux_blocking::thread::sleep(std::time::Duration::from_millis(40));
                 }
             }
         }
@@ -1225,12 +1227,19 @@ impl Store for LocalStore {
 fn open_private_append(path: &Path) -> Result<File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let file = cmux_blocking::scoped_blocking_call(
+        "fs::open_with",
+        cmux_blocking::BlockingKind::Fs,
+        || {
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(path)
+        },
+    )?;
     if file.metadata()?.permissions().mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }

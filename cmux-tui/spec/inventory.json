@@ -533,6 +533,7 @@
       "browser-activate",
       "subscribe",
       "attach-surface",
+      "cancel-stream",
       "resize-attached-view",
       "release-attached-view-size",
       "detach-attached-view",
@@ -1016,6 +1017,14 @@
       "name": "status",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "stream-end",
+      "streams": [
+        "attach-byte",
+        "attach-render",
+        "attach-browser"
       ]
     },
     {

@@ -45,5 +45,6 @@ const webKitNative: ActivityNative = {
   },
 };
 
-const client = createPageClient();
-export const native: ActivityNative = client ? pageHostNative(client) : webKitNative;
+/** The shared page host's client; null on the old WebKit-only host. */
+export const activityPageClient = createPageClient();
+export const native: ActivityNative = activityPageClient ? pageHostNative(activityPageClient) : webKitNative;

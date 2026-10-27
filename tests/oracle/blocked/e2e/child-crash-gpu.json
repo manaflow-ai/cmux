@@ -1,0 +1,179 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "child-crash-gpu",
+  "suite": "e2e",
+  "title": "SIGKILL Chromium's GPU process: the app stays up and the page answers a reload",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "engine": "chromium"
+  },
+  "fixture": {
+    "seed": "e2e-child-crash-gpu-v1",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock",
+    "web": true
+  },
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab",
+    "the loopback web fixture serves load.html ($WEB)",
+    "the default browser engine is Chromium"
+  ],
+  "requires": [
+    "actions",
+    "keys",
+    "gui",
+    "chromium",
+    "restart"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "allow_crashes": [
+    {
+      "kind": "gpu",
+      "reason": "kill-gpu ends the GPU process on purpose (the script's gpu case)",
+      "steps": [
+        "kill-gpu"
+      ]
+    },
+    {
+      "kind": "renderer",
+      "reason": "a GPU loss may take the tab's renderer with it; the script accepts a sad tab that reloads",
+      "steps": [
+        "kill-gpu"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "tabs",
+          "crashes"
+        ]
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "open-page",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "tab",
+          "new-browser",
+          "--url",
+          "$WEB/load.html",
+          "--focus"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a CLI run prints the new tab, not the action's receipt"
+      },
+      "waitFor": {
+        "pointer": "/topology/tab_count",
+        "predicate": "changed",
+        "maxMs": 10000
+      },
+      "note": "a Chromium tab on the fixture page in the focused pane, shown (--focus)"
+    },
+    {
+      "id": "loaded",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "tabs",
+          "crashes"
+        ]
+      },
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "kill-gpu",
+      "op": "kill",
+      "target": {
+        "process": "gpu"
+      },
+      "args": {
+        "signal": "KILL"
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a kill step signals a process; no action runs"
+      },
+      "waitFor": {
+        "pointer": "/crashes/counts/gpu",
+        "predicate": {
+          "op": "gte",
+          "value": 1
+        },
+        "maxMs": 10000
+      },
+      "note": "SIGKILL Chromium's GPU process; Chromium starts a new one"
+    },
+    {
+      "id": "reload",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+r"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "settleMaxMs": 10000,
+      "note": "Reload (Cmd-R, browserReload) on the tab brings the page back in a new renderer"
+    },
+    {
+      "id": "after-gpu",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "tabs",
+          "crashes"
+        ]
+      },
+      "settleMaxMs": 10000
+    }
+  ],
+  "invariants": [
+    "converted from scripts/cmux-next/child-crash-e2e.py, which stays as the live check; tests/oracle/corpus/e2e/coverage.json lists the script as blocked: this case moves into tests/oracle/corpus/e2e/ when driver_app.py runs its steps",
+    "the app's pid is unchanged; after-gpu: the tab is not crashed and shows $WEB/load.html"
+  ],
+  "teardown": [
+    "quit the tagged app the run started",
+    "verify its debug socket is gone",
+    "end the tag's daemons (TagTeardown)"
+  ],
+  "untested": [
+    "the network service and Chromium browser host kills: a kill target names a process kind, not a utility sub-type or the helper host (the host journey is p15-oracle-223's chromium-helper-kill)"
+  ]
+}

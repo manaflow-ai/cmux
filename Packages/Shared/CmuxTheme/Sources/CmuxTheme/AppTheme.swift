@@ -49,7 +49,7 @@ public struct AppTheme: Hashable, Sendable {
 
     /// `--cmux-app-*` name to `#rrggbb`.
     public var cssVariables: [String: String] {
-        Dictionary(uniqueKeysWithValues: Token.allCases.map { ($0.variable, Self.hex(self[$0])) })
+        Dictionary(Token.allCases.map { ($0.variable, Self.hex(self[$0])) }, uniquingKeysWith: { first, _ in first })
     }
 
     public static let textMinimum = 4.5

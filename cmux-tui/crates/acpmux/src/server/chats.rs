@@ -346,7 +346,7 @@ fn transcript_turns(
         }
     };
     // adopt's reader answers an unreadable file with no turns.
-    std::fs::File::open(&entry.source_path)
+    cmux_blocking::fs::open(&entry.source_path)
         .map_err(|e| TranscriptError::Unreadable(e.to_string()))?;
     let turns = crate::adopt_replay::read(family, &entry.source_path);
     Ok(turns
