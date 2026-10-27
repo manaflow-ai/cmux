@@ -1,6 +1,5 @@
 import AppKit
 @testable import CmuxNextBrowser
-import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -88,11 +87,9 @@ import Testing
     let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
     let system = FakeSystem()
     let replies = Replies()
-    let center = NotificationCenter()
 
     func makeRelay(fetcher: FakeFetcher = FakeFetcher()) -> CEFPlatformPasskeys {
-        CEFPlatformPasskeys(system: system, publicSuffixes: { ChromiumPasskeyPolicyTests.suffixes }, fetcher: fetcher,
-                            appEvents: AppEvents(center: center))
+        CEFPlatformPasskeys(system: system, publicSuffixes: { ChromiumPasskeyPolicyTests.suffixes }, fetcher: fetcher)
     }
 
     func send(_ relay: CEFPlatformPasskeys, _ event: ChromiumPlatformPasskeyEvent,
@@ -213,19 +210,23 @@ import Testing
         #expect(!without.stats.handlerSet)
     }
 
-    /// passkeys.md 3.9.2, step 3: a change in System Settings reaches the host at the next app activation.
-    @Test func anActivationPassesAChangedPermission() {
+    /// A change in System Settings reaches the host with its next request, before the request runs, as Chromium reads
+    /// the state at each request (icloud_keychain.mm `GetAuthState`).
+    @Test func aRequestPassesAChangedPermissionFirst() async throws {
         var sent: [Int32] = []
         let relay = makeRelay()
         relay.hostAttached(setPlatform: { sent.append($0); return 1 })
-        center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        send(relay, .request(browser: 8, token: 19, operation: 1, json: ChromiumPasskeyPolicyTests.get()))
+        _ = await replies.next()
         #expect(sent == [0], "no change, nothing sent")
         system.permission = .denied
-        center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
-        #expect(sent == [0, 1])
+        send(relay, .request(browser: 8, token: 20, operation: 1, json: ChromiumPasskeyPolicyTests.get()))
+        #expect(sent == [0, 1], "sent in the request's turn")
+        _ = await replies.next()
         relay.hostEnded()
         system.permission = .authorized
-        center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        send(relay, .request(browser: 8, token: 21, operation: 1, json: ChromiumPasskeyPolicyTests.get()))
+        _ = await replies.next()
         #expect(sent == [0, 1], "no host, nothing sent")
     }
 

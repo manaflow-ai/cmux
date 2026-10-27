@@ -281,6 +281,11 @@ Open points:
   page when its SHA-256 is the signed hash, or the fork omits the extra key for embedder-relayed requests.
 - PRF and large blob inputs are not applied (the request still runs, the reply reports none); a required large blob
   or a create without ES256 is refused.
+- 3.9.2 step 3 is done per request, not on app activation: cmux reads the permission again at each WEBAUTHN
+  request and after its own prompt, as Chromium reads `GetAuthState` per request. A change in System Settings
+  therefore reaches the host with its next create or get, and conditional autofill lists iCloud passkeys from then
+  on. An activation push needs one more app-activation subscriber, which the observer-sites ratchet refuses; a
+  follow-up can add it to an app-level activation fan-out.
 - 3.9.4 (the request dialog) is still uncovered.
 - Bench: `chromium-host-bench.py --native-ui` row `passkey` on a signed build (K18), fork API 31.
 

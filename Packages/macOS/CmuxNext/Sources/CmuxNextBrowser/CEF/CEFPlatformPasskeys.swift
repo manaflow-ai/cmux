@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextWakeups
 import os
 
 /// iCloud Keychain passkeys for the Chromium Host's pages (task p01-process-067, plans/cmux-next/passkeys.md
@@ -57,23 +56,18 @@ final class CEFPlatformPasskeys {
     /// Passes the listing permission to the attached host (`cmux_shim_set_webauthn_platform`) once it took the
     /// handler; nil before and after a host.
     private var setPlatform: ((Int32) -> Int32)?
-    /// App activations, while a host has the handler.
-    private var activation: EventSubscription?
-    private let appEvents: AppEvents
+
 
     init(system: any ChromiumPlatformPasskeySystem, publicSuffixes: @escaping @Sendable () -> PublicSuffixList,
-         fetcher: any ChromiumRelatedOriginFetching = ChromiumRelatedOriginFetcher(), appEvents: AppEvents) {
+         fetcher: any ChromiumRelatedOriginFetching = ChromiumRelatedOriginFetcher()) {
         self.system = system
         loadSuffixes = publicSuffixes
         self.fetcher = fetcher
-        self.appEvents = appEvents
     }
 
-    /// The app's relay: AuthenticationServices, the bundled Public Suffix List and cmux's own fetch, with the
-    /// app's one ``AppEvents`` (`AppServices.appEvents`).
-    static func system(appEvents: AppEvents) -> CEFPlatformPasskeys {
-        CEFPlatformPasskeys(system: ChromiumSystemPasskeys(), publicSuffixes: { PublicSuffixList.bundled() ?? PublicSuffixList(listText: "") },
-                            appEvents: appEvents)
+    /// The app's relay: AuthenticationServices, the bundled Public Suffix List and cmux's own fetch.
+    static func system() -> CEFPlatformPasskeys {
+        CEFPlatformPasskeys(system: ChromiumSystemPasskeys(), publicSuffixes: { PublicSuffixList.bundled() ?? PublicSuffixList(listText: "") })
     }
 
     /// A host attached (``CEFHostStart/attached()``, before CefInitialize): hands it the handler with the listing
@@ -87,7 +81,7 @@ final class CEFPlatformPasskeys {
         }
         self.setPlatform = setPlatform
         (stats.handlerSet, stats.permission) = (true, permission)
-        observeActivation()
+
     }
 
     /// The host ended: its tokens can never be answered, so every sheet closes now (task 091's rule).
@@ -95,7 +89,7 @@ final class CEFPlatformPasskeys {
         for ceremony in ceremonies.values { ceremony.cancel() }
         ceremonies.removeAll()
         setPlatform = nil
-        activation = nil
+
     }
 
     /// A WEBAUTHN_PLATFORM_REQUEST or _CANCEL of the attached host.
@@ -111,6 +105,9 @@ final class CEFPlatformPasskeys {
             ceremonies.removeValue(forKey: token)?.cancel()
         case .request(let browser, let token, let rawOperation, let json):
             stats.requests += 1
+            // Chromium reads the state at each request (icloud_keychain.mm `GetAuthState`): a change in System Settings
+            // reaches the host with the next request, before it is run.
+            permissionChanged(to: system.permission)
             // The fork's tokens are unique in its process: a second request for a running token is the host's bug, and
             // the running ceremony keeps its answer.
             guard ceremonies[token] == nil else { return logger.fault("chromium host passkeys: token \(token) asked twice") }
@@ -243,14 +240,5 @@ final class CEFPlatformPasskeys {
         guard let setPlatform, permission != stats.permission else { return }
         stats.permission = permission
         _ = setPlatform(permission.rawValue)
-    }
-
-    /// A change in System Settings shows on the next app activation, as Chrome reads the state again then.
-    private func observeActivation() {
-        guard activation == nil else { return }
-        activation = appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "CEFPlatformPasskeys.permission") { [weak self] in
-            guard let self else { return }
-            permissionChanged(to: system.permission)
-        }
     }
 }
