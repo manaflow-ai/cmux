@@ -228,7 +228,7 @@ extension SidebarBridge {
         // preview-disabled projection omits rows that remain in the stored
         // legacy document, so expand item indexes before sending the op.
         let stored = services.sidebarLayout.document
-        let translated = SidebarRegionReorder.translateHiddenItemIndex(op, from: model.layout, to: stored)
+        let translated = op.translatingHiddenItemIndex(from: model.layout, to: stored)
         PinCommands(context: AppActionContext(services: services)).userBandEdit(translated)
     }
 }
