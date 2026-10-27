@@ -67,6 +67,18 @@ class OwnedRoute(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertEqual(picker.owned_route(label, idle, "1")[0], "")
 
+    def test_the_nightly_slot_comes_first_while_idle(self) -> None:
+        # vars.CI_NIGHTLY_NEXT_BUILD_RUNNER names glaeda's nightly slot, then the side label: an idle slot takes the
+        # build, and a busy one leaves it to the side label, never a wait.
+        slot = "glaeda-nightly-std-xcode-26.6"
+        self.assertTrue(picker.owned_label(slot))
+        for label in ("glaeda-nightly", "glaeda-nightly-std", "glaeda-nightlyx-std-xcode-26.6"):
+            self.assertFalse(picker.owned_label(label), label)
+        labels = f"{slot} {SIDE}"
+        self.assertEqual(picker.owned_route(labels, [runner(SIDE), runner(slot)], "1")[0], slot)
+        self.assertEqual(picker.owned_route(labels, [runner(SIDE), runner(slot, busy=True)], "1")[0], SIDE)
+        self.assertEqual(picker.owned_route(labels, [runner(slot)], "2")[0], "")
+
     def test_a_label_the_rescue_does_not_watch_is_never_offered(self) -> None:
         # The DEV slot: a refusal there is never re-run (runs 40446901975, 40448164753).
         sys.path.insert(0, str(ROOT / "scripts" / "ci"))

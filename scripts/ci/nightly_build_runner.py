@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -67,8 +68,15 @@ pool = placement.pool
 # a refusal or a stuck queue there is re-run as attempt 2, which takes Blacksmith. The DEV compile
 # slot (glaeda-dev-*) is not one, so it is never offered: runs 40446901975 and 40448164753 died at
 # "Set up runner" on glaeda-dev-std-xcode-26.6 and nothing re-ran them.
+# glaeda's nightly slot (glaeda#1684, runner.nightlySlot): one runner per mini whose label no PR job asks for and
+# whose hook takes only nightly jobs, ahead of every job waiting on that mini. A build queued on the shared side label
+# waited behind every PR job queued there first (2026-10-27 14:08Z: run 40518198747 was never acquired on the light
+# side label). main's rescue watches it (owned_pool_rescue.LANE_LABEL), so vars.CI_NIGHTLY_NEXT_BUILD_RUNNER may name it.
+NIGHTLY_SLOT_LABEL = re.compile(r"glaeda-nightly-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+
+
 def owned_label(label: str) -> bool:
-    return pool.persistent(label)
+    return pool.persistent(label) or bool(NIGHTLY_SLOT_LABEL.fullmatch(label or ""))
 
 
 # How long a run waits for the dedicated builder while it is busy, and how often it looks. Its
