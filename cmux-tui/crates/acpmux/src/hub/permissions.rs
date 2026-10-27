@@ -206,9 +206,15 @@ impl Hub {
                 }
                 Inbound::ReplayDone { agent } => session.end_replay(agent),
                 // Under MDM's off an unheard agent ends now (review 65 of #23322): the background
-                // check ends it (`end_every_managed_full_access`, `host_unheard`).
-                Inbound::LinkBroken { .. } => {
+                // check ends it (`end_every_managed_full_access`, `host_unheard`). What waits on it
+                // is answered first, as its stopped reader never will: a start waiting on its
+                // `initialize` holds the spawn lock that check takes (review 1 of #26059).
+                Inbound::LinkBroken { agent } => {
                     if self.full_access_managed_off() {
+                        let child = session.child.lock().await.clone();
+                        if let Some(child) = child.filter(|c| c.generation == agent) {
+                            child.fail_pending().await;
+                        }
                         self.idle_wake.notify_one();
                     }
                 }

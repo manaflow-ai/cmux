@@ -501,14 +501,17 @@ impl Hub {
     }
 
     /// Whether `session`'s agent host may hold reports this daemon has not seen: its link broke
-    /// (an entry could not be logged) or closed while the host still runs. What it reported since
+    /// (an entry could not be logged), its reader stopped (`ChildAgent::is_stopped`), or the link
+    /// closed while the host still runs. What it reported since
     /// is unknown, so under MDM's off it counts as full access (review 64 of #23322); a request
     /// would reattach it, but the push does not wait for one. Host records that cannot be read
     /// do not prove the host gone (`host_record_gone`, review 67).
     async fn host_unheard(session: &Session) -> bool {
         let child = session.child.lock().await.clone();
         let Some(child) = child.filter(|c| c.host_record().is_some()) else { return false };
-        child.is_broken() || (!child.is_alive().await && !Self::host_record_gone(&session.id))
+        child.is_broken()
+            || child.is_stopped()
+            || (!child.is_alive().await && !Self::host_record_gone(&session.id))
     }
 
     /// Whether `session`'s agent host was reattached and its replay is not all in the log yet:

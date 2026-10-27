@@ -134,7 +134,8 @@ struct Hosted {
     replay_to: std::sync::atomic::AtomicU64,
     /// The reader of the current link stopped otherwise (the link closed, or an acknowledgement
     /// failed while its socket still looked open): the agent is not heard through this link
-    /// (`is_alive`, review 68 of #23322); a reattach clears it.
+    /// (`is_stopped`, review 68 of #23322); a reattach clears it. Under MDM's off only: with it
+    /// unset the agent counts as alive as before (`is_alive`, review 1 of #26059).
     stopped: std::sync::atomic::AtomicBool,
 }
 
@@ -1101,7 +1102,6 @@ impl ChildAgent {
         if let Some(h) = &self.hosted {
             return !h.exit_seen.load(Ordering::SeqCst)
                 && !h.broken.load(Ordering::SeqCst)
-                && !h.stopped.load(Ordering::SeqCst)
                 && !h.link().is_closed();
         }
         let mut guard = self.child.lock().await;
@@ -1498,6 +1498,12 @@ impl ChildAgent {
     /// The reader stopped because an entry could not be logged.
     pub fn is_broken(&self) -> bool {
         self.hosted.as_ref().is_some_and(|h| h.broken.load(Ordering::SeqCst))
+    }
+
+    /// The reader of the current host link stopped otherwise (`Hosted::stopped`): what the host
+    /// reports is not heard until a reattach.
+    pub fn is_stopped(&self) -> bool {
+        self.hosted.as_ref().is_some_and(|h| h.stopped.load(Ordering::SeqCst))
     }
 
     /// Reconnect to the same host after the reader stopped, keeping every
