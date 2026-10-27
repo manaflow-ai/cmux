@@ -80,10 +80,10 @@ final class HostView: NSView {
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
-    /// MessagesLab b6760b6: the window's update observation and the window place the rows last read
-    /// (PaneHost+WindowPlace.swift).
-    var windowPlaceObservation: MainQueueObservation?
+    /// MessagesLab b6760b6: the window place the rows last read (PaneHost+WindowPlace.swift).
     var lastWindowPlace: (origin: CGPoint, axis: CGPoint)?
+    /// How many times the rows read their window place (tests: a window event with no move reads none).
+    var windowPlaceRefreshes = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -221,7 +221,7 @@ final class HostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         controller?.windowChanged()
-        observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
+        windowPlaceDidChangeWindow()  // MessagesLab b6760b6 (PaneHost+WindowPlace.swift)
         restoreClipMaskOutsideLiveResize()
         if window != nil, demo?.restorePending == true { needsLayout = true }  // cmux: `layout` lays the restored rows out
     }
