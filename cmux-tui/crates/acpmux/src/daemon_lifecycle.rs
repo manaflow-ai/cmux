@@ -38,6 +38,11 @@ pub const FEATURE: &str = "leftoverDaemonIdleExit";
 /// How long the daemon stays with nothing that needs it.
 pub const IDLE_EXIT_GRACE: Duration = Duration::from_secs(10 * 60);
 
+/// How long the daemon stays with nothing that needs it once its owning app
+/// has exited (a quit or a crash): the first wait after that exit, instead
+/// of [`IDLE_EXIT_GRACE`].
+pub const OWNER_EXIT_GRACE: Duration = Duration::from_secs(2);
+
 /// The process id of the app that owns this daemon; while that process runs
 /// the daemon stays, connected or not.
 pub const OWNER_APP_PID_ENV: &str = "ACPMUX_OWNER_APP_PID";
@@ -194,7 +199,9 @@ pub async fn wait_for_idle_exit(
     clock: Arc<dyn Clock>,
     liveness: &dyn Liveness,
     grace: Duration,
+    owner_exit: impl std::future::Future<Output = ()>,
 ) {
+    drop(owner_exit);
     let mut rx = presence.subscribe();
     let mut policy = IdlePolicy::new(grace);
     let mut last_arrivals = rx.borrow().arrivals;
@@ -248,6 +255,11 @@ impl OwnerApp {
     pub fn parse(value: Option<&str>) -> Self {
         let pid = value.and_then(|v| v.trim().parse::<i32>().ok()).filter(|pid| *pid > 1);
         Self { pid }
+    }
+
+    /// Resolves when the owner's process exits.
+    pub async fn exited(self) {
+        std::future::pending::<()>().await;
     }
 
     /// The owner's process exists (a recycled pid keeps the daemon: it fails
@@ -313,8 +325,9 @@ pub async fn run_for_daemon(hub: Arc<crate::hub::Hub>) {
         return std::future::pending().await;
     }
     let clock = hub.lifecycle_clock();
-    let liveness = HubLiveness { hub: hub.clone(), owner: OwnerApp::from_env(OWNER_APP_PID_ENV) };
-    wait_for_idle_exit(&hub.clients, clock, &liveness, IDLE_EXIT_GRACE).await;
+    let owner = OwnerApp::from_env(OWNER_APP_PID_ENV);
+    let liveness = HubLiveness { hub: hub.clone(), owner };
+    wait_for_idle_exit(&hub.clients, clock, &liveness, IDLE_EXIT_GRACE, owner.exited()).await;
 }
 
 #[cfg(test)]

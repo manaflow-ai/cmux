@@ -50,7 +50,14 @@ async fn exits_within_three_graces(hub: &Arc<Hub>) -> bool {
         let (hub, clock) = (hub.clone(), clock.clone());
         tokio::spawn(async move {
             let liveness = HubLiveness { hub: hub.clone(), owner: OwnerApp::default() };
-            wait_for_idle_exit(&hub.clients, clock, &liveness, IDLE_EXIT_GRACE).await;
+            wait_for_idle_exit(
+                &hub.clients,
+                clock,
+                &liveness,
+                IDLE_EXIT_GRACE,
+                std::future::pending(),
+            )
+            .await;
         })
     };
     for _ in 0..3 {
