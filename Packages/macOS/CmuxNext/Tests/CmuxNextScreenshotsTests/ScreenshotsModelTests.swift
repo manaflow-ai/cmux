@@ -171,6 +171,9 @@ import Testing
             }
         }
         writer.cancel()
+        // The writer holds the folder: wait for it to end, so the folder is removed before the test
+        // returns rather than whenever the detached task last runs (never, if the process exits first).
+        await writer.value
         #expect(model.visibleItems.allSatisfy { $0.name.hasPrefix("Screenshot live") })
     }
 }

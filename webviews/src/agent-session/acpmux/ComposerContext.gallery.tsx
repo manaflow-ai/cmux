@@ -9,6 +9,7 @@ import type { ComponentProps } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
 import type { Project } from "./ProjectChooser";
+import { fleetPeers } from "../../gallery/fixtures/acpmux";
 
 const projects: Project[] = [
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
@@ -45,6 +46,9 @@ const baseProps = {
   onBrowseProject: () => undefined,
   onConnect: () => undefined,
 };
+
+/// 21 machines, as `acpmux host ls` lists them on a Mac with a fleet.
+const fleetProps = { ...baseProps, ...fleetPeers() };
 
 /// The New Tab page's saved environments (SavedEnvironmentRows), with `current` picked.
 function savedProps(current?: string): ComponentProps<typeof ComposerContext> {
@@ -411,6 +415,24 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-fleet": {
+      height: 760,
+      note: "Preview: every machine acpmux lists (21, from `host ls`), in This Mac, My machines and Cloud and VMs sections; in each the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
+      props: { ...fleetProps, environments: true },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
+      },
+    },
+    "computer-menu-fleet": {
+      height: 760,
+      note: "Previews off: the plain Computer menu lists the same 21 machines in the same sections, greyed the same way.",
+      props: fleetProps,
+      play: async (ctx) => {
+        await openComputer(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length > 20);
       },
     },
     "machine-colors": {

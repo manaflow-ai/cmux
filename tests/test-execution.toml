@@ -314,7 +314,7 @@ path = "tests/test_ci_cmux_next_compile_revert.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_cmux_next_linux_compile_status.py"
+path = "tests/test_ci_cmux_next_compile_status.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1706,6 +1706,10 @@ path = "tests/test_gh_app_token.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_publish_app_token_workflow.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_trusted_routing.py"
 lane = "linux-guard"
 
@@ -2007,7 +2011,7 @@ path = "tests/test_ci_linux_compile_runners.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_tui_daemon_tests_linux.py"
+path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
 [[test]]
