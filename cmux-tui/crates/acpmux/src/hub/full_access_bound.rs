@@ -233,9 +233,9 @@ pub(super) struct MdmSnapshot {
 /// The family gate held for one message or answer (`Hub::family_gate`), the bound read once it
 /// was taken, and the off pushes' cuts since.
 pub(super) struct FamilyHold {
-    gate: tokio::sync::OwnedRwLockReadGuard<()>,
+    pub(super) gate: tokio::sync::OwnedRwLockReadGuard<()>,
     pub(super) bound: MdmSnapshot,
-    cut: tokio::sync::watch::Receiver<u64>,
+    pub(super) cut: tokio::sync::watch::Receiver<u64>,
 }
 
 impl Hub {
