@@ -80,12 +80,27 @@ public final class SystemCrashForwarder: Sendable {
     }
 
     /// The binaries in `directories` the daemon copies under the host-exe root
-    /// (``SystemCrashReport/HelperRoots/hostExeNames``), for the bundle's `bin` folder and a dev build's daemon
-    /// folder.
+    /// (``SystemCrashReport/HelperRoots/hostExeNames``).
     public static func rustBinaries(in directories: [URL]) -> [URL] {
         directories.flatMap { directory in
             SystemCrashReport.HelperRoots.hostExeNames.sorted().map { directory.appending(path: $0) }
         }
+    }
+
+    /// The Rust binaries an app's daemon copies under the host-exe root: the daemon a dev build runs instead of
+    /// the bundled one (`daemonOverride`, `CMUX_NEXT_TUI_BIN`, CmuxNextDaemon `DaemonLauncher.resolveBinary`) and
+    /// the host and holder beside it (cmux-tui-platform `host_exe`), then those in the bundle's `bundledBin`.
+    /// No file is read here.
+    public static func ownRustBinaries(bundledBin: URL?, daemonOverride: String?) -> [URL] {
+        var binaries: [URL] = []
+        var directories: [URL] = []
+        if let daemonOverride, !daemonOverride.isEmpty {
+            let daemon = URL(fileURLWithPath: daemonOverride)
+            binaries.append(daemon)
+            directories.append(daemon.deletingLastPathComponent())
+        }
+        if let bundledBin { directories.append(bundledBin) }
+        return binaries + rustBinaries(in: directories)
     }
 
     /// Sends `event` with `attachments` in a clean scope: the app's breadcrumbs and contexts do not describe a

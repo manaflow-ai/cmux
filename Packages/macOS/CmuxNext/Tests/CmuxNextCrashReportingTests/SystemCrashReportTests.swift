@@ -163,6 +163,18 @@ import Testing
         #expect(noBinaries.forwardNew(now: now + 40).isEmpty, "with no binaries of its own the app owns no copy")
     }
 
+    @Test func theOwnBinariesAreTheBundlesAndADevDaemonsFolder() {
+        let bin = URL(filePath: Self.bundle + "/Contents/Resources/bin", directoryHint: .isDirectory)
+        let bundled = SystemCrashForwarder.ownRustBinaries(bundledBin: bin, daemonOverride: nil).map(\.lastPathComponent)
+        #expect(bundled == ["cmux-holder", "cmux-tui", "cmux-tui-host"])
+        let dev = SystemCrashForwarder.ownRustBinaries(bundledBin: bin, daemonOverride: "/work/target/debug/cmux-tui-dev")
+            .map { $0.path(percentEncoded: false) }
+        #expect(dev.prefix(4) == ["/work/target/debug/cmux-tui-dev", "/work/target/debug/cmux-holder",
+                                  "/work/target/debug/cmux-tui", "/work/target/debug/cmux-tui-host"])
+        #expect(dev.count == 7)
+        #expect(SystemCrashForwarder.ownRustBinaries(bundledBin: nil, daemonOverride: "").isEmpty)
+    }
+
     @Test func aRingOfAnotherBuildOrWithoutTheOptInIsNotAttached() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
