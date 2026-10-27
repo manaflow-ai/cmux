@@ -8,10 +8,11 @@ struct AgentPaneCloudCredentialTransferTests {
         AgentPaneRequest(body: ["method": AgentPaneCloudCredentialTransferRequest.method, "params": params])
     }
 
-    @Test func decodesOnlyAProviderAndExactCloudChatScope() {
+    @Test func decodesOnlyAProviderAndExactCloudChatScope() throws {
         let params: [String: Any] = ["provider": "claude", "machineID": "vm-123", "sessionId": "session-1"]
         let decoded = Self.request(params)
-        #expect(decoded == .cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest(params: params)!))
+        let request = try #require(AgentPaneCloudCredentialTransferRequest(params: params))
+        #expect(decoded == .cloudCredentialTransfer(request))
         #expect(AgentPageOps.methods[AgentPaneCloudCredentialTransferRequest.method] == AgentPaneCloudCredentialTransferRequest.method)
         #expect(String(describing: decoded) == "cloudCredentialTransfer")
         for refused: [String: Any] in [
@@ -22,11 +23,11 @@ struct AgentPaneCloudCredentialTransferTests {
         ] { #expect(Self.request(refused) == .unsupported(AgentPaneCloudCredentialTransferRequest.method)) }
     }
 
-    @Test func aCloudChatNeedsAClickAndSuccessfulAppTransfer() async {
+    @Test func aCloudChatNeedsAClickAndSuccessfulAppTransfer() async throws {
         let model = AgentPaneModel(host: NoHost(), sessionId: "session-1")
         model.remoteChat = true
         let params: [String: Any] = ["provider": "claude", "machineID": "vm-123", "sessionId": "session-1"]
-        let request = try! #require(AgentPaneCloudCredentialTransferRequest(params: params))
+        let request = try #require(AgentPaneCloudCredentialTransferRequest(params: params))
         var ran = 0
         model.onCloudCredentialTransfer = { request in
             #expect(request.machineID == "vm-123")
@@ -42,11 +43,11 @@ struct AgentPaneCloudCredentialTransferTests {
         #expect(!model.transport.gestures.isAvailable)
     }
 
-    @Test func localChatNeverTransfersCredentials() async {
+    @Test func localChatNeverTransfersCredentials() async throws {
         let model = AgentPaneModel(host: NoHost(), sessionId: "session-1")
         model.onCloudCredentialTransfer = { _ in Issue.record("local chat called cloud transfer"); return true }
         model.transport.gestures.record(click: true)
-        let request = AgentPaneCloudCredentialTransferRequest(params: ["provider": "codex", "machineID": "vm-123", "sessionId": "session-1"])!
+        let request = try #require(AgentPaneCloudCredentialTransferRequest(params: ["provider": "codex", "machineID": "vm-123", "sessionId": "session-1"]))
         #expect((await model.respond(to: .cloudCredentialTransfer(request)))["ok"] as? Bool != true)
     }
 
