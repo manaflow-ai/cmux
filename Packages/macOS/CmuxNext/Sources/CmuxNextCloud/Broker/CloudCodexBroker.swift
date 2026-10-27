@@ -298,7 +298,7 @@ public actor CloudCodexBroker {
                     committed = try await reconcile.value == data
                     if !committed { installedAccess[target.machineID] = priorInstallation }
                 } catch {
-                    targets.removeValue(forKey: target.machineID)
+                    // Retain transport until revocation can reconcile this installation.
                     pendingRevocations.insert(target.machineID)
                     throw CloudCodexBrokerError.remoteDeliveryFailed
                 }
