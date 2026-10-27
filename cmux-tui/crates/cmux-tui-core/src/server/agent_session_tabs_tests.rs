@@ -204,7 +204,7 @@ fn a_live_registry_root_session_may_reopen_on_its_daemon_only() {
                "agent_session":{"host":"registry:other-store","session":"root-live","harness":"claude"}}),
     )
     .unwrap_err();
-    assert!(other_host.to_string().contains("conversation_tab.machine_mismatch"), "{other_host}");
+    assert_eq!(super::error_code(&other_host).as_deref(), Some("conversation_tab.machine_mismatch"), "{other_host}");
 
     run(&mux, json!({"cmd":"close-surface","surface":seeded.surface.id})).unwrap();
     run(&mux, json!({"cmd":"close-surface","surface":reopened_surface})).unwrap();
@@ -214,7 +214,7 @@ fn a_live_registry_root_session_may_reopen_on_its_daemon_only() {
                "agent_session":{"host":format!("registry:{}", mux.registry_identity().0),"session":"root-live","harness":"claude"}}),
     )
     .unwrap_err();
-    assert!(closed.to_string().contains("conversation_tab.machine_mismatch"), "{closed}");
+    assert_eq!(super::error_code(&closed).as_deref(), Some("conversation_tab.machine_mismatch"), "{closed}");
     mux.shutdown();
 }
 
