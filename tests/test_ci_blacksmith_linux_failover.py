@@ -50,11 +50,17 @@ FORK_BRANCH = re.compile(
 
 def literal_covered(head: str) -> bool:
     """head is the text up to and including the quote that opens the literal."""
-    if head.endswith(FAILOVER) or SWITCHED.search(head) or FORK_BRANCH.search(head):
+    if SWITCHED.search(head) or FORK_BRANCH.search(head):
         return True
+    # The failover must be its own `||` alternative: `cond && vars.CI_CLOUD_OVERFLOW_SAVED
+    # && 'ubuntu-24.04' || 'blacksmith-...'` still picks Blacksmith whenever cond is false.
+    if head.endswith(FAILOVER):
+        return re.search(r"(?:\$\{\{|\|\||\()\s*$", head[: -len(FAILOVER)]) is not None
     # A guarded literal (`cond && 'blacksmith-...'`) keeps the guard first:
     # `cond && vars.CI_CLOUD_OVERFLOW_SAVED && 'ubuntu-24.04' || cond && '...'`.
-    return re.search(r"(?:\|\||\()\s*(.+?) && " + re.escape(FAILOVER[:-1]) + r"\1 && '$", head) is not None
+    return re.search(
+        r"(?:\$\{\{|\|\||\()\s*((?:(?!\|\|).)+?) && " + re.escape(FAILOVER[:-1]) + r"\1 && '$", head
+    ) is not None
 
 
 def covered(value: str) -> bool:
@@ -103,6 +109,9 @@ class BlacksmithLinuxFailoverTest(unittest.TestCase):
             covered("${{ x || a == 'pass' && vars.CI_CLOUD_OVERFLOW_SAVED && 'ubuntu-24.04' || a == 'pass' && 'blacksmith-2vcpu-ubuntu-2404' || 'macos-26' }}")
         )
         self.assertFalse(covered("${{ x || a == 'pass' && 'blacksmith-2vcpu-ubuntu-2404' || 'macos-26' }}"))
+        self.assertFalse(
+            covered("${{ github.event_name == 'workflow_dispatch' && " + FAILOVER + "blacksmith-4vcpu-ubuntu-2404' }}")
+        )
         self.assertFalse(
             covered("${{ contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}")
         )

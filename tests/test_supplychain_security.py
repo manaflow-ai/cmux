@@ -111,6 +111,15 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
             assert "merge_group" in environment
 
 
+# The Blacksmith outage failover reads one variable but only ever picks hosted ubuntu-24.04
+# (tests/test_ci_blacksmith_linux_failover.py); no variable can name the runner.
+OVERFLOW_FAILOVER = "vars.CI_CLOUD_OVERFLOW_SAVED && 'ubuntu-24.04' || "
+
+
+def without_overflow_failover(runs_on: str) -> str:
+    return runs_on.replace(OVERFLOW_FAILOVER, "")
+
+
 def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> None:
     jobs = workflow("cloud-vm-dogfood.yml")["jobs"]
     smoke = jobs["public-installer-smoke"]
@@ -119,7 +128,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
 
     assert smoke.get("environment") is None
     assert "secrets." not in yaml.dump(smoke)
-    assert "vars." not in smoke["runs-on"]
+    assert "vars." not in without_overflow_failover(smoke["runs-on"])
     assert "https://cmux.com/tui/install.sh" in run_text(smoke)
     assert "CMUX_TUI_INSTALL_MS" in run_text(smoke)
     assert any("actions/upload-artifact@" in str(step.get("uses", "")) for step in smoke["steps"])
@@ -128,7 +137,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     assert installer.get("needs") == "public-installer-smoke"
     assert (installer.get("permissions") or {}).get("attestations") == "read"
     assert "secrets." not in yaml.dump(installer)
-    assert "vars." not in installer["runs-on"]
+    assert "vars." not in without_overflow_failover(installer["runs-on"])
     installer_script = run_text(installer)
     assert "gh attestation verify" in installer_script
     assert "--source-ref refs/heads/main" in installer_script
@@ -141,7 +150,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
 
     assert journey.get("needs") == "installer"
     assert journey.get("environment") == "cloud-vm-${{ inputs.target }}"
-    assert "vars." not in journey["runs-on"]
+    assert "vars." not in without_overflow_failover(journey["runs-on"])
     assert "STACK_SECRET_SERVER_KEY" not in (journey.get("env") or {})
     assert any("actions/download-artifact@" in str(step.get("uses", "")) for step in journey["steps"])
     assert "CMUX_TUI_INSTALL_MS" in run_text(journey)
