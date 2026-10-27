@@ -27,8 +27,10 @@ command -v "$R" >/dev/null || { echo "error: signer binary not found ($R)" >&2; 
 : "${ASC_API_KEY_ID:?}" "${ASC_API_ISSUER_ID:?}" "${ASC_API_KEY_P8_BASE64:?}"
 export APPLE_CERTIFICATE_PASSWORD
 
-# The signer reads every RCODESIGN_* variable as configuration, so none reaches it.
-while IFS= read -r name; do unset "$name"; done < <(compgen -e | grep "^RCODESIGN_" || true)
+# Every signer call goes through run_signer, which keeps RCODESIGN_* variables
+# (the signer's own configuration) out of its environment.
+# shellcheck source=signer-env.sh
+source "$(dirname "${BASH_SOURCE[0]}")/signer-env.sh"
 
 secrets=""
 trap 'rm -rf ${secrets:+"$secrets"}' EXIT
@@ -46,6 +48,12 @@ pkcs12_to_pem() {
 pkcs12_to_pem || pkcs12_to_pem -legacy || { echo "error: openssl could not open the PKCS#12 (wrong password?)" >&2; exit 1; }
 rm -f "$secrets/identity.p12"
 unset APPLE_CERTIFICATE_PASSWORD APPLE_CERTIFICATE_BASE64
+# The notary key goes to a file before any signer call, so no signer process
+# inherits it in its environment.
+(umask 077 && printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 -d > "$secrets/AuthKey_${ASC_API_KEY_ID}.p8") 2>/dev/null ||
+  { echo "error: ASC_API_KEY_P8_BASE64 is not valid base64" >&2; exit 1; }
+[[ -s "$secrets/AuthKey_${ASC_API_KEY_ID}.p8" ]] || { echo "error: ASC_API_KEY_P8_BASE64 decoded to nothing" >&2; exit 1; }
+unset ASC_API_KEY_P8_BASE64
 [[ "$(grep -c -- '-----BEGIN .*PRIVATE KEY-----' < "$secrets/identity.pem" || true)" == 1 ]] ||
   { echo "error: the PKCS#12 must hold exactly one private key" >&2; exit 1; }
 subject="$(openssl x509 -noout -subject -nameopt multiline,utf8,-esc_msb < "$secrets/identity.pem")"
@@ -64,28 +72,25 @@ elif [[ "$cn" != *"$want"* ]]; then
 fi
 
 echo "==> signing ${DMG##*/} as $cn"
-"$R" sign --config-file /dev/null --pem-file "$secrets/identity.pem" \
+run_signer "$R" sign --config-file /dev/null --pem-file "$secrets/identity.pem" \
   --timestamp-url http://timestamp.apple.com/ts01 "$DMG"
 rm -f "$secrets/identity.pem"
 
 # The expected Developer ID signature.
 ident="$(basename "$DMG" .dmg)"
-info="$("$R" print-signature-info "$DMG")"
+info="$(run_signer "$R" print-signature-info "$DMG")"
 want_dr="designated(3): 0: (identifier \"$ident\") and ((anchor apple generic) and ((certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */) and ((certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */) and (certificate leaf[subject.OU] = \"$team\"))));"
 for want in "version: '0x20200'" "flags: CodeSignatureFlags(0x0)" "identifier: $ident" "team_name: $team" "$want_dr"; do
   grep -qF -- "$want" <<<"$info" || { echo "error: the DMG signature lacks: $want" >&2; echo "$info" >&2; exit 1; }
 done
 
-(umask 077 && printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 -d > "$secrets/AuthKey_${ASC_API_KEY_ID}.p8") 2>/dev/null ||
-  { echo "error: ASC_API_KEY_P8_BASE64 is not valid base64" >&2; exit 1; }
-[[ -s "$secrets/AuthKey_${ASC_API_KEY_ID}.p8" ]] || { echo "error: ASC_API_KEY_P8_BASE64 decoded to nothing" >&2; exit 1; }
-(umask 077 && "$R" encode-app-store-connect-api-key --config-file /dev/null -o "$secrets/api-key.json" \
+(umask 077 && run_signer "$R" encode-app-store-connect-api-key --config-file /dev/null -o "$secrets/api-key.json" \
   "$ASC_API_ISSUER_ID" "$ASC_API_KEY_ID" "$secrets/AuthKey_${ASC_API_KEY_ID}.p8" >/dev/null)
 rm -f "$secrets/AuthKey_${ASC_API_KEY_ID}.p8"
 
 # --staple waits for Apple's answer, fails unless it is Accepted (printing the
 # notary log), then staples the ticket to the DMG.
 echo "==> notarizing and stapling ${DMG##*/}"
-"$R" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
+run_signer "$R" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
   --max-wait-seconds "${NOTARY_MAX_WAIT_SECONDS:-1800}" --staple "$DMG"
 echo "==> ${DMG##*/} is signed, notarized and stapled"

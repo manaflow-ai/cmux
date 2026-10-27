@@ -20,6 +20,7 @@ if command -v sha256sum >/dev/null; then got="$(sha256sum "$bin" | cut -d' ' -f1
 [[ "$got" == "$want" ]] || { echo "error: signer binary sha256 $got is not the expected $want" >&2; exit 1; }
 chmod 755 "$bin"
 bin="$(cd "$(dirname "$bin")" && pwd)/$(basename "$bin")"
-while IFS= read -r name; do unset "$name"; done < <(compgen -e | grep '^RCODESIGN_' || true)
-"$bin" --version >&2 || { echo "error: signer binary does not run" >&2; exit 1; }
+# shellcheck source=signer-env.sh
+source "$(dirname "${BASH_SOURCE[0]}")/signer-env.sh"
+run_signer "$bin" --version >&2 || { echo "error: signer binary does not run" >&2; exit 1; }
 echo "CMUX_SIGNER=$bin"
