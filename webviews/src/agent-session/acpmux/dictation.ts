@@ -4,6 +4,7 @@ import { applyDictation, type DictationAnchor, type DictationState, type Dictati
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
+import { usePageKeepReason } from "./pageKeep";
 
 /// Native dictation for the composer. Swift owns the microphone and speech engine
 /// (CmuxNextAgentPane `AgentPaneDictation`); this splices its text at the prompt's cursor,
@@ -98,6 +99,8 @@ export function useDictation(
   const t = useT();
   const [state, setState] = useState<DictationState>("idle");
   const [notice, setNotice] = useState<DictationUpdate | null>(null);
+  // A session's words still land in the prompt until it ends: the page holds `capture` (pageKeep.ts).
+  usePageKeepReason("capture", isActive(state));
   const anchor = useRef<DictationAnchor | null>(null);
   /// Updates that arrived while an input method was composing; applied in order when it ends, so
   /// a splice never breaks the user's composition. Level-only repeats replace the last one.

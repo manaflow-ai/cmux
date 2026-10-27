@@ -76,7 +76,7 @@ impl PinnedArtifacts {
     ) -> Result<Option<Self>, BootstrapError> {
         let Some(parent) = executable.parent() else { return Ok(None) };
         let directory = parent.join("cmux-tui-ssh");
-        let bytes = match std::fs::read(directory.join("manifest.json")) {
+        let bytes = match cmux_blocking::fs::read(directory.join("manifest.json")) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(BootstrapError::Io(error)),
@@ -172,7 +172,7 @@ fn client_architecture(
         "x86_64" => CPU_TYPE_X86_64,
         _ => return Ok(None),
     };
-    let mut file = std::fs::File::open(executable)?;
+    let mut file = cmux_blocking::fs::open(executable)?;
     let length = file.metadata()?.len();
     let mut header = [0_u8; 8];
     if file.read_exact(&mut header).is_err() {
@@ -310,6 +310,31 @@ pub async fn pinned_linux_payload(
     arch: &str,
     identity: &str,
 ) -> Result<Option<(PathBuf, String)>, BootstrapError> {
+    let (arch, identity) = (arch.to_owned(), identity.to_owned());
+    // The manifest read and the bundled build's hash block: a MayBlock task.
+    let resolved = cmux_blocking::spawn_blocking(move || resolve_linux_payload(&arch, &identity))
+        .await
+        .map_err(blocking_task_failed)??;
+    match resolved {
+        None => Ok(None),
+        Some(LinuxPayload::Bundled { path, sha256 }) => Ok(Some((path, sha256))),
+        Some(LinuxPayload::Published(published)) => {
+            let path = fetch_published(&published).await?;
+            Ok(Some((path, published.sha256.to_ascii_lowercase())))
+        }
+    }
+}
+
+/// Where [`pinned_linux_payload`]'s build comes from.
+enum LinuxPayload {
+    Bundled { path: PathBuf, sha256: String },
+    Published(PublishedPayload),
+}
+
+fn resolve_linux_payload(
+    arch: &str,
+    identity: &str,
+) -> Result<Option<LinuxPayload>, BootstrapError> {
     let executable = std::env::current_exe().map_err(BootstrapError::Io)?;
     let cache = default_payload_cache();
     let source =
@@ -322,20 +347,56 @@ pub async fn pinned_linux_payload(
                 .and_then(|pinned| pinned.platform("linux", arch).transpose())
                 .transpose()?
                 .ok_or_else(|| BootstrapError::Configuration("the Linux pin went away".into()))?;
-            Ok(Some((path, pinned.sha256.to_ascii_lowercase())))
+            Ok(Some(LinuxPayload::Bundled { path, sha256: pinned.sha256.to_ascii_lowercase() }))
         }
-        Some(Payload::Published(published)) => {
-            let path = fetch_published(&published).await?;
-            Ok(Some((path, published.sha256.to_ascii_lowercase())))
-        }
+        Some(Payload::Published(published)) => Ok(Some(LinuxPayload::Published(published))),
         Some(Payload::Client(_) | Payload::ClientSlice(_)) => Err(BootstrapError::Configuration(
             "a Linux payload resolved to this client's own build".into(),
         )),
     }
 }
 
+/// [`payload`]'s arguments, owned, for [`resolve_payload`].
+pub(crate) struct PayloadRequest {
+    pub(crate) executable: PathBuf,
+    pub(crate) build_identity: String,
+    pub(crate) os: String,
+    pub(crate) arch: String,
+    pub(crate) base_url: String,
+    pub(crate) cache: Option<PathBuf>,
+    pub(crate) proxy_pac: Option<String>,
+}
+
+/// [`payload`] as a MayBlock task (Chromium `base/task/thread_pool.h`,
+/// `PostTaskAndReplyWithResult`): it reads the manifest and hashes the
+/// bundled build, which must not stall the runtime thread.
+pub(crate) async fn resolve_payload(
+    request: PayloadRequest,
+) -> Result<Option<Payload>, BootstrapError> {
+    cmux_blocking::spawn_blocking(move || {
+        payload(
+            &request.executable,
+            &request.build_identity,
+            &request.os,
+            &request.arch,
+            &PayloadSource {
+                base_url: &request.base_url,
+                cache: request.cache.as_deref(),
+                proxy_pac: request.proxy_pac.as_deref(),
+            },
+        )
+    })
+    .await
+    .map_err(blocking_task_failed)?
+}
+
+/// A blocking-pool task that panicked or was cancelled at shutdown.
+pub(crate) fn blocking_task_failed(error: tokio::task::JoinError) -> BootstrapError {
+    BootstrapError::Io(error.into())
+}
+
 fn file_sha256(path: &Path) -> std::io::Result<String> {
-    let mut input = std::fs::File::open(path)?;
+    let mut input = cmux_blocking::fs::open(path)?;
     let mut digest = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
@@ -373,7 +434,7 @@ impl Drop for DownloadEntry {
 }
 
 async fn sha256_of(path: PathBuf) -> std::io::Result<String> {
-    tokio::task::spawn_blocking(move || file_sha256(&path))
+    cmux_blocking::spawn_blocking(move || file_sha256(&path))
         .await
         .map_err(|error| std::io::Error::other(error.to_string()))?
 }
@@ -384,9 +445,7 @@ async fn is_cached(payload: &PublishedPayload) -> bool {
 
 /// Marks a cached build as in use, so pruning keeps it.
 fn touch(path: &Path) {
-    let _ = std::fs::File::options()
-        .write(true)
-        .open(path)
+    let _ = cmux_threads::checked::fs::open_with(std::fs::File::options().write(true), path)
         .and_then(|file| file.set_modified(std::time::SystemTime::now()));
 }
 
@@ -395,8 +454,8 @@ fn touch(path: &Path) {
 /// only while it still matches the slice.
 pub(crate) async fn extract_client_slice(slice: &ClientSlice) -> Result<PathBuf, BootstrapError> {
     let slice = slice.clone();
-    tokio::task::spawn_blocking(move || -> std::io::Result<PathBuf> {
-        let mut executable = std::fs::File::open(&slice.executable)?;
+    cmux_blocking::spawn_blocking(move || -> std::io::Result<PathBuf> {
+        let mut executable = cmux_blocking::fs::open(&slice.executable)?;
         executable.seek(SeekFrom::Start(slice.offset))?;
         let mut bytes = vec![0_u8; usize::try_from(slice.size).map_err(std::io::Error::other)?];
         executable.read_exact(&mut bytes)?;
@@ -407,19 +466,19 @@ pub(crate) async fn extract_client_slice(slice: &ClientSlice) -> Result<PathBuf,
             touch(&path);
             return Ok(path);
         }
-        std::fs::create_dir_all(&slice.cache)?;
+        cmux_blocking::fs::create_dir_all(&slice.cache)?;
         // Concurrent bootstraps, in this process or another, each write their
         // own file; the rename makes whichever finishes the shared copy.
         static EXTRACTIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let extraction = EXTRACTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let partial =
             slice.cache.join(format!("{file_name}.{}-{extraction}.partial", std::process::id()));
-        if let Err(error) =
-            std::fs::write(&partial, &bytes).and_then(|()| std::fs::rename(&partial, &path))
+        if let Err(error) = cmux_blocking::fs::write(&partial, &bytes)
+            .and_then(|()| cmux_blocking::fs::rename(&partial, &path))
         {
             // Pruning keeps names that start with this build's, so a failed
             // copy would otherwise stay until the version changes.
-            let _ = std::fs::remove_file(&partial);
+            let _ = cmux_blocking::fs::remove_file(&partial);
             return Err(error);
         }
         prune_cache(&slice.cache, &file_name);
@@ -435,7 +494,9 @@ pub(crate) async fn extract_client_slice(slice: &ClientSlice) -> Result<PathBuf,
 /// that matched the pin.
 pub(crate) async fn fetch_published(payload: &PublishedPayload) -> Result<PathBuf, BootstrapError> {
     if is_cached(payload).await {
-        touch(&payload.cache_path);
+        let cache_path = payload.cache_path.clone();
+        // Only pruning reads the time it sets.
+        let _ = cmux_blocking::spawn_blocking(move || touch(&cache_path)).await;
         return Ok(payload.cache_path.clone());
     }
     let mut receiver = {
@@ -476,10 +537,12 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
     // Another cmux-tui process may be fetching the same build: hold the lock
     // while appending to the shared partial file, then look again.
     let lock_path = directory.join(format!("{file_name}.lock"));
-    let _lock = tokio::task::spawn_blocking(move || -> std::io::Result<std::fs::File> {
-        std::fs::create_dir_all(lock_path.parent().unwrap_or(Path::new(".")))?;
-        let lock =
-            std::fs::File::options().create(true).truncate(false).write(true).open(&lock_path)?;
+    let _lock = cmux_blocking::spawn_blocking(move || -> std::io::Result<std::fs::File> {
+        cmux_blocking::fs::create_dir_all(lock_path.parent().unwrap_or(Path::new(".")))?;
+        let lock = cmux_threads::checked::fs::open_with(
+            std::fs::File::options().create(true).truncate(false).write(true),
+            &lock_path,
+        )?;
         lock.lock()?;
         Ok(lock)
     })
@@ -495,7 +558,7 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
         let routes = {
             let url = payload.url.clone();
             let pac = payload.proxy_pac.clone();
-            tokio::task::spawn_blocking(move || {
+            cmux_blocking::spawn_blocking(move || {
                 crate::ssh_payload_proxy::routes(&url, pac.as_deref())
             })
             .await
@@ -524,13 +587,19 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
         }
         let actual = sha256_of(partial.clone()).await.map_err(|error| error.to_string())?;
         if actual != payload.sha256 {
-            let _ = std::fs::remove_file(&partial);
+            let _ = tokio::fs::remove_file(&partial).await;
             return Err("the downloaded file does not match its SHA-256 checksum pin".into());
         }
     }
-    std::fs::rename(&partial, &payload.cache_path).map_err(|error| error.to_string())?;
-    prune_cache(&directory, &file_name);
-    Ok(payload.cache_path.clone())
+    let cache_path = payload.cache_path.clone();
+    cmux_blocking::spawn_blocking(move || {
+        cmux_blocking::fs::rename(&partial, &cache_path)?;
+        prune_cache(&directory, &file_name);
+        Ok::<_, std::io::Error>(cache_path)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())
 }
 
 /// Appends `payload` to `partial` with curl, through `route` when given.
@@ -579,7 +648,7 @@ async fn run_curl(
     // a proxy in the way, does not resume ranges. Either way the partial can
     // never be resumed, so the next connect starts over.
     if stderr.contains("416") || output.status.code() == Some(33) {
-        let _ = std::fs::remove_file(partial);
+        let _ = tokio::fs::remove_file(partial).await;
     }
     Err(if stderr.is_empty() {
         format!("curl exited with {}", output.status)
@@ -591,7 +660,7 @@ async fn run_curl(
 /// Deletes cached builds, and leftover partial and lock files, that are not
 /// `keep` and have not been touched for [`CACHE_RETENTION`].
 fn prune_cache(directory: &Path, keep: &str) {
-    let Ok(entries) = std::fs::read_dir(directory) else { return };
+    let Ok(entries) = cmux_blocking::fs::read_dir(directory) else { return };
     let now = std::time::SystemTime::now();
     for entry in entries.flatten() {
         let name = entry.file_name();
@@ -604,7 +673,46 @@ fn prune_cache(directory: &Path, keep: &str) {
                 now.duration_since(modified).is_ok_and(|age| age > CACHE_RETENTION)
             });
         if stale && name.contains("cmux-tui-") {
-            let _ = std::fs::remove_file(entry.path());
+            let _ = cmux_blocking::fs::remove_file(entry.path());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn payload_resolution_reads_and_hashes_off_the_runtime_thread() {
+        // cmux_blocking's block_on disallows blocking on its thread: the
+        // manifest read or the bundled build's hash left there panics in debug.
+        let directory = tempfile::tempdir().unwrap();
+        let artifacts = directory.path().join("cmux-tui-ssh");
+        std::fs::create_dir(&artifacts).unwrap();
+        let name = "cmux-tui-x86_64-unknown-linux-musl";
+        let bundled = artifacts.join(name);
+        std::fs::write(&bundled, b"linux build").unwrap();
+        let digest = format!("{:x}", Sha256::digest(b"linux build"));
+        let manifest = serde_json::json!({ "commit": "build", "binaries": { name: digest } });
+        std::fs::write(artifacts.join("manifest.json"), manifest.to_string()).unwrap();
+        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let stalled = cmux_blocking::counts().stalled;
+
+        let resolved = cmux_blocking::runtime::block_on(
+            &runtime,
+            resolve_payload(PayloadRequest {
+                executable: directory.path().join("cmux-tui"),
+                build_identity: "build".into(),
+                os: "linux".into(),
+                arch: "x86_64".into(),
+                base_url: "https://files.invalid/cmux-tui".into(),
+                cache: None,
+                proxy_pac: None,
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(cmux_blocking::counts().stalled, stalled);
+        assert!(matches!(resolved, Some(Payload::Bundled(path)) if path == bundled));
     }
 }

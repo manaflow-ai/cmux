@@ -1,4 +1,5 @@
 import CmuxNextCompat
+@testable import CmuxNextDesign
 import CmuxNextMetrics
 @testable import CmuxNextSignposts
 @testable import CmuxNextTerminal
@@ -232,6 +233,62 @@ struct GhosttyTraceHookTests {
         #expect(stages.sink.events == [.echoParsed, .contentSubmitted])
         #expect(!stages.gate.isOpen)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// p03-rendering-093: a renderer-presented frame passes through no `setContents:` hook, so each shown one is a
+    /// contents set of TerminalSurfaceView in the app's RenderStats, once the app gave them; a frame not shown is not.
+    @Test func eachShownPresentedFrameIsATerminalContentsSet() {
+        let trace = TraceRuntime(role: .app)
+        let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace))
+        let stats = RenderStats()
+        stats.ledger.arm(generation: 1)
+        defer { stats.ledger.disarm() }
+
+        rig.present(frameID: 1)
+        rig.hook.countPresentedFrames(in: stats.presentedFrames)
+        rig.present(frameID: 2)
+        rig.present(frameID: 3, presentedTime: 0)
+        rig.present(frameID: 4)
+        #expect(Self.terminalContentsSets(stats) == 2)
+        #expect(stats.totals[.contentsSets] == 2)
+    }
+
+    /// p03-rendering-093: the Core Animation threads that report presented frames count them without a data race
+    /// (run under TSan: `swift test --sanitize=thread`).
+    @Test func presentedFramesFromManyThreadsCountWithoutARace() async {
+        let trace = TraceRuntime(role: .app)
+        let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace))
+        let stats = RenderStats()
+        rig.hook.countPresentedFrames(in: stats.presentedFrames)
+        stats.ledger.arm(generation: 1)
+        defer { stats.ledger.disarm() }
+
+        let bridge = UInt(bitPattern: Unmanaged.passUnretained(rig.bridge).toOpaque())
+        await Self.presentOffMain(bridge: bridge, threads: 8, framesPerThread: 100)
+        withExtendedLifetime(rig.bridge) {}
+        #expect(Self.terminalContentsSets(stats) == 8 * 100)
+    }
+
+    private static func terminalContentsSets(_ stats: RenderStats) -> Int? {
+        stats.owners().first { $0.key == RenderStats.classKey(TerminalSurfaceView.self) }?.totals[.contentsSets]
+    }
+
+    /// `threads` threads off the main thread each report `framesPerThread` shown frames of the surface whose
+    /// bridge is at `bridge`, as the renderer's `presented_cb` does.
+    nonisolated static func presentOffMain(bridge: UInt, threads: Int, framesPerThread: Int) async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                DispatchQueue.concurrentPerform(iterations: threads) { thread in
+                    for frame in 0..<framesPerThread {
+                        let frameID = UInt64(thread * framesPerThread + frame + 1)
+                        ghosttySurfacePresented(UnsafeMutableRawPointer(bitPattern: bridge), frameID, mach_absolute_time(), 1)
+                    }
+                }
+                continuation.resume()
+            }
+        }
+    }
+    #endif
 
     @Test func theHookIsSetOnlyWhileSomethingReadsIt() {
         let trace = TraceRuntime(role: .app)

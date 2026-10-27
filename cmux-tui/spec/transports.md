@@ -447,12 +447,15 @@ vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, ech
 
 ## Framed IPC grants
 
-Status: grant rule only. The daemon advertises and grants a capability only
-after its transport is in the daemon. No transport is in the daemon yet, so
-`identify` lists none of the four and `set-client-info` grants none. The
-task that adds a transport also turns on its capability: p05-ipc-061 for
-`ipc-frames-v2`, the stream task for `attach-streams-v1` and `cancel-stream`,
-and the ring task for `terminal-output-ring-v1`
+Status: `attach-streams-v1` is in the daemon (p05-ipc-074,
+[events.md](events.md#attach-streams)); the other three are a grant rule
+only. The daemon advertises and grants a capability only after its
+transport is in the daemon, so `identify` lists only `attach-streams-v1` of
+the four and `set-client-info` grants only it. A request that names a
+`stream` on a connection without the grant is refused with
+`streams_not_granted`. The task that adds a transport also turns on its
+capability: p05-ipc-061 for `ipc-frames-v2` and the ring task for
+`terminal-output-ring-v1`
 (`plans/cmux-next/chrome-parity/p05-ipc.md`, sections 3.1 and 3.2). Mojo
 works the same way: it exposes an interface only after its implementation
 is bound.

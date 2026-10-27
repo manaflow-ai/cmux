@@ -18,6 +18,10 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// The view to place in the pane. For `.childWindow` engines this is the
     /// placeholder the child window tracks.
     var contentView: NSView { get }
+    /// What the page paints behind its document, for a gap the moving page leaves (Chrome's gutter,
+    /// `content/browser/renderer_host/delegated_frame_host.cc`); nil while the page is see-through
+    /// (blank, New Tab, loading), so what is behind the page shows there too. The default is nil.
+    var pageBackgroundColor: CGColor? { get }
 
     var state: BrowserTabState { get }
     var favicon: NSImage? { get }
@@ -123,6 +127,7 @@ extension BrowserTab {
 
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
+    public var pageBackgroundColor: CGColor? { nil }
     public var siteZoomLevels: SiteZoomLevels? { nil }
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
 

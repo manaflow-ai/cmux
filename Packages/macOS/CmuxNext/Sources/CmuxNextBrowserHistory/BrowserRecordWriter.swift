@@ -212,7 +212,7 @@ public final class BrowserRecordWriter {
             record.forward = recorded.forward
         }
         let echo = record.url.flatMap { sentURLs.firstIndex(of: $0) }
-        if let echo { sentURLs.removeFirst(echo + 1) }
+        if let echo { sentURLs.removeSubrange(...echo) }
         guard record != recorded else { return }
         let previous = recorded
         recorded = record

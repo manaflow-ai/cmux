@@ -1,6 +1,7 @@
 public import CmuxAppAttest
 public import CmuxNextCompat
 public import CmuxNextSettings
+public import CmuxNextWakeups
 import DeviceCheck
 public import Foundation
 import os
@@ -11,13 +12,13 @@ import os
 /// and the sign-in (a signed-in Mac never takes a free lease). The relay
 /// starts a lease only at the first signed-out agent request, never here.
 ///
-/// The app keeps only the hook (one call at launch; the provider lives as
-/// long as the app, and its connection ends with the process, so the relay
-/// drops the free token at once):
+/// The app keeps only the hook (one call at launch) and the token it returns, for its
+/// lifetime; the provider lives as long as the app, and its connection ends with the
+/// process, so the relay drops the free token at once:
 ///
 /// ```swift
-/// FreeTierAttestStarter(build: build, bundle: .main, apiBaseURL: url, settings: settings,
-///                       signedIn: { cloud.isSignedIn || cloud.auth.isRestoring }).start()
+/// lifetimeFollowers.append(FreeTierAttestStarter(build: build, bundle: .main, apiBaseURL: url, settings: settings,
+///                       signedIn: { cloud.isSignedIn || cloud.auth.isRestoring }).start(on: mainWork))
 /// ```
 @MainActor public struct FreeTierAttestStarter {
     private let build: BuildIdentity?
@@ -40,13 +41,34 @@ import os
         self.signedIn = signedIn
     }
 
-    /// Starts the provider and follows the setting and the sign-in for the
-    /// app's lifetime. Does nothing without acpmux or an API origin.
-    public func start() {
+    /// What the provider follows; a change of any starts one update.
+    nonisolated struct Inputs: Equatable, Sendable {
+        var enabled: Bool
+        var managed: Bool
+        var signedIn: Bool
+    }
+
+    /// What the provider is told, in order: one start with the first inputs, one update per change, and a stop
+    /// when the follow ends.
+    nonisolated enum Step: Equatable, Sendable {
+        case start(Inputs)
+        case update(Inputs)
+        case stop
+    }
+
+    /// Starts the provider and follows the setting and the sign-in while the returned token is
+    /// held (the app holds it for its lifetime). Nil without acpmux or an API origin.
+    ///
+    /// The follow is a `background` service observation on `work` (nobody sees the lease, and the
+    /// relay reads it off main); each change goes, in order and coalesced to the newest, to one task
+    /// off main that calls the provider actor.
+    ///
+    /// - Parameter work: The app's one main-thread scheduler (`AppServices.mainWork`).
+    public func start(on work: MainWorkScheduler) -> AnyObject? {
         let bin = bundle.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         guard let acpmux = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin,
                                                      environment: ProcessInfo.processInfo.environment),
-              let scheme = apiBaseURL.scheme, let host = apiBaseURL.host else { return }
+              let scheme = apiBaseURL.scheme, let host = apiBaseURL.host else { return nil }
         // Scheme, host and port only; the relay accepts only a known cmux API origin.
         let origin = "\(scheme)://\(host)" + (apiBaseURL.port.map { ":\($0)" } ?? "")
         let provider = FreeTierAttestProvider(
@@ -56,21 +78,37 @@ import os
             keys: KeychainAttestKeyStore(service: "com.cmuxterm.next.free-tier.app-attest.\(bundle.bundleIdentifier ?? "unknown")",
                                          account: "key"),
             logger: Logger(subsystem: "com.cmuxterm.app.next", category: "free-tier"))
-        let settings = settings, signedIn = signedIn
-        // task-owner: lives as long as the app (the provider's connection ends with the process); one provider start, then one update per setting or sign-in change
-        Task {
-            var started = false
-            for await (enabled, managed, signedIn) in ObservationStream({
-                (settings?.snapshot.freeModel.enabled ?? true, settings?.managedKeys["freeModel.enabled"] != nil, signedIn())
-            }) {
-                if started {
-                    await provider.update(enabled: enabled, managed: managed, signedIn: signedIn)
-                } else {
-                    started = true
-                    await provider.start(origin: origin, enabled: enabled, managed: managed, signedIn: signedIn)
-                }
+        return Self.follow(settings: settings, signedIn: signedIn, on: work) { step in
+            switch step {
+            case .start(let inputs):
+                await provider.start(origin: origin, enabled: inputs.enabled, managed: inputs.managed, signedIn: inputs.signedIn)
+            case .update(let inputs):
+                await provider.update(enabled: inputs.enabled, managed: inputs.managed, signedIn: inputs.signedIn)
+            case .stop:
+                await provider.stop()
             }
-            await provider.stop()
+        }
+    }
+
+    /// Follows the setting and the sign-in in a `background` service observation on `work`, and hands each change,
+    /// in order and coalesced to the newest, to `run` in one task off main. The returned token holds the follow.
+    static func follow(settings: SettingsController?, signedIn: @escaping @MainActor () -> Bool, on work: MainWorkScheduler,
+                       run: @escaping @Sendable (Step) async -> Void) -> AnyObject {
+        let (changes, feed) = AsyncStream.makeStream(of: Inputs.self, bufferingPolicy: .bufferingNewest(1))
+        // task-owner: lives as long as the follow (the app's lifetime); one provider start, then one update per change
+        Task { @concurrent in
+            var started = false
+            for await inputs in changes {
+                await run(started ? .update(inputs) : .start(inputs))
+                started = true
+            }
+            await run(.stop)
+        }
+        return ServiceObservation(.background, owner: "FreeTierAttestStarter.inputs", on: work) {
+            Inputs(enabled: settings?.snapshot.freeModel.enabled ?? true, managed: settings?.managedKeys["freeModel.enabled"] != nil,
+                   signedIn: signedIn())
+        } apply: { inputs in
+            feed.yield(inputs)
         }
     }
 }

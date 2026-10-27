@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxHomeCore
 public import CmuxNextWakeups
 public import QuartzCore
 
@@ -23,6 +24,12 @@ public import QuartzCore
 /// override func viewDidUnhide() { super.viewDidUnhide(); loops.node.set(.visible) }
 /// loops.attach(star, key: "twinkle") { Motion.panes.spinAnimation() }
 /// ```
+///
+/// Made with `motionSignals`, it also makes its visible loops again on every
+/// ``AppearanceSignals/Signal/motion`` change, so a loop whose make reads a gate stops the moment
+/// Energy Saver, Reduce Motion or the category switch turns loops off, and comes back when they
+/// turn on, with no work in the owner. Chromium's `gfx::Animation` reads the same cached setting
+/// for each animation it starts (`ui/gfx/animation/animation.cc`, `ShouldRenderRichAnimation`).
 @MainActor public final class LoopVisibility {
     /// Makes the loop, or nil when loops are off (Reduce Motion, Energy Saver, the category off).
     public typealias Make = @MainActor () -> CAAnimation?
@@ -35,6 +42,10 @@ public import QuartzCore
     private var loops: [LoopKey: Loop] = [:]
     /// Held only while a loop is attached, so a view with no loop costs its node no subscriber.
     private var flips: VisibilitySubscription?
+    /// Where motion setting changes are announced; nil when the owner follows them itself.
+    private let motionSignals: AppearanceSignals?
+    /// Held only while a loop is attached, like ``flips``.
+    private var motionWatch: AppearanceSignals.Subscription?
 
     private struct LoopKey: Hashable {
         let layer: ObjectIdentifier
@@ -50,9 +61,12 @@ public import QuartzCore
     /// - Parameters:
     ///   - name: The node's name in diagnostics (`nightSky`, `sidebar.row.wiggle`).
     ///   - clock: The media-time clock a loop's phase is counted from; tests pass fixed times.
-    public init(_ name: String, clock: SpinnerClock = SpinnerClock()) {
+    ///   - motionSignals: The signals whose ``AppearanceSignals/Signal/motion`` changes make the
+    ///     visible loops again (``DesignSettings/signals``); nil leaves that to the owner.
+    public init(_ name: String, clock: SpinnerClock = SpinnerClock(), motionSignals: AppearanceSignals? = nil) {
         view = ViewVisibility(name)
         self.clock = clock
+        self.motionSignals = motionSignals
     }
 
     /// Puts ``node`` under `window`'s node, or under the hidden root for no window. The view calls it
@@ -119,11 +133,25 @@ public import QuartzCore
         Self.add(loop, to: layer, forKey: key, clock: clock)
     }
 
-    /// Subscribes to ``node``'s flips while a loop is attached, and drops loops whose layer is gone.
+    /// Subscribes to ``node``'s flips (and the motion signal, when given) while a loop is attached,
+    /// and drops loops whose layer is gone.
     private func follow() {
         loops = loops.filter { $0.value.layer != nil }
         guard loops.isEmpty == (flips != nil) else { return }
-        flips = loops.isEmpty ? nil : node.subscribe(owner: "LoopVisibility") { [weak self] visibility in self?.apply(visibility) }
+        guard !loops.isEmpty else {
+            flips = nil
+            motionWatch = nil
+            return
+        }
+        flips = node.subscribe(owner: "LoopVisibility") { [weak self] visibility in self?.apply(visibility) }
+        motionWatch = motionSignals?.subscribe([.motion], owner: "LoopVisibility") { [weak self] in self?.motionChanged() }
+    }
+
+    /// The motion settings changed: each visible loop is made again under them. A hidden node has
+    /// no loop on its layers and makes them when it shows.
+    private func motionChanged() {
+        guard node.isVisible else { return }
+        apply(.visible)
     }
 
     private func apply(_ visibility: Visibility) {
@@ -138,3 +166,7 @@ public import QuartzCore
         follow()
     }
 }
+
+/// The app's ``LoopHost`` (CmuxHomeCore): a Shared view that cannot see its window takes one
+/// injected (p14-energy-115) and its loops follow this host's window like the app's own.
+extension LoopVisibility: LoopHost {}

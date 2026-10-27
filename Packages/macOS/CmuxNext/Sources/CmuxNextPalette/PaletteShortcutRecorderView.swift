@@ -64,6 +64,7 @@ final class PaletteShortcutRecorderView: NSView {
         if !press.began(event) { super.mouseDown(with: event) }
     }
 
+    // input-coalesce: native (a press highlight: a row hit test per event, nothing selected until the release)
     // local-monitor-allow: a held press's drag (PalettePress) is per event and keeps order; no hover work runs here
     override func mouseDragged(with event: NSEvent) {
         guard press.isPressed else { return super.mouseDragged(with: event) }

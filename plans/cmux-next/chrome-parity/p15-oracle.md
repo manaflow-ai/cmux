@@ -595,6 +595,14 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 332 | Screen creates answer with the screen | S | 20-28 | 077 | |
 | 333 | No silent no-op for column and workspace moves | S | 20-28 | 077 | |
 | 334 | Reopen Saved Screen Group refuses an unknown id | S | 18-24 | 077 | |
+| 350 | Live: pointer step and menu rows | M | 20-36 | 047, 012, 225 | MQ-live |
+| 351 | Live: app restart step | M | 20-36 | 047, 189, 225 | MQ-live |
+| 352 | Live: https, basic auth and PDF in the web fixture | S | 18-28 | 222, 225 | MQ-live |
+| 353 | Live: stand-ins or retirements for scripts outside reach | S | 18-28 | 225 | |
+| 354 | Live: the app's Chief over mock_chief.py | M | 20-36 | 047, 200, 240, 225 | MQ-live |
+| 355 | Live: per-case launch environment and config | M | 20-36 | 047, 200, 225 | MQ-live |
+| 356 | Live: facets for the scripts' debug.* reads | L | 24-48 | 030, 225 | MQ-live |
+| 357 | Live: chrome:// and cmux:// pages are local | S | 18-24 | 012, 225 | MQ-live |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -1291,6 +1299,54 @@ size, title, cwd equal after restart; old arm expects the documented host-loss r
 
 **091 Tours** (23, waits become waitFor/settle). **092-097 e2e** (66 scripts in 6 batches of 11; each converted case fails on its cited
 bug's parent). **225 live** (106 scripts, `scripts/cmux-next/oracle/live-map.json`, 8 batches of 13).
+
+**Follow-ups of 225.** Every live script that 225 excludes names one of these tasks (or the suite's task that covers
+it) in `gen_live.py` EXCLUSIONS, and `gen_live.py --check` refuses an exclusion without a WORK.tsv task (rule 6).
+Each task moves its scripts from EXCLUSIONS to CONVERSIONS, regenerates `live-map.json`, and runs each new case
+twice on the fleet (`driver_app.py run-case --repeat 2`).
+
+**350 Pointer step.** Files: `case-v1.schema.json`, `driver_app.py`, `gen_live.py`. A `pointer` step (move, click,
+right-click, double-click, drag with its points in a window's or a facet row's coordinates) sent through
+`debug.mouse`, as Kombucha's MoveMouseTo, ClickMouse and DragMouseTo verbs (ui/views/interaction/
+interactive_views_test.h); an open context menu's rows in the overlays facet. Converts agent-pane-menu,
+cef-native-ui, chromium-popups, clickthrough, devtools-resize, group-editor, hovercard-delay, omnibar-pointer,
+sidebar-v2-drag, terminal-cmd-click, titlebar-double-click and the pointer halves of other cases.
+
+**351 App restart step.** Files: `driver_app.py`, `gen_live.py`. case-v1 already has `restart` with `process: app`;
+driver_app.py quits the app (TagTeardown keeps the state root), relaunches it on the same root and records the exit
+status for I17, as Chrome's PRE_ browser tests restart on the same user-data dir (content/public/test/test_launcher.cc).
+Converts browser-post-replay, browser-restore, downloads-relaunch, quit-hidden-chromium, update-card-close,
+updated-card-close and the relaunch halves of reopen-closed-history and sidebar-group-menu.
+
+**352 Web fixture: https, basic auth, PDF.** Files: `webfixture.py`, `tests/oracle/fixtures/web/`. A second loopback
+origin over TLS with a certificate made per run (net::EmbeddedTestServer's TYPE_HTTPS with CERT_EXPIRED and
+CERT_MISMATCHED_NAME), an `/auth-basic` route (default_handlers.cc HandleAuthBasic) and an inline PDF route.
+Converts browser-challenges and pdf, and the certificate interstitial check of error-pages.
+
+**353 Scripts outside reach.** Files: `gen_live.py`, `live-map.json`. The network, host and evidence scripts (real
+services such as the Chrome Web Store, the staging Cloud API and Google Chrome over CDP; macOS services; captures)
+each get a loopback stand-in case where one can hold its check, or a written retirement agreed with the script's
+owner (OWNERS.md) that keeps it a manual live check outside the oracle.
+
+**354 Chief over mock_chief.py.** Files: `driver_app.py`, `mock_chief.py`, `gen_live.py`. `fixture.agent: chief`
+starts the app's Chief owner, Home and the ACP agent pane over mock_chief.py and the fake ACP agent (scripted
+replies, no model, no login), as 240 does for the daemon. Converts the chief-*, home-* and html-file-menu scripts
+that need a brain but not a real model.
+
+**355 Per-case launch.** Files: `case-v1.schema.json`, `hermetic_env.py`, `driver_app.py`, `gen_live.py`.
+`fixture.launch` names a launch variant from a closed list (the recording build env for external opens, extra CEF
+switches, a browser-import home, a tunables file, a seeded state root, a copied bundle); hermetic_env.py builds it and
+the bench launch applies it, as Chrome's browser tests set their command line in SetUpCommandLine. Converts the
+launch scripts.
+
+**356 Facets for debug.* reads.** Files: `snapshot-v1.schema.json`, the CmuxNextOracle and App/Oracle providers.
+Each read the no-facet scripts make through a debug.* method (downloads, permission prompts, omnibar suggestion rows,
+hover cards, toolbar and pane chrome buttons, OSC 7501 program status, the agent cursor, window layers) becomes a
+model value of a facet, with no view frames (rule 7). Converts the no-facet scripts.
+
+**357 Local schemes.** Files: `case-v1.schema.json`, `case-v1-mutations.json`, `gen_live.py`. noRemoteUrl takes
+`chrome://` internal pages and `cmux://` pages as local, as it already takes Chromium's debug URLs. Converts
+chrome-internal-pages and page-swap-visible.
 
 **098 Walks + ddmin, 099 at scale (100,000 seeds per daemon switch, both arms).** **207 Crash walks** (`crash_walks.py`): SIGKILL at
 random steps, restart on the same root, state equals last acknowledged sequence. **208 Upgrades** (`gen_upgrades.py`,

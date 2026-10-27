@@ -1,5 +1,6 @@
 //! A panic on any thread lands in the log as one JSON line, with the
-//! caller's fields, and the previous hook still runs.
+//! caller's fields and the panicking thread's open trace scopes, and the
+//! previous hook still runs.
 
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +14,11 @@ fn a_thread_panic_is_appended_with_fields_and_the_previous_hook_runs() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("panics.jsonl");
     let _ = std::fs::remove_file(&path);
+    // The process traces as acpmux, so its lines name the role and uptime (p09-observability-082).
+    cmux_trace::init_blackbox(&dir, cmux_trace::Role::Acpmux)
+        .expect("the first trace start")
+        .wait()
+        .ok();
     std::panic::set_hook(Box::new(|_| PREVIOUS_RAN.store(true, Ordering::SeqCst)));
     let mut fields = cmux_panic_log::Fields::new();
     fields.insert("process".into(), "acpmux".into());
@@ -21,6 +27,9 @@ fn a_thread_panic_is_appended_with_fields_and_the_previous_hook_runs() {
     let joined = std::thread::Builder::new()
         .name("worker".into())
         .spawn(|| {
+            // The open trace scopes at the panic go into its line, innermost first.
+            let _request = cmux_trace::trace_scope!(daemon, "daemon.request");
+            let _parse = cmux_trace::trace_scope!(daemon, "daemon.request.parse");
             // The crash keys at the panic go into its line (p10-stability-207): a
             // daemon request's future, keyed by its method and polled as a
             // runtime's worker polls it.
@@ -60,7 +69,18 @@ fn a_thread_panic_is_appended_with_fields_and_the_previous_hook_runs() {
         cmux_panic_log::crash_keys::stable_key("session.sort"),
         "the panic line names the running method"
     );
+    assert_eq!(
+        lines[0]["scopes"],
+        serde_json::json!(["daemon.request.parse", "daemon.request"]),
+        "the panic line names the scopes it ran in, innermost first: {}",
+        lines[0]
+    );
+    assert_eq!(lines[0]["scope_depth"], 2);
+    assert_eq!(lines[0]["role"], "acpmux");
+    assert!(lines[0]["uptime_ms"].is_u64(), "{}", lines[0]);
     assert_eq!(lines[1]["test"], true);
+    assert!(lines[1].get("scopes").is_none(), "no scope was open: {}", lines[1]);
+    assert_eq!(lines[1]["role"], "acpmux");
     assert!(lines[1].get("crash_keys").is_none(), "the scope ended with its panic: {}", lines[1]);
     assert!(PREVIOUS_RAN.load(Ordering::SeqCst));
     let _ = std::fs::remove_dir_all(&dir);
