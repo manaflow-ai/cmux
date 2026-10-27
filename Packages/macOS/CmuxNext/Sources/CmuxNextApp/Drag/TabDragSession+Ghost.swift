@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextWakeups
 import CmuxNextSignposts
 import CmuxNextTabs
 import QuartzCore
@@ -10,52 +12,93 @@ import QuartzCore
 extension TabDragSession {
     // MARK: Ghost
 
-    func present(_ drag: Drag) {
+    /// Shows `drag`'s ghost at its target. `order` is this pointer event's window order (render server:
+    /// it decides whether the source window's overlay holds the ghost).
+    func present(_ drag: Drag, order: [TabDragWindowPick.Candidate]) {
         let source = drag.source
         let tabSize = source.screenFrame.size
+        // Drawn at the resampled pointer; the target (`drag.winner`) was hit-tested at the real one.
+        let pointer = drag.shownPoint ?? drag.point
         let presentation: Presentation
         let rect: CGRect
         var scale: CGFloat = 1
         if let slot = drag.winner?.proposal.ghostFrame {
             presentation = .inline(slot)
-            rect = TabDragGeometry.inlineRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize, slot: slot)
+            rect = TabDragGeometry.inlineRect(pointer: pointer, grabOffset: source.grabOffset, tabSize: tabSize, slot: slot)
         } else {
             presentation = .card
-            rect = TabDragGeometry.floatingRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize)
+            rect = TabDragGeometry.floatingRect(pointer: pointer, grabOffset: source.grabOffset, tabSize: tabSize)
             if drag.winner != nil || drag.workspaceHighlight != nil { scale = DragTunables.ghostTargetScale.value }
         }
         let jump = presentation != drag.presentation
         drag.presentation = presentation
         let cardness: CGFloat = if case .inline = presentation { 0 } else { 1 }
         drag.motion.setTarget(rect, cardness: cardness, scale: scale, jump: jump)
-        drag.ghost.render(drag.motion)
+        guard drag.ghost.rendersOnServer else { return drag.ghost.render(drag.motion) }
+        drag.ghost.present(drag.motion, token: jump ? .track : .appear, holds: sourceHolds(drag, order: order))
+    }
+
+    /// The ghost changed without a new target (its preview arrived): the CPU path steps it from
+    /// the next frame, the render server springs it now. A drag that ended and landed shows nothing.
+    func redraw(_ drag: Drag) {
+        guard drag === self.drag || drag === landing else { return }
+        guard drag.ghost.rendersOnServer else { return wake(drag) }
+        drag.ghost.present(drag.motion, token: .appear, holds: sourceHolds(drag, order: windowOrder(for: drag)))
+    }
+
+    /// Whether the source window shows a screen rect in front of every other window, while the
+    /// pointer is over it (Chrome's attached drag); nil elsewhere.
+    func sourceHolds(_ drag: Drag, order: [TabDragWindowPick.Candidate]) -> ((CGRect) -> Bool)? {
+        guard let id = drag.source.window?.state.id, TabDragWindowPick.frontmost(at: drag.point, in: order) == id else { return nil }
+        return { TabDragWindowPick.isFrontmost(id, over: $0, in: order) }
     }
 
     func wake(_ drag: Drag) {
         drag.link?.activate()
     }
 
-    /// One ghost frame; false once the ghost settled. The frame is one `motion.drag_frame` thread slice holding the
-    /// tick's dt in us: the ghost's step, the autoscroll, the drop-target hit test and the render (Chrome's per-frame
-    /// slice, `ProxyMain::BeginMainFrame` in cc/trees/proxy_main.cc).
+    /// Wakes the frame clock after a pointer event over `controller`. The CPU path steps the ghost
+    /// on it; on the render server it runs only while the pointer auto-scrolls a columns screen or a
+    /// dwell is armed, as Chrome's tab drag runs its scroll timer only in the edge zone
+    /// (chrome/browser/ui/views/tabs/tab_drag_controller.cc `StartScrollingTimer`).
+    func wake(_ drag: Drag, over controller: WindowController?) {
+        guard drag.ghost.rendersOnServer else { return wake(drag) }
+        if dwellDeadline(drag) != nil || autoscrolls(drag, in: controller) { wake(drag) }
+    }
+
+    /// When a pointer resting on a pane edge or a sidebar slot arms its drop.
+    func dwellDeadline(_ drag: Drag) -> CFTimeInterval? {
+        (drag.winner?.provider as? LayoutTabDropTarget)?.dwellDeadline ?? (drag.winner?.provider as? SidebarTabDropTarget)?.dwellDeadline
+    }
+
+    /// Whether the pointer sits in a columns screen's auto-scroll band of `controller`.
+    func autoscrolls(_ drag: Drag, in controller: WindowController?) -> Bool {
+        guard let layout = controller?.content(atScreen: drag.point)?.layoutView, let window = layout.window else { return false }
+        return layout.tabDragAutoscrolls(locationInWindow: window.convertPoint(fromScreen: drag.point))
+    }
+
+    /// One ghost frame; false once the ghost settled. On the render server nothing steps the
+    /// ghost: the frame only auto-scrolls and re-tests a dwell. The frame is one `motion.drag_frame`
+    /// thread slice holding the tick's dt in us: the ghost's step, the autoscroll, the drop-target hit
+    /// test and the render (Chrome's per-frame slice, `ProxyMain::BeginMainFrame` in cc/trees/proxy_main.cc).
     func tick(_ current: Drag, elapsed dt: Double) -> Bool { // perf-hot: 2ms drag-frame (every frame of a drag)
         guard current === drag || current === landing else { return false }
         let frame = motionSignposter.begin(.motionDragFrame, "", arg0: Self.dragFrameMicros(seconds: dt))
         defer { motionSignposter.end(.motionDragFrame, frame) }
-        var moving = current.motion.step(dt)
+        let onServer = current.ghost.rendersOnServer
+        var moving = onServer ? false : current.motion.step(dt)
         if current === drag, autoscroll(current, dt: dt) {
-            update(current.point)
+            update(current.point, shown: current.shownPoint)
             moving = true
         }
         // A pointer resting on a pane edge or a sidebar slot sends no events: hit-test again once it arms.
-        if current === drag, let deadline = (current.winner?.provider as? LayoutTabDropTarget)?.dwellDeadline
-            ?? (current.winner?.provider as? SidebarTabDropTarget)?.dwellDeadline {
-            if CACurrentMediaTime() >= deadline { update(current.point) }
+        if current === drag, let deadline = dwellDeadline(current) {
+            if CACurrentMediaTime() >= deadline { update(current.point, shown: current.shownPoint) }
             moving = true
         }
-        current.ghost.render(current.motion)
+        if !onServer { current.ghost.render(current.motion) }
         guard !moving else { return true }
-        if current === landing { finishLanding() }
+        if current === landing, !onServer { finishLanding() }
         return false
     }
 
@@ -81,7 +124,7 @@ extension TabDragSession {
     func finish(commit: Bool) {
         guard let drag else { return }
         self.drag = nil
-        removeMonitors(drag)
+        endInput(drag)
         if case .workspaces = drag.source.item { return finishWorkspaces(drag, commit: commit) }
         let outcome = commit ? drag.outcome : .cancel
         if commit { noteCommit(drag) }
@@ -139,6 +182,12 @@ extension TabDragSession {
         drag.motion.setTarget(rect, cardness: cardness, opacity: opacity, scale: scale, jump: true,
                               velocity: drag.releaseVelocity(at: CACurrentMediaTime()))
         landing = drag
+        if drag.ghost.rendersOnServer {
+            // The flight is one render-server spring; its landing closes the ghost (`onRest`).
+            drag.link?.deactivate()
+            drag.ghost.present(drag.motion, token: .settle, holds: nil, landing: true)
+            return
+        }
         if drag.motion.reduceMotion {
             finishLanding()
             return
@@ -154,15 +203,19 @@ extension TabDragSession {
     }
 
     func end(_ drag: Drag) {
-        removeMonitors(drag)
+        endInput(drag)
         drag.link?.deactivate()
         drag.link = nil
         drag.ghost.close()
     }
 
-    func removeMonitors(_ drag: Drag) {
-        if let monitor = drag.monitor { NSEvent.removeMonitor(monitor) }
-        drag.monitor = nil
+    /// Stops the drag's input: its tap intercept, its pending moves and the app-resign observer.
+    func endInput(_ drag: Drag) {
+        drag.input?.cancel()
+        drag.input = nil
+        drag.moves?.cancel()
+        drag.moves = nil
+        resignObserver?.cancel()
         resignObserver = nil
     }
 

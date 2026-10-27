@@ -86,7 +86,9 @@ class Q:
     MQ3 = r'subsystem: "(?!com\.cmuxterm\.app\.next")'
     MQ4_DEBUG = r"^#if DEBUG \|\| CMUX_BENCH_HOOKS|^#if DEBUG$"
     MQ4_NAME = r"(Trace|Timings?|Timer)(\+\w+)?\.swift$"
-    MQ4_EXCLUDE = r"Debug[A-Z]|CEFEventTrace|BurstTrace\+Control"
+    # MotionFrameTrace: the `debug.motion trace_*` geometry sampler (a DEBUG socket method), not a timing trace; the
+    # motion timing it watches ships in every build as motion.frame and motion.run (LayoutMotionTrace, task 026).
+    MQ4_EXCLUDE = r"Debug[A-Z]|CEFEventTrace|BurstTrace\+Control|MotionFrameTrace"
     MQ5_MARKER = r"// perf-hot: \S+ (\S+)"
     MQ5_TRACE = (
         r"Signposter\.|KeyFrameSignpost|InputFrameSignpost|ScrollFrameSignpost|SignpostActionRunTiming|Trace\.scope"
@@ -1399,7 +1401,7 @@ def self_test() -> int:
     expect("MQ4 debug", lines_of(Q.MQ4_DEBUG, "#if DEBUG\n#if DEBUG || CMUX_BENCH_HOOKS\n#if DEBUG && X\n"),
            ["#if DEBUG", "#if DEBUG || CMUX_BENCH_HOOKS"])
     names = ["A/NewTerminalTrace.swift", "A/DebugTimings.swift", "A/FooTimer+Bar.swift", "A/CEFEventTrace.swift",
-             "A/BurstTrace+Control.swift", "A/Tracer.swift", "A/TerminalTimings.swift"]
+             "A/BurstTrace+Control.swift", "A/Tracer.swift", "A/TerminalTimings.swift", "A/MotionFrameTrace.swift"]
     expect("MQ4 names", [n for n in names if re.search(Q.MQ4_NAME, n) and not re.search(Q.MQ4_EXCLUDE, n)],
            ["A/NewTerminalTrace.swift", "A/FooTimer+Bar.swift", "A/TerminalTimings.swift"])
     file_lines = [

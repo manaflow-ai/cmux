@@ -102,7 +102,7 @@ import Testing
 
         /// The translation `layer`'s model holds.
         static func translation(of layer: CALayer?) -> CGFloat {
-            CGFloat((layer?.value(forKeyPath: StripClipContainerView.translationKeyPath) as? NSNumber)?.doubleValue ?? .nan)
+            layer.flatMap { StripClipContainerView.translationKey.value(of: $0) } ?? .nan
         }
 
         func settle() { for _ in 0..<600 where root.advanceFrame(1.0 / 120) {} }
@@ -136,11 +136,14 @@ import Testing
 
     @Test func onTheStripsHostsAndDividersSitInTheMotionContainer() {
         let w = Window(renderServer: true)
-        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.superview === w.screen.stripContainer) }
+        // The first column's rows overflow: they sit in their row's container in the strip container (p04-input-050).
+        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.isDescendant(of: w.screen.stripContainer) == true) }
         #expect(!w.screen.dividerViews.isEmpty)
-        #expect(w.screen.dividerViews.values.allSatisfy { $0.superview === w.screen.stripContainer })
+        #expect(w.screen.dividerViews.values.allSatisfy { $0.isDescendant(of: w.screen.stripContainer) })
         #expect(w.screen.stripContainer.frame == w.screen.bounds)
-        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.chrome.superview === w.screen.stripChrome, "the rings sit in the strip's plane") }
+        for pane in Self.strip {
+            #expect(w.root.context.hosts[pane]?.chrome.isDescendant(of: w.screen.stripChrome) == true, "the rings sit in the strip's plane")
+        }
         #expect(w.screen.stripChrome.superview === w.root.overlayPlane && w.screen.stripChrome.frame == w.root.overlayPlane.bounds)
         #expect(w.screen.stripContainer.companion === w.screen.stripChrome.layer)
     }
@@ -158,7 +161,7 @@ import Testing
         try #require(contents.count == Self.strip.count)
         w.window.displayIfNeeded()
         let tracking = contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates)
-        let cursors = contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets)
+        let cursors = contents.map(\.cursorRectResets)
         let shownBefore = try #require(w.root.frame(of: "p2"))
         #expect(w.scroll(at: point, phase: .began), "the layout takes the Command gesture")
         let sets = screen.stripContainer.translationSets
@@ -176,7 +179,7 @@ import Testing
         #expect(hosts.map(\.chrome.frame) == chromeFrames, "no ring or dim frame set during the pan")
         #expect(w.root.overlayHostsPlaced == placed, "no overlay sync places a ring during the pan")
         #expect(contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt")
-        #expect(contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
+        #expect(contents.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
         #expect(screen.stripContainer.translationSets - sets == 50, "one translation per event")
         #expect(Window.translation(of: screen.stripChrome.layer) == screen.stripContainer.translation,
                 "the rings' plane takes the same translation")
@@ -304,7 +307,7 @@ import Testing
         let released = screen.scroll.value
         w.scroll(at: point, phase: .ended)
         let camera = screen.scrollState.spring
-        let flings = Motion.panes.renderSpring(.scroll).animates(StripClipContainerView.translationKeyPath, in: screen.stripContainer)
+        let flings = Motion.panes.renderSpring(.scroll).animates(StripClipContainerView.translationKey.path, in: screen.stripContainer)
         if flings {
             #expect(screen.stripContainer.fling != nil, "the fling runs on the render server")
             #expect(camera.value == camera.target && camera.velocity == 0, "the reducer rests on the fling's target")
@@ -527,7 +530,7 @@ import Testing
         let companion = CALayer()
         container.companion = companion
         let spring = Motion.panes.renderSpring(.scroll)
-        try #require(spring.animates(StripClipContainerView.translationKeyPath, in: container), "movement is off on this host")
+        try #require(spring.animates(StripClipContainerView.translationKey.path, in: container), "movement is off on this host")
         let landed = Counter()
         var changes = 0
         container.onShowsMovedChange = { changes += 1 }

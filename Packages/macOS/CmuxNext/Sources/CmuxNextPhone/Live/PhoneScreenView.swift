@@ -13,11 +13,14 @@ import IOSurface
 @MainActor
 public final class PhoneScreenView: NSView {
     private let content = CALayer()
-    private static let contentsChanged = privateSelector("setContentsChanged")
+    /// The layer's private `setContentsChanged`, resolved on the first repeated frame (nil when it lacks it).
+    private lazy var markContentsChanged: (() -> Void)? = privateAction(content, "setContentsChanged")
     /// Hardware-decoded H.264 frames (Android live screens), shown over `content` while streaming.
     private var video: AVSampleBufferDisplayLayer?
     private var contentSize: CGSize = .zero
-    private var occlusion: Task<Void, Never>?
+    /// The tab's visibility node (``follow(_:)``); none, the screen is never on screen.
+    private var node: VisibilityNode?
+    private var visibilityWatch: VisibilitySubscription?
     private var lastVisible: Bool?
 
     /// A touch at a 0...1 screen point (top-left origin).
@@ -55,9 +58,9 @@ public final class PhoneScreenView: NSView {
         CATransaction.setDisableActions(true)
         if content.contents as AnyObject? !== surface {
             content.contents = surface
-        } else if content.responds(to: Self.contentsChanged) {
+        } else if let markContentsChanged {
             // Core Animation re-reads an IOSurface it already shows only when told its contents changed.
-            _ = content.perform(Self.contentsChanged)
+            markContentsChanged()
         } else {
             content.contents = nil
             content.contents = surface
@@ -197,33 +200,20 @@ public final class PhoneScreenView: NSView {
         super.viewDidMoveToWindow()
         // The coalescer is the old window's: what waits there is for a window the view left.
         dropFramePointer()
-        occlusion?.cancel()
-        occlusion = nil
-        if let window {
-            occlusion = Task { [weak self] in
-                for await _ in NotificationCenter.default.notifications(named: NSWindow.didChangeOcclusionStateNotification, object: window) {
-                    self?.reportVisibility()
-                }
-            }
-        }
         reportVisibility()
     }
 
-    override public func viewDidHide() {
-        super.viewDidHide()
+    /// Follows the tab's visibility node (R-vis, R-notif): a hidden tab, an occluded or miniaturized window and a
+    /// hidden app each flip it, so the screen reports once per flip, with no window notices or ancestor walks of
+    /// its own (Chrome's one visibility per WebContents, content/public/browser/visibility.h).
+    func follow(_ node: VisibilityNode) {
+        self.node = node
+        visibilityWatch = node.subscribe(owner: "PhoneScreenView") { [weak self] _ in self?.reportVisibility() }
         reportVisibility()
     }
 
-    override public func viewDidUnhide() {
-        super.viewDidUnhide()
-        reportVisibility()
-    }
-
-    /// True while some part of the screen can be seen.
-    public var isOnScreen: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor else { return false }
-        return window.occlusionState.contains(.visible)
-    }
+    /// True while some part of the screen can be seen: in a window, and its tab's node visible.
+    public var isOnScreen: Bool { window != nil && node?.isVisible == true }
 
     func reportVisibility() {
         let visible = isOnScreen
@@ -232,9 +222,9 @@ public final class PhoneScreenView: NSView {
         onVisibilityChange?(visible)
     }
 
-    /// Stops watching the window; the tab calls this when it closes.
+    /// Stops following the tab's node; the tab calls this when it closes.
     func close() {
-        occlusion?.cancel()
-        occlusion = nil
+        visibilityWatch?.cancel()
+        visibilityWatch = nil
     }
 }

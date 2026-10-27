@@ -19,7 +19,7 @@ extension HomeService {
         let version = info["CFBundleShortVersionString"] as? String
         let lease = HomeCloudLease(tokens: auth, apiBaseURL: FeedService.apiBaseURL(auth: auth), clientVersion: version, logger: logger)
         let linker = HomeCloudLink(lease: lease, source: cloudSource, localID: homeSource.me.id,
-                                   stackProjectID: auth.configuration.stackProjectID)
+                                   stackProjectID: auth.configuration.stackProjectID, deadlines: services.mainDeadlines)
         cloudLinker = linker
         let cloudInbox = homeCloudInbox
         // Read inside the observation, so a cmux.json edit re-leases.
@@ -27,6 +27,7 @@ extension HomeService {
         // task-owner: lives as long as the service; event-driven (Observation)
         cloudLink = Task {
             // A trigger: a daemon restart on the same connection refreshes the inbox again.
+            // view-observation-allow: HomeCloudLink.apply awaits the lease and must run one link at a time, in order; ServiceObservation's apply is synchronous
             for await link in ObservationStream({ () -> ObservationTrigger<HomeCloudLink.Link> in
                 let connection = local.supports(DaemonCapability.cloudConversations.rawValue) ? local.connection : nil
                 return ObservationTrigger(HomeCloudLink.Link(endpoint: connection.map(CloudConversationClient.init),

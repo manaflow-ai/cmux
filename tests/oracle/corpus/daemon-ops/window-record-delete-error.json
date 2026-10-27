@@ -38,20 +38,24 @@
       "args": {
         "method": "window_record.delete",
         "params": {
-          "install_id": "",
-          "window_id": "oracle"
+          "install_id": "oracle-install",
+          "window_id": "oracle-window"
         },
         "idempotencyKey": "window-record-delete-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "id": "oracle-install/oracle-window",
+          "scope": "window_record"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "install_id breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "no record was put for this install and window"
     }
   ],
   "invariants": [
@@ -60,9 +64,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.install_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it",
-    "params.window_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
   ]
 }

@@ -1,0 +1,7 @@
+{
+  "notifications": {
+    "quietHours": {
+      "start": "22:00"
+    }
+  }
+}

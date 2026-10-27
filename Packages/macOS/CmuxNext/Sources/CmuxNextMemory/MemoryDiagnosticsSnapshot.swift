@@ -73,8 +73,9 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
         public var surfaces: Int
         /// Surfaces the surface ledger has drawing.
         public var rendering: Int
-        /// Non-volatile IOSurface bytes of the surfaces that do not draw; nil (unknown) until the
-        /// surfaces report their GPU residency (p07-memory-037).
+        /// Estimated non-volatile IOSurface bytes of the hidden surfaces (away, outside the keep-alive
+        /// band): the two swap-chain buffers besides the volatile presented frame while GPU resident, 0
+        /// once released (p07-memory-037); nil: unknown.
         public var hiddenNonvolatileIOSurfaceBytes: Int?
         /// Evicted terminals' kept last frames.
         public var lastFrames: Int

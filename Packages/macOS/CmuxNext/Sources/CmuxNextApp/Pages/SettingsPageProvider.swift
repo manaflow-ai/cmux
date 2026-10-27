@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -16,8 +17,9 @@ import Observation
 @MainActor
 final class SettingsPageProvider: PageProvider {
     private let settings: SettingsController
-    /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`).
-    private let domains: @MainActor () -> [String: [String]]
+    /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`); async,
+    /// so a domain read from disk (the sounds folder) is awaited on a lane, never read on the main thread.
+    private let domains: @MainActor () async -> [String: [String]]
     /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles); nil
     /// in tests without an app.
     private let hostLists: (@MainActor () -> JSONValue)?
@@ -44,6 +46,9 @@ final class SettingsPageProvider: PageProvider {
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
+    /// Experimental > Feature Flags' choice (`cmux.settings.features.set`): a feature on, off or back to no choice
+    /// (nil) for the next launch; nil in tests without an app.
+    var setFeature: (@MainActor (_ name: String, _ on: Bool?) throws -> Void)?
     /// Every published theme's colors (`cmux.settings.theme.colors`), for the Theme section's
     /// preview and swatches; nil in tests without an app.
     var themeColors: (@MainActor () -> [ThemeFileColors])?
@@ -91,7 +96,7 @@ final class SettingsPageProvider: PageProvider {
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
 
-    init(settings: SettingsController, domains: @escaping @MainActor () -> [String: [String]] = { [:] },
+    init(settings: SettingsController, domains: @escaping @MainActor () async -> [String: [String]] = { [:] },
          hostLists: (@MainActor () -> JSONValue)? = nil) {
         self.settings = settings
         self.domains = domains
@@ -122,7 +127,7 @@ final class SettingsPageProvider: PageProvider {
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.settings.list": return list(section: params["section"]?.stringValue)
-        case "cmux.settings.snapshot": return snapshot()
+        case "cmux.settings.snapshot": return await snapshot()
         case "cmux.settings.set":
             guard let value = params["value"] else { throw PageError.invalidParams("value is required") }
             let descriptor = try descriptor(params)
@@ -176,6 +181,16 @@ final class SettingsPageProvider: PageProvider {
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
             do { try setTheme(level, params["spec"]?.stringValue) } catch { throw PageError.invalidParams("unknown theme level \(level)") }
+            return .object([:])
+        case "cmux.settings.features.set":
+            // A local choice changes what the next launch runs: the person's own click in Settings only.
+            guard context.page == PageDescriptor.settings.id, context.userGesture else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
+            guard let name = params["name"]?.stringValue, let on = params["on"], on == .null || on.boolValue != nil else {
+                throw PageError.invalidParams("name and on (true, false or null) are required")
+            }
+            try Self.host(setFeature, "feature flags")(name, on.boolValue)
             return .object([:])
         case "cmux.settings.theme.colors": return try ["themes": .array(Self.host(themeColors, "theme colors")().map(Self.json))]
         case "cmux.settings.theme.save", "cmux.settings.theme.import":
@@ -349,11 +364,11 @@ final class SettingsPageProvider: PageProvider {
         })
     }
 
-    private func snapshot() -> JSONValue {
+    private func snapshot() async -> JSONValue {
+        var published: [String: JSONValue] = [:]
+        for (name, values) in await domains() { published[name] = .array(values.map(JSONValue.string)) }
         var managed: [String: JSONValue] = [:]
         for (key, source) in settings.managedKeys { managed[key] = Self.managedInfo(source) }
-        var published: [String: JSONValue] = [:]
-        for (name, values) in domains() { published[name] = .array(values.map(JSONValue.string)) }
         return [
             "revision": .number(Double(settings.loadCount)),
             // The page checks no hash yet; the daemon owner will send the export's.
@@ -434,7 +449,7 @@ final class SettingsPageProvider: PageProvider {
     }
 }
 
-/// The value domains the Settings page offers in menus, listed once per launch.
+/// The value domains the Settings page offers in menus.
 @MainActor
 enum SettingsPageDomains {
     /// Installed fixed-pitch families the terminal accepts, sorted.
@@ -445,10 +460,13 @@ enum SettingsPageDomains {
         return families.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }()
 
-    /// The sounds in /System/Library/Sounds.
-    static let sounds: [String] = {
-        let urls = (try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: "/System/Library/Sounds"),
-                                                                  includingPropertiesForKeys: nil)) ?? []
+    /// The sounds in /System/Library/Sounds, listed on the files lane while the page's snapshot waits (a
+    /// directory read: never a static initializer on whichever thread reads it first, p02-threads-122).
+    static func sounds(work: BackgroundWork) async -> [String] {
+        let folder = URL(fileURLWithPath: "/System/Library/Sounds")
+        let urls = (try? await work.run(.userVisible, mayBlock: .files) {
+            try FileManager.checked.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        }) ?? []
         return urls.map { $0.deletingPathExtension().lastPathComponent }.sorted()
-    }()
+    }
 }

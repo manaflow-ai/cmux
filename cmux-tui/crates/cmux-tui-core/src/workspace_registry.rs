@@ -72,6 +72,7 @@ pub(crate) mod workspace_name_store;
 pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
+pub(crate) mod resource_identity_queries;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
@@ -212,8 +213,13 @@ const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 pub(crate) const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
+/// A workspace-registry commit transaction, opened by the registry on its
+/// connection (the checked SQLite chokepoint). Extra writes receive it.
+pub(crate) type RegistryTransaction<'conn> = Transaction<'conn>;
+
 /// An extra write that runs inside a workspace-registry commit transaction.
-pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
+pub(crate) type RegistryTransactionWrite<'a> =
+    &'a dyn Fn(&RegistryTransaction<'_>) -> anyhow::Result<()>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedWorkspaceRegistrySchema {

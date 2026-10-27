@@ -59,19 +59,24 @@
       "args": {
         "method": "tab.update",
         "params": {
-          "zoom": "1.0"
+          "back": [
+            "http://127.0.0.1:9/"
+          ]
         },
         "idempotencyKey": "tab-update-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "back and forward apply only to browser tabs"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "zoom breaks its catalog type (value must be a finite number); the daemon's catalog check refuses it"
+      "note": "a terminal tab has no browser history: tabs.rs state_update_tab refuses back and writes nothing"
     }
   ],
   "invariants": [

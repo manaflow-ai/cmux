@@ -2,6 +2,7 @@
 """The perf lab's story catalog: stories.d/, targets.json, owners and their lints.
 
     python3 -I scripts/perf-lab/catalog.py stories [--lint [--format=paths]]
+    python3 -I scripts/perf-lab/catalog.py stories --orphans [--json]     # MQ12, orphans.py
     python3 -I scripts/perf-lab/catalog.py targets --check | --uncovered
     python3 -I scripts/perf-lab/catalog.py hot-paths --uncovered
 
@@ -13,7 +14,8 @@ the same split: every benchmark carries its owners and bug component (`@benchmar
 component=...)`, third_party/catapult/telemetry/telemetry/benchmark.py), tools/perf/core/perf_data_generator.py
 refuses a benchmark without that metadata, and tools/perf/core/shard_maps bind each story to a device by its
 measured time. Here the owner is an OWNERS.md lane (R6, R9), `seconds` feeds the shard map (task 011), and
-`needs` lists the capabilities the measured build must have (task 211).
+`needs` lists the capabilities the measured build must have (task 211). `not_measurable` says why the lab cannot
+run a story yet (a build or runner argument it lacks): the story is linted, but gets no shard, round or build.
 
 targets.json holds only the 12 fixed program targets (R4). A story claims a target row with a metric whose
 `name` is the row check's metric pattern, verbatim, and whose target_ref is {"target": <row id>}. Every other
@@ -90,7 +92,7 @@ NUMBER_TEXT = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
 
 STORY_REQUIRED = ("id", "tier", "description", "command", "session", "engine", "config", "metrics", "repeats",
                   "seconds", "needs", "owner", "component")
-STORY_OPTIONAL = ("hot_paths", "perf_cron_part")
+STORY_OPTIONAL = ("hot_paths", "perf_cron_part", "not_measurable", "runs")
 STORY_NUMBERS = ("repeats", "seconds")
 METRIC_REQUIRED = ("name", "unit", "better")
 METRIC_OPTIONAL = ("target_ref", "floor_ref")
@@ -146,6 +148,15 @@ class Story:
     component: str
     hot_paths: tuple[str, ...] = ()
     perf_cron_part: str | None = None
+    # Why the lab cannot run the story yet (the missing runner or build support), or None. Such a story is defined
+    # (its series, owner and metrics are linted) but no shard, round or build is planned for it (measurable()).
+    not_measurable: str | None = None
+    # The scripts the command runs on every run besides command[0] (a session script's bench, a fleet step's story
+    # module). orphans.py counts only these and the command's own paths as run by a story (MQ12).
+    runs: tuple[str, ...] = ()
+
+    def measurable(self) -> bool:
+        return self.not_measurable is None
 
 
 @dataclass(frozen=True)
@@ -526,6 +537,19 @@ def _load_story(root: Path, path: Path, problems: list[str], targets: tuple[Targ
     part = doc.get("perf_cron_part")
     if part is not None and not _is_text(part):
         problems.append(f"{where}: perf_cron_part is a part name")
+    blocked = doc.get("not_measurable")
+    if blocked is not None and not _is_text(blocked):
+        problems.append(f"{where}: not_measurable is the reason the lab cannot run the story yet")
+        blocked = repr(blocked)  # still not measurable: a malformed reason never puts a story into a round
+    runs = doc.get("runs", [])
+    if not (isinstance(runs, list) and all(isinstance(r, str) for r in runs)):
+        problems.append(f"{where}: runs is a list of repository paths")
+        runs = []
+    for rel in runs:
+        if not re.match(perf_result.TARGET_PATH_PATTERN, rel) or not (root / rel).is_file():
+            problems.append(f"{where}: runs path {rel} does not exist in the repository")
+        elif rel in command:
+            problems.append(f"{where}: runs path {rel} is in the command already")
     return Story(
         id=str(doc["id"]), path=where, tier=doc["tier"], description=str(doc["description"]),
         command=tuple(command), session=str(doc["session"]), engine=str(doc["engine"]), config=str(doc["config"]),
@@ -533,7 +557,7 @@ def _load_story(root: Path, path: Path, problems: list[str], targets: tuple[Targ
         seconds=doc["seconds"] if isinstance(doc["seconds"], int) else 0,
         needs=tuple(n for n in needs if isinstance(n, str)), owner=str(doc["owner"]),
         component=str(doc["component"]), hot_paths=tuple(hot) if isinstance(hot, list) else (),
-        perf_cron_part=part)
+        perf_cron_part=part, not_measurable=blocked, runs=tuple(runs))
 
 
 def _flag_values(command: list[str]) -> Iterable[tuple[str, str]]:
@@ -653,6 +677,9 @@ def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--lint", action="store_true", help="exit 1 when any catalog problem is found")
         parser.add_argument("--format", choices=("text", "paths"), default="text",
                             help="paths: print each story's command path, one per line (MQ4)")
+        parser.add_argument("--orphans", action="store_true",
+                            help="MQ12: print each perf script that is not a story and not in retired.json (orphans.py)")
+        parser.add_argument("--json", action="store_true", help="with --orphans: one JSON list of paths (done check 8)")
     elif command == "targets":
         mode = parser.add_mutually_exclusive_group(required=True)
         mode.add_argument("--check", action="store_true", help="print N/12 mapped; exit 1 unless 12/12")
@@ -665,6 +692,8 @@ def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
 def run(command: str, args: argparse.Namespace, out=None, err=None) -> int:
     out = out or sys.stdout
     err = err or sys.stderr
+    if command == "stories" and args.orphans:
+        return _load_sibling("orphans").run_orphans(args.root, args.json, out, err)
     try:
         catalog = load_catalog(args.root)
     except (CatalogError, OSError, SyntaxError) as error:
@@ -702,7 +731,8 @@ def _run_stories(catalog: Catalog, args: argparse.Namespace, out, err) -> int:
             print(path, file=out)
     elif not args.lint:
         for s in catalog.stories:
-            print(f"{s.id}\t{s.tier}\t{s.seconds}s\t{s.config}\t{s.owner}", file=out)
+            blocked = "" if s.measurable() else f"\tnot measurable: {s.not_measurable}"
+            print(f"{s.id}\t{s.tier}\t{s.seconds}s\t{s.config}\t{s.owner}{blocked}", file=out)
     if args.lint:
         report = err if args.format == "paths" else out
         for problem in catalog.problems:

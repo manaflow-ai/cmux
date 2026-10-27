@@ -14,7 +14,8 @@
   "fixture": {
     "seed": "daemon-ops.conversation-draft",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "agent": "mock"
   },
   "preconditions": [
     "hermetic state root",
@@ -29,6 +30,22 @@
   ],
   "steps": [
     {
+      "id": "conversation",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "conversation.list",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,26 +55,30 @@
       "args": {
         "method": "conversation.draft",
         "params": {
-          "conversation": "",
+          "conversation": "$step:conversation#/0/id",
           "turn": "oracle",
           "segment": 1,
           "seq": 1,
           "kind": "talk",
           "text": "oracle",
-          "fresh": false,
+          "fresh": true,
           "done": false
         },
         "idempotencyKey": "conversation-draft-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "operation": "conversation.draft",
+          "reason": "not_agent"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "conversation breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "the case connection acts as the person in the mock conversation, and only a bound agent participant publishes drafts"
     }
   ],
   "invariants": [
@@ -66,8 +87,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.conversation is a fixed placeholder, not a fixture object; chief/_tuning.json tunes it"
   ]
 }

@@ -22,10 +22,9 @@ enum DebugTabSwitch {
     /// `pane` begins a switch to `tab` that it will show (the caller checked the run allows it and the pane draws);
     /// `keyInput` is the key whose binding runs now (``KeyInputScope``), if any.
     static func began(_ pane: PaneController, to tab: StripTabID, keyInput: KeyInputScope?) {
-        // A key binding or click being handled now: its age is the input stage.
-        let event = NSApp.currentEvent
-        let click = event.flatMap { [.leftMouseDown, .leftMouseUp].contains($0.type) ? $0.timestamp : nil }
-        let inputTimestamp = keyInput?.timestamp ?? click, now = CACurrentMediaTime()
+        // A key binding, else the input the switch answers (the key or click being dispatched, a page's carried click,
+        // the press of the action run in progress): its age is the input stage.
+        let inputTimestamp = keyInput?.timestamp ?? pane.services.inputDispatch.inputTimestamp, now = CACurrentMediaTime()
         // Only this switch's own input (not an event left over from a launch or a menu), as the timer reads it.
         let age = inputTimestamp.flatMap { now - $0 >= 0 && now - $0 < 1 ? (now - $0) * 1_000 : nil } ?? -1
         pane.services.tabSwitch.began(pane, to: tab.rawValue, kind: pane.tabSwitchKind(to: tab.rawValue), inputAgeMilliseconds: age)

@@ -45,9 +45,32 @@ definition). With --app and --out, each signpost name's samples (its `*` row: ev
 as one cmux-perf-result/v1 file through BenchApp.record (story --story, metric = the name, unit ms); the
 `.missed` and `.nested_loop` rows count runs kept out of a series, so they are not results.
 
+What the presentation rows mean (events, not intervals; p03-rendering 004). They are estimates the app makes
+without watching frames: no display link starts for them.
+  action.presented_estimate            run start to the estimated present: the target timestamp of the first
+                                       display-link tick after the commit, on the vsync grid of the key window's
+                                       display's last tick (phase=running|recent|unknown says where the grid
+                                       came from; unknown is the commit plus 1.5 refresh periods)
+  action.input_to_presented_estimate   the same plus the event's input_age_ms, for runs a person started
+  action.commit_to_presented_estimate  the commit to the estimate (one to two frames on a known grid)
+  action.presented                     run start to a measured present (Ghostty presentedTime, task 080), where
+                                       one exists
+  motion.late_commits                  one sample per main Core Animation commit made during a Motion animation
+                                       that ended past a deadline its turn could have met: a display-link tick's
+                                       turn, the tick's target timestamp; any other turn, one period past the first
+                                       vsync after it began (a whole frame passed). The ms past that deadline (count
+                                       is the number of late commits; DC14 wants 0)
+  action.presented_estimate.error      with --presented: |estimate - the frame that showed the change| per run.
+                                       The timeline lists only frames whose content changed (ScreenCaptureKit
+                                       complete frames, not idle ones), so after a still screen the first changed
+                                       frame after the commit holds the change. An estimate whose screen changed in
+                                       the frame before its commit (motion, a video: the next change may be anyone's)
+                                       or with no change within PAIR_FRAMES frames is left out and counted
+                                       (estimate_pairing). The summary prints the p95 in frames (DC14: <= 1 frame)
+
 Categories (SignpostCategory.swift): action, motion, key, switch, create, cef, launch, stall, and
-burst (events, not intervals: scripts/cmux-next/burst-bench.py reads those; this script pairs
-intervals only, so --category burst prints no rows).
+burst (events: scripts/cmux-next/burst-bench.py reads those; this script folds only the events named
+above, so --category burst prints no rows).
 
 The stream is drained on a reader thread while the scenario runs (a full pipe would block
 `log stream` and logd would drop events). Lost-message reports from `log stream` are counted;
@@ -66,6 +89,10 @@ Usage:
                                                      also write result-v1 per signpost name (APP: the
                                                      running tagged bundle PID runs; a live stream only,
                                                      never --from)
+  perf-signposts.py --presented TIMELINE.json ...    estimate error against measured presents: a JSON object
+                                                     {"presented_s": [...], "refresh_hz": 120} (seconds on the
+                                                     mach clock, the base of machTimestamp and CACurrentMediaTime;
+                                                     only frames whose content changed)
   perf-signposts.py --self-test                      check the parser on a built-in sample
 
 Without --seconds or a COMMAND it streams until Ctrl-C.
@@ -74,6 +101,7 @@ Without --seconds or a COMMAND it streams until Ctrl-C.
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import os
 import re
@@ -135,12 +163,18 @@ def is_loss(line: str, event: dict | None) -> bool:
     return bool(LOSS_TEXT.search(line))
 
 
+# The point events this script folds into rows (the other events, such as burst's, belong to their own scripts).
+EVENT_NAMES = {"action.presented_estimate", "action.presented", "motion.late_commits"}
+
+
 def parse(lines, timebase: tuple[int, int] | None) -> dict:
-    """{intervals: [{name, category, ms, at_s, fields, missed, nested_loop}], lost, unpaired}. `at_s` is the
-    begin's time in seconds (machTimestamp with a timebase: the clock of NSEvent.timestamp)."""
+    """{intervals: [{name, category, ms, at_s, fields, missed, nested_loop}], events: [{name, category, at_s,
+    fields}], lost, unpaired}. `at_s` is the begin's (or the event's) time in seconds (machTimestamp with a
+    timebase: the clock of NSEvent.timestamp and CACurrentMediaTime)."""
     numer, denom = timebase or (0, 0)
     open_intervals: dict[tuple, tuple[float, dict]] = {}
     done = []
+    events = []
     lost = 0
     for raw in lines:
         line = raw.strip()
@@ -166,14 +200,18 @@ def parse(lines, timebase: tuple[int, int] | None) -> dict:
             at = mach * numer / denom / 1e9
         else:
             at = parse_time(event["timestamp"])
-        if kind == "begin":
+        if kind == "event":
+            if key[2] in EVENT_NAMES:
+                events.append({"name": key[2], "category": key[1], "at_s": at,
+                               "fields": fields(event.get("eventMessage", ""))})
+        elif kind == "begin":
             open_intervals[key] = (at, fields(event.get("eventMessage", "")))
         elif kind == "end" and key in open_intervals:
             start, info = open_intervals.pop(key)
             end = fields(event.get("eventMessage", ""))
             done.append({"name": key[2], "category": key[1], "ms": (at - start) * 1000, "at_s": start, "fields": info,
                          "end_fields": end, "missed": end.get("commit") == "missed", "nested_loop": end.get("loop") == "nested"})
-    return {"intervals": done, "lost": lost, "unpaired": len(open_intervals)}
+    return {"intervals": done, "events": events, "lost": lost, "unpaired": len(open_intervals)}
 
 
 # Row suffixes of runs kept out of a name's series: counted in the report, never a result.
@@ -203,9 +241,14 @@ def groups_of(intervals: list[dict]) -> dict[tuple[str, str], list[float]]:
 
 
 def summarize(intervals: list[dict]) -> list[dict]:
+    """One row per (name, detail) of the intervals (``rows_of``)."""
+    return rows_of(groups_of(intervals))
+
+
+def rows_of(groups: dict[tuple[str, str], list[float]]) -> list[dict]:
     """One row per (name, detail): the count and p50/p95/p99/max ms (perf_stats.summary)."""
     rows = []
-    for (name, detail), values in sorted(groups_of(intervals).items()):
+    for (name, detail), values in sorted(groups.items()):
         stats = perf_stats.summary(values)
         rows.append({
             "name": name, "detail": detail, "count": stats["n"],
@@ -215,6 +258,108 @@ def summarize(intervals: list[dict]) -> list[dict]:
             "max_ms": round(stats["max"], 3),
         })
     return rows
+
+
+def number(event: dict, field: str) -> float | None:
+    try:
+        return float(event["fields"][field])
+    except (KeyError, ValueError):
+        return None
+
+
+def summarize_events(events: list[dict]) -> list[dict]:
+    """The presentation rows (module docstring): estimated and measured presents per action, and late commits."""
+    groups: dict[tuple[str, str], list[float]] = {}
+
+    def add(name: str, detail: str, value: float) -> None:
+        groups.setdefault((name, detail), []).append(value)
+        groups.setdefault((name, "*"), []).append(value)
+
+    for event in events:
+        if event["name"] == "motion.late_commits":
+            late = number(event, "late_ms")
+            if late is not None:
+                groups.setdefault(("motion.late_commits", "*"), []).append(late)
+            continue
+        present = number(event, "present_ms")
+        if present is None:
+            continue
+        detail = event["fields"].get("id", "")
+        estimated = event["name"] == "action.presented_estimate"
+        add(event["name"], detail, present)
+        age = number(event, "input_age_ms")
+        if age is not None and age >= 0:
+            add("action.input_to_presented_estimate" if estimated else "action.input_to_presented", detail, present + age)
+        commit = number(event, "commit_ms")
+        if estimated and commit is not None:
+            groups.setdefault(("action.commit_to_presented_estimate", "*"), []).append(present - commit)
+    return rows_of(groups)
+
+
+def estimate_phases(events: list[dict]) -> dict[str, int]:
+    """How many estimates each vsync phase placed (running, recent, unknown)."""
+    phases: dict[str, int] = {}
+    for event in events:
+        if event["name"] == "action.presented_estimate":
+            phase = event["fields"].get("phase", "?")
+            phases[phase] = phases.get(phase, 0) + 1
+    return phases
+
+
+PAIR_FRAMES = 6
+"""How many frames after its commit an estimate's change may show; none by then: the run changed nothing visible."""
+
+
+def estimate_errors(events: list[dict], presented: list[float], refresh_hz: float | None) -> dict:
+    """Each estimate against the frame that showed its change: {"errors": [{id, error_ms}], "busy": n, "unshown": n},
+    the error signed (positive: the estimate is later than the present). The event is written at the commit's end, so
+    its time is the commit's.
+
+    A timeline of changed frames carries no frame token (Chrome pairs presentation feedback with its frame by token,
+    cc/trees/presentation_time_callback_buffer.cc), so a change is placed only where the screen was still: no changed
+    frame in the period before the commit, and the first changed frame after it, within ``PAIR_FRAMES`` periods. An
+    estimate while the screen kept changing is ``busy``: the next changed frame may be anyone's (pairing it would score
+    the estimate against the next vsync, one frame off by construction). One with no change in time is ``unshown``."""
+    shown = sorted(presented)
+    period = 1 / (refresh_hz or 60)
+    result: dict = {"errors": [], "busy": 0, "unshown": 0}
+    for event in events:
+        if event["name"] != "action.presented_estimate":
+            continue
+        present, commit = number(event, "present_ms"), number(event, "commit_ms")
+        if present is None or commit is None:
+            continue
+        at = event["at_s"]
+        before = bisect.bisect_right(shown, at)
+        if before and shown[before - 1] > at - period:
+            result["busy"] += 1
+            continue
+        if before == len(shown) or shown[before] > at + PAIR_FRAMES * period:
+            result["unshown"] += 1
+            continue
+        estimate = at + (present - commit) / 1000
+        result["errors"].append({"id": event["fields"].get("id", ""), "error_ms": (estimate - shown[before]) * 1000})
+    return result
+
+
+def error_rows(errors: list[dict]) -> list[dict]:
+    """``action.presented_estimate.error`` rows: the absolute error per action and overall."""
+    groups: dict[tuple[str, str], list[float]] = {}
+    for error in errors:
+        groups.setdefault(("action.presented_estimate.error", error["id"]), []).append(abs(error["error_ms"]))
+        groups.setdefault(("action.presented_estimate.error", "*"), []).append(abs(error["error_ms"]))
+    return rows_of(groups)
+
+
+def load_presented(path: str) -> tuple[list[float], float | None]:
+    """A presented-frame timeline: {"presented_s": [seconds, ...], "refresh_hz": hz} (motion-hitches.py or a
+    separate-process ScreenCaptureKit recorder, on the mach clock), or a bare list of seconds."""
+    with open(path) as handle:
+        data = json.load(handle)
+    if isinstance(data, list):
+        return [float(t) for t in data], None
+    hz = data.get("refresh_hz")
+    return [float(t) for t in data.get("presented_s", [])], float(hz) if hz else None
 
 
 def series(intervals: list[dict]) -> dict[str, list[float]]:
@@ -333,6 +478,11 @@ Filtering the log data using "subsystem == ..."
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"key","signpostName":"key.scroll_frame","signpostID":22,"signpostType":"end","processID":1,"machTimestamp":10203000000,"timestamp":"2026-10-23 04:55:50.203000-0700","eventMessage":"target=layout"}
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"key","signpostName":"key.scroll_frame","signpostID":23,"signpostType":"begin","processID":1,"machTimestamp":10300000000,"timestamp":"2026-10-23 04:55:50.300000-0700","eventMessage":"phase=began age_ms=0.50"}
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"key","signpostName":"key.scroll_frame","signpostID":23,"signpostType":"end","processID":1,"machTimestamp":10400000000,"timestamp":"2026-10-23 04:55:50.400000-0700","eventMessage":"commit=missed target=layout"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.presented_estimate","signpostID":30,"signpostType":"event","processID":1,"machTimestamp":1006000000,"timestamp":"2026-10-23 04:55:41.249700-0700","eventMessage":"id=tab.new present_ms=14.000 commit_ms=6.000 input_age_ms=1.50 phase=running"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.presented_estimate","signpostID":31,"signpostType":"event","processID":1,"machTimestamp":2003000000,"timestamp":"2026-10-23 04:55:42.003100-0700","eventMessage":"id=workspace.next present_ms=13.000 commit_ms=3.000 input_age_ms=-1.00 phase=recent"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"motion","signpostName":"motion.late_commits","signpostID":32,"signpostType":"event","processID":1,"machTimestamp":2500000000,"timestamp":"2026-10-23 04:55:42.500000-0700","eventMessage":"late_ms=1.250 turn_ms=9.500"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"motion","signpostName":"motion.late_commits","signpostID":33,"signpostType":"event","processID":1,"machTimestamp":2600000000,"timestamp":"2026-10-23 04:55:42.600000-0700","eventMessage":"late_ms=3.750 turn_ms=12.000"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"burst","signpostName":"burst.refused","signpostID":34,"signpostType":"event","processID":1,"machTimestamp":2700000000,"timestamp":"2026-10-23 04:55:42.700000-0700","eventMessage":"id=tab.close"}
 {"eventType":"lossEvent","eventMessage":"lost 3 unreliable messages","timestamp":"2026-10-23 04:55:44.100000-0700"}
 {"eventType":"signpostEvent","subsystem":"other","category":"action","signpostName":"action.commit","signpostID":7,"signpostType":"end","processID":1,"machTimestamp":1009000000,"timestamp":"2026-10-23 04:55:41.259635-0700","eventMessage":""}
 """
@@ -376,6 +526,39 @@ def self_test() -> int:
     assert abs(rows[("key.scroll_input_to_frame", "layout")]["p50_ms"] - 6.0) < 1e-6, rows
     assert rows[("key.scroll_input_to_frame", "layout")]["count"] == 1, rows
     assert abs(rows[("key.scroll_input_to_frame", "content")]["p50_ms"] - 2.0) < 1e-6, rows
+    assert all("p99_ms" in row for row in rows.values()), rows
+    # Presentation events: the estimate per action, input to estimate only for a person's run, the commit-to-estimate
+    # gap, the late commits' lateness, and no row for an event this script does not fold (burst).
+    events = parsed["events"]
+    assert [e["name"] for e in events].count("action.presented_estimate") == 2, events
+    assert all(e["name"] in EVENT_NAMES for e in events), events
+    presented = {(r["name"], r["detail"]): r for r in summarize_events(events)}
+    assert abs(presented[("action.presented_estimate", "tab.new")]["p50_ms"] - 14.0) < 1e-6, presented
+    assert presented[("action.presented_estimate", "*")]["count"] == 2, presented
+    assert abs(presented[("action.input_to_presented_estimate", "tab.new")]["p50_ms"] - 15.5) < 1e-6, presented
+    assert ("action.input_to_presented_estimate", "workspace.next") not in presented, presented
+    assert abs(presented[("action.commit_to_presented_estimate", "*")]["max_ms"] - 10.0) < 1e-6, presented
+    assert presented[("motion.late_commits", "*")]["count"] == 2, presented
+    assert abs(presented[("motion.late_commits", "*")]["max_ms"] - 3.75) < 1e-6, presented
+    assert all("p99_ms" in row for row in presented.values()), presented
+    assert not any(name.startswith("burst") for name, _ in presented), presented
+    assert estimate_phases(events) == {"running": 1, "recent": 1}, estimate_phases(events)
+    # Error against a measured timeline of changed frames (120 Hz): tab.new commits at 1.006 s on a still screen and
+    # is estimated at 1.014 s; the change shows at 1.0125 s (+1.5 ms). workspace.next: commit 2.003 s, estimate
+    # 2.013 s, shown 2.0105 s (+2.5 ms). A frame long before the commit (0.9 s) is never its present.
+    paired = estimate_errors(events, [0.9, 1.0125, 2.0105, 2.0300], 120)
+    assert [round(e["error_ms"], 3) for e in paired["errors"]] == [1.5, 2.5], paired
+    assert paired["busy"] == 0 and paired["unshown"] == 0, paired
+    error = {(r["name"], r["detail"]): r for r in error_rows(paired["errors"])}
+    assert abs(error[("action.presented_estimate.error", "*")]["max_ms"] - 2.5) < 1e-6, error
+    # A frame at every vsync (motion): the next changed frame may be anyone's. Pairing with it scored every estimate
+    # exactly one frame off whatever it said; such an estimate is left out as busy.
+    every_vsync = [1 + k / 120 for k in range(150)]
+    assert estimate_errors(events, every_vsync, 120) == {"errors": [], "busy": 2, "unshown": 0}
+    # An estimate two frames early on a still screen is two frames off (past DC14's one).
+    late = estimate_errors(events, [1.014 + 2 / 120, 2.013 + 2 / 120], 120)
+    assert [round(e["error_ms"] / (1000 / 120), 3) for e in late["errors"]] == [-2.0, -2.0], late
+    assert estimate_errors(events, [0.5], 120) == {"errors": [], "busy": 0, "unshown": 2}, "no change after the commit"
     check_percentiles()
     check_results(parsed["intervals"])
     check_cli()
@@ -547,6 +730,7 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--session", default="light", help="result-v1 session: light, stress or corpus:<id>")
     parser.add_argument("--engine", default="none", choices=["chromium", "webkit", "none"],
                         help="result-v1 engine (default none)")
+    parser.add_argument("--presented", help="presented-frame timeline JSON: estimate error rows (module docstring)")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
@@ -589,19 +773,38 @@ def run(args, lines: list[str], timebase, app_factory=live_app, out=None) -> int
     (stdout) and returns the exit status."""
     out = out or sys.stdout
     parsed = parse(lines, timebase)
-    rows = summarize(parsed["intervals"])
+    rows = summarize(parsed["intervals"]) + summarize_events(parsed["events"])
+    late_commits = sum(1 for e in parsed["events"] if e["name"] == "motion.late_commits")
+    phases = estimate_phases(parsed["events"])
+    error_p95_frames = None
+    pairing = None
+    if args.presented:
+        shown, hz = load_presented(args.presented)
+        paired = estimate_errors(parsed["events"], shown, hz)
+        pairing = {"paired": len(paired["errors"]), "busy": paired["busy"], "unshown": paired["unshown"]}
+        error = error_rows(paired["errors"])
+        rows += error
+        overall = next((r for r in error if r["detail"] == "*"), None)
+        if overall and hz:
+            error_p95_frames = round(overall["p95_ms"] / (1000 / hz), 3)
     status = 2 if parsed["lost"] and not args.allow_loss else 0
     results = results_of(args, parsed, app_factory)
     if args.json:
-        report = {"rows": rows, "lost": parsed["lost"], "unpaired": parsed["unpaired"]}
+        report = {"rows": rows, "lost": parsed["lost"], "unpaired": parsed["unpaired"],
+                  "late_commits": late_commits, "estimate_phases": phases,
+                  "estimate_error_p95_frames": error_p95_frames, "estimate_pairing": pairing}
         if results is not None:
             report["results"] = results
         print(json.dumps(report), file=out)
     else:
         print(f"lost-message reports: {parsed['lost']}  unpaired begins: {parsed['unpaired']}", file=out)
-        print(f"{'name':28} {'detail':36} {'n':>5} {'p50':>9} {'p95':>9} {'p99':>9} {'max':>9}", file=out)
+        print(f"motion.late_commits: {late_commits}  estimate phases: {phases or 'none'}", file=out)
+        if pairing is not None:
+            print(f"action.presented_estimate error p95: {error_p95_frames} frames (DC14: <= 1)  pairing: {pairing}",
+                  file=out)
+        print(f"{'name':36} {'detail':36} {'n':>5} {'p50':>9} {'p95':>9} {'p99':>9} {'max':>9}", file=out)
         for row in rows:
-            print(f"{row['name']:28} {row['detail'][:36]:36} {row['count']:5} {row['p50_ms']:9.3f} "
+            print(f"{row['name']:36} {row['detail'][:36]:36} {row['count']:5} {row['p50_ms']:9.3f} "
                   f"{row['p95_ms']:9.3f} {row['p99_ms']:9.3f} {row['max_ms']:9.3f}", file=out)
         for name, where in (results or {}).items():
             print(f"perf-signposts: result-v1 {name}: {where}", file=out)

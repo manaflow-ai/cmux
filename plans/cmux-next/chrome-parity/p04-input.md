@@ -392,6 +392,8 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
 - MQ-global-input-state: `rg -n 'NSEvent\.(modifierFlags|mouseLocation|pressedMouseButtons)'
   Packages/macOS/CmuxNext/Sources`. 39 hits (checked). Task 095, then one task per package.
 - MQ-cursor-rects: `rg -n 'func resetCursorRects' Packages/macOS/CmuxNext/Sources`. 17 hits (checked). Task 090.
+  Allowed: a hit with `// cursor-rects-allow: <reason>` on the line above (`rg -n -B1 'func resetCursorRects'
+  Packages/macOS/CmuxNext/Sources | rg -c 'cursor-rects-allow'` equals the hit count). After 090: 5 hits, all allowed.
 - MQ-daemon-input-qos: `for n in mux-conn mux-control-dispatch terminal-host-client-input terminal-host-pty
   terminal-host-parser terminal-host-client holder-link mux-attach-out mux-render-attach-out
   mux-resource-terminal-attach mux-line-out mux-pty-input remote-input-writer relay-input; do rg -n "\"$n" cmux-tui/crates
@@ -490,8 +492,8 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
 | 039 | InputResampler (exact Chrome constants) | p04 | S | 001 | - |
 | 040 | Resampled drag visuals | p04 | M | 039, 031, 032, 003 | - |
 | 041 | Strip pan resampled at frame time | PL-motion-core | S | 039, p03-026 | - |
-| 042 | Intent prewarm on pointer-down (release-commit targets) | p04 | L | 011, 077 | - |
-| 043 | Hover-dwell prewarm (200 ms, FIFO 2) | p04 | M | 042, 033 | - |
+| 042 | Intent prewarm on pointer-down (release-commit targets) | p04 | L | 011, 077, 043 | - |
+| 043 | Hover-dwell prewarm (200 ms, FIFO 2) | p04 | M | 033 | - |
 | 044 | Directional prewarm for next/previous keys | p04 | S | 042 | - |
 | 045 | Predictive echo engine | PL-ghostty | L | - | - |
 | 046 | Predictive echo overlay + setting | PL-ghostty | M | 045 | - |
@@ -1085,22 +1087,27 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   machine: FIFO of 2, oldest cancelled; kinds: hibernated page cover decode and hidden renderer start, target
   geometry precompute. No daemon write and no terminal attach. Targets: tab cells, palette rows, multi-view sidebar
   rows (the normal sidebar switches on press, checked). A prewarm is kept after a release elsewhere until evicted or
-  the hibernation grace ends.
+  the hibernation grace ends. 043 landed first and owns the surface: 042 extends `IntentPrewarmService` and the
+  InputCore `IntentPrewarmQueue` (FIFO 2) with the press call sites (`prewarm(_:trigger: .pointerDown)`) and its
+  kinds; it adds no second FIFO.
 - Acceptance: no visible state change, no daemon write (store unchanged, no focus change); FIFO 2 (test); counters
   in debug.input; the commit message cites the measured gap.
 - Test phase: UNIT(IntentPrewarmTests,IntentPrewarmServiceTests); GUI activation-perf.py input_to_commit p95
   before/after, prewarm hits reported apart.
-- Size L. Depends: 011, 077.
+- Size L. Depends: 011, 077, 043.
 
 #### p04-input-043 Hover-dwell prewarm
-- Files: `S/CmuxNextInput/IntentPrewarmService.swift`, `S/CmuxNextSidebar/Views/SidebarListView.swift`,
-  `S/CmuxNextTabs/TabStripView+Pointer.swift`.
-- Change: 200 ms dwell (Chrome moderate) on a row or tab whose content is hibernated starts the cheap kinds. Skipped
-  in Low Power Mode on battery and at memory pressure warn or worse (MemoryPressureEvents).
+- Files: `S/CmuxNextInputCore/IntentPrewarm.swift`, `S/CmuxNextInput/IntentPrewarmService.swift`,
+  `S/CmuxNextSidebar/Views/SidebarListView.swift`, `S/CmuxNextApp/Hibernation/BrowserHibernation.swift`. The strip
+  already reports its hovered tab (`TabStripView.onHoverTab`, `BrowserHibernation.noteHover`), so
+  `TabStripView+Pointer.swift` needs no change.
+- Change: 200 ms dwell (Chrome moderate) on a row or tab whose page is frozen or hibernated wakes it in the
+  background. Skipped in Low Power Mode on battery and at memory pressure warn or worse (MemoryPressureEvents).
+  Owns the prewarm surface (service, InputCore FIFO, the hibernation as warmer); 042 extends it.
 - Acceptance: no prewarm under memory pressure or Low Power on battery (tests); one DemandTimer only while the
   pointer rests, cancelled on move; FIFO 2.
-- Test phase: UNIT(IntentPrewarmServiceTests); GUI bench_hibernation.py wake after hover vs click.
-- Size M. Depends: 042, 033.
+- Test phase: UNIT(IntentPrewarmTests,IntentPrewarmServiceTests); GUI bench_hibernation.py wake after hover vs click.
+- Size M. Depends: 033.
 
 #### p04-input-044 Directional prewarm for next/previous keys
 - Files: `S/CmuxNextInput/IntentPrewarmService.swift`, `S/CmuxNextApp/Handlers/TabHandlers.swift` and the
@@ -1301,6 +1308,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Change: the reader posts input frames with the fork's cmux_post_user_input_task (BrowserTaskTraits kUserInput),
   falling back to CefPostTask(TID_UI), chosen once at start with dlsym; t0 becomes the CEF event timestamp.
 - Acceptance: t0 used as the event time (diff); fallback chosen once, not per event.
+- Hand-off: InputTasks is the host's one input queue; HostInput's Post is `input_tasks.Post` once p01-process-042 starts the reader (042 drops its per-post PostInputTask). A refused task (UI thread shut down) is dropped: the BatchGate stays shut until HostInput::Stop, and nothing is posted to the other queue. Test: chromium_host_input_ring_test TestHostInputThroughInputTasks.
 - Test phase: GUI chromium-host-bench.py hop_us and key-to-paint before/after.
 - Size M. Depends: 063.
 
@@ -1632,6 +1640,12 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   edges, ignores unknown histograms; no new timer.
 - Test phase: UNIT(CEFHistogramReaderTests); GUI DC1 chromium-page and agent-pane rows next to the cmux slots.
 - Size M. Depends: 002, 007.
+- Deviation (as built): Browser.getHistograms reads the browser process's StatisticsRecorder and takes no
+  target, so it cannot split browser pages from agent pane pages. The rows have target `chromiumProcess`
+  (both together), not `chromiumPage`/`agentPane`. GUI DC1 compares one surface at a time: a bench sends input
+  to that surface alone between `debug.input reset` and the read. A split needs a per-renderer read (a
+  PL-cef-layer fork item), not this reader. Row stages are Chromium's top-level breakdown in pipeline order;
+  `TotalLatency*` variants and dotted sub-stages are only in `histograms`.
 
 #### p04-input-092 cmux web pages: passive listeners, rAF-coalesced moves, key-to-paint probe
 - Files: `webviews/src/ui/frameInput.ts`, `webviews/src/ui/frameInput.test.ts`, `webviews/src/pages/markdown/tables.ts`,

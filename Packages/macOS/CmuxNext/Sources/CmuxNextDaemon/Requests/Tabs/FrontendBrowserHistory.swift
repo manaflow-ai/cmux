@@ -20,7 +20,7 @@ public struct FrontendBrowserHistory: Codable, Sendable, Equatable {
             self.scrollY = scrollY
             self.formPost = formPost
         }
-        // Snake case both ways: requests encode snake case, replies decode as is.
+        // The wire names both ways: requests and replies.
         enum CodingKeys: String, CodingKey {
             case url, title
             case scrollY = "scroll_y"

@@ -41,9 +41,11 @@
           "source": "onetab",
           "groups": [
             {
+              "name": "oracle",
               "tabs": [
                 {
-                  "url": "about:blank"
+                  "url": "http://127.0.0.1:9/",
+                  "title": "oracle"
                 }
               ]
             }
@@ -59,7 +61,42 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "one OneTab group with one loopback http page becomes one stash (an about:blank page is not kept)"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "stash.import",
+        "params": {
+          "source": "onetab",
+          "groups": [
+            {
+              "name": "oracle",
+              "tabs": [
+                {
+                  "url": "http://127.0.0.1:9/",
+                  "title": "oracle"
+                }
+              ]
+            }
+          ]
+        },
+        "idempotencyKey": "stash-import-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

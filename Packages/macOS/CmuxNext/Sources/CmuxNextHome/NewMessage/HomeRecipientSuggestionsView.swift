@@ -29,6 +29,9 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     static let rowHeight: CGFloat = 44
     static let avatarSize: CGFloat = 28
     static let maxRows = 6
+    /// The avatar pictures this list has read; they go with the list, so the next list reads a
+    /// changed picture again.
+    private let pictures = HomeRecipientPictures()
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -62,7 +65,6 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         emptyLabel.isHidden = true
         addSubview(emptyLabel)
         isHidden = true
-        HomeRecipientAvatarView.forgetPictures()
         applyColors()
     }
 
@@ -137,7 +139,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         let item = items[row]
         let shown = self.look(item)
         let cell = NSTableCellView()
-        let avatar = HomeRecipientAvatarView()
+        let avatar = HomeRecipientAvatarView(pictures: pictures)
         avatar.show(shown.avatar, name: item.label)
         let name = ThemedLabel(labelWithString: item.label)
         name.font = Typography.body

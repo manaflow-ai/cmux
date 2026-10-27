@@ -73,7 +73,7 @@
         "before",
         "settled"
       ],
-      "note": "url breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "url breaks its catalog type (value has too few UTF-8 bytes); the catalog check refuses it before the engine gate, so the refusal is the same with and without a browser engine"
     }
   ],
   "invariants": [

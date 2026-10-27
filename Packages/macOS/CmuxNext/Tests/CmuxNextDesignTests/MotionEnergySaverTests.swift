@@ -87,7 +87,8 @@ import Testing
                         #expect(loop.duration == want.duration && loop.autoreverses == want.autoreverses, "\(category) \(name) timing")
                         #expect(loop.repeatCount == .infinity, "\(category) \(name) stops")
                         let range = paces ? want.paced.range : CAFrameRateRange.default
-                        #expect(loop.preferredFrameRateRange.isEqual(to: range),
+                        let asked = loop.preferredFrameRateRange
+                        #expect(asked.minimum == range.minimum && asked.maximum == range.maximum && asked.preferred == range.preferred,
                                 "\(category) \(name) asks for \(loop.preferredFrameRateRange), not \(range) (pacing \(paces))")
                     }
                 }

@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// A surface's answer to a drag hovering at a screen point.
 public nonisolated struct TabDropProposal: Hashable, Sendable {

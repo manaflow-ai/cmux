@@ -1,20 +1,20 @@
 @testable import CmuxNextBrowser
-import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
 /// The token form of the async exports in CEFRuntime (task 021 of
 /// plans/cmux-next/chrome-parity/p01-process.md): in process a call returns its answer; in host mode
-/// it returns once sent and the answer comes in the host's REPLY under
-/// `cmux_remote_shim_last_reply_token()` (task 018). Against a spy shim whose async exports record
-/// their calls and hand out tokens, and replies resolved by hand.
+/// it returns once sent, and the answer comes in the host's REPLY, which the remote shim hands to
+/// `CEFHostStart.replies` through its reply callback (task 018). Every host-mode case here attaches a
+/// real `CEFHostStart` to a spy remote dylib and delivers each REPLY through the C callback that
+/// `cmux_remote_shim_set_reply` was given, the path the host's frames take.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct CEFRuntimeHostRepliesTests {
     // MARK: In process: the call is the answer
 
     @Test func inProcessTheCallIsTheAnswer() async throws {
-        RepliesSpy.reset()
-        RepliesSpy.contentSettingResult = CEFContentSetting.block.rawValue
-        let runtime = try Self.runtime(host: false)
+        HostRepliesSpy.reset()
+        HostRepliesSpy.contentSettingResult = CEFContentSetting.block.rawValue
+        let runtime = try HostRepliesHarness.inProcessRuntime()
 
         let sent = runtime.sendAsync { shim in shim.contentSetting(1, nil, "camera") }
         guard case .now(let raw) = sent else {
@@ -25,98 +25,10 @@ import Testing
         #expect(await runtime.contentSetting(1, url: nil, kind: .camera) == .block)
     }
 
-    @Test func inProcessAProfileProxyGateIsDecidedInTheCall() throws {
-        RepliesSpy.reset()
-        let runtime = try Self.runtime(host: false)
-        let profile = Self.proxied(runtime)
-
-        #expect(runtime.applyProfileProxy(profile) == .open)
-        #expect(RepliesSpy.proxyServers == ["http://proxy.test:8080"])
-        #expect(runtime.profileProxyChecks.isEmpty, "in process kept a host verdict")
-
-        runtime.unappliedProfileProxies.insert(profile)
-        RepliesSpy.setProxyResult = 0
-        #expect(runtime.applyProfileProxy(profile) == .refused)
-        #expect(runtime.unappliedProfileProxies.contains(profile), "a refused proxy is not handed over again")
-    }
-
-    // MARK: Host mode: the REPLY is the answer
-
-    @Test func hostModeAnAwaitedAnswerIsTheReplyOfTheToken() async throws {
-        RepliesSpy.reset()
-        let runtime = try Self.runtime(host: true)
-        let route = try #require(runtime.hostReplies)
-
-        let sent = runtime.sendAsync { shim in shim.contentSetting(1, nil, "camera") }
-        guard case .later(let token) = sent else {
-            Issue.record("host mode sent \(sent), expected .later")
-            return
-        }
-        #expect(token == RepliesSpy.lastToken)
-        let answer = Task { try await runtime.answer(sent, label: "content setting") }
-        await Self.untilExpected(route.replies, count: 1)
-        route.replies.resolve(token, fields: Self.int32(CEFContentSetting.allow.rawValue))
-
-        #expect(try await answer.value == CEFContentSetting.allow.rawValue)
-        #expect(route.replies.count == 0)
-    }
-
-    @Test func hostModeContentSettingIsTheHostsAnswer() async throws {
-        RepliesSpy.reset()
-        let runtime = try Self.runtime(host: true)
-        let route = try #require(runtime.hostReplies)
-
-        let asked = Task { await runtime.contentSetting(1, url: "https://a.test", kind: .camera) }
-        await Self.untilExpected(route.replies, count: 1)
-        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(CEFContentSetting.ask.rawValue))
-
-        #expect(await asked.value == .ask)
-    }
-
-    /// A caller in a synchronous turn gets the answer in the turn that delivers the REPLY: no task.
-    @Test func hostModeACallbackRunsInTheReplysTurn() throws {
-        RepliesSpy.reset()
-        let runtime = try Self.runtime(host: true)
-        let route = try #require(runtime.hostReplies)
-        var seen: [CEFContentSetting?] = []
-
-        runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
-        #expect(seen.isEmpty, "the callback ran before the host answered")
-        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(CEFContentSetting.block.rawValue))
-        #expect(seen == [.block])
-        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(CEFContentSetting.allow.rawValue))
-        #expect(seen == [.block], "a callback ran twice")
-
-        runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
-        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(1) + Self.int32(2))
-        #expect(seen == [.block, nil], "a reply of the wrong shape is no answer")
-
-        runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
-        route.hostGone()
-        #expect(seen == [.block, nil, nil], "the host's exit left a callback waiting")
-    }
-
-    /// A synchronous caller whose REPLY never comes gets no answer at the deadline, not never.
-    @Test func hostModeACallbackWithNoReplyGetsNoAnswerAtTheDeadline() async throws {
-        RepliesSpy.reset()
-        let clock = ManualClock()
-        let runtime = try Self.runtime(host: true, clock: clock)
-        var seen: [CEFContentSetting?] = []
-
-        runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
-        try await clock.waitForSleeper()
-        #expect(seen.isEmpty)
-        clock.advance(by: CEFRuntime.siteReplyTimeout)
-        for _ in 0..<1_000 where seen.isEmpty { await Task.yield() }
-
-        #expect(seen == [nil])
-        #expect(runtime.hostReplies?.replies.count == 0)
-    }
-
     @Test func inProcessACallbackRunsInTheCall() throws {
-        RepliesSpy.reset()
-        RepliesSpy.contentSettingResult = CEFContentSetting.allow.rawValue
-        let runtime = try Self.runtime(host: false)
+        HostRepliesSpy.reset()
+        HostRepliesSpy.contentSettingResult = CEFContentSetting.allow.rawValue
+        let runtime = try HostRepliesHarness.inProcessRuntime()
         var seen: [CEFContentSetting?] = []
 
         runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
@@ -124,194 +36,264 @@ import Testing
         #expect(seen == [.allow])
     }
 
-    @Test func hostModeNothingSentIsClosed() async throws {
-        RepliesSpy.reset()
-        RepliesSpy.sendsNothing = true
-        let runtime = try Self.runtime(host: true)
+    @Test func inProcessAProfileProxyGateIsDecidedInTheCall() throws {
+        HostRepliesSpy.reset()
+        let runtime = try HostRepliesHarness.inProcessRuntime()
+        let profile = HostRepliesHarness.proxied(runtime)
+
+        #expect(runtime.applyProfileProxy(profile) == .open)
+        #expect(HostRepliesSpy.proxyServers == ["http://proxy.test:8080"])
+        #expect(runtime.profileProxyChecks.isEmpty, "in process kept a host verdict")
+
+        runtime.unappliedProfileProxies.insert(profile)
+        HostRepliesSpy.setProxyResult = 0
+        #expect(runtime.applyProfileProxy(profile) == .refused)
+        #expect(runtime.unappliedProfileProxies.contains(profile), "a refused proxy is not handed over again")
+    }
+
+    // MARK: Host mode: the REPLY through the remote shim's sink is the answer
+
+    @Test func hostModeTheSinksReplyAnswersTheAwaitingCall() async throws {
+        HostRepliesSpy.reset()
+        let (runtime, host) = try await HostRepliesHarness.hostRuntime()
+
+        let asked = Task { await runtime.contentSetting(1, url: "https://a.test", kind: .camera) }
+        await CEFReplyWaitersTests.afterQueuedWork()
+        #expect(host.replies.awaiting == 1)
+        try HostRepliesHarness.deliver(HostRepliesSpy.lastToken, CEFReplyWaitersTests.int32(CEFContentSetting.ask.rawValue))
+
+        #expect(await asked.value == .ask)
+        #expect(host.replies.count == 0)
+    }
+
+    /// The REPLY may come before the caller awaits: `sendAsync` expected its token in the call's turn.
+    @Test func hostModeAReplyBeforeTheAwaitIsKept() async throws {
+        HostRepliesSpy.reset()
+        let (runtime, host) = try await HostRepliesHarness.hostRuntime()
 
         let sent = runtime.sendAsync { shim in shim.contentSetting(1, nil, "camera") }
-        guard case .unsent = sent else {
-            Issue.record("sent \(sent), expected .unsent")
+        guard case .later(let token) = sent else {
+            Issue.record("host mode sent \(sent), expected .later")
             return
         }
-        await #expect(throws: BrowserTabError.closed) { try await runtime.answer(sent, label: "content setting") }
-        #expect(await runtime.contentSetting(1, url: nil, kind: .camera) == nil)
+        #expect(token == HostRepliesSpy.lastToken)
+        try HostRepliesHarness.deliver(token, CEFReplyWaitersTests.int32(CEFContentSetting.allow.rawValue))
+
+        #expect(try await runtime.answer(sent, label: "content setting") == CEFContentSetting.allow.rawValue)
+        #expect(host.replies.count == 0)
+    }
+
+    /// Page Info's reads go out in one turn: every token is sent before any answer is awaited.
+    @Test func hostModeContentSettingsAreSentInOneTurn() async throws {
+        HostRepliesSpy.reset()
+        let (runtime, _) = try await HostRepliesHarness.hostRuntime()
+
+        let asked = Task { await runtime.contentSettings(1, [("https://a.test", .camera), (nil, .camera), ("https://a.test", .microphone)]) }
+        await CEFReplyWaitersTests.afterQueuedWork()
+        #expect(HostRepliesSpy.tokens.count == 3, "a read waited for the answer before the next was sent")
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[2], CEFReplyWaitersTests.int32(CEFContentSetting.block.rawValue))
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[0], CEFReplyWaitersTests.int32(CEFContentSetting.allow.rawValue))
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[1], CEFReplyWaitersTests.int32(-1))
+
+        #expect(await asked.value == [.allow, nil, .block])
+    }
+
+    /// A caller in a synchronous turn gets the answer in the turn that delivers the REPLY: no task.
+    @Test func hostModeACallbackRunsInTheTurnTheSinkDeliversTheReply() async throws {
+        HostRepliesSpy.reset()
+        let (runtime, host) = try await HostRepliesHarness.hostRuntime()
+        var seen: [CEFContentSetting?] = []
+
+        runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
+        #expect(seen.isEmpty, "the callback ran before the host answered")
+        try HostRepliesHarness.deliver(HostRepliesSpy.lastToken, CEFReplyWaitersTests.int32(CEFContentSetting.block.rawValue))
+        #expect(seen == [.block])
+        try HostRepliesHarness.deliver(HostRepliesSpy.lastToken, CEFReplyWaitersTests.int32(CEFContentSetting.allow.rawValue))
+        #expect(seen == [.block], "a callback ran twice")
+
+        runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
+        try HostRepliesHarness.deliver(HostRepliesSpy.lastToken, CEFReplyWaitersTests.int32(1) + CEFReplyWaitersTests.int32(2))
+        #expect(seen == [.block, nil], "a reply of the wrong shape is no answer")
+
+        runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
+        runtime.hostGone()
+        #expect(seen == [.block, nil, nil], "the host's exit left a callback waiting")
+        #expect(host.replies.count == 0)
+    }
+
+    /// A REPLY that never comes (the host hangs or drops it) fails the callback at the reply deadline,
+    /// an entry on the runtime's main deadline queue, and leaves nothing in the table.
+    @Test func hostModeACallbackWithNoReplyFailsAtItsDeadline() async throws {
+        HostRepliesSpy.reset()
+        let (runtime, host) = try await HostRepliesHarness.hostRuntime()
+        let rig = HostRepliesHarness.deadlines(of: runtime)
+        var answers: [CEFContentSetting?] = []
+
+        runtime.contentSetting(1, url: nil, kind: .camera) { answers.append($0) }
+        rig.advance(by: CEFRuntime.siteReplyTimeout - .milliseconds(1))
+        #expect(answers.isEmpty, "the deadline fired before its time")
+        #expect(host.replies.count == 1)
+        rig.advance(by: .seconds(2))
+
+        #expect(answers == [nil])
+        #expect(host.replies.count == 0)
+        try HostRepliesHarness.deliver(HostRepliesSpy.lastToken, CEFReplyWaitersTests.int32(CEFContentSetting.allow.rawValue))
+        #expect(answers == [nil], "a late REPLY ran the callback again")
+    }
+
+    /// A call that sent no op for a reply (a mint, or one the remote refused before the wire) leaves
+    /// the remote's last token as it was: `.unsent`, never the token of an earlier call.
+    @Test func hostModeACallThatSentNoReplyOpIsUnsent() async throws {
+        HostRepliesSpy.reset()
+        let (runtime, host) = try await HostRepliesHarness.hostRuntime()
+        runtime.contentSetting(1, url: nil, kind: .camera) { _ in }
+        #expect(HostRepliesSpy.lastToken != 0)
+
+        let minted = runtime.sendAsync { shim in shim.tabAdd(1, nil, -1, 0) }
+        guard case .unsent = minted else {
+            Issue.record("a mint in sendAsync returned \(minted), expected .unsent")
+            return
+        }
+        HostRepliesSpy.sendsNothing = true
+        let refused = runtime.sendAsync { shim in shim.contentSetting(1, nil, "camera") }
+        guard case .unsent = refused else {
+            Issue.record("a refused call returned \(refused), expected .unsent")
+            return
+        }
+        await #expect(throws: BrowserTabError.closed) { try await runtime.answer(refused, label: "content setting") }
+        #expect(host.replies.count == 1, "only the first call's token is expected")
     }
 
     /// A CMUX_SHIM_REPLY op whose start the host refused fails at once, not at the 5 s deadline.
     @Test func hostModeARefusedStartFailsTheSiteCallAtOnce() async throws {
-        RepliesSpy.reset()
-        let runtime = try Self.runtime(host: true)
-        let route = try #require(runtime.hostReplies)
+        HostRepliesSpy.reset()
+        let (runtime, _) = try await HostRepliesHarness.hostRuntime()
 
         let visit = Task { try await runtime.cookies(1) }
-        await Self.untilExpected(route.replies, count: 1)
-        #expect(RepliesSpy.visits == 1)
-        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(0))
+        await CEFReplyWaitersTests.afterQueuedWork()
+        #expect(HostRepliesSpy.visits == 1)
+        try HostRepliesHarness.deliver(HostRepliesSpy.lastToken, CEFReplyWaitersTests.int32(0))
 
         await #expect(throws: BrowserTabError.closed) { try await visit.value }
     }
 
     /// The site reply may come before the start's REPLY: it waits in earlySiteReplies.
     @Test func hostModeAStartedSiteCallTakesItsSiteReply() async throws {
-        RepliesSpy.reset()
-        let runtime = try Self.runtime(host: true)
-        let route = try #require(runtime.hostReplies)
+        HostRepliesSpy.reset()
+        let (runtime, _) = try await HostRepliesHarness.hostRuntime()
 
-        let visit = Task { try await runtime.deleteCookies(1, url: "https://a.test/", name: nil) }
-        await Self.untilExpected(route.replies, count: 1)
+        let delete = Task { try await runtime.deleteCookies(1, url: "https://a.test/", name: nil) }
+        await CEFReplyWaitersTests.afterQueuedWork()
         let id = try #require(runtime.siteReplyBrowsers.keys.first)
         // The CMUX_SHIM_REPLY event under the site reply id, as CEFRuntime+Events handles it.
         runtime.earlySiteReplies[id] = CEFSiteReply(value: 3, json: "")
-        route.replies.resolve(RepliesSpy.lastToken, fields: Self.int32(1))
+        try HostRepliesHarness.deliver(HostRepliesSpy.lastToken, CEFReplyWaitersTests.int32(1))
 
-        #expect(try await visit.value == 3)
+        #expect(try await delete.value == 3)
     }
 
+    // MARK: Host mode: profile proxies
+
     /// No page of a proxied profile opens before the host applied its proxy (fail closed).
-    @Test func hostModeAProfileProxyWaitsForBothVerdicts() throws {
-        RepliesSpy.reset()
-        let runtime = try Self.runtime(host: true)
-        let route = try #require(runtime.hostReplies)
-        let profile = Self.proxied(runtime)
+    @Test func hostModeAProfileProxyWaitsForBothVerdicts() async throws {
+        HostRepliesSpy.reset()
+        let (runtime, _) = try await HostRepliesHarness.hostRuntime()
+        let profile = HostRepliesHarness.proxied(runtime)
         var verdicts: [Bool] = []
 
         #expect(runtime.applyProfileProxy(profile) == .waiting)
-        #expect(RepliesSpy.proxyServers == ["http://proxy.test:8080"])
-        #expect(RepliesSpy.tokens.count == 2, "the proxy and its state were not both sent")
+        #expect(HostRepliesSpy.proxyServers == ["http://proxy.test:8080"])
+        #expect(HostRepliesSpy.tokens.count == 2, "the proxy and its state were not both sent")
         runtime.whenProfileProxyApplied(profile) { verdicts.append($0) }
-        #expect(RepliesSpy.proxyServers.count == 1, "a second page sent the proxy again")
+        #expect(HostRepliesSpy.proxyServers.count == 1, "a second page sent the proxy again")
 
-        route.replies.resolve(RepliesSpy.tokens[0], fields: Self.int32(1))
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[0], CEFReplyWaitersTests.int32(1))
         #expect(verdicts.isEmpty, "the page opened before the proxy's state came")
-        route.replies.resolve(RepliesSpy.tokens[1], fields: Self.int32(0))
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[1], CEFReplyWaitersTests.int32(0))
 
         #expect(verdicts == [true])
         #expect(runtime.applyProfileProxy(profile) == .open)
-        #expect(RepliesSpy.tokens.count == 2, "an applied proxy was asked again")
+        #expect(HostRepliesSpy.tokens.count == 2, "an applied proxy was asked again")
     }
 
-    @Test func hostModeARefusedProfileProxyFailsClosedAndIsHandedOverAgain() throws {
-        RepliesSpy.reset()
-        let runtime = try Self.runtime(host: true)
-        let route = try #require(runtime.hostReplies)
-        let profile = Self.proxied(runtime)
+    @Test func hostModeARefusedProfileProxyFailsClosedAndIsHandedOverAgain() async throws {
+        HostRepliesSpy.reset()
+        let (runtime, _) = try await HostRepliesHarness.hostRuntime()
+        let profile = HostRepliesHarness.proxied(runtime)
         var verdicts: [Bool] = []
 
         runtime.whenProfileProxyApplied(profile) { verdicts.append($0) }
-        route.replies.resolve(RepliesSpy.tokens[0], fields: Self.int32(0))
-        route.replies.resolve(RepliesSpy.tokens[1], fields: Self.int32(0))
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[0], CEFReplyWaitersTests.int32(0))
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[1], CEFReplyWaitersTests.int32(0))
 
         #expect(verdicts == [false])
         #expect(runtime.profileProxyChecks[profile] == nil)
         #expect(runtime.unappliedProfileProxies.contains(profile))
         runtime.whenProfileProxyApplied(profile) { verdicts.append($0) }
-        #expect(RepliesSpy.proxyServers.count == 2, "the next page did not hand the proxy over again")
-        route.replies.resolve(RepliesSpy.tokens[2], fields: Self.int32(1))
-        route.replies.resolve(RepliesSpy.tokens[3], fields: Self.int32(0))
+        #expect(HostRepliesSpy.proxyServers.count == 2, "the next page did not hand the proxy over again")
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[2], CEFReplyWaitersTests.int32(1))
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[3], CEFReplyWaitersTests.int32(0))
         #expect(verdicts == [false, true])
     }
 
-    @Test func aRemoteShimWithoutTheTokenEntryPointHasNoRoute() {
-        #expect(throws: CEFShimLibrary.LoadError.missingSymbol("cmux_remote_shim_last_reply_token")) {
-            try CEFHostReplyRoute(symbol: { $0 == "cmux_remote_shim_last_reply_token" ? nil : RepliesSpy.symbol($0) }, replies: CEFHostReplies())
-        }
+    /// One REPLY that never comes refuses the waiting pages at the deadline and drops the check, so the
+    /// next page hands the proxy over again instead of reusing a verdict that never came.
+    @Test func hostModeAProfileProxyWithAMissingReplyFailsClosedAtTheDeadline() async throws {
+        HostRepliesSpy.reset()
+        let (runtime, _) = try await HostRepliesHarness.hostRuntime()
+        let rig = HostRepliesHarness.deadlines(of: runtime)
+        let profile = HostRepliesHarness.proxied(runtime)
+        var verdicts: [Bool] = []
+
+        runtime.whenProfileProxyApplied(profile) { verdicts.append($0) }
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[0], CEFReplyWaitersTests.int32(1))
+        rig.advance(by: CEFRuntime.siteReplyTimeout + .seconds(2))
+
+        #expect(verdicts == [false])
+        #expect(runtime.profileProxyChecks[profile] == nil)
+        #expect(runtime.applyProfileProxy(profile) == .waiting)
+        #expect(HostRepliesSpy.proxyServers.count == 2, "the next page did not hand the proxy over again")
     }
 
-    // MARK: Helpers
+    /// An open verdict was the exited host's: after the host goes, the next page hands the proxy over
+    /// to the next host again and waits for its verdict (#24432 fails closed).
+    @Test func hostModeAnOpenProfileProxyIsHandedOverAgainAfterTheHostExits() async throws {
+        HostRepliesSpy.reset()
+        let (runtime, _) = try await HostRepliesHarness.hostRuntime()
+        let profile = HostRepliesHarness.proxied(runtime)
+        #expect(runtime.applyProfileProxy(profile) == .waiting)
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[0], CEFReplyWaitersTests.int32(1))
+        try HostRepliesHarness.deliver(HostRepliesSpy.tokens[1], CEFReplyWaitersTests.int32(2))
+        #expect(runtime.applyProfileProxy(profile) == .open)
 
-    private static func runtime(host: Bool, clock: any Clock<Duration> = ContinuousClock()) throws -> CEFRuntime {
-        let storage = CEFProfileStorage(root: FileManager.default.temporaryDirectory
-            .appending(path: "cef-host-replies-\(UUID().uuidString)", directoryHint: .isDirectory))
-        let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(RepliesSpy.symbol), storage: storage)
-        if host { runtime.hostReplies = try CEFHostReplyRoute(symbol: RepliesSpy.symbol, replies: CEFHostReplies(clock: clock)) }
-        return runtime
+        runtime.hostGone()
+
+        #expect(runtime.applyProfileProxy(profile) == .waiting)
+        #expect(HostRepliesSpy.proxyServers == ["http://proxy.test:8080", "http://proxy.test:8080"])
     }
 
-    /// A profile with a proxy the shim has not taken yet.
-    private static func proxied(_ runtime: CEFRuntime) -> BrowserProfileID {
-        let profile = BrowserProfileID(rawValue: UUID())
-        runtime.profileProxies[profile] = BrowserProfileProxy(scheme: .http, host: "proxy.test", port: 8080)
-        runtime.unappliedProfileProxies.insert(profile)
-        return profile
-    }
+    // MARK: Host mode: SSL status
 
-    /// Lets the main actor run the task that sends, until `count` tokens are expected.
-    private static func untilExpected(_ replies: CEFHostReplies, count: Int) async {
-        for _ in 0..<1_000 where replies.count < count { await Task.yield() }
-        #expect(replies.count == count)
-    }
+    /// The SSL status of a page the tab has navigated away from by the time the REPLY comes is not
+    /// applied to the page it shows now.
+    @Test func hostModeAnSSLStatusForAPageNavigatedAwayIsNotApplied() async throws {
+        HostRepliesSpy.reset()
+        let (runtime, _) = try await HostRepliesHarness.hostRuntime()
+        let (pane, _) = HostRepliesHarness.pane(runtime, profile: .default)
+        let tab = HostRepliesHarness.tab(in: pane)
+        runtime.register(tab, browser: 7)
+        let broken = CEFReplyWaitersTests.string(#"{"certStatus": 1}"#)
 
-    /// An EncodeFields body with one int32 field (chromium_host_tlv.h: type 1, tag 0, length 4).
-    private static func int32(_ value: Int32) -> [UInt8] {
-        [1, 0, 4, 0] + withUnsafeBytes(of: value.littleEndian) { Array($0) }
-    }
-}
+        HostRepliesHarness.commit(tab, "https://a.test/")
+        let before = tab.state.security
+        tab.syncSecurityFromChromium()
+        let stale = HostRepliesSpy.lastToken
+        HostRepliesHarness.commit(tab, "https://b.test/")
+        try HostRepliesHarness.deliver(stale, broken)
+        #expect(tab.state.security == before, "a stale SSL status changed the shown page's security")
 
-/// The shim's async exports for these tests: each records its call and, as the remote shim does,
-/// makes the next reply token current (or none, `sendsNothing`); every other function returns 0.
-private nonisolated enum RepliesSpy {
-    nonisolated(unsafe) static var lastToken: UInt32 = 0
-    nonisolated(unsafe) static var tokens: [UInt32] = []
-    nonisolated(unsafe) static var sendsNothing = false
-    nonisolated(unsafe) static var contentSettingResult: Int32 = 0
-    nonisolated(unsafe) static var setProxyResult: Int32 = 1
-    nonisolated(unsafe) static var proxyServers: [String] = []
-    nonisolated(unsafe) static var visits = 0
-
-    static func reset() {
-        lastToken = 0
-        tokens = []
-        sendsNothing = false
-        contentSettingResult = 0
-        setProxyResult = 1
-        proxyServers = []
-        visits = 0
-    }
-
-    /// The remote shim's bookkeeping of one sent call (in process nobody reads it).
-    static func sent() {
-        guard !sendsNothing else {
-            lastToken = 0
-            return
-        }
-        lastToken = 100 + UInt32(tokens.count)
-        tokens.append(lastToken)
-    }
-
-    static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
-        let lastReplyToken: CEFHostReplyRoute.LastReplyTokenFn = { RepliesSpy.lastToken }
-        let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _ in
-            RepliesSpy.sent()
-            return RepliesSpy.contentSettingResult
-        }
-        let visitCookies: @convention(c) (Int32, Int32) -> Int32 = { _, _ in
-            RepliesSpy.visits += 1
-            RepliesSpy.sent()
-            return 1
-        }
-        let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _ in
-            RepliesSpy.sent()
-            return 1
-        }
-        let setProxy: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, server, _ in
-            RepliesSpy.proxyServers.append(server.map { String(cString: $0) } ?? "")
-            RepliesSpy.sent()
-            return RepliesSpy.setProxyResult
-        }
-        let proxyState: @convention(c) (UnsafePointer<CChar>?) -> Int32 = { _ in
-            RepliesSpy.sent()
-            return 0
-        }
-        let nothing: @convention(c) () -> Int = { 0 }
-        return switch name {
-        case "cmux_remote_shim_last_reply_token": unsafeBitCast(lastReplyToken, to: UnsafeMutableRawPointer.self)
-        case "cmux_shim_content_setting": unsafeBitCast(contentSetting, to: UnsafeMutableRawPointer.self)
-        case "cmux_shim_visit_cookies": unsafeBitCast(visitCookies, to: UnsafeMutableRawPointer.self)
-        case "cmux_shim_delete_cookies": unsafeBitCast(deleteCookies, to: UnsafeMutableRawPointer.self)
-        case "cmux_shim_set_context_proxy_server": unsafeBitCast(setProxy, to: UnsafeMutableRawPointer.self)
-        case "cmux_shim_context_proxy_state": unsafeBitCast(proxyState, to: UnsafeMutableRawPointer.self)
-        default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
-        }
+        tab.syncSecurityFromChromium()
+        try HostRepliesHarness.deliver(HostRepliesSpy.lastToken, broken)
+        #expect(tab.state.security == .broken)
     }
 }
