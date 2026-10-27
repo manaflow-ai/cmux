@@ -162,8 +162,9 @@ test("a new chat's settle sends the waiting text and waits for the host's answer
   throttle.dispose();
 });
 
-// The composer's hold is the first one asked, so its reason comes back before the page is read.
-const composerHold = () => webSwapHold({} as Document);
+// A page with nothing else on it: only the composer's draft hold can answer.
+const emptyPage = { activeElement: null, defaultView: null, querySelector: () => null, querySelectorAll: () => [] };
+const composerHold = () => webSwapHold(emptyPage as unknown as Document);
 
 test("a draft write that never answers fails after its timeout, and the web-swap ask retries it", async () => {
   draftWriteLimits.timeoutMs = 20;
