@@ -21,14 +21,26 @@
 //! (content/browser/scheduler/browser_task_queues.h, `kUserBlocking`). One
 //! terminal's bytes keep their order: a key never overtakes a paste sent to
 //! the same terminal before it.
+//!
+//! On macOS a PTY queues at most [`input_queue::CAPACITY`] bytes of input,
+//! and a write the queue cannot take whole is cut wherever it fills. The
+//! writer reads the room left before each write and applies
+//! [`input_queue::cut`], so the program never reads a lone ESC that the
+//! rest of its sequence follows as text (#22265).
+//!
+//! [`PtyInputQueue::send_receipted`] returns an [`InputReceipt`] that
+//! resolves once the PTY took the send's last byte, or fails once the bytes
+//! are dropped, saying whether any of them reached the PTY.
 
 use std::collections::VecDeque;
 use std::io;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError};
 use std::time::{Duration, Instant};
+
+use cmux_pty::input_queue::{self, Cut};
 
 #[derive(Debug)]
 pub(crate) struct BoundedWriteFailure {
@@ -150,7 +162,7 @@ pub(crate) enum InputLane {
 
 /// The most bytes one terminal's queue holds before bulk input is refused:
 /// a program that reads nothing keeps at most this much.
-const QUEUE_LIMIT_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const QUEUE_LIMIT_BYTES: usize = 16 * 1024 * 1024;
 /// What keys may add past [`QUEUE_LIMIT_BYTES`], so a key still goes in
 /// behind a paste that filled the queue.
 const KEY_HEADROOM_BYTES: usize = 64 * 1024;
@@ -160,6 +172,24 @@ const BULK_SLICE: usize = 16 * 1024;
 const NO_FAILURE: i32 = 0;
 /// `QueueState::failure` once the master hung up without an OS error.
 const HUNG_UP: i32 = -1;
+
+/// The room a master's program has for input now, `None` when the platform
+/// cannot say (the kernel then takes a write whole or blocks it).
+type RoomProbe = Arc<dyn Fn(RawFd) -> Option<usize> + Send + Sync>;
+
+/// The [`RoomProbe`] of the platform: on macOS, what the input `FIONREAD`
+/// counts on the master leaves of [`input_queue::CAPACITY`].
+fn platform_room(master: RawFd) -> Option<usize> {
+    #[cfg(target_vendor = "apple")]
+    {
+        input_queue::queued(master).map(|queued| input_queue::CAPACITY.saturating_sub(queued))
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        let _ = master;
+        None
+    }
+}
 
 /// The `pty-writer` thread and the handle that registers terminals with it.
 /// The thread ends once this and every [`PtyInputQueue`] are dropped.
@@ -172,13 +202,18 @@ pub(crate) struct PtyWriter {
 impl PtyWriter {
     /// Starts the `pty-writer` thread (USER_INITIATED).
     pub(crate) fn start() -> io::Result<Self> {
+        Self::start_with_room(Arc::new(platform_room))
+    }
+
+    /// [`Self::start`] that reads each master's room with `room`.
+    fn start_with_room(room: RoomProbe) -> io::Result<Self> {
         let bell = Arc::new(Doorbell::new()?);
         let (commands, inbox) = mpsc::channel();
         let thread_bell = bell.clone();
         cmux_threads::spawn(
             "pty-writer",
             crate::thread_qos::ThreadType::Interactive.qos(),
-            move || run(&inbox, &thread_bell),
+            move || run(&inbox, &thread_bell, &*room),
         )?;
         Ok(Self { commands: Some(commands), bell, next_id: AtomicU64::new(1) })
     }
@@ -200,6 +235,7 @@ impl PtyWriter {
             state,
             commands: Some(commands),
             bell: self.bell.clone(),
+            next_receipt: AtomicU64::new(1),
         })))
     }
 }
@@ -223,6 +259,7 @@ struct QueueHandle {
     state: Arc<QueueState>,
     commands: Option<Sender<Command>>,
     bell: Arc<Doorbell>,
+    next_receipt: AtomicU64,
 }
 
 impl PtyInputQueue {
@@ -230,6 +267,27 @@ impl PtyInputQueue {
     /// with nothing of `bytes` queued, when the master failed or hung up or
     /// when the queue is full (its program reads nothing).
     pub(crate) fn send(&self, bytes: &[u8], lane: InputLane) -> io::Result<()> {
+        self.enqueue(bytes, lane, None)
+    }
+
+    /// [`Self::send`] with a receipt that resolves once the PTY took the
+    /// last byte of `bytes`. An error here means none of `bytes` was queued.
+    pub(crate) fn send_receipted(&self, bytes: &[u8], lane: InputLane) -> io::Result<InputReceipt> {
+        let handle = &*self.0;
+        let commands = handle.commands.clone().ok_or_else(writer_stopped)?;
+        let (done, outcome) = mpsc::sync_channel(1);
+        let id = handle.next_receipt.fetch_add(1, Ordering::Relaxed);
+        let waiter = Waiter { id, done };
+        if bytes.is_empty() {
+            handle.state.check()?;
+            waiter.resolve(Ok(()));
+        } else {
+            self.enqueue(bytes, lane, Some(waiter))?;
+        }
+        Ok(InputReceipt { queue: handle.id, id, outcome, commands, bell: handle.bell.clone() })
+    }
+
+    fn enqueue(&self, bytes: &[u8], lane: InputLane, receipt: Option<Waiter>) -> io::Result<()> {
         let handle = &*self.0;
         handle.state.check()?;
         if bytes.is_empty() {
@@ -251,7 +309,7 @@ impl PtyInputQueue {
                     "the terminal's input queue is full: its program does not read its input",
                 )
             })?;
-        let command = Command::Write { id: handle.id, lane, bytes: bytes.to_vec() };
+        let command = Command::Write { id: handle.id, lane, bytes: bytes.to_vec(), receipt };
         if handle.commands.as_ref().is_none_or(|commands| commands.send(command).is_err()) {
             handle.state.pending.fetch_sub(bytes.len(), Ordering::AcqRel);
             return Err(writer_stopped());
@@ -275,6 +333,76 @@ impl Drop for QueueHandle {
     }
 }
 
+/// Why receipted input did not reach its terminal's program
+/// ([`InputReceipt`]).
+#[derive(Debug)]
+pub(crate) enum DeliveryFailure {
+    /// None of the bytes reached the PTY.
+    NotDelivered(io::Error),
+    /// Some of the bytes may have reached the PTY before the rest was
+    /// dropped.
+    Partial(io::Error),
+}
+
+type Delivery = Result<(), DeliveryFailure>;
+
+/// The outcome of one [`PtyInputQueue::send_receipted`].
+pub(crate) struct InputReceipt {
+    queue: u64,
+    id: u64,
+    outcome: Receiver<Delivery>,
+    commands: Sender<Command>,
+    bell: Arc<Doorbell>,
+}
+
+impl InputReceipt {
+    /// Waits until the PTY took the send's last byte, or until its bytes
+    /// were dropped: the master failed or hung up, or the terminal closed.
+    pub(crate) fn wait(self) -> Delivery {
+        self.outcome.recv().unwrap_or_else(|_| Err(writer_lost()))
+    }
+
+    /// [`Self::wait`] until `deadline`. Then the writer takes back the bytes
+    /// if the PTY took none yet, and the send fails with `timeout_message`
+    /// (`TimedOut`): not delivered when no byte went, partial otherwise.
+    pub(crate) fn wait_until(self, deadline: Instant, timeout_message: &'static str) -> Delivery {
+        // wakeup-allow: deadline the caller's one-shot bound on one receipted send
+        match self.outcome.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(delivery) => return delivery,
+            Err(RecvTimeoutError::Disconnected) => return Err(writer_lost()),
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+        let cancel = Command::Cancel { id: self.queue, receipt: self.id, message: timeout_message };
+        if self.commands.send(cancel).is_err() {
+            return Err(writer_lost());
+        }
+        self.bell.ring();
+        self.wait()
+    }
+}
+
+/// The writer dropped a receipt without an outcome: it stopped mid-send.
+fn writer_lost() -> DeliveryFailure {
+    DeliveryFailure::Partial(io::Error::new(
+        io::ErrorKind::BrokenPipe,
+        "the PTY writer stopped with the input in flight",
+    ))
+}
+
+/// The writer's end of an [`InputReceipt`].
+struct Waiter {
+    id: u64,
+    done: SyncSender<Delivery>,
+}
+
+impl Waiter {
+    /// The channel holds one outcome and only this waiter sends one, so the
+    /// send never waits; a receipt already dropped ignores it.
+    fn resolve(self, delivery: Delivery) {
+        let _ = self.done.try_send(delivery);
+    }
+}
+
 /// What a queue's senders and the writer share.
 #[derive(Default)]
 struct QueueState {
@@ -288,9 +416,16 @@ impl QueueState {
     fn check(&self) -> io::Result<()> {
         match self.failure.load(Ordering::Acquire) {
             NO_FAILURE => Ok(()),
-            HUNG_UP => Err(io::Error::new(io::ErrorKind::BrokenPipe, "the terminal's PTY closed")),
-            code => Err(io::Error::from_raw_os_error(code)),
+            code => Err(failure_error(code)),
         }
+    }
+}
+
+/// The error of a queue that failed with `code`.
+fn failure_error(code: i32) -> io::Error {
+    match code {
+        HUNG_UP => io::Error::new(io::ErrorKind::BrokenPipe, "the terminal's PTY closed"),
+        code => io::Error::from_raw_os_error(code),
     }
 }
 
@@ -298,10 +433,31 @@ fn writer_stopped() -> io::Error {
     io::Error::new(io::ErrorKind::BrokenPipe, "the PTY writer stopped")
 }
 
+fn terminal_closed() -> io::Error {
+    io::Error::new(io::ErrorKind::BrokenPipe, "the terminal closed with its input still queued")
+}
+
 enum Command {
-    Open { id: u64, master: OwnedFd, state: Arc<QueueState> },
-    Write { id: u64, lane: InputLane, bytes: Vec<u8> },
-    Close { id: u64 },
+    Open {
+        id: u64,
+        master: OwnedFd,
+        state: Arc<QueueState>,
+    },
+    Write {
+        id: u64,
+        lane: InputLane,
+        bytes: Vec<u8>,
+        receipt: Option<Waiter>,
+    },
+    /// A receipt's wait ran out: take its bytes back if the PTY took none.
+    Cancel {
+        id: u64,
+        receipt: u64,
+        message: &'static str,
+    },
+    Close {
+        id: u64,
+    },
 }
 
 /// Wakes the writer: a non-blocking pipe it polls beside the masters. Every
@@ -352,10 +508,14 @@ impl Doorbell {
     }
 }
 
+/// [`RoomProbe`] as the writer thread borrows it.
+type RoomFn = dyn Fn(RawFd) -> Option<usize> + Send + Sync;
+
 /// The `pty-writer` loop: apply the commands, wait until a master with
-/// queued bytes takes input or the doorbell rings, write. No timer: idle,
-/// it sleeps in `poll` until a command comes.
-fn run(inbox: &Receiver<Command>, bell: &Doorbell) {
+/// queued bytes takes input or the doorbell rings, write. Idle, it sleeps in
+/// `poll` until a command comes; its only timer checks the room of a macOS
+/// master whose next escape sequence does not fit yet ([`fit`]).
+fn run(inbox: &Receiver<Command>, bell: &Doorbell, room: &RoomFn) {
     let mut terminals: Vec<Terminal> = Vec::new();
     let mut turn = 0usize;
     loop {
@@ -365,7 +525,7 @@ fn run(inbox: &Receiver<Command>, bell: &Doorbell) {
             return;
         }
         let ready = wait_writable(bell, &mut terminals);
-        serve(&mut terminals, &ready, turn);
+        serve(&mut terminals, &ready, turn, room);
         turn = turn.wrapping_add(1);
     }
 }
@@ -375,16 +535,27 @@ fn take_commands(inbox: &Receiver<Command>, terminals: &mut Vec<Terminal>) -> bo
     loop {
         match inbox.try_recv() {
             Ok(Command::Open { id, master, state }) => {
-                terminals.push(Terminal { id, master, state, chunks: VecDeque::new() });
+                terminals.push(Terminal {
+                    id,
+                    master,
+                    state,
+                    chunks: VecDeque::new(),
+                    room_wait: None,
+                });
             }
-            Ok(Command::Write { id, lane, bytes }) => {
+            Ok(Command::Write { id, lane, bytes, receipt }) => {
                 if let Some(terminal) = terminals.iter_mut().find(|terminal| terminal.id == id) {
-                    terminal.push(lane, bytes);
+                    terminal.push(lane, bytes, receipt);
+                }
+            }
+            Ok(Command::Cancel { id, receipt, message }) => {
+                if let Some(terminal) = terminals.iter_mut().find(|terminal| terminal.id == id) {
+                    terminal.cancel(receipt, message);
                 }
             }
             Ok(Command::Close { id }) => {
                 if let Some(index) = terminals.iter().position(|terminal| terminal.id == id) {
-                    terminals.swap_remove(index).drop_queued();
+                    terminals.swap_remove(index).drop_queued(terminal_closed);
                 }
             }
             Err(TryRecvError::Empty) => return true,
@@ -395,25 +566,30 @@ fn take_commands(inbox: &Receiver<Command>, terminals: &mut Vec<Terminal>) -> bo
 
 /// Waits for the doorbell or a master with queued bytes that takes input.
 /// Returns the indexes of the masters that take input; one that hung up
-/// fails its queue.
+/// fails its queue. A master that waits for room for a whole escape
+/// sequence already reports `POLLOUT` (it has some room), so it is polled
+/// only for a hang-up and checked again after [`input_queue::ROOM_POLL`].
 fn wait_writable(bell: &Doorbell, terminals: &mut [Terminal]) -> Vec<usize> {
     let mut polled = Vec::new();
     let mut fds =
         vec![libc::pollfd { fd: bell.read.as_raw_fd(), events: libc::POLLIN, revents: 0 }];
+    let mut timeout = -1;
     for (index, terminal) in terminals.iter().enumerate() {
         if !terminal.chunks.is_empty() {
+            let events = if terminal.room_wait.is_some() {
+                timeout = input_queue::ROOM_POLL.as_millis().clamp(1, i32::MAX as u128) as i32;
+                0
+            } else {
+                libc::POLLOUT
+            };
             polled.push(index);
-            fds.push(libc::pollfd {
-                fd: terminal.master.as_raw_fd(),
-                events: libc::POLLOUT,
-                revents: 0,
-            });
+            fds.push(libc::pollfd { fd: terminal.master.as_raw_fd(), events, revents: 0 });
         }
     }
     loop {
         // SAFETY: `fds` is a live, exclusively borrowed array of
         // `fds.len()` pollfds over descriptors this thread owns.
-        let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
         if ready >= 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
             break;
         }
@@ -421,9 +597,10 @@ fn wait_writable(bell: &Doorbell, terminals: &mut [Terminal]) -> Vec<usize> {
     let mut writable = Vec::new();
     for (index, fd) in polled.into_iter().zip(fds.iter().skip(1)) {
         let Some(terminal) = terminals.get_mut(index) else { continue };
-        if fd.revents & libc::POLLOUT != 0 {
+        let hung_up = fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0;
+        if fd.revents & libc::POLLOUT != 0 || (terminal.room_wait.is_some() && !hung_up) {
             writable.push(index);
-        } else if fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+        } else if hung_up {
             terminal.fail(HUNG_UP);
         }
     }
@@ -438,11 +615,11 @@ fn serve_order(ready: usize, turn: usize) -> impl Iterator<Item = usize> {
 
 /// One turn over the masters that take input: every key lane first, then at
 /// most [`BULK_SLICE`] of each bulk queue that is not full.
-fn serve(terminals: &mut [Terminal], ready: &[usize], turn: usize) {
+fn serve(terminals: &mut [Terminal], ready: &[usize], turn: usize, room: &RoomFn) {
     let mut full = vec![false; ready.len()];
     for (slot, index) in ready.iter().enumerate() {
         if let (Some(terminal), Some(full)) = (terminals.get_mut(*index), full.get_mut(slot)) {
-            *full = !terminal.write_lane(InputLane::Key, usize::MAX);
+            *full = !terminal.write_lane(InputLane::Key, usize::MAX, room);
         }
     }
     for slot in serve_order(ready.len(), turn) {
@@ -450,7 +627,7 @@ fn serve(terminals: &mut [Terminal], ready: &[usize], turn: usize) {
             continue;
         }
         if let Some(terminal) = ready.get(slot).and_then(|index| terminals.get_mut(*index)) {
-            terminal.write_lane(InputLane::Bulk, BULK_SLICE);
+            terminal.write_lane(InputLane::Bulk, BULK_SLICE, room);
         }
     }
 }
@@ -462,35 +639,71 @@ struct Terminal {
     master: OwnedFd,
     state: Arc<QueueState>,
     chunks: VecDeque<Chunk>,
+    /// Since when the next escape sequence waits for room on a master that
+    /// has some, but not enough ([`fit`]).
+    room_wait: Option<Instant>,
 }
 
 struct Chunk {
     lane: InputLane,
     bytes: Vec<u8>,
     written: usize,
+    /// The receipt of a receipted send, which has its chunk to itself.
+    receipt: Option<Waiter>,
 }
 
 impl Terminal {
-    fn push(&mut self, lane: InputLane, bytes: Vec<u8>) {
-        if self.state.failure.load(Ordering::Acquire) != NO_FAILURE {
+    fn push(&mut self, lane: InputLane, bytes: Vec<u8>, receipt: Option<Waiter>) {
+        let failure = self.state.failure.load(Ordering::Acquire);
+        if failure != NO_FAILURE {
             self.state.pending.fetch_sub(bytes.len(), Ordering::AcqRel);
+            if let Some(receipt) = receipt {
+                receipt.resolve(Err(DeliveryFailure::NotDelivered(failure_error(failure))));
+            }
             return;
         }
         // Keys typed in a burst go out in one write.
-        if let Some(last) = self.chunks.back_mut()
+        if receipt.is_none()
+            && let Some(last) = self.chunks.back_mut()
             && last.lane == lane
+            && last.receipt.is_none()
             && last.bytes.len() < BULK_SLICE
         {
             last.bytes.extend_from_slice(&bytes);
             return;
         }
-        self.chunks.push_back(Chunk { lane, bytes, written: 0 });
+        self.chunks.push_back(Chunk { lane, bytes, written: 0, receipt });
+    }
+
+    /// A receipt's wait ran out: its bytes go back if the PTY took none of
+    /// them; else the rest still goes, so no sequence is cut.
+    fn cancel(&mut self, receipt: u64, message: &'static str) {
+        let Some(index) = self
+            .chunks
+            .iter()
+            .position(|chunk| chunk.receipt.as_ref().is_some_and(|waiter| waiter.id == receipt))
+        else {
+            return;
+        };
+        let timed_out = || io::Error::new(io::ErrorKind::TimedOut, message);
+        if self.chunks.get(index).is_some_and(|chunk| chunk.written > 0) {
+            if let Some(waiter) = self.chunks.get_mut(index).and_then(|chunk| chunk.receipt.take())
+            {
+                waiter.resolve(Err(DeliveryFailure::Partial(timed_out())));
+            }
+        } else if let Some(chunk) = self.chunks.remove(index) {
+            self.state.pending.fetch_sub(chunk.bytes.len(), Ordering::AcqRel);
+            if let Some(waiter) = chunk.receipt {
+                waiter.resolve(Err(DeliveryFailure::NotDelivered(timed_out())));
+            }
+        }
     }
 
     /// Writes the queued bytes while the next ones are in `lane`, at most
     /// `budget`. False when the master took less than it was offered (it is
-    /// full) or failed.
-    fn write_lane(&mut self, lane: InputLane, budget: usize) -> bool {
+    /// full), has no room for the next escape sequence yet, or failed.
+    fn write_lane(&mut self, lane: InputLane, budget: usize, room: &RoomFn) -> bool {
+        let master = self.master.as_raw_fd();
         let mut left = budget;
         while left > 0 {
             let Some(chunk) = self.chunks.front_mut().filter(|chunk| chunk.lane == lane) else {
@@ -499,14 +712,21 @@ impl Terminal {
             let rest = chunk.bytes.get(chunk.written..).unwrap_or_default();
             let offered = rest.get(..rest.len().min(left)).unwrap_or_default();
             let offered_len = offered.len();
-            match write_some(self.master.as_raw_fd(), offered) {
+            let Some(fits) = fit(master, &mut self.room_wait, offered, room) else {
+                return false;
+            };
+            match write_some(master, offered.get(..fits).unwrap_or_default()) {
                 Ok(written) => {
+                    self.room_wait = None;
                     chunk.written += written;
                     left -= written;
                     let finished = chunk.written >= chunk.bytes.len();
                     self.state.pending.fetch_sub(written, Ordering::AcqRel);
-                    if finished {
-                        self.chunks.pop_front();
+                    if finished
+                        && let Some(waiter) =
+                            self.chunks.pop_front().and_then(|chunk| chunk.receipt)
+                    {
+                        waiter.resolve(Ok(()));
                     }
                     if written < offered_len {
                         return false;
@@ -528,16 +748,50 @@ impl Terminal {
     /// fails with `code`.
     fn fail(&mut self, code: i32) {
         self.state.failure.store(code, Ordering::Release);
-        self.drop_queued();
+        self.drop_queued(|| failure_error(code));
     }
 
-    fn drop_queued(&mut self) {
-        let queued: usize = self
-            .chunks
-            .drain(..)
-            .map(|chunk| chunk.bytes.len().saturating_sub(chunk.written))
-            .sum();
+    /// Drops what is queued. Each receipt fails with `error`: partial when
+    /// the PTY took some of its bytes, not delivered when it took none.
+    fn drop_queued(&mut self, error: impl Fn() -> io::Error) {
+        let mut queued = 0;
+        for chunk in self.chunks.drain(..) {
+            queued += chunk.bytes.len().saturating_sub(chunk.written);
+            if let Some(waiter) = chunk.receipt {
+                waiter.resolve(Err(if chunk.written > 0 {
+                    DeliveryFailure::Partial(error())
+                } else {
+                    DeliveryFailure::NotDelivered(error())
+                }));
+            }
+        }
         self.state.pending.fetch_sub(queued, Ordering::AcqRel);
+    }
+}
+
+/// How much of `offered` (not empty) to write on `master` now: all of it
+/// when its program has room for it or the platform cannot say; else
+/// [`input_queue::cut`]'s part, which never ends right after an ESC
+/// (#22265). `None` while the next escape sequence does not fit whole,
+/// counted in `room_wait`; after [`input_queue::ROOM_WAIT`] of that, all of
+/// it, for the kernel to take what fits, as `cmux_pty`'s blocking macOS
+/// writer does.
+fn fit(
+    master: RawFd,
+    room_wait: &mut Option<Instant>,
+    offered: &[u8],
+    room: &RoomFn,
+) -> Option<usize> {
+    let Some(room) = room(master) else { return Some(offered.len()) };
+    if offered.len() <= room {
+        return Some(offered.len());
+    }
+    match input_queue::cut(offered, room) {
+        Cut::Write(length) => Some(length),
+        Cut::Wait => {
+            let since = *room_wait.get_or_insert_with(Instant::now);
+            (since.elapsed() >= input_queue::ROOM_WAIT).then_some(offered.len())
+        }
     }
 }
 

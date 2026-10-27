@@ -131,10 +131,16 @@ impl Surface {
                     };
                     drop(term);
                     // A holder terminal's keys go through its `pty-writer`
-                    // queue, so the fallback key follows them in order.
+                    // queue, so the fallback key follows them in order. The
+                    // wait for its delivery runs after the runtime lock is
+                    // released.
                     #[cfg(unix)]
                     if let Some(input) = holder.as_ref().and_then(|holder| holder.input()) {
-                        return queue_clear_history_fallback(input, &encoded);
+                        let receipt = queue_clear_history_fallback(input, &encoded)?;
+                        drop(runtime);
+                        return crate::request_path::will_block(|| {
+                            wait_clear_history_fallback(receipt)
+                        });
                     }
                     return write_clear_history_fallback(master, writer.as_mut(), &encoded);
                 }
@@ -258,11 +264,30 @@ fn check_clear_history_fallback_size(bytes: &[u8]) -> Result<(), ClearHistoryFai
 fn queue_clear_history_fallback(
     input: &crate::pty_write::PtyInputQueue,
     bytes: &[u8],
-) -> Result<(), ClearHistoryFailure> {
+) -> Result<crate::pty_write::InputReceipt, ClearHistoryFailure> {
     check_clear_history_fallback_size(bytes)?;
     input
-        .send(bytes, crate::pty_write::InputLane::Key)
+        .send_receipted(bytes, crate::pty_write::InputLane::Key)
         .map_err(|error| ClearHistoryFailure::known_not_delivered(error.into()))
+}
+
+/// Waits, as long as the bounded write of other terminals, until the PTY
+/// took the queued fallback key. One that timed out before the PTY took a
+/// byte of it is taken back, so it is known not delivered.
+#[cfg(unix)]
+fn wait_clear_history_fallback(
+    receipt: crate::pty_write::InputReceipt,
+) -> Result<(), ClearHistoryFailure> {
+    use crate::pty_write::DeliveryFailure;
+    let deadline = Instant::now() + CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT;
+    receipt.wait_until(deadline, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR).map_err(|failure| {
+        match failure {
+            DeliveryFailure::NotDelivered(error) => {
+                ClearHistoryFailure::known_not_delivered(error.into())
+            }
+            DeliveryFailure::Partial(error) => ClearHistoryFailure::ambiguous(error.into()),
+        }
+    })
 }
 
 pub(crate) fn write_clear_history_fallback(

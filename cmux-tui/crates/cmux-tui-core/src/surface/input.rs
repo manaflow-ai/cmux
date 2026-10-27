@@ -39,6 +39,16 @@ fn flow_holder(pty: &PtySurface, flow: u64) -> Option<Arc<crate::holder_runtime:
     }
 }
 
+#[cfg(unix)]
+impl From<crate::pty_write::DeliveryFailure> for ConfirmedInputFailure {
+    fn from(failure: crate::pty_write::DeliveryFailure) -> Self {
+        match failure {
+            crate::pty_write::DeliveryFailure::NotDelivered(error) => Self::Known(error),
+            crate::pty_write::DeliveryFailure::Partial(error) => Self::Indeterminate(error),
+        }
+    }
+}
+
 impl Surface {
     /// Write input bytes to the PTY child.
     pub fn write_bytes(&self, bytes: &[u8]) -> std::io::Result<()> {
@@ -203,6 +213,20 @@ impl Surface {
             )));
         };
         let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
+        // A holder terminal's `pty-writer` queue takes the bytes after every
+        // earlier input and answers once its PTY took the last one. The wait
+        // runs after the runtime lock is released.
+        #[cfg(unix)]
+        if let PtyRuntime::Local { holder: Some(holder), .. } = &*runtime
+            && let Some(input) = holder.input()
+        {
+            let receipt = input
+                .send_receipted(bytes, crate::pty_write::InputLane::Bulk)
+                .map_err(ConfirmedInputFailure::Known)?;
+            drop(runtime);
+            return crate::request_path::will_block(|| receipt.wait())
+                .map_err(ConfirmedInputFailure::from);
+        }
         match &mut *runtime {
             PtyRuntime::Local { writer, .. } => crate::request_path::will_block(|| {
                 writer.write_all(bytes).and_then(|()| writer.flush())
