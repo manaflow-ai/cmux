@@ -1776,7 +1776,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextInputTests",
             dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextInputDiagnostics",
-                           "CmuxNextControl", "CmuxNextSettings", "CmuxNextSignposts", "CmuxNextWakeups",
+                           "CmuxNextControl", "CmuxNextSettings", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups",
                            "CmuxNextWakeupsTestSupport", .product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: uiSwiftSettings
         ),
