@@ -102,7 +102,10 @@ import Testing
         #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: -0.25)) == "0")
         #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: .infinity)) == "0")
         #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: .nan)) == "0")
-        #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: 1e13)) == "999999999999")
+        #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: 0)) == "0")
+        #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: 999_999_999_999.5)) == "999999999999")
+        #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: 1e12)) == "0")
+        #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: 1e13)) == "0")
     }
 
     @Test func hostdForwardsTheTokenWithTheRequest() throws {

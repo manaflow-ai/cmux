@@ -116,10 +116,10 @@ public struct MobileHostPairInvite: Sendable, Equatable {
     }
 
     /// `e`: whole Unix seconds, 1 to 12 digits as the phone requires. A time it cannot write
-    /// (before 1970, not finite) is written 0, which the phone reads as expired.
+    /// (before 1970, not finite, 1e12 or later) is written 0, which the phone reads as expired.
     public static func expiry(_ date: Date) -> String {
-        let seconds = date.timeIntervalSince1970.rounded(.down)
-        guard seconds.isFinite, seconds >= 0 else { return "0" }
-        return String(format: "%.0f", Swift.min(seconds, 999_999_999_999))
+        let seconds = date.timeIntervalSince1970
+        guard seconds.isFinite, seconds >= 0, seconds < 1e12 else { return "0" }
+        return String(format: "%.0f", seconds.rounded(.down))
     }
 }
