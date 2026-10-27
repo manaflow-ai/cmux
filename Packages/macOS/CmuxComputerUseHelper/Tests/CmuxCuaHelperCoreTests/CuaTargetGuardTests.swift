@@ -102,11 +102,19 @@ import Testing
     }
 
     // Upstream v0.35+ tools whose inner calls the driver dispatches itself.
-    @Test(arguments: ["run_script", "replay_trajectory"])
-    func toolsThatHideTheirTargetsAreRefused(name: String) async {
-        await #expect(throws: ToolError.self) {
-            try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
-                .check(name: name, arguments: Data(#"{"script":"cua.click({pid:100,x:1,y:1})"}"#.utf8))
+    @Test(arguments: [
+        ("run_script", #"{"script":"cua.click({pid:100,x:1,y:1})"}"#),
+        ("replay_trajectory", #"{"dir":"/tmp/recording"}"#),
+    ])
+    func toolsThatHideTheirTargetsAreRefused(name: String, arguments: String) async {
+        do {
+            _ = try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                .check(name: name, arguments: Data(arguments.utf8))
+            Issue.record("The helper must refuse hidden dispatch")
+        } catch let error as ToolError {
+            #expect(error.description.contains("does not allow \(name)"))
+        } catch {
+            Issue.record("Expected a tool refusal: \(error)")
         }
     }
 
@@ -145,6 +153,85 @@ import Testing
             try await guarder.check(name: "set_value", arguments: Data(#"{"element_token":"s00000001:3","value":"x"}"#.utf8))
         }
         _ = try await guarder.check(name: "set_value", arguments: Data(#"{"element_token":"s00000001:3","pid":102,"value":"x"}"#.utf8))
+    }
+
+    @Test(arguments: [
+        #"{"target":{"kind":"window","pid":100,"window_id":9001}}"#,
+        #"{"target":{"kind":"window","pid":102,"window_id":9000}}"#,
+        #"{"target":{"kind":"app","pid":100}}"#,
+        #"{"target":{"kind":"application","bundle_id":"com.apple.Terminal"}}"#,
+        #"{"app_bundle_id":"com.apple.Terminal"}"#,
+        #"{"target":{"kind":"window","pid":102,"window_id":9001},"bundle_id":"com.apple.Terminal"}"#,
+    ])
+    func nestedAndAliasTargetsCannotBypassPolicy(arguments: String) async {
+        await #expect(throws: ToolError.self) {
+            try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                .check(name: "press_key", arguments: Data(arguments.utf8))
+        }
+    }
+
+    @Test(arguments: [
+        "move_cursor", "click", "drag", "scroll", "type_text", "press_key", "hotkey", "type_text_chars",
+    ])
+    func typedDesktopInputIsRefused(name: String) async {
+        await #expect(throws: ToolError.self) {
+            try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                .check(name: name, arguments: Data(#"{"target":{"kind":"desktop","display_id":"primary"},"key":"Return"}"#.utf8))
+        }
+    }
+
+    @Test(arguments: [
+        #"{"target":null}"#, #"{"target":"desktop"}"#, #"{"target":[]}"#,
+        #"{"target":{}}"#, #"{"target":{"kind":"future","pid":102}}"#,
+        #"{"target":{"kind":"window","pid":102}}"#,
+        #"{"target":{"kind":"window","pid":102,"window_id":9001,"app":"Terminal"}}"#,
+        #"{"target":{"kind":"window","pid":true,"window_id":9001}}"#,
+        #"{"target":{"kind":"window","pid":102,"window_id":4294967296}}"#,
+        #"{"target":{"kind":"window","pid":102,"window_id":9001},"pid":102}"#,
+        #"{"target":{"kind":"window","pid":102,"window_id":9001},"scope":"window"}"#,
+        #"{"scope":"future","pid":102}"#,
+        #"{"app":"Terminal"}"#, #"{"window":"Terminal"}"#,
+    ])
+    func unknownTargetShapesFailInTheHelper(arguments: String) async {
+        do {
+            _ = try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                .check(name: "click", arguments: Data(arguments.utf8))
+            Issue.record("The helper must refuse an unknown target shape")
+        } catch let error as ToolError {
+            #expect(error.description.contains("target"))
+        } catch {
+            Issue.record("Expected a clear target error: \(error)")
+        }
+    }
+
+    @Test func typedTargetsAreRefusedForUnsupportedTools() async {
+        await #expect(throws: ToolError.self) {
+            try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                .check(name: "list_apps", arguments: Data(#"{"target":{"kind":"window","pid":102,"window_id":9001}}"#.utf8))
+        }
+    }
+
+    @Test(arguments: ["click", "type_text_chars"])
+    func typedSafeWindowPassesWithoutChangingTheCall(name: String) async throws {
+        let arguments = Data(#"{"target":{"kind":"window","pid":102,"window_id":9001}}"#.utf8)
+        let result = try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+            .check(name: name, arguments: arguments)
+        #expect(result == arguments)
+    }
+
+    @Test(arguments: ["run_steps", "run_actions"])
+    func batchesCheckTypedTargetsAndHiddenDispatch(name: String) async {
+        for arguments in [
+            #"{"steps":[{"press_key":{"target":{"kind":"desktop","display_id":"primary"},"key":"Return"}}]}"#,
+            #"{"steps":[{"tool":"click","args":{"target":{"kind":"window","pid":102,"window_id":9000}}}]}"#,
+            #"{"steps":[{"tool":"replay_trajectory","args":{"dir":"/tmp/recording"}}]}"#,
+            #"{"steps":[{"run_script":{"script":"cua.press_key({key:'Return'})"}}]}"#,
+        ] {
+            await #expect(throws: ToolError.self) {
+                try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                    .check(name: name, arguments: Data(arguments.utf8))
+            }
+        }
     }
 
     private struct Resolver: CuaTargetResolving {

@@ -13,9 +13,7 @@ struct CuaTargetGuard: Sendable {
         }
         // These run other tools from content this guard cannot check (a
         // script, a recorded trajectory), so their targets are never seen.
-        if Self.opaqueDispatchTools.contains(name) {
-            throw ToolError("Computer use does not allow \(name) in cmux. Call the tools directly, or use run_steps with pid and window_id.")
-        }
+        try checkDispatch(name)
         // A batch runs each step through the driver's own registry, so every
         // nested target must pass here first. Upstream matches `app` and
         // `window` names loosely (substring), which this guard cannot repeat
@@ -55,6 +53,7 @@ struct CuaTargetGuard: Sendable {
     /// Checks the pid, window, bundle id and element token targets of one
     /// argument object. `name` is the tool, or nil for an object nested in a batch.
     private func checkTargets(in object: [String: Any], name: String?) async throws {
+        let object = try targetFields(in: object, name: name)
         let hasPID = object["pid"].map { !($0 is NSNull) } ?? false
         let hasWindowID = object["window_id"].map { !($0 is NSNull) } ?? false
         if let value = object["pid"], !(value is NSNull) {
@@ -90,10 +89,71 @@ struct CuaTargetGuard: Sendable {
         }
     }
 
+    /// Match action_target.rs in the pinned driver before it normalizes targets.
+    /// Keep the original call bytes, but check the exact fields the driver uses.
+    private func targetFields(in object: [String: Any], name: String?) throws -> [String: Any] {
+        // Name selectors use the driver's loose matching. Require exact ids.
+        for key in ["app", "window"] {
+            if let value = object[key], !(value is NSNull) { throw unsupportedTarget() }
+        }
+        if let scope = object["scope"], !(scope is NSNull) {
+            guard let scope = scope as? String, ["window", "desktop"].contains(scope) else {
+                throw unsupportedTarget()
+            }
+        }
+        guard let value = object["target"] else { return object }
+        guard name.map(Self.typedTargetTools.contains) ?? true,
+              !["scope", "pid", "window_id"].contains(where: { object.keys.contains($0) }),
+              let target = value as? [String: Any], let kind = target["kind"] as? String else {
+            throw unsupportedTarget()
+        }
+        var fields = object
+        fields.removeValue(forKey: "target")
+        switch kind {
+        case "window":
+            guard Set(target.keys) == ["kind", "pid", "window_id"],
+                  let pid = target["pid"].flatMap(integer), pid > 0, Int32(exactly: pid) != nil,
+                  let window = target["window_id"].flatMap(integer), window > 0, UInt32(exactly: window) != nil else {
+                throw unsupportedTarget()
+            }
+            fields["pid"] = target["pid"]
+            fields["window_id"] = target["window_id"]
+        case "desktop":
+            guard Set(target.keys) == ["kind", "display_id"], target["display_id"] as? String == "primary" else {
+                throw unsupportedTarget()
+            }
+            fields["scope"] = "desktop"
+        default:
+            // v0.38 has no app target kind. Refuse new kinds until reviewed.
+            throw unsupportedTarget()
+        }
+        return fields
+    }
+
+    private func checkDispatch(_ name: String) throws {
+        if Self.opaqueDispatchTools.contains(name) {
+            throw ToolError("Computer use does not allow \(name) in cmux. Call the tools directly, or use run_steps with pid and window_id.")
+        }
+    }
+
+    private func unsupportedTarget() -> ToolError {
+        ToolError(String(localized: "computerUse.target.unsupported", defaultValue: "Computer use cannot check this target shape. Use pid and window_id, or target with kind window, pid, and window_id.", bundle: localizationBundle))
+    }
+
+    private var localizationBundle: Bundle {
+        // SwiftPM tests use .module. The helper app keeps the same resource
+        // bundle under Contents/Resources, as required by code signing.
+        if let url = Bundle.main.url(forResource: "CmuxComputerUseHelper_CmuxCuaHelperCore", withExtension: "bundle"),
+           let bundle = Bundle(url: url) { return bundle }
+        return .module
+    }
+
     private func checkBatch(_ object: [String: Any]) async throws {
         func walk(_ value: Any, depth: Int) async throws {
             guard depth < 16 else { throw ToolError("Computer use batch arguments are nested too deeply.") }
             if let object = value as? [String: Any] {
+                if let tool = object["tool"] as? String { try checkDispatch(tool) }
+                for tool in object.keys { try checkDispatch(tool) }
                 for key in ["app", "window"] {
                     if let selector = object[key], !(selector is NSNull) {
                         throw ToolError("Computer use batches must name each window by pid and window_id, not by `\(key)`. Use list_windows first.")
@@ -136,6 +196,10 @@ struct CuaTargetGuard: Sendable {
     /// Tools that run nested tool calls given in their arguments (run_actions
     /// is upstream's hidden alias of run_steps).
     static let batchTools: Set<String> = ["run_steps", "run_actions"]
+
+    private static let typedTargetTools: Set<String> = [
+        "move_cursor", "click", "drag", "scroll", "type_text", "press_key", "hotkey", "type_text_chars",
+    ]
 
     private static let desktopInputTools: Set<String> = [
         "click", "double_click", "right_click", "drag", "scroll", "move_cursor",

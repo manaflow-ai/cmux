@@ -42,6 +42,7 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
     private let invokeFn: InvokeFn
     private let release: ReleaseFn
     private let targetResolver = MacCuaTargetResolver()
+    // Fixed at launch by the cmux app. A socket request cannot replace it.
     private let allowedTargetBundleIDs: String
     private let hostBundleID: String?
 
@@ -89,11 +90,6 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
     }
 
     public func invoke(name: String, arguments: Data) async throws -> Data {
-        try await invoke(name: name, arguments: arguments, allowedTargetBundleIDs: allowedTargetBundleIDs)
-    }
-
-    /// Invokes with the trusted connection's exact target scope, outside tool arguments.
-    public func invoke(name: String, arguments: Data, allowedTargetBundleIDs: String) async throws -> Data {
         let arguments = try await CuaTargetGuard(
             policy: CuaTargetPolicy(allowedBundleIDs: allowedTargetBundleIDs, hostBundleID: hostBundleID),
             resolver: targetResolver

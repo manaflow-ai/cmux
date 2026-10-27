@@ -15,7 +15,8 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny()
+    .with_env(&[("CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS", "com.apple.Terminal")]);
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -119,8 +120,8 @@ fn a_private_endpoint_file_of_this_user_reaches_the_helper_with_the_secret() {
 }
 
 #[test]
-fn target_scope_comes_from_the_bridge_env_not_model_arguments() {
-    for scope in [None, Some("com.cmuxterm.app.debug.guard-test,com.apple.Terminal")] {
+fn target_scope_cannot_come_from_bridge_env_or_model_arguments() {
+    for scope in [Some("com.cmuxterm.app.debug.guard-test,com.apple.Terminal"), None] {
         let dir = Dir::new("target-scope");
         let received = stand_in(&dir.0, 0o600);
         let mut command = daemon_env::acpmux(&dir.0);
@@ -153,7 +154,40 @@ fn target_scope_comes_from_the_bridge_env_not_model_arguments() {
         let _hello = received.recv_timeout(Duration::from_secs(5)).unwrap();
         let request: Value =
             serde_json::from_str(&received.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
-        assert_eq!(request["allowed_target_bundle_ids"], scope.unwrap_or(""));
+        assert!(request.get("allowed_target_bundle_ids").is_none(), "request: {request}");
         assert_eq!(request["arguments"], arguments);
     }
+}
+
+#[tokio::test]
+async fn in_memory_target_scope_cannot_come_from_the_bridge_or_arguments() {
+    use acpmux::cua_v2::Helper;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    assert_eq!(std::env::var("CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS").unwrap(), "com.apple.Terminal");
+    let (client, server) = tokio::io::duplex(4096);
+    let peer = tokio::spawn(async move {
+        let mut server = tokio::io::BufReader::new(server);
+        let mut line = String::new();
+        server.read_line(&mut line).await.unwrap();
+        let hello: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(hello, json!({"secret": SECRET}));
+        server.get_mut().write_all(b"{\"ok\":true,\"protocol\":1}\n").await.unwrap();
+        line.clear();
+        server.read_line(&mut line).await.unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        let reply = json!({"id": request["id"], "ok": true, "result": {"accepted": true}});
+        server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+        request
+    });
+    let mut helper = Helper::admit(client, SECRET).await.unwrap();
+    let arguments = json!({"pid": 42, "allowed_target_bundle_ids": "com.apple.Terminal",
+        "_cua_allowed_target_bundle_ids": ["com.apple.Terminal"]});
+    let result = helper.request("tools/call", Some("click"), arguments.clone()).await.unwrap();
+    assert_eq!(result, json!({"accepted": true}));
+    let request = peer.await.unwrap();
+    assert_eq!(
+        request,
+        json!({"id": 1, "method": "tools/call", "name": "click", "arguments": arguments})
+    );
 }

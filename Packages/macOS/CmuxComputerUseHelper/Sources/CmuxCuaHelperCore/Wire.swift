@@ -69,14 +69,6 @@ enum HelperWire {
 public protocol ToolInvoking: Sendable {
     func listTools() async throws -> Data
     func invoke(name: String, arguments: Data) async throws -> Data
-    /// The admitted bridge's session scope, never taken from tool arguments.
-    func invoke(name: String, arguments: Data, allowedTargetBundleIDs: String) async throws -> Data
-}
-
-extension ToolInvoking {
-    public func invoke(name: String, arguments: Data, allowedTargetBundleIDs: String) async throws -> Data {
-        try await invoke(name: name, arguments: arguments)
-    }
 }
 
 public struct ToolError: Error, Sendable, CustomStringConvertible {

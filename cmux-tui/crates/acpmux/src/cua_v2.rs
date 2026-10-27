@@ -200,9 +200,7 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         if let Some(name) = name {
             message["name"] = json!(name);
             message["arguments"] = arguments;
-            // Read only the trusted MCP process env, never an MCP parameter.
-            message["allowed_target_bundle_ids"] =
-                json!(std::env::var(crate::agent_tools::CUA_SCOPE_ENV).unwrap_or_default());
+            // The helper owns target policy. This process's env is caller-controlled.
         }
         self.send(&message).await?;
         // One request at a time, so the next reply is ours.
