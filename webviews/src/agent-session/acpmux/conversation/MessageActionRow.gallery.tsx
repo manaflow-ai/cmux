@@ -33,7 +33,7 @@ export function MessageActionExamples({ narrow = false }: { narrow?: boolean }) 
       }}
     >
       <div className="action-examples" style={{ padding: 24, maxWidth: narrow ? 320 : 600 }}>
-        <style>{`.action-examples > section { margin-block-end: 24px; }
+        <style>{`.action-examples > section { position: relative; margin-block-end: 24px; }
           .action-examples :is(.cv-user__actions,.cv-received-actions,.cv-sent-actions,.cv-turn-actions) { opacity: 1; }
           .action-examples h3 { font: inherit; margin: 0 0 4px; color: var(--cv-text-muted); }`}</style>
         <section data-message-kind="user">
@@ -70,8 +70,11 @@ export function MessageActionExamples({ narrow = false }: { narrow?: boolean }) 
 export default componentEntry({
   id: "agent-pane.message-action-row",
   title: "Message action rows",
+  area: "Agent pane",
   pane: true,
   covers: [
+    "agent-session/acpmux/conversation/MessageActionRow.tsx#MessageActionRow",
+    "agent-session/acpmux/conversation/MessageActionRow.tsx#MessageActionIcon",
     "agent-session/acpmux/conversation/MessageActions.tsx#PromptActions",
     "agent-session/acpmux/conversation/MessageActions.tsx#ReceivedActions",
     "agent-session/acpmux/conversation/MessageActions.tsx#SentActions",
