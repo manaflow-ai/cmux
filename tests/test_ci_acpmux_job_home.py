@@ -78,6 +78,17 @@ def is_stop(step: dict) -> bool:
             and "always()" in str(step.get("if") or "").replace(" ", ""))
 
 
+def condition(step: dict) -> str:
+    return re.sub(r"\s+", "", str(step.get("if") or "")).removeprefix("${{").removesuffix("}}")
+
+
+def runs_before_every_launch(start: dict, launching: list[dict]) -> bool:
+    """An unconditional start, or one whose condition every launching step also requires (the
+    daemon-test job's `steps.current.outputs.stale != 'true'`: a superseded run launches nothing)."""
+    gate = condition(start)
+    return not gate or all(gate in condition(step) for step in launching)
+
+
 def job_failures(where: str, job: dict) -> list[str]:
     steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
     launching = [index for index, step in enumerate(steps) if launches(step)]
@@ -87,9 +98,10 @@ def job_failures(where: str, job: dict) -> list[str]:
     named = steps[first].get("name") or f"step {first + 1}"
     failures = []
     starts = [index for index, step in enumerate(steps) if is_start(step)]
-    if not any(index < first and not steps[index].get("if") for index in starts):
-        failures.append(f"{where}: '{named}' can start acpmux, but no unconditional step before it exports "
-                        "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home and an empty ACPMUX_SOCKET to $GITHUB_ENV")
+    if not any(index < first and runs_before_every_launch(steps[index], [steps[i] for i in launching])
+               for index in starts):
+        failures.append(f"{where}: '{named}' can start acpmux, but no step before it that runs whenever they do "
+                        "exports ACPMUX_HOME=$RUNNER_TEMP/acpmux-home and an empty ACPMUX_SOCKET to $GITHUB_ENV")
     if not any(index > last and is_stop(step) for index, step in enumerate(steps)):
         failures.append(f"{where}: no always() step after its last acpmux step runs `env -u ACPMUX_SOCKET "
                         f"acpmux {SHUTDOWN}` for $RUNNER_TEMP/acpmux-home and deletes it")
@@ -138,6 +150,8 @@ class AcpmuxJobHomeTests(unittest.TestCase):
         # Too late, or skipped by a condition.
         self.assertEqual(len(job_failures("w:j", {"steps": [TEST, START, STOP]})), 1)
         self.assertEqual(len(job_failures("w:j", {"steps": [dict(START, **{"if": "x"}), TEST, STOP]})), 1)
+        gated = dict(TEST, **{"if": "steps.current.outputs.stale != 'true'"})
+        self.assertEqual(len(job_failures("w:j", {"steps": [dict(START, **{"if": "x"}), gated, STOP]})), 1)
         # A stop that does not run after a failure or a cancel.
         self.assertEqual(len(job_failures("w:j", {"steps": [START, TEST, {**STOP, "if": "success()"}]})), 1)
         # An inherited ACPMUX_SOCKET left in place: the job's steps, or its shutdown, reach that daemon.
@@ -150,6 +164,10 @@ class AcpmuxJobHomeTests(unittest.TestCase):
         self.assertEqual(job_failures("w:j", {"steps": [START, TEST, STOP]}), [])
         swift_test = {"run": "swift test --package-path Packages/macOS/CmuxNext --filter X"}
         self.assertEqual(job_failures("w:j", {"steps": [START, swift_test, STOP]}), [])
+        # A start gated like every launching step: a run that skips them needs no home.
+        stale = "steps.current.outputs.stale != 'true'"
+        self.assertEqual(job_failures("w:j", {"steps": [dict(START, **{"if": stale}), dict(TEST, **{"if": stale}),
+                                                        dict(STOP, **{"if": f"${{{{ always() && {stale} }}}}"})]}), [])
 
     def test_other_swift_packages_are_not_acpmux(self) -> None:
         self.assertFalse(launches({"run": "swift test --package-path Packages/Shared/CmuxVNC"}))

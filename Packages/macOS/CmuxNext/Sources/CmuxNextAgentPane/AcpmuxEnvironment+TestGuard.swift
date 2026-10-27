@@ -9,7 +9,7 @@ import Foundation
 /// ended. There, ``resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``
 /// now returns nil, as when acpmux is missing, so a test that needs a daemon fails instead. A
 /// test names its own `ACPMUX_HOME` (or a `CMUX_NEXT_ACPMUX_ROOT`); CI gives each job that runs
-/// these tests one under its temp folder (scripts/ci/acpmux_job_home.py).
+/// these tests one under its temp folder (tests/test_ci_acpmux_job_home.py).
 nonisolated extension AcpmuxEnvironment {
     /// The person's home folder (the account's, not `HOME`) in a test process (`swift test`,
     /// `xctest`); nil in the app, where nothing is refused.
@@ -40,7 +40,7 @@ nonisolated extension AcpmuxEnvironment {
 
     private static let refusalNotice: Void = {
         let line = "acpmux: a test process may not use the person's ~/.acpmux (or a build home under it); "
-            + "set ACPMUX_HOME to a folder of the test's own (CI: scripts/ci/acpmux_job_home.py)\n"
+            + "set ACPMUX_HOME to a folder of the test's own (CI: tests/test_ci_acpmux_job_home.py)\n"
         FileHandle.standardError.write(Data(line.utf8))
     }()
 
