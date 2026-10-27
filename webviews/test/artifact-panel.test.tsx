@@ -498,7 +498,7 @@ test("the unavailable highlighter keeps a fence's live source identity", async (
   act(() =>
     root!.render(
       <ArtifactContext.Provider value={(artifact) => opened.push(artifact)}>
-        <HighlightedCode lang="markdown" code="# Notes" artifactIdentity="reply\u00000" artifactRevision={4} />
+        <HighlightedCode lang="markdown" code="# Notes" artifactIdentity={"reply\u00000"} artifactRevision={4} />
       </ArtifactContext.Provider>,
     ),
   );

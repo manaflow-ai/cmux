@@ -106,8 +106,8 @@ test("a fence still updates when a page prepend and new tail arrive together", (
   );
   rows.clear();
   put(rows, { id: "older", version: 1, at: 0, kind: "user" }, 1);
-  put(rows, { id: "fence", version: 2, at: 1, kind: "assistant", text: fence("Second") }, 10);
-  put(rows, { id: "tail", version: 1, at: 2, kind: "assistant" }, 11);
+  put(rows, { id: "fence", version: 2, at: 1, kind: "assistant", text: fence("Second") }, 11);
+  put(rows, { id: "tail", version: 1, at: 2, kind: "assistant" }, 12);
   expect(source.read(rows.sorted()).artifact.code).toContain("Second");
   source.dispose();
 });
