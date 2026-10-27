@@ -804,6 +804,7 @@ if [ -n "$5" ]; then
   printf x > "$5/.git/hooks/pre-commit" 2>/dev/null; g=$?
   printf x > "$5/CLAUDE.md" 2>/dev/null; c=$?
 fi
+persistence="$5"
 u=unknown
 if [ -n "$6" ]; then
   socket=$6; helper=$7; shift 7
@@ -811,7 +812,7 @@ if [ -n "$6" ]; then
     case "$probe" in unix=0) u=0;; unix=1) u=1;; esac
   fi
 fi
-if [ -n "$5" ]; then
+if [ -n "$persistence" ]; then
   echo "acpmux-canary outside=$o loopback=$l tmp=$i git=$g claude=$c unix=$u"
 else
   echo "acpmux-canary outside=$o loopback=$l tmp=$i"
