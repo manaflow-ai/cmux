@@ -13,7 +13,8 @@ Run ON the rig mini (PQ_HOST=local), one flow at a time, each recorded to PQ_RAW
     python3 -c 'import pq_chats as c; print(c.run("seed", "after"))'
 
 `label` is `before` (the base app: the gap) or `after` (this branch). `seed` starts the chats
-the other flows use (one archived from the phone's chat menu) and must run first. Workspaces it
+the other flows use (rig setup on the Mac: phone-started Claude chats time out at agent start
+on this rig) and must run first. Workspaces it
 makes are named `p2tabs-chats-*` (pq_tabs.seed's prefix).
 """
 import json
@@ -108,32 +109,38 @@ def chat_session(key):
 
 # ---------------------------------------------------------------- flows
 
+def start_chat(folder, prompt):
+    """A chat on the Mac, started and prompted over its local acpmux socket (rig setup: the
+    Mac's own chats, which the phone's list shows). Returns its session id once it answered."""
+    made = acpmux("session/new", {"cwd": folder, "mcpServers": [], "_meta": {"acpmux": {"harness": "claude", "policy": "ask"}}})
+    sid = made["sessionId"]
+    r = pq.rsh(f"python3 -c {shlex.quote(_ACPMUX)} {shlex.quote(ACPMUX_GLOB)} session/prompt "
+               f"{shlex.quote(json.dumps({'sessionId': sid, 'prompt': [{'type': 'text', 'text': prompt}]}))}", timeout=300)
+    check(r.returncode == 0, f"prompt: {r.stderr.strip()[:300]}")
+    return sid
+
+
 def seed(j, label):
-    """Two chats started on the phone (real model replies), the first archived from its chat
-    menu (Archive, already on the phone), in a `chats-seed-*` workspace."""
+    """Rig setup on the Mac (not the phone): a `p2tabs-chats-seed-*` workspace with one terminal,
+    and two chats in its folder with real model replies: PONG (then archived, as the Mac's chat
+    menu Archive does) and kiwi (five lines of the word, for Find in Chat). The kiwi chat is
+    shown as a tab of the seed workspace."""
     a = t.seed("chats-seed", terminals=1)
-    t.open_ws(j, a["name"])
-    t._agent_tab(j, a["name"])
-    first = chat_session(a["key"])
-    check(len(first) == 1, f"one chat expected: {first}")
-    pq.plus_menu(j, "New Agent Chat")
-    pq.wait_opened(j, timeout=90)
-    # Several lines with the word, so Find in Chat counts more than one match.
-    pq.chat_prompt(j, "Write the word kiwi on five separate lines, nothing else.", "kiwi", timeout=240)
-    time.sleep(6)
-    both = chat_session(a["key"])
-    check(len(both) == 2, f"two chats expected: {both}")
-    kiwi = [s for _, s in both if s != first[0][1]][0]
-    # The PONG chat is archived from the phone's chat menu; its tab closes on the Mac.
-    pq.open_grid(j)
-    cards = [e for e in j.sim.find(suffix=", tab") if "PONG" in (e.label or "") or "Reply" in (e.label or "")]
-    check(cards, f"no PONG chat card: {[e.label for e in j.sim.find(suffix=', tab')]}")
-    j.sim.tap_el(cards[0])
-    time.sleep(1.5)
-    t.page_menu(j, "Archive")
-    t.until(lambda: archived_on_mac(first[0][1]), timeout=30, what="the archive on the Mac")
-    save_state(seed_ws=a["name"], seed_key=a["key"], pong=first[0][1], kiwi=kiwi)
-    return {"pong": first[0][1], "kiwi": kiwi, "archived": archived_on_mac(first[0][1])}
+    # The folder's trust is the person's answer on the Mac (a phone may not give it).
+    folder = pq.rsh(f"cd {t.PROJ} && pwd -P").stdout.strip()
+    acpmux("acp.trust.set", {"cwd": folder, "level": "trusted"})
+    pong = start_chat(folder, "Reply with the single word PONG.")
+    kiwi = start_chat(folder, "Write the word kiwi on five separate lines, nothing else.")
+    acpmux("_acpmux/archive", {"sessionId": pong, "archived": True})
+    pane = t.ws_tabs(t.mac_workspace(key=a["key"]))[0][0]
+    host = pq.rsh("ps eww -o command -p $(pgrep -f 'chats-parity.app/Contents/Resources/bin/cmux-mobile-host') "
+                  "| tr ' ' '\\n' | sed -n 's/^CMUX_MOBILE_AGENT_TAB_HOST=//p'").stdout.strip()
+    check(host, "the rig Mac's agent tab host")
+    t.mac_raw({"cmd": "new-conversation-tab", "pane": pane, "agent_session": {"host": host, "harness": "claude", "session": kiwi}})
+    save_state(seed_ws=a["name"], seed_key=a["key"], pong=pong, kiwi=kiwi, host=host)
+    titles = {s["sessionId"]: s.get("title") for s in acpmux("_acpmux/sessions").get("sessions", [])}
+    return {"pong": pong, "kiwi": kiwi, "titles": {pong: titles.get(pong), kiwi: titles.get(kiwi)},
+            "pong_archived": archived_on_mac(pong)}
 
 
 def chats_list(j, label):
@@ -163,6 +170,8 @@ def chats_list(j, label):
     pq.type_text("kiwi")
     time.sleep(1.5)
     pq.shot(f"chats-{label}-search")
+    hit = j.sim.wait(ident=f"agentChats.row.{st['pong']}", timeout=2)
+    check(not hit, "the archived PONG chat shows in a kiwi search")
     hit = j.sim.wait(ident=f"agentChats.row.{st['kiwi']}", timeout=8)
     check(hit, f"the kiwi chat is not in the search results: {ocr_text(j)[:300]}")
     tabs_before = len(t.ws_tabs(t.mac_workspace(key=b["key"])))

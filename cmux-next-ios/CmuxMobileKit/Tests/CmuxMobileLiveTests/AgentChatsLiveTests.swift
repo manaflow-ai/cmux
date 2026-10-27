@@ -19,8 +19,12 @@ import Testing
         var daemonLines: [[String: Any]] { lock.withLock { daemon } }
         var acpmuxCalls: [(String, [String: Any])] { lock.withLock { acpmux } }
         /// The daemon's mutations, in order (reads left out).
+        /// The daemon's v12 mutations, in order (reads and resource API reads left out).
         var mutations: [[String: Any]] {
-            daemonLines.filter { !["list-workspaces", "subscribe", "set-client-info", "identify", "list-agents", "list-personal"].contains($0["cmd"] as? String ?? "") }
+            daemonLines.filter { line in
+                guard let cmd = line["cmd"] as? String else { return false }
+                return !["list-workspaces", "subscribe", "set-client-info", "identify", "list-agents", "list-personal"].contains(cmd)
+            }
         }
     }
 
@@ -94,6 +98,10 @@ import Testing
         }
     }
 
+    /// The backend holds its acpmux hub weakly (the Mac session owns it): the suite keeps it.
+    final class Hold: @unchecked Sendable { var hub: AcpmuxHub? }
+    let hold = Hold()
+
     func connected(_ seen: Seen) async throws -> (LiveWorkspaceCreationBackend, WorkspaceSync) {
         let controller = LinkController(transport: .wireGuard, dialer: MockDialer(fail: false), accessToken: { _ in "t" })
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
@@ -103,6 +111,8 @@ import Testing
         await sync.bind(try await Self.daemon(seen).openChannel(service: "daemon", args: [:]), macID: "m")
         let hub = AcpmuxHub()
         await hub.bind(try await Self.acpmux(seen).openChannel(service: "acpmux", args: [:]))
+        hold.hub = hub
+        #expect(hub.isReady)
         return (LiveWorkspaceCreationBackend(sync: sync, link: controller, acpmux: hub), sync)
     }
 
