@@ -1666,6 +1666,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // CrashReporterOptionsTests checks the options against CLISentryRuntimePolicy.
                 .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
+                // SystemCrashReportTests plants a Rust ring and scans the forwarded black box with the hang
+                // reports' PrivacyLeakScanner (p09-observability-097).
+                "CmuxNextTrace",
+                "CmuxNextHangReports",
             ],
             swiftSettings: daemonSwiftSettings
         ),
