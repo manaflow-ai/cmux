@@ -87,6 +87,7 @@ extension PageWebView {
         if let script = Self.attributesScript(documentAttributes) { webView.evaluateJavaScript(script, completionHandler: nil) } // MQ12 allowed: a parked spare never freezes
         applyTheme(force: true)
         applyLiveDocumentAttributes()
+        syncLoopVisibility(newDocument: true)
         let params: JSONValue = route.map { ["route": .string($0)] } ?? .object([:])
         let router = router
         Task { @MainActor [weak self] in

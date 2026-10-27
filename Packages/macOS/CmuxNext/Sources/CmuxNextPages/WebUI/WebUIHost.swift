@@ -37,6 +37,9 @@ public final class WebUIHost {
     /// per frame (``PageWebView/deliverOnFrames(_:)``, p06-scheduler-222). Nil while
     /// `pageScriptFrames` is off: each envelope is its own script, as before. The composition root sets it.
     package var scriptFrames: PageScriptFrame?
+    /// Whether every page this host opens pauses its animations and frame callbacks while hidden or
+    /// occluded (``PageWebView/stopLoopsWhileHidden()``, feature `hiddenPageLoops`). The composition root sets it.
+    package var stopsHiddenPageLoops = false
     /// The app's one preloaded page (p13-webui.md 3.D); the host's memory registration
     /// (`preloadMemory`) drops it at any level but normal. Nil until the composition root installs it
     /// with the app's deadline scheduler (p13-webui-044, 045); installing it hands it the current level.
@@ -136,6 +139,7 @@ public final class WebUIHost {
         view.crash.sharesWebKitProcess = request.options.sharesWebKitProcess && view.engineDecision.engine == .webKit
         view.popupHoverFrameInput = hoverFrameInput
         if let scriptFrames { view.deliverOnFrames(scriptFrames) }
+        if stopsHiddenPageLoops { view.stopLoopsWhileHidden() }
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
         observeOracleState(of: view)

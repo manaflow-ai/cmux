@@ -199,11 +199,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         // ui.animations.web off (or the master switch off): every CSS transition and animation of
         // the page ends at once, so a page needs no code of its own to work with no motion.
         var still = 'html[data-cmux-motion="off"]';
+        var hiddenRoot = 'html[data-cmux-hidden]';
         style.textContent = 'html{background:var(--cmux-surface-background) !important}' +
           'body{background:transparent !important}' +
           still + ' *,' + still + ' *::before,' + still + ' *::after,' + still +
           '{transition-duration:0s !important;transition-delay:0s !important;animation-duration:0s !important;' +
-          'animation-delay:0s !important;animation-iteration-count:1 !important;scroll-behavior:auto !important}';
+          'animation-delay:0s !important;animation-iteration-count:1 !important;scroll-behavior:auto !important}' +
+          // Hidden or occluded (`visibility` below): every CSS animation holds where it is.
+          hiddenRoot + ' *,' + hiddenRoot + ' *::before,' + hiddenRoot + ' *::after{animation-play-state:paused !important}';
         (document.head || document.documentElement).appendChild(style);
       }
       // appearance.colorTransition: every color variable is a registered <color>, so a theme or
@@ -324,6 +327,22 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
           if (!first) settled(payload);
         },
+        // Whether a person can see the page (feature hiddenPageLoops, PageWebView+HiddenLoops.swift).
+        // The host calls it at each new document and each change; from the first call on, the page
+        // also follows `visibilitychange`. While either says hidden, <html> has data-cmux-hidden:
+        // CSS animations pause, script animations pause, and animation-frame callbacks wait for the
+        // show, as a hidden Chrome tab gets no BeginMainFrame (cc/scheduler/scheduler_state_machine.cc,
+        // ShouldSendBeginMainFrame) and so runs no rAF callback (third_party/blink/renderer/core/page/
+        // page_animator.cc). `cmux-visibility` on the document tells the page after each change.
+        visibility: function (shown) {
+          if (hostShown === null) {
+            frameGate = gateFrames();
+            document.addEventListener('visibilitychange', syncHidden);
+          }
+          hostShown = !!shown;
+          syncHidden();
+        },
+        framesAllowed: function () { return !pageHidden(); },
         // The wallpaper still the page's glass lenses (GlassBackdropFeed): each push carries only
         // what changed, merged over the last state, then `cmux-backdrop` tells the page.
         backdrop: function (partial) {
@@ -333,6 +352,69 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           window.dispatchEvent(new Event('cmux-backdrop'));
         }
       };
+      // Visibility (`cmuxTheme.visibility`): null until the host first says; the frame gate exists from then.
+      var hostShown = null;
+      var frameGate = null;
+      var pausedScripts = [];
+      function pageHidden() { return hostShown === false || document.visibilityState === 'hidden'; }
+      function syncHidden() {
+        var root = document.documentElement;
+        if (!root) return;
+        var hidden = pageHidden();
+        if (root.hasAttribute('data-cmux-hidden') === hidden) return;
+        root.toggleAttribute('data-cmux-hidden', hidden);
+        pauseScriptAnimations(hidden);
+        if (!hidden) frameGate.release();
+        document.dispatchEvent(new Event('cmux-visibility'));
+      }
+      // Element.animate loops: the stylesheet cannot pause them, so the hide pauses the running
+      // ones and the show plays those again.
+      function pauseScriptAnimations(hidden) {
+        if (!hidden) {
+          var paused = pausedScripts;
+          pausedScripts = [];
+          paused.forEach(function (a) { if (a.playState === 'paused') a.play(); });
+          return;
+        }
+        if (!document.getAnimations) return;
+        document.getAnimations().forEach(function (a) {
+          if (a.animationName !== undefined || a.transitionProperty !== undefined || a.playState !== 'running') return;
+          a.pause();
+          pausedScripts.push(a);
+        });
+      }
+      // requestAnimationFrame through the visibility: a callback asked for while hidden, or whose
+      // frame comes while hidden, waits and runs on the first frame after the show. Its ids start
+      // far above the engine's, so a frame asked for before the gate is still cancelled by its own id.
+      function gateFrames() {
+        var request = window.requestAnimationFrame, cancel = window.cancelAnimationFrame;
+        var next = 0x40000000;
+        var entries = new Map();
+        function arm(id, entry) {
+          entry.frame = request.call(window, function (time) {
+            if (entries.get(id) !== entry) return;
+            if (pageHidden()) { entry.frame = null; return; }
+            entries.delete(id);
+            entry.callback.call(window, time);
+          });
+        }
+        window.requestAnimationFrame = function (callback) {
+          var id = ++next;
+          var entry = { callback: callback, frame: null };
+          entries.set(id, entry);
+          if (!pageHidden()) arm(id, entry);
+          return id;
+        };
+        window.cancelAnimationFrame = function (id) {
+          var entry = entries.get(id);
+          if (!entry) return cancel.call(window, id);
+          entries.delete(id);
+          if (entry.frame !== null) cancel.call(window, entry.frame);
+        };
+        return {
+          release: function () { entries.forEach(function (entry, id) { if (entry.frame === null) arm(id, entry); }); }
+        };
+      }
       if (document.documentElement) ensureStyle(); else awaitRoot();
       // ui.animations.web off: script animations (Element.animate) and smooth scrolls end at once
       // too, which the stylesheet above cannot reach. One wrapper per prototype, read on each call,
@@ -341,13 +423,23 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       if (window.Element && Element.prototype.animate && !Element.prototype.animate.cmuxMotion) {
         var animate = Element.prototype.animate;
         var gated = function (keyframes, options) {
-          if (!still()) return animate.call(this, keyframes, options);
-          var timing = typeof options === 'number' || options == null ? {} : Object.assign({}, options);
-          timing.duration = 0;
-          timing.delay = 0;
-          timing.endDelay = 0;
-          timing.iterations = 1;
-          return animate.call(this, keyframes, timing);
+          var animation;
+          if (!still()) animation = animate.call(this, keyframes, options);
+          else {
+            var timing = typeof options === 'number' || options == null ? {} : Object.assign({}, options);
+            timing.duration = 0;
+            timing.delay = 0;
+            timing.endDelay = 0;
+            timing.iterations = 1;
+            animation = animate.call(this, keyframes, timing);
+          }
+          // One started while the page is hidden waits for the show, as the running ones do.
+          var root = document.documentElement;
+          if (root && root.hasAttribute('data-cmux-hidden')) {
+            animation.pause();
+            pausedScripts.push(animation);
+          }
+          return animation;
         };
         gated.cmuxMotion = true;
         Element.prototype.animate = gated;

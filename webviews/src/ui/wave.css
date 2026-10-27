@@ -5,8 +5,8 @@
    period), so every item counts from one epoch and only its index offsets it. The delay is pulled
    back whole periods so it is never positive (no item waits at rest). Opacity only. It stops under
    Reduce Motion, the motion gate (`data-cmux-motion` off or reduced), Energy Saver
-   (`data-cmux-energy`), static status indicators and a hidden page; a stopped item shows at full
-   strength. */
+   (`data-cmux-energy`), static status indicators and a hidden or occluded page (`data-cmux-hidden`,
+   ui/pageHidden.ts); a stopped item shows at full strength and restarts in phase. */
 :root {
   --cmux-wave-period: 1.6s;
   --cmux-wave-step: 120ms;
@@ -24,7 +24,7 @@
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-cmux-energy="saver"]):not([data-status-indicators="static"]):not(
       [data-cmux-page-hidden]
-    )
+    ):not([data-cmux-hidden])
     .acpmux-wave-item {
     animation: cmux-wave var(--cmux-wave-period) ease-in-out infinite;
     animation-delay: calc(var(--wave-index, 0) * var(--cmux-wave-step) - 20 * var(--cmux-wave-period));

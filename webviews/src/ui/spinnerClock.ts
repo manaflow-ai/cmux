@@ -4,6 +4,8 @@
 // same time base the native spinners use (CmuxNextDesign `SpinnerClock`). Two spinners, in one page,
 // two pages or a page and the app chrome, then sit at the same angle at the same moment.
 
+import { HIDDEN_ATTRIBUTE, HIDDEN_EVENT } from "./pageHidden";
+
 /** The keyframes every page spinner runs (desktop.css). */
 export const SPINNER_KEYFRAMES = "cmux-spin";
 /** Every shared loop the clock keeps in phase: the spinner, and agent work's breathing dot and
@@ -45,11 +47,29 @@ export function alignSpinner(animation: SpinnerAnimation, timelineNow: number, t
 
 const installed = new WeakSet<Document>();
 
-/** Aligns every spinner that starts in `doc` from now on (once per document). Reduced motion runs no
- * spinner animation, so there is nothing to align. */
+/** Puts every shared loop of `doc` back on the shared phase; returns how many it moved. A hide
+ * (`HIDDEN_ATTRIBUTE`) pauses every CSS animation, so a loop falls behind the clock by the time it
+ * was hidden. */
+export function realignSharedLoops(doc: Document): number {
+  const now = doc.timeline?.currentTime;
+  const origin = doc.defaultView?.performance.timeOrigin;
+  if (typeof now !== "number" || typeof origin !== "number" || !doc.getAnimations) return 0;
+  let moved = 0;
+  for (const animation of doc.getAnimations()) {
+    if (alignSpinner(animation as unknown as SpinnerAnimation, now, origin)) moved++;
+  }
+  return moved;
+}
+
+/** Aligns every spinner that starts in `doc` from now on (once per document), and every running one
+ * again when the page shows after a hide paused it. Reduced motion runs no spinner animation, so
+ * there is nothing to align. */
 export function installSpinnerClock(doc: Document = document): void {
   if (installed.has(doc)) return;
   installed.add(doc);
+  doc.addEventListener(HIDDEN_EVENT, () => {
+    if (!doc.documentElement.hasAttribute(HIDDEN_ATTRIBUTE)) realignSharedLoops(doc);
+  });
   doc.addEventListener(
     "animationstart",
     (event) => {

@@ -43,4 +43,6 @@ public nonisolated struct PagePushKind: Hashable, Sendable {
     /// The glass lenses' wallpaper still (`GlassBackdropFeed`): a held push carries the whole state, as the
     /// feed sends everything after a push the page held (`GlassBackdropFeed.pushWasHeld()`).
     public static let glass = PagePushKind("glass")
+    /// Whether the document shows, for its loops (`cmuxTheme.visibility`, PageWebView+HiddenLoops.swift).
+    public static let loopVisibility = PagePushKind("loopVisibility")
 }

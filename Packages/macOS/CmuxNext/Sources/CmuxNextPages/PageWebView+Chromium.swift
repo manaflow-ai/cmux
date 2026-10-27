@@ -71,9 +71,11 @@ extension PageWebView {
     /// page thaws before it shows, whichever path showed it (``thawPage()``, which runs its held
     /// pushes); the glass feed stops while the page is hidden and pushes what changed on the show's
     /// next frame (``GlassBackdropFeed/setPageShown(_:)``); a page whose renderer died while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``); a page
-    /// that hangs shows its "Page unresponsive" card only while it shows (``PageHangNotice``).
+    /// that hangs shows its "Page unresponsive" card only while it shows (``PageHangNotice``); the document
+    /// hears whether its loops run (``syncLoopVisibility(newDocument:)``).
     func setEngineVisible(_ visible: Bool) {
         engineVisible = visible
+        if !visible { syncLoopVisibility() } // the hide's last push, sent before the page counts as hidden
         if visible { thawPage() }
         glassFeed.setPageShown(visible)
         chromiumSession?.page.setVisible(visible)
@@ -84,6 +86,7 @@ extension PageWebView {
         noteCensusVisibility(visible)
         #endif
         if visible { chromiumRecovery?.pageShown() }
+        if visible { syncLoopVisibility() }
     }
 
     /// Loads `url` (a document of this page) in whichever engine shows it; a Chromium page on its way

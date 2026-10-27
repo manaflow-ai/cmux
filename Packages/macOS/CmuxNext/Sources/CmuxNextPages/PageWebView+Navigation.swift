@@ -33,6 +33,7 @@ extension PageWebView {
         applyUIScale()
         applyTheme(force: true)
         applyLiveDocumentAttributes()
+        syncLoopVisibility(newDocument: true)
         resumeLoadWaiters()
         onLoaded?()
     }

@@ -10,6 +10,7 @@
 // through sessionStorage before the page's scripts run, so `readPageState` is the one way back.
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { HIDDEN_ATTRIBUTE, HIDDEN_EVENT } from "../../ui/pageHidden";
 
 /** The `window.webkit.messageHandlers` name the host takes the state on (PageWebView.pageStateHandler). */
 export const PAGE_STATE_HANDLER = "cmuxPageState";
@@ -119,8 +120,9 @@ export function readPageState<T>(host: PageStateHost = windowPageStateHost()): T
 // Native tells the engine, never the page: a hidden page gets `visibilitychange`, a frozen one the
 // standard `freeze` and, on thaw, `resume` (Chromium dispatches both from
 // third_party/blink/renderer/core/page/page.cc SetPageFrozen, per the Page Lifecycle API; WebKit has
-// no freeze event and stays hidden). There is no cmux lifecycle stream. Native guarantees the order:
-// hidden before freeze, resume before visible.
+// no freeze event and stays hidden). There is no cmux lifecycle stream; the one cmux mark is
+// `HIDDEN_ATTRIBUTE` for what the engine cannot see (a window under another cmux window), which counts
+// as hidden. Native guarantees the order: hidden before freeze, resume before visible.
 //
 // A parked (pooled or preloaded) document counts as hidden until the host claims it, so a page that
 // loads visible off screen to paint its cover starts no timer before anyone can see it.
@@ -136,6 +138,8 @@ export type PageLifecycleState = "active" | "hidden" | "frozen";
 /** The part of `Document` the lifecycle reads. */
 export interface LifecycleDocument {
   readonly visibilityState: string;
+  /** Read for `HIDDEN_ATTRIBUTE`; a document with none is shown whenever it is visible. */
+  readonly documentElement?: { hasAttribute(name: string): boolean } | null;
   addEventListener(type: string, listener: () => void): void;
   removeEventListener(type: string, listener: () => void): void;
 }
@@ -148,7 +152,7 @@ export interface LifecycleDocument {
 export const PARKED_NAME = "__cmuxPageParked";
 
 /** The document events that change the state. */
-const EVENTS = ["visibilitychange", "freeze", "resume"] as const;
+const EVENTS = ["visibilitychange", "freeze", "resume", HIDDEN_EVENT] as const;
 
 /**
  * One document's lifecycle. Listeners are told only when the state changes; the document's
@@ -196,6 +200,7 @@ export class PageLifecycle {
   private compute(): PageLifecycleState {
     if (this.frozen) return "frozen";
     if (this.parked || this.doc?.visibilityState === "hidden") return "hidden";
+    if (this.doc?.documentElement?.hasAttribute(HIDDEN_ATTRIBUTE)) return "hidden";
     return "active";
   }
 
@@ -241,6 +246,15 @@ export function onPageLifecycleChange(
 /** Whether the person can see the page. */
 export function pageIsActive(lifecycle: PageLifecycle = pageLifecycleFor()): boolean {
   return lifecycle.state() === "active";
+}
+
+/**
+ * Whether an animation loop may draw its next frame: the page is active, so neither hidden, occluded
+ * (`HIDDEN_ATTRIBUTE`) nor frozen. A loop asks before it schedules its next frame; one made with
+ * `startPageAnimationFrame` asks for you.
+ */
+export function framesAllowed(lifecycle: PageLifecycle = pageLifecycleFor()): boolean {
+  return pageIsActive(lifecycle);
 }
 
 /** The timer seam: the page's own timers, or a fake clock in tests. */
@@ -330,7 +344,7 @@ export function startPageAnimationFrame(
     schedule();
   };
   const schedule = () => {
-    if (done || scheduled || lifecycle.state() !== "active") return;
+    if (done || scheduled || !framesAllowed(lifecycle)) return;
     scheduled = true;
     handle = timers.frame(step);
   };

@@ -42,6 +42,7 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "featureFlagsCard",
         "frameRateClasses",
         "frozenGrowthDiscard",
+        "hiddenPageLoops",
         "hiddenPollPause",
         "highEnergyTabs",
         "hostPressure",

@@ -63,6 +63,9 @@ public final class PageHostPool {
     /// The frame a claimed host delivers its router envelopes on, as a page ``WebUIHost`` opens does
     /// (``WebUIHost/scriptFrames``, `pageScriptFrames`). Nil: each envelope is its own script.
     package var scriptFrames: PageScriptFrame?
+    /// Whether a claimed page pauses its animations and frame callbacks while hidden or occluded
+    /// (``WebUIHost/stopsHiddenPageLoops``, feature `hiddenPageLoops`).
+    package var stopsHiddenPageLoops = false
 
     final class WeakHost {
         weak var view: PageWebView?
@@ -128,6 +131,7 @@ public final class PageHostPool {
         host.shouldFocusOnAttach = focus
         host.popupHoverFrameInput = hoverFrameInput
         if let scriptFrames, !host.deliversOnFrames { host.deliverOnFrames(scriptFrames) }
+        if stopsHiddenPageLoops { host.stopLoopsWhileHidden() }
         host.engineDecision = decision
         _ = host.retarget(descriptor: descriptor, routes: routes, route: route,
                           documentAttributes: documentAttributes, surface: surface,

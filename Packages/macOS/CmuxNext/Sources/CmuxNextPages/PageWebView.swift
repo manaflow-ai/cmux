@@ -138,6 +138,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Whether the engine was last told the page shows (``setEngineVisible(_:)``): in a window and not
     /// hidden. The router's hidden hold starts from it (``deliverOnFrames(_:)``).
     var engineVisible = false
+    /// What the document was last told about its loops (PageWebView+HiddenLoops.swift).
+    let loopVisibility = PageLoopVisibility()
     /// How many appearance changes reached this page (tests: a hidden page gets none).
     package private(set) var appearanceCalls = 0
     public var additionalZoom: Double = 1 {
@@ -402,6 +404,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         observeAppearance()
         applyTheme()
         checkFirstShow() // the tab's node now says whether the page shows
+        syncLoopVisibility()
     }
 
     /// Reduce Motion, the master motion switch, a category switch or the speed (`data-cmux-motion`),

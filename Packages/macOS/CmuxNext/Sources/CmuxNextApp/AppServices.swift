@@ -444,6 +444,7 @@ final class AppServices {
         let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
                                 hoverFrameInput: hoverFrameInput)
         pool.scriptFrames = pageScriptFrame
+        pool.stopsHiddenPageLoops = features.isEnabled(.hiddenPageLoops)
         return pool
     }()
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
@@ -461,6 +462,7 @@ final class AppServices {
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
+        host.stopsHiddenPageLoops = features.isEnabled(.hiddenPageLoops)
         return host
     }()
     /// The frame cmux pages deliver their router envelopes on, one board task per page per frame

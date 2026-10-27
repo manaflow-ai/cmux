@@ -7,12 +7,14 @@
 // sends nothing to the host.
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, createElement } from "react";
+import { HIDDEN_ATTRIBUTE, HIDDEN_EVENT } from "../../ui/pageHidden";
 import { BridgePageClient, CLAIM_OP, type ReplyHandler } from "./pageClient";
 import {
   PAGE_STATE_KEY,
   PAGE_STATE_MAX_BYTES,
   PARKED_NAME,
   PageLifecycle,
+  framesAllowed,
   type LifecycleDocument,
   type PageStateHost,
   type PageTimers,
@@ -149,6 +151,8 @@ describe("pageLifecycle hide-time save", () => {
 /** A document whose visibility the test sets and whose events it dispatches. */
 class FakeDocument implements LifecycleDocument {
   visibilityState = "visible";
+  private readonly marks = new Set<string>();
+  readonly documentElement = { hasAttribute: (name: string) => this.marks.has(name) };
   private readonly listeners = new Map<string, Set<(event: { type: string }) => void>>();
 
   addEventListener(type: string, listener: (event: { type: string }) => void): void {
@@ -179,6 +183,13 @@ class FakeDocument implements LifecycleDocument {
   show(): void {
     this.visibilityState = "visible";
     this.dispatch("visibilitychange");
+  }
+
+  /** The host's hidden mark (WebTheme `cmuxTheme.visibility`), as the bootstrap sets it. */
+  mark(hidden: boolean): void {
+    if (hidden) this.marks.add(HIDDEN_ATTRIBUTE);
+    else this.marks.delete(HIDDEN_ATTRIBUTE);
+    this.dispatch(HIDDEN_EVENT);
   }
 
   /** Native's order: hidden, then frozen. */
@@ -266,6 +277,21 @@ describe("PageLifecycle", () => {
     doc.freeze();
     doc.thawAndShow();
     expect(seen).toEqual(["hidden", "frozen", "hidden", "active"]);
+    stop();
+    expect(doc.listenerCount()).toBe(0);
+  });
+
+  test("the host's hidden mark (an occluded window) hides a page its engine still shows", () => {
+    const doc = new FakeDocument();
+    const lifecycle = new PageLifecycle(doc);
+    const seen: string[] = [];
+    const stop = lifecycle.observe((state) => seen.push(state));
+    doc.mark(true);
+    expect(lifecycle.state()).toBe("hidden");
+    expect(framesAllowed(lifecycle)).toBe(false);
+    doc.mark(false);
+    expect(framesAllowed(lifecycle)).toBe(true);
+    expect(seen).toEqual(["hidden", "active"]);
     stop();
     expect(doc.listenerCount()).toBe(0);
   });
@@ -384,6 +410,23 @@ describe("startPageAnimationFrame", () => {
     stop();
     expect(timers.pendingFrames).toBe(0);
     expect(doc.listenerCount()).toBe(0);
+  });
+
+  test("the hidden mark stops the loop and the show resumes it", () => {
+    const doc = new FakeDocument();
+    const lifecycle = new PageLifecycle(doc);
+    const timers = new FakeTimers();
+    let frames = 0;
+    const stop = startPageAnimationFrame(() => void frames++, { lifecycle, timers });
+    timers.runFrame();
+    doc.mark(true);
+    expect(timers.pendingFrames).toBe(0);
+    timers.runFrame();
+    expect(frames).toBe(1);
+    doc.mark(false);
+    timers.runFrame();
+    expect(frames).toBe(2);
+    stop();
   });
 
   test("a loop that returns false ends and stops following the lifecycle", () => {
