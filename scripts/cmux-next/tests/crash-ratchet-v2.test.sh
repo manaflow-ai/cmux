@@ -10,7 +10,8 @@
 #  - objc_selector: a non-override @objc func with a labeled parameter must
 #    spell its selector (PointerHover's `mouseEntered(with:)` was exported as
 #    `mouseEnteredWith:` and AppKit raised "unrecognized selector");
-#  - dynamic_dispatch: string selectors and KVC by string key are counted.
+#  - dynamic_dispatch: string selectors and KVC by string key are counted;
+#  - invariant_check / dump_will_be_check: Invariant API sites need an allowlist entry.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
@@ -369,6 +370,192 @@ g add -A
 if out="$(ratchet)"; then fail "an array or Data index, or an inferred read, passed: $out"; fi
 [[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "rows[i] = 1, bytes[n] = 0 or applied[i] (a read) was exempt: $out"
 g reset -q
+reset
+
+# 20. The Invariant API (p10-stability-099): with invariant_check and dump_will_be_check banned, a
+#    check or dumpWillBeCheck site passes only with an allowlist entry (an inline crash-allow does not
+#    waive it); notFatalUntil is not a class, and a doc comment that names a call never counts.
+cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
+{"banned": ["swift.as_bang", "swift.objc_selector", "swift.invariant_check", "swift.dump_will_be_check"], "allow": []}
+JSON
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+/// Invariant.check(a, "doc") in a doc comment.
+Invariant.notFatalUntil(ok, "tab-in-workspace", build: 100)
+Invariant.check(ok, "persisted-order") // crash-allow: an inline escape does not waive a ban
+Invariant.dumpWillBeCheck(ok, "cache-coherent")
+SWIFT
+g add -A
+if out="$(ratchet)"; then fail "an unlisted Invariant.check or dumpWillBeCheck passed: $out"; fi
+[[ "$out" == *"banned invariant_check in Packages/macOS/CmuxNext/Sources/M/A.swift: 1 hit(s)"* ]] \
+    || fail "the check site is not reported once: $out"
+[[ "$out" == *"banned dump_will_be_check in Packages/macOS/CmuxNext/Sources/M/A.swift: 1 hit(s)"* ]] \
+    || fail "the dumpWillBeCheck site is not reported once: $out"
+cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
+{"banned": ["swift.as_bang", "swift.objc_selector", "swift.invariant_check", "swift.dump_will_be_check"],
+ "allow": [{"path": "Packages/macOS/CmuxNext/Sources/M/A.swift", "class": "swift.invariant_check", "count": 1,
+            "reason": "fixture: going on would write a corrupt order file", "reviewer": "crash-lead"},
+           {"path": "Packages/macOS/CmuxNext/Sources/M/A.swift", "class": "swift.dump_will_be_check", "count": 1,
+            "reason": "fixture: the cache rebuilds", "reviewer": "crash-lead"}]}
+JSON
+out="$(ratchet)" || fail "allowlisted Invariant sites did not pass: $out"
+g reset -q
+reset
+
+# 21. trap_api (report-only, p10-stability-092): every pattern counts in every package's Sources (also outside
+#     the app's closure), per module; a guarded removal, a checked offset, a safe count, comments and strings do
+#     not; a crash-allow does not hide a hit from the report; the CI compare never sees the class.
+report() { python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --report "$@"; }
+hits() { python3 -c 'import json, sys; d = json.load(sys.stdin)[sys.argv[1]]; print(d["modules"].get(sys.argv[2], 0) if len(sys.argv) > 2 else d["total"])' "$@"; }
+phone="$tmp/Packages/iOS/Phone/Sources/Phone"
+mkdir -p "$phone"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+let a = Dictionary(uniqueKeysWithValues: pairs)
+let b = queue.removeFirst()
+self.queue.removeLast(2)
+let c = Array(repeating: 0, count: n)
+let d = String(repeating: " ", count: width - used)
+let e: [UInt8] = .init(repeating: 0, count: size)
+let f = repeatElement(x, count: n)
+let g = s.index(s.startIndex, offsetBy: n)
+let h = s.index(
+    s.startIndex,
+    offsetBy: n
+)
+s.formIndex(&i, offsetBy: 2) // crash-allow: the report still counts it
+let w = Array(
+    repeating: 0,
+    count: n
+)
+SWIFT
+printf 'let p = items.removeLast()\n' > "$phone/P.swift"
+g add -A
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api M <<<"$out")" == 11 ]] || fail "a trap_api pattern was missed (want 11 in M): $out"
+[[ "$(hits trap_api Phone <<<"$out")" == 1 ]] || fail "trap_api outside the app's closure was missed: $out"
+# Each hit's site: path, 1-based line of the call's opening, class and module (a wrapped call at its first line).
+python3 - "$out" <<'PY' || fail "the report's hit sites are wrong: $out"
+import json, sys
+sites = {(s["path"], s["line"]): s for s in json.loads(sys.argv[1])["trap_api"]["hits"]}
+a, p = "Packages/macOS/CmuxNext/Sources/M/A.swift", "Packages/iOS/Phone/Sources/Phone/P.swift"
+want = [(a, n) for n in (1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14)] + [(p, 1)]
+assert sorted(sites) == sorted(want), sorted(sites)
+assert sites[(a, 9)] == {"path": a, "line": 9, "class": "trap_api", "module": "M", "hits": 1}, sites[(a, 9)]
+assert sites[(a, 14)] == {"path": a, "line": 14, "class": "trap_api", "module": "M", "hits": 1}, sites[(a, 14)]
+assert sites[(p, 1)]["module"] == "Phone", sites[(p, 1)]
+PY
+out="$(ratchet)" || fail "trap_api reached the CI compare: $out"
+[[ "$out" != *trap_api* ]] || fail "the CI compare printed trap_api: $out"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+guard !queue.isEmpty else { return }
+let b = queue.removeFirst()
+while let x = self.queue.first {
+    queue.removeFirst()
+}
+if items.count > 3 { items.removeFirst(3) }
+if name.hasPrefix("-") { name.removeFirst() }
+let p = queue.popFirst()
+mutating func removeLast() -> T { popLast()! }
+let c = [Int](repeating: 0, count: 4)
+let d = [UInt8](repeating: 0, count: 64 * 1024)
+let e = Array(repeating: 0, count: rows.count)
+let f = String(repeating: " ", count: max(0, width - used))
+let v = SIMD4<Float>(repeating: 0)
+let g = s.index(s.startIndex, offsetBy: n, limitedBy: s.endIndex)
+let h = s.index(
+    s.startIndex,
+    offsetBy: n,
+    limitedBy: s.endIndex
+)
+let i = s.index(after: i)
+let w = Array(
+    repeating: 0,
+    count: rows.count
+)
+let x = String(
+    describing: n
+)
+// let j = Dictionary(uniqueKeysWithValues: pairs)
+let k = "removeFirst() uniqueKeysWithValues:"
+SWIFT
+printf 'let r = 1\n' > "$phone/P.swift"
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api <<<"$out")" == 0 ]] || fail "a guarded or safe form counted as trap_api: $out"
+printf 'guard !other.isEmpty else { return }\nlet b = queue.removeFirst()\n' > "$app/Sources/M/A.swift"
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api M <<<"$out")" == 1 ]] || fail "another collection's guard exempted a removal: $out"
+g reset -q
+reset
+
+# 22. --all-modules: index_subscript and int_conversion count in every module of every package with it, and in
+#     the index modules (the CI rows, counted and waived together) without it; the CI compare stays on the index
+#     modules only.
+printf 'let a = rows[i]\nlet c = UInt8(value)\n' > "$app/Sources/M/A.swift"
+printf 'let h = cells[j] // crash-allow: x\n' > "$shared/Sources/MessagesLabHome/F.swift"
+out="$(report index_subscript,int_conversion)" || fail "--report index_subscript,int_conversion failed: $out"
+[[ "$(hits index_subscript M <<<"$out")" == 0 ]] || fail "index_subscript counted outside the index modules without --all-modules: $out"
+[[ "$(hits index_subscript MessagesLabHome <<<"$out")" == 1 ]] || fail "a waived index hit was hidden from the report: $out"
+out="$(report index_subscript,int_conversion,trap_api --all-modules)" || fail "--all-modules failed: $out"
+[[ "$(hits index_subscript M <<<"$out")" == 1 ]] || fail "--all-modules missed index_subscript in M: $out"
+[[ "$(hits int_conversion M <<<"$out")" == 1 ]] || fail "--all-modules missed int_conversion in M: $out"
+printf 'var m: [String: Int] = [:]\nlet a = m[key]\nlet c = UInt8(truncatingIfNeeded: value)\n' > "$app/Sources/M/A.swift"
+out="$(report index_subscript,int_conversion --all-modules)" || fail "--all-modules failed: $out"
+[[ "$(hits index_subscript M <<<"$out")" == 0 ]] || fail "--all-modules counted a dictionary subscript: $out"
+[[ "$(hits int_conversion M <<<"$out")" == 0 ]] || fail "--all-modules counted a checked conversion: $out"
+printf 'let a = rows[i]\n' > "$app/Sources/M/A.swift"
+printf 'let h = 1\n' > "$shared/Sources/MessagesLabHome/F.swift"
+out="$(ratchet)" || fail "--all-modules leaked into the CI compare: $out"
+if out="$(python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --all-modules 2>&1)"; then
+    fail "--all-modules without --report was accepted: $out"
+fi
+reset
+
+# 23. The report baseline (crash-safety-report-baseline.json): only --report CLASS --update-report-baseline writes
+#     it, index classes only with --all-modules; a class's first row records the tree, after that rows only go
+#     down (a row the tree is over stays and exits 1); --report shows the baseline and the rows over it; the CI
+#     baseline is unchanged and the CI compare never reads the report baseline.
+rb="$tmp/scripts/cmux-next/crash-safety-report-baseline.json"
+ci="$tmp/scripts/cmux-next/crash-safety-baseline.json"
+cp "$ci" "$tmp/ci-before.json"
+printf 'let a = rows[i]\nlet b = queue.removeFirst()\nlet c = q.removeLast()\n' > "$app/Sources/M/A.swift"
+if out="$(report index_subscript --update-report-baseline 2>&1)"; then
+    fail "an index class was recorded in the report baseline without --all-modules: $out"
+fi
+[[ ! -e "$rb" ]] || fail "a refused update wrote the report baseline"
+out="$(report trap_api,index_subscript,int_conversion --all-modules --update-report-baseline)" \
+    || fail "the first report baseline was refused: $out"
+python3 - "$rb" <<'PY' || fail "the report baseline rows are wrong: $(cat "$rb")"
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["trap_api"] == {"scope": "packages", "modules": {"M": 2}}, d
+assert d["index_subscript"] == {"scope": "all-modules", "modules": {"M": 1}}, d
+assert d["int_conversion"] == {"scope": "all-modules", "modules": {}}, d
+PY
+cmp -s "$ci" "$tmp/ci-before.json" || fail "--update-report-baseline changed crash-safety-baseline.json"
+out="$(report trap_api)"
+[[ "$(hits trap_api <<<"$out")" == 2 ]] && [[ "$out" == *'"baseline": 2'* ]] && [[ "$out" == *'"over": {}'* ]] \
+    || fail "--report does not show the report baseline: $out"
+out="$(report index_subscript)"
+[[ "$out" != *'"baseline"'* ]] || fail "an index-modules report was compared with the all-modules row: $out"
+printf 'let a = rows[i]\nlet b = queue.removeFirst()\nlet c = q.removeLast()\nlet d = r.removeLast()\n' > "$app/Sources/M/A.swift"
+out="$(report trap_api)" || fail "--report judged a row over the report baseline: $out"
+[[ "$out" == *'"M": {'*'"baseline": 2'*'"now": 3'* ]] || fail "the row over the report baseline is not shown: $out"
+if out="$(report trap_api --update-report-baseline)"; then fail "--update-report-baseline raised a row: $out"; fi
+[[ "$out" == *"not raised: trap_api M 2 -> 3"* ]] || fail "the held row is not printed: $out"
+[[ "$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["trap_api"]["modules"]["M"])' "$rb")" == 2 ]] \
+    || fail "--update-report-baseline raised the trap_api row: $(cat "$rb")"
+printf 'let a = rows[i]\n' > "$app/Sources/M/A.swift"
+out="$(report trap_api --update-report-baseline)" || fail "lowering the report baseline failed: $out"
+python3 - "$rb" <<'PY' || fail "the report baseline was not lowered, or another class changed: $(cat "$rb")"
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["trap_api"] == {"scope": "packages", "modules": {}}, d
+assert d["index_subscript"] == {"scope": "all-modules", "modules": {"M": 1}}, d
+PY
+printf '{"swift": {"force_unwrap": {"M": 999}}}\n' > "$rb"
+out="$(ratchet)" || fail "the CI compare read the report baseline: $out"
+python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --update-baseline >/dev/null || true
+cmp -s "$ci" "$tmp/ci-before.json" || fail "--update-baseline wrote a report row into crash-safety-baseline.json: $(cat "$ci")"
+rm -f "$tmp/ci-before.json" "$rb"
 reset
 
 echo "crash-ratchet-v2.test.sh: ok"

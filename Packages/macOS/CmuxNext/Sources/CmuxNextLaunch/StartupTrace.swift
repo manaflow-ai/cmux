@@ -1,6 +1,9 @@
 import CmuxNextCompat
 public import CmuxNextWakeups
 import Darwin
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 
 /// The startup trace (`CMUX_TRACE_STARTUP`): launch marks, startup tasks, main-thread turns over 1 ms,
@@ -217,10 +220,11 @@ public final class StartupTrace: Sendable {
     /// Posted to the drains' sequence, so it runs after every drain posted before it.
     public func flush() async -> Status {
         if let drains = state.withLock({ $0.drains }) {
-            await withCheckedContinuation { (written: CheckedContinuation<Void, Never>) in
+            // A drain dropped unrun returns the status as it is.
+            _ = try? await withOnceContinuation { (written: OnceContinuation<Void, OnceContinuationError>) in
                 drains.post(.userVisible, shutdown: .blockShutdown) { [self] in
                     drain()
-                    written.resume()
+                    written.resume(returning: ())
                 }
             }
         }

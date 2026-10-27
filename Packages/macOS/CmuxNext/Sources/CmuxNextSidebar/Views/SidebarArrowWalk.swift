@@ -65,6 +65,7 @@ import AppKit
     private static func items(in sidebar: SidebarView) -> (above: [SidebarItemRowView], below: [SidebarItemRowView]) {
         func ordered(_ regions: [SidebarRegionView]) -> [SidebarItemRowView] {
             let positioned: [(view: SidebarItemRowView, frame: NSRect)] = regions.flatMap { region in
+                // visibility-walk-allow: the arrow keys' focus walk, as the key-view loop: a hidden item never takes the focus
                 region.itemViews.values.filter { !$0.isHiddenOrHasHiddenAncestor }.map {
                     (view: $0, frame: region.convert($0.frame, to: nil))
                 }
