@@ -29,9 +29,11 @@ import Testing
     @Test func loggerSurfaceComesWithTheModule() {
         let logger = Logger(subsystem: "com.cmuxterm.tests", category: "platform")
         let count = 3
+        let id: UInt32 = 0xBEEF
         logger.debug("count \(count, privacy: .public)")
         logger.info("ratio \(0.5, format: .fixed(precision: 2), privacy: .public) \(true)")
-        logger.notice("path \("/tmp", privacy: .private) id \(count, format: .hex, align: .right(columns: 4))")
+        // os.Logger rejects .hex on a signed integer at compile time, so the hex shape logs an unsigned one.
+        logger.notice("path \("/tmp", privacy: .private) id \(id, format: .hex, align: .right(columns: 4))")
     }
 
     #if !canImport(os)
