@@ -172,6 +172,10 @@ async fn handle(
             let key = str_param(params, "sessionId")
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
             let target = hub.subsession_write_target(&caller, key, true)?;
+            // `send_message` asks before it reads the files it names: nothing is sent.
+            if params.get("attachCheck") == Some(&Value::Bool(true)) {
+                return hub.subsession_attach_check(&caller).map(|()| json!({}));
+            }
             let text = str_param(params, "text").unwrap_or_default();
             let interrupt = params.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
             let deliver = crate::hub::Delivery::parse(str_param(params, "deliver"), interrupt)?;

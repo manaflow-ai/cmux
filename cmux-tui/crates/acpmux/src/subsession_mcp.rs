@@ -252,6 +252,11 @@ async fn with_attachments(daemon: &Client, mut args: Value) -> Result<Value> {
         .collect::<Option<_>>()
         .ok_or_else(|| anyhow::anyhow!("each attachment is an absolute file path"))?;
     let session = args.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+    // The daemon says first whether this agent may send files (not while a remote device drives
+    // it), so no file is read for a send it would refuse. With no text, an older daemon refuses
+    // the check rather than sending anything.
+    let check = json!({"sessionId": session, "text": "", "attachCheck": true});
+    daemon.request(method::MUX_SUBSESSION_SEND, check).await?;
     let text = args.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
     let blocks = crate::attach::blocks_for(daemon, &session, &text, &paths).await?;
     args["attachments"] = Value::Array(blocks);

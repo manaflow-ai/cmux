@@ -100,6 +100,9 @@ async fn send_message_carries_attachments_to_a_child() {
     let mut shot = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
     shot.resize(1024, 5);
     let blocks = vec![acpmux::attach::block("shot.png", &shot)];
+    // `send_message` asks first whether this agent may send files; the check sends nothing.
+    let check = json!({"sessionId": child, "text": "", "attachCheck": true});
+    assert_eq!(p.ok("_acpmux/subsession/send", check).await, json!({}));
     let send = json!({"sessionId": child, "text": "see this", "attachments": blocks});
     p.ok("_acpmux/subsession/send", send).await;
     p.ok("_acpmux/wait", ready.clone()).await;
