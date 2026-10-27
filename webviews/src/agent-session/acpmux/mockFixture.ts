@@ -651,24 +651,6 @@ export const workedTurn: SeedStep[] = [
       "Uploads now retry server errors with backoff.\n\n- `withRetry` in `retry.ts` tries up to 5 times, waiting 0.5 s, 1 s, 2 s and 4 s.\n- `uploadArtifact` retries only 5xx responses; a 4xx still fails at once.\n- The new test fails the first two uploads with 503 and checks the third succeeds.\n\n```ts\nawait withRetry(async () => {\n  const response = await fetch(url, { method: 'PUT', body });\n  if (response.status >= 500) throw new RetryableError(response.status);\n});\n```\n\nBoth tests pass. The worst case adds 7.5 s before a publish gives up.",
     ),
   },
-  // Stable completed children keep the capture row visible after the turn finishes.
-  {
-    ago: START - 84_500,
-    update: { sessionUpdate: "subagent_spawned" },
-    acpmux: {
-      subagents: [
-        { id: "child-a", parent: null, name: "fixture/toolu_child-a", task: "Audit pane placement", state: "running" },
-        { id: "child-b", parent: null, name: "fixture/toolu_child-b", task: "Review tab reuse", state: "running" },
-      ],
-    },
-  },
-  { ago: START - 84_700, update: { sessionUpdate: "agent_message_chunk", content: [{ type: "text", text: "The child chat stays beside its parent." }] }, acpmux: { subagent: "child-a" } },
-  { ago: START - 84_800, update: { sessionUpdate: "agent_message_chunk", content: [{ type: "text", text: "Opening the same child selects its existing tab." }] }, acpmux: { subagent: "child-b" } },
-  {
-    ago: START - 84_900,
-    update: { sessionUpdate: "subagent_state_update" },
-    acpmux: { subagents: [{ id: "child-a", state: "completed" }, { id: "child-b", state: "completed" }] },
-  },
   // How full the context window is after the turn, as the agent reports it.
   { ago: START - 85_000, update: { sessionUpdate: "usage_update", used: 33_551, size: 200_000 } },
   { ago: START - 86_000, mux: "turn_result", msg: { status: "completed" } },
