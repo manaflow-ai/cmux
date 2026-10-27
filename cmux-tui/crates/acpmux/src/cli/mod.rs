@@ -11,6 +11,8 @@ pub mod cli_agent;
 pub mod codex_auth_broker;
 pub mod command;
 pub mod command_host;
+#[cfg(unix)]
+pub mod codex_auth_broker;
 pub mod entry;
 pub mod errors;
 pub mod forum;
