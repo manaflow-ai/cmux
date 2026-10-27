@@ -264,9 +264,9 @@ function ArtifactFrame({ html, title, jsx, render }: { html: string; title: stri
       </div>
     );
   return jsx ? (
-    <JsxFrame code={html} title={title} render={render} />
+    <JsxFrame key={html} code={html} title={title} render={render} />
   ) : (
-    <RunningFrame html={html} title={title} render={render} />
+    <RunningFrame key={html} html={html} title={title} render={render} />
   );
 }
 
