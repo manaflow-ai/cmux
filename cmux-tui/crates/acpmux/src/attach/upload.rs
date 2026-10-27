@@ -143,6 +143,13 @@ pub(super) fn transient(daemon: &Client, e: &anyhow::Error) -> bool {
     e.downcast_ref::<DaemonError>().is_some_and(|DaemonError(rpc)| link_failure(rpc))
 }
 
+/// Whether a status refused for `reason` says the record's upload cannot be resumed: the daemon
+/// has no such upload, or the chat's peer runs a build without `uploadResume` (which took the
+/// upload, but cannot say where it stands).
+fn no_resume(reason: Option<&str>) -> bool {
+    matches!(reason, Some("upload.unknown" | "filePut.unsupported"))
+}
+
 /// The `reason` of the daemon's error `e`, if it gave one.
 fn reason_of(e: &anyhow::Error) -> Option<&str> {
     let DaemonError(rpc) = e.downcast_ref::<DaemonError>()?;
@@ -286,8 +293,8 @@ async fn resumable(
     });
     let status = match status.await {
         Ok(status) => status,
-        // The daemon answered that it has no such upload: the record is stale.
-        Err(e) if reason_of(&e) == Some("upload.unknown") => {
+        // The daemon answered that it cannot resume it: the record is no use, begin again.
+        Err(e) if no_resume(reason_of(&e)) => {
             record.forget();
             return Ok(None);
         }
@@ -495,5 +502,17 @@ mod tests {
         assert!(!link_failure(&reason("filePut.unsupported")));
         assert!(!lost("cannot append upload: Input/output error"));
         assert!(!link_failure(&RpcError::invalid_params("peer x timed out")));
+    }
+
+    /// A record whose upload is gone, or went to a peer that cannot say where it stands, starts
+    /// a fresh upload; any other refusal keeps the record for a later send.
+    #[test]
+    fn a_record_is_dropped_only_when_its_upload_cannot_be_resumed() {
+        assert!(no_resume(Some("upload.unknown")));
+        assert!(no_resume(Some("filePut.unsupported")));
+        assert!(!no_resume(Some("upload.unreadable")));
+        assert!(!no_resume(Some("upload.diskFull")));
+        assert!(!no_resume(Some("peer_unreachable")));
+        assert!(!no_resume(None));
     }
 }
