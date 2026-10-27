@@ -12,12 +12,13 @@ import CmuxNextIcons
 @MainActor
 final class AppPanePage: InternalPageProvider {
     let appID: String
-    private unowned let apps: AppsService
+    /// The app supervisor's mirror (``AppsService/client``): the app's record and its scene mounts.
+    private let client: AppsClient
     private var mounts: [String: AppMount] = [:]
 
-    init(appID: String, apps: AppsService) {
+    init(appID: String, client: AppsClient) {
         self.appID = appID
-        self.apps = apps
+        self.client = client
     }
 
     static func pageID(_ appID: String) -> InternalPageID { InternalPageID(rawValue: "app:" + appID) }
@@ -31,7 +32,7 @@ final class AppPanePage: InternalPageProvider {
     /// The registry's generic app for an app with no symbol of its own.
     var icon: IconName? { symbol == "app" ? .appGeneric : nil }
 
-    private var app: AppRecord? { apps.client.app(appID) }
+    private var app: AppRecord? { client.app(appID) }
 
     /// Whether this app has a page to open (installed, enabled, with a scene pane). A hidden
     /// app still opens on an explicit `app.open`; hiding removes only its sidebar, palette and
@@ -40,13 +41,13 @@ final class AppPanePage: InternalPageProvider {
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let app, let pane = app.manifest.scenePane else { return NSView() }
-        let mount = apps.client.mount(app.id, implementation: pane, surface: "pane")
+        let mount = client.mount(app.id, implementation: pane, surface: "pane")
         mounts[key] = mount
         return VisibilityGatedHostingView(owner: "AppPanePage", hosting: mount.makeView())
     }
 
     func tabClosed(_ key: String) {
         guard let mount = mounts.removeValue(forKey: key) else { return }
-        apps.client.unmount(mount)
+        client.unmount(mount)
     }
 }

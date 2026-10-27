@@ -339,6 +339,37 @@ class ConfirmTests(unittest.TestCase):
             code, rows, _ = fixture.confirm(launcher)
             self.assertEqual((code, rows, launcher.requests), (confirm.EXIT_NONE, [], []))
 
+    def test_the_head_retry_of_a_switch_diff_keeps_its_arm_readback(self):
+        # A switch diff (task 111) passes diff.py --arm-pointer; the head-arm retry must too, or the arm
+        # readback reads as a divergence. The base-arm rerun reads back the base's arm, so it gets none.
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            fixture = Fixture(tmp)
+            self.assertEqual(fixture.comparison["arm_pointers"], [])
+            pointers = ["/facets/switches/arms/holder", "/facets/daemon/oracle/switches/holder"]
+            comparison = dict(fixture.comparison, arm_pointers=pointers)
+            (tmp / "cmp" / "comparison.json").write_text(json.dumps(comparison))
+            inputs = confirm.load_inputs(tmp / "cmp")
+            self.assertEqual(inputs.arm_pointers, tuple(pointers))
+            calls: List[Tuple[Any, ...]] = []
+
+            def fake_diff(code: int):
+                def run(a_dir, b_dir, out, expected, arm_pointers=(), cases=()):
+                    calls.append((tuple(arm_pointers), tuple(cases)))
+                    return code, {"cases": [{"case": cid, "status": "equal"} for cid in cases]}
+                return run
+
+            with unittest.mock.patch.object(oracle, "run_diff_py", fake_diff(oracle.DIFF_OK)):
+                rerun = confirm.compare_rerun(inputs.base, inputs.head.dir, None, ["alpha/real"], inputs.expected,
+                                              tmp / "retry.json", inputs.arm_pointers)
+                self.assertIsNone(rerun.error)
+                confirm.compare_rerun(inputs.base, inputs.head.dir, None, ["alpha/real"], inputs.expected, tmp / "alone.json")
+            self.assertEqual(calls, [(tuple(pointers), ("alpha/real",)), ((), ("alpha/real",))])
+            with unittest.mock.patch.object(oracle, "run_diff_py", fake_diff(oracle.DIFF_ARMS_SAME)):
+                rerun = confirm.compare_rerun(inputs.base, inputs.head.dir, None, ["alpha/real"], inputs.expected,
+                                              tmp / "same.json", inputs.arm_pointers)
+            self.assertIn("base's arm", rerun.error)
+
     def test_refused_and_old_comparisons_are_refused(self):
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)

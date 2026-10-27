@@ -451,8 +451,12 @@ class Rerun:
 
 
 def compare_rerun(base: SideRun, run_dir: Optional[Path], error: Optional[str], cases: Sequence[str],
-                  expected: Sequence[Path], out: Path) -> Rerun:
-    """diff.py of the base run against a rerun, for `cases` only; an error makes every case not-comparable."""
+                  expected: Sequence[Path], out: Path, arm_pointers: Sequence[str] = ()) -> Rerun:
+    """diff.py of the base run against a rerun, for `cases` only; an error makes every case not-comparable.
+
+    `arm_pointers` only for a rerun of the other arm (the head retry of a switch diff): there the arm
+    readback must differ, and is not a divergence; a base-arm rerun reads back the same arm by design.
+    """
     if run_dir is None:
         return Rerun(None, None, {}, {}, {}, error or "no run dir")
     try:
@@ -464,7 +468,7 @@ def compare_rerun(base: SideRun, run_dir: Optional[Path], error: Optional[str], 
     if not ran:
         return Rerun(run_dir, run_id, receipt, {}, {}, None)
     try:
-        code, document = oracle.run_diff_py(base.dir, run_dir, out, expected, cases=ran)
+        code, document = oracle.run_diff_py(base.dir, run_dir, out, expected, arm_pointers, cases=ran)
     except oracle.UsageError as failure:
         return Rerun(run_dir, run_id, receipt, {}, {}, f"diff.py: {failure}")
     if code == oracle.DIFF_HOST_MISMATCH:
@@ -472,6 +476,8 @@ def compare_rerun(base: SideRun, run_dir: Optional[Path], error: Optional[str], 
         return Rerun(run_dir, run_id, receipt, {}, {}, f"host-mismatch with the base run: {mismatched}")
     if code == oracle.DIFF_INTERNAL:
         return Rerun(run_dir, run_id, receipt, {}, {}, f"diff.py internal error: {document.get('error')}")
+    if code == oracle.DIFF_ARMS_SAME:
+        return Rerun(run_dir, run_id, receipt, {}, {}, "the rerun read back the base's arm, not the head's")
     statuses = {row["case"]: row["status"] for row in document.get("cases", [])}
     findings = {item["journey"]: item for item in document.get("divergences", [])}
     return Rerun(run_dir, run_id, receipt, statuses, findings, None)
@@ -566,6 +572,8 @@ class Inputs:
     base: SideRun
     head: SideRun
     expected: Tuple[Path, ...]
+    # A switch diff's arm readback pointers (task 111): the base arm and a head-arm rerun must differ there.
+    arm_pointers: Tuple[str, ...] = ()
 
 
 def load_inputs(diff_dir: Path) -> Inputs:
@@ -601,7 +609,8 @@ def load_inputs(diff_dir: Path) -> Inputs:
     head = SideRun.load(str(comparison["b"]), Path(comparison["b_dir"]))
     if base.total != head.total:
         raise ConfirmError(f"shard totals differ: {base.total} vs {head.total}")
-    return Inputs(diff_dir, comparison, findings, base, head, expected)
+    arm_pointers = tuple(str(p) for p in comparison.get("arm_pointers") or ())
+    return Inputs(diff_dir, comparison, findings, base, head, expected, arm_pointers)
 
 
 @dataclass(frozen=True)
@@ -676,7 +685,7 @@ def confirm(inputs: Inputs, launcher: Launcher, options: Options) -> List[Dict[s
         run_dir, error = launched[request.label]
         index = request.shard[0]
         rerun = compare_rerun(base, run_dir, error, by_shard[index], inputs.expected,
-                              runs / "head-retry" / f"divergence-s{index}.json")
+                              runs / "head-retry" / f"divergence-s{index}.json", inputs.arm_pointers)
         for cid in by_shard[index]:
             retries[cid] = rerun
 

@@ -113,14 +113,18 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// - Parameter revealDeadlines: Times the collapsed band's close delay and the paint hold's limit (the app's ``MainDeadlineScheduler``).
     /// - Parameter signals: Where display option changes come from (the composition root's ``AppearanceSignals``).
     /// - Parameter slideHoldsContent: Feature `sidebarSlideHoldsContent` (the app's); on by default.
+    /// - Parameter rendersMotionOnServer: `motion.renderServer` (the app's; off by default): the sidebar's show
+    ///   and hide lay the window out once and spring on the render server (`SidebarContainerView+RenderSlide`).
     /// - Parameter bandRendersOnServer: `motion.renderServer` for the collapsed band's reveal (`CollapsedBandReveal`).
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealDeadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
          signals: AppearanceSignals = DesignSettings.shared.signals, slideHoldsContent: @escaping @MainActor () -> Bool = { true },
+         rendersMotionOnServer: @escaping () -> Bool = { false },
          bandRendersOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value }) {
         self.sidebar = sidebar
+        sidebar.rendersMotionOnServer = rendersMotionOnServer
         collapsedBand = CollapsedBandReveal(deadlines: revealDeadlines, fullWidth: { TitlebarToolbarBand.width }, rendersOnServer: bandRendersOnServer)
         paintHold = PanePaintHold(owner: "window.paint-hold", deadlines: revealDeadlines)
         self.reduceTransparency = reduceTransparency
@@ -222,6 +226,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
+    /// The strips under the top row in a render-server sidebar slide (`followSidebarSlide`): called before
+    /// the slide's one layout; the closure it returns, called after it, springs each strip's tabs from the
+    /// traffic-light inset they showed with (`TabStripView.windowControlsSlide`). The window sets it.
+    var topRowStripsSlide: () -> () -> [RenderSpring.Move] = { { [] } }
 
     /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
     /// when every frame is final: the agent cursor goes back on top after a

@@ -165,8 +165,7 @@ pub fn find_cli(words: &[&str]) -> Option<(&'static Entry, usize)> {
         .iter()
         .filter_map(|e| {
             let path: Vec<&str> = e.cli.split(' ').collect();
-            (words.len() >= path.len() && words[..path.len()] == path[..])
-                .then_some((e, path.len()))
+            words.starts_with(&path).then_some((e, path.len()))
         })
         .max_by_key(|(_, n)| *n)
 }
@@ -236,7 +235,9 @@ pub fn export_typescript() -> String {
 
 fn upper_camel(path: &str) -> String {
     path.split(['_', '.'])
-        .filter(|s| !s.is_empty())
-        .map(|s| s[..1].to_uppercase() + &s[1..])
+        .flat_map(|s| {
+            let mut chars = s.chars();
+            chars.next().into_iter().flat_map(char::to_uppercase).chain(chars)
+        })
         .collect()
 }

@@ -6,16 +6,14 @@ const TITLE_MAX: usize = 120;
 /// workspace context of a Cmd-I chat, cx-ihyx2): a harness may store it right after the
 /// person's text with no break (Codex), and it is never the person's words.
 pub fn without_client_context(text: &str) -> &str {
-    let mut from = 0;
-    while let Some(at) = text[from..].find("<cmux-").map(|i| i + from) {
-        let name = &text[at + 1..];
-        if let Some(end) = name.find('>')
-            && name[..end].ends_with("-context")
-            && !name[..end].contains(char::is_whitespace)
+    for (at, _) in text.match_indices("<cmux-") {
+        let Some((before, element)) = text.split_at_checked(at) else { continue };
+        if let Some((name, _)) = element.trim_start_matches('<').split_once('>')
+            && name.ends_with("-context")
+            && !name.contains(char::is_whitespace)
         {
-            return &text[..at];
+            return before;
         }
-        from = at + 1;
     }
     text
 }
