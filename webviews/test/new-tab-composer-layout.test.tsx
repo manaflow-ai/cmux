@@ -53,8 +53,8 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
-  act(() => root?.unmount());
+afterAll(async () => {
+  await act(async () => root?.unmount());
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
