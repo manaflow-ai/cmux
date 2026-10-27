@@ -24,6 +24,19 @@
 //! presence closes only while no client connected since the deadline's read,
 //! a closed presence refuses every new connection, and the live work is read
 //! again under the fence; work found then opens the presence again.
+//!
+//! The owning app's exit (a quit or a crash; cmux-ad 2026-10-27: a Cmd-Q
+//! left the app's acpmux running) shortens the next wait to
+//! [`OWNER_EXIT_GRACE`]: Chromium's child processes end when the browser
+//! process goes (`ChildProcessHost` channel error), and an idle daemon whose
+//! app exited serves nobody. A thread blocks in the kernel for that exit
+//! ([`OwnerApp::exited`]). Live work still keeps the daemon (Keep Sessions
+//! Running keeps agents working); once a deadline finds it, the full grace
+//! applies again. The next app starts its own daemon when it needs one.
+//! This part is not behind the feature: with the feature off, a daemon an
+//! app started (`ACPMUX_OWNER_APP_PID`) waits for that app's exit and then
+//! follows the same rules ([`wait_for_daemon_exit`]); a daemon with no
+//! owning app (the CLI's) still runs until it is stopped.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -150,11 +163,26 @@ pub struct IdlePolicy {
     grace: Duration,
     /// When the daemon last became client-less; `None` while one is connected.
     idle_since: Option<Duration>,
+    /// The owning app exited and no deadline has found live work since: the
+    /// next deadline is [`OWNER_EXIT_GRACE`] after the daemon became idle.
+    owner_exited: bool,
 }
 
 impl IdlePolicy {
     pub fn new(grace: Duration) -> Self {
-        Self { grace, idle_since: None }
+        Self { grace, idle_since: None, owner_exited: false }
+    }
+
+    /// The owning app's process exited: an idle daemon is nobody's now. The
+    /// next deadline comes [`OWNER_EXIT_GRACE`] (at most the grace) after
+    /// the daemon became idle, or after its last client leaves.
+    pub fn owner_exited(&mut self) {
+        self.owner_exited = true;
+    }
+
+    /// The wait the next deadline is due after.
+    fn current_grace(&self) -> Duration {
+        if self.owner_exited { OWNER_EXIT_GRACE.min(self.grace) } else { self.grace }
     }
 
     /// The client count at `now`; `arrived` says a client connected since
@@ -168,14 +196,18 @@ impl IdlePolicy {
     }
 
     /// What to do at `now`. Past the grace, `keeps` is asked once: true
-    /// starts a full grace again, false exits.
+    /// starts a full grace again, false exits. Live work found after the
+    /// owner's exit (an agent that keeps working through a Keep Sessions
+    /// quit) also ends the short grace: one wake per full grace, as before.
     pub fn step(&mut self, now: Duration, keeps: impl FnOnce() -> bool) -> Step {
         let Some(since) = self.idle_since else { return Step::Serve };
         let idle = now.saturating_sub(since);
-        if idle < self.grace {
-            return Step::Wait(self.grace - idle);
+        let grace = self.current_grace();
+        if idle < grace {
+            return Step::Wait(grace - idle);
         }
         if keeps() {
+            self.owner_exited = false;
             self.idle_since = Some(now);
             return Step::Wait(self.grace);
         }
@@ -201,10 +233,11 @@ pub async fn wait_for_idle_exit(
     grace: Duration,
     owner_exit: impl std::future::Future<Output = ()>,
 ) {
-    drop(owner_exit);
     let mut rx = presence.subscribe();
     let mut policy = IdlePolicy::new(grace);
     let mut last_arrivals = rx.borrow().arrivals;
+    let mut owner_exit = std::pin::pin!(owner_exit);
+    let mut watching_owner = true;
     loop {
         let seen = *rx.borrow_and_update();
         policy.presence(clock.now(), seen.clients, seen.arrivals != last_arrivals);
@@ -223,11 +256,25 @@ pub async fn wait_for_idle_exit(
                 policy.restart(clock.now());
                 continue;
             }
-            Step::Serve => rx.changed().await,
+            Step::Serve => {
+                tokio::select! {
+                    changed = rx.changed() => changed,
+                    () = &mut owner_exit, if watching_owner => {
+                        watching_owner = false;
+                        policy.owner_exited();
+                        Ok(())
+                    }
+                }
+            }
             Step::Wait(after) => {
                 tokio::select! {
                     _ = clock.sleep_until(clock.now() + after) => Ok(()),
                     changed = rx.changed() => changed,
+                    () = &mut owner_exit, if watching_owner => {
+                        watching_owner = false;
+                        policy.owner_exited();
+                        Ok(())
+                    }
                 }
             }
         };
@@ -257,9 +304,23 @@ impl OwnerApp {
         Self { pid }
     }
 
-    /// Resolves when the owner's process exits.
+    /// Resolves when the owner's process exits (a quit or a crash), at once
+    /// when it is already gone; never without an owner, or where the
+    /// platform cannot watch a process this one did not start (the grace
+    /// then decides, as before). One named thread waits in the kernel for
+    /// the exit for the daemon's life: no polling.
     pub async fn exited(self) {
-        std::future::pending::<()>().await;
+        let Some(pid) = self.pid else { return std::future::pending().await };
+        let (done, exit) = tokio::sync::oneshot::channel::<()>();
+        let watch = std::thread::Builder::new().name("acpmux-owner-exit".into()).spawn(move || {
+            if wait_for_process_exit(pid) {
+                let _ = done.send(());
+            }
+        });
+        if watch.is_err() || exit.await.is_err() {
+            // No watch: only the grace ends this daemon.
+            std::future::pending::<()>().await;
+        }
     }
 
     /// The owner's process exists (a recycled pid keeps the daemon: it fails
@@ -279,6 +340,77 @@ impl OwnerApp {
             true
         }
     }
+}
+
+/// Blocks until process `pid` exits; true when it exited (or was already
+/// gone), false when it cannot be watched. macOS: a kqueue `EVFILT_PROC`
+/// `NOTE_EXIT` event, which works for a process that is not this one's child.
+#[cfg(target_os = "macos")]
+fn wait_for_process_exit(pid: i32) -> bool {
+    // SAFETY: kqueue takes no arguments and returns a new descriptor or -1.
+    let queue = unsafe { libc::kqueue() };
+    if queue < 0 {
+        return false;
+    }
+    // SAFETY: kevent is a plain C struct; all zero is a valid value of it.
+    let mut change: libc::kevent = unsafe { std::mem::zeroed() };
+    change.ident = pid as libc::uintptr_t;
+    change.filter = libc::EVFILT_PROC;
+    change.flags = libc::EV_ADD | libc::EV_ONESHOT;
+    change.fflags = libc::NOTE_EXIT;
+    let exited = loop {
+        // SAFETY: as above.
+        let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+        // SAFETY: one change and one event slot, locals that outlive the call; a null
+        // timeout blocks until the event.
+        let n = unsafe { libc::kevent(queue, &change, 1, &mut event, 1, std::ptr::null()) };
+        if n < 0 {
+            match std::io::Error::last_os_error().raw_os_error() {
+                Some(libc::EINTR) => continue,
+                // Already gone.
+                Some(libc::ESRCH) => break true,
+                _ => break false,
+            }
+        }
+        if n == 0 {
+            continue;
+        }
+        if event.flags & libc::EV_ERROR != 0 {
+            break event.data == libc::ESRCH as libc::intptr_t;
+        }
+        break event.fflags & libc::NOTE_EXIT != 0;
+    };
+    // SAFETY: closes the descriptor kqueue returned above, once.
+    unsafe { libc::close(queue) };
+    exited
+}
+
+/// Linux: a pidfd turns readable when the process exits.
+#[cfg(target_os = "linux")]
+fn wait_for_process_exit(pid: i32) -> bool {
+    // SAFETY: pidfd_open(pid, 0) returns a new descriptor or -1.
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+    if fd < 0 {
+        return std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+    }
+    let fd = fd as libc::c_int;
+    let mut poll = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+    let exited = loop {
+        // SAFETY: one pollfd, a local that outlives the call; -1 blocks until it is ready.
+        let n = unsafe { libc::poll(&mut poll, 1, -1) };
+        if n < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+            continue;
+        }
+        break n > 0;
+    };
+    // SAFETY: closes the descriptor pidfd_open returned above, once.
+    unsafe { libc::close(fd) };
+    exited
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn wait_for_process_exit(_pid: i32) -> bool {
+    false
 }
 
 /// The hub's facts for a daemon.
@@ -316,18 +448,37 @@ fn daemon_features() -> cmux_features::Snapshot {
     cmux_features::sources::daemon_snapshot(kind)
 }
 
-/// The daemon's idle exit when the feature is on (off on every channel by
-/// default); resolves when the daemon should exit, never when it is off.
+/// Resolves when the daemon should exit. With the idle exit on, as
+/// [`wait_for_idle_exit`] says. With it off (every channel's default), a
+/// daemon without an owning app never exits idle; one whose owning app
+/// exited (a quit) does, after [`OWNER_EXIT_GRACE`] with no client and no
+/// live work, as with the feature on: a helper the app started stops with
+/// the app.
+pub async fn wait_for_daemon_exit(
+    idle_exit_on: bool,
+    presence: &ClientPresence,
+    clock: Arc<dyn Clock>,
+    liveness: &dyn Liveness,
+    owner_exit: impl std::future::Future<Output = ()>,
+) {
+    if idle_exit_on {
+        wait_for_idle_exit(presence, clock, liveness, IDLE_EXIT_GRACE, owner_exit).await;
+    } else {
+        owner_exit.await;
+        wait_for_idle_exit(presence, clock, liveness, IDLE_EXIT_GRACE, std::future::ready(()))
+            .await;
+    }
+}
+
+/// The daemon's exit when nothing needs it (see [`wait_for_daemon_exit`]).
 pub async fn run_for_daemon(hub: Arc<crate::hub::Hub>) {
     // The policy and document reads are disk reads: off the runtime's workers.
     let features = cmux_blocking::spawn_blocking(daemon_features).await;
-    if !features.as_ref().is_ok_and(enabled) {
-        return std::future::pending().await;
-    }
+    let idle_exit_on = features.as_ref().is_ok_and(enabled);
     let clock = hub.lifecycle_clock();
     let owner = OwnerApp::from_env(OWNER_APP_PID_ENV);
     let liveness = HubLiveness { hub: hub.clone(), owner };
-    wait_for_idle_exit(&hub.clients, clock, &liveness, IDLE_EXIT_GRACE, owner.exited()).await;
+    wait_for_daemon_exit(idle_exit_on, &hub.clients, clock, &liveness, owner.exited()).await;
 }
 
 #[cfg(test)]

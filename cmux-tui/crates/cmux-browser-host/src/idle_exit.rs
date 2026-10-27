@@ -5,7 +5,10 @@
 //! the deadline on an injected clock; no polling.
 //!
 //! A connected provider keeps the host: if the host stopped under a
-//! connected app, the app would start it again at once to reconnect.
+//! connected app, the app would start it again at once to reconnect. When
+//! that provider leaves (the app quit) and no session or agent connection
+//! uses the host, it exits at once (cmux-ad 2026-10-27: a quit left the
+//! host running for its whole delay).
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -50,6 +53,9 @@ impl IdleClock for SystemClock {
 pub struct IdleState {
     /// When the host last became idle; `None` while it serves something.
     idle_since: Option<Instant>,
+    /// The app provider left and nothing else used the host then: the idle
+    /// host exits now, not after the delay. A busy host clears it.
+    provider_gone: bool,
     stopped: bool,
 }
 
@@ -91,6 +97,7 @@ impl IdleExit {
         let mut state = self.lock();
         if busy {
             state.idle_since = None;
+            state.provider_gone = false;
         } else if state.idle_since.is_none() {
             state.idle_since = Some(self.clock.now());
         }
@@ -98,9 +105,23 @@ impl IdleExit {
         self.changed.notify_all();
     }
 
-    /// The app provider that was connected left.
+    /// The app provider that was connected left (the app quit or crashed, or
+    /// dropped its link). With no session and no agent connection the host
+    /// exits now: it served that app, as a Chromium utility process serves
+    /// its last client. A session or connection keeps it, with the whole
+    /// delay after them as before. Call it with no session or provider lock held.
     pub fn provider_left(&self) {
-        self.changed();
+        let busy = (self.busy)();
+        let mut state = self.lock();
+        if busy {
+            state.idle_since = None;
+            state.provider_gone = false;
+        } else {
+            state.idle_since.get_or_insert(self.clock.now());
+            state.provider_gone = true;
+        }
+        drop(state);
+        self.changed.notify_all();
     }
 
     /// Ends [`IdleExit::wait`] with false (the host stops another way).
@@ -119,6 +140,7 @@ impl IdleExit {
             }
             state = match state.idle_since {
                 None => self.changed.wait(state).unwrap_or_else(PoisonError::into_inner),
+                Some(_) if state.provider_gone => return true,
                 Some(since) => {
                     let idle_for = self.clock.now().saturating_duration_since(since);
                     if idle_for >= self.delay {

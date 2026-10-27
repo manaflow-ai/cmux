@@ -382,3 +382,57 @@ async fn idle_exit_owner_watch_sees_the_process_exit() {
         .await
         .expect("the watch of an owner already gone never fired");
 }
+
+/// The daemon's exit with `leftoverDaemonIdleExit` off (every channel's
+/// default, and v1.1's): the owning app's quit still ends an idle daemon.
+struct OffRun {
+    clock: Arc<ManualClock>,
+    owner_exit: Option<tokio::sync::oneshot::Sender<()>>,
+    exit: tokio::task::JoinHandle<()>,
+}
+
+fn start_with_the_feature_off(facts: Arc<Facts>) -> OffRun {
+    let clock = ManualClock::new();
+    let presence = Arc::new(ClientPresence::default());
+    let (owner_exit, exited) = tokio::sync::oneshot::channel::<()>();
+    let exit = {
+        let clock = clock.clone();
+        tokio::spawn(async move {
+            let owner = async move {
+                if exited.await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+            };
+            wait_for_daemon_exit(false, &presence, clock, facts.as_ref(), owner).await;
+        })
+    };
+    OffRun { clock, owner_exit: Some(owner_exit), exit }
+}
+
+#[tokio::test]
+async fn idle_exit_off_never_exits_while_the_owner_runs() {
+    let facts = Arc::new(Facts { owner: AtomicBool::new(true), ..Facts::default() });
+    let run = start_with_the_feature_off(facts);
+    for _ in 0..3 {
+        settle().await;
+        run.clock.advance(GRACE);
+        settle().await;
+    }
+    assert!(!run.exit.is_finished(), "the feature off, a daemon exited while its app runs");
+}
+
+#[tokio::test]
+async fn idle_exit_off_the_owners_quit_ends_an_idle_daemon() {
+    let facts = Arc::new(Facts { owner: AtomicBool::new(true), ..Facts::default() });
+    let mut run = start_with_the_feature_off(facts.clone());
+    settle().await;
+    run.clock.advance(GRACE * 2);
+    settle().await;
+    facts.owner.store(false, Ordering::SeqCst);
+    let _ = run.owner_exit.take().expect("one exit").send(());
+    settle().await;
+    assert!(!run.exit.is_finished(), "exited before the owner-exit grace");
+    run.clock.advance(OWNER_EXIT_GRACE);
+    settle().await;
+    assert!(run.exit.is_finished(), "the feature off, an idle daemon outlived its app's quit");
+}
