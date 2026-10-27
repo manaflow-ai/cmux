@@ -74,26 +74,39 @@ private extension SidebarRowKey {
 extension NSScrollView {
     /// Moves the content to `y` in this turn: the clip's origin is set once, so hit tests, the scroller and the
     /// rows the list realizes read the destination now. Animated (and with movement on), an additive `.move`
-    /// spring on the document view's layer carries what is on screen from the old origin to it on the render
+    /// spring on the document view's layer carries what is on screen from where it shows to it on the render
     /// server, as Chrome's compositor runs a programmatic smooth scroll (cc/animation/scroll_offset_animation_curve.cc)
-    /// with no main-thread scroll per frame. The spring starts at most `SidebarStyle.overscan` away, inside the rows
-    /// the list keeps realized around the destination, so a long jump never shows rows it has not realized. `moved`
-    /// runs once, after the origin changed.
-    func scrollContent(toY y: CGFloat, animated: Bool, moved: @escaping @MainActor () -> Void) {
+    /// with no main-thread scroll per frame. What shows stays within `reach` of the destination: pass the overscan
+    /// the list realizes around its clip, so a long jump or a retarget never shows rows it has not realized. Not
+    /// animated, the content lands at once. `moved` runs once, after the origin changed.
+    func scrollContent(toY y: CGFloat, animated: Bool, reach: CGFloat, moved: @escaping @MainActor () -> Void) {
         let clip = contentView
         let origin = NSPoint(x: clip.bounds.minX, y: y)
         let before = contentGeometry()
+        let residual = contentSpringResidual()
         clip.setBoundsOrigin(origin)
         reflectScrolledClipView(clip)
-        if animated, let before, let after = contentGeometry() { springContent(from: before, to: after) }
+        if let before, let after = contentGeometry() {
+            springContent(by: CGPoint(x: residual.x + after.clip.x - before.clip.x - (after.document.x - before.document.x),
+                                      y: residual.y + after.clip.y - before.clip.y - (after.document.y - before.document.y)),
+                          reach: animated ? reach : 0)
+        }
         moved()
     }
 
-    /// A person's scroll takes over from a programmatic one (Chrome's LayerTreeHostImpl::ScrollBegin aborts the
-    /// impl-side scroll animation): the content shows the clip's origin now.
+    /// A person's scroll takes over from a programmatic one where it shows (Chrome's LayerTreeHostImpl::ScrollBegin
+    /// aborts the impl-side scroll animation at its current offset): the clip's origin moves to what the spring
+    /// showed and the spring comes off, so nothing on screen moves.
     func stopContentSpring() {
-        guard let layer = documentView?.layer else { return }
-        for key in layer.animationKeys() ?? [] where key.hasPrefix(Self.scrollSpringKey) { layer.removeAnimation(forKey: key) }
+        guard let layer = documentView?.layer, layer.animation(forKey: Self.scrollSpringKey) != nil else { return }
+        let residual = contentSpringResidual()
+        layer.removeAnimation(forKey: Self.scrollSpringKey)
+        guard residual != .zero else { return }
+        // The document shows at its position minus the clip's origin: the origin takes the spring's offset off.
+        let clip = contentView
+        let shown = NSRect(origin: NSPoint(x: clip.bounds.minX - residual.x, y: clip.bounds.minY - residual.y), size: clip.bounds.size)
+        clip.setBoundsOrigin(clip.constrainBoundsRect(shown).origin)
+        reflectScrolledClipView(clip)
     }
 
     /// The clip layer's bounds origin and the document layer's position, both in the clip layer's coordinates:
@@ -104,24 +117,34 @@ extension NSScrollView {
         return (clipLayer.bounds.origin, layer.position)
     }
 
-    /// Holds the content where it showed before the scroll and springs it to where it shows now. A retarget adds
-    /// one more spring: the running ones keep their part, so what shows never steps.
-    private func springContent(from before: (clip: CGPoint, document: CGPoint), to after: (clip: CGPoint, document: CGPoint)) {
-        let reach = SidebarStyle.overscan
-        let clamp = { (value: CGFloat) in min(max(value, -reach), reach) }
-        let offset = CGPoint(x: clamp(after.clip.x - before.clip.x - (after.document.x - before.document.x)),
-                             y: clamp(after.clip.y - before.clip.y - (after.document.y - before.document.y)))
-        guard offset != .zero, window != nil, Motion.sidebar.animatesMovement, Motion.canAnimate(in: contentView),
-              let layer = documentView?.layer else { return }
-        let spring = Motion.sidebar.springAnimation(.move, "position", from: NSValue(point: offset), to: NSValue(point: .zero))
-        spring.isAdditive = true
-        spring.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil)
-        // Past the highest running key, so a retarget adds a spring instead of replacing a running one.
-        let prefix = Self.scrollSpringKey + "."
-        let running = (layer.animationKeys() ?? []).compactMap { key in key.hasPrefix(prefix) ? Int(key.dropFirst(prefix.count)) : nil }
-        layer.add(spring, forKey: prefix + String((running.max() ?? -1) + 1))
+    /// How far the running scroll spring shows the document from its model position now, in the clip layer's
+    /// coordinates; zero with no spring. Solved from the spring's start and its `.move` tuning (Chrome's compositor
+    /// reads a scroll curve's value at a time, cc/animation/scroll_offset_animation_curve.cc `GetValue`), so a spring
+    /// added in this turn, which no presentation layer shows yet, counts from its start.
+    private func contentSpringResidual() -> CGPoint {
+        guard let layer = documentView?.layer, let spring = layer.animation(forKey: Self.scrollSpringKey),
+              let from = ((spring as? CABasicAnimation)?.fromValue as? NSValue)?.pointValue else { return .zero }
+        let elapsed = layer.convertTime(CACurrentMediaTime(), from: nil) - spring.beginTime
+        let left = CGFloat(SpringValue.solve(displacement: 1, velocity: 0, time: elapsed, parameters: Motion.sidebar.spring(.move)).displacement)
+        return CGPoint(x: from.x * left, y: from.y * left)
     }
 
-    /// The key prefix of the springs `scrollContent(toY:animated:moved:)` adds to the document view's layer.
+    /// Shows the content `offset` from its model position and springs it home: one spring, in place of any running
+    /// one, from the whole offset clamped to `reach`. What shows moves at once only by the part past `reach`.
+    private func springContent(by offset: CGPoint, reach: CGFloat) {
+        guard let layer = documentView?.layer else { return }
+        let clamp = { (value: CGFloat) in min(max(value, -reach), reach) }
+        let start = CGPoint(x: clamp(offset.x), y: clamp(offset.y))
+        guard start != .zero, window != nil, Motion.sidebar.animatesMovement, Motion.canAnimate(in: contentView) else {
+            layer.removeAnimation(forKey: Self.scrollSpringKey)
+            return
+        }
+        let spring = Motion.sidebar.springAnimation(.move, "position", from: NSValue(point: start), to: NSValue(point: .zero))
+        spring.isAdditive = true
+        spring.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil)
+        layer.add(spring, forKey: Self.scrollSpringKey)
+    }
+
+    /// The key of the spring `scrollContent(toY:animated:reach:moved:)` adds to the document view's layer.
     static let scrollSpringKey = "cmux.scroll"
 }

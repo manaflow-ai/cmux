@@ -196,20 +196,117 @@ struct SidebarFrameAnimatorsOnRenderServerTests {
         }
     }
 
-    /// A person's scroll takes over at once: the programmatic scroll's spring comes off.
+    /// A synthesized scroll event over the sidebar: a continuous (trackpad) event in `phase`, or a phaseless one.
+    private static func scrollEvent(dx: Int32 = 0, dy: Int32 = 0, phase: CGScrollPhase? = nil) throws -> NSEvent {
+        let cg = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0))
+        cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        if let phase { cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue)) }
+        return try #require(NSEvent(cgEvent: cg))
+    }
+
+    /// Where the list's content shows in its clip's layer: the document layer's presented position less the clip's origin.
+    private static func shownY(_ list: NSView) throws -> CGFloat {
+        let layer = try #require(list.layer), clipLayer = try #require(layer.superlayer)
+        return (layer.presentation() ?? layer).position.y - clipLayer.bounds.origin.y
+    }
+
+    /// The document layer's presented offset from its model position: what the scroll spring adds now.
+    private static func springOffsetY(_ list: NSView) throws -> CGFloat {
+        let layer = try #require(list.layer)
+        return (layer.presentation() ?? layer).position.y - layer.position.y
+    }
+
+    /// The largest offset the scroll spring shows on `list` while the display runs its frames for `duration`.
+    private static func farthestSpringOffset(of list: NSView, for duration: Duration) async throws -> CGFloat {
+        var farthest: CGFloat = 0
+        let deadline = ContinuousClock.now + duration
+        while ContinuousClock.now < deadline {
+            farthest = max(farthest, abs(try springOffsetY(list)))
+            try await Task.sleep(for: .milliseconds(8))
+        }
+        return farthest
+    }
+
+    /// Stops `layer`'s clock where it is, so its presentation and the spring's solved value read one instant.
+    private static func freezeTime(of layer: CALayer) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.timeOffset = layer.convertTime(CACurrentMediaTime(), from: nil)
+        layer.speed = 0
+        CATransaction.commit()
+    }
+
+    /// A person's scroll up or down takes over where the content shows (Chrome's LayerTreeHostImpl::ScrollBegin):
+    /// the spring comes off and the clip's origin takes its offset, so nothing on screen jumps. A sideways swipe
+    /// does not scroll the list and leaves the spring running.
     @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {
         await GUIAnimationTestSupport.animatesHere()
     })
-    func aWheelScrollEndsAScrollSpring() async throws {
+    func aWheelScrollEndsAScrollSpringWhereItShows() async throws {
         try await Self.withMotion {
             let (sidebar, window) = try Self.sidebar(rows: 40)
             defer { window.orderOut(nil) }
             let list = sidebar.list
+            let clip = sidebar.scrollView.contentView
             let row = try #require(list.displayed.row(for: .workspace(WorkspaceID("w8"))))
             list.scrollClip(to: row.y, animated: true)
             try #require(Self.springs(list) == 1, "the scroll did not move the content on the render server")
-            sidebar.scrollView.stopContentSpring()
+
+            sidebar.scrollView.scrollWheel(with: try Self.scrollEvent(dx: -20, phase: .began))
+            sidebar.scrollView.scrollWheel(with: try Self.scrollEvent(dx: -20, phase: .changed))
+            sidebar.scrollView.scrollWheel(with: try Self.scrollEvent(phase: .ended))
+            #expect(Self.springs(list) == 1, "a sideways swipe, which does not scroll the list, stopped the scroll's spring")
+            #expect(abs(clip.bounds.minY - row.y) < 0.5, "a sideways swipe moved the clip")
+
+            try await Self.runFrames(for: .milliseconds(30))
+            let layer = try #require(list.layer)
+            Self.freezeTime(of: layer)
+            try await Self.runFrames(for: .milliseconds(50)) // the frozen clock is committed: the presentation holds still
+            let shown = try Self.shownY(list)
+            try #require(abs(try Self.springOffsetY(list)) > 4, "the spring had already landed; nothing to keep")
+            sidebar.scrollView.scrollWheel(with: try Self.scrollEvent(dy: 1))
             #expect(Self.springs(list) == 0, "the scroll's spring kept running under the person's scroll")
+            // No spring left: the content shows at the document layer's model position less the clip's origin.
+            let clipLayer = try #require(layer.superlayer)
+            let after = layer.position.y - clipLayer.bounds.origin.y
+            #expect(abs(after - shown) <= 2, "the content jumped from \(shown) to \(after) when the person scrolled")
+            #expect(abs(clip.bounds.minY - row.y) > 2, "the clip did not take the spring's offset")
+        }
+    }
+
+    /// A retarget never shows the content farther than the rows the list realizes around the clip: two quick long
+    /// scrolls keep one spring whose offset stays within the overscan, and during the launch hold (no overscan)
+    /// a scroll lands at once.
+    @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {
+        await GUIAnimationTestSupport.animatesHere()
+    })
+    func aRetargetedScrollStaysWithinTheRealizedRows() async throws {
+        try await Self.withMotion {
+            let (sidebar, window) = try Self.sidebar(rows: 80)
+            defer { window.orderOut(nil) }
+            let list = sidebar.list
+            let clip = sidebar.scrollView.contentView
+            let reach = list.realizedOverscan
+            let middle = try #require(list.displayed.row(for: .workspace(WorkspaceID("w30"))))
+            let end = try #require(list.displayed.row(for: .workspace(WorkspaceID("w60"))))
+            try #require(end.y - middle.y > reach && middle.y > reach, "the scrolls are not longer than the overscan")
+
+            list.scrollClip(to: middle.y, animated: true)
+            list.scrollClip(to: end.y, animated: true) // the same turn: no frame shows the first spring yet
+            #expect(Self.springs(list) == 1, "a retarget left more than one spring running")
+            var farthest = try Self.farthestSpringOffset(of: list, for: .milliseconds(40))
+            list.scrollClip(to: middle.y, animated: true) // back while the spring runs
+            #expect(Self.springs(list) == 1, "a retarget left more than one spring running")
+            farthest = max(farthest, try Self.farthestSpringOffset(of: list, for: .milliseconds(300)))
+            #expect(farthest <= reach + 0.5, "the content showed \(farthest) pt from the clip, past the \(reach) pt the list realizes")
+            #expect(abs(clip.bounds.minY - middle.y) < 0.5)
+
+            list.launchRows.holdsOffscreenRows = true
+            defer { list.launchRows.holdsOffscreenRows = false }
+            list.scrollClip(to: end.y, animated: true)
+            #expect(list.realizedOverscan == 0)
+            #expect(Self.springs(list) == 0, "a scroll during the launch hold sprang through rows the list has not realized")
+            #expect(abs(clip.bounds.minY - end.y) < 0.5)
         }
     }
 
