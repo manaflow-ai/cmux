@@ -12,7 +12,9 @@
 //! the next terminal in turn and gives each one an equal share, and a small
 //! frame (an echo) goes ahead of queued bulk output. No timers: `poll`
 //! waits forever unless a CLOSE grace, a handshake deadline, the idle exit
-//! or a ring turning cold (`cold_rings`) is pending.
+//! or a ring turning cold (`cold_rings`) is pending. Each pass of the work
+//! after `poll` is one hang scope ([`HangWatch`], on its own watcher
+//! thread); the wait is not.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io;
@@ -28,10 +30,12 @@ use crate::{ExitStatus, SpawnRequest, pty};
 
 mod cold_rings;
 mod handshake;
+mod hang;
 mod input_flow;
 mod trace;
 
 use cold_rings::RingBudget;
+pub use hang::{HOLDER_LOOP, HangWatch};
 use input_flow::InputFlow;
 pub use trace::{ProcessTrace, TraceControl};
 
@@ -277,6 +281,8 @@ pub struct Holder {
     /// The current link started the recording: it stops when the link ends.
     link_recording: bool,
     ring_budget: RingBudget,
+    /// Watches each pass of the loop's work ([`HangWatch`]); `None`: unwatched.
+    hangs: Option<HangWatch>,
 }
 
 static SIGNAL_WRITE: AtomicI32 = AtomicI32::new(-1);
@@ -372,6 +378,7 @@ impl Holder {
             trace: Box::new(ProcessTrace::new(wake_loop)),
             link_recording: false,
             ring_budget: RingBudget::for_host(),
+            hangs: None,
         })
     }
 
@@ -462,6 +469,9 @@ impl Holder {
         // The turn's work, not its wait (Chrome's `ThreadController` active slice): recording
         // only (`task`), so an idle holder writes nothing.
         let _turn = cmux_trace::trace_scope!(task, "task.holder_poll", ready, fds.len());
+        // The same work is one hang scope; the poll above is not.
+        let watcher = self.pass_watcher();
+        let _pass = watcher.as_deref().map(|watcher| watcher.scope(&HOLDER_LOOP));
         if fds[1].revents != 0 {
             self.reap();
             self.poll_trace();
@@ -498,6 +508,7 @@ impl Holder {
         }
         self.kill_overdue();
         self.release_cold_rings(now);
+        self.send_hang_reports();
         self.pump();
         self.retire_closed();
         self.end_orphans(now);

@@ -3,6 +3,9 @@ import CmuxNextWakeups
 import GhosttyNextKit
 import CmuxNextCompat
 import CmuxNextTrace
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import os
 
 /// Serial, non-main lane for every call that must be serialized with
@@ -37,7 +40,7 @@ nonisolated final class TerminalOutputLane: Sendable {
 
     private struct Backlog {
         var bytes = 0
-        var waiters: [CheckedContinuation<Void, Never>] = []
+        var waiters: [OnceContinuation<Void, OnceContinuationError>] = []
     }
 
     private let backlog = Mutex(Backlog())
@@ -251,13 +254,14 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// Returns once the unparsed backlog is at or below `highWater` (or the
     /// lane closed). The caller then queues its next chunk.
     func waitForCapacity() async {
-        await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+        // A dropped waiter returns as a released one does; the caller queues its chunk.
+        _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
             let parked = backlog.withLock { backlog -> Bool in
                 guard backlog.bytes > highWater, !closing.load(ordering: .relaxed) else { return false }
                 backlog.waiters.append(waiter)
                 return true
             }
-            if !parked { waiter.resume() }
+            if !parked { waiter.resume(returning: ()) }
         }
     }
 
@@ -276,8 +280,8 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// awaits this before a call that must observe the parsed state but is
     /// not lane-safe. The main thread never blocks on it.
     func drained() async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            queue.async { done.resume() }
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
+            queue.async { done.resume(returning: ()) }
         }
     }
 
@@ -295,23 +299,23 @@ nonisolated final class TerminalOutputLane: Sendable {
     func close() {
         closing.store(true, ordering: .relaxed)
         echoStage?.close()
-        let waiters = backlog.withLock { backlog -> [CheckedContinuation<Void, Never>] in
+        let waiters = backlog.withLock { backlog -> [OnceContinuation<Void, OnceContinuationError>] in
             defer { backlog.waiters = [] }
             return backlog.waiters
         }
-        waiters.forEach { $0.resume() }
+        waiters.forEach { $0.resume(returning: ()) }
         // The reviewed fence before ghostty_surface_free (BlockingAllowance.surfaceTeardown): queued chunks are
         // skipped once `closing` is set, so this waits for at most the one chunk being parsed.
         allowBlocking(.surfaceTeardown) { queue.blockingSync {} }
     }
 
     private func parsed(_ count: Int) {
-        let waiters = backlog.withLock { backlog -> [CheckedContinuation<Void, Never>] in
+        let waiters = backlog.withLock { backlog -> [OnceContinuation<Void, OnceContinuationError>] in
             backlog.bytes -= count
             guard backlog.bytes <= highWater, !backlog.waiters.isEmpty else { return [] }
             defer { backlog.waiters = [] }
             return backlog.waiters
         }
-        waiters.forEach { $0.resume() }
+        waiters.forEach { $0.resume(returning: ()) }
     }
 }

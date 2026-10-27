@@ -291,7 +291,7 @@ pub struct PtyTerminalRuntime {
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
-    pub(super) taps: RankedMutex<Vec<AttachTap>>,
+    pub(super) taps: RankedMutex<AttachTaps>,
     /// A PTY color mutation awaiting bounded attach-stream fan-out.
     pub(super) attach_colors_pending: AtomicBool,
     /// A reset or cursor-semantic transition requires reapplying equal state:

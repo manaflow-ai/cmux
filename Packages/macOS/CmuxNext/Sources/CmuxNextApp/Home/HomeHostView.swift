@@ -55,8 +55,8 @@ final class HomeHostView: NSView {
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
-        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
-                                              diagrams: service.diagrams, openPanel: services.openPanel, mainWork: services.mainWork)
+        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
+                                              openPanel: services.openPanel, mainWork: services.mainWork, deadlines: services.mainDeadlines)
         transcript.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
@@ -67,6 +67,7 @@ final class HomeHostView: NSView {
         mainWork = work
         super.init(frame: .zero)
         let node = visibilityNode
+        service.labCaches?.track(node)  // the caches empty after 60 s with no Home view shown
         hideWatch = node.subscribe(owner: "HomeHost.settings") { [weak self] state in
             if state == .hidden { self?.settings.close() }
         }

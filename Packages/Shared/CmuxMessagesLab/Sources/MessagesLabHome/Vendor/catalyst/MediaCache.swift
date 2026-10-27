@@ -18,17 +18,22 @@ import os
 /// cmux: checked `Sendable` (p10-stability-055): the images (as `HomeShared` values), sizes, budget and
 /// counters are one lock state (they were vars under an NSLock in an unchecked class); decoding runs
 /// outside the lock, as before.
-final class MediaCache: Sendable {
+final class MediaCache: Sendable { // memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
     static let shared = MediaCache()
     /// Rows draw media at most 500 pt wide at 3x (map snapshots); photos at most 300 pt.
     static let maxPixels = 2048
+    /// cmux: `--image-cache-mb` in bytes, the lab's bench flag: it keeps the cap over the host's share
+    /// (`setBudget(bytes:)`, p07-memory-081); a trim still frees.
+    static let labBudget: Int? = {
+        let a = ProcessInfo.processInfo.arguments
+        let mb = a.firstIndex(of: "--image-cache-mb").flatMap { a.dropFirst($0 + 1).first }.flatMap { Int.init($0) } // no index math
+        return mb.map { min(max($0, 1), 1 << 20) << 20 } // a huge value cannot overflow the shift
+    }()
+    /// cmux: the cap until the host sizes the cache, without the flag (MessagesLab's 96 MB).
+    static let defaultBudget = 96 << 20
     private struct Entry: Sendable { var image: HomeShared<UIImage>; var bytes: Int; var tick: Int }
     private struct State: Sendable {
-        var budget: Int = {
-            let a = ProcessInfo.processInfo.arguments
-            let mb = a.firstIndex(of: "--image-cache-mb").flatMap { a.dropFirst($0 + 1).first }.flatMap { Int.init($0) } ?? 96 // no index math
-            return min(max(mb, 1), 1 << 20) << 20 // a huge value cannot overflow the shift
-        }()
+        var budget: Int = MediaCache.labBudget ?? MediaCache.defaultBudget
         var map: [String: Entry] = [:]
         var sizes: [String: CGSize] = [:]
         var tick = 0
@@ -44,6 +49,29 @@ final class MediaCache: Sendable {
         set { state.withLock { $0.budget = newValue } }
     }
     var bytes: Int { state.withLock { $0.bytes } }
+
+    /// cmux: the host's cap (p07-memory-081); `--image-cache-mb` keeps its own. Lowering it frees nothing: the next
+    /// store trims to it.
+    func setBudget(bytes: Int) {
+        let cap = MediaCache.labBudget ?? max(0, bytes)
+        state.withLock { $0.budget = cap }
+    }
+
+    /// cmux: frees the least recently drawn images until at most `fraction` of the bytes held now remain (0 frees
+    /// every one), off main (p07-memory-081). A row on screen keeps the bitmap it drew; its next draw decodes again.
+    func trim(toFraction fraction: Double) {
+        let freed = state.withLock { s -> [HomeShared<UIImage>] in
+            let target = s.bytes.trimTarget(fraction)
+            var freed: [HomeShared<UIImage>] = []
+            guard s.bytes > target else { return freed }
+            for (k, e) in s.map.sorted(by: { $0.value.tick < $1.value.tick }) {
+                if s.bytes <= target { break }
+                s.map.removeValue(forKey: k); s.bytes -= e.bytes; freed.append(e.image); s.evicted += 1
+            }
+            return freed
+        }
+        if !freed.isEmpty { Reclaimer.release(bitmaps: freed) }
+    }
 
     func cached(_ key: String) -> UIImage? {
         state.withLock { s -> HomeShared<UIImage>? in

@@ -49,8 +49,8 @@ public final class LayoutRootView: NSView {
     /// The pointer-move intercept held while a strip shows away from its laid-out place
     /// (``updatePointerLanding()``).
     private var pointerLanding: InputSubscription?
-    /// Key-window observers of the current window (`observeKeyWindow()`).
-    var keyWindowObservers: [any NSObjectProtocol] = []
+    /// Key-window subscriptions on the current window's ``WindowEvents`` (`observeKeyWindow()`).
+    var keyWindowObservers: [EventSubscription] = []
     private var lastSnapshot: Snapshot?
     /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
     private var appliedReveal: ColumnCenterRequest?
@@ -245,7 +245,7 @@ public final class LayoutRootView: NSView {
             observationTask?.cancel()
             inputIntercept?.cancel()
             pointerLanding?.cancel()
-            for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
+            for subscription in keyWindowObservers { subscription.cancel() }
             driver.detach()
             motionTrace.endRun()
         }
