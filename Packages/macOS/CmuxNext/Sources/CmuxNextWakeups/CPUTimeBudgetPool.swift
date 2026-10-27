@@ -8,9 +8,9 @@ import Foundation
 /// The balance refills at ``Limits/refillPerSecond`` (10 ms each second: 1 % of wall time) up to
 /// ``Limits/maxBalance`` (100 ms). The run time of each hidden task is subtracted, so the balance can
 /// go below zero. While it is below zero, hidden work waits for ``delayUntilAllowed(_:)``: the time
-/// refill needs to bring it back to zero (Blink's `GetNextAllowedRunTime`). The caller re-arms on its
-/// 1 s-aligned hidden wake (`MainDeadline` with `.whenHidden`, or the node's task queue), so the work
-/// runs on the first aligned wake that has budget, and no wake is spent on a turn that cannot run.
+/// refill needs to bring it back to zero (Blink's `GetNextAllowedRunTime`). The work runs at the first
+/// aligned hidden wake after that: a ``MainDeadline`` places its wake again for that instant, and a
+/// ``MainTaskQueue`` keeps its background tasks held at each wake until the balance is back.
 /// The balance never goes below what refills in ``Limits/maxThrottlingDelay``, so one long task
 /// holds hidden work back for no more than that (Blink's `max_throttling_delay`).
 ///
@@ -20,14 +20,13 @@ import Foundation
 ///
 /// cmux differs from Blink in one point: there is ONE pool for the main thread, where Blink has one
 /// per page. Every hidden node runs on cmux's one main thread, so 50 hidden workspaces share 1 % of
-/// it, and do not take 1 % each.
+/// it, and do not take 1 % each. The pool is ``MainWorkScheduler/hiddenBudget``.
 ///
 /// ```swift
-/// let hiddenBudget = CPUTimeBudgetPool()          // the composition root, once
-/// // At a hidden node's aligned wake:
-/// let wait = hiddenBudget.delayUntilAllowed(.hidden)
-/// guard wait == .zero else { return deadline.schedule(after: wait) { drain() } }
-/// hiddenBudget.run(.hidden) { task() }
+/// let pool = mainWork.hiddenBudget
+/// let charge = CPUTimeBudgetPool.Charge(of: node)
+/// guard pool.mayRun(charge) else { return }        // wait for a later aligned wake
+/// pool.run(charge) { task() }
 /// ```
 @MainActor
 public final class CPUTimeBudgetPool {
@@ -44,6 +43,17 @@ public final class CPUTimeBudgetPool {
         /// hidden with media in the last 30 s or a capture vote, `.hidden` otherwise.
         public init(isVisible: Bool, mediaOrCapture: Bool) {
             self = isVisible ? .visible : mediaOrCapture ? .exempt : .hidden
+        }
+
+        /// The charge of `node`'s work now: `.exempt` while it is hidden with media in the last
+        /// ``TimerAlignment/recentMedia`` or a capture vote (``VisibilityNode/isCaptured``).
+        @MainActor
+        public init(of node: VisibilityNode) {
+            guard !node.isVisible else {
+                self = .visible
+                return
+            }
+            self = node.isCaptured || node.mediaActiveWithin(TimerAlignment.recentMedia) ? .exempt : .hidden
         }
     }
 
@@ -139,6 +149,7 @@ public final class CPUTimeBudgetPool {
 
     /// Runs `body` and charges its run time as `charge` (only `.hidden` is charged; the clock is not
     /// read for the others).
+    @discardableResult
     public func run<T>(_ charge: Charge, _ body: () throws -> T) rethrows -> T {
         guard charge == .hidden else { return try body() }
         let start = uptimeNanos()

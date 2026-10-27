@@ -71,6 +71,9 @@ public final class MainWorkScheduler {
     public nonisolated let wakeUps: MainWakeUpQueue
     /// The idle class's periods and queue (``postIdle(owner:maxDelay:node:file:line:_:)``).
     public let idle: IdleScheduler
+    /// The CPU-time budget of hidden nodes' work, on the budget's clock: every ``MainTaskQueue`` and
+    /// ``MainDeadline`` on this scheduler charges its hidden runs to this one pool.
+    public let hiddenBudget: CPUTimeBudgetPool
 
     /// Times the render pass after each frame's scheduled work while any link runs (nil in tests).
     private var renderPasses: RenderPassMeter?
@@ -125,6 +128,7 @@ public final class MainWorkScheduler {
         wakeUps = MainWakeUpQueue(energy: energy)
         otherLinksRunning = otherLinks.anyRunning
         idle = IdleScheduler(budget: budget, timer: idleTimer, ledger: ledger, otherLinksRunning: otherLinks.anyRunning)
+        hiddenBudget = CPUTimeBudgetPool(uptimeNanos: budget.uptimeNanos)
         // Its own ambient clients follow the policy it owns, like the app's and the windows' (FrameScheduler+Energy.swift).
         frames.follow(energy)
         inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, on: frames) { [weak budget] _ in
