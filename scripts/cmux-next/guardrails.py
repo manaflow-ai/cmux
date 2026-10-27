@@ -3059,6 +3059,61 @@ RULES += DECODE_TRAP_RULES
 # ---------------------------------------------------------------- end of decode-trap (p10-stability-093)
 
 
+# ---------------------------------------------------------------- objc-private-lookup (p10-stability-193)
+# A private API lookup (NSClassFromString, objc_getClass, dlsym, NSSelectorFromString, KVC by a literal key, a swizzle)
+# answers nil or raises on a macOS that lacks the name. check-objc-selectors.py's scan_lookups() judges each one (one
+# definition: this rule never re-implements it), and its --lookups / --probe record which names each macOS major has.
+# Like Chromium's SPI calls (respondsToSelector: first; base/apple/scoped_objc_class_swizzler.mm checks the method it
+# swizzles), each needs a nil or responds(to:) guard. Every package's Sources. Local tier only. The block owns its lines
+# from here to `RULES += OBJC_LOOKUP_RULES`.
+OBJC_SELECTORS = "check-objc-selectors.py"
+
+
+def objc_selectors():
+    """check-objc-selectors.py beside this file, loaded on first use (a load error fails only this rule open)."""
+    name = "cmux_next_check_objc_selectors"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, HERE / OBJC_SELECTORS)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module  # its dataclasses resolve their module through sys.modules
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            del sys.modules[name]
+            raise
+    return sys.modules[name]
+
+
+def objc_lookup_debt(path: str, lines: list[str]) -> list[Added]:
+    """The unguarded lookups of one side of a file (LINES), as debt lines."""
+    if lines == [""]:
+        return []
+    unguarded = objc_selectors().unguarded_lines("\n".join(lines))
+    return [Added(path, number, lines[number - 1]) for number in sorted(unguarded) if number <= len(lines)]
+
+
+def objc_private_lookup(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Unguarded lookups at head that base did not have (paired by text, in a file, then across files: a move)."""
+    return resolve([(objc_lookup_debt(c.path, [] if c.is_deleted else c.head_lines), objc_lookup_debt(c.path, c.base_lines))
+                    for c in changes if c.path.endswith(".swift") and "/Sources/" in c.path])
+
+
+OBJC_LOOKUP_RULES = (
+    Rule("objc-private-lookup", "A private API lookup without a guard: a forced NSClassFromString / dlsym / "
+         "objc_getClass, a selector sent without responds(to:), KVC by a literal key whose accessor is not checked, "
+         "or a swizzle of a method that was not looked up (scripts/cmux-next/check-objc-selectors.py --lookups)",
+         "a macOS that renamed or dropped the private name answers nil (a trap when forced) or raises an Objective-C "
+         "exception (unrecognized selector, undefined key) that no Swift code can catch",
+         "keep the lookup optional and return on nil; check `responds(to:)` / `instancesRespond(to:)` for the selector "
+         "or the KVC accessor first; swizzle only a Method class_getInstanceMethod returned; then record the name per "
+         "macOS major (check-objc-selectors.py --write-probe, os-matrix.sh --suite exec:objc-lookups, --record)",
+         "// selector-allow: <why the name exists on every supported macOS, or why a miss is safe>",
+         objc_private_lookup, scope=("Packages/",), local_only=True),
+)
+RULES += OBJC_LOOKUP_RULES
+# ---------------------------------------------------------------- end of objc-private-lookup (p10-stability-193)
+
+
 # ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
 # Nothing polls (plans/cmux-next/chrome-parity/p14-energy.md, section C) in the code outside CmuxNext Sources: the
 # Shared packages and CmuxUpdater the app links, the cmux-tui crates' src, webviews/src and the CEF shim's C++/ObjC.
@@ -6102,6 +6157,70 @@ DECODE_TRAP_CASES = (
 )
 
 
+SELF_TEST_LOOKUP = "Packages/macOS/CmuxNext/Sources/CmuxNextKit/Private.swift"
+SELF_TEST_LOOKUP_OLD_FILE = "Packages/Shared/CmuxOld/Sources/CmuxOld/Old.swift"
+SELF_TEST_LOOKUP_OLD = ("func old(_ view: NSView) {\n"
+                        "    let sel = NSSelectorFromString(\"_old:\")\n"
+                        "    view.perform(sel, with: nil)\n}\n")
+SELF_TEST_LOOKUP_BASE = {SELF_TEST_LOOKUP: ("func pid(_ view: WKWebView) -> Int32? {\n"
+                                            "    let selector = NSSelectorFromString(\"_webProcessIdentifier\")\n"
+                                            "    guard view.responds(to: selector) else { return nil }\n"
+                                            "    return (view.value(forKey: \"_webProcessIdentifier\") as? NSNumber)?.int32Value\n}\n"),
+                         # Old unguarded debt: a push that leaves it as it is adds none.
+                         SELF_TEST_LOOKUP_OLD_FILE: SELF_TEST_LOOKUP_OLD}
+
+
+def _lookup_edit(body: str) -> dict[str, str]:
+    """The base lookup file with BODY added at its end."""
+    return {SELF_TEST_LOOKUP: SELF_TEST_LOOKUP_BASE[SELF_TEST_LOOKUP] + body}
+
+
+OBJC_LOOKUP_CASES = (
+    ("a selector sent without responds(to:)",
+     _lookup_edit("func kill(_ view: WKWebView) {\n    view.perform(NSSelectorFromString(\"_killWebContentProcess\"))\n}\n"),
+     True),
+    ("a forced class lookup", _lookup_edit("let layer = NSClassFromString(\"CABackdropLayer\")!\n"), True),
+    ("an `as!` cast of a class lookup",
+     _lookup_edit("func make() -> CALayer {\n    (NSClassFromString(\"CABackdropLayer\") as! CALayer.Type).init()\n}\n"),
+     True),
+    ("a dlsym bit-cast before a nil check",
+     _lookup_edit("typealias F = @convention(c) () -> Int32\n"
+                  "let f = unsafeBitCast(dlsym(UnsafeMutableRawPointer(bitPattern: -2), \"CGSMainConnectionID\"), to: F.self)\n"),
+     True),
+    ("KVC by a private key without a check",
+     _lookup_edit("func draws(_ view: WKWebView) {\n    view.setValue(false, forKey: \"drawsBackground\")\n}\n"), True),
+    ("deleting the guard of an old lookup",
+     {SELF_TEST_LOOKUP: SELF_TEST_LOOKUP_BASE[SELF_TEST_LOOKUP].replace(
+         "    guard view.responds(to: selector) else { return nil }\n", "")}, True),
+    ("a swizzle with no method lookup",
+     _lookup_edit("func hook(_ cls: AnyClass, _ imp: IMP) {\n"
+                  "    class_replaceMethod(cls, #selector(NSView.layout), imp, \"v@:\")\n}\n"), True),
+    ("a guarded selector and its KVC key",
+     _lookup_edit("func draws(_ view: WKWebView) {\n"
+                  "    guard view.responds(to: NSSelectorFromString(\"_setDrawsBackground:\")) else { return }\n"
+                  "    view.setValue(false, forKey: \"drawsBackground\")\n}\n"), False),
+    ("an optional class lookup", _lookup_edit("func page() -> AnyClass? {\n"
+                                              "    guard let cls = NSClassFromString(\"CefNSWindow\") else { return nil }\n"
+                                              "    return cls\n}\n"), False),
+    ("a swizzle of a method that was looked up",
+     _lookup_edit("func hook(_ cls: AnyClass, _ imp: IMP) {\n"
+                  "    guard let m = class_getInstanceMethod(cls, #selector(NSView.layout)) else { return }\n"
+                  "    class_replaceMethod(cls, #selector(NSView.layout), imp, method_getTypeEncoding(m))\n}\n"),
+     False),
+    ("a selector that is only a menu action",
+     _lookup_edit("let undo = NSMenuItem(title: \"Undo\", action: Selector((\"undo:\")), keyEquivalent: \"z\")\n"), False),
+    ("an escaped lookup",
+     _lookup_edit("// selector-allow: NSObject implements it on every macOS\n"
+                  "let weakSel = NSSelectorFromString(\"allowsWeakReference\")\n"), False),
+    ("a lookup named only in a comment or a string",
+     _lookup_edit("// NSClassFromString(\"X\")!\nlet note = \"view.perform(NSSelectorFromString(_x))\"\n"), False),
+    ("an edit next to old unguarded debt", {SELF_TEST_LOOKUP_OLD_FILE: "// Old.\n" + SELF_TEST_LOOKUP_OLD}, False),
+    ("a test file that sends a private selector",
+     {"Packages/macOS/CmuxNext/Tests/CmuxNextKitTests/PrivateTests.swift":
+      "func kill(_ view: WKWebView) {\n    view.perform(NSSelectorFromString(\"_killWebContentProcess\"))\n}\n"}, False),
+)
+
+
 # (rule, base files, cases): each case is one commit over its suite's base.
 SELF_TEST_SUITES = (
     ("input-monitor", SELF_TEST_BASE, SELF_TEST_CASES),
@@ -6113,6 +6232,7 @@ SELF_TEST_SUITES = (
     ("rust-unsupervised-spawn", SELF_TEST_SPAWN_BASE, RUST_UNSUPERVISED_SPAWN_CASES),
     ("rust-ffi-guard", SELF_TEST_FFI_BASE, RUST_FFI_GUARD_CASES),
     ("decode-trap", SELF_TEST_DECODE_BASE, DECODE_TRAP_CASES),
+    ("objc-private-lookup", SELF_TEST_LOOKUP_BASE, OBJC_LOOKUP_CASES),
 )
 
 

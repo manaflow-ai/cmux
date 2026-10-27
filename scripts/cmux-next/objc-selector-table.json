@@ -1166,5 +1166,25 @@
    "27.0": true,
    "27.0.1": true
   }
- }
+ },
+ "lookup_baseline": [
+  "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBackdrop.swift: f.setValue(radius, forKey: \"inputRadius\")",
+  "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBackdrop.swift: f.setValue(true, forKey: \"inputNormalizeEdges\")",
+  "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/Springs.swift: for s in saved.reversed() { if s.keyPath == \"transform\" { s.layer.setValue(s.value, forKey: \"transform\") } else { s.layer.setValue(s.value, forKeyPath: s.keyPath) } }",
+  "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/Springs.swift: saved.append(Saved(layer: layer, keyPath: \"transform\", value: layer.value(forKey: \"transform\")))",
+  "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift: f.setValue(\"gaussianBlur\", forKey: \"name\")",
+  "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift: f.setValue(0, forKey: \"inputRadius\")",
+  "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift: f.setValue(true, forKey: \"inputNormalizeEdges\")",
+  "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/MacConversationCommands.swift: item(l(\"conversation.menu.redo\", \"Redo\"), Selector((\"redo:\")), \"z\", [.command, .shift]),",
+  "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/MacConversationCommands.swift: item(l(\"conversation.menu.undo\", \"Undo\"), Selector((\"undo:\")), \"z\"),",
+  "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationAccessoryViews.swift: filter?.setValue(CIVector(x: m[0], y: m[1], z: m[2], w: m[3]), forKey: \"inputRVector\")",
+  "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationAccessoryViews.swift: filter?.setValue(CIVector(x: m[10], y: m[11], z: m[12], w: m[13]), forKey: \"inputBVector\")",
+  "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationAccessoryViews.swift: filter?.setValue(CIVector(x: m[15], y: m[16], z: m[17], w: m[18]), forKey: \"inputAVector\")",
+  "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationAccessoryViews.swift: filter?.setValue(CIVector(x: m[4], y: m[9], z: m[14], w: m[19]), forKey: \"inputBiasVector\")",
+  "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationAccessoryViews.swift: filter?.setValue(CIVector(x: m[5], y: m[6], z: m[7], w: m[8]), forKey: \"inputGVector\")",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/MainMenu.swift: item(Strings.menuRedo, Selector((\"redo:\")), \"z\", [.command, .shift]),",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/MainMenu.swift: item(Strings.menuUndo, Selector((\"undo:\")), \"z\", [.command]),",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/WebKitEngine.swift: configuration.preferences.setValue(true, forKey: \"developerExtrasEnabled\")",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WebKitFeatures.swift: return features.first { $0.value(forKey: \"key\") as? String == key }"
+ ]
 }
