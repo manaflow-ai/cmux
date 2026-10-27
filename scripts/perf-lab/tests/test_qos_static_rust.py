@@ -244,6 +244,84 @@ class QosStaticRustTest(unittest.TestCase):
             with self.subTest(predicate=predicate):
                 self.assertEqual(story.needs_test(predicate), expected)
 
+    def test_request_qos_entry_points_declare_the_class(self) -> None:
+        self.commit({CRATE + "lib.rs": """pub fn by_value(request_qos: RequestQos, cause: EventCause) {
+    let _ = std::thread::Builder::new().name("by-value".into()).spawn(move || {
+        let _cause = request_qos.enter(cause);
+    });
+}
+
+pub fn through_mux(mux: Mux, cause: EventCause) {
+    std::thread::spawn(move || {
+        let _cause = mux.request_qos().enter(cause);
+    });
+}
+
+pub fn upkeep(mux: Mux) {
+    std::thread::spawn(move || {
+        let _pass = mux.request_qos().enter_upkeep_pass();
+    });
+}
+
+pub fn writer(mux: Mux) {
+    std::thread::spawn(move || {
+        let _qos = mux.request_qos().enter_class(cmux_threads::ThreadQos::Utility);
+    });
+}
+
+pub fn other_enter(scope: Scope) {
+    std::thread::spawn(move || {
+        let _entered = scope.enter(cause);
+    });
+}
+"""})
+        # Only the last one: `scope.enter` is not RequestQos.
+        self.assertEqual([(site.path, site.line) for site in story.count(self.repo).sites], [(CRATE + "lib.rs", 26)])
+
+    def test_a_block_argument_is_judged_by_the_closure_or_function_at_its_tail(self) -> None:
+        self.commit({CRATE + "lib.rs": """pub fn block_qos_call(request_qos: RequestQos, writer: Writer) {
+    let _ = std::thread::Builder::new().name("block-call".into()).spawn({
+        let writer = writer.clone();
+        let id = (writer.id(), { 1; 2 });
+        move || {
+            let _cause = request_qos.enter(cause);
+            reply(&writer, id);
+        }
+    });
+}
+
+pub fn block_qos_comment(writer: Writer) {
+    std::thread::spawn({
+        let writer = writer.clone();
+        move || {
+            // qos: waits on a child; the caller's class is right
+            wait(&writer);
+        }
+    });
+}
+
+pub fn block_function(writer: Writer) {
+    std::thread::spawn({
+        let _w = writer.clone();
+        listen
+    });
+}
+
+pub fn block_undeclared(writer: Writer) {
+    std::thread::spawn({
+        let writer = writer.clone();
+        move || {
+            wait(&writer);
+        }
+    });
+}
+
+fn listen() {
+    cmux_threads::set_current(cmux_threads::ThreadQos::Utility);
+}
+"""})
+        self.assertEqual([(site.path, site.line) for site in story.count(self.repo).sites], [(CRATE + "lib.rs", 30)])
+
     def test_refuses_an_unknown_revision(self) -> None:
         self.commit(FIXTURE)
         with self.assertRaises(story.StoryError):

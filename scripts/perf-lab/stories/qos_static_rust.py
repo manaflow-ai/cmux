@@ -10,9 +10,12 @@ the number of undeclared sites, and target row qos.rust wants 0. Chromium's mode
 ThreadType (base/threading/platform_thread.h, `PlatformThread::CreateWithType`), never at an inherited default.
 
 A QoS call is `cmux_threads::set_current`, `with_qos`, `register_current`, `QosScope::enter`,
-`cmux_tui_platform::qos::WorkQos::enter`, cmux-tui-core's `thread_qos::set`, libc's `pthread_set_qos_class_self_np`,
-or a call to a function of the same file whose first lines make one (cmux-holder's `run_at_echo_qos()`). A thread
-whose body is such a function by name (`.spawn(listen)`) is judged by that function's first lines.
+`cmux_tui_platform::qos::WorkQos::enter`, cmux-tui-core's `thread_qos::set` and its `RequestQos` entry points
+(`request_qos.enter(cause)`, `mux.request_qos().enter(cause)`, `enter_class`, `enter_upkeep_pass`; each enters a
+`WorkQos`), libc's `pthread_set_qos_class_self_np`, or a call to a function of the same file whose first lines make
+one (cmux-holder's `run_at_echo_qos()`). A thread whose body is such a function by name (`.spawn(listen)`) is judged
+by that function's first lines; a block argument (`.spawn({ let w = w.clone(); move || { .. } })`) by the closure or
+function name at its tail.
 
 Production means compiled into a non-test build. Test code is excluded the way rustc excludes it: an item under
 `#[cfg(test)]` (or a cfg that needs `test`, such as `all(test, unix)`), a `#[test]` function, a file whose
@@ -345,9 +348,14 @@ def item_start(masked: str, offset: int) -> int:
 # ---------------------------------------------------------------------------------------------------------------
 # Sites.
 
-QOS_SETTERS = ("set_current", "with_qos", "register_current", "pthread_set_qos_class_self_np")
+# `enter_class` and `enter_upkeep_pass` are cmux-tui-core's RequestQos entry points (request_qos.rs).
+QOS_SETTERS = ("set_current", "with_qos", "register_current", "pthread_set_qos_class_self_np", "enter_class",
+               "enter_upkeep_pass")
 QOS_ENTERS = ("QosScope", "WorkQos")
-QOS_PATHS = (r"thread_qos\s*::\s*set",)  # cmux-tui-core's ThreadType setter (thread_qos.rs)
+QOS_PATHS = (
+    r"thread_qos\s*::\s*set",  # cmux-tui-core's ThreadType setter (thread_qos.rs)
+    r"request_qos\s*(?:\(\s*\)\s*)?\.\s*enter",  # RequestQos::enter, by value or through `mux.request_qos()`
+)
 
 
 def qos_call_pattern(helpers: Iterable[str]) -> re.Pattern:
@@ -381,6 +389,21 @@ OPEN_PAREN = re.compile(r"\s*\(")
 USE_ITEM = re.compile(r"\buse\s[^;]*;")
 FUNCTION_ARG = re.compile(r"\s*(?:[A-Za-z_][A-Za-z0-9_]*\s*::\s*)*([A-Za-z_][A-Za-z0-9_]*)\s*,?\s*")
 CLOSURE = re.compile(r"\s*(?:[A-Za-z_][A-Za-z0-9_]*\s*,\s*)?(?:move\s+)?\|")
+BLOCK = re.compile(r"\s*\{")
+
+
+def block_tail(masked: str, brace: int, close: int) -> int:
+    """Where the tail expression of the block whose `{` is at BRACE (and `}` at CLOSE) starts: past its last
+    statement's `;` at the block's own depth."""
+    tail = k = brace + 1
+    while True:
+        edge = ITEM_EDGE.search(masked, k, close)
+        if edge is None:
+            return tail
+        if edge.group(0) == ";":
+            tail = k = edge.end()
+        else:
+            k = matching(masked, edge.start())
 
 
 def site_pattern(masked: str) -> re.Pattern:
@@ -487,12 +510,19 @@ class FileScan:
             if QOS_COMMENT.search(self.lines[above]):
                 return True
             above -= 1
-        if args is None:
-            return False
-        start, end = args
+        return args is not None and self.body_declared(*args)
+
+    def body_declared(self, start: int, end: int) -> bool:
+        """The thread body passed at START..END: a closure, a function of this file by name, or a block whose tail
+        is one of those."""
         closure = CLOSURE.match(self.masked, start, end)
         if closure:
             return self.starts_declared(closure.end() - 1, end)
+        block = BLOCK.match(self.masked, start, end)
+        if block:
+            brace = block.end() - 1
+            close = matching(self.masked, brace) - 1
+            return self.body_declared(block_tail(self.masked, brace, close), close)
         function = FUNCTION_ARG.fullmatch(self.masked, start, end)
         return bool(function) and any(self.starts_declared(body, body_end)
                                       for body, body_end in self.bodies.get(function.group(1), ()))
