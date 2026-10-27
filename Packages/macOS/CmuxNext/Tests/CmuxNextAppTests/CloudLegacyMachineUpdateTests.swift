@@ -196,7 +196,7 @@ nonisolated final class ExecRecorder: @unchecked Sendable {
 
 /// A machine for the exec commands: /bin/sh with stand-ins on PATH for sudo (runs the command),
 /// systemd-run (starts it in the background and keeps its pid for systemctl; with `systemd`
-/// false it fails to start, as without systemd), setsid, timeout and `tail --pid`.
+/// false it fails to start, as without systemd), setsid, nohup, timeout and `tail --pid`.
 nonisolated final class ShellMachine: @unchecked Sendable {
     let root: URL
     var directory: URL { root.appendingPathComponent("upgrade") }
@@ -215,6 +215,8 @@ nonisolated final class ShellMachine: @unchecked Sendable {
                 : "exit 1",
             "systemctl": #"cat "\#(state)/mainpid""#,
             "setsid": #"exec "$@""#,
+            // macOS's nohup refuses to run outside a login session (a CI runner's): the machine's does not.
+            "nohup": #"exec "$@""#,
             "timeout": #"shift; exec "$@""#,
             "tail": #"case "$1" in --pid=*) p=${1#--pid=}; while kill -0 "$p" 2>/dev/null; do sleep 0.1; done ;; *) exec /usr/bin/tail "$@" ;; esac"#,
         ]
