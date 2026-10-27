@@ -220,6 +220,32 @@ class GraphGenerator(unittest.TestCase):
                 self.assertEqual(generator.literal_reads(Path(directory)), ["plans/cmux-next/actions.md"])
 
 
+class MacReleaseInputs(unittest.TestCase):
+    """mac_release: what the Mac Release compile (the package through xcodebuild) sees and the Linux SwiftPM check does not."""
+
+    def test_package_sources_stay_on_linux(self):
+        for changed in ([f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"],
+                        [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Localizable.xcstrings"],
+                        # The Xcode app target is not in this compile (the scheme compile builds it).
+                        ["App/main.swift"], ["cmux.xcodeproj/project.pbxproj"]):
+            with self.subTest(changed=changed):
+                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "false")
+
+    def test_inputs_only_xcodebuild_sees_need_the_mac(self):
+        for changed in ([f"{PACKAGE}/Package.swift"], [f"{PACKAGE}/Package.resolved"],
+                        ["Packages/Shared/CmuxTheme/Package.swift"], [f"{PACKAGE}/Sources/CmuxNextApp/Info.plist"],
+                        [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Media.xcassets/Contents.json"],
+                        ["scripts/ci/xcode-pins.txt"], ["scripts/cmux-next/check-release-compile.sh"],
+                        ["scripts/cmux-next/lib/fleet-only.sh"], ["scripts/cmux-next/stale-pcm-retry-needed.sh"]):
+            with self.subTest(changed=changed):
+                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "true")
+
+    def test_every_tier_includes_it(self):
+        self.assertEqual(outputs(route(ROOT, "push", [], set()))["mac_release"], "true")
+        source = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"
+        self.assertEqual(outputs(route(ROOT, "pull_request", [source], {"full-ci"}))["mac_release"], "true")
+
+
 class PullRequestTiers(unittest.TestCase):
     def test_changed_swift_suite_is_prioritized(self):
         result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift"])
