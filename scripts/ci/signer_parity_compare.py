@@ -100,7 +100,7 @@ def slices(data: bytes):
     return None
 
 
-def signature_range(macho: bytes):
+def signature_range(macho: bytes, residue_source: bytes | None = None):
     """(dataoff, datasize) of LC_CODE_SIGNATURE, or None when there is none.
     Raises ValueError when it points outside the slice or its blob is not a
     complete embedded-signature superblob."""
@@ -135,16 +135,42 @@ def signature_range(macho: bytes):
             tail = macho[dataoff + at:dataoff + length] if length >= at else b"x"
             if len(tail) > 7 or tail.strip(b"\0") or 0 not in types:
                 raise ValueError("the signature has bytes outside its blobs, or no CodeDirectory")
-            if macho[dataoff + length:dataoff + datasize].strip(b"\0"):
-                raise ValueError("the bytes after the signature superblob are not zero padding")
+            rest = macho[dataoff + length:dataoff + datasize]
+            if rest.strip(b"\0"):
+                # codesign writes its signature over the input's own (the
+                # linker's ad hoc one) and leaves the old bytes past its new
+                # superblob. Each byte there must be zero padding or the
+                # input's byte at the same offset; nothing past the superblob
+                # is hashed or signed, so a zero is padding either way.
+                old = residue_source[dataoff + length:dataoff + datasize] if residue_source else b""
+                if any(r != 0 and (k >= len(old) or r != old[k]) for k, r in enumerate(rest)):
+                    raise ValueError("the bytes after the signature superblob are not zero padding"
+                                     + (" or the input's own bytes" if residue_source else ""))
+                RESIDUE.append(len(rest.rstrip(b"\0")))
             return dataoff, datasize
+        off += size
+    return None
+
+
+RESIDUE: list = []  # sizes of input-signature residue accepted for the current file
+
+
+def code_signature_command(macho: bytes):
+    """(dataoff, datasize) of LC_CODE_SIGNATURE as written, unchecked; describe()
+    checks it with signature_range() before payload() or blobs() reads it."""
+    ncmds = struct.unpack("<I", macho[16:20])[0]
+    off = 32
+    for _ in range(ncmds):
+        cmd, size = struct.unpack("<II", macho[off:off + 8])
+        if cmd == LC_CODE_SIGNATURE:
+            return struct.unpack("<II", macho[off + 8:off + 16])
         off += size
     return None
 
 
 def payload(macho: bytes) -> bytes:
     """The slice bytes before its signature, with the 3 signature-size fields zeroed."""
-    sig = signature_range(macho)
+    sig = code_signature_command(macho)
     out = bytearray(macho[:sig[0]] if sig else macho)
     # Bytes after the signature blob (none in a well-formed file) stay payload.
     trailer = macho[sig[0] + sig[1]:] if sig else b""
@@ -162,7 +188,7 @@ def payload(macho: bytes) -> bytes:
 
 
 def blobs(macho: bytes) -> dict:
-    sig = signature_range(macho)
+    sig = code_signature_command(macho)
     if not sig:
         return {}
     blob = macho[sig[0]:sig[0] + sig[1]]
@@ -200,8 +226,41 @@ def code_directory(cd: bytes) -> dict:
     return fields
 
 
+def outside_cms(a: bytes, b: bytes) -> list:
+    """Whether two signed slices differ anywhere but in their CMS blob: the
+    reservation fields, and every byte outside the CMS and the superblob's
+    length field, compared directly."""
+    sa, sb = code_signature_command(a), code_signature_command(b)
+    if sa[0] != sb[0] or sa[1] != sb[1]:
+        return ["signature reservation (LC_CODE_SIGNATURE offset or size) differs"]
+    if len(a) != len(b):
+        return ["slice length differs"]
+
+    def cms_start(m):
+        blob = m[sa[0]:sa[0] + sa[1]]
+        count = struct.unpack(">I", blob[8:12])[0]
+        for i in range(count):
+            typ, off = struct.unpack(">II", blob[12 + 8 * i:20 + 8 * i])
+            if typ == 0x10000:
+                return sa[0] + off
+        return None
+
+    ca, cb = cms_start(a), cms_start(b)
+    if ca is None or ca != cb:
+        return ["the CMS blob starts at a different offset"]
+    end = sa[0] + max(struct.unpack(">I", a[sa[0] + 4:sa[0] + 8])[0], struct.unpack(">I", b[sa[0] + 4:sa[0] + 8])[0])
+
+    def masked(m):
+        x = bytearray(m)
+        x[sa[0] + 4:sa[0] + 8] = bytes(4)
+        x[ca:end] = bytes(end - ca)
+        return bytes(x)
+
+    return [] if masked(a) == masked(b) else ["bytes outside the CMS blob differ"]
+
+
 def signature_diff(a: bytes, b: bytes) -> list:
-    out = []
+    out = outside_cms(a, b)
     ba, bb = blobs(a), blobs(b)
     for typ in sorted(set(ba) | set(bb)):
         name = BLOB.get(typ, hex(typ))
@@ -264,7 +323,22 @@ def walk(root: str) -> dict:
     return out
 
 
-def describe(root: str, rel: str, path: str) -> dict:
+def input_slices(input_root: str | None, rel: str) -> dict:
+    """The unsigned input's slices of the same path, by architecture."""
+    if not input_root:
+        return {}
+    path = os.path.join(input_root, rel)
+    if os.path.islink(path) or not os.path.isfile(path):
+        return {}
+    with open(path, "rb") as handle:
+        data = handle.read()
+    try:
+        return dict(slices(data) or [])
+    except struct.error:
+        return {}
+
+
+def describe(root: str, rel: str, path: str, input_root: str | None = None) -> dict:
     st = os.lstat(path)
     if stat.S_ISLNK(st.st_mode):
         return {"kind": "symlink", "target": os.readlink(path)}
@@ -283,8 +357,10 @@ def describe(root: str, rel: str, path: str) -> dict:
         digest.update(b"thin\0" if fat is None else b"fat\0" + fat[0])
         if fat is not None and not fat[1]:
             record["padding_error"] = "bytes outside the fat slices are not zero padding"
+        source = input_slices(input_root, rel)
+        RESIDUE.clear()
         try:
-            signed = all(signature_range(body) for _, body in parts)
+            signed = all(signature_range(body, source.get(arch)) for arch, body in parts)
             for arch, body in parts:
                 digest.update(arch.encode() + b"\0" + payload(body))
         except (ValueError, struct.error) as error:
@@ -293,6 +369,8 @@ def describe(root: str, rel: str, path: str) -> dict:
             digest.update(b"invalid\0" + data)
         record.update(kind="macho", archs=[a for a, _ in parts], payload_sha256=digest.hexdigest(),
                       signed=signed)
+        if RESIDUE:
+            record["input_signature_residue_bytes"] = sum(RESIDUE)
         record["_slices"] = parts
     elif is_ssh_manifest(rel):
         body, errors = manifest_payload(root, rel, data)
@@ -338,17 +416,19 @@ def main() -> int:
     parser.add_argument("out")
     parser.add_argument("--labels", default="A,B")
     parser.add_argument("--report")
+    parser.add_argument("--input", help="the unsigned app both were signed from: bytes past a new signature "
+                        "superblob are accepted only when they are this input's bytes at the same offset")
     args = parser.parse_args()
     la, lb = args.labels.split(",", 1)
     ta, tb = walk(args.a), walk(args.b)
     failures, records, signatures, resources = [], [], {}, {}
-    counts = {"paths": 0, "macho": 0, "equal": 0}
+    counts = {"paths": 0, "macho": 0, "equal": 0, "slices": 0, "identical_slices": 0, "only_cms_differs": 0}
     for rel in sorted(set(ta) | set(tb)):
         counts["paths"] += 1
         if rel not in ta or rel not in tb:
             failures.append(f"{rel}: only in {la if rel in ta else lb}")
             continue
-        ra, rb = describe(args.a, rel, ta[rel]), describe(args.b, rel, tb[rel])
+        ra, rb = describe(args.a, rel, ta[rel], args.input), describe(args.b, rel, tb[rel], args.input)
         pa, pb = ra.pop("_slices", None), rb.pop("_slices", None)
         keys = ("kind", "target", "mode", "archs", "payload_sha256")
         diff = [k for k in keys if ra.get(k) != rb.get(k)]
@@ -368,6 +448,10 @@ def main() -> int:
         if pa is not None and pb is not None and not diff and ra.get("signed") and rb.get("signed"):
             counts["macho"] += 1
             sig = {arch: signature_diff(x, y) for (arch, x), (_, y) in zip(pa, pb)}
+            counts["slices"] += len(sig)
+            counts["identical_slices"] += sum(1 for d in sig.values() if not d)
+            counts["only_cms_differs"] += sum(1 for d in sig.values()
+                                              if d and all(isinstance(x, str) and x.startswith("CMS signature:") for x in d))
             sig = {arch: d for arch, d in sig.items() if d}
             if sig:
                 signatures[rel] = sig
@@ -392,6 +476,14 @@ def main() -> int:
              f"{counts['equal']} identical, {len(failures)} differing; {counts['macho']} Mach-O files "
              f"with identical payload."]
     lines += [f"  PAYLOAD DIFFERS: {f}" for f in failures]
+    lines.append(f"Mach-O slices whose bytes differ only inside the CMS blob (signing time, signature): "
+                 f"{counts['only_cms_differs']} of {counts['slices']}; identical: {counts['identical_slices']}")
+    for record in records:
+        for side in (la, lb):
+            if record[side].get("input_signature_residue_bytes"):
+                lines.append(f"  input-signature residue ({side}): {record['path']}: "
+                             f"{record[side]['input_signature_residue_bytes']} bytes past the new superblob, "
+                             "equal to the unsigned input's bytes at the same offset")
     summary = {}
     for rel, archs in signatures.items():
         for arch, diffs in archs.items():
