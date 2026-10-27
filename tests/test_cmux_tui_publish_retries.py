@@ -49,7 +49,8 @@ class PublishRetries(unittest.TestCase):
             first, last = tries[0], tries[-1]
             self.assertIsNone(first.get("if"), f"{job_name}: the first try always runs")
             for earlier, later, index in zip(tries, tries[1:], range(1, len(tries))):
-                self.assertEqual(earlier.get("with"), later.get("with"), f"{job_name}: every try attests the same subjects")
+                for key in ("subject-path", "push-to-registry"):
+                    self.assertEqual(earlier["with"].get(key), later["with"].get(key), f"{job_name}: every try attests the same subjects")
                 self.assertTrue(earlier.get("continue-on-error"), f"{job_name}: a try before the last must not fail the job")
                 step_id = earlier.get("id")
                 self.assertTrue(step_id, f"{job_name}: an attestation try before the last needs an id")
@@ -64,6 +65,16 @@ class PublishRetries(unittest.TestCase):
                 # Without a token the backoff cannot read the reset and the next try hits the same limit.
                 self.assertEqual(env.get("GH_TOKEN"), "${{ github.token }}", f"{job_name}: the backoff reads the budget with the job's token")
                 self.assertLessEqual(int(env.get("GH_BUDGET_WAIT_MAX_SECONDS", "3600")), 900, f"{job_name}: the backoffs wait 15 minutes at most in all")
+            # Tries alternate actors: the release App (when minted) first, then github.token.
+            app_first = "${{ steps.attest-app-token.outputs.token || github.token }}"
+            self.assertEqual([t["with"].get("github-token") for t in tries],
+                             [app_first, "${{ github.token }}", app_first, "${{ github.token }}"],
+                             f"{job_name}: tries 1 and 3 go out as the release App, 2 and 4 as github.token")
+            mint = next((s for s in steps if s.get("id") == "attest-app-token"), None)
+            self.assertIsNotNone(mint, f"{job_name}: the release App token is minted before the attestation")
+            self.assertTrue(mint.get("continue-on-error"), f"{job_name}: a failed mint falls back to github.token")
+            self.assertEqual(mint["with"].get("permission-attestations"), "write")
+            self.assertLess(steps.index(mint), attests[0])
             self.assertFalse(last.get("continue-on-error"), f"{job_name}: the last try must pass; nothing ships without provenance")
             self.assertGreaterEqual(
                 int(self.jobs[job_name]["timeout-minutes"]), 15 + 15 + 5,
