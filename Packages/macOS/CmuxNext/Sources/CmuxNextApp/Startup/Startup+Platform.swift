@@ -73,8 +73,7 @@ extension AppDelegate {
         FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups), rendererSharing: services.features.isEnabled(.cmuxPageRendererSharing))
         // The shared chunks into memory on the files lane, so WebKit page views get them in one turn (p13-webui-093).
         WebBundleOverlay.shared.readBundledShared(on: services.work)
-        let spareAfterFirstTab = services.features.isEnabled(.chromiumSpareAfterFirstTab)
-        services.cache.cef.spareAfterFirstTab = { spareAfterFirstTab }
+        services.configureChromiumSpares()
         services.cache.cef.setAdBlockerAtFirstTab(services.features.isEnabled(.chromiumAdBlockerAtFirstTab))
         // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
         // the statics forward to it for page views not yet made through `webUI.open`

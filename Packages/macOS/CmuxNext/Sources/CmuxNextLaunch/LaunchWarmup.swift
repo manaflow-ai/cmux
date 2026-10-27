@@ -18,17 +18,33 @@ import Foundation
 /// `ActionCatalogLaunch.mainAccess` records how that read went
 /// (`debug.startup`'s `action_catalog_main_wait_ms`), and the
 /// `action_catalog_built` launch mark is when this thread finished it (no
-/// mark when main claimed the build first).
+/// mark when main claimed the build first). The icon pack and catalog decode
+/// on their own thread (the App passes `IconPack.decodeBundledInBackground`,
+/// p08-startup-039) and mark `icons_decoded`.
+/// The icon decode and launch-mark sink are injected (the App's, or
+/// `LaunchIconWarmupTests`'s recorders).
 public struct LaunchWarmup: Sendable {
     private let work: @Sendable () -> Void
+    private let decodeIcons: @Sendable (_ decoded: @escaping @Sendable () -> Void) -> Void
+    private let markLaunch: @Sendable (String) -> Void
 
-    /// - Parameter work: The App's pure warm-ups, run first on the warm-up thread.
-    public init(work: @escaping @Sendable () -> Void) {
+    /// - Parameters:
+    ///   - work: The App's pure warm-ups, run first on the warm-up thread.
+    ///   - decodeIcons: Starts the icon pack and catalog decode off main; calls its argument, on any thread, when done.
+    ///   - markLaunch: The launch-mark sink (`DebugTimings.markLaunch` in the App).
+    public init(
+        work: @escaping @Sendable () -> Void,
+        decodeIcons: @escaping @Sendable (_ decoded: @escaping @Sendable () -> Void) -> Void,
+        markLaunch: @escaping @Sendable (String) -> Void
+    ) {
         self.work = work
+        self.decodeIcons = decodeIcons
+        self.markLaunch = markLaunch
     }
 
     public func start() {
         let work = work
+        let markLaunch = markLaunch
         // qos-allow: a frame waits for it (userInteractive): main reads the catalog, the menu's symbol and the
         // display UUIDs before its first frame; below main's QoS a loaded machine ran them after main reached them.
         let thread = Thread {
@@ -46,6 +62,8 @@ public struct LaunchWarmup: Sendable {
         thread.start()
         // Its own thread: the connecting screen's strings can be read before the work above ends.
         Bundle.warmResourceBundlesInBackground()
+        // The restored window's tab strip and sidebar read the icon pack and catalog before the first frame.
+        decodeIcons { markLaunch("icons_decoded") }
     }
 }
 

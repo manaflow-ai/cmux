@@ -9,6 +9,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHomeEngine
+import CmuxNextIcons
 import CmuxNextInput
 import CmuxNextIPC
 import CmuxNextLaunch
@@ -65,9 +66,13 @@ public struct CmuxNextApp {
         // ghostty_init while the process still has one thread: its locale setup may setenv LANG and setlocale
         // (Ghostty's internal_os.ensureLocale, src/os/locale.zig), which must not race another thread's environ read.
         GhosttyRuntime.initializeLibrary()
-        // Pure launch work (action catalog, symbols, displays) overlaps AppKit's start; the registry takes the catalog.
+        // Pure launch work (action catalog, symbols, displays, icons) overlaps AppKit's start; the registry takes the catalog.
         let actionCatalog = ActionCatalogLaunch()
-        LaunchWarmup(work: { if actionCatalog.build() { DebugTimings.markLaunch("action_catalog_built") } }).start()
+        LaunchWarmup(
+            work: { if actionCatalog.build() { DebugTimings.markLaunch("action_catalog_built") } },
+            decodeIcons: { IconPack.decodeBundledInBackground(then: $0) },
+            markLaunch: { DebugTimings.markLaunch($0) }
+        ).start()
         DebugTimings.markLaunch("main.warmup_started")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
         let hangWatch = TraceRuntime.shared.hangWatch
