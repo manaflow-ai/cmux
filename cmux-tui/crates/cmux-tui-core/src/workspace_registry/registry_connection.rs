@@ -283,6 +283,22 @@ impl RegistryConnection {
         }
     }
 
+    /// Frees the connection's unused SQLite page cache
+    /// (`sqlite3_db_release_memory`, Chrome's `sql::Database::TrimMemory`)
+    /// for the memory trim (`mux/sqlite_trim.rs`), which calls it from its
+    /// own work item holding no other lock: the connection lock makes this
+    /// thread the connection's only user while it runs.
+    #[track_caller]
+    pub(crate) fn release_memory(&self) -> rusqlite::Result<()> {
+        self.get().release_memory()
+    }
+
+    /// The bytes the connection's page cache holds now.
+    #[cfg(test)]
+    pub(crate) fn cache_used_bytes(&self) -> Option<u64> {
+        cmux_history::page_cache::cache_used_bytes(&self.get())
+    }
+
     /// (committed, synced) registry commits for `server-stats` `write_path`.
     pub(crate) fn durability_counts(&self) -> (u64, u64) {
         self.durability.as_ref().map(|durability| durability.counts()).unwrap_or_default()

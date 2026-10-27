@@ -1213,7 +1213,9 @@ final class RowCell: UICollectionViewCell {
     private(set) var badgeFill: CAGradientLayer?
     private var badgeGlyph: CALayer?
     private var badgeState = "", badgeTop: CGFloat = 0
+    // cmux: memory: fixed at most badgeGlyphLimit glyphs (40 x 44 pt), emptied when full (a palette or scale change adds keys)
     private static var badgeGlyphs: [String: CGImage] = [:]
+    static let badgeGlyphLimit = 64
     private static let badgeBox = CGSize(width: 40, height: 44)
 
     private func configureBadge(_ spec: RowSpec) {
@@ -1267,6 +1269,7 @@ final class RowCell: UICollectionViewCell {
             img = WideBitmap.make(size: size, scale: renderScale, opaque: false) { ctx in
                 PartRenderer.drawBadgeGlyph(kind, center: CGPoint(x: 20, y: 20), ctx: ctx)
             }
+            if Self.badgeGlyphs.count >= Self.badgeGlyphLimit { Self.badgeGlyphs.removeAll() } // cmux: bounded
             Self.badgeGlyphs[key] = img // an unallocated glyph is not cached (nil)
         }
         glyph.contents = img
