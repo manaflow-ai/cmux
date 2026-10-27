@@ -46,8 +46,9 @@ pub(super) struct SurfaceRoute {
     state: Mutex<SurfaceRouteState>,
     /// Taken by the one pool thread that serves this lane, put back after.
     handler: Mutex<Option<LaneHandler>>,
+    /// Wakes tests that read a lane directly ([`Self::recv`], [`Self::wait_ended`]).
     #[cfg(test)]
-    ended: Condvar,
+    changed: Condvar,
 }
 
 #[derive(Default)]
@@ -73,7 +74,7 @@ impl SurfaceRoute {
             state: Mutex::new(SurfaceRouteState::default()),
             handler: Mutex::new(None),
             #[cfg(test)]
-            ended: Condvar::new(),
+            changed: Condvar::new(),
         }
     }
 
@@ -145,6 +146,8 @@ impl SurfaceRoute {
     /// is not there yet. Called with the state locked, so a delivery and the
     /// serving thread's "nothing left" never both miss the lane.
     fn schedule_locked(self: &Arc<Self>, state: &mut SurfaceRouteState) {
+        #[cfg(test)]
+        self.changed.notify_all();
         if !state.has_handler || state.scheduled || state.ended || state.events.is_empty() {
             return;
         }
@@ -214,7 +217,7 @@ impl SurfaceRoute {
         state.events.clear();
         state.retained_bytes = 0;
         #[cfg(test)]
-        self.ended.notify_all();
+        self.changed.notify_all();
     }
 
     #[cfg(test)]
@@ -228,12 +231,28 @@ impl SurfaceRoute {
         self.pop_event(&mut state)
     }
 
+    /// Blocks for the next event of a route no handler serves (a test reads
+    /// the lane itself); `None` once it is closed and drained.
+    #[cfg(test)]
+    pub(super) fn recv(&self) -> Option<CdpEvent> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(event) = self.pop_event(&mut state) {
+                return Some(event);
+            }
+            if state.closed {
+                return None;
+            }
+            state = self.changed.wait(state).unwrap();
+        }
+    }
+
     /// Waits until the lane's handler ended (a test observes a whole lane).
     #[cfg(test)]
     pub(super) fn wait_ended(&self, timeout: std::time::Duration) -> bool {
         let state = self.state.lock().unwrap();
         let (state, _) =
-            self.ended.wait_timeout_while(state, timeout, |state| !state.ended).unwrap();
+            self.changed.wait_timeout_while(state, timeout, |state| !state.ended).unwrap();
         state.ended
     }
 }

@@ -42,12 +42,15 @@ fn a_lane_serves_its_events_in_order_on_the_shared_pool() {
         assert!(!route.deliver(navigated(epoch)));
     }
     let rx = reporting_lane(&route);
-    for epoch in 10..200 {
+    // Within the lane's bound even if nothing is served yet (an overflow
+    // closes the route).
+    let total = cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY as u64 / 2;
+    for epoch in 10..total {
         assert!(!route.deliver(navigated(epoch)));
     }
     let served =
-        (0..200).map(|_| rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap()).collect::<Vec<_>>();
-    assert_eq!(served, (0..200).map(Some).collect::<Vec<_>>());
+        (0..total).map(|_| rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap()).collect::<Vec<_>>();
+    assert_eq!(served, (0..total).map(Some).collect::<Vec<_>>());
 
     let threads = serving_threads();
     assert!(
@@ -122,8 +125,9 @@ fn closing_a_route_serves_its_close_and_ends_the_lane() {
     let route = Arc::new(SurfaceRoute::new());
     let rx = reporting_lane(&route);
     assert!(!route.deliver(navigated(1)));
-    route.close("browser surface closed".to_string());
+    // A close drops what is still queued (as before), so let 1 be served.
     assert_eq!(rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap(), Some(1));
+    route.close("browser surface closed".to_string());
     assert_eq!(rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap(), None);
     assert!(route.wait_ended(BROWSER_TEST_SAFETY_BOUND));
     assert!(route.deliver(navigated(2)));

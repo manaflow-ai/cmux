@@ -19,8 +19,9 @@ use tungstenite::{Message, accept};
 const SURFACES: usize = 20;
 /// Threads the shared browser runtime may add besides one command worker per
 /// surface: the CDP client's socket threads, the runtime's router and the
-/// event-lane pool.
-const SHARED_THREAD_ALLOWANCE: usize = 8;
+/// event-lane pool (7 measured on Linux). With an event thread per surface
+/// the same 20 surfaces add about 20 more.
+const SHARED_THREAD_ALLOWANCE: usize = 12;
 
 fn process_threads() -> usize {
     #[cfg(target_os = "linux")]
@@ -170,10 +171,10 @@ fn live_browser_surfaces_add_no_event_thread_each() {
         .map(|(index, surface)| {
             let tab_id = mux
                 .surface(surface.id)
-                .and_then(|surface| surface.resource_identity())
-                .expect("browser surface has a tab identity")
-                .tab_id
-                .to_string();
+                .and_then(|surface| {
+                    surface.resource_identity().map(|identity| identity.tab_id.to_string())
+                })
+                .expect("browser surface has a tab identity");
             json!({"tab_id": tab_id, "target_id": format!("target-{index}")})
         })
         .collect::<Vec<_>>();
