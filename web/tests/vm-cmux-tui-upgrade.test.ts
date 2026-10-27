@@ -149,7 +149,7 @@ describe("Cloud daemon upgrade from the app", () => {
       if (mode !== "absent") writeFileSync(path.join(run, "expect-build"), `${seen}\n`);
       const guards = script.split("\n").filter((line) => line.startsWith("hold_inplace_lock ||") || line.startsWith("still_expected ||"));
       expect(guards.length).toBe(2);
-      const fixture = `flock() { ${mode === "in-place-busy" ? "return 1" : "return 0"}; }
+      const fixture = `flock() { ${mode === "in-place-busy" ? '[ "$2" = 8 ] && return 1; return 0' : "return 0"}; }
 ${functions}
 sudo() { while [ "$1" != env ]; do shift; done; "$@"; }
 chown() { :; }
