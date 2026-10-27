@@ -118,6 +118,16 @@ fn hosted_log() -> Log {
         true,
     );
     log.ask(6_000, false);
+    // Two fenced lines the host took (protocol 3); the harness has only the first.
+    let note =
+        |method: &str, params: Value| json!({"jsonrpc": "2.0", "method": method, "params": params});
+    for (method, params) in [
+        (agent_host::QUEUED_METHOD, json!({"receipt": 41})),
+        (agent_host::WRITTEN_METHOD, json!({"receipt": 41, "written": true})),
+        (agent_host::QUEUED_METHOD, json!({"receipt": 42})),
+    ] {
+        log.push("out", method, note(method, params), true);
+    }
     log.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}}));
     log
 }
@@ -218,7 +228,7 @@ async fn a_withdrawal_after_the_recovery_snapshot_is_not_lost() {
 fn work_fields(w: &OpenWork) -> String {
     let permissions: std::collections::BTreeMap<_, _> = w.permissions.iter().collect();
     format!(
-        "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?} {:?}",
+        "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {:?}",
         w.turn.as_ref().map(|t| (t.0, &t.1, &t.2, &t.3, &t.4, t.5)),
         w.turn_at,
         w.heard_at,
@@ -237,6 +247,7 @@ fn work_fields(w: &OpenWork) -> String {
         w.withdrawn.iter().collect::<std::collections::BTreeSet<_>>(),
         w.cancelled_permissions.iter().collect::<std::collections::BTreeSet<_>>(),
         w.withdrawn_asks.iter().collect::<std::collections::BTreeSet<_>>(),
+        w.unwritten,
     )
 }
 
@@ -270,6 +281,8 @@ async fn open_work_from_heads_matches_a_parse_of_every_record() {
             assert!(work.cancelled_permissions.contains("6000"));
             assert_eq!(work.permissions["6000"].2, Some(json!({"outcome": "cancelled"})));
             assert_eq!(work.steers.len(), 1);
+            // The #26241 residual risk: the line with no receipt logged is the one held again.
+            assert_eq!(work.unwritten, std::collections::BTreeSet::from([42]));
             assert!(work.harness_grant, "the answered ask chose allow always");
             assert!(work.doing.open_tools.contains("open"), "{:?}", work.doing);
             assert!(

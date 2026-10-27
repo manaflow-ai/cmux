@@ -60,6 +60,9 @@ pub(super) struct OpenWork {
     /// Permission records whose durable withdrawal has not yet been settled
     /// with a `permission_decision` record.
     pub(super) cancelled_permissions: std::collections::HashSet<String>,
+    /// The receipts of the fenced lines its host took (`QUEUED_METHOD`, protocol 3) that have
+    /// no receipt logged (`WRITTEN_METHOD`): its harness may not have them yet.
+    pub(super) unwritten: std::collections::BTreeSet<u64>,
     /// Largest `hostSeq` logged under this incarnation. Every entry kind is
     /// logged in entry order before its ack, so this is the logged prefix.
     pub(super) last_host_seq: u64,
@@ -260,8 +263,10 @@ impl Hub {
             if self.end_if_runs_full_access(&session, off).await != FullAccessEnd::NotInFullAccess {
                 continue;
             }
+            let kept = record.clone();
             if let Err(e) = self.adopt_one(&session, record).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
+                self.hold_unadopted(&session, &kept).await;
             }
         }
         for unreadable in bad {
@@ -352,6 +357,7 @@ impl Hub {
         let tap = self.session_tap(session);
         let incarnation = record.incarnation.clone();
         let caller_token = record.caller_token.clone();
+        let kept = record.clone();
         let attached = ChildAgent::attach_hosted(
             &session.meta().harness,
             record,
@@ -368,6 +374,7 @@ impl Hub {
                     session,
                     json!({"hostProtocol": [min, max], "hostBuild": host_build}),
                 );
+                self.hold_unadopted(session, &kept).await;
                 return Ok(());
             }
         };
@@ -396,9 +403,12 @@ impl Hub {
         self.note_host_kind(session, &child, kind).await;
         // Scan only once every entry the host had is in the log: what the
         // previous daemon wrote or answered may still sit in its buffer.
-        if !child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await {
+        let replayed = child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        if !replayed {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
+        // Taken before the log is read, so no off push returns between the read and the hold.
+        let hold = self.family_hold().await;
         self.append(
             session,
             "mux",
@@ -407,6 +417,14 @@ impl Hub {
         );
         self.set_status(session, SessionStatus::Ready);
         let work = self.recovery_work(session, &incarnation, resume_after);
+        // Handed on before recovery, which may take the family gate itself.
+        match child.host_record() {
+            Some(record) => {
+                let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
+                Self::hold_unwritten(session, hold, &record, told, &work);
+            }
+            None => drop(hold),
+        }
         self.recover_work(session, &child, &incarnation, work).await;
         self.restart_unproven(session, proven);
         self.save_meta(session);
@@ -649,6 +667,7 @@ impl Hub {
                     work.withdrawn.clear();
                     work.withdrawn_asks.clear();
                     work.cancelled_permissions.clear();
+                    work.unwritten.clear();
                     open_request_ids.clear();
                     work.prompt_request = None;
                     work.prompt_response = None;
@@ -781,6 +800,14 @@ impl Hub {
                         work.steers.iter_mut().find(|(steer, _)| id == Some(steer))
                     {
                         steer.1 = Some(e.msg.clone());
+                    }
+                }
+                ("out", agent_host::QUEUED_METHOD) if current => {
+                    work.unwritten.extend(e.msg.pointer("/params/receipt").and_then(Value::as_u64));
+                }
+                ("out", agent_host::WRITTEN_METHOD) if current => {
+                    if let Some(r) = e.msg.pointer("/params/receipt").and_then(Value::as_u64) {
+                        work.unwritten.remove(&r);
                     }
                 }
                 ("out", "response") if current => {
@@ -1560,7 +1587,10 @@ fn open_work_reads(head: &RecordHead<'_>, current: bool, turn_open: bool) -> boo
         "mux" => OPEN_WORK_MUX_KINDS.contains(&head.kind),
         "out" => {
             current
-                && (head.kind == "response" || (turn_open && head.kind == method::SESSION_PROMPT))
+                && (matches!(
+                    head.kind,
+                    "response" | agent_host::QUEUED_METHOD | agent_host::WRITTEN_METHOD
+                ) || (turn_open && head.kind == method::SESSION_PROMPT))
         }
         "in" => {
             // An open turn's records: the model's signs of work, its tools, steers' answers.

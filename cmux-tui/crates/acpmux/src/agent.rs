@@ -235,6 +235,16 @@ impl Fence {
         *self.0.step.borrow()
     }
 
+    /// A fenced line a previous daemon handed to `host`, held again at adoption
+    /// (`link::adopt_receipt`): its host has it, so only its receipt or its host's end settles
+    /// it, and a cut ends that host (`Self::cut_or_end`).
+    pub fn held_by_host(host: crate::agent_host::HostRecord) -> Self {
+        let fence = Self::default();
+        let _ = fence.0.writer.set(Writer::Hosted(host));
+        fence.begin();
+        fence
+    }
+
     /// The writer takes it: false when it was cut, and it is dropped.
     pub fn begin(&self) -> bool {
         self.step(Self::QUEUED, Self::WRITING) || self.now() != Self::CUT
