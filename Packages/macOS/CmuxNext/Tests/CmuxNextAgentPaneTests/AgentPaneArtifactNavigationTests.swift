@@ -7,7 +7,8 @@ struct AgentPaneArtifactNavigationTests {
     @Test func artifactsCannotNavigateEvenToAnotherAllowedFrame() throws {
         let pane = AgentPaneSource.bundled(try #require(URL(string: "cmux-agent://pane/index.html")))
         let frame = try #require(URL(string: "cmux-agent://render/artifact"))
-        #expect(AgentPaneNavigation.decision(for: frame, source: pane, userClicked: false, mainFrame: false) == .allow)
+        #expect(AgentPaneNavigation.decision(for: frame, source: pane, userClicked: false, mainFrame: false,
+                                             sourceFrameURL: pane.pageURL) == .allow)
         for text in ["http://127.0.0.1:8080/leak", "https://example.com", "file:///tmp/private", "cmux-agent://render/frame", "about:srcdoc"] {
             let url = try #require(URL(string: text))
             for main in [true, false] {
@@ -29,5 +30,25 @@ struct AgentPaneArtifactNavigationTests {
         }
         // The parent is allowed to create its srcdoc child; only a navigation that originated there is refused.
         #expect(AgentPaneNavigation.decision(for: srcdoc, source: pane, userClicked: false, mainFrame: false) == .allow)
+    }
+
+    @Test func onlyTheTrustedPaneMayCreateAnArtifactFrame() throws {
+        let pane = AgentPaneSource.bundled(try #require(URL(string: "cmux-agent://pane/index.html")))
+        let artifact = try #require(URL(string: "cmux-agent://render/artifact"))
+        let render = try #require(URL(string: "cmux-agent://render/frame"))
+        for text in ["http://127.0.0.1:8080/preview", "https://example.com/", "cmux-agent://pane/other.html", "about:blank"] {
+            let untrusted = try #require(URL(string: text))
+            #expect(AgentPaneNavigation.decision(for: artifact, source: pane, userClicked: false, mainFrame: false,
+                                                 sourceFrameURL: untrusted) == .cancel)
+            // Ordinary render cards keep their existing navigation policy.
+            #expect(AgentPaneNavigation.decision(for: render, source: pane, userClicked: false, mainFrame: false,
+                                                 sourceFrameURL: untrusted) == .allow)
+        }
+        #expect(AgentPaneNavigation.decision(for: artifact, source: pane, userClicked: false, mainFrame: false) == .cancel)
+        // The pane creates a fresh child whose target request may still be empty or about:blank.
+        for target in [nil, URL(string: "about:blank")] {
+            #expect(AgentPaneNavigation.decision(for: artifact, source: pane, userClicked: false, mainFrame: false,
+                                                 sourceFrameURL: pane.pageURL, targetFrameURL: target) == .allow)
+        }
     }
 }
