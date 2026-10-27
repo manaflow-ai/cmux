@@ -61,6 +61,23 @@ fn a_lane_serves_its_events_in_order_on_the_shared_pool() {
 }
 
 #[test]
+fn a_lane_keeps_its_order_across_turns() {
+    // Five times a turn (32 events) through one lane, in batches of 40 so
+    // at most 40 are unserved (the bound is 64): the lane yields and is
+    // requeued many times.
+    let route = Arc::new(SurfaceRoute::new());
+    let rx = reporting_lane(&route);
+    for batch in 0..4u64 {
+        for epoch in batch * 40..(batch + 1) * 40 {
+            assert!(!route.deliver(navigated(epoch)));
+        }
+        for epoch in batch * 40..(batch + 1) * 40 {
+            assert_eq!(rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap(), Some(epoch));
+        }
+    }
+}
+
+#[test]
 fn many_lanes_share_the_pool_threads() {
     let lanes = (0..64)
         .map(|_| {

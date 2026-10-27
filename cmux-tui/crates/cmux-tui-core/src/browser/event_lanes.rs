@@ -236,6 +236,7 @@ impl SurfaceRoute {
     #[cfg(test)]
     pub(super) fn recv(&self) -> Option<CdpEvent> {
         let mut state = self.state.lock().unwrap();
+        debug_assert!(!state.has_handler, "recv reads only a lane no handler serves");
         loop {
             if let Some(event) = self.pop_event(&mut state) {
                 return Some(event);
