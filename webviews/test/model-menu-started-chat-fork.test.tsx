@@ -338,9 +338,10 @@ for (const [id, label] of [
   });
 }
 
-for (const [first, second, secondSuffix] of [
-  ["claude-work", "claude-sr", "sr"],
-  ["work", "personal", "personal"],
+for (const [first, second, firstLabel, secondLabel] of [
+  ["claude-work", "claude-sr", "Work (work)", "Work (sr)"],
+  ["work", "personal", "Work (work)", "Work (personal)"],
+  ["claude-work", "work", "Work (work)", "Work"],
 ])
   test(`duplicate configured names distinguish ${first} and ${second}`, async () => {
     const catalog = [
@@ -351,9 +352,9 @@ for (const [first, second, secondSuffix] of [
     const { switched } = await mount(0, undefined, "claude", catalog);
     await open();
     expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toEqual(
-      expect.arrayContaining(["Work (work)", `Work (${secondSuffix})`]),
+      expect.arrayContaining([firstLabel, secondLabel]),
     );
-    await showTab(`Work (${secondSuffix})`);
+    await showTab(secondLabel!);
     expect(switched).toEqual([second]);
   });
 
