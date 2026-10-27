@@ -393,6 +393,19 @@ pub fn status() -> Option<Status> {
     PROCESS.get().map(Tracer::status)
 }
 
+/// The role this process traces as; None before [`init_blackbox`]. The panic lines name it.
+pub fn process_role() -> Option<Role> {
+    PROCESS.get().map(|tracer| tracer.config().role)
+}
+
+/// How long ago [`init_blackbox`] ran (the first call in `main`), on the trace clock; None before
+/// it. The panic lines carry it as their uptime, as Chrome's crash reports carry `ptime` from the
+/// time the crash reporter started (`components/crash/core/app/breakpad_linux.cc`,
+/// `g_process_start_time`). No allocation or lock: a panic hook calls it.
+pub fn process_uptime_ns() -> Option<u64> {
+    PROCESS.get().map(Tracer::uptime_ns)
+}
+
 /// A consistent copy of the active ring: the crash and hang reports read the black-box tail from
 /// it. None before [`init_blackbox`].
 pub fn snapshot_active() -> Option<Vec<u8>> {

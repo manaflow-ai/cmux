@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 import CoreFoundation
 
 /// Runs main-actor work once this run-loop pass committed its frame: a one-shot main run loop
@@ -21,6 +21,21 @@ public struct AfterFrameCommit: Sendable {
             // What `work` changed is in a new implicit transaction: wake the run loop so the next
             // pass commits it instead of sleeping until unrelated input.
             CFRunLoopWakeUp(CFRunLoopGetMain())
+        }
+    }
+
+    /// Runs `work` on the main thread after every pass's commit, until the returned observer is
+    /// released or invalidated: after Core Animation's commit both before the wait and at the run
+    /// loop's exit (a pass that polls and never waits commits only there). When `work` returns true
+    /// (it changed something), the run loop wakes so the next pass commits that. Capture the owner
+    /// weakly in `work`.
+    ///
+    /// ```swift
+    /// drain = AfterFrameCommit().everyPass { [weak gate] in gate?.forwardOldest() ?? false }
+    /// ```
+    public func everyPass(_ work: @escaping @MainActor () -> Bool) -> MainRunLoopObserver {
+        MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: .max) { _ in
+            if work() { CFRunLoopWakeUp(CFRunLoopGetMain()) }
         }
     }
 }

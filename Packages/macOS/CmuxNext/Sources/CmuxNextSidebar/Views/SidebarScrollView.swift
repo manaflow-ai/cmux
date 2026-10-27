@@ -17,7 +17,7 @@ final class SidebarScrollView: NSScrollView {
     private var wheel = SpaceWheelPager()
     private var paging = false
 
-    override func scrollWheel(with event: NSEvent) {
+    override func scrollWheel(with event: NSEvent) { // local-monitor-allow: the space swipe reads every scroll event's phase, delta and time in order; the rest goes to super
         guard event.hasPreciseScrollingDeltas, let phase = Self.phase(of: event) else {
             if let onWheelPage, !event.hasPreciseScrollingDeltas {
                 switch wheel.feed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, time: event.timestamp, pagesVertically: false) {

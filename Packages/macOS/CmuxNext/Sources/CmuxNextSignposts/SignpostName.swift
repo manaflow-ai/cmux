@@ -469,6 +469,15 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// the level. Once per change of the coordinator's vote.
     case cefMemoryPressureVote = 86
 
+    // MARK: ghostty lock wait (emitter: CmuxNextTerminal `GhosttyLockWaitSignpost`, task p04-input-078)
+
+    /// One input entry point's wait of 50 us or more for Ghostty's terminal lock (key, modifier change, IME point,
+    /// text, preedit, a manual surface's input write), reported by ghostty-next after the wait
+    /// (`ghostty_surface_set_lock_wait_callback`).
+    /// Debug and bench builds whose GhosttyNextKit has the report (`GHOSTTY_LOCK_WAIT`). Message:
+    /// `wait_us=<wait>`. Ring: instant; arg0 the wait in ns.
+    case ghosttyLockWait = 87
+
     // MARK: launch catalog read (emitter: CmuxNextActions `ActionCatalogLaunch`, task p08-startup-092)
 
     /// The registry's first read of the action catalog on the main thread (`ActionCatalogLaunch.descriptors()`),
@@ -476,7 +485,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// when it was still running, the whole build when main claimed it. Message: `outcome=<ready|waited|
     /// built_on_main>`. Ring: B/E; begin arg0 the outcome (`ActionCatalogMainAccess.Outcome`'s raw value). Once
     /// per launch.
-    case launchActionCatalogFirstMainAccess = 87
+    case launchActionCatalogFirstMainAccess = 88
 
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
@@ -567,6 +576,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .actionPresentedEstimate: "action.presented_estimate"
         case .actionPresented: "action.presented"
         case .cefMemoryPressureVote: "cef.memory_pressure_vote"
+        case .ghosttyLockWait: "ghostty.lock_wait"
+
         case .launchActionCatalogFirstMainAccess: "launch.action_catalog_first_main_access"
         }
     }
