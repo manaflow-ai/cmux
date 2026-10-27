@@ -213,10 +213,18 @@ sleep 30
     )
     .unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
-    let mut terminate =
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
-    let start = Owner::start(&home.0, &codex, &holder, &mut terminate);
-    assert!(tokio::time::timeout(Duration::from_millis(100), start).await.is_err());
+    let (sender, mut receiver) = tokio::sync::oneshot::channel();
+    let mut start = Box::pin(Owner::start_with_cancel(
+        &home.0,
+        &codex,
+        &holder,
+        StartupCancellation::Channel(&mut receiver),
+    ));
+    tokio::select! {
+        result = &mut start => panic!("stalled startup unexpectedly returned: {result:?}"),
+        _ = tokio::time::sleep(Duration::from_millis(100)) => sender.send(()).unwrap(),
+    }
+    assert!(start.await.unwrap().is_none(), "shutdown must cancel startup after reaping Codex");
     drop(holder);
     for _ in 0..20 {
         if prepare(&home.0).is_ok() {

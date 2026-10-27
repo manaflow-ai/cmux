@@ -224,6 +224,24 @@ struct Owner {
     account: Option<String>,
 }
 
+enum StartupCancellation<'a> {
+    Signal(&'a mut tokio::signal::unix::Signal),
+    Channel(&'a mut tokio::sync::oneshot::Receiver<()>),
+}
+
+impl StartupCancellation<'_> {
+    async fn wait(&mut self) {
+        match self {
+            Self::Signal(signal) => {
+                let _ = signal.recv().await;
+            }
+            Self::Channel(receiver) => {
+                let _ = (&mut **receiver).await;
+            }
+        }
+    }
+}
+
 impl Owner {
     async fn stop(&mut self) {
         if let Some(pid) = self.child.id() {
@@ -241,6 +259,15 @@ impl Owner {
         codex: &Path,
         lock: &File,
         terminate: &mut tokio::signal::unix::Signal,
+    ) -> Result<Option<Self>> {
+        Self::start_with_cancel(home, codex, lock, StartupCancellation::Signal(terminate)).await
+    }
+
+    async fn start_with_cancel(
+        home: &Path,
+        codex: &Path,
+        lock: &File,
+        mut cancel: StartupCancellation<'_>,
     ) -> Result<Option<Self>> {
         let mut command = Command::new(codex);
         command.process_group(0);
@@ -293,7 +320,7 @@ impl Owner {
                     }),
                 ),
             ) => result,
-            _ = terminate.recv() => {
+            _ = cancel.wait() => {
                 owner.stop().await;
                 return Ok(None);
             }
@@ -304,7 +331,7 @@ impl Owner {
         }
         let initialized_notification = tokio::select! {
             result = owner.input.send(json!({"method": "initialized"}).to_string()) => result,
-            _ = terminate.recv() => {
+            _ = cancel.wait() => {
                 owner.stop().await;
                 return Ok(None);
             }
