@@ -3778,7 +3778,10 @@ jobs:
     # prepare-nightly-variant does, so it never waits on a queue of its own before that fallback.
     continue-on-error: true
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # Room for every step budget in turn (the Blacksmith pick 2, then the owned pick's token
+    # mints 1 + 1 and picker 2) plus checkout, so the job is never cut off before its outputs;
+    # the Blacksmith pick runs first so `runner` is set before the owned steps start.
+    timeout-minutes: 10
     permissions:
       # The queue janitor's pool snapshot (an artifact).
       actions: read
@@ -3796,6 +3799,18 @@ jobs:
           ref: ${{ github.sha }}
           path: .publish-tooling
           sparse-checkout: scripts/ci
+
+      # The Blacksmith macOS label whose queue is moving, for the macOS jobs after this one
+      # (scripts/ci/nightly_sign_runner.py). Signing stays on Blacksmith; a stale
+      # vars.MACOS_RUNNER_26 naming a label with no runners no longer strands them.
+      - name: Pick the Blacksmith macOS label with a moving queue
+        id: sign-runner
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+        run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
 
       # As cmux-next-dev-daily.yml: idle owned runners read live with the routing App's own
       # budget. Any failure leaves the token empty, and the pick below then finds no owned Mac.
@@ -3855,18 +3870,6 @@ jobs:
             *) echo "No owned Mac free now (picker said '${label:-nothing}'); Blacksmith verifies."; label="" ;;
           esac
           echo "label=$label" >> "$GITHUB_OUTPUT"
-
-      # The Blacksmith macOS label whose queue is moving, for the macOS jobs after this one
-      # (scripts/ci/nightly_sign_runner.py). Signing stays on Blacksmith; a stale
-      # vars.MACOS_RUNNER_26 naming a label with no runners no longer strands them.
-      - name: Pick the Blacksmith macOS label with a moving queue
-        id: sign-runner
-        continue-on-error: true
-        timeout-minutes: 2
-        env:
-          SNAPSHOT_TOKEN: ${{ github.token }}
-          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
-        run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the

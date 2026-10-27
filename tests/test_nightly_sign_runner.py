@@ -182,6 +182,13 @@ class OwnedVerify(unittest.TestCase):
                 self.assertIn("startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')", guard)
                 self.assertNotIn("||", guard)
         self.assertIn("e2e_runner_pool.py", step["run"])
+        # The job outlives its step budgets, and the Blacksmith pick comes first: a slow App API
+        # never cancels the job before `runner` is written (a cancelled pick skips signing).
+        ids = [s.get("id") for s in job["steps"]]
+        self.assertLess(ids.index("sign-runner"), ids.index("route-token"))
+        budget = sum(int(s.get("timeout-minutes", 0)) for s in job["steps"])
+        self.assertTrue(all("timeout-minutes" in s for s in job["steps"] if s.get("id")))
+        self.assertGreaterEqual(int(job["timeout-minutes"]), budget + 2)
         # Only an owned label is ever offered; anything else leaves the Blacksmith pick.
         self.assertIn('glaeda-*)', step["run"])
         self.assertIn('label=""', step["run"])
