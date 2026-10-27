@@ -30,6 +30,8 @@ public actor CloudCodexBroker {
     private var refreshTask: Task<Void, Never>?
     private var refreshCycle = 0
     private var refreshInFlight: Task<CloudCodexAccessGrant, any Error>?
+    private var quitWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var quitTimers: [UUID: Task<Void, Never>] = [:]
 
     public init(scope: CloudCodexBrokerScope,
                 currentScope: @escaping @Sendable () async -> CloudCodexBrokerScope?,
@@ -384,7 +386,7 @@ public actor CloudCodexBroker {
         guard !Task.isCancelled else { throw CloudCodexBrokerError.cancelled }
     }
 
-    func registeredMachineIDs() -> Set<String> { Set(targets.keys) }
+    func registeredMachineIDs() -> Set<String> { Set(targets.keys).union(revocationTargets.keys) }
 
     /// Stops the local process and renewal before erasing registered VM files.
     /// Returns failed cleanup IDs; retained local credentials allow reuse later.
@@ -395,12 +397,47 @@ public actor CloudCodexBroker {
         let endingTargets = Array(targets.merging(revocationTargets) { _, pending in pending }.values)
         if let session { await invalidate(session) }
         var failed = pendingRevocations
-        for target in endingTargets {
-            do { try await revoke(target: target); failed.remove(target.machineID) }
-            catch { failed.insert(target.machineID) }
+        await withTaskGroup(of: (String, Bool).self) { group in
+            for target in endingTargets {
+                group.addTask { [weak self] in
+                    guard let self else { return (target.machineID, false) }
+                    let succeeded: Bool
+                    do { try await self.revokeWithinQuitBudget(target); succeeded = true }
+                    catch { succeeded = false }
+                    return (target.machineID, succeeded)
+                }
+            }
+            for await (machineID, succeeded) in group {
+                if succeeded { failed.remove(machineID) } else { failed.insert(machineID) }
+            }
         }
         cached = nil
         return failed
+    }
+
+    private func revokeWithinQuitBudget(_ target: CloudCodexBrokerTarget) async throws {
+        let id = UUID()
+        try await withCheckedThrowingContinuation { continuation in
+            quitWaiters[id] = continuation
+            // A timed-out transport may finish later. Its broker stays retained,
+            // preventing replacement until that cleanup has actually completed.
+            let work = Task {
+                do { try await revoke(target: target); finishQuitCleanup(id, .success(())) }
+                catch { finishQuitCleanup(id, .failure(error)) }
+            }
+            quitTimers[id] = Task {
+                // wakeup-allow: one bounded quit-cleanup deadline per target.
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                if finishQuitCleanup(id, .failure(CloudCodexBrokerError.remoteDeliveryFailed)) { work.cancel() }
+            }
+        }
+    }
+
+    @discardableResult private func finishQuitCleanup(_ id: UUID, _ result: Result<Void, any Error>) -> Bool {
+        guard let waiter = quitWaiters.removeValue(forKey: id) else { return false }
+        quitTimers.removeValue(forKey: id)?.cancel()
+        waiter.resume(with: result)
+        return true
     }
 
     private func targetList() -> [CloudCodexBrokerTarget] { targets.values.sorted { $0.machineID < $1.machineID } }
@@ -504,12 +541,24 @@ public actor CloudCodexBrokerRegistry {
     }
 
     /// Stops a scoped holder before releasing it. Credentials remain on disk.
-    public func remove(scope: CloudCodexBrokerScope) async -> Set<String> {
-        guard let broker = brokers.removeValue(forKey: scope) ?? pendingCleanup[scope] else { return [] }
+    public struct Removal: Sendable {
+        public let attempted: Set<String>
+        public let failed: Set<String>
+        fileprivate init(attempted: Set<String>, failed: Set<String>) {
+            self.attempted = attempted
+            self.failed = failed
+        }
+    }
+
+    public func remove(scope: CloudCodexBrokerScope) async -> Removal {
+        guard let broker = brokers.removeValue(forKey: scope) ?? pendingCleanup[scope] else {
+            return Removal(attempted: [], failed: [])
+        }
         pendingCleanup[scope] = broker
+        let attempted = await broker.registeredMachineIDs()
         let failed = await broker.shutdown()
         if failed.isEmpty { pendingCleanup.removeValue(forKey: scope) }
-        return failed
+        return Removal(attempted: attempted, failed: failed)
     }
 }
 
