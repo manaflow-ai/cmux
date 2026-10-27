@@ -107,6 +107,9 @@ fn broker_refuses_two_holders_and_preserves_refreshed_state() {
     assert!(prepare(&home.0).is_err());
     home.auth(u64::MAX);
     let before = std::fs::read(home.0.join("auth.json")).unwrap();
+    // Other parallel tests can fork between close and exec. Explicit release
+    // keeps this persistence test independent of their transient inherited fd.
+    holder.unlock().unwrap();
     drop(holder);
     let _next = prepare(&home.0).unwrap();
     assert_eq!(before, std::fs::read(home.0.join("auth.json")).unwrap());
