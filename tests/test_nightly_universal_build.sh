@@ -106,13 +106,14 @@ if ! awk '
   in_download && /id: signing-inputs-parallel/ { saw_id=1 }
   in_download && /download-run-artifact.py/ { downloads++ }
   in_download && /--name cmux-nightly-unsigned-app --out nightly-inputs\/app/ { saw_app_download=1 }
-  in_download && /--connections 64/ { saw_app_connections=1 }
+  in_download && /--connections 16 / { saw_app_connections=1 }
+  in_download && /timeout-minutes: (1[0-5]|[1-9])$/ { saw_step_cap=1 }
   in_download && /app_ok=/ { saw_app_output=1 }
   in_download && /daemon_ok=/ { saw_daemon_output=1 }
   in_download && /helper_ok=/ { saw_helper_output=1 }
-  END { exit !(saw_id && downloads == 3 && saw_app_download && saw_app_connections && saw_app_output && saw_daemon_output && saw_helper_output) }
+  END { exit !(saw_id && saw_step_cap && downloads == 3 && saw_app_download && saw_app_connections && saw_app_output && saw_daemon_output && saw_helper_output) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly signers must fetch all inputs concurrently and give the large app artifact 64 ranged connections"
+  echo "FAIL: nightly signers must fetch all inputs concurrently and give the large app artifact 16 ranged connections, with the step time capped"
   exit 1
 fi
 

@@ -2064,3 +2064,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_delivery_concurrency.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_download_run_artifact.py"
+lane = "linux-guard"
