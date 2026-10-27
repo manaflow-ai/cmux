@@ -16,6 +16,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 import urllib.request
 from contextlib import redirect_stdout
@@ -109,9 +110,21 @@ class StepsAreWired(unittest.TestCase):
             self.assertEqual(i + 1, j, f"{check} runs right before {target}")
             step = self.steps[i]
             self.assertEqual(step["if"], self.steps[j]["if"])
-            self.assertIn('python3 scripts/ci/stop_if_publish_doomed.py "${peers[@]}"', step["run"])
+            self.assertIn('check=scripts/ci/stop_if_publish_doomed.py', step["run"])
+            self.assertIn('python3 "$check" "${peers[@]}"', step["run"])
+            # An older resolved build_sha may lack the script: the step carries on.
+            self.assertIn('if [ ! -f "$check" ]; then', step["run"])
+            self.assertLess(step["run"].index('[ ! -f "$check" ]'), step["run"].index('python3 "$check"'))
             self.assertEqual(step["env"], {"GH_TOKEN": "${{ github.token }}"})
             self.assertNotIn("continue-on-error", step)
+
+    def test_a_build_sha_without_the_check_carries_on(self):
+        run = self.steps[self.index("Stop when the run can no longer publish (before the compile)")]["run"]
+        with tempfile.TemporaryDirectory() as empty:
+            done = subprocess.run(["bash", "-c", run], cwd=empty, capture_output=True, text=True,
+                                  env={"PATH": os.environ["PATH"], "NIGHTLY_PUBLISH_PEERS": "a b"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("::notice::", done.stdout)
 
     def test_upload_is_bounded_and_retried_once(self):
         first = self.steps[self.index("Upload unsigned nightly app")]

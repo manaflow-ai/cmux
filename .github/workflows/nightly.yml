@@ -2515,8 +2515,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # An older resolved build_sha may predate the check: fail open.
+          check=scripts/ci/stop_if_publish_doomed.py
+          if [ ! -f "$check" ]; then echo "::notice::$check is not at this build_sha; carrying on"; exit 0; fi
           read -ra peers <<< "$NIGHTLY_PUBLISH_PEERS"
-          python3 scripts/ci/stop_if_publish_doomed.py "${peers[@]}"
+          python3 "$check" "${peers[@]}"
 
       - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
@@ -3020,8 +3023,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # An older resolved build_sha may predate the check: fail open.
+          check=scripts/ci/stop_if_publish_doomed.py
+          if [ ! -f "$check" ]; then echo "::notice::$check is not at this build_sha; carrying on"; exit 0; fi
           read -ra peers <<< "$NIGHTLY_PUBLISH_PEERS"
-          python3 scripts/ci/stop_if_publish_doomed.py "${peers[@]}"
+          python3 "$check" "${peers[@]}"
 
       # A stalled upload once held the Mac 39 min (run 40460194731): 10 min,
       # then one retry that replaces a partial upload.
