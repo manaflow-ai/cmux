@@ -416,6 +416,14 @@ impl<T> Pool<T> {
             .map(|e| e.settled.subscribe())
     }
 
+    /// Remove the ready session `pick` chooses; its key stays wanted but holds nothing.
+    pub fn remove_ready(&mut self, pick: impl Fn(&T) -> bool) -> Option<T> {
+        let e = self.entries.iter_mut().find(|e| matches!(&e.slot, Slot::Ready(t) if pick(t)))?;
+        let Slot::Ready(t) = std::mem::replace(&mut e.slot, Slot::Empty) else { return None };
+        e.settle();
+        Some(t)
+    }
+
     /// Empty the pool (config reload, shutdown); returns every ready session.
     pub fn clear(&mut self) -> Vec<T> {
         let mut out = Vec::new();

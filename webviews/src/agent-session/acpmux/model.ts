@@ -587,6 +587,8 @@ export type AcpmuxSnapshot = {
   peerKinds?: Record<string, "ssh" | "cloud">;
   /// Whether each peer is connected, as `_acpmux/status` last said (environments.ts).
   peerConnected?: Record<string, boolean>;
+  /// Each peer's link state (`connected`, `reconnecting`, …), as `_acpmux/status` last said (environments.ts).
+  peerStates?: Record<string, string>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   summary?: {
@@ -802,7 +804,7 @@ const USER_BUBBLE_PADDING = 16;
 const USER_STATUS_HEIGHT = 20;
 /// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
 /// in conversation/conversation.css): a meta row 4px under its message on a 24px line, 8px between
-/// messages, 24px between turns.
+/// messages, 16px between turns (the paragraph gap plus a small separator).
 const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
@@ -869,7 +871,7 @@ function activityStepHeight(item: AcpmuxActivity): number {
 export const RECEIVED_LINES = 8;
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
-const TURN_GAP = 24;
+const TURN_GAP = 16;
 /// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). A steer the agent has not read yet
 /// puts Send now first in that row (PendingSteer.tsx), including a Chief's prompt and a prompt of
 /// images alone.
@@ -1095,8 +1097,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return finish(40 + row.plan.length * 24);
   // A turn's footer: its meta line, then the normal turn gap. An empty footer (only hover controls,
-  // conversation/turns.ts isEmptyFooter) takes no line but keeps that same gap.
-  if (row.kind === "turnSummary") return finish((isEmptyFooter(row) ? 0 : META_ROW) + TURN_GAP);
+  // conversation/turns.ts isEmptyFooter) takes no extra line; its gap still fits the hover controls.
+  if (row.kind === "turnSummary")
+    return finish(isEmptyFooter(row) ? Math.max(META_ROW, TURN_GAP) : META_ROW + TURN_GAP);
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
