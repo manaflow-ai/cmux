@@ -136,6 +136,7 @@ extension AppServices {
         // A host that ends while cmux quits reports nothing (quit ends it).
         let supervisor = chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor
         supervisor?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        AppRunMarker.reportHostCrashes(of: chromiumRuntime.source.hostSupervisor, writer: crashRecovery.writer, work: work)
         // A crashed host's tabs come back with the history their daemon records keep (p01-process-083).
         supervisor?.savedNavigation = { [weak self] tab, url in
             guard let tabs = self?.cache.browserTabs else { return nil }
