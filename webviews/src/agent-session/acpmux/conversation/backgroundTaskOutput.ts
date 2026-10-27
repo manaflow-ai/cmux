@@ -30,6 +30,9 @@ export type BackgroundTaskOutput = {
   cut?: boolean;
   exitCode?: number;
   running?: boolean;
+  /// The registry lists the process and it no longer runs (exited, failed, killed or lost), so its
+  /// output is final. A lost process, and a killed or failed one, can end with no exit code.
+  ended?: boolean;
 };
 
 /// The bounded view shown in an expanded tray row. Keeping this at the render edge means a
@@ -108,7 +111,7 @@ export async function readBackgroundTaskOutput(
   if (!process) return {};
   const exit = {
     ...(process.exitCode !== undefined ? { exitCode: process.exitCode } : {}),
-    ...(process.running ? { running: true } : {}),
+    ...(process.running ? { running: true } : { ended: true }),
   };
   // acpmux keeps no output for a Codex process yet; it refuses the read.
   if (process.codex) return exit;
@@ -142,8 +145,8 @@ export function useBackgroundTaskOutput(toolCallId: string, open: boolean): Back
 }
 
 /// Reads the task's tail now if the page is shown, then every `BACKGROUND_TAIL_POLL_MS` while it
-/// is shown, one read at a time, until the registry reports the process's exit (its output is then
-/// final) or the returned stop runs. A hidden or frozen page arms no timer. `onRead` gets each
+/// is shown, one read at a time, until the registry lists the process as no longer running (its
+/// output is then final, with or without an exit code) or the returned stop runs. A hidden or frozen page arms no timer. `onRead` gets each
 /// answer, `{}` for a refused read; nothing after the stop.
 export function pollBackgroundTaskOutput(
   reader: BackgroundTaskOutputReader,
@@ -168,7 +171,7 @@ export function pollBackgroundTaskOutput(
         reading = false;
         if (!current) return;
         onRead(output);
-        if (output.exitCode !== undefined && !output.running) stop();
+        if (output.ended) stop();
       },
       () => {
         reading = false;

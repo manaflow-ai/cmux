@@ -71,10 +71,18 @@ class FakeTimers implements PageTimers {
   }
 }
 
-/** A registry with one Claude Code shell; `exit` ends it. Counts the reads. */
-function fakeReader(): { reader: BackgroundTaskOutputReader; reads: () => number; exit(code: number): void } {
+/** How the registry row reads once the process ends: its state, and the fields the harness reported. */
+type EndedRow = { state: "exited" | "failed" | "killed" | "lost" } & Record<string, unknown>;
+
+/** A registry with one Claude Code shell; `exit` or `end` ends it. Counts the reads. */
+function fakeReader(): {
+  reader: BackgroundTaskOutputReader;
+  reads: () => number;
+  exit(code: number): void;
+  end(row: EndedRow): void;
+} {
   let lists = 0;
-  let exitCode: number | undefined;
+  let ended: EndedRow | undefined;
   const data = btoa("building\n");
   return {
     reader: {
@@ -83,15 +91,7 @@ function fakeReader(): { reader: BackgroundTaskOutputReader; reads: () => number
         listProcesses: async () => {
           lists += 1;
           return {
-            processes: [
-              {
-                id: "p1",
-                toolCallId: "t1",
-                harness: "claude",
-                state: exitCode === undefined ? "running" : "exited",
-                ...(exitCode === undefined ? {} : { exitCode }),
-              },
-            ],
+            processes: [{ id: "p1", toolCallId: "t1", harness: "claude", ...(ended ?? { state: "running" }) }],
           };
         },
         tailProcess: async () => ({ data, fromByte: 0 }),
@@ -99,7 +99,10 @@ function fakeReader(): { reader: BackgroundTaskOutputReader; reads: () => number
     },
     reads: () => lists,
     exit(code) {
-      exitCode = code;
+      ended = { state: "exited", exitCode: code };
+    },
+    end(row) {
+      ended = row;
     },
   };
 }
@@ -176,11 +179,69 @@ describe("pollBackgroundTaskOutput", () => {
     exit(0);
     timers.advance(BACKGROUND_TAIL_POLL_MS);
     await settle();
-    expect(seen.at(-1)).toEqual({ exitCode: 0, output: "building\n", cut: false });
+    expect(seen.at(-1)).toEqual({ exitCode: 0, ended: true, output: "building\n", cut: false });
     expect(timers.live).toBe(0);
     timers.advance(BACKGROUND_TAIL_POLL_MS * 5);
     await settle();
     expect(reads()).toBe(2);
+  });
+
+  // acpmux's registry gives a lost process no exit code (processes.rs fold and lose_running), and a
+  // killed or failed one only when the harness reported it; its output is final all the same.
+  for (const [name, row] of [
+    ["lost", { state: "lost" }],
+    ["killed by a signal", { state: "killed", signal: "SIGTERM" }],
+    ["failed", { state: "failed" }],
+  ] as const) {
+    test(`the poll ends once the registry reports the process ${name}, with no exit code`, async () => {
+      const doc = new FakeDocument();
+      const timers = new FakeTimers();
+      const { reader, reads, end } = fakeReader();
+      const seen: BackgroundTaskOutput[] = [];
+      pollBackgroundTaskOutput(reader, "t1", undefined, (output) => seen.push(output), {
+        lifecycle: new PageLifecycle(doc),
+        timers,
+      });
+      await settle();
+      expect(timers.live).toBe(1);
+      end(row);
+      timers.advance(BACKGROUND_TAIL_POLL_MS);
+      await settle();
+      expect(seen.at(-1)).toEqual({ ended: true, output: "building\n", cut: false });
+      expect(timers.live).toBe(0);
+      timers.advance(BACKGROUND_TAIL_POLL_MS * 5);
+      await settle();
+      expect(reads()).toBe(2);
+    });
+  }
+
+  test("a process the registry does not list yet keeps the poll going", async () => {
+    const doc = new FakeDocument();
+    const timers = new FakeTimers();
+    let lists = 0;
+    const reader: BackgroundTaskOutputReader = {
+      sessionId: "s1",
+      source: {
+        listProcesses: async () => {
+          lists += 1;
+          return { processes: [] };
+        },
+        tailProcess: async () => ({}),
+      },
+    };
+    const seen: BackgroundTaskOutput[] = [];
+    const stop = pollBackgroundTaskOutput(reader, "t1", undefined, (output) => seen.push(output), {
+      lifecycle: new PageLifecycle(doc),
+      timers,
+    });
+    await settle();
+    expect(seen).toEqual([{}]);
+    expect(timers.live).toBe(1);
+    timers.advance(BACKGROUND_TAIL_POLL_MS);
+    await settle();
+    expect(lists).toBe(2);
+    expect(timers.live).toBe(1);
+    stop();
   });
 
   test("nothing reaches the row after the stop", async () => {
