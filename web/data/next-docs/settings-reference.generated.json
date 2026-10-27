@@ -1278,7 +1278,7 @@
           "title": "Install Updates When Quitting",
           "help": "A downloaded update installs as cmux quits. Terminals keep running.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
@@ -3396,7 +3396,7 @@
           "title": "Show Workspace Tabs",
           "help": "Lists tabs beneath each workspace in the sidebar.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
