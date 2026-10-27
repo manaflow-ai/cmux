@@ -142,13 +142,25 @@ public struct CmuxNextApp {
                                               echoesPlacementShift: SidebarMirror.isLinked, wireStats: wireStats,
                                               hangWatch: hangWatch)
         DebugTimings.markLaunch("main.prestart")
+        // The daemon's launch snapshot, read and decoded on the files lane; the daemon's start applies it (p08-startup-074).
+        // A read quit drops before it started ends as `.missing`, so nothing waits for it.
+        let snapshot = prestart.map { (session: $0.launcher.configuration.session, state: $0.launcher.configuration.stateDirectory) }
+        environment.launchSnapshot = snapshot.map { snapshot in
+            let read = LaunchRead(on: work, dropped: LaunchSnapshot.Found.missing) {
+                LaunchSnapshot.find(session: snapshot.session, stateDirectory: snapshot.state)
+            }
+            return LaunchSnapshotPrefetch(session: snapshot.session, ended: { read.value }, finished: { await read.finished() })
+        }
         // The front window's picture for the first frame, read and decoded on the files lane (p08-startup-058);
         // which window is front comes from the launch snapshot, read there only when a picture was saved.
         if features.isEnabled(.savedWindowPicture) {
-            let snapshot = prestart.map { (session: $0.launcher.configuration.session, state: $0.launcher.configuration.stateDirectory) }
+            let launchSnapshot = environment.launchSnapshot
             environment.windowPictures?.prefetchFront({
+                guard let snapshot else { return nil }
+                // The snapshot's read when it has ended, else read here: the picture's read never waits for it.
+                let found = launchSnapshot?.found ?? LaunchSnapshot.find(session: snapshot.session, stateDirectory: snapshot.state)
                 // The window `LaunchSnapshotWindow.showSaved` builds, by the same rule (WindowStateDocument.frontWindow).
-                snapshot.flatMap { LaunchSnapshot.saved(session: $0.session, stateDirectory: $0.state)?.frontWindow }.map {
+                return found.snapshot?.frontWindow.map {
                     WindowPictureStore.FrontWindow(window: $0.id, profile: ($0.profile ?? .defaultProfile).rawValue)
                 }
             }, mark: { DebugTimings.markLaunch($0) })

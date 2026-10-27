@@ -63,6 +63,9 @@ struct AppEnvironment: Sendable {
     /// One picture per window from the last quit (`WindowPictureStore`, feature `savedWindowPicture`). Only the real
     /// app process makes it; without it no window picture is written (tests that build `AppServices`).
     var windowPictures: WindowPictureStore?
+    /// The daemon's launch snapshot, read and decoded on the files lane from `main` (p08-startup-074): the local
+    /// daemon's start takes it over. Without it (tests that build `AppServices`) the start posts its own read.
+    var launchSnapshot: LaunchSnapshotPrefetch?
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The launch's global-job census (`CMUX_NEXT_GLOBAL_JOB_CENSUS=1`, p08-startup-082): `debug.startup.global_jobs`
     /// reads it. Only the real app process arms it.
