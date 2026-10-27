@@ -260,8 +260,7 @@ impl OutputPublisher {
             finished_commands,
         } in events
         {
-            surface.publish_pending_directory();
-            surface.publish_pending_progress();
+            surface.post_pending_publications();
             pty.stream_progress.notify();
             pty.request_frame(generation);
             // Mux events take `Mux::state`; publish them only after

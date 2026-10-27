@@ -264,6 +264,12 @@ pub struct PtyTerminalRuntime {
     pub(super) pwd: Mutex<Option<String>>,
     pub(super) published_directory: Mutex<PublishedDirectory>,
     pub(super) directory_pending: AtomicBool,
+    /// A publication of this terminal's cwd and progress is queued on the
+    /// mux's work lane (`Surface::post_pending_publications`): its output
+    /// threads queue at most one at a time.
+    pub(super) publication_posted: AtomicBool,
+    /// This terminal's publications, in order, one at a time.
+    pub(super) publications: Arc<crate::mux::mux_work::Sequence>,
     /// A shell has reported a directory at least once; only then is a later
     /// absent report a clear rather than the still-unreported launch directory.
     pub(super) directory_reported: AtomicBool,

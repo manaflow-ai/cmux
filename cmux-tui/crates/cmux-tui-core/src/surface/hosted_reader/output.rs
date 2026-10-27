@@ -123,8 +123,7 @@ impl HostedReader {
             pty.record_output(journal_target, &journal_output);
         }
         drop(journal_update.take());
-        surface.publish_pending_directory();
-        surface.publish_pending_progress();
+        surface.post_pending_publications();
         pty.stream_progress.notify();
         pty.request_frame(generation);
         if let Some(title) = title_update

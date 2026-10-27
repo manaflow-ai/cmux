@@ -121,6 +121,62 @@ impl Surface {
         }
     }
 
+    /// Hands the publications this terminal's output asked for (its cwd, its
+    /// progress and program status upserts) to the mux's work lane. Each is
+    /// a SQLite workspace registry commit, which an output thread
+    /// (`surface-<id>-reader`, `surface-<id>-host`: echo threads with
+    /// blocking disallowed) may not make (MQ-13, p02-threads-303): in the
+    /// detector's panic mode the reader panicked holding the registry and
+    /// state locks. Chromium posts such work as a `MayBlock` task
+    /// (base/task/task_traits.h). The check here is memory only; at most one
+    /// publication is queued per terminal, in the terminal's own sequence,
+    /// and it publishes the newest state when it runs, so a burst of output
+    /// asks for one commit.
+    pub(crate) fn post_pending_publications(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        if !self.has_pending_publication() {
+            return;
+        }
+        if pty.publication_posted.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let posted = pty
+            .mux
+            .upgrade()
+            .is_some_and(|mux| mux.post_terminal_publications(self.id, &pty.publications));
+        if !posted {
+            pty.publication_posted.store(false, Ordering::Release);
+        }
+    }
+
+    /// Whether a cwd, progress or program status change waits to be
+    /// published. Memory only.
+    fn has_pending_publication(&self) -> bool {
+        let Some(pty) = self.as_pty() else { return false };
+        if pty.directory_pending.load(Ordering::Acquire) {
+            return true;
+        }
+        let records = {
+            let metadata =
+                pty.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if metadata.has_publication_change() {
+                return true;
+            }
+            metadata.program_status()
+        };
+        let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        records.has_pending(!self.is_dead())
+    }
+
+    /// The queued publication ([`Self::post_pending_publications`]), on the
+    /// work lane: the next change queues another.
+    pub(crate) fn publish_posted_publications(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        pty.publication_posted.store(false, Ordering::Release);
+        self.publish_pending_directory();
+        self.publish_pending_progress();
+    }
+
     /// Raw VT state is only a candidate. Public state changes after its ordered commit.
     pub(crate) fn published_directory(&self) -> Option<String> {
         self.as_pty().and_then(|pty| match &*pty.published_directory.lock().unwrap() {

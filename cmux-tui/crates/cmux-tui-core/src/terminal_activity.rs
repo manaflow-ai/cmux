@@ -215,18 +215,27 @@ impl ShellActivity {
         self.published_output_ms = previous.published_output_ms;
     }
 
+    /// Whether [`Self::take_change`] would report a change, without taking it.
+    pub(crate) fn has_change(&self) -> bool {
+        let current = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
+        current != self.published || self.output_moved()
+    }
+
+    fn output_moved(&self) -> bool {
+        match (self.last_output_ms, self.published_output_ms) {
+            (Some(last), Some(published)) => {
+                last < published || last - published >= OUTPUT_PUBLISH_INTERVAL_MS
+            }
+            (last, published) => last != published,
+        }
+    }
+
     /// Whether the command or prompt fact changed, or the last output moved
     /// a whole interval past the one published, since the last call (marks
     /// it taken).
     pub(crate) fn take_change(&mut self) -> bool {
         let current = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
-        let output_moved = match (self.last_output_ms, self.published_output_ms) {
-            (Some(last), Some(published)) => {
-                last < published || last - published >= OUTPUT_PUBLISH_INTERVAL_MS
-            }
-            (last, published) => last != published,
-        };
-        let changed = current != self.published || output_moved;
+        let changed = current != self.published || self.output_moved();
         if changed {
             self.published = current;
             self.published_output_ms = self.last_output_ms;
