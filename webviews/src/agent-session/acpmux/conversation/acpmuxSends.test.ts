@@ -3,7 +3,7 @@
 // command line as a shell reads it, through the wrappers agents put around it.
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
-import { acpmuxSend, acpmuxSendCall, shellCommands } from "./acpmuxSends";
+import { acpmuxSend, acpmuxSendCall, recordedMessageBodyChanges, shellCommands } from "./acpmuxSends";
 import { sendLabel } from "../inspector/processes";
 import type { Translate } from "../i18n";
 
@@ -111,7 +111,7 @@ describe("acpmuxSend", () => {
     // still counted as other work, and a later unrelated command cannot provide its body.
     expect(
       read("cat > /tmp/message.md <<'EOF'\n# Review\n\n- pass\nEOF\nacpmux send --no-wait lane - < /tmp/message.md"),
-    ).toEqual({ target: "lane", text: "# Review\n\n- pass\n", noWait: true, others: 1 });
+    ).toEqual({ target: "lane", noWait: true, others: 1 });
     expect(read("acpmux send lane - < /tmp/message.md")).toEqual({ target: "lane", noWait: false });
     // The last stdin redirect wins; a writer whose stdout goes elsewhere feeds nothing.
     expect(read("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({ target: "lane", noWait: false });
@@ -267,6 +267,51 @@ describe("acpmuxSend", () => {
     expect(shellCommands(docs)).toHaveLength(5001);
     expect(performance.now() - started).toBeLessThan(1000);
   });
+
+  test("recorded message producers fail closed around control flow and path mutators", () => {
+    expect(recordedMessageBodyChanges("true || cat > /tmp/message <<'EOF'\nskipped\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("mv /tmp/other /tmp/message")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat 2> /tmp/message <<'EOF'\nnot stdout\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat >> /tmp/message <<'EOF'\nappend\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat <> /tmp/message <<'EOF'\nread-write\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat > \"$MESSAGE\" <<'EOF'\ndynamic\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cd /tmp")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges('python3 -c \'open("/tmp/message", "w").write("new")\'')).toEqual([
+      { reset: true },
+    ]);
+    expect(recordedMessageBodyChanges("cat > /tmp/message 3<<'EOF'\nwrong fd\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat > /tmp/message <<EOF\nunquoted\nEOF")).toEqual([{ reset: true }]);
+    expect(read("cat > /tmp/message >> /tmp/other <<'EOF'\nambiguous\nEOF\nacpmux send lane - < /tmp/message")).toEqual(
+      {
+        target: "lane",
+        noWait: false,
+        others: 1,
+      },
+    );
+    expect(read("cat > /tmp/message 1>&2 <<'EOF'\nredirected\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+    expect(read("cat > /tmp/message 2> /tmp/other <<'EOF'\nstderr\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+    expect(
+      read("cat > /tmp/message <<'EOF'\nOLD\nEOF\nprintf NEW > /tmp/message\nacpmux send lane - < /tmp/message"),
+    ).toEqual({ target: "lane", noWait: false, others: 2 });
+    expect(read("cat > /tmp/message > /dev/null <<'EOF'\nSHADOWED\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+    expect(read("true || cat > /tmp/message <<'EOF'\nSKIPPED\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+  });
 });
 
 describe("whose exit status the call reports", () => {
@@ -319,6 +364,7 @@ describe("shellCommands", () => {
       op: "",
       writes: true,
       writeFile: { text: "out", literal: true },
+      redirectWrites: 1,
       stdout: true,
     });
   });

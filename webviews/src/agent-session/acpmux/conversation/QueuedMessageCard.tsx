@@ -61,7 +61,7 @@ export function QueuedMessageCard({
   );
   const menu = (
     <MessageActionRow className="cv-received-actions cv-received__queued-actions">
-      <MessageCopy text={text} />
+      <MessageCopy text={message.text} />
       <Menu onOpenChange={(open) => open && setOpened((count) => count + 1)}>
         <MenuButton
           className="cv-iconbtn cv-iconbtn--compact"

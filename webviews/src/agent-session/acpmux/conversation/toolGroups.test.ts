@@ -123,6 +123,22 @@ test("a later Bash send resolves only a prior same-turn recorded message write",
   if (standalone?.type === "send") expect(standalone.send.text).toBeUndefined();
 });
 
+test("producer cache remains bounded across many completed writer replays", () => {
+  resetRecordedMessageBodyCacheForTests();
+  const rows = Array.from({ length: 65 }, (_, index) =>
+    item({
+      title: "Bash",
+      kind: "execute",
+      command: `cat > /tmp/message-${index}.md <<'EOF'\nbody ${index}\nEOF`,
+    }),
+  );
+  toolGroups(rows);
+  expect(recordedMessageBodyParseCountForTests()).toBe(65);
+  toolGroups(rows.slice(1));
+  // WeakMap parsing by immutable tool object keeps all unchanged revisions from replaying.
+  expect(recordedMessageBodyParseCountForTests()).toBe(65);
+});
+
 test("unchanged streamed tool revisions reuse the bounded body parser cache", () => {
   resetRecordedMessageBodyCacheForTests();
   const writer = item({
@@ -145,6 +161,22 @@ test("unchanged streamed tool revisions reuse the bounded body parser cache", ()
   expect(recordedMessageBodyParseCountForTests()).toBe(3);
   // A same-id command revision is a new cache key, so stale content cannot survive an overwrite.
   const changedWriter = { ...writer, tool: { ...writer.tool!, command: "echo replacement > /tmp/review.md" } };
-  toolGroups([changedWriter, send]);
+  const changed = toolGroups([changedWriter, send]);
   expect(recordedMessageBodyParseCountForTests()).toBe(4);
+  const changedSend = changed.find((entry) => entry.type === "send");
+  expect(changedSend?.type).toBe("send");
+  if (changedSend?.type === "send") expect(changedSend.send.text).toBeUndefined();
+
+  const skippedWriter = {
+    ...writer,
+    tool: { ...writer.tool!, command: "true || cat > /tmp/review.md <<'EOF'\nskipped\nEOF" },
+  };
+  const skipped = toolGroups([writer, skippedWriter, send]).find((entry) => entry.type === "send");
+  expect(skipped?.type).toBe("send");
+  if (skipped?.type === "send") expect(skipped.send.text).toBeUndefined();
+
+  const failedWriter = { ...writer, tool: { ...writer.tool!, status: "failed" } };
+  const failed = toolGroups([writer, failedWriter, send]).find((entry) => entry.type === "send");
+  expect(failed?.type).toBe("send");
+  if (failed?.type === "send") expect(failed.send.text).toBeUndefined();
 });

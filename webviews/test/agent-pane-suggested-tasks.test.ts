@@ -566,16 +566,17 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      // One line at the left with the sender's chip, and the message under it as its card, the
-      // sender's words only.
+      // Closed messages stay a single sender line with the sender's words only. The Markdown body
+      // is mounted only after the reader opens the line.
       expect(await card.locator(".cv-received__name").innerText()).toBe("Grid fix");
-      expect(await card.locator(".cv-received__body").innerText()).toBe(
+      expect(await card.locator(".cv-received__preview").innerText()).toContain(
         "The grid fix is on cmux/grid-fix; tests pass.",
       );
+      expect(await card.locator(".cv-received__body").count()).toBe(0);
       expect(await card.getByRole("button", { name: "Details" }).count()).toBe(0);
       expect(await page.locator(".cv-user__bubble").filter({ hasText: "The grid fix is on" }).count()).toBe(0);
-      // Opened, the prompt as the agent got it (cmux's envelope, message id and note) waits behind
-      // Details.
+      // Opened, the full Markdown body appears and the prompt as the agent got it (cmux's envelope,
+      // message id and note) waits behind Details.
       await card.getByRole("button", { name: /Message from Grid fix/ }).click();
       await card
         .locator(".cv-received__body")
@@ -592,7 +593,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await page.close();
     });
 
-    test("a long message's card shows its first six lines; the chevron or a click opens it whole", async () => {
+    test("a long message starts as one line; the chevron opens and closes its whole Markdown", async () => {
       const text = Array.from({ length: 20 }, (_, i) => `Step ${i + 1} of the landing report.`).join("\n\n");
       const page = await openChat({
         offered: [],
@@ -608,30 +609,23 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       const body = card.locator(".cv-received__body");
-      await page.waitForFunction(() => document.querySelector(".cv-received__body[data-cut]"), undefined, {
-        timeout: 5_000,
-      });
-      const lineHeight = await body.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
-      const cutHeight = await card.locator(".cv-received__text").evaluate((el) => el.clientHeight);
-      expect(Math.abs(cutHeight - 6 * lineHeight)).toBeLessThanOrEqual(1);
+      await card.locator(".cv-received__preview").waitFor({ timeout: 5_000 });
+      expect(await body.count()).toBe(0);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-      // A click on the cut card opens it whole.
-      await body.click();
-      await page.waitForFunction(() => !document.querySelector(".cv-received__body[data-cut]"), undefined, {
-        timeout: 5_000,
-      });
+      // The line opens the whole Markdown body in place.
+      await toggle.click();
+      await body.waitFor({ timeout: 5_000 });
       expect(await toggle.getAttribute("aria-expanded")).toBe("true");
-      // It slides open to its whole height (fold.ts playResize): read it once the slide is over.
+      // It slides open to the whole text (useAnchoredCollapse): read it once the slide is over.
       await card
         .locator(".cv-received__text")
         .evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)));
-      expect(await card.locator(".cv-received__text").evaluate((el) => el.clientHeight)).toBeGreaterThan(cutHeight * 2);
-      // The chevron cuts it again.
+      expect(await card.locator(".cv-received__text").evaluate((el) => el.clientHeight)).toBeGreaterThan(200);
+      // The chevron closes it back to the one-line strip.
       await toggle.click();
-      await page.waitForFunction(() => document.querySelector(".cv-received__body[data-cut]"), undefined, {
-        timeout: 5_000,
-      });
+      await body.waitFor({ state: "detached", timeout: 5_000 });
+      expect(await toggle.getAttribute("aria-expanded")).toBe("false");
       await page.close();
     });
 
@@ -1043,6 +1037,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
+      expect(await card.locator(".cv-message__images").count()).toBe(0);
+      await card.locator(".cv-received__toggle").click();
       expect(await card.locator(".cv-message__images").count()).toBe(1);
       // No read receipt or "Steered" line: a message to the agent is the agent's to read.
       expect(await page.locator(".cv-incoming .cv-user__read, .cv-incoming .cv-user__steer").count()).toBe(0);
