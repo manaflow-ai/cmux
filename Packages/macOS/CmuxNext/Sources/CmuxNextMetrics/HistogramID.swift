@@ -128,7 +128,9 @@ public enum HistogramID: Sendable, Hashable {
     case stabilityChildExit(ProcessKind)
     /// A daemon that stopped answering, by the class of its last request (`MethodClass` position; task 109).
     case daemonUnresponsive
-    /// Main-thread blocking violations per launch, Nightly with the blocking checks only (task 089).
+    /// Main-thread blocking violations: one sample of 1 per new main-thread call site the blocking detector's drain
+    /// hands the hang report sink, so with `stability.launch` the sites per launch. Debug and the Nightly built with
+    /// `CMUX_BLOCKING_CHECKS` only (task 089).
     case blockingViolations
 }
 

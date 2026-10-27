@@ -36,6 +36,7 @@ struct HangReportsUnsafeSitesTests {
         #expect(resolver.image(uuid: "00000000-0000-0000-0000-000000000000") == nil)
     }
 
+    #if DEBUG || CMUX_BLOCKING_CHECKS
     @Test func theSiteIdIsTheFNV1aHashOfTheKindContextAndFrameBytes() throws {
         let first = try #require(UUID(uuidString: "00112233-4455-6677-8899-AABBCCDDEEFF"))
         let second = try #require(UUID(uuidString: "F0E1D2C3-B4A5-9687-7869-5A4B3C2D1E0F"))
@@ -46,6 +47,7 @@ struct HangReportsUnsafeSitesTests {
         // FNV-1a 64 over "file-io", 0, "main", then per frame its 16 UUID bytes and 8 little-endian offset bytes.
         #expect(BlockingReportBudget.site(of: violation) == "b2060c4f36c9f201")
     }
+    #endif
 
     /// sysctlbyname reads `hw.machine`: every supported Mac is arm64 or x86_64, so `other` means the read failed.
     @Test func theHardwareClassReadsTheArchitectureBySysctl() {

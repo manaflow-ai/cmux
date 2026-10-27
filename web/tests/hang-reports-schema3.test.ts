@@ -129,6 +129,7 @@ describe("POST /api/hang-reports schema 3", () => {
     ["hang-report-schema3-field-data.json", GOLDEN_REPORT_ID],
     ["hang-report-schema3-main-thread.json", GOLDEN_REPORT_ID],
     ["hang-report-schema3-blocking.json", GOLDEN_REPORT_ID],
+    ["hang-report-schema3-blocking-list.json", GOLDEN_REPORT_ID],
   ] as const) {
     test(`answers 204 for the client's golden ${name}`, async () => {
       const response = await POST(request(fixtureText(name)));
@@ -164,6 +165,33 @@ describe("POST /api/hang-reports schema 3", () => {
       .replace("\"hangs\":[", `"hangs":[${literal("blockingSample") ?? ""},`)
       .replace("\"schema\":2", "\"schema\":3");
     expect(golden3).toBe(fixtureText("hang-report-schema3-blocking.json"));
+    const blockingList = (literal("golden") ?? "")
+      .replace(",\"counts\":", `,"blocking":[${literal("blockingSample") ?? ""}],"counts":`)
+      .replace("\"schema\":2", "\"schema\":3");
+    expect(blockingList).toBe(fixtureText("hang-report-schema3-blocking-list.json"));
+  });
+
+  test("stores schema 3's blocking[] sites, drops and counts an unknown kind, refuses more than 32 or a timed one", async () => {
+    const golden = (): Mutable & { blocking: Hang[] } =>
+      JSON.parse(fixtureText("hang-report-schema3-blocking-list.json")) as Mutable & { blocking: Hang[] };
+    const report = golden();
+    report.blocking.push({ ...report.blocking[0]!, blocking: { kind: "gpu-wait", context: "main" } });
+    expect((await POST(request(report))).status).toBe(204);
+    const payload = storedPayload(GOLDEN_REPORT_ID) ?? {};
+    expect(payload.blocking).toEqual([golden().blocking[0]]);
+    expect((payload.dropped as { labels: number }).labels).toBe(1);
+
+    const tooMany = golden();
+    tooMany.reportId = REPORT_ID;
+    tooMany.blocking = Array.from({ length: 33 }, () => tooMany.blocking[0]!);
+    expect((await POST(request(tooMany))).status).toBe(400);
+    for (const bad of [{ durationMs: 5 }, { source: "watchdog" }, { kind: "hang" }, { cpuMs: 1 }, { task: { class: "input", owner: "X" } }]) {
+      const timed = golden();
+      timed.reportId = REPORT_ID;
+      timed.blocking = [{ ...timed.blocking[0]!, ...bad }];
+      expect((await POST(request(timed))).status).toBe(400);
+    }
+    expect(storedPayload()).toBeUndefined();
   });
 
   test("answers 204 and drops and counts unknown histogram names, Chromium ones too, and stability names", async () => {

@@ -27,12 +27,47 @@ struct HangReportWireFormatTests {
         #expect(HangReportSignposts.categories == ["action", "motion", "key", "switch", "create", "cef", "launch"])
     }
 
-    /// One detector sample, as schema 3 writes it (first in `hangs`).
+    /// One detector sample, as schema 3 writes it in `blocking[]` (and an earlier build first in `hangs`).
     static let blockingSample = #"{"blocking":{"context":"main","kind":"file-io"},"durationMs":0,"frames":[{"image":"cmux NEXT Nightly","offset":768,"uuid":"3F0C9E43-7A61-3C8E-9C1A-2B7F5D0E9A11"},{"image":"other"}],"kind":"blocking","source":"detector"}"#
 
-    /// Schema 3: schema 2's golden with a blocking sample (hang-reports-DESIGN.md section 4).
+    /// Schema 3 as an earlier build wrote it: schema 2's golden with a blocking sample first in `hangs`
+    /// (hang-reports-DESIGN.md section 4). A queued report of that build still decodes, and the server accepts it.
     static let golden3 = golden.replacingOccurrences(of: #""hangs":["#, with: #""hangs":["# + blockingSample + ",")
         .replacingOccurrences(of: #""schema":2"#, with: #""schema":3"#)
+
+    /// Schema 3 with the blocking sites in their own `blocking[]` (p09-observability-089): schema 2's golden with
+    /// one site. The bytes of web/tests/fixtures/hang-report-schema3-blocking-list.json.
+    static let golden3BlockingList = golden.replacingOccurrences(of: #","counts":"#, with: #","blocking":["# + blockingSample + #"],"counts":"#)
+        .replacingOccurrences(of: #""schema":2"#, with: #""schema":3"#)
+
+    @Test func theSchema3BlockingListRoundTripsToTheSameBytesAndPassesTheServerRules() throws {
+        let report = try JSONDecoder().decode(HangReport.self, from: Data(Self.golden3BlockingList.utf8))
+        let encoded = try HangReport.encoder.encode(report)
+
+        #expect(report.blocking?.compactMap(\.blocking) == [HangSample.Blocking(kind: .fileIO, context: .main)])
+        #expect(report.hangs.allSatisfy { $0.kind != .blocking })
+        #expect(String(decoding: encoded, as: UTF8.self) == Self.golden3BlockingList)
+        #expect(HangReportServerRules.violations(in: encoded).isEmpty)
+        #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: encoded).isEmpty)
+        // Schema 2 has no `blocking[]`: the deployed server would refuse the whole report.
+        let inSchema2 = Self.golden3BlockingList.replacingOccurrences(of: #""schema":3"#, with: #""schema":2"#)
+        #expect(HangReportServerRules.violations(in: Data(inSchema2.utf8)) == ["report.blocking is not accepted"])
+    }
+
+    @Test func theBuilderWritesTheBlockingSitesInTheirOwnListAndSchema2WritesNone() throws {
+        var aggregate = StallAggregate()
+        aggregate.keep(HangSample(source: .watchdog, kind: .stall, durationMs: 400, frames: [.other]))
+        aggregate.keep(.blockingSite(HangSample.Blocking(kind: .fileIO, context: .main), frames: [.other]))
+        let v3 = HangReportFixtures.builder(wireSchema: .v3).build(context: HangReportFixtures.context(), watchdog: aggregate, metricKit: [])
+        let v2 = HangReportFixtures.builder().build(context: HangReportFixtures.context(), watchdog: aggregate, metricKit: [])
+
+        #expect(v3.hangs.map(\.kind) == [.stall])
+        #expect(v3.blocking?.map(\.kind) == [.blocking])
+        #expect(!v3.hasNoFindings)
+        #expect(HangReportServerRules.violations(in: try HangReport.encoder.encode(v3)).isEmpty)
+        #expect(v2.blocking == nil)
+        #expect(!String(decoding: try HangReport.encoder.encode(v2), as: UTF8.self).contains(#""blocking""#))
+    }
 
     @Test func theSchema3GoldenRoundTripsToTheSameBytes() throws {
         let report = try JSONDecoder().decode(HangReport.self, from: Data(Self.golden3.utf8))

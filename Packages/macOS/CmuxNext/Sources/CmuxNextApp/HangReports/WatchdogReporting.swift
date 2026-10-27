@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHangReports
+import CmuxNextMetrics
 import CmuxNextTrace
 import CmuxNextWakeups
 
@@ -38,16 +39,17 @@ enum WatchdogReporting {
                 HangReport.FeatureState(features.fieldState)
             })
         let collector = hangReports.collector
+        #if DEBUG || CMUX_BLOCKING_CHECKS
         // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before
         // the sink: both are drain-queue jobs in call order, so the replay below runs inside the watch.
-        if services.blocking.isCompiledIn {
-            let drain = HangWatchedLane("blocking.drain", deadline: BlockingDetector.drainHangDeadline, on: TraceRuntime.shared.hangWatch)
-            services.blocking.watchDrain { job in drain.run(job) }
-        }
-        // Replays the sites the detector recorded before this point (BlockingDetector.install).
-        services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
+        let drain = HangWatchedLane("blocking.drain", deadline: BlockingDetector.drainHangDeadline, on: TraceRuntime.shared.hangWatch)
+        services.blocking.watchDrain { job in drain.run(job) }
+        // Replays the sites the detector recorded before this point (BlockingDetector.install). Only a build with the
+        // detector (Debug, the Nightly's CMUX_BLOCKING_CHECKS) has the sink (p09-observability-089).
+        services.blocking.install(sink: BlockingReportSink(collector: collector, metrics: Metrics(), nonFatal: .init(
             consented: { reporter.isStarted },
             send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) })))
+        #endif
         watchdog.onHang = { hang in
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
                                 phase: hang.phase, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))

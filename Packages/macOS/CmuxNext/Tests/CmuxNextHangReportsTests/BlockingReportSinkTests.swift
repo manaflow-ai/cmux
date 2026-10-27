@@ -1,11 +1,14 @@
+#if DEBUG || CMUX_BLOCKING_CHECKS
 import CmuxNextCompat
 @testable import CmuxNextHangReports
+import CmuxNextMetrics
 import Foundation
 import Testing
 
 /// The blocking detector's sink (p02-threads-008): every site to the hang report collector; to crash
 /// reporting only with consent, at most 5 per launch and 1 per site per 24 h, the last-sent times
-/// saved for the next launch; the event names no path.
+/// saved for the next launch; the event names no path; each main-thread site is one `blocking.violations` sample
+/// (p09-observability-089). Compiled with the sink only (Debug and `CMUX_BLOCKING_CHECKS`).
 struct BlockingReportSinkTests {
     private static let image = UUID(uuidString: HangReportFixtures.appUUID) ?? UUID()
     private static let now = Date(timeIntervalSince1970: 2_000_000_000)
@@ -14,11 +17,13 @@ struct BlockingReportSinkTests {
         BlockingViolation(kind: .fileIO, frames: [BlockingFrame(imageUUID: image, offset: offset)])
     }
 
-    private static func sink(consented: Bool, lastSent: [String: Date] = [:]) -> (BlockingReportSink, BlockingSinkRecorder) {
+    private static func sink(consented: Bool, lastSent: [String: Date] = [:],
+                             metrics: Metrics? = nil) -> (BlockingReportSink, BlockingSinkRecorder) {
         let recorder = BlockingSinkRecorder()
         let at = now
         let sink = BlockingReportSink(
             collector: recorder.collector,
+            metrics: metrics,
             nonFatal: BlockingReportSink.NonFatal(consented: { consented }, send: { recorder.send($0) }),
             store: BlockingReportSink.LastSentStore(load: { lastSent }, save: { recorder.save($0) }),
             now: { at })
@@ -66,6 +71,19 @@ struct BlockingReportSinkTests {
         #expect(event.fingerprint.first == "main-thread-blocking")
     }
 
+    /// `blocking.violations`: one sample of 1 per new main-thread site, with or without consent; a pool site counts none.
+    @Test func eachMainThreadSiteIsOneBlockingViolationsSample() throws {
+        let (store, metrics) = HangReportWireFormatTests.metrics([.blockingViolations])
+        let (sink, _) = Self.sink(consented: false, metrics: metrics)
+        sink.record(Self.violation(1))
+        sink.record(Self.violation(2))
+        sink.record(BlockingViolation(kind: .fileIO, context: .pool, frames: [BlockingFrame(imageUUID: Self.image, offset: 3)]))
+
+        let violations = try #require(store.delta().histograms.first { $0.name == HistogramID.blockingViolations.name })
+        #expect(violations.count == 2)
+        #expect(violations.sum == 2)
+    }
+
     /// A pool thread's site (p02-threads-005's context) is reported as one, in the sample and the event.
     @Test func aPoolSiteIsTaggedPool() throws {
         let (sink, recorder) = Self.sink(consented: true)
@@ -103,3 +121,4 @@ private final class BlockingSinkRecorder: Sendable {
         saves.withLock { $0.append(times) }
     }
 }
+#endif

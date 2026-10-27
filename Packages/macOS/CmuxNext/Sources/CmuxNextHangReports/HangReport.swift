@@ -1,8 +1,8 @@
 public import Foundation
 
 /// One opt-in hang report, wire schema 2 (plans/cmux-next/hang-reports-DESIGN.md section 4), or
-/// schema 3 with ``launches``, the input latency fields and the blocking detector's samples once the
-/// server accepts it (``WireSchema``).
+/// schema 3 with ``launches``, the input latency fields and the blocking detector's call sites
+/// (``blocking``) once the server accepts it (``WireSchema``).
 ///
 /// Every field is a closed set: enums, bucket labels, version numbers, durations, counts and
 /// ``HangReportFrame`` values whose names passed ``ImageClassifier``. ``HangReportBuilder`` is the only
@@ -23,9 +23,10 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// older NIGHTLY queued is refused (and dropped from its outbox) once the endpoint opens.
         case v2 = 2
         /// Schema 2 plus ``HangReport/launches``, the input latency fields and the blocking
-        /// detector's call sites: `hangs[]` may hold
-        /// `{"source": "detector", "kind": "blocking", "durationMs": 0, "blocking": {"kind", "context"}}`
-        /// samples (``HangSample/blockingSite(_:frames:)``). The server refuses unknown keys and
+        /// detector's call sites in their own ``HangReport/blocking`` list (at most ``HangReport/maxBlocking``
+        /// `{"source": "detector", "kind": "blocking", "durationMs": 0, "blocking": {"kind", "context"}, "frames"}`
+        /// samples, ``HangSample/blockingSite(_:frames:)``; p09-observability-089). A report an earlier build queued
+        /// may still hold such samples in `hangs[]`, which the server also accepts. The server refuses unknown keys and
         /// other schema numbers, so a build writes it only after the server accepts it
         /// (p09-observability-064 deployed, behind p09-observability-063's server-version flag;
         /// tasks p08-startup-115, p04-input-103 and p04-input-104), and the field data: `histograms[]`,
@@ -51,7 +52,7 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// Whether a report in this schema carries ``HangReport/inputLatency`` and
         /// ``HangReport/scrollJank``.
         public var carriesInputLatency: Bool { self == .v3 }
-        /// Whether a report in this schema has blocking samples.
+        /// Whether a report in this schema has the blocking detector's call sites (``HangReport/blocking``).
         public var carriesBlocking: Bool { self == .v3 }
         /// Whether a report in this schema carries ``CoarseCounts/userBlockingWaitP99Ms`` (p02-threads-123; the
         /// schema-3 decoder must list the key before a build sends schema 3).
@@ -80,6 +81,8 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public static let schemaVersion = WireSchema.deployed.rawValue
     /// The most hangs and stalls one report carries.
     public static let maxHangs = 20
+    /// The most blocking detector call sites one report carries (``blocking``).
+    public static let maxBlocking = StallAggregate.maxBlockingSamples
     /// The most CPU exceptions one report carries.
     public static let maxCPUExceptions = 5
     /// The most signpost intervals one report carries.
@@ -203,10 +206,14 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var hardware: HardwareClass
     /// Rounded counts of what was open.
     public var counts: CoarseCounts
-    /// MetricKit hangs and the watchdog's hangs and stalls, longest first; in schema 3, the
-    /// detector's blocking samples (no duration) come before them, so the body cap
-    /// (``HangReportService``'s `fitted`, which drops from the end) takes the shortest stall first.
+    /// MetricKit hangs and the watchdog's hangs and stalls, longest first (in schema 3, also the hang watch's
+    /// hangs of other threads).
     public var hangs: [HangSample] = []
+    /// The blocking detector's call sites since the last report, first seen first, each once (at most
+    /// ``maxBlocking``): its ``HangSample/Kind/blocking`` samples, the kind, the context and image UUID + offset
+    /// frames only. Schema 3 only; nil, and so absent from the JSON, in schema 2, in a build without the detector
+    /// (Debug and the Nightly `CMUX_BLOCKING_CHECKS` builds have it) and when no site blocked.
+    public var blocking: [HangSample]?
     /// MetricKit CPU exceptions, heaviest first.
     public var cpuExceptions: [CPUExceptionSample] = []
     /// The watchdog's finished stalls by duration (``StallAggregate/bucketEdgesMs``).
@@ -262,11 +269,11 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         self.counts = counts
     }
 
-    /// Whether the report says nothing about performance (no hang, stall, metric, interval, launch,
+    /// Whether the report says nothing about performance (no hang, stall, blocking site, metric, interval, launch,
     /// input latency or active second: active time without a hang is the rate's denominator).
     public var hasNoFindings: Bool {
-        hangs.isEmpty && cpuExceptions.isEmpty && stallHistogram.allSatisfy { $0.count == 0 } && metrics.isEmpty
-            && intervals.isEmpty && (launches?.isEmpty ?? true) && !hasInputLatency && (activeSeconds ?? 0) == 0
+        hangs.isEmpty && (blocking ?? []).isEmpty && cpuExceptions.isEmpty && stallHistogram.allSatisfy { $0.count == 0 }
+            && metrics.isEmpty && intervals.isEmpty && (launches?.isEmpty ?? true) && !hasInputLatency && (activeSeconds ?? 0) == 0
             && !hasFieldData
     }
 
@@ -285,7 +292,7 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     /// use the snake_case names `debug.input` and the trace tools share (p04-input.md, DC12), and
     /// `active_seconds` follows them.
     private enum CodingKeys: String, CodingKey {
-        case schema, reportId, installId, day, app, os, hardware, counts, hangs, cpuExceptions, stallHistogram
+        case schema, reportId, installId, day, app, os, hardware, counts, hangs, blocking, cpuExceptions, stallHistogram
         case metrics, intervals, launches
         case inputLatencyBucketEdgesMs = "input_latency_bucket_edges_ms"
         case inputLatency = "input_latency"

@@ -14,6 +14,8 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     public static let hangMs = 2_000
     /// The most stall stacks and hang stacks kept per report.
     public static let maxSamples = 8
+    /// The most blocking detector call sites kept per report (schema 3's `blocking[]`, p09-observability-089).
+    public static let maxBlockingSamples = 32
 
     /// One count per bucket of ``bucketEdgesMs``.
     public private(set) var counts: [Int] = Array(repeating: 0, count: StallAggregate.bucketEdgesMs.count)
@@ -27,7 +29,7 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     public private(set) var threadHangs: [HangSample] = []
     /// The launches that reached `startup_complete`.
     public private(set) var launches = LaunchAggregate()
-    /// The blocking detector's call sites, first seen first, each once (at most ``maxSamples``).
+    /// The blocking detector's call sites, first seen first, each once (at most ``maxBlockingSamples``).
     public private(set) var blocking: [HangSample] = []
 
     private enum CodingKeys: String, CodingKey {
@@ -110,7 +112,7 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
 
     /// Whether a blocking sample of this site would be kept (it is new and there is room).
     public func wantsBlockingSample(_ sample: HangSample) -> Bool {
-        blocking.count < Self.maxSamples && !blocking.contains(sample)
+        blocking.count < Self.maxBlockingSamples && !blocking.contains(sample)
     }
 
     /// Forgets the blocking samples (a saved aggregate a build without them reads).

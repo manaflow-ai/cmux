@@ -14,13 +14,15 @@ struct HangReportServerRules {
         "stallHistogram", "metrics", "intervals",
     ]
     /// Schema 3's top-level additions: the launches, the input latency fields, the field data
-    /// (p09-observability-063; the decoder of p09-observability-064 lists them) and the launch's features
-    /// (p12-perf-process-151).
+    /// (p09-observability-063; the decoder of p09-observability-064 lists them), the launch's features
+    /// (p12-perf-process-151) and the blocking detector's sites (p09-observability-089, `blocking[]`).
     static let schema3TopLevelKeys: Set<String> = [
-        "launches", "input_latency_bucket_edges_ms", "input_latency", "scroll_jank",
+        "blocking", "launches", "input_latency_bucket_edges_ms", "input_latency", "scroll_jank",
         "histograms", "stability", "blackbox", "launch_sections", "features_hash", "features",
     ]
     static let hangKeys: Set<String> = ["source", "kind", "durationMs", "cpuMs", "frames"]
+    /// The most entries of schema 3's `blocking[]` (wireSchema.ts `MAX_BLOCKING_SITES`).
+    static let maxBlockingSites = 32
     static let frameKeys: Set<String> = ["image", "uuid", "offset"]
 
     /// What the server accepts in `hangs[]` for one schema.
@@ -62,6 +64,15 @@ struct HangReportServerRules {
                               at: "report")
         for (index, hang) in ((report["hangs"] as? [[String: Any]]) ?? []).enumerated() {
             found += hangViolations(hang, rules: rules, at: "hangs[\(index)]")
+        }
+        // Schema 3's `blocking[]`: at most 32 detector samples (wireSchema.ts `BlockingSite`).
+        let sites = (report["blocking"] as? [[String: Any]]) ?? []
+        if sites.count > maxBlockingSites { found.append("blocking has \(sites.count) sites") }
+        for (index, site) in sites.enumerated() {
+            let path = "blocking[\(index)]"
+            found += hangViolations(site, rules: rules, at: path)
+            if site["source"] as? String != "detector" { found.append("\(path) is not a detector sample") }
+            if site["cpuMs"] != nil { found.append("\(path).cpuMs is not accepted") }
         }
         return found
     }

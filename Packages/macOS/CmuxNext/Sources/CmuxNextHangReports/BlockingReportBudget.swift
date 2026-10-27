@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BLOCKING_CHECKS
 public import CmuxNextCompat
 public import Foundation
 
@@ -6,7 +7,7 @@ public import Foundation
 /// across launches, plans/cmux-next/chrome-parity/p02-threads.md "Sentry volume and consent").
 ///
 /// A pure value: the app's `BlockingReportSink` holds one, loads ``lastSent`` once and saves it
-/// after each admitted site.
+/// after each admitted site. Compiled only with the sink (Debug and `CMUX_BLOCKING_CHECKS` builds).
 ///
 /// ```swift
 /// var budget = BlockingReportBudget(lastSent: saved)
@@ -67,3 +68,4 @@ public nonisolated struct BlockingReportBudget: Sendable, Equatable {
         return age >= 0 && age < perSiteInterval
     }
 }
+#endif

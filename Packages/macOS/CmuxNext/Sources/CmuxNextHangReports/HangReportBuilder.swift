@@ -51,7 +51,7 @@ public nonisolated struct HangReportBuilder: Sendable {
     /// Finds the loaded image of an address or UUID.
     public let resolver: any ImageResolving
     /// The schema every report is written in; ``HangReportService`` sends only queued reports in it,
-    /// and blocking samples, launches and input latency go into a report only when it carries them.
+    /// and blocking sites, launches and input latency go into a report only when it carries them.
     public let wireSchema: HangReport.WireSchema
     private let reader = CallStackTreeReader()
 
@@ -78,19 +78,19 @@ public nonisolated struct HangReportBuilder: Sendable {
         let metricKitHangs = metricKit.flatMap(\.hangs).map { hang in
             HangSample(source: .metrickit, kind: .hang, durationMs: hang.durationMs, frames: frames(hang.callStackTree))
         }
-        // Blocking samples have no duration: they take their own slots first, so neither the
-        // longest-first cut nor the body cap (which drops from the end) pushes them out.
-        let blocking = wireSchema.carriesBlocking ? Array(watchdog.blocking.prefix(StallAggregate.maxSamples)) : []
         // A watched thread's hang goes only in a schema that carries them, and only with its thread; no other sample names one.
         let threadHangs = wireSchema.carriesThreadHangs ? watchdog.threadHangs.filter { $0.thread != nil } : []
         let hangs = watchdog.hangs.filter { $0.source != .hangWatch }
         let timed = (metricKitHangs + hangs + threadHangs + watchdog.stalls).sorted { $0.durationMs > $1.durationMs }
-        report.hangs = (blocking + Array(timed.prefix(HangReport.maxHangs - blocking.count))).map { sample in
+        report.hangs = timed.prefix(HangReport.maxHangs).map { sample in
             var sample = sample
             sample.mainTask = wireSchema.carriesTaskAttribution ? sample.mainTask.map(Self.safeTask) : nil
             if sample.source != .hangWatch { sample.thread = nil }
             return sample
         }
+        // The detector's call sites have no duration: they go in their own list, so no hang or stall competes
+        // with them for a slot (p09-observability-089).
+        report.blocking = wireSchema.carriesBlocking ? Self.blockingSites(watchdog.blocking) : nil
         report.cpuExceptions = Array(metricKit.flatMap(\.cpuExceptions).sorted { $0.cpuMs > $1.cpuMs }
             .prefix(HangReport.maxCPUExceptions)
             .map { CPUExceptionSample(cpuMs: $0.cpuMs, sampledMs: $0.sampledMs, frames: frames($0.callStackTree)) })
@@ -104,6 +104,17 @@ public nonisolated struct HangReportBuilder: Sendable {
         if let fieldData, wireSchema.carriesFieldData { Self.addFieldData(fieldData, to: &report) }
         if let features = context.features, wireSchema.carriesFeatures { Self.addFeatures(features, to: &report) }
         return report
+    }
+
+    /// The detector's samples in `recorded` (a pending file is untrusted: any other kind, or one without its
+    /// `blocking` detail, is left out), each named only by its kind, context and frames, at most
+    /// ``HangReport/maxBlocking``; nil when none is left.
+    static func blockingSites(_ recorded: [HangSample]) -> [HangSample]? {
+        let sites = recorded.compactMap { site -> HangSample? in
+            guard site.source == .detector, site.kind == .blocking, let detail = site.blocking else { return nil }
+            return .blockingSite(detail, frames: Array(site.frames.prefix(HangSample.maxFrames)))
+        }.prefix(HangReport.maxBlocking)
+        return sites.isEmpty ? nil : Array(sites)
     }
 
     /// The registry name pattern: a code identifier of letters and digits (`schemas/features/README.md`).

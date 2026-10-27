@@ -1,11 +1,17 @@
+#if DEBUG || CMUX_BLOCKING_CHECKS
 public import CmuxNextCompat
+public import CmuxNextMetrics
 public import Foundation
 
 /// Where the blocking detector's new call sites go (the app's `WatchdogReporting` installs it once):
-/// each site to opt-in hang reports as one ``HangSample/Kind/blocking`` sample (once their wire schema
-/// carries them, ``HangReport/WireSchema/carriesBlocking``), and, only while crash reporting runs (the
+/// each site to opt-in hang reports as one ``HangSample/Kind/blocking`` sample in schema 3's `blocking[]`
+/// (``HangReport/blocking``, once their wire schema carries them, ``HangReport/WireSchema/carriesBlocking``),
+/// each main-thread site as one `blocking.violations` sample, and, only while crash reporting runs (the
 /// person's crash-report consent), to Sentry as one non-fatal ``NonFatalEvent`` within
 /// ``BlockingReportBudget`` (5 per launch, 1 per site per 24 h).
+///
+/// Compiled only where the detector is: Debug, and the Nightly built with `CMUX_BLOCKING_CHECKS`
+/// (p09-observability-089); a build without the flag has no sink, and its detector handle does nothing.
 ///
 /// ``record(_:)`` runs on the detector's drain queue (`com.cmuxterm.app.next.blocking-drain`, utility),
 /// never on the thread that blocked. Nothing it sends holds a path, file name or symbol: the kind, the
@@ -13,7 +19,7 @@ public import Foundation
 /// image UUID + offset frames only.
 ///
 /// ```swift
-/// services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
+/// services.blocking.install(sink: BlockingReportSink(collector: collector, metrics: Metrics(), nonFatal: .init(
 ///     consented: { reporter.isStarted },
 ///     send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) })))
 /// ```
@@ -93,6 +99,7 @@ public final class BlockingReportSink: BlockingViolationSink {
     }
 
     private let collector: HangReportCollector?
+    private let metrics: Metrics?
     private let nonFatal: NonFatal
     private let store: LastSentStore
     private let now: @Sendable () -> Date
@@ -104,12 +111,14 @@ public final class BlockingReportSink: BlockingViolationSink {
     ///
     /// - Parameters:
     ///   - collector: This launch's hang report collector; nil where hang reports never send.
+    ///   - metrics: Where each main-thread site counts one `blocking.violations` sample; nil counts none.
     ///   - nonFatal: The crash-report side.
     ///   - store: Where the last-sent times persist.
     ///   - now: The clock of the 24 h rule.
-    public init(collector: HangReportCollector?, nonFatal: NonFatal, store: LastSentStore = .standardDefaults,
+    public init(collector: HangReportCollector?, metrics: Metrics?, nonFatal: NonFatal, store: LastSentStore = .standardDefaults,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.collector = collector
+        self.metrics = metrics
         self.nonFatal = nonFatal
         self.store = store
         self.now = now
@@ -118,6 +127,8 @@ public final class BlockingReportSink: BlockingViolationSink {
     /// Takes one new site (the detector's drain queue).
     public func record(_ violation: BlockingViolation) {
         collector?.noteBlocking(violation)
+        // One sample of 1 per new main-thread site: with `stability.launch`, the sites per launch.
+        if violation.context == .main { metrics?.record(.blockingViolations, 1) }
         guard nonFatal.consented() else { return }
         let site = BlockingReportBudget.site(of: violation)
         let store = store
@@ -133,3 +144,4 @@ public final class BlockingReportSink: BlockingViolationSink {
         nonFatal.send(NonFatalEvent(violation: violation, site: site))
     }
 }
+#endif

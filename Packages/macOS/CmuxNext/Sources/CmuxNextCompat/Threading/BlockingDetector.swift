@@ -2,8 +2,11 @@
 /// it once with ``forProcess()`` and passes it to what installs the sink (the app's hang reports wiring),
 /// the `debug.blocking` control method and the Debug menu.
 ///
-/// In Debug and bench-checks builds (Nightly to come) it refers to the detector's process-wide table (see
-/// ``blockingCall(_:fileID:line:_:)``); in Release it reads as empty and its calls do nothing.
+/// In Debug, bench-checks and Nightly (nightly-next, built with `-DCMUX_BLOCKING_CHECKS`) builds it refers to the
+/// detector's process-wide table (see ``blockingCall(_:fileID:line:_:)``), and its drain hands each new site (kind,
+/// context, image UUID + offset frames) to the installed sink, which the app points at the hang report collector
+/// (schema 3's `blocking[]`) and `blocking.violations` (p09-observability-089). In a build without the flag it reads
+/// as empty, its calls do nothing, and neither the table nor the hang report sink is compiled.
 ///
 /// ```swift
 /// let blocking = BlockingDetector.forProcess()      // AppServices (the composition root) only
@@ -35,7 +38,7 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Whether this build has the detector (Debug and bench-checks builds; Nightly to come).
+    /// Whether this build has the detector (Debug, bench-checks and nightly-next builds).
     public var isCompiledIn: Bool {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         true
@@ -66,7 +69,7 @@ public struct BlockingDetector: Sendable {
 
     /// Installs the sink that receives each new call site once, on the drain queue (the last call
     /// wins; nil removes it). The sink first gets every site recorded before the call, so the
-    /// launch's sites before the composition root ran are not lost.
+    /// launch's sites before the composition root ran are not lost. Does nothing in a build without the detector.
     public func install(sink: (any BlockingViolationSink)?) {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.install(sink: sink)

@@ -103,9 +103,12 @@ public final class HangReportCollector: Sendable {
         if !on { state.withLock { $0 = State() } }
     }
 
+    #if DEBUG || CMUX_BLOCKING_CHECKS
     /// One new blocking call site (the detector's drain queue, from the app's `BlockingReportSink`):
-    /// kept once as a ``HangSample/Kind/blocking`` sample with its kind, context and frames; a site
-    /// already kept adds nothing, and nothing is kept when the wire schema has no blocking samples.
+    /// kept once as a ``HangSample/Kind/blocking`` sample with its kind, context and image UUID + offset
+    /// frames (schema 3's `blocking[]`, at most ``StallAggregate/maxBlockingSamples``); a site already kept
+    /// adds nothing, and nothing is kept when the wire schema has no blocking sites. Compiled only where the
+    /// detector is (Debug, and the Nightly built with `CMUX_BLOCKING_CHECKS`, p09-observability-089).
     public func noteBlocking(_ violation: BlockingViolation) {
         guard let resolveBlocking, acceptsBlocking else { return }
         let sample = HangSample.blockingSite(HangSample.Blocking(violation), frames: resolveBlocking(violation.frames))
@@ -120,6 +123,7 @@ public final class HangReportCollector: Sendable {
     private var acceptsBlocking: Bool {
         isEnabled || !decided.load(ordering: .relaxed)
     }
+    #endif
 
     /// One finished stall (main thread, from the watchdog's `onStall`).
     public func noteStall(durationNanos: UInt64, cpuNanos: UInt64, addresses: [UInt]) {

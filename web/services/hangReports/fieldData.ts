@@ -6,7 +6,7 @@ import {
   type HistogramDefinition,
   type StabilityShape,
 } from "./histogramCatalog";
-import type { HangReport, HangReportHangV3, HangReportV3 } from "./wireSchema";
+import type { HangReport, HangReportBlockingSite, HangReportHangV3, HangReportV3 } from "./wireSchema";
 import {
   BLACKBOX_PHASES,
   BLACKBOX_PROCESSES,
@@ -33,7 +33,7 @@ import {
  *   know, or that time a key or link one input across processes. The client
  *   never sends the latter (`TraceBlackBoxUpload.keeps`); the server drops
  *   them again so none is ever stored;
- * - `labels`: hang samples whose blocking kind or context, task classes,
+ * - `labels`: hang samples and `blocking[]` sites whose blocking kind or context, task classes,
  *   input latency rows and scroll jank histograms with a label this server
  *   does not know (the sample, the task, the row or the histogram is left out).
  */
@@ -80,11 +80,13 @@ export function normalizeFieldData(report: HangReport): NormalizedReport {
   const stability = knownStability(report.stability);
   const blackbox = report.blackbox.filter(isUploadable);
   const hangs = knownHangs(report.hangs);
+  const blocking = report.blocking.filter((site) => isKnownBlocking(site.blocking));
   const inputLatency = knownInputLatency(report.input_latency);
   const scrollJank = knownScrollJank(report.scroll_jank);
   const kept: HangReportV3 = {
     ...report,
     hangs: hangs.value,
+    blocking,
     histograms: histograms.value,
     stability: stability.value,
     blackbox,
@@ -96,7 +98,7 @@ export function normalizeFieldData(report: HangReport): NormalizedReport {
     histograms: histograms.dropped + sum(sections.map((entry) => entry.histograms)),
     stability: stability.dropped + sum(sections.map((entry) => entry.stability.dropped)),
     blackbox: report.blackbox.length - blackbox.length,
-    labels: hangs.dropped + inputLatency.dropped + scrollJank.dropped,
+    labels: hangs.dropped + report.blocking.length - blocking.length + inputLatency.dropped + scrollJank.dropped,
   };
   return { ok: true, report: kept, dropped };
 }
@@ -175,6 +177,11 @@ function knownCounts(counts: CountMap, names: ReadonlySet<string>): Kept<CountMa
   return { value: kept, dropped: Object.keys(counts).length - Object.keys(kept).length };
 }
 
+/** Whether this server knows a detector sample's blocking kind and context. */
+function isKnownBlocking(detail: HangReportBlockingSite["blocking"]): boolean {
+  return BLOCKING_KINDS.has(detail.kind) && BLOCKING_CONTEXTS.has(detail.context);
+}
+
 /**
  * A detector sample of an unknown kind or context is left out; an unknown task
  * class loses its task; an unknown thread kind is stored as `other`.
@@ -183,7 +190,7 @@ function knownHangs(hangs: ReadonlyArray<HangReportHangV3>): Kept<ReadonlyArray<
   const kept: HangReportHangV3[] = [];
   let dropped = 0;
   for (const hang of hangs) {
-    if (hang.blocking && !(BLOCKING_KINDS.has(hang.blocking.kind) && BLOCKING_CONTEXTS.has(hang.blocking.context))) {
+    if (hang.blocking && !isKnownBlocking(hang.blocking)) {
       dropped += 1;
     } else if (hang.task && !TASK_CLASSES.has(hang.task.class)) {
       dropped += 1;

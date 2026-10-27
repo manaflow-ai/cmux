@@ -5,8 +5,8 @@ extension HangReportService {
     /// The black box goes first (its oldest events), then the input latency, which is context too (the
     /// least frequent rows, then the scroll jank histograms, then the whole block); then the field data that a
     /// later report carries when it is cut (the earlier launches' sections, then the histograms with the fewest
-    /// samples), so hangs keep the room they had without them; then what is gone once cut: the shortest hangs
-    /// (the blocking samples, first in the list, after every timed one), CPU exceptions and intervals:
+    /// samples), so hangs keep the room they had without them; then what is gone once cut: the shortest hangs,
+    /// the blocking sites (the last seen first), CPU exceptions and intervals:
     /// MetricKit's last ones before the main-turn and input-queueing histograms, which the builder also keeps
     /// at the interval cap (``HangReportBuilder/addMainThread(_:to:)``). The stability counts stay.
     static func fitted(_ report: HangReport) -> HangReport {
@@ -14,7 +14,9 @@ extension HangReportService {
         let limit = bodyLimit(of: report)
         while encodedSize(report) > limit {
             if trimBlackBox(&report, limit: limit) || trimInputLatency(&report) || trimFieldData(&report) { continue }
-            if !report.hangs.isEmpty { report.hangs.removeLast() } else if !report.cpuExceptions.isEmpty {
+            if !report.hangs.isEmpty { report.hangs.removeLast() } else if trimBlocking(&report) {
+                continue
+            } else if !report.cpuExceptions.isEmpty {
                 report.cpuExceptions.removeLast()
             } else if !trimInterval(&report) { break }
         }
@@ -58,6 +60,14 @@ extension HangReportService {
         } else {
             return false
         }
+        return true
+    }
+
+    /// Removes the last blocking site; false when none is left.
+    static func trimBlocking(_ report: inout HangReport) -> Bool {
+        guard var sites = report.blocking, !sites.isEmpty else { return false }
+        sites.removeLast()
+        report.blocking = sites.isEmpty ? nil : sites
         return true
     }
 

@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BLOCKING_CHECKS
 import CmuxNextCompat
 @testable import CmuxNextHangReports
 import Foundation
@@ -5,8 +6,9 @@ import Testing
 
 /// The blocking detector's call sites in opt-in hang reports (p02-threads-008): one sample per site
 /// with its kind, context and UUID + offset frames, nothing that names a path, the sites a launch
-/// records before the setting is read kept, only in wire schema 3 (the deployed server refuses
-/// them), and the crash-report budget of 5 per launch and 1 per site per 24 h.
+/// records before the setting is read kept, only in wire schema 3's own `blocking[]` list (at most 32,
+/// p09-observability-089; the deployed server refuses them), and the crash-report budget of 5 per launch
+/// and 1 per site per 24 h. Compiled with the sink only (Debug and `CMUX_BLOCKING_CHECKS`).
 struct BlockingSampleTests {
     /// A builder of the schema that carries blocking samples.
     private static let builder = HangReportBuilder(classifier: HangReportFixtures.classifier(),
@@ -60,7 +62,8 @@ struct BlockingSampleTests {
         let body = try HangReport.encoder.encode(report)
 
         #expect(report.schema == HangReport.WireSchema.v3.rawValue)
-        #expect(report.hangs.filter { $0.kind == .blocking }.count == 1)
+        #expect(report.blocking?.count == 1)
+        #expect(report.hangs.isEmpty)
         #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: body).isEmpty)
         let text = try #require(String(data: body, encoding: .utf8)).lowercased()
         for secret in HangReportFixtures.planted {
@@ -69,23 +72,24 @@ struct BlockingSampleTests {
         #expect(text.contains("\"file-io\""))
     }
 
-    /// Blocking samples have no duration: a report full of long stalls still carries them.
+    /// Blocking sites have no duration and their own list: a report full of long stalls still carries all of
+    /// them, and they take no hang's slot.
     @Test func longStallsDoNotPushTheBlockingSamplesOut() {
         var aggregate = StallAggregate()
         for index in 0..<StallAggregate.maxSamples {
             aggregate.keep(HangSample(source: .watchdog, kind: .stall, durationMs: 300 + index, frames: []))
             aggregate.keep(HangSample(source: .watchdog, kind: .hang, durationMs: 3_000 + index, frames: []))
         }
-        for offset in 0..<UInt64(StallAggregate.maxSamples) {
+        for offset in 0..<UInt64(StallAggregate.maxBlockingSamples) {
             aggregate.keep(.blockingSite(HangSample.Blocking(kind: .fileIO, context: .main),
                                          frames: [HangReportFrame(image: "AppKit", uuid: HangReportFixtures.appKitUUID, offset: offset)]))
         }
         let report = Self.builder.build(context: HangReportFixtures.context(), watchdog: aggregate, metricKit: [])
 
-        #expect(report.hangs.count == HangReport.maxHangs)
-        #expect(report.hangs.filter { $0.kind == .blocking }.count == StallAggregate.maxSamples)
-        // The others are cut longest first: the 4 shortest stalls are out.
-        #expect(report.hangs.filter { $0.kind == .stall }.map(\.durationMs) == [307, 306, 305, 304])
+        #expect(report.hangs.count == 2 * StallAggregate.maxSamples)
+        #expect(report.hangs.allSatisfy { $0.kind != .blocking })
+        #expect(report.blocking?.count == HangReport.maxBlocking)
+        #expect(report.blocking?.map { $0.frames.first?.offset } == (0..<UInt64(HangReport.maxBlocking)).map { Optional($0) })
     }
 
     @Test func aSiteSeenAgainAddsNothing() {
@@ -98,7 +102,7 @@ struct BlockingSampleTests {
         #expect(collector.snapshot().blocking.map(\.blocking?.kind) == [.fileIO, .syncWait])
     }
 
-    /// The body cap drops from the end of `hangs`: the shortest stall goes, never a blocking sample.
+    /// The body cap drops from the end of `hangs` first: the shortest stall goes before any blocking site.
     @Test func theBodyCapKeepsTheBlockingSamples() throws {
         let fullStack = (0..<UInt64(HangSample.maxFrames)).map {
             HangReportFrame(image: "AppKit", uuid: HangReportFixtures.appKitUUID, offset: 0x10_0000 + $0)
@@ -119,7 +123,7 @@ struct BlockingSampleTests {
 
         #expect(try HangReport.encoder.encode(fitted).count <= HangReport.maxBodyBytes)
         #expect(fitted.hangs.count < built.hangs.count)
-        #expect(fitted.hangs.filter { $0.kind == .blocking }.count == 4)
+        #expect(fitted.blocking?.count == 4)
         // What the cap dropped are the shortest stalls.
         let droppedStalls = Set(built.hangs.map(\.durationMs)).subtracting(fitted.hangs.map(\.durationMs))
         #expect(droppedStalls.allSatisfy { $0 < 300 + StallAggregate.maxSamples })
@@ -136,6 +140,7 @@ struct BlockingSampleTests {
         #expect(HangReport.WireSchema.deployed == .v2)
         #expect(report.schema == 2)
         #expect(report.hangs.map(\.kind) == [.stall])
+        #expect(report.blocking == nil)
         #expect(HangReportServerRules.violations(in: try HangReport.encoder.encode(report)).isEmpty)
     }
 
@@ -178,16 +183,16 @@ struct BlockingSampleTests {
         ])
     }
 
-    @Test func atMostMaxSamplesSitesAreKept() {
+    @Test func atMostMaxBlockingSamplesSitesAreKept() {
         let collector = Self.collector()
         collector.setEnabled(true)
-        for offset in 0..<UInt64(StallAggregate.maxSamples + 3) {
+        for offset in 0..<UInt64(StallAggregate.maxBlockingSamples + 3) {
             collector.noteBlocking(BlockingViolation(kind: .fileIO, frames: [
                 BlockingFrame(imageUUID: Self.uuid(HangReportFixtures.appUUID), offset: offset),
             ]))
         }
 
-        #expect(collector.snapshot().blocking.count == StallAggregate.maxSamples)
+        #expect(collector.snapshot().blocking.count == StallAggregate.maxBlockingSamples)
     }
 
     // MARK: before the setting is read (the detector's install replay)
@@ -287,3 +292,4 @@ struct BlockingSampleTests {
         #expect(PrivacyLeakScanner(forbiddenTerms: []).kind(of: site) == nil)
     }
 }
+#endif

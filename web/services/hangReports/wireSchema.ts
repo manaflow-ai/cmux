@@ -51,6 +51,8 @@ export { UUID_PATTERN } from "./wirePrimitives";
 
 export const HANG_REPORT_MAX_BYTES = 64 * 1024;
 export const MAX_HANGS = 20;
+/** The client's `HangReport.maxBlocking`: schema 3's `blocking[]` sites. */
+export const MAX_BLOCKING_SITES = 32;
 export const MAX_CPU_EXCEPTIONS = 5;
 export const MAX_FRAMES = 64;
 export const MAX_BUCKETS = 32;
@@ -147,6 +149,19 @@ const HangV3 = Schema.Struct({
   message: () => "a blocking object goes with a detector sample of no duration; a task with a watchdog hang; "
     + "a thread with a hangwatch hang",
 }));
+
+/**
+ * One entry of schema 3's `blocking[]` (p09-observability-089): a blocking
+ * detector call site in the client's `HangSample` shape, the kind and context
+ * it waited in and its image UUID + offset frames only, no duration.
+ */
+const BlockingSite = Schema.Struct({
+  source: Schema.Literal("detector"),
+  kind: Schema.Literal("blocking"),
+  durationMs: Schema.Literal(0),
+  frames: Frames,
+  blocking: BlockingDetail,
+});
 
 const CpuException = Schema.Struct({
   cpuMs: boundedInt(MAX_DURATION_MS),
@@ -249,7 +264,9 @@ export const HangReportSchema2 = Schema.Struct({
 /**
  * Schema 3 of the hang report body: every field the client's
  * `HangReport.WireSchema.v3` writes:
- * - `hangs[]` with detector samples and watchdog task attribution;
+ * - `hangs[]` with watchdog task attribution, and the detector samples an
+ *   earlier client wrote there;
+ * - `blocking[]`, the blocking detector's call sites (p09-observability-089);
  * - `counts.userBlockingWaitP99Ms`, the lanes' user-blocking wait bucket;
  * - `active_seconds` and the `main` interval category;
  * - `launches`, the launch milestone histograms;
@@ -270,6 +287,7 @@ export const HangReportSchema3 = Schema.Struct({
   ...reportFields,
   counts: Schema.Struct({ ...countFields, userBlockingWaitP99Ms: optionalNullable(Schema.Literal(...WAIT_BUCKETS)) }),
   hangs: optionalArray(HangV3, MAX_HANGS),
+  blocking: optionalArray(BlockingSite, MAX_BLOCKING_SITES),
   intervals: optionalArray(intervalSchema(INTERVAL_CATEGORIES_V3), MAX_INTERVALS),
   catalog_version: optionalNullable(Schema.Number.pipe(Schema.int(), Schema.between(1, MAX_CATALOG_VERSION))),
   active_seconds: optionalNullable(boundedInt(MAX_ACTIVE_SECONDS)),
@@ -294,6 +312,7 @@ export type HangReport = HangReportV2 | HangReportV3;
 export type HangReportFrame = Schema.Schema.Type<typeof Frame>;
 export type HangReportBucket = Schema.Schema.Type<typeof Bucket>;
 export type HangReportHangV3 = Schema.Schema.Type<typeof HangV3>;
+export type HangReportBlockingSite = Schema.Schema.Type<typeof BlockingSite>;
 
 const strict = { onExcessProperty: "error", errors: "first" } as const;
 const decodeV2 = Schema.decodeUnknownEither(HangReportSchema2, strict);
