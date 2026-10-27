@@ -41,6 +41,13 @@ extension Motion {
     /// Tests set a live resize here instead of posting AppKit's notifications
     /// to the process-wide center (check-test-notification-centers.sh).
     static var liveResizeOverride: Bool?
+
+    /// Tests begin (`true`) or end (`false`) `window`'s full screen transition here, as its
+    /// `willEnterFullScreen` and `didEnterFullScreen` notifications do, instead of posting them to
+    /// the process-wide center (check-test-notification-centers.sh).
+    static func setFullScreenTransitionForTests(_ window: NSWindow, active: Bool) {
+        if active { LiveResizeWindows.shared.beginTransition(of: window) } else { LiveResizeWindows.shared.endTransition(of: window) }
+    }
 }
 
 /// The windows between `willStartLiveResize` and `didEndLiveResize`, and the
@@ -60,6 +67,9 @@ final class LiveResizeWindows {
     func isTransitioning(_ window: NSWindow) -> Bool { transitioning.contains(ObjectIdentifier(window)) }
     /// A transition AppKit gave up on (`windowDidFailToEnterFullScreen`, `windowDidFailToExitFullScreen`).
     func endTransition(of window: NSWindow) { transitioning.remove(ObjectIdentifier(window)) }
+    /// A transition begins (`willEnterFullScreen`, `willExitFullScreen`; tests through
+    /// ``Motion/setFullScreenTransitionForTests(_:active:)``).
+    func beginTransition(of window: NSWindow) { transitioning.insert(ObjectIdentifier(window)) }
 
     init(center: NotificationCenter = .default) {
         let changes: [(Notification.Name, Bool)] = [
