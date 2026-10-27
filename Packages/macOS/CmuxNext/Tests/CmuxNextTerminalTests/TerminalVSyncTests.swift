@@ -330,7 +330,8 @@ import Testing
                                       typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
         let view = TerminalSurfaceView(io: GHOSTTY_SURFACE_IO_MANUAL, input: input, session: nil,
                                        echoStages: GhosttyRuntime.shared.echoStages,
-                                       secureInput: GhosttyRuntime.shared.secureInput, vsyncSource: source)
+                                       secureInput: GhosttyRuntime.shared.secureInput,
+                                       mainWork: MainWorkScheduler(budget: MainFrameBudget()), vsyncSource: source)
         try #require(view.surface != nil)
         #expect(view.pause == .notInWindow)
         #expect(source.live.isEmpty, "a surface outside any window subscribed")

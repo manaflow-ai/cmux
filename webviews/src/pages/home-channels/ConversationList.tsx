@@ -117,7 +117,7 @@ export function ConversationList({
         <kbd>⌘K</kbd>
       </button>
       {pinned.length + rest.length === 0 && <p className="lg-list-empty">{t("rail.empty")}</p>}
-      <div className="lg-list-rows">
+      <div className="lg-list-rows" data-page-scroll="conversations">
         {pinned.length > 0 && (
           <>
             <h2 className="lg-list-section" id="lg-list-pinned">

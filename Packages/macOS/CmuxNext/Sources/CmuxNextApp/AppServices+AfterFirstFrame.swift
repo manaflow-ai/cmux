@@ -11,7 +11,7 @@ extension AppServices {
     func postNonPaintServices(on startup: StartupScheduler) {
         serviceStartPosts().post(on: startup)
         let attest = FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), settings: settings, signedIn: { [weak self] in self.map { $0.cloudAuth.isSignedIn || $0.cloudAuth.isRestoring } ?? true })
-        LaunchServicePosts.nonPaint(freeTierAttest: { attest.start() }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
+        LaunchServicePosts.nonPaint(freeTierAttest: { [weak self] in if let self, let follow = attest.start(on: self.mainWork) { self.lifetimeFollowers.append(follow) } }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
                                     updater: { [weak self] in self?.updater.start(); DebugTimings.markLaunch("launch.non_paint_services") },
                                     emptyWorkspaceRepair: { [weak self] in _ = self?.emptyWorkspaces }).post(on: startup)
     }
@@ -66,7 +66,7 @@ extension AppServices {
         if hotKeys { hotKeyStart = { [weak self] in self?.globalHotKeys.start() } }
         let bordersStart: Start = { [weak self] in self?.observeBorders() }
         let glassStart: Start = { [weak self] in self?.observeGlass() }
-        let keepAwakeStart = with { services, settings in KeepAwakeService.shared.start(settings: settings, store: services.daemon.store) }
+        let keepAwakeStart = with { services, settings in KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, on: services.mainWork) }
         let mobileStart = with { services, settings in services.mobile.follow(settings, launch: services.environment.launch) }
         let notificationsStart = with { services, settings in services.notifications.follow(settings) }
         let macScreenSettingsStart = with { services, settings in services.followMacScreenSettings(settings) }

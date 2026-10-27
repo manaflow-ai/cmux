@@ -598,7 +598,7 @@ fn browser_attach_stream_publishes_frame_before_positive_state_authority() {
         }),
     };
 
-    let encoded = encode_browser_attach_update(&writer, 1, update);
+    let encoded = encode_browser_attach_update(&writer, 1, update, &stream);
     send_encoded_browser_attach_update(&writer, encoded, &stream).unwrap();
     let first: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
     let second: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
