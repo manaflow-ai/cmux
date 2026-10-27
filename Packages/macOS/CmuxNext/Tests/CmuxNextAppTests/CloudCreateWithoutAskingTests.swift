@@ -63,8 +63,7 @@ import Testing
         #expect(CloudMachineCreateFlow.gate(nil) == .allowed, "unknown limits must leave the server to decide")
         #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: 5, activeVmCount: 1, planId: "pro")) == .allowed)
         #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: 0, activeVmCount: 0, planId: "free")) == .upgrade(.init(reason: .freePlan)))
-        // An unknown machine cap is no known limit: the server answers with its 402 if the plan really refuses.
-        #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: nil, activeVmCount: 0, planId: "free")) == .allowed)
+        #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: nil, activeVmCount: 0, planId: "free")) == .upgrade(.init(reason: .freePlan)))
         #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: 2, activeVmCount: 2, planId: "go")) == .upgrade(.init(reason: .atLimit(2))))
     }
 
