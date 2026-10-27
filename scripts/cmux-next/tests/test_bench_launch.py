@@ -26,6 +26,8 @@
 10. The control socket probe (p08-startup-019) times the first answer, not the first accept: a request sent into a
    listener that answers late is timed at its answer; the verdict is the p50 of answer minus first frame against
    the budget, and a run with no answer or no frame fails it.
+11. `own_responsibility` (p01-process-089) spawns the app with responsibility disclaimed (a fake libsystem records the
+   calls), refuses to launch when this system cannot disclaim, and its stand-in Popen reaps and signals the child.
 
 Runs on any Mac, no GUI session or build needed (the session read is injected or the check is `--socket-only`, and a
 copy of /bin/sleep stands in for the app's executable). Signals only the processes it starts. On Linux, 8 and 9 and
@@ -1148,6 +1150,80 @@ class BenchEnvTests(unittest.TestCase):
         with open(app.environment()["CMUX_NEXT_CONFIG_FILE"]) as f:
             config = json.load(f)
         self.assertEqual(config["updates"], {"checkAutomatically": True, "channel": "nightly"})
+
+
+class FakeSpawnLibrary:
+    """libsystem's posix_spawn calls as `disclaimed_spawn` makes them: each call is recorded and answers 0."""
+
+    def __init__(self, disclaim=True, spawn_status=0):
+        self.calls = []
+        self.spawn_status = spawn_status
+        names = ["posix_spawnattr_init", "posix_spawnattr_destroy", "posix_spawnattr_setflags",
+                 "posix_spawn_file_actions_init", "posix_spawn_file_actions_destroy",
+                 "posix_spawn_file_actions_addopen", "posix_spawn_file_actions_adddup2",
+                 "posix_spawn_file_actions_addinherit_np"] + (["responsibility_spawnattrs_setdisclaim"] if disclaim else [])
+        for name in names:
+            setattr(self, name, self._recorder(name))
+
+        def posix_spawn(pid, path, actions, attributes, argv, envp):
+            self.calls.append(("posix_spawn", (path, list(argv), envp[0])))
+            pid._obj.value = 4321
+            return self.spawn_status
+        self.posix_spawn = posix_spawn  # a plain function, as ctypes' are: the spawn sets its argtypes
+
+    def _recorder(self, name):
+        def call(*args):
+            self.calls.append((name, args[1:]))
+            return 0
+        return call
+
+
+class DisclaimedSpawnTests(unittest.TestCase):
+    """own_responsibility (p01-process-089): the app is spawned with responsibility disclaimed, so tccd charges its
+    privacy requests to it and not to the bench's parent chain; the stand-in Popen reaps and signals the child."""
+
+    def test_spawn_disclaims_and_wires_the_descriptors(self):
+        lib = FakeSpawnLibrary()
+        process = bl.disclaimed_spawn(["/x/cmux DEV", "-a"], {"K": "v"}, 7, pass_fds=(9,), library=lib)
+        self.assertEqual(process.pid, 4321)
+        calls = dict((name, args) for name, args in lib.calls)
+        self.assertEqual(calls["responsibility_spawnattrs_setdisclaim"], (1,))
+        self.assertEqual(calls["posix_spawnattr_setflags"], (bl.POSIX_SPAWN_CLOEXEC_DEFAULT,))
+        dup2 = [args for name, args in lib.calls if name == "posix_spawn_file_actions_adddup2"]
+        self.assertEqual(dup2, [(7, 1), (7, 2)])
+        self.assertEqual(calls["posix_spawn_file_actions_addopen"][:2], (0, b"/dev/null"))
+        self.assertEqual(calls["posix_spawn_file_actions_addinherit_np"], (9,))
+        self.assertEqual(calls["posix_spawn"], (b"/x/cmux DEV", [b"/x/cmux DEV", b"-a", None], b"K=v"))
+        names = [name for name, _ in lib.calls]
+        self.assertLess(names.index("responsibility_spawnattrs_setdisclaim"), names.index("posix_spawn"))
+        self.assertIn("posix_spawnattr_destroy", names)
+
+    def test_no_disclaim_refuses_to_launch(self):
+        with self.assertRaises(bl.LaunchError) as raised:
+            bl.disclaimed_spawn(["/x/cmux DEV"], {}, 7, library=FakeSpawnLibrary(disclaim=False))
+        self.assertEqual(raised.exception.reason, "disclaim-unavailable")
+
+    def test_a_failed_spawn_raises(self):
+        with self.assertRaises(OSError):
+            bl.disclaimed_spawn(["/x/cmux DEV"], {}, 7, library=FakeSpawnLibrary(spawn_status=2))
+
+    def test_the_stand_in_popen_reaps_and_signals_its_child(self):
+        done = bl.SpawnedProcess(os.spawnv(os.P_NOWAIT, "/bin/sh", ["sh", "-c", "exit 3"]))
+        self.assertEqual(done.wait(10), 3)
+        self.assertEqual(done.poll(), 3)
+        sleeper = bl.SpawnedProcess(os.spawnv(os.P_NOWAIT, "/bin/sleep", ["sleep", "30"]))
+        self.assertIsNone(sleeper.poll())
+        with self.assertRaises(subprocess.TimeoutExpired):
+            sleeper.wait(0.2)
+        sleeper.terminate()
+        self.assertEqual(sleeper.wait(10), -signal.SIGTERM)
+        sleeper.kill()  # an ended child is not signalled again
+
+    def test_launch_uses_it_only_when_asked(self):
+        self.assertFalse(bl.BenchApp(record_bundle(tempfile.mkdtemp(prefix="disclaim-"), "plain"), teardown=False)
+                         .own_responsibility)
+        self.assertTrue(bl.BenchApp(record_bundle(tempfile.mkdtemp(prefix="disclaim-"), "own"), teardown=False,
+                                    own_responsibility=True).own_responsibility)
 
 
 class SocketProbeTests(unittest.TestCase):

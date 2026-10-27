@@ -112,7 +112,9 @@ Per mode:
   tcc      opt-in (`--modes inproc,tcc`; it runs before helper and closes its host after): a host page
            asks for camera, mic, location, Local Network, Screen Recording and Bluetooth, and each row passes when
            macOS charges the request to cmux, not to the host or a helper; the keychain row passes when the host
-           read "Chromium Safe Storage" with no prompt (chromium_host_tcc.py has the evidence and the rules).
+           read "Chromium Safe Storage" with no prompt (chromium_host_tcc.py has the evidence and the rules). It
+           launches cmux as its own responsible process (BenchApp own_responsibility) and, when the item is not
+           another app's (or with --keychain-reset), with Chromium's real keychain (CMUX_NEXT_BENCH_REAL_KEYCHAIN=1).
 
   swipe    `--modes swipe` (task 234), on an input host (real HID events): a two-finger trackpad swipe
            (pointer-probe.swift swipe, through NSApp's event dispatch like a hand's) over a Chromium tab of the app's
@@ -184,6 +186,8 @@ def parse(argv=None):
     parser.add_argument("--pump-seconds", type=float, default=10.0)
     parser.add_argument("--keychain-service", default="Chromium Safe Storage",
                         help="the tcc mode's OSCrypt keychain item")
+    parser.add_argument("--keychain-reset", action="store_true",
+                        help="tcc: delete an existing --keychain-service item first (it may be another Chromium app's)")
     parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
     parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
     parser.add_argument("--native-ui", nargs="?", const="", default=None, metavar="ROWS",
@@ -691,7 +695,16 @@ def main():
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
-    app = BenchApp(opts.app, out=opts.out, env=env, build_config=opts.build_config, perf_session=opts.session)
+    tcc_keychain = None
+    if "tcc" in opts.modes.split(","):
+        import chromium_host_tcc
+        tcc_keychain = chromium_host_tcc.keychain_plan(opts.keychain_service, opts.keychain_reset)
+        if tcc_keychain["real_keychain"]:
+            env["CMUX_NEXT_BENCH_REAL_KEYCHAIN"] = "1"
+    # tccd charges a privacy request to its process's responsible process: for the tcc rows that must be cmux, as
+    # when a person opens it, not this script's ssh or runner.
+    app = BenchApp(opts.app, out=opts.out, env=env, build_config=opts.build_config, perf_session=opts.session,
+                   own_responsibility=tcc_keychain is not None)
     APP_LOG["path"] = app.log_path
     try:
         RESULT["build"] = build_config(app.app, app.binary, opts.build_config)
@@ -729,7 +742,7 @@ def main():
             inproc_tab = run_inproc(rpc, url)
             ok = ok and inproc_tab is not None
         if "tcc" in modes:
-            ok = run_tcc(rpc) and ok
+            ok = run_tcc(rpc, app.process.pid if app.process else None, tcc_keychain) and ok
         if "helper" in modes:
             ok = run_helper(rpc, url, inproc_tab) and ok
         if opts.baseline and inproc_tab:
@@ -1168,13 +1181,16 @@ def run_host_probe(rpc, url, record=True):
                  record=record)
 
 
-def run_tcc(rpc):
-    """TCC attribution rows on a host page of its own pane (chromium_host_tcc.py); False when the page never showed."""
+def run_tcc(rpc, app_pid, keychain_plan):
+    """TCC attribution rows on a host page of its own pane (chromium_host_tcc.py); False on a mode error or when the
+    page never showed."""
     import chromium_host_tcc as tcc
     pages, log = tcc.Pages(), tcc.LogStream()
     url, lan = pages.start()
     log.start()
     try:
+        # The keychain row needs the host's first start: a host an earlier mode started has read its key already.
+        rpc("debug.chromium_host", {"op": "close"})
         rpc("action.run", {"action": "splitRight", "focus": True, "origin": "script"}, timeout=60)
         rows = tcc.TccRows(
             tcc.Bundle.read(opts.app),
@@ -1182,14 +1198,15 @@ def run_tcc(rpc):
             title=lambda: (rpc("debug.chromium_host") or {}).get("title"),
             press=lambda key: rpc("debug.key", {"key": key}),
             allow=lambda: rpc("action.run", {"action": "browser.prompt.allow", "origin": "script"}),
-            seams=tcc.Seams(log=log), keychain_service=opts.keychain_service)
+            seams=tcc.Seams(log=log), keychain_service=opts.keychain_service, app_pid=app_pid,
+            keychain_plan=keychain_plan)
         result = rows.run(url)
     finally:
         # The helper rows start their own host: its start, pixels and lifetime rows measure a fresh one.
         rpc("debug.chromium_host", {"op": "close"})
         log.stop()
         pages.stop()
-    result.update({"lan_address": lan, "lan_hits": pages.lan_hits, "log_error": log.error})
+    result.update({"lan_address": lan, "lan_hits": pages.lan_hits, "log_error": log.error, "keychain_plan": keychain_plan})
     RESULT["modes"]["tcc"] = result
     tcc.print_rows(result, lambda line: print(line, flush=True))
     return not result.get("error")

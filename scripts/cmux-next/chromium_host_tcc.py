@@ -6,18 +6,32 @@ to cmux itself, not to the host executable, a Chromium helper or a bundle of the
 
   camera, microphone, screen, bluetooth   tccd's AUTHREQ_SUBJECT and the responsible process of every request for the
                   service (kTCCServiceCamera, ...) from a process of this bundle are cmux's bundle id and cmux's main
-                  executable. Chrome's model: the browser process is the responsible process of its helpers
-                  (base/process/launch_mac.cc keeps responsibility; only `disclaim_responsibility` changes it), so its
-                  TCC grants are the app's.
+                  executable, and at least one of them comes from the host or a helper (its accessing process is in
+                  the bundle but is not cmux's main executable): cmux's own preflights (SystemPermissionProbe's
+                  AVCaptureDevice.authorizationStatus) never stand for the host's request. Chrome's model: the
+                  browser process is the responsible process of its helpers (base/process/launch_mac.cc keeps
+                  responsibility; only `disclaim_responsibility` changes it), so its TCC grants are the app's.
   location        locationd names cmux's bundle id as the client and no other identity of the bundle (a helper or
                   host bundle id, an org.chromium id).
   local_network   macOS 15 and later: a fetch to this Mac's LAN address; nehelper (Local Network privacy) names cmux's
                   bundle id and no other identity of the bundle. macOS 14 has no Local Network privacy: the row does
                   not apply there.
   keychain        Chromium's OSCrypt key ("Chromium Safe Storage", components/os_crypt/sync/keychain_password_mac.mm)
-                  exists after the host started and no SecurityAgent prompt showed while it ran. A development bundle
-                  runs Chromium with its mock keychain (CEFSwitches.useMockKeychain) and never reads it: the row is
-                  not measurable there and needs a Release-signed build (task 088).
+                  does not exist when the host starts, exists after it ran, and no SecurityAgent prompt showed: the
+                  host read it through the login keychain (Chromium creates the item at its first read). The bench
+                  deletes the item before the host starts only when this run made it or `--keychain-reset` allows
+                  it, and deletes it again at the end of the mode in those cases.
+
+The mode needs a bench-hooks build (reload.sh's bench config: a com.cmuxterm.app.debug.* id, so debug.chromium_host
+and debug.key exist). Such a development bundle runs Chromium with its mock keychain (CEFSwitches.useMockKeychain);
+the bench launches it with CMUX_NEXT_BENCH_REAL_KEYCHAIN=1 (read by CEFSwitches.current in Debug and bench builds of
+a development bundle only), so both engines use the login keychain as a shipped build does (``keychain_plan``).
+
+tccd charges a request to the requester's responsible process, which a process inherits from the process that
+exec'd it. The bench therefore launches cmux with responsibility disclaimed (bench_launch.BenchApp
+own_responsibility), as a person's launch through LaunchServices makes cmux its own responsible process, and the mode
+first reads the responsible process of cmux's pid (responsibility_get_pid_responsible_for_pid). When that is not
+cmux, every row would measure the bench's own parent chain: the mode stops with a mode error and runs no row.
 
 Every row also reads the system prompts that appear while it runs (CGWindowList owners, which need no grant). With
 the Accessibility grant for the bench's process it reads their text (it must name cmux and not Chromium or a helper)
@@ -29,6 +43,7 @@ Evidence is the unified log (`log stream`, tccd, locationd and nehelper). A host
 """
 from __future__ import annotations
 
+import ctypes
 import http.server
 import json
 import os
@@ -202,28 +217,44 @@ def ours(request, bundle):
         or subject.startswith(bundle.identifier + ".")
 
 
+def requester(path, bundle):
+    """Who in the bundle made a request: "app" (cmux's main executable), "host" (the Chromium host or a helper:
+    another executable of the bundle) or "other" (outside the bundle, absent or redacted)."""
+    if path and os.path.normpath(path) == bundle.executable:
+        return "app"
+    return "host" if in_bundle(path, bundle) else "other"
+
+
 def judge_tcc(requests, service, bundle):
+    """Passes when the host or a helper asked for `service` and tccd charged every request of the bundle (cmux's own
+    preflights too) to cmux's bundle id and main executable."""
     mine = [r for r in requests if r.get("service") == service and ours(r, bundle)]
     rows = []
     for request in mine:
         responsible = request.get("responsible") or {}
+        accessing = (request.get("accessing") or {}).get("binary_path")
         rows.append({
             "function": request.get("function"), "subject": request.get("subject"),
             "responsible": responsible.get("identifier"),
             "responsible_path": responsible.get("responsible_path") or responsible.get("binary_path"),
-            "accessing": (request.get("accessing") or {}).get("binary_path"), "auth_value": request.get("auth_value"),
+            "accessing": accessing, "by": requester(accessing, bundle), "auth_value": request.get("auth_value"),
         })
     redacted = any("<private>" in json.dumps(row) for row in rows)
     wrong = [row for row in rows if row["subject"] != bundle.identifier or row["responsible"] != bundle.identifier
              or os.path.normpath(row["responsible_path"] or "") != bundle.executable]
-    verdict = {"requests": rows, "wrong": len(wrong)}
+    from_host = [row for row in rows if row["by"] == "host"]
+    verdict = {"requests": rows, "wrong": len(wrong), "host_requests": len(from_host),
+               "app_requests": sum(1 for row in rows if row["by"] == "app")}
     if redacted:
         verdict["reason"] = "tccd's log redacts identities on this host (<private>)"
     elif not rows:
         verdict["reason"] = f"no {service} request from this bundle in tccd's log"
     elif wrong:
         verdict["reason"] = f"{len(wrong)} request(s) charged to another identity (first: {wrong[0]})"
-    verdict["pass"] = bool(rows) and not wrong and not redacted
+    elif not from_host:
+        verdict["reason"] = (f"no {service} request from the Chromium host or a helper in tccd's log (the "
+                             f"{verdict['app_requests']} from cmux's own process do not measure the host)")
+    verdict["pass"] = bool(from_host) and not wrong and not redacted
     return verdict
 
 
@@ -324,6 +355,62 @@ def keychain_item(service):
                               timeout=10).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return None
+
+
+def delete_keychain_items(service, limit=20):
+    """Deletes every login keychain item of `service` (one per `security delete-generic-password`); True when none
+    is left."""
+    for _ in range(limit):
+        try:
+            if subprocess.run(["/usr/bin/security", "delete-generic-password", "-s", service], capture_output=True,
+                              timeout=10).returncode != 0:
+                break
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+    return keychain_item(service) is False
+
+
+def keychain_plan(service, reset, keychain=keychain_item, delete=delete_keychain_items):
+    """Before the launch: whether the bench turns Chromium's real keychain on (CMUX_NEXT_BENCH_REAL_KEYCHAIN=1) and
+    may delete `service` before the host starts. An item that exists before the run is another app's unless `reset`
+    allows deleting it; the launch then keeps the mock keychain, so no engine reads (or prompts for) that item, and
+    the keychain row says why it is not measurable."""
+    existed = keychain(service)
+    if existed is None:
+        return {"real_keychain": False, "may_delete": False, "existed": None,
+                "reason": "`security` could not read the login keychain"}
+    if existed and not reset:
+        return {"real_keychain": False, "may_delete": False, "existed": True,
+                "reason": f"\"{service}\" exists before the run (another app's?): pass --keychain-reset to delete it first"}
+    if existed and not delete(service):
+        return {"real_keychain": False, "may_delete": False, "existed": True,
+                "reason": f"--keychain-reset could not delete \"{service}\""}
+    return {"real_keychain": True, "may_delete": True, "existed": existed}
+
+
+LIBSYSTEM = "/usr/lib/libSystem.B.dylib"
+
+
+def responsible_pid(pid, library=LIBSYSTEM):
+    """The pid macOS charges `pid`'s privacy requests to (libsystem's responsibility_get_pid_responsible_for_pid),
+    or None when this system does not say."""
+    try:
+        function = ctypes.CDLL(library).responsibility_get_pid_responsible_for_pid
+    except (OSError, AttributeError):
+        return None
+    function.argtypes = [ctypes.c_int]
+    function.restype = ctypes.c_int
+    found = function(int(pid))
+    return found if found > 0 else None
+
+
+def process_path(pid):
+    """`pid`'s executable (ps), or None."""
+    try:
+        done = subprocess.run(["/bin/ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return done.stdout.strip() or None
 
 
 class LogStream:
@@ -441,6 +528,9 @@ class Seams:
     windows: object = list_windows
     prompt: object = read_and_deny
     keychain: object = keychain_item
+    delete_keychain: object = delete_keychain_items
+    responsible: object = responsible_pid
+    process_path: object = process_path
     clock: object = time.monotonic
     sleep: object = time.sleep
     os_major: int = field(default_factory=macos_major)
@@ -448,22 +538,50 @@ class Seams:
 
 class TccRows:
     """Runs the rows against a host page that `open_host(url)` shows and `title()` reads; `press(key)` sends a key
-    to it and `allow()` answers cmux's own site-permission prompt (062, 228)."""
+    to it and `allow()` answers cmux's own site-permission prompt (062, 228). `app_pid` is cmux's process (it must be
+    its own responsible process) and `keychain_plan` is ``keychain_plan``'s answer from before the launch. The host
+    must not run yet: its first start reads the OSCrypt key."""
 
-    def __init__(self, bundle, open_host, title, press, allow, seams=None, rows=ROWS, keychain_service=KEYCHAIN_SERVICE):
+    def __init__(self, bundle, open_host, title, press, allow, seams=None, rows=ROWS, keychain_service=KEYCHAIN_SERVICE,
+                 app_pid=None, keychain_plan=None):
         self.bundle = bundle
         self.open_host, self.title, self.press, self.allow = open_host, title, press, allow
         self.seams = seams or Seams()
         self.rows = rows
         self.keychain_service = keychain_service
+        self.app_pid = app_pid
+        self.keychain_plan = dict(keychain_plan or {"real_keychain": False, "may_delete": False,
+                                                    "reason": "the launch kept Chromium's mock keychain"})
         self.prompts_seen = {}  # window id -> owner, every window that appeared while the mode ran
         self.preexisting = set()  # window ids on screen before the host opened (not this mode's prompts)
+
+    def responsibility_error(self):
+        """None when cmux is its own responsible process; otherwise why tccd would charge the rows to the bench."""
+        s = self.seams
+        if self.app_pid is None:
+            return {"app_pid": None}, "the bench did not say which process is cmux"
+        owner = s.responsible(self.app_pid)
+        facts = {"app_pid": self.app_pid, "responsible_pid": owner,
+                 "responsible_path": s.process_path(owner) if owner else None}
+        if owner is None:
+            return facts, f"this macOS does not say which process is responsible for cmux (pid {self.app_pid})"
+        if owner != self.app_pid:
+            return facts, (f"macOS charges cmux (pid {self.app_pid}) to pid {owner} ({facts['responsible_path']}): "
+                           "the app was not launched as its own responsible process, so every row would measure the "
+                           "bench's parent chain")
+        return facts, None
 
     def run(self, url):
         s = self.seams
         result = {"os_major": s.os_major, "bundle_id": self.bundle.identifier, "display_name": self.bundle.display_name,
                   "rows": {}}
-        keychain_before = s.keychain(self.keychain_service)
+        result["responsibility"], problem = self.responsibility_error()
+        if problem:
+            result["error"] = f"mode error: {problem}"
+            result["mode_error"] = True
+            result["pass"] = False
+            return result
+        keychain_before = self._keychain_before()
         self.preexisting = {window.get("id") for window in s.windows()}
         started = s.clock()
         opened = self.open_host(url)
@@ -538,24 +656,46 @@ class TccRows:
                 found.append({"owner": owner, "pid": window.get("pid"), **self.seams.prompt(owner)})
         return found
 
+    @property
+    def real_keychain(self):
+        """Whether Chromium reads the login keychain in this launch: a shipped bundle id always, a development one
+        only with the bench's CMUX_NEXT_BENCH_REAL_KEYCHAIN=1 (``keychain_plan``)."""
+        return not self.bundle.development or bool(self.keychain_plan.get("real_keychain"))
+
+    def _keychain_before(self):
+        """Whether the item exists as the host starts, after the delete the plan allows (this run's in-process engine
+        may have made it)."""
+        s = self.seams
+        deleted = None
+        if self.real_keychain and self.keychain_plan.get("may_delete"):
+            deleted = s.delete_keychain(self.keychain_service)
+        return {"deleted": deleted, "exists": s.keychain(self.keychain_service)}
+
     def _keychain(self, before, started):
         s = self.seams
         self._prompts((), set())
         keychain_prompts = sorted({owner for owner in self.prompts_seen.values() if owner in KEYCHAIN_PROMPT_OWNERS})
-        row = {"service": self.keychain_service, "item_before": before, "item_after": s.keychain(self.keychain_service),
+        row = {"service": self.keychain_service, "real_keychain": self.real_keychain, "deleted_before": before["deleted"],
+               "item_before": before["exists"], "item_after": s.keychain(self.keychain_service),
                "prompt_owners": keychain_prompts, "seconds": round(s.clock() - started, 1)}
         if keychain_prompts:
             row["pass"] = False
             row["reason"] = "a keychain prompt (SecurityAgent) showed while the host ran"
-        elif self.bundle.development:
+        elif not self.real_keychain:
             row["pass"] = None
-            row["reason"] = ("development bundle: Chromium uses its mock keychain and never reads "
-                             f"\"{self.keychain_service}\"; run on a Release-signed build")
+            row["reason"] = (f"Chromium ran with its mock keychain and never read \"{self.keychain_service}\": "
+                             f"{self.keychain_plan.get('reason') or 'no real-keychain launch'}")
+        elif row["item_before"] is not False:
+            row["pass"] = None
+            row["reason"] = (f"\"{self.keychain_service}\" existed when the host started: the bench cannot tell the "
+                             "host read it" if row["item_before"] else "`security` could not read the login keychain")
         elif not row["item_after"]:
             row["pass"] = False
             row["reason"] = f"no \"{self.keychain_service}\" item after the host ran (OSCrypt never read its key)"
         else:
             row["pass"] = True
+        if self.real_keychain and self.keychain_plan.get("may_delete"):
+            row["deleted_after"] = s.delete_keychain(self.keychain_service)  # this run's item does not outlive it
         return row
 
 

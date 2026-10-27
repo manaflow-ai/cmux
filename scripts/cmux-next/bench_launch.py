@@ -338,6 +338,113 @@ class LaunchError(SystemExit):
         super().__init__(f"bench-launch: {reason}: {report.get('detail', '')}\n{report.get('log_tail', '')}")
 
 
+POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000  # <spawn.h> (Apple): close every descriptor the file actions do not name
+LIBSYSTEM = "/usr/lib/libSystem.B.dylib"
+
+
+class SpawnedProcess:
+    """The part of subprocess.Popen a bench uses (pid, returncode, poll, wait, send_signal, terminate, kill) for a
+    child this script started with ``disclaimed_spawn``. returncode is Popen's: the exit status, or -N for signal N."""
+
+    def __init__(self, pid, waitpid=os.waitpid, kill=os.kill, clock=time.monotonic, sleep=time.sleep):
+        self.pid = pid
+        self.returncode = None
+        self.args = None
+        self._waitpid, self._kill, self._clock, self._sleep = waitpid, kill, clock, sleep
+
+    def _reap(self, flags):
+        try:
+            pid, status = self._waitpid(self.pid, flags)
+        except ChildProcessError:
+            self.returncode = 0  # reaped elsewhere (Popen answers 0 then too)
+            return
+        if pid == self.pid:
+            self.returncode = os.waitstatus_to_exitcode(status)
+
+    def poll(self):
+        if self.returncode is None:
+            self._reap(os.WNOHANG)
+        return self.returncode
+
+    def wait(self, timeout=None):
+        if timeout is None:
+            if self.returncode is None:
+                self._reap(0)
+            return self.returncode
+        deadline = self._clock() + timeout
+        while self.poll() is None:
+            if self._clock() >= deadline:
+                raise subprocess.TimeoutExpired(self.args or [str(self.pid)], timeout)
+            self._sleep(0.05)  # bounded poll of this script's own child
+        return self.returncode
+
+    def send_signal(self, sig):
+        if self.poll() is None:
+            self._kill(self.pid, sig)
+
+    def terminate(self):
+        self.send_signal(signal.SIGTERM)
+
+    def kill(self):
+        self.send_signal(signal.SIGKILL)
+
+
+def disclaimed_spawn(argv, env, log_fd, pass_fds=(), library=None):
+    """posix_spawn of `argv` with macOS responsibility disclaimed (responsibility_spawnattrs_setdisclaim, as cmux's
+    cua helper, ComputerUseHelperV2Spawner.swift): the child is its own responsible process, as an app a person
+    opens through LaunchServices, so tccd charges its privacy requests (and its children's) to it, not to this
+    script's ssh, Terminal or runner. stdin is /dev/null, stdout and stderr go to `log_fd`, `pass_fds` stay open and
+    every other descriptor closes (Popen's close_fds). Raises LaunchError when this system cannot disclaim."""
+    import ctypes
+    try:
+        lib = library or ctypes.CDLL(LIBSYSTEM, use_errno=True)
+        disclaim = lib.responsibility_spawnattrs_setdisclaim
+    except (OSError, AttributeError) as error:
+        raise LaunchError("disclaim-unavailable", {"detail": f"cannot spawn with responsibility disclaimed: {error}",
+                                                   "log_tail": ""})
+    handle = ctypes.POINTER(ctypes.c_void_p)
+    lib.posix_spawnattr_init.argtypes = [handle]
+    lib.posix_spawnattr_destroy.argtypes = [handle]
+    lib.posix_spawnattr_setflags.argtypes = [handle, ctypes.c_short]
+    disclaim.argtypes = [handle, ctypes.c_int]
+    lib.posix_spawn_file_actions_init.argtypes = [handle]
+    lib.posix_spawn_file_actions_destroy.argtypes = [handle]
+    lib.posix_spawn_file_actions_addopen.argtypes = [handle, ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_uint16]
+    lib.posix_spawn_file_actions_adddup2.argtypes = [handle, ctypes.c_int, ctypes.c_int]
+    lib.posix_spawn_file_actions_addinherit_np.argtypes = [handle, ctypes.c_int]
+    lib.posix_spawn.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_char_p, handle, handle,
+                                ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p)]
+    attributes, actions = ctypes.c_void_p(), ctypes.c_void_p()
+    lib.posix_spawnattr_init(ctypes.byref(attributes))
+    lib.posix_spawn_file_actions_init(ctypes.byref(actions))
+    try:
+        steps = [
+            ("setflags", lib.posix_spawnattr_setflags(ctypes.byref(attributes), POSIX_SPAWN_CLOEXEC_DEFAULT)),
+            ("disclaim", disclaim(ctypes.byref(attributes), 1)),
+            ("stdin", lib.posix_spawn_file_actions_addopen(ctypes.byref(actions), 0, b"/dev/null", os.O_RDONLY, 0)),
+            ("stdout", lib.posix_spawn_file_actions_adddup2(ctypes.byref(actions), log_fd, 1)),
+            ("stderr", lib.posix_spawn_file_actions_adddup2(ctypes.byref(actions), log_fd, 2)),
+        ] + [(f"fd {fd}", lib.posix_spawn_file_actions_addinherit_np(ctypes.byref(actions), fd)) for fd in pass_fds]
+        failed = [(name, status) for name, status in steps if status != 0]
+        if failed:
+            name, status = failed[0]
+            raise LaunchError("disclaim-unavailable", {"detail": f"posix_spawn {name}: {os.strerror(status)}",
+                                                       "log_tail": ""})
+        args = (ctypes.c_char_p * (len(argv) + 1))(*[os.fsencode(a) for a in argv], None)
+        envp = (ctypes.c_char_p * (len(env) + 1))(*[os.fsencode(f"{k}={v}") for k, v in env.items()], None)
+        pid = ctypes.c_int()
+        status = lib.posix_spawn(ctypes.byref(pid), os.fsencode(argv[0]), ctypes.byref(actions),
+                                 ctypes.byref(attributes), args, envp)
+        if status != 0:
+            raise OSError(status, os.strerror(status), argv[0])
+    finally:
+        lib.posix_spawn_file_actions_destroy(ctypes.byref(actions))
+        lib.posix_spawnattr_destroy(ctypes.byref(attributes))
+    process = SpawnedProcess(pid.value)
+    process.args = list(argv)
+    return process
+
+
 def note(text):
     print(text, flush=True)
 
@@ -1088,13 +1195,17 @@ class BenchApp:
     Under the perf-lab runner (its PERF_LAB_* variables, the LAB_* names), the defaults are the story's session, the
     run's config and the host block that host_env wrote with the measured Hz. The first launch is validated again
     with its pids (`lab_check`, default ``lab_host_check``) before the bench measures, and the report goes to `out`.
+    `own_responsibility=True` spawns the app with macOS responsibility disclaimed (``disclaimed_spawn``), so it is
+    its own responsible process as when a person opens it: a bench of privacy (TCC) attribution needs it, since a
+    plain exec charges the app's requests to this script's parent chain. ``process`` is then a ``SpawnedProcess``.
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
                  log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
                  fresh_state=True, perf_session=None, host=None, build_config=None, run=None, args=(),
-                 lab_check=None, pass_fds=(), local_features=None):
+                 lab_check=None, pass_fds=(), local_features=None, own_responsibility=False):
         self.args = tuple(args)
+        self.own_responsibility = own_responsibility
         self.local_features = dict(local_features or {})
         self.pass_fds = tuple(pass_fds)
         self.perf_session = perf_session or os.environ.get(LAB_SESSION) or "light"
@@ -1364,8 +1475,11 @@ class BenchApp:
             with finder_limits() as changed:
                 self.launched_at = time.time()
                 spawned = time.monotonic()
-                self.process = subprocess.Popen([self.binary, *self.args], env=env, stdout=log, stderr=log,
-                                                stdin=subprocess.DEVNULL, pass_fds=self.pass_fds)
+                if self.own_responsibility:
+                    self.process = disclaimed_spawn([self.binary, *self.args], env, log.fileno(), self.pass_fds)
+                else:
+                    self.process = subprocess.Popen([self.binary, *self.args], env=env, stdout=log, stderr=log,
+                                                    stdin=subprocess.DEVNULL, pass_fds=self.pass_fds)
         except LaunchError as error:
             log.close()
             self._fail(error.reason, {"tag": self.tag, **host_facts(), **error.report})

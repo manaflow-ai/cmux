@@ -57,6 +57,36 @@ import Testing
     }
 }
 
+/// chromium-host-bench.py `--modes tcc` (p01-process-089) measures Chromium's real "Chromium Safe Storage" read on a
+/// bench build, whose development bundle id otherwise runs Chromium with its mock keychain.
+@Suite struct CEFSwitchesBenchKeychainTests {
+    private func arguments(bundle: String, environment: [String: String] = [:]) -> [String] {
+        CEFSwitches.current(forkAPIVersion: 29, bundleIdentifier: bundle, environment: environment).arguments
+    }
+
+    @Test(arguments: ["com.cmuxterm.app.debug.bench-tag", "com.cmuxterm.app.next.dev"])
+    func aDevelopmentBundleUsesTheMockKeychain(bundle: String) {
+        #expect(arguments(bundle: bundle).contains("use-mock-keychain"))
+    }
+
+    @Test(arguments: ["com.cmuxterm.app.debug.bench-tag", "com.cmuxterm.app.next.dev"])
+    func theBenchSwitchGivesADevelopmentBundleTheRealKeychain(bundle: String) {
+        #expect(!arguments(bundle: bundle, environment: ["CMUX_NEXT_BENCH_REAL_KEYCHAIN": "1"]).contains("use-mock-keychain"))
+        #expect(arguments(bundle: bundle, environment: ["CMUX_NEXT_BENCH_REAL_KEYCHAIN": "0"]).contains("use-mock-keychain"))
+    }
+
+    @Test func theMockKeychainVariableStillWins() {
+        let environment = ["CMUX_NEXT_BENCH_REAL_KEYCHAIN": "1", "CMUX_MOCK_KEYCHAIN": "1"]
+        #expect(arguments(bundle: "com.cmuxterm.app.debug.bench-tag", environment: environment).contains("use-mock-keychain"))
+    }
+
+    @Test(arguments: ["com.cmuxterm.app", "com.cmuxterm.app.nightly.cmux-next", "com.cmuxterm.app.next"])
+    func aShippedBundleKeepsTheRealKeychain(bundle: String) {
+        #expect(!arguments(bundle: bundle).contains("use-mock-keychain"))
+        #expect(!arguments(bundle: bundle, environment: ["CMUX_NEXT_BENCH_REAL_KEYCHAIN": "1"]).contains("use-mock-keychain"))
+    }
+}
+
 /// Chromium's wake-up alignment (p14-energy-040). `AlignWakeUps` snaps each delayed wake-up of every
 /// Chromium thread to one 8 ms grid (MessagePump::AdjustDelayedRunTime), and `BatterySaverModeAlignWakeUps`
 /// lets battery saver widen it to 32 ms in child processes. Both are `FEATURE_DISABLED_BY_DEFAULT`, and

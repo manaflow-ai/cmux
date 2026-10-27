@@ -3,7 +3,8 @@
 
 The rows pass only when tccd, locationd and nehelper charge a host page's requests to cmux's bundle id and main
 executable, fail when the host executable, a helper or a bundle of their own is charged, and never pass on missing or
-redacted evidence. Drives TccRows with a stand-in host page, log, window list and clock (no app, GUI or macOS).
+redacted evidence, on cmux's own requests alone, or on a keychain item the host did not create. The mode stops before
+any row when cmux is not its own responsible process. Drives TccRows with a stand-in host page, log, window list and clock (no app, GUI or macOS).
 
     python3 scripts/cmux-next/tests/test_chromium_host_tcc.py
 """
@@ -88,6 +89,29 @@ class TccdTests(unittest.TestCase):
         verdict = tcc.judge_tcc(tcc.tccd_requests(lines), "kTCCServiceCamera", BUNDLE)
         self.assertTrue(verdict["pass"], verdict)
         self.assertEqual(len(verdict["requests"]), 1)
+
+    def test_cmux_own_request_alone_fails(self):
+        # cmux's own preflight (SystemPermissionProbe) is charged to cmux too, but the host never asked.
+        lines = tccd_lines("1.1", "kTCCServiceCamera", accessing=BUNDLE.executable)
+        verdict = tcc.judge_tcc(tcc.tccd_requests(lines), "kTCCServiceCamera", BUNDLE)
+        self.assertFalse(verdict["pass"])
+        self.assertEqual((verdict["app_requests"], verdict["host_requests"]), (1, 0))
+        self.assertIn("from the Chromium host or a helper", verdict["reason"])
+
+    def test_cmux_own_request_beside_the_hosts_passes(self):
+        lines = tccd_lines("1.1", "kTCCServiceCamera", accessing=BUNDLE.executable) + tccd_lines(
+            "1.2", "kTCCServiceCamera", accessing=HOST)
+        verdict = tcc.judge_tcc(tcc.tccd_requests(lines), "kTCCServiceCamera", BUNDLE)
+        self.assertTrue(verdict["pass"], verdict)
+        self.assertEqual((verdict["app_requests"], verdict["host_requests"]), (1, 1))
+
+    def test_cmux_own_request_charged_elsewhere_fails(self):
+        lines = tccd_lines("1.1", "kTCCServiceCamera", accessing=BUNDLE.executable,
+                           responsible_path="/usr/bin/sshd", responsible_id="com.openssh.sshd") + tccd_lines(
+            "1.2", "kTCCServiceCamera")
+        verdict = tcc.judge_tcc(tcc.tccd_requests(lines), "kTCCServiceCamera", BUNDLE)
+        self.assertFalse(verdict["pass"])
+        self.assertIn("another identity", verdict["reason"])
 
     def test_redacted_log_fails(self):
         lines = tccd_lines("1.1", "kTCCServiceCamera", subject="<private>")
@@ -183,10 +207,44 @@ def cmux_evidence(row):
     return [(row.processes[0], f"client {BUNDLE.identifier}")]
 
 
-def rows_with(host, clock, bundle=BUNDLE, os_major=26, keychain=lambda service: True, prompt=None):
+class Keychain:
+    """The login keychain's "Chromium Safe Storage" item: the host creates it when it starts (`host_creates`)."""
+
+    def __init__(self, exists=False, host_creates=True):
+        self.exists, self.host_creates = exists, host_creates
+        self.deletes = 0
+
+    def find(self, service):
+        return self.exists
+
+    def delete(self, service):
+        self.deletes += 1
+        self.exists = False
+        return True
+
+    def host_started(self):
+        if self.host_creates:
+            self.exists = True
+
+
+APP_PID = 4242
+REAL = {"real_keychain": True, "may_delete": True, "existed": False}
+
+
+def rows_with(host, clock, bundle=BUNDLE, os_major=26, keychain=None, prompt=None, plan=None, responsible=None,
+              app_pid=APP_PID):
+    keychain = keychain or Keychain()
+    opened = host.open_host
+
+    def open_host(url):
+        keychain.host_started()
+        return opened(url)
     seams = tcc.Seams(log=host, windows=host.windows, prompt=prompt or (lambda owner: {"text": None, "error": "no AX"}),
-                      keychain=keychain, clock=clock, sleep=clock.sleep, os_major=os_major)
-    return tcc.TccRows(bundle, host.open_host, host.title, host.press, host.allow, seams=seams)
+                      keychain=keychain.find, delete_keychain=keychain.delete,
+                      responsible=responsible or (lambda pid: pid), process_path=lambda pid: f"/proc/{pid}",
+                      clock=clock, sleep=clock.sleep, os_major=os_major)
+    return tcc.TccRows(bundle, open_host, host.title, host.press, host.allow, seams=seams, app_pid=app_pid,
+                       keychain_plan=plan)
 
 
 class RunTests(unittest.TestCase):
@@ -196,8 +254,9 @@ class RunTests(unittest.TestCase):
         result = rows_with(host, clock).run("http://127.0.0.1:1/tcc.html")
         for name in ("camera", "microphone", "location", "local_network", "screen", "bluetooth"):
             self.assertTrue(result["rows"][name]["pass"], (name, result["rows"][name]))
-        # A development bundle never reads the real keychain: the row says so instead of passing.
+        # A development bundle launched without the bench's real-keychain switch never reads it: the row says so.
         self.assertIsNone(result["rows"]["keychain"]["pass"])
+        self.assertIn("mock keychain", result["rows"]["keychain"]["reason"])
         self.assertEqual(result["not_measurable"], ["keychain"])
         self.assertFalse(result["pass"])
         self.assertGreaterEqual(host.allows, 6)
@@ -213,16 +272,72 @@ class RunTests(unittest.TestCase):
                     accessing="/Applications/cmux.app/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper")]
             return [(row.processes[0], f"client {RELEASE.identifier}")]
         host = StandInHost(clock, evidence)
-        result = rows_with(host, clock, bundle=RELEASE).run("http://127.0.0.1:1/tcc.html")
+        result = rows_with(host, clock, bundle=RELEASE, plan=REAL).run("http://127.0.0.1:1/tcc.html")
         self.assertTrue(result["pass"], json.dumps(result, indent=1)[:2000])
         print_lines = []
         tcc.print_rows(result, print_lines.append)
         self.assertIn("TCC-ROW keychain PASS", print_lines)
 
+    def test_development_bundle_with_the_real_keychain_measures_the_hosts_read(self):
+        # --modes inproc,tcc: the in-process engine made the item; the bench deletes it, the host makes it again, and
+        # the run deletes it at the end.
+        clock = Clock()
+        keychain = Keychain(exists=True)
+        result = rows_with(StandInHost(clock, cmux_evidence), clock, keychain=keychain, plan=REAL).run(
+            "http://127.0.0.1:1/tcc.html")
+        row = result["rows"]["keychain"]
+        self.assertTrue(row["pass"], row)
+        self.assertEqual((row["deleted_before"], row["item_before"], row["item_after"]), (True, False, True))
+        self.assertTrue(row["deleted_after"])
+        self.assertEqual(keychain.deletes, 2)
+        self.assertFalse(keychain.exists)
+        self.assertTrue(result["pass"], result["failing"] + result["not_measurable"])
+
+    def test_item_the_host_did_not_create_fails(self):
+        clock = Clock()
+        result = rows_with(StandInHost(clock, cmux_evidence), clock, keychain=Keychain(host_creates=False),
+                           plan=REAL).run("http://127.0.0.1:1/tcc.html")
+        self.assertFalse(result["rows"]["keychain"]["pass"])
+        self.assertIn("never read", result["rows"]["keychain"]["reason"])
+
+    def test_item_that_existed_and_may_not_be_deleted_is_not_proof(self):
+        # A shipped bundle id reads the real keychain, but the item is another app's: its presence proves nothing.
+        clock = Clock()
+        keychain = Keychain(exists=True)
+        result = rows_with(StandInHost(clock, cmux_evidence), clock, bundle=RELEASE, keychain=keychain).run(
+            "http://127.0.0.1:1/tcc.html")
+        row = result["rows"]["keychain"]
+        self.assertIsNone(row["pass"])
+        self.assertIn("cannot tell the host read it", row["reason"])
+        self.assertEqual(keychain.deletes, 0)
+
+    def test_cmux_charged_to_the_bench_is_a_mode_error(self):
+        clock = Clock()
+        host = StandInHost(clock, cmux_evidence)
+        result = rows_with(host, clock, responsible=lambda pid: 77).run("http://127.0.0.1:1/tcc.html")
+        self.assertTrue(result["mode_error"])
+        self.assertIn("mode error", result["error"])
+        self.assertEqual(result["responsibility"],
+                         {"app_pid": APP_PID, "responsible_pid": 77, "responsible_path": "/proc/77"})
+        self.assertEqual(result["rows"], {})
+        self.assertIsNone(host.opened, "no row runs")
+        self.assertFalse(result["pass"])
+        lines = []
+        tcc.print_rows(result, lines.append)
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("TCC-ROWS FAIL (mode error"))
+
+    def test_unknown_responsibility_is_a_mode_error(self):
+        clock = Clock()
+        for responsible, app_pid in ((lambda pid: None, APP_PID), (None, None)):
+            result = rows_with(StandInHost(clock, cmux_evidence), clock, responsible=responsible, app_pid=app_pid).run(
+                "http://127.0.0.1:1/tcc.html")
+            self.assertTrue(result["mode_error"], result)
+
     def test_keychain_prompt_fails(self):
         clock = Clock()
         host = StandInHost(clock, cmux_evidence)
-        rows = rows_with(host, clock, bundle=RELEASE)
+        rows = rows_with(host, clock, bundle=RELEASE, plan=REAL)
         host.window_list = []
         original = host.press
 
@@ -291,6 +406,30 @@ class RunTests(unittest.TestCase):
         self.assertIn("never showed", result["error"])
 
 
+class KeychainPlanTests(unittest.TestCase):
+    def test_absent_item_turns_the_real_keychain_on(self):
+        plan = tcc.keychain_plan("S", reset=False, keychain=lambda s: False, delete=self.fail)
+        self.assertEqual((plan["real_keychain"], plan["may_delete"]), (True, True))
+
+    def test_another_apps_item_keeps_the_mock_keychain_without_reset(self):
+        plan = tcc.keychain_plan("S", reset=False, keychain=lambda s: True, delete=self.fail)
+        self.assertEqual((plan["real_keychain"], plan["may_delete"]), (False, False))
+        self.assertIn("--keychain-reset", plan["reason"])
+
+    def test_reset_deletes_it_first(self):
+        deleted = []
+        plan = tcc.keychain_plan("S", reset=True, keychain=lambda s: True, delete=lambda s: deleted.append(s) or True)
+        self.assertEqual((plan["real_keychain"], deleted), (True, ["S"]))
+        failed = tcc.keychain_plan("S", reset=True, keychain=lambda s: True, delete=lambda s: False)
+        self.assertFalse(failed["real_keychain"])
+
+    def test_unreadable_keychain_keeps_the_mock(self):
+        self.assertFalse(tcc.keychain_plan("S", reset=True, keychain=lambda s: None, delete=self.fail)["real_keychain"])
+
+    def test_responsible_pid_is_none_without_libsystem(self):
+        self.assertIsNone(tcc.responsible_pid(1, library="/nonexistent/libSystem.B.dylib"))
+
+
 class PageTests(unittest.TestCase):
     def test_page_has_every_row_and_title_round_trips(self):
         html = tcc.page(lan_url="http://192.168.64.2:5/lan")
@@ -341,6 +480,18 @@ class BenchWiringTests(unittest.TestCase):
 
     def test_the_host_closes_before_the_helper_rows(self):
         self.assertIn({"op": "close"}, self.params)
+
+    def test_the_host_starts_fresh_for_the_keychain_row(self):
+        # The first debug.chromium_host call closes a host an earlier mode started: its key read happened already.
+        self.assertEqual(self.params[0], {"op": "close"})
+
+    def test_the_tcc_launch_makes_cmux_its_own_responsible_process(self):
+        source = BENCH.read_text()
+        launches = [n for n in ast.walk(ast.parse(source))
+                    if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "BenchApp"]
+        self.assertEqual(len(launches), 1)
+        self.assertIn("own_responsibility", [k.arg for k in launches[0].keywords])
+        self.assertIn("CMUX_NEXT_BENCH_REAL_KEYCHAIN", source)
 
 
 if __name__ == "__main__":
