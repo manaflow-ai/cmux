@@ -144,6 +144,28 @@ import Testing
         gate.cancel()
     }
 
+    @Test nonisolated func theNextBoundIsTheNearestTimeoutStillAhead() {
+        func bound(_ blockers: UpdateRelaunchBlockers, automatic: Bool, waited: Duration,
+                   daemonUnavailableFor: Duration = .zero) -> Duration? {
+            UpdateRelaunchGate.untilNextBound(
+                blockers, automatic: automatic, waited: waited, daemonUnavailableFor: daemonUnavailableFor,
+                agentTimeout: .seconds(30 * 60), daemonUnavailableTimeout: .seconds(10 * 60),
+                automaticWaitCap: .seconds(15 * 60))
+        }
+        let agent = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        let command = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 1)
+
+        #expect(bound(agent, automatic: false, waited: .seconds(60)) == .seconds(29 * 60))
+        // Only Install Now or the command ending releases a user install held by a running command.
+        #expect(bound(command, automatic: false, waited: .seconds(60)) == nil)
+        #expect(bound(command, automatic: true, waited: .seconds(60)) == .seconds(14 * 60))
+        #expect(bound(.daemonUnavailable, automatic: true, waited: .seconds(9 * 60),
+                      daemonUnavailableFor: .seconds(9 * 60)) == .seconds(60))
+        // A daemon bound already passed leaves the wait cap.
+        #expect(bound(.daemonUnavailable, automatic: true, waited: .seconds(11 * 60),
+                      daemonUnavailableFor: .seconds(11 * 60)) == .seconds(4 * 60))
+    }
+
     @Test func theBackoffNeverSleepsPastTheAgentTimeout() async {
         let clock = TestDeadlineClock()
         let gate = UpdateRelaunchGate(clock: clock, log: NoopUpdateLog(), agentTimeout: .seconds(5))

@@ -56,8 +56,12 @@ public struct UpdateRelaunchBlockers: Equatable, Sendable {
 /// `retryTerminatingApplication` and `dismiss` actions.
 @MainActor
 final class UpdateRelaunchGate {
-    /// How often a waiting gate re-reads the host's blockers.
+    /// How soon a waiting gate first re-reads the host's blockers, and again after they changed.
     static let recheckInterval: Duration = .seconds(2)
+    /// The longest a waiting gate goes between reads of blockers that stay the same: the interval
+    /// doubles up to this, like Chrome's `net::BackoffEntry` with its `maximum_backoff_ms`
+    /// (`net/base/backoff_entry.h`).
+    static let recheckCap: Duration = .seconds(16)
     /// How long an explicit install waits for busy agents before relaunching anyway.
     static let agentTimeout: Duration = .seconds(30 * 60)
     /// How long an automatic install waits for a daemon mirror that stays unconfirmed before it
@@ -70,6 +74,7 @@ final class UpdateRelaunchGate {
     private let clock: any UpdateClock
     private let log: any UpdateLogging
     private let recheckInterval: Duration
+    private let recheckCap: Duration
     private let agentTimeout: Duration
     private let daemonUnavailableTimeout: Duration
     /// ``UpdateRelaunchGate/automaticWaitCap`` unless the host sets its own; read on each check.
@@ -102,12 +107,14 @@ final class UpdateRelaunchGate {
         clock: any UpdateClock,
         log: any UpdateLogging,
         recheckInterval: Duration = UpdateRelaunchGate.recheckInterval,
+        recheckCap: Duration = UpdateRelaunchGate.recheckCap,
         agentTimeout: Duration = UpdateRelaunchGate.agentTimeout,
         daemonUnavailableTimeout: Duration = UpdateRelaunchGate.daemonUnavailableTimeout
     ) {
         self.clock = clock
         self.log = log
         self.recheckInterval = recheckInterval
+        self.recheckCap = Swift.max(recheckCap, recheckInterval)
         self.agentTimeout = agentTimeout
         self.daemonUnavailableTimeout = daemonUnavailableTimeout
     }
@@ -170,11 +177,14 @@ final class UpdateRelaunchGate {
                               later: later)
         pending = request
         guard !evaluate(request, blockers: blockers(), publish: publish) else { return }
-        let interval = recheckInterval
+        var interval = nextRecheck(request, after: nil)
         waitTask = Task { @MainActor [weak self, clock] in
+            // wakeup-allow: backoff the recheck doubles to recheckCap while the blockers stay the same,
+            // never sleeps past the hold's next time bound, and ends with the hold
             while !Task.isCancelled {
                 do {
-                    try await clock.sleep(for: interval, tolerance: nil)
+                    // wakeup-allow: backoff one recheck of the held relaunch, its interval from nextRecheck
+                    try await clock.sleep(for: interval, tolerance: interval.updateWakeLeeway)
                 } catch {
                     return
                 }
@@ -188,9 +198,49 @@ final class UpdateRelaunchGate {
                 request.waited += interval
                 request.daemonUnavailableFor = current.daemonStateUnavailable
                     ? request.daemonUnavailableFor + interval : .zero
+                let shown = request.published
                 if self.evaluate(request, blockers: current, publish: publish) { return }
+                interval = self.nextRecheck(request, after: request.published == shown ? interval : nil)
             }
         }
+    }
+
+    /// How long a waiting `request` sleeps before it reads the blockers again: ``recheckInterval``
+    /// first and after the published blockers changed (`previous` nil), otherwise double `previous`
+    /// up to ``recheckCap``; never past the hold's next time bound, so a timeout ends on time.
+    private func nextRecheck(_ request: Pending, after previous: Duration?) -> Duration {
+        let backedOff = previous.map { Swift.min(Swift.max($0 * 2, recheckInterval), recheckCap) } ?? recheckInterval
+        guard let bound = Self.untilNextBound(
+            request.published ?? .empty, automatic: request.automatic, waited: request.waited,
+            daemonUnavailableFor: request.daemonUnavailableFor, agentTimeout: agentTimeout,
+            daemonUnavailableTimeout: daemonUnavailableTimeout, automaticWaitCap: automaticWaitCap
+        ) else { return backedOff }
+        return Swift.min(backedOff, bound)
+    }
+
+    /// How long until a wait with `blockers` reaches the next time bound that `shouldRelaunch`
+    /// checks: the agent timeout of an install the user asked for, or the daemon-mirror bound and
+    /// the wait cap of an automatic one. `nil` when no bound is ahead, so only the person or a
+    /// blocker change ends the wait.
+    nonisolated static func untilNextBound(
+        _ blockers: UpdateRelaunchBlockers,
+        automatic: Bool,
+        waited: Duration,
+        daemonUnavailableFor: Duration,
+        agentTimeout: Duration,
+        daemonUnavailableTimeout: Duration,
+        automaticWaitCap: Duration
+    ) -> Duration? {
+        let bounds: [Duration]
+        if !automatic {
+            let agentsBound = blockers.runningCommandCount == 0 && blockers.busyAgentCount > 0
+            bounds = agentsBound ? [agentTimeout - waited] : []
+        } else if blockers.daemonStateUnavailable {
+            bounds = [automaticWaitCap - waited, daemonUnavailableTimeout - daemonUnavailableFor]
+        } else {
+            bounds = [automaticWaitCap - waited]
+        }
+        return bounds.filter { $0 > .zero }.min()
     }
 
     /// Returns `true` when the request finished (relaunched).

@@ -244,8 +244,9 @@ public final class UpdateController {
         recordUITestTimestamp(key: "noUpdateShownAt")
         noUpdateDismissTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            // Bounded, cancellable auto-dismiss delay via the injected clock.
-            try? await self.clock.sleep(for: .seconds(UpdateTiming.noUpdateDisplayDuration), tolerance: nil)
+            let display = Duration.seconds(UpdateTiming.noUpdateDisplayDuration)
+            // wakeup-allow: deadline one cancellable auto-dismiss of the "No Updates Available" note
+            try? await self.clock.sleep(for: display, tolerance: display.updateWakeLeeway)
             guard !Task.isCancelled else { return }
             guard self.model.overrideState == nil, case .notFound = self.model.state else { return }
             self.recordUITestTimestamp(key: "noUpdateHiddenAt")

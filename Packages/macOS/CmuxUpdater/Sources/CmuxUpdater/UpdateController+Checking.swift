@@ -137,7 +137,8 @@ extension UpdateController {
                     return
                 }
                 remaining -= 1
-                try? await self.clock.sleep(for: self.readyRetryDelay, tolerance: nil)
+                // wakeup-allow: bounded readyRetryCount (20) tries of readyRetryDelay, only while a requested check waits
+                try? await self.clock.sleep(for: self.readyRetryDelay, tolerance: self.readyRetryDelay.updateWakeLeeway)
                 if Task.isCancelled { return }
             }
 

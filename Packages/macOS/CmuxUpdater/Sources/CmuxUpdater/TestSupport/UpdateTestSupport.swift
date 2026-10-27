@@ -29,7 +29,9 @@ public struct UpdateTestSupport {
                 if delayMilliseconds > 0 {
                     let model = self.model
                     Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(delayMilliseconds))
+                        let delay = Duration.milliseconds(delayMilliseconds)
+                        // wakeup-allow: fixture DEBUG UI-test delay set by CMUX_UI_TEST_DETECTED_UPDATE_DELAY_MS
+                        try? await Task.sleep(for: delay, tolerance: delay.updateWakeLeeway)
                         guard !Task.isCancelled else { return }
                         model.recordDetectedUpdate(item)
                     }
@@ -91,7 +93,9 @@ public struct UpdateTestSupport {
             let delayMilliseconds = Int(env["CMUX_UI_TEST_MOCK_FEED_DELAY_MS"] ?? "") ?? 0
             Task { @MainActor in
                 if delayMilliseconds > 0 {
-                    try? await Task.sleep(for: .milliseconds(delayMilliseconds))
+                    let delay = Duration.milliseconds(delayMilliseconds)
+                    // wakeup-allow: fixture DEBUG UI-test feed delay set by CMUX_UI_TEST_MOCK_FEED_DELAY_MS
+                    try? await Task.sleep(for: delay, tolerance: delay.updateWakeLeeway)
                 }
                 if hasItem {
                     let appcastItem = Self.makeAppcastItem(displayVersion: version) ?? UpdateAppcastItem.empty()
@@ -109,7 +113,9 @@ public struct UpdateTestSupport {
         model.applyDriverState(.checking(.init(cancel: {})))
         let model = self.model
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(200))
+            let delay = Duration.milliseconds(200)
+            // wakeup-allow: fixture DEBUG UI-test pause between the checking state and the forced one
+            try? await Task.sleep(for: delay, tolerance: delay.updateWakeLeeway)
             model.applyDriverState(state)
         }
     }

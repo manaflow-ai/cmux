@@ -42,8 +42,9 @@ final class InstallWatchdog {
         task?.cancel()
         let timeout = self.timeout
         task = Task { @MainActor [weak self] in
-            // Bounded, cancellable deadline via the injected clock.
-            try? await self?.clock.sleep(for: .seconds(timeout), tolerance: nil)
+            let deadline = Duration.seconds(timeout)
+            // wakeup-allow: deadline one cancellable install deadline per Install click; disarm cancels it
+            try? await self?.clock.sleep(for: deadline, tolerance: deadline.updateWakeLeeway)
             guard !Task.isCancelled, self != nil else { return }
             onTimeout()
         }
