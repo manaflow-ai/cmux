@@ -3405,7 +3405,7 @@ jobs:
             const body = `${publicationLine}\n\n${failedLine}\n\nA publication that includes this commit closes this incident. Run: ${runUrl}`;
             const incident = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_failure_issue.mjs`);
             await incident.report({
-              github, owner, repo, channel, appName, ref: refName, sha: process.env.HEAD_SHA, body, log: core.info,
+              github, owner, repo, channel, appName, ref: refName, sha: process.env.HEAD_SHA, body, runUrl, log: core.info,
               // A stale tag is this commit's own incident even though it published.
               releaseTag: tagStale ? null : process.env.CHANNEL_RELEASE_TAG,
             });
