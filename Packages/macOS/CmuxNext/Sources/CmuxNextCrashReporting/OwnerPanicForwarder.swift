@@ -14,7 +14,9 @@ import os
 /// crash report. The first run marks the existing log read. Lines from a
 /// time reports were off (`sends` false) are
 /// marked read and never sent. Debug test panics (`"test": true`) are
-/// skipped.
+/// skipped. The same reader sends a hang log (`owner-hangs-<session>.jsonl`,
+/// `$ACPMUX_HOME/hangs.jsonl`): each `"event": "hang"` line is one warning.
+/// No event carries a path or URL (``RustLogScrubber``, p10-stability-150).
 public final class OwnerPanicForwarder: Sendable {
     struct State: Codable, Equatable {
         /// Bytes of the log already read.
@@ -51,6 +53,11 @@ public final class OwnerPanicForwarder: Sendable {
     /// owner's sessions directory).
     public static func log(stateRoot: URL, session: String) -> URL {
         stateRoot.appending(path: "owner-panics-\(session).jsonl")
+    }
+
+    /// The owner's hang log for `session` under `stateRoot`, beside its panic log.
+    public static func hangLog(stateRoot: URL, session: String) -> URL {
+        stateRoot.appending(path: "owner-hangs-\(session).jsonl")
     }
 
     /// Reads now and each time the state root changes, off the main thread.
@@ -95,12 +102,16 @@ public final class OwnerPanicForwarder: Sendable {
     }
 
     /// The Sentry event for one log line; nil for a test line or a line
-    /// that is not a panic record.
+    /// that is neither a panic nor a hang record (a lab build's slow polls).
+    /// Every text the event carries is scrubbed of paths and URLs (``RustLogScrubber``).
     static func event(fromLine line: Data, source: RustPanicSource = .owner) -> Event? {
         guard let record = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              let message = record["message"] as? String,
               record["test"] as? Bool != true else { return nil }
-        let location = record["location"] as? String ?? ""
+        let scrubber = RustLogScrubber()
+        if record["event"] as? String == "hang" { return hangEvent(record, source: source, scrubber: scrubber) }
+        guard let rawMessage = record["message"] as? String else { return nil }
+        let message = scrubber.scrub(rawMessage)
+        let location = scrubber.scrub(record["location"] as? String ?? "")
         let event = Event(level: .error)
         let exception = Exception(value: message, type: "RustPanic")
         let mechanism = Mechanism(type: "rust_panic")
@@ -110,19 +121,59 @@ public final class OwnerPanicForwarder: Sendable {
         event.message = SentryMessage(formatted: "\(source.label) at \(location): \(message)")
         // Same panic site, same issue, whatever the message text holds.
         event.fingerprint = [source.fingerprintPrefix, location]
-        var tags = ["process": source.process, "crash_source": source.crashSource]
-        if let thread = record["thread"] as? String { tags["thread"] = thread }
-        if let version = record["version"] as? String { tags["tui_version"] = version }
-        // The build and platform a tester runs (cmux-tui owner_panic.rs), so
-        // Sentry groups crashes by release and platform.
-        if let build = record["build_identity"] as? String { tags["tui_build"] = build }
-        if let os = record["os"] as? String { tags["tui_os"] = os }
-        if let arch = record["arch"] as? String { tags["tui_arch"] = arch }
+        var tags = buildTags(record, source: source)
+        if let thread = record["thread"] as? String { tags["thread"] = scrubber.scrub(thread) }
         event.tags = tags
         var extra: [String: Any] = ["location": location]
-        if let backtrace = record["backtrace"] as? String { extra["backtrace"] = backtrace }
+        if let backtrace = record["backtrace"] as? String { extra["backtrace"] = scrubber.scrub(backtrace) }
         event.extra = extra
         return event
+    }
+
+    /// One hung scope (cmux-panic-log `hang`, written by the request watchdog): a warning grouped by
+    /// scope and method, its thread's stack as `image+offset symbol` lines with no image folder.
+    private static func hangEvent(_ record: [String: Any], source: RustPanicSource,
+                                  scrubber: RustLogScrubber) -> Event? {
+        guard let scope = record["scope"] as? String else { return nil }
+        let method = scrubber.scrub(record["method"] as? String ?? scope)
+        let busy = (record["busy_ms"] as? NSNumber)?.int64Value ?? 0
+        let event = Event(level: .warning)
+        let exception = Exception(value: "\(scope) \(method) busy \(busy) ms", type: "RustHang")
+        let mechanism = Mechanism(type: "rust_hang")
+        // The process lives on: a hang is reported, not a crash.
+        mechanism.handled = true
+        exception.mechanism = mechanism
+        event.exceptions = [exception]
+        event.message = SentryMessage(formatted: "\(source.label): \(scope) \(method) busy \(busy) ms")
+        event.fingerprint = [source.fingerprintPrefix, scope, method]
+        var tags = buildTags(record, source: source)
+        tags["hang_scope"] = scope
+        tags["hang_method"] = method
+        event.tags = tags
+        let frames = (record["stack"] as? [[String: Any]] ?? []).map { frame in
+            let image = (frame["image"] as? String).map(scrubber.imageName) ?? "?"
+            let offset = (frame["offset"] as? NSNumber)?.uint64Value ?? 0
+            let symbol = (frame["symbol"] as? String).map { " " + $0 } ?? ""
+            return "\(image)+0x\(String(offset, radix: 16))\(symbol)"
+        }
+        var extra: [String: Any] = ["stack": frames]
+        for key in ["hang_ms", "busy_ms", "duration_ms", "stack_truncated"] {
+            if let value = record[key] as? NSNumber { extra[key] = value }
+        }
+        if let error = record["stack_error"] as? String { extra["stack_error"] = error }
+        event.extra = extra
+        return event
+    }
+
+    /// The process, release and platform tags every record carries (cmux-tui owner_panic.rs,
+    /// acpmux daemon/panic_log.rs), so Sentry groups by release and platform.
+    private static func buildTags(_ record: [String: Any], source: RustPanicSource) -> [String: String] {
+        var tags = ["process": source.process, "crash_source": source.crashSource]
+        for (field, tag) in [("version", "tui_version"), ("build_identity", "tui_build"), ("os", "tui_os"),
+                             ("arch", "tui_arch")] {
+            if let value = record[field] as? String { tags[tag] = value }
+        }
+        return tags
     }
 
     private func watch() {
