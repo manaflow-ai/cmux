@@ -226,7 +226,8 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
 
 - **Check first.** Run `acpmux host status` before remote work and after any host request
   fails. Don't guess from a timeout. It names the next command for a peer it cannot reach
-  (`acpmux host doctor HOST`) and for one on another build (`acpmux host update HOST`). The
+  (`acpmux host doctor HOST`) and for one on another build (`acpmux host update HOST`, or its
+  target-specific `--binary-dir DIR` form when the peer differs). The
   update restarts that peer's daemon: run it only when the task asks for it (see below), and
   otherwise report the version mismatch.
 - **Unreachable peer.** acpmux reconnects by itself. A request refused as unreachable was not

@@ -285,6 +285,8 @@ type Props = {
   offloads?: readonly OffloadKind[];
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
+  /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
+  folderNote?: string;
   /// This Mac's name for the location row.
   localName?: string;
   /// Preview features on: the location row's computer is the environment picker (ComposerContext).
@@ -358,6 +360,7 @@ export function Composer({
   onOffload,
   offloads,
   onRefreshMachines,
+  folderNote,
   localName,
   environments,
   onNewChat,
@@ -1528,8 +1531,8 @@ export function Composer({
     },
   ];
 
-  // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
-  // composer location strip), so the card holds one controls row. Only a new chat has the visible
+  // The location strip: the folder and computer chips over the card (hq#1957 composer location
+  // strip, composerLocation.css), so the card holds one controls row. Only a new chat has the visible
   // strip, before its first send (locationRow.ts): a started chat cannot change folder or machine.
   // Keep a non-painting slot for that strip while the first prompt changes the transcript. The
   // composer is bottom-anchored, so removing the slot in the same render would move every control
@@ -1565,6 +1568,7 @@ export function Composer({
       {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
+      {...(folderNote ? { folderNote } : {})}
       environments={environments}
       onProject={
         onProject &&

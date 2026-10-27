@@ -17746,73 +17746,6 @@
    }
   },
   {
-   "name": "chief: participants.add",
-   "head": {
-    "id": "conv_CHIEF",
-    "title": "Chief",
-    "participants": [
-     {
-      "id": "user_alice",
-      "kind": "human",
-      "display_name": "Alice",
-      "role": "owner",
-      "joined_seq": 0,
-      "added_by": "user_alice"
-     },
-     {
-      "id": "agent_alicechief",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux",
-      "owner_user": "user_alice",
-      "role": "member",
-      "joined_seq": 0,
-      "added_by": "user_alice"
-     }
-    ],
-    "last_seq": 0,
-    "rev": 1,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
-    "agent_text_streak": 0,
-    "kind": "chief",
-    "created_by": "user_alice",
-    "state": "active",
-    "settings": {
-     "wake_policy": "auto",
-     "agent_budget": {
-      "turns": 6,
-      "gap_ms": 2000
-     },
-     "history_visible": "all"
-    },
-    "invites": []
-   },
-   "request": {
-    "actor": "user_alice",
-    "idempotency_key": "p1",
-    "op": {
-     "kind": "participants.add",
-     "participant": {
-      "id": "user_bob",
-      "kind": "human",
-      "display_name": "Alice"
-     }
-    },
-    "now": "2026-10-01T12:00:00.000Z",
-    "new_message_id": "msg_00000000000000000000000001",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": null
-   },
-   "expect": {
-    "reject": "kind_forbids"
-   }
-  },
-  {
    "name": "chief: invite.create",
    "head": {
     "id": "conv_CHIEF",
@@ -17882,100 +17815,7 @@
    }
   },
   {
-   "name": "chief: the owner may not post a question",
-   "head": {
-    "id": "conv_CHIEF",
-    "title": "Chief",
-    "participants": [
-     {
-      "id": "user_alice",
-      "kind": "human",
-      "display_name": "Alice",
-      "role": "owner",
-      "joined_seq": 0,
-      "added_by": "user_alice"
-     },
-     {
-      "id": "agent_alicechief",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux",
-      "owner_user": "user_alice",
-      "role": "member",
-      "joined_seq": 0,
-      "added_by": "user_alice"
-     }
-    ],
-    "last_seq": 0,
-    "rev": 1,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
-    "agent_text_streak": 0,
-    "kind": "chief",
-    "created_by": "user_alice",
-    "state": "active",
-    "settings": {
-     "wake_policy": "auto",
-     "agent_budget": {
-      "turns": 6,
-      "gap_ms": 2000
-     },
-     "history_visible": "all"
-    },
-    "invites": []
-   },
-   "request": {
-    "actor": "user_alice",
-    "idempotency_key": "q1",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "q1",
-     "parts": [
-      {
-       "type": "question",
-       "harness": "chief",
-       "session": "sess_mux",
-       "permission": "perm_1",
-       "agent": "Chief",
-       "items": [
-        {
-         "id": "q0",
-         "header": "Auth",
-         "prompt": "Which auth method?",
-         "options": [
-          {
-           "id": "oauth",
-           "label": "OAuth",
-           "detail": "Delegated"
-          },
-          {
-           "id": "keys",
-           "label": "API keys",
-           "preview": {
-            "text": "KEY=..."
-           }
-          }
-         ]
-        }
-       ]
-      }
-     ]
-    },
-    "now": "2026-10-01T12:00:00.000Z",
-    "new_message_id": "msg_00000000000000000000000001",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": null
-   },
-   "expect": {
-    "reject": "invalid_parts"
-   }
-  },
-  {
-   "name": "chief: the chief posts a question",
+   "name": "chief: the chief adds a person",
    "head": {
     "id": "conv_CHIEF",
     "title": "Chief",
@@ -18021,6 +17861,1676 @@
    },
    "request": {
     "actor": "agent_alicechief",
+    "idempotency_key": "p0",
+    "op": {
+     "kind": "participants.add",
+     "participant": {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Alice"
+     }
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000001",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": null
+   },
+   "expect": {
+    "reject": "forbidden"
+   }
+  },
+  {
+   "name": "chief: the owner adds another agent",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 0,
+    "rev": 1,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "all"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "p0",
+    "op": {
+     "kind": "participants.add",
+     "participant": {
+      "id": "agent_second",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice"
+     }
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000001",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": null
+   },
+   "expect": {
+    "reject": "invalid_participant"
+   }
+  },
+  {
+   "name": "chief: the owner adds an admin",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 0,
+    "rev": 1,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "all"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "p0",
+    "op": {
+     "kind": "participants.add",
+     "participant": {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     "role": "admin"
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000001",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": null
+   },
+   "expect": {
+    "reject": "forbidden"
+   }
+  },
+  {
+   "name": "chief: the owner shares it with a teammate",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 0,
+    "rev": 1,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "all"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "p1",
+    "op": {
+     "kind": "participants.add",
+     "participant": {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob"
+     }
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000001",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": null
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_CHIEF",
+      "title": "Chief",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "Alice",
+        "role": "owner",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "agent_alicechief",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux",
+        "owner_user": "user_alice",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "Bob",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 2,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0,
+      "kind": "chief",
+      "created_by": "user_alice",
+      "state": "active",
+      "settings": {
+       "wake_policy": "auto",
+       "agent_budget": {
+        "turns": 6,
+        "gap_ms": 2000
+       },
+       "history_visible": "since_join"
+      },
+      "invites": []
+     },
+     "change": {
+      "kind": "conversation",
+      "conversation": {
+       "id": "conv_CHIEF",
+       "owner": "cloud",
+       "title": "Chief",
+       "participants": [
+        {
+         "id": "user_alice",
+         "kind": "human",
+         "display_name": "Alice",
+         "role": "owner",
+         "joined_seq": 0,
+         "added_by": "user_alice"
+        },
+        {
+         "id": "agent_alicechief",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux",
+         "owner_user": "user_alice",
+         "role": "member",
+         "joined_seq": 0,
+         "added_by": "user_alice"
+        },
+        {
+         "id": "user_bob",
+         "kind": "human",
+         "display_name": "Bob",
+         "role": "member",
+         "joined_seq": 0,
+         "added_by": "user_alice"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 2,
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "updated_at": "2026-10-01T12:00:00.000Z",
+       "read_cursors": {},
+       "kind": "chief",
+       "created_by": "user_alice",
+       "state": "active",
+       "settings": {
+        "wake_policy": "auto",
+        "agent_budget": {
+         "turns": 6,
+         "gap_ms": 2000
+        },
+        "history_visible": "since_join"
+       },
+       "invites": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "chief: a teammate shares it further",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 0,
+    "rev": 2,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_bob",
+    "idempotency_key": "p2",
+    "op": {
+     "kind": "participants.add",
+     "participant": {
+      "id": "user_carol",
+      "kind": "human",
+      "display_name": "Alice"
+     }
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000001",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": null
+   },
+   "expect": {
+    "reject": "forbidden"
+   }
+  },
+  {
+   "name": "chief: a teammate talks",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 0,
+    "rev": 2,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_bob",
+    "idempotency_key": "s1",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "s1",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000001",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": null
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_CHIEF",
+      "title": "Chief",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "Alice",
+        "role": "owner",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "agent_alicechief",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux",
+        "owner_user": "user_alice",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "Bob",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       }
+      ],
+      "last_seq": 1,
+      "rev": 3,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_bob": 1
+      },
+      "agent_text_streak": 0,
+      "kind": "chief",
+      "created_by": "user_alice",
+      "state": "active",
+      "settings": {
+       "wake_policy": "auto",
+       "agent_budget": {
+        "turns": 6,
+        "gap_ms": 2000
+       },
+       "history_visible": "since_join"
+      },
+      "invites": []
+     },
+     "message": {
+      "id": "msg_00000000000000000000000001",
+      "conversation": "conv_CHIEF",
+      "seq": 1,
+      "client_msg_id": "s1",
+      "author": "user_bob",
+      "parts": [
+       {
+        "type": "text",
+        "text": "hi from bob"
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000001",
+       "conversation": "conv_CHIEF",
+       "seq": 1,
+       "client_msg_id": "s1",
+       "author": "user_bob",
+       "parts": [
+        {
+         "type": "text",
+         "text": "hi from bob"
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "chief: a teammate cannot rename it",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_bob",
+    "idempotency_key": "t1",
+    "op": {
+     "kind": "title.set",
+     "title": "x"
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "kind_forbids"
+   }
+  },
+  {
+   "name": "chief: a teammate cannot remove the chief",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_bob",
+    "idempotency_key": "r0",
+    "op": {
+     "kind": "participants.remove",
+     "participant": "agent_alicechief"
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "kind_forbids"
+   }
+  },
+  {
+   "name": "chief: the owner cannot remove the chief",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "r0",
+    "op": {
+     "kind": "participants.remove",
+     "participant": "agent_alicechief"
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "kind_forbids"
+   }
+  },
+  {
+   "name": "chief: the owner cannot leave",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "r0",
+    "op": {
+     "kind": "participants.remove",
+     "participant": "user_alice"
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "kind_forbids"
+   }
+  },
+  {
+   "name": "chief: a teammate cannot make itself an admin",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_bob",
+    "idempotency_key": "sr0",
+    "op": {
+     "kind": "participants.set_role",
+     "participant": "user_bob",
+     "role": "admin"
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "forbidden"
+   }
+  },
+  {
+   "name": "chief: the owner makes a teammate read-only",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "sr1",
+    "op": {
+     "kind": "participants.set_role",
+     "participant": "user_bob",
+     "role": "read_only"
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_CHIEF",
+      "title": "Chief",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "Alice",
+        "role": "owner",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "agent_alicechief",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux",
+        "owner_user": "user_alice",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "Bob",
+        "role": "read_only",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       }
+      ],
+      "last_seq": 1,
+      "rev": 4,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_bob": 1
+      },
+      "agent_text_streak": 0,
+      "kind": "chief",
+      "created_by": "user_alice",
+      "state": "active",
+      "settings": {
+       "wake_policy": "auto",
+       "agent_budget": {
+        "turns": 6,
+        "gap_ms": 2000
+       },
+       "history_visible": "since_join"
+      },
+      "invites": []
+     },
+     "change": {
+      "kind": "conversation",
+      "conversation": {
+       "id": "conv_CHIEF",
+       "owner": "cloud",
+       "title": "Chief",
+       "participants": [
+        {
+         "id": "user_alice",
+         "kind": "human",
+         "display_name": "Alice",
+         "role": "owner",
+         "joined_seq": 0,
+         "added_by": "user_alice"
+        },
+        {
+         "id": "agent_alicechief",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux",
+         "owner_user": "user_alice",
+         "role": "member",
+         "joined_seq": 0,
+         "added_by": "user_alice"
+        },
+        {
+         "id": "user_bob",
+         "kind": "human",
+         "display_name": "Bob",
+         "role": "read_only",
+         "joined_seq": 0,
+         "added_by": "user_alice"
+        }
+       ],
+       "last_seq": 1,
+       "rev": 4,
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "updated_at": "2026-10-01T12:00:00.000Z",
+       "last_message": {
+        "id": "msg_00000000000000000000000001",
+        "conversation": "conv_CHIEF",
+        "seq": 1,
+        "client_msg_id": "s1",
+        "author": "user_bob",
+        "parts": [
+         {
+          "type": "text",
+          "text": "hi from bob"
+         }
+        ],
+        "created_at": "2026-10-01T12:00:00.000Z",
+        "reactions": []
+       },
+       "read_cursors": {
+        "user_bob": 1
+       },
+       "kind": "chief",
+       "created_by": "user_alice",
+       "state": "active",
+       "settings": {
+        "wake_policy": "auto",
+        "agent_budget": {
+         "turns": 6,
+         "gap_ms": 2000
+        },
+        "history_visible": "since_join"
+       },
+       "invites": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "chief: a read-only teammate cannot talk",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "read_only",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 4,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_bob",
+    "idempotency_key": "s2",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "s2",
+     "parts": [
+      {
+       "type": "text",
+       "text": "still me"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "read_only"
+   }
+  },
+  {
+   "name": "chief: the owner makes the teammate a member again",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "read_only",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 4,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "sr2",
+    "op": {
+     "kind": "participants.set_role",
+     "participant": "user_bob",
+     "role": "member"
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_CHIEF",
+      "title": "Chief",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "Alice",
+        "role": "owner",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "agent_alicechief",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux",
+        "owner_user": "user_alice",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "Bob",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       }
+      ],
+      "last_seq": 1,
+      "rev": 5,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_bob": 1
+      },
+      "agent_text_streak": 0,
+      "kind": "chief",
+      "created_by": "user_alice",
+      "state": "active",
+      "settings": {
+       "wake_policy": "auto",
+       "agent_budget": {
+        "turns": 6,
+        "gap_ms": 2000
+       },
+       "history_visible": "since_join"
+      },
+      "invites": []
+     },
+     "change": {
+      "kind": "conversation",
+      "conversation": {
+       "id": "conv_CHIEF",
+       "owner": "cloud",
+       "title": "Chief",
+       "participants": [
+        {
+         "id": "user_alice",
+         "kind": "human",
+         "display_name": "Alice",
+         "role": "owner",
+         "joined_seq": 0,
+         "added_by": "user_alice"
+        },
+        {
+         "id": "agent_alicechief",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux",
+         "owner_user": "user_alice",
+         "role": "member",
+         "joined_seq": 0,
+         "added_by": "user_alice"
+        },
+        {
+         "id": "user_bob",
+         "kind": "human",
+         "display_name": "Bob",
+         "role": "member",
+         "joined_seq": 0,
+         "added_by": "user_alice"
+        }
+       ],
+       "last_seq": 1,
+       "rev": 5,
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "updated_at": "2026-10-01T12:00:00.000Z",
+       "last_message": {
+        "id": "msg_00000000000000000000000001",
+        "conversation": "conv_CHIEF",
+        "seq": 1,
+        "client_msg_id": "s1",
+        "author": "user_bob",
+        "parts": [
+         {
+          "type": "text",
+          "text": "hi from bob"
+         }
+        ],
+        "created_at": "2026-10-01T12:00:00.000Z",
+        "reactions": []
+       },
+       "read_cursors": {
+        "user_bob": 1
+       },
+       "kind": "chief",
+       "created_by": "user_alice",
+       "state": "active",
+       "settings": {
+        "wake_policy": "auto",
+        "agent_budget": {
+         "turns": 6,
+         "gap_ms": 2000
+        },
+        "history_visible": "since_join"
+       },
+       "invites": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "chief: no ban list to manage",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 5,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "rb",
+    "op": {
+     "kind": "participants.remove",
+     "participant": "user_bob",
+     "ban": true
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "kind_forbids"
+   }
+  },
+  {
+   "name": "chief: the owner may not post a question",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 5,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_alice",
     "idempotency_key": "q1",
     "op": {
      "kind": "message.send",
@@ -18057,11 +19567,142 @@
      ]
     },
     "now": "2026-10-01T12:00:00.000Z",
-    "new_message_id": "msg_00000000000000000000000001",
+    "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
     "thread_target": null,
-    "last_message": null
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "chief: the chief posts a question",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 5,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "agent_alicechief",
+    "idempotency_key": "q1",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "q1",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=..."
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
    },
    "expect": {
     "commit": {
@@ -18087,14 +19728,22 @@
         "role": "member",
         "joined_seq": 0,
         "added_by": "user_alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "Bob",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
        }
       ],
-      "last_seq": 1,
-      "rev": 2,
+      "last_seq": 2,
+      "rev": 6,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {
-       "agent_alicechief": 1
+       "user_bob": 1
       },
       "agent_text_streak": 1,
       "kind": "chief",
@@ -18106,15 +19755,15 @@
         "turns": 6,
         "gap_ms": 2000
        },
-       "history_visible": "all"
+       "history_visible": "since_join"
       },
       "invites": [],
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
-      "id": "msg_00000000000000000000000001",
+      "id": "msg_00000000000000000000000002",
       "conversation": "conv_CHIEF",
-      "seq": 1,
+      "seq": 2,
       "client_msg_id": "q1",
       "author": "agent_alicechief",
       "parts": [
@@ -18159,9 +19808,9 @@
      "change": {
       "kind": "message",
       "message": {
-       "id": "msg_00000000000000000000000001",
+       "id": "msg_00000000000000000000000002",
        "conversation": "conv_CHIEF",
-       "seq": 1,
+       "seq": 2,
        "client_msg_id": "q1",
        "author": "agent_alicechief",
        "parts": [
@@ -18231,14 +19880,22 @@
       "role": "member",
       "joined_seq": 0,
       "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
      }
     ],
-    "last_seq": 1,
-    "rev": 2,
+    "last_seq": 2,
+    "rev": 6,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
-     "agent_alicechief": 1
+     "user_bob": 1
     },
     "agent_text_streak": 1,
     "kind": "chief",
@@ -18250,7 +19907,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": [],
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -18260,7 +19917,7 @@
     "idempotency_key": "a1",
     "op": {
      "kind": "question.answer",
-     "message_id": "msg_00000000000000000000000001",
+     "message_id": "msg_00000000000000000000000002",
      "part_index": 0,
      "answer": {
       "selections": {
@@ -18273,11 +19930,11 @@
      }
     },
     "now": "2026-10-01T12:00:00.000Z",
-    "new_message_id": "msg_00000000000000000000000002",
+    "new_message_id": "msg_00000000000000000000000003",
     "target": {
-     "id": "msg_00000000000000000000000001",
+     "id": "msg_00000000000000000000000002",
      "conversation": "conv_CHIEF",
-     "seq": 1,
+     "seq": 2,
      "client_msg_id": "q1",
      "author": "agent_alicechief",
      "parts": [
@@ -18322,9 +19979,9 @@
     "reply_target": null,
     "thread_target": null,
     "last_message": {
-     "id": "msg_00000000000000000000000001",
+     "id": "msg_00000000000000000000000002",
      "conversation": "conv_CHIEF",
-     "seq": 1,
+     "seq": 2,
      "client_msg_id": "q1",
      "author": "agent_alicechief",
      "parts": [
@@ -18372,7 +20029,7 @@
    }
   },
   {
-   "name": "chief: the owner answers",
+   "name": "chief: a teammate may not answer the chief's question",
    "head": {
     "id": "conv_CHIEF",
     "title": "Chief",
@@ -18395,14 +20052,22 @@
       "role": "member",
       "joined_seq": 0,
       "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
      }
     ],
-    "last_seq": 1,
-    "rev": 2,
+    "last_seq": 2,
+    "rev": 6,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
-     "agent_alicechief": 1
+     "user_bob": 1
     },
     "agent_text_streak": 1,
     "kind": "chief",
@@ -18414,17 +20079,17 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": [],
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
-    "actor": "user_alice",
+    "actor": "user_bob",
     "idempotency_key": "a1",
     "op": {
      "kind": "question.answer",
-     "message_id": "msg_00000000000000000000000001",
+     "message_id": "msg_00000000000000000000000002",
      "part_index": 0,
      "answer": {
       "selections": {
@@ -18437,11 +20102,11 @@
      }
     },
     "now": "2026-10-01T12:00:00.000Z",
-    "new_message_id": "msg_00000000000000000000000002",
+    "new_message_id": "msg_00000000000000000000000003",
     "target": {
-     "id": "msg_00000000000000000000000001",
+     "id": "msg_00000000000000000000000002",
      "conversation": "conv_CHIEF",
-     "seq": 1,
+     "seq": 2,
      "client_msg_id": "q1",
      "author": "agent_alicechief",
      "parts": [
@@ -18486,9 +20151,181 @@
     "reply_target": null,
     "thread_target": null,
     "last_message": {
-     "id": "msg_00000000000000000000000001",
+     "id": "msg_00000000000000000000000002",
      "conversation": "conv_CHIEF",
-     "seq": 1,
+     "seq": 2,
+     "client_msg_id": "q1",
+     "author": "agent_alicechief",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "forbidden"
+   }
+  },
+  {
+   "name": "chief: the owner answers",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 1,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": [],
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "a1",
+    "op": {
+     "kind": "question.answer",
+     "message_id": "msg_00000000000000000000000002",
+     "part_index": 0,
+     "answer": {
+      "selections": {
+       "q0": {
+        "option_ids": [
+         "oauth"
+        ]
+       }
+      }
+     }
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_CHIEF",
+     "seq": 2,
+     "client_msg_id": "q1",
+     "author": "agent_alicechief",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "pending"
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_CHIEF",
+     "seq": 2,
      "client_msg_id": "q1",
      "author": "agent_alicechief",
      "parts": [
@@ -18555,14 +20392,22 @@
         "role": "member",
         "joined_seq": 0,
         "added_by": "user_alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "Bob",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
        }
       ],
-      "last_seq": 1,
-      "rev": 3,
+      "last_seq": 2,
+      "rev": 7,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {
-       "agent_alicechief": 1
+       "user_bob": 1
       },
       "agent_text_streak": 0,
       "kind": "chief",
@@ -18574,15 +20419,15 @@
         "turns": 6,
         "gap_ms": 2000
        },
-       "history_visible": "all"
+       "history_visible": "since_join"
       },
       "invites": [],
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
-      "id": "msg_00000000000000000000000001",
+      "id": "msg_00000000000000000000000002",
       "conversation": "conv_CHIEF",
-      "seq": 1,
+      "seq": 2,
       "client_msg_id": "q1",
       "author": "agent_alicechief",
       "parts": [
@@ -18642,9 +20487,9 @@
      "change": {
       "kind": "message-updated",
       "message": {
-       "id": "msg_00000000000000000000000001",
+       "id": "msg_00000000000000000000000002",
        "conversation": "conv_CHIEF",
-       "seq": 1,
+       "seq": 2,
        "client_msg_id": "q1",
        "author": "agent_alicechief",
        "parts": [
@@ -18706,6 +20551,452 @@
    }
   },
   {
+   "name": "chief: a teammate leaves",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 7,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": [],
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_bob",
+    "idempotency_key": "r1",
+    "op": {
+     "kind": "participants.remove",
+     "participant": "user_bob"
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_CHIEF",
+     "seq": 2,
+     "client_msg_id": "q1",
+     "author": "agent_alicechief",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "answered",
+        "answer": {
+         "selections": {
+          "q0": {
+           "option_ids": [
+            "oauth"
+           ]
+          }
+         },
+         "respondent": {
+          "participant": "user_alice",
+          "display_name": "Alice",
+          "remote": false
+         },
+         "answered_at": "2026-10-01T12:00:00.000Z"
+        }
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_CHIEF",
+      "title": "Chief",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "Alice",
+        "role": "owner",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "agent_alicechief",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux",
+        "owner_user": "user_alice",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice"
+       },
+       {
+        "id": "user_bob",
+        "kind": "human",
+        "display_name": "Bob",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_alice",
+        "left_at": "2026-10-01T12:00:00.000Z"
+       }
+      ],
+      "last_seq": 2,
+      "rev": 8,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_bob": 1
+      },
+      "agent_text_streak": 0,
+      "kind": "chief",
+      "created_by": "user_alice",
+      "state": "active",
+      "settings": {
+       "wake_policy": "auto",
+       "agent_budget": {
+        "turns": 6,
+        "gap_ms": 2000
+       },
+       "history_visible": "since_join"
+      },
+      "invites": [],
+      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+     },
+     "change": {
+      "kind": "conversation",
+      "conversation": {
+       "id": "conv_CHIEF",
+       "owner": "cloud",
+       "title": "Chief",
+       "participants": [
+        {
+         "id": "user_alice",
+         "kind": "human",
+         "display_name": "Alice",
+         "role": "owner",
+         "joined_seq": 0,
+         "added_by": "user_alice"
+        },
+        {
+         "id": "agent_alicechief",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux",
+         "owner_user": "user_alice",
+         "role": "member",
+         "joined_seq": 0,
+         "added_by": "user_alice"
+        },
+        {
+         "id": "user_bob",
+         "kind": "human",
+         "display_name": "Bob",
+         "role": "member",
+         "joined_seq": 0,
+         "added_by": "user_alice",
+         "left_at": "2026-10-01T12:00:00.000Z"
+        }
+       ],
+       "last_seq": 2,
+       "rev": 8,
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "updated_at": "2026-10-01T12:00:00.000Z",
+       "last_message": {
+        "id": "msg_00000000000000000000000002",
+        "conversation": "conv_CHIEF",
+        "seq": 2,
+        "client_msg_id": "q1",
+        "author": "agent_alicechief",
+        "parts": [
+         {
+          "type": "question",
+          "harness": "chief",
+          "session": "sess_mux",
+          "permission": "perm_1",
+          "agent": "Chief",
+          "items": [
+           {
+            "id": "q0",
+            "header": "Auth",
+            "prompt": "Which auth method?",
+            "options": [
+             {
+              "id": "oauth",
+              "label": "OAuth",
+              "detail": "Delegated"
+             },
+             {
+              "id": "keys",
+              "label": "API keys",
+              "preview": {
+               "text": "KEY=...",
+               "format": "monospace"
+              }
+             }
+            ],
+            "multi_select": false,
+            "allows_other": true
+           }
+          ],
+          "state": {
+           "kind": "answered",
+           "answer": {
+            "selections": {
+             "q0": {
+              "option_ids": [
+               "oauth"
+              ]
+             }
+            },
+            "respondent": {
+             "participant": "user_alice",
+             "display_name": "Alice",
+             "remote": false
+            },
+            "answered_at": "2026-10-01T12:00:00.000Z"
+           }
+          }
+         }
+        ],
+        "created_at": "2026-10-01T12:00:00.000Z",
+        "reactions": []
+       },
+       "read_cursors": {
+        "user_bob": 1
+       },
+       "kind": "chief",
+       "created_by": "user_alice",
+       "state": "active",
+       "settings": {
+        "wake_policy": "auto",
+        "agent_budget": {
+         "turns": 6,
+         "gap_ms": 2000
+        },
+        "history_visible": "since_join"
+       },
+       "invites": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "chief: a teammate who left cannot talk",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice",
+      "left_at": "2026-10-01T12:00:00.000Z"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": [],
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_bob",
+    "idempotency_key": "s3",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "s3",
+     "parts": [
+      {
+       "type": "text",
+       "text": "back?"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_CHIEF",
+     "seq": 2,
+     "client_msg_id": "q1",
+     "author": "agent_alicechief",
+     "parts": [
+      {
+       "type": "question",
+       "harness": "chief",
+       "session": "sess_mux",
+       "permission": "perm_1",
+       "agent": "Chief",
+       "items": [
+        {
+         "id": "q0",
+         "header": "Auth",
+         "prompt": "Which auth method?",
+         "options": [
+          {
+           "id": "oauth",
+           "label": "OAuth",
+           "detail": "Delegated"
+          },
+          {
+           "id": "keys",
+           "label": "API keys",
+           "preview": {
+            "text": "KEY=...",
+            "format": "monospace"
+           }
+          }
+         ],
+         "multi_select": false,
+         "allows_other": true
+        }
+       ],
+       "state": {
+        "kind": "answered",
+        "answer": {
+         "selections": {
+          "q0": {
+           "option_ids": [
+            "oauth"
+           ]
+          }
+         },
+         "respondent": {
+          "participant": "user_alice",
+          "display_name": "Alice",
+          "remote": false
+         },
+         "answered_at": "2026-10-01T12:00:00.000Z"
+        }
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "not_participant"
+   }
+  },
+  {
    "name": "chief: a second answer",
    "head": {
     "id": "conv_CHIEF",
@@ -18729,14 +21020,23 @@
       "role": "member",
       "joined_seq": 0,
       "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice",
+      "left_at": "2026-10-01T12:00:00.000Z"
      }
     ],
-    "last_seq": 1,
-    "rev": 3,
+    "last_seq": 2,
+    "rev": 8,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {
-     "agent_alicechief": 1
+     "user_bob": 1
     },
     "agent_text_streak": 0,
     "kind": "chief",
@@ -18748,7 +21048,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": [],
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -18758,7 +21058,7 @@
     "idempotency_key": "a2",
     "op": {
      "kind": "question.answer",
-     "message_id": "msg_00000000000000000000000001",
+     "message_id": "msg_00000000000000000000000002",
      "part_index": 0,
      "answer": {
       "selections": {
@@ -18771,11 +21071,11 @@
      }
     },
     "now": "2026-10-01T12:00:00.000Z",
-    "new_message_id": "msg_00000000000000000000000002",
+    "new_message_id": "msg_00000000000000000000000003",
     "target": {
-     "id": "msg_00000000000000000000000001",
+     "id": "msg_00000000000000000000000002",
      "conversation": "conv_CHIEF",
-     "seq": 1,
+     "seq": 2,
      "client_msg_id": "q1",
      "author": "agent_alicechief",
      "parts": [
@@ -18835,9 +21135,9 @@
     "reply_target": null,
     "thread_target": null,
     "last_message": {
-     "id": "msg_00000000000000000000000001",
+     "id": "msg_00000000000000000000000002",
      "conversation": "conv_CHIEF",
-     "seq": 1,
+     "seq": 2,
      "client_msg_id": "q1",
      "author": "agent_alicechief",
      "parts": [
