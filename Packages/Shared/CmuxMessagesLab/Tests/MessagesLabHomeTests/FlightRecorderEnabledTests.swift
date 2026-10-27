@@ -1,4 +1,6 @@
 import AppKit
+import CmuxHomeCore
+import CmuxHomeRender
 import Testing
 @testable import MessagesLabHome
 
@@ -16,13 +18,33 @@ import Testing
         init(_ on: Bool) { self.on = on }
     }
 
-    /// A controller in an offscreen window, before any transcript is installed.
-    private func makePane() -> (window: NSWindow, controller: ChatController) {
+    static let me = ParticipantID("user_me")
+    static let them = ParticipantID("agent_chief")
+
+    /// A controller in an offscreen window; with `transcript`, a two-message conversation is installed
+    /// (so `ChatController.demo` exists and a frame has something to sample), as ComposeVoiceTests does.
+    private func makePane(transcript: Bool = false) -> (window: NSWindow, controller: ChatController) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let controller = ChatController(host: HostView(frame: NSRect(x: 0, y: 0, width: 600, height: 700)), wake: NoWake())
         window.contentView = controller.host
+        if transcript {
+            let people = [CmuxHomeCore.Participant(id: Self.me, kind: .human, displayName: "Me"),
+                          CmuxHomeCore.Participant(id: Self.them, kind: .agent, displayName: "Chief", agentClass: .chief)]
+            let base = Date(timeIntervalSince1970: 1_800_000_000)
+            let items = (1...2).map { i in
+                TranscriptItem(key: IdempotencyKey("k\(i)"), seq: Seq(i), author: i % 2 == 0 ? Self.me : Self.them,
+                               parts: [.text("Message number \(i)")], createdAt: base.addingTimeInterval(Double(i)),
+                               delivery: .committed, messageID: MessageID("msg_\(i)"))
+            }
+            let summary = ConversationSummary(id: ConversationID("conv_flight"), title: "Chief", participants: people, lastSeq: 2,
+                                              createdAt: base, updatedAt: base, readCursors: [:], readCursorTimes: [:])
+            var core = ProjectionCore(me: Self.me)
+            let (conv, w) = core.install(ConversationID("conv_flight"), items: items, summary: summary)
+            controller.install(conv, windowStart: w.start, total: w.total)
+            controller.host.layoutSubtreeIfNeeded()
+        }
         return (window, controller)
     }
 
@@ -41,14 +63,19 @@ import Testing
         withExtendedLifetime(pane.window) {}
     }
 
+    /// A pane with a transcript, busy for 10 s after a send: only the policy can stop its link, so this
+    /// fails if `displayFrame` stops reading it.
     @Test func aRunningLinkStopsOnItsNextFrameOnceThePolicyIsOff() {
         let policy = Policy(true)
         let recorder = FlightRecorder(isEnabled: { policy.on })
-        let pane = makePane()
+        let pane = makePane(transcript: true)
         recorder.attach(pane.controller)
+        #expect(pane.controller.demo != nil, "the pane has a transcript to sample")
 
-        recorder.kick()
-        #expect(recorder.isSampling, "on, a kick starts sampling")
+        recorder.action(.send)
+        #expect(recorder.isSampling, "on, a send starts sampling")
+        recorder.displayFrame()
+        #expect(recorder.isSampling, "on and within 10 s of a send, a frame keeps the link")
         policy.on = false
         recorder.displayFrame()
         #expect(!recorder.isSampling, "the first frame after the policy turns off stops the link")
