@@ -231,6 +231,19 @@ private final class PlainHost: UpdateActionDelegate {
         #expect(reply.choice == nil)
     }
 
+    @Test func theUserComingInDuringTheQuitWaitIsNoLongerStaged() {
+        let host = QuittingHost()
+        let driver = makeDriver(host)
+        driver.holdsUserInstalls = false
+        driver.backgroundItem = Self.item
+        let reply = ChoiceBox()
+        stage(driver, into: reply)
+        #expect(driver.relaunchHeldInstallThroughSparkle())
+        #expect(reply.choice == .install)
+        #expect(model.text != "Restart to Complete Update", "Sparkle relaunches now: nothing waits for a click")
+        #expect(driver.stagedItem == nil)
+    }
+
     private static var item: SUAppcastItem {
         SUAppcastItem(dictionary: [
             "title": "cmux 0.64.17",

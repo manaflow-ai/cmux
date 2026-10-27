@@ -172,6 +172,8 @@ extension UpdateDriver {
         guard let pending = quitInstall else { return false }
         quitInstall = nil
         log.append("background install: relaunching through Sparkle")
+        // No longer staged: Sparkle relaunches now, so nothing is left for a click.
+        setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
         pending.install()
         return true
     }
