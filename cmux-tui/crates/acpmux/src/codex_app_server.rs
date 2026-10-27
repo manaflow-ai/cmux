@@ -153,7 +153,13 @@ impl AuthGate {
             .or_else(|| raw.pointer("/params/previous_account_id"))
             .and_then(Value::as_str);
         match read() {
-            Ok(Some(file)) if self.account_allowed(&file, requested_previous) => {
+            Ok(Some(file))
+                if self.account_allowed(&file, requested_previous)
+                    && self
+                        .file
+                        .as_ref()
+                        .is_none_or(|old| old.access_token != file.access_token) =>
+            {
                 self.file = Some(file.clone());
                 Some(vec![Self::refresh_response(id, &file)])
             }
@@ -201,7 +207,10 @@ impl Translator {
             }
             if auth.enabled() && auth.should_refresh() {
                 match codex_auth_file::read() {
-                    Ok(Some(file)) if auth.account_allowed(&file, None) => {}
+                    Ok(Some(file)) if auth.account_allowed(&file, None) => {
+                        auth.held.extend(self.inner.from_client(msg));
+                        return vec![auth.login_request(file)];
+                    }
                     _ => auth.fail(),
                 }
                 if let Some(id) = msg.get("id").cloned() {
@@ -612,6 +621,7 @@ mod tests {
             expires_at: 4_102_444_800,
             modified: std::time::SystemTime::UNIX_EPOCH,
         };
+        let refreshed = AccessFile { access_token: "access-secret-2".into(), ..file.clone() };
         let mut gate = AuthGate::from_read(Ok(Some(file.clone())));
         let out = gate
             .handle_refresh(
@@ -620,7 +630,7 @@ mod tests {
                     "method": "account/chatgptAuthTokens/refresh",
                     "params": {"previousAccountId": "acct-123"}
                 }),
-                || Ok(Some(file.clone())),
+                || Ok(Some(refreshed)),
             )
             .expect("refresh request");
         let Out::Server(reply) = &out[0] else { panic!("server response") };

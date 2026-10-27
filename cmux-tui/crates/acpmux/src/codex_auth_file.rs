@@ -6,16 +6,16 @@
 
 use anyhow::{Result, anyhow, ensure};
 use serde_json::Value;
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::Read;
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::{fs::MetadataExt, fs::OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_BYTES: u64 = 8 * 1024;
 const MIN_LIFETIME_S: u64 = 60;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AccessFile {
     pub access_token: String,
     pub account_id: String,
@@ -44,7 +44,10 @@ pub fn read_at(path: &Path, owner_marker: &Path) -> Result<Option<AccessFile>> {
         return Ok(None);
     }
     validate_owner_marker(owner_marker)?;
-    let file = File::open(&path)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(&path)?;
     let metadata = file.metadata()?;
     // SAFETY: getuid has no preconditions.
     ensure!(
@@ -92,7 +95,10 @@ fn validate_owner_marker(path: &Path) -> Result<()> {
     if path == Path::new("/etc/cmux/vm-kind") {
         ensure!(metadata.uid() == 0, "Codex broker owner marker is not root-owned");
         ensure!(
-            std::fs::symlink_metadata("/srv/team").is_err(),
+            matches!(
+                std::fs::symlink_metadata("/srv/team"),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound
+            ),
             "Codex broker is unavailable on a shared VM"
         );
     }
