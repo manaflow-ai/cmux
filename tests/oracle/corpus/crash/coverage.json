@@ -1,0 +1,30 @@
+{
+  "generator": "scripts/cmux-next/oracle/crash_walks.py",
+  "suite": "crash",
+  "total": 3,
+  "covered": 2,
+  "verdicts": "not run",
+  "excluded": {
+    "host-abort": "p15-oracle-224: driver_daemon.py kills no terminal holder yet; crash_walks.py run plans host-abort walks and reports them Skip until it does"
+  },
+  "missing": [],
+  "faults": {
+    "sigkill": [
+      "s1-sigkill",
+      "s10-sigkill",
+      "s11-sigkill",
+      "s2-sigkill",
+      "s4-sigkill",
+      "s5-sigkill",
+      "s8-sigkill",
+      "s9-sigkill"
+    ],
+    "owner-panic": [
+      "s0-owner-panic",
+      "s3-owner-panic",
+      "s6-owner-panic",
+      "s7-owner-panic"
+    ],
+    "host-abort": []
+  }
+}

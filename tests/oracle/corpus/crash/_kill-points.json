@@ -1,0 +1,114 @@
+{
+  "schema": "cmux.oracle.crash-kill-points/v1",
+  "generator": "scripts/cmux-next/oracle/crash_walks.py (p15-oracle-207)",
+  "cases": {
+    "s0-owner-panic": {
+      "seed": 0,
+      "walk": "daemon-ops/tab-group-update-error",
+      "index": 0,
+      "after": "call",
+      "fault": "owner-panic",
+      "walkSteps": 1,
+      "caseSteps": 5
+    },
+    "s1-sigkill": {
+      "seed": 1,
+      "walk": "daemon-ops/browser-input-key-error",
+      "index": 0,
+      "after": "fx-workspace",
+      "fault": "sigkill",
+      "walkSteps": 4,
+      "caseSteps": 6
+    },
+    "s10-sigkill": {
+      "seed": 10,
+      "walk": "daemon-ops/project-sync-ok",
+      "index": 0,
+      "after": "observe",
+      "fault": "sigkill",
+      "walkSteps": 3,
+      "caseSteps": 6
+    },
+    "s11-sigkill": {
+      "seed": 11,
+      "walk": "daemon-ops/session-journal-producer-put-ok",
+      "index": 0,
+      "after": "fx-workspace",
+      "fault": "sigkill",
+      "walkSteps": 18,
+      "caseSteps": 6
+    },
+    "s2-sigkill": {
+      "seed": 2,
+      "walk": "daemon-ops/browser-profile-open-error",
+      "index": 1,
+      "after": "call",
+      "fault": "sigkill",
+      "walkSteps": 2,
+      "caseSteps": 7
+    },
+    "s3-owner-panic": {
+      "seed": 3,
+      "walk": "daemon-ops/workspace-progress-clear-error",
+      "index": 0,
+      "after": "fx-workspace",
+      "fault": "owner-panic",
+      "walkSteps": 2,
+      "caseSteps": 6
+    },
+    "s4-sigkill": {
+      "seed": 4,
+      "walk": "daemon-ops/project-observe-ok",
+      "index": 0,
+      "after": "call",
+      "fault": "sigkill",
+      "walkSteps": 2,
+      "caseSteps": 6
+    },
+    "s5-sigkill": {
+      "seed": 5,
+      "walk": "daemon-ops/session-window-title-set-ok",
+      "index": 0,
+      "after": "fx-workspace",
+      "fault": "sigkill",
+      "walkSteps": 17,
+      "caseSteps": 6
+    },
+    "s6-owner-panic": {
+      "seed": 6,
+      "walk": "daemon-ops/project-add-error",
+      "index": 0,
+      "after": "call",
+      "fault": "owner-panic",
+      "walkSteps": 1,
+      "caseSteps": 5
+    },
+    "s7-owner-panic": {
+      "seed": 7,
+      "walk": "daemon-ops/workspace-group-move-ok",
+      "index": 0,
+      "after": "fx-workspace-group",
+      "fault": "owner-panic",
+      "walkSteps": 3,
+      "caseSteps": 6
+    },
+    "s8-sigkill": {
+      "seed": 8,
+      "walk": "daemon-ops/pane-zoom-error",
+      "index": 1,
+      "after": "call",
+      "fault": "sigkill",
+      "walkSteps": 4,
+      "caseSteps": 7
+    },
+    "s9-sigkill": {
+      "seed": 9,
+      "walk": "daemon-ops/workspace-close-ok",
+      "index": 1,
+      "after": "call",
+      "fault": "sigkill",
+      "walkSteps": 3,
+      "caseSteps": 7
+    }
+  }
+}
