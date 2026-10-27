@@ -234,6 +234,17 @@ export class MockSettingsProvider {
           });
         return {};
       },
+      "cmux.settings.machines.vm_host": (params) => {
+        this.setHost({
+          ...this.host,
+          machines: this.host.machines.map((r) =>
+            r.id === params.id && r.vm_host
+              ? { ...r, vm_host: { ...r.vm_host, on: params.on === true, error: null } }
+              : r,
+          ),
+        });
+        return {};
+      },
       "cmux.settings.mobile.remove_phone": (params) => {
         const iphone = this.host.iphone;
         if (iphone)
@@ -251,6 +262,10 @@ export class MockSettingsProvider {
       },
       "cmux.settings.channels.go_back": (params) => {
         this.wentBack = params.build as string;
+        return {};
+      },
+      "cmux.settings.channels.update_machine": (params) => {
+        this.updatedMachines.push(params.id as string);
         return {};
       },
       "cmux.settings.agents.state": () => this.agents.state,
@@ -482,10 +497,12 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
       "cmux.settings.devices.full_access",
+      "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
+      "cmux.settings.channels.update_machine",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -673,6 +690,8 @@ export class MockSettingsProvider {
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
+  /** The machines the card's Update buttons asked for, in order. */
+  updatedMachines: string[] = [];
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
   chiefAvatars = new Map<string, Params>();
 

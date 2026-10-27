@@ -892,7 +892,7 @@ export default agentPaneEntry({
         for (const name of ["notes.md", "build-logs.zip", "repro.mov"]) {
           const chip = chips.find((entry) => entry.name === name);
           if (!chip) throw new Error(`no saved chip names ${name}`);
-          if (chip.note !== "Sent as file path") throw new Error(`${name}'s chip must say it goes as its file path`);
+          if (chip.note) throw new Error(`${name}'s chip must not expose delivery mechanics`);
           if (!chip.path.endsWith(`/${name}`) || !chip.path.includes("/Chat Uploads/"))
             throw new Error(`${name}'s chip must link the copy the host saved, not ${chip.path}`);
         }
@@ -1375,14 +1375,14 @@ export default agentPaneEntry({
       }),
     },
     "steer-waiting-stack": {
-      note: "Two steers the agent has not read, one after the other: each one's plain Send now leads the action row under its bubble, before the receipt and message buttons.",
+      note: "Two steers the agent has not read, one after the other: each footer contains only Send now and remove until the steer is sent or read.",
       snapshot: waitingSteers(),
       play: async (ctx) => {
         await ctx.hover({ text: "Use the cache dir, not tmp" });
         const lines = [...ctx.document.querySelectorAll(".cv-user__pending")];
         if (lines.length !== 2) throw new Error(`expected two Send now marks, found ${lines.length}`);
         for (const line of lines) {
-          if (line.querySelector("svg")) throw new Error("Send now still has a clock icon");
+          if (line.querySelector(".cv-user__read")) throw new Error("a queue footer still has a read receipt");
           const actions = line.parentElement;
           if (!actions?.classList.contains("cv-user__actions")) throw new Error("Send now is not in the action row");
           if (actions.firstElementChild !== line) throw new Error("Send now does not lead the action row");
@@ -1394,7 +1394,7 @@ export default agentPaneEntry({
     // Leo, 2026-10-24: "where's the, like, X button? All I see is the send now. There's no, like,
     // you know, sort of retract and send now."
     "steer-waiting-x": {
-      note: "Play: hover a steer Claude has not read, in a Claude Code chat under its own family name (claude-sr2): Send now and the X (take it back to edit) lead its action row.",
+      note: "Play: hover a steer Claude has not read, in a Claude Code chat under its own family name (claude-sr2): Send now and the X (take it back to edit) are its complete action row.",
       snapshot: waitingSteerSr2(),
       play: async (ctx) => {
         await ctx.hover({ text: "Also keep the old flag working" });
@@ -1406,7 +1406,7 @@ export default agentPaneEntry({
     // Leo, 2026-10-24: "after i clicked send now and it worked it should just disappear" and "with
     // the animation as well".
     "steer-send-now-leaves": {
-      note: "Play: Send now on a steer Claude has not read: acpmux says it worked, and Send now and the X fade and fold away while the steer still waits for Claude to read it. The action row keeps its line: the bubble, the row and the transcript do not move.",
+      note: "Play: Send now on a steer Claude has not read: acpmux accepts delivery, and Send now and the X are replaced by normal hover actions while the steer still waits for Claude to read it. The action row keeps its line: the bubble, the row and the transcript do not move.",
       snapshot: waitingSteerSr2(),
       native: { "chat.queue.edit": { ok: true } },
       play: async (ctx) => {
@@ -1422,40 +1422,17 @@ export default agentPaneEntry({
       },
     },
     "steer-marks": {
-      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, plain Send now leads the action row under the bubble (Send now stops the current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
+      note: "Unread steers show only queue controls. Sent or read prompts show normal hover actions without checks or state dots.",
       snapshot: steerMarks(),
     },
     "steer-read-hover": {
-      note: "Play: hover the steer the agent read: the same row as any prompt (two checks, age, Copy, Retry, Fork), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
+      note: "Hover a read steer: only age, Copy, Retry and available message actions remain.",
       snapshot: steerMarks(),
       play: async (ctx) => {
+        await ctx.hover({ text: "Use the cache dir, not tmp" });
         const steer = ctx.find({ text: "Use the cache dir, not tmp" }).closest(".cv-user");
-        const receipt = steer?.querySelector('.cv-user__read[data-read="true"]');
-        if (!receipt) throw new Error("the read steer shows no read check");
-        receipt.setAttribute("data-gallery-target", "steer-read");
-        // The read steer sits above a frame-tall transcript that settles at its end after the
-        // stage is ready. Bring the steer into view and wait until the transcript has stopped
-        // scrolling: a scroll puts a title tooltip away (ui/titleTooltips.ts), so a hover that
-        // landed while it still moved never showed one.
-        steer?.scrollIntoView({ block: "center" });
-        const scroller = ctx.document.querySelector(".acpmux-scroll");
-        let top = Number.NaN;
-        let still = performance.now();
-        await ctx.waitFor(() => {
-          const now = performance.now();
-          if (scroller?.scrollTop !== top) {
-            top = scroller?.scrollTop ?? 0;
-            still = now;
-          }
-          return now - still > 300;
-        });
-        await ctx.hover({ selector: '[data-gallery-target="steer-read"]' });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent?.startsWith("Read by") ?? false,
-        );
-        const transcript = ctx.document.querySelector(".acpmux-scroll")?.textContent ?? "";
-        if (/Steered|Steering/.test(transcript)) throw new Error("a steer is labeled in the transcript");
+        if (steer?.querySelector(".cv-user__pending, .cv-user__read, .cv-user__dot"))
+          throw new Error("a read steer still has queue controls or state marks");
       },
     },
     "queued-long": {

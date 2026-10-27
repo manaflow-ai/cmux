@@ -213,7 +213,7 @@ pub enum Command {
         supersede: Option<String>,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
-        /// session's machine, a peer's too. At most 8 MiB a file, 10 MiB and 16 files a message.
+        /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
     },
@@ -603,6 +603,21 @@ pub enum HarnessCmd {
         /// installed program, else npx, else uvx).
         #[arg(long, conflicts_with_all = ["command", "example"])]
         registry: bool,
+        /// The icon cmux shows for it: one emoji, an SF Symbol name (hammer.fill), an agent
+        /// mark (claude, goose, ...) or an .svg/.png file. Default: the mark of the agent its
+        /// command runs, else a monogram.
+        #[arg(long)]
+        icon: Option<String>,
+    },
+    /// Show or set the icon cmux shows for one of your harnesses: one emoji, an SF Symbol
+    /// name (hammer.fill), an agent mark (claude, goose, ...) or an .svg/.png file (copied
+    /// next to the profile). With no VALUE, prints the icon cmux shows now and why.
+    Icon {
+        id: String,
+        value: Option<String>,
+        /// Remove the icon line: cmux picks the icon again.
+        #[arg(long, conflicts_with = "value")]
+        clear: bool,
     },
     /// Sign in to a harness with its own ACP sign-in (or `claude auth login`
     /// for Claude Code). `--status` checks it; `--list` shows the methods.
@@ -1329,6 +1344,19 @@ mod help_contract_tests {
             }
         }
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
+    }
+
+    /// `host vm-host [NAME] [on|off]`: the state is on or off only.
+    #[test]
+    fn host_vm_host_takes_a_machine_and_on_or_off() {
+        for argv in [
+            &["acpmux", "host", "vm-host"][..],
+            &["acpmux", "host", "vm-host", "on"][..],
+            &["acpmux", "host", "vm-host", "cloud-a", "off"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
+        assert!(Cli::try_parse_from(["acpmux", "host", "vm-host", "cloud-a", "maybe"]).is_err());
     }
 
     /// `host hold` changes a hold only for a named machine: a flag alone is refused, not
