@@ -65,16 +65,16 @@ public struct ExportArchive: Sendable {
 
     static func archive(in zip: ByteView) throws(Failure) -> ExportArchive {
         guard let end = endOfCentralDirectory(zip) else { throw Failure.notAnArchive }
-        let count = Int(zip.littleEndian16(end + 10)), start = Int(zip.littleEndian32(end + 16))
+        let count = zip.littleEndian16(end + 10).widened, start = zip.littleEndian32(end + 16).widened
         var archive = ExportArchive()
         var offset = start, inflated = 0
         for _ in 0..<count {
             guard offset >= 0, offset + 46 <= zip.count, zip.littleEndian32(offset) == 0x0201_4B50 else { throw .notAnArchive }
             let flags = zip.littleEndian16(offset + 8), method = zip.littleEndian16(offset + 10)
-            let compressed = Int(zip.littleEndian32(offset + 20)), size = Int(zip.littleEndian32(offset + 24))
-            let nameLength = Int(zip.littleEndian16(offset + 28)), local = Int(zip.littleEndian32(offset + 42))
+            let compressed = zip.littleEndian32(offset + 20).widened, size = zip.littleEndian32(offset + 24).widened
+            let nameLength = zip.littleEndian16(offset + 28).widened, local = zip.littleEndian32(offset + 42).widened
             guard let name = zip.view((offset + 46)..<(offset + 46 + nameLength))?.text else { throw .notAnArchive }
-            offset += 46 + nameLength + Int(zip.littleEndian16(offset + 30)) + Int(zip.littleEndian16(offset + 32))
+            offset += 46 + nameLength + zip.littleEndian16(offset + 30).widened + zip.littleEndian16(offset + 32).widened
             // Encrypted entries and oversized (or zip64) parts are skipped, never guessed at;
             // so is anything past the archive's size in all, and a second passwords file.
             guard let part = Part(name), flags & 1 == 0, size <= maximumPart, inflated + size <= maximumSize,
@@ -122,7 +122,7 @@ public struct ExportArchive: Sendable {
     /// An entry's stored bytes, after its local header.
     private static func payload(_ zip: ByteView, local: Int, compressed: Int) -> ByteView? {
         guard local >= 0, local + 30 <= zip.count, zip.littleEndian32(local) == 0x0403_4B50 else { return nil }
-        let start = local + 30 + Int(zip.littleEndian16(local + 26)) + Int(zip.littleEndian16(local + 28))
+        let start = local + 30 + zip.littleEndian16(local + 26).widened + zip.littleEndian16(local + 28).widened
         guard start <= zip.count, compressed <= zip.count - start else { return nil }
         return zip.view(start..<(start + compressed))
     }

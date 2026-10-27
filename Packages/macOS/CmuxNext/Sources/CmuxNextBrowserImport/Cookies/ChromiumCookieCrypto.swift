@@ -80,7 +80,7 @@ public struct ChromiumCookieCrypto: Sendable {
 
     private static func sha256(_ data: Data) -> Data {
         let bytes = [UInt8](data)
-        var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        var digest = [UInt8](repeating: 0, count: CC_SHA256_DIGEST_LENGTH.widened)
         // SAFETY: CC_SHA256 reads bytes.count bytes of `bytes` and writes CC_SHA256_DIGEST_LENGTH
         // (digest.count) bytes into `digest`; both are lent for the call, and the returned pointer
         // (to `digest`) is dropped unread.

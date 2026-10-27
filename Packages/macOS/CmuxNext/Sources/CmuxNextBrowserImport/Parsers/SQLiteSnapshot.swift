@@ -115,8 +115,8 @@ public final class SQLiteSnapshot {
                    SUM(CASE WHEN \(importable) THEN (CASE WHEN \(kept) THEN 0 ELSE 1 END) ELSE 0 END) \(source)
             """
         try query(sql) { row in
-            skipped.notImportable = Int(row.int64(0))
-            skipped.badTime = Int(row.int64(1))
+            skipped.notImportable = row.int(0)
+            skipped.badTime = row.int(1)
             return false
         }
         return skipped
@@ -161,6 +161,11 @@ public struct SQLiteRow: ~Copyable {
         return unsafe sqlite3_column_int64(statement, column)
     }
 
+    /// The integer as an `Int`: exact, every Mac's `Int` has SQLite's 64 bits.
+    public func int(_ column: Int32) -> Int {
+        Int(truncatingIfNeeded: int64(column))
+    }
+
     public func double(_ column: Int32) -> Double {
         guard has(column) else { return 0 }
         // SAFETY: the statement is on this row (see the type) and the column is in range.
@@ -187,6 +192,6 @@ public struct SQLiteRow: ~Copyable {
         // asked for before its size, SQLite's documented order, so `bytes` holds the size reported;
         // Data copies them before the next call on the statement.
         guard let bytes = unsafe sqlite3_column_blob(statement, column) else { return nil }
-        return unsafe Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, column)))
+        return unsafe Data(bytes: bytes, count: sqlite3_column_bytes(statement, column).widened)
     }
 }

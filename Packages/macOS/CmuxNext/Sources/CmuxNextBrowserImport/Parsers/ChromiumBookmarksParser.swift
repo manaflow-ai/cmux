@@ -10,7 +10,7 @@ public struct ChromiumBookmarksParser {
 
     public func parse(_ data: Data) throws -> ImportRead<ImportedBookmark> {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let roots = root["roots"] as? [String: Any] else { throw Failure.notBookmarks }
+              let roots: [String: Any] = root["roots"] as? [String: Any] else { throw Failure.notBookmarks }
         var read = ImportRead<ImportedBookmark>()
         for key in ["bookmark_bar", "other", "synced"] {
             guard let folder = roots[key] as? [String: Any] else { continue }
@@ -35,7 +35,7 @@ public struct ChromiumBookmarksParser {
                     read.skipped.notImportable += 1
                     continue
                 }
-                let added = (child["date_added"] as? String).flatMap { Int64($0) }.flatMap { BrowserTime().chromium($0) }
+                let added = (child["date_added"] as? String).flatMap { Int64($0, radix: 10) }.flatMap { BrowserTime().chromium($0) }
                 read.items.append(ImportedBookmark(title: name.isEmpty ? text : name, url: url, folderPath: path, dateAdded: added))
             case "folder":
                 guard depth + 1 < ImportSkipCounts.maximumDepth else {

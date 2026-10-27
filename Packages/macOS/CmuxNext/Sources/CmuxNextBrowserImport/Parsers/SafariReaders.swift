@@ -124,7 +124,7 @@ public struct SafariHistoryReader {
                 return true
             }
             let title = row.string(1).flatMap { $0.isEmpty ? nil : $0 }
-            read.items.append(ImportedHistoryEntry(url: url, title: title, visitCount: Int(row.int64(2)), lastVisit: date))
+            read.items.append(ImportedHistoryEntry(url: url, title: title, visitCount: row.int(2), lastVisit: date))
             return true
         }
         return read
