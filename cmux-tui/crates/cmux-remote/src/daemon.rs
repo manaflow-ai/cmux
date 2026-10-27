@@ -1628,6 +1628,7 @@ pub async fn serve_unix_with_shutdown(
                         }
                     };
                     let Ok(peer) = stream.peer_cred() else { continue };
+                    // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
                     let owner = unsafe { libc::geteuid() };
                     let (reader, writer) = stream.into_split();
                     let link = crate::provider::LengthDelimitedLink::new(

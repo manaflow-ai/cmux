@@ -88,6 +88,11 @@ public protocol PageChromiumPage: AnyObject {
     /// Chromium asks it for every request under one, and a nil answerer is a 404. The host sets it
     /// before the first ``load(_:)``.
     var resources: (@MainActor (URL) async -> PageChromiumResponse)? { get set }
+    /// The DOM event the page's main frame fires to post to the host on the engine's page channel
+    /// (fork API 29); its posts then arrive as ``PageChromiumEvent/pageHostPost(_:sender:)``. Nil when the
+    /// engine has no page channel: the page calls its DevTools binding, whose calls arrive in
+    /// ``PageChromiumEvent/devTools(_:)`` (``ChromiumPageHostBridge``).
+    var pageHostEvent: String? { get }
     /// Rects in ``contentView``'s coordinates where native UI of the host window shows over the
     /// page. A Chromium page is a child window above the whole host window, so the page window
     /// leaves these rects uncovered: the native view under them shows there and takes the mouse
@@ -143,6 +148,17 @@ public protocol PageChromiumPage: AnyObject {
     /// `document.execCommand('copy')` with a user gesture, through the fork's `tabEvaluate` on renderer
     /// paths (fork API 29), so it makes no DevTools call there.
     func copySelection()
+    /// Whether ``push(_:)`` reaches the page: the engine has the page push channel (`cmuxPageListen`,
+    /// fork API 39) and the app turned it on (feature `pagePushChannel`).
+    var pushesToPage: Bool { get }
+    /// Hands `text` to the receiver the page's document registered with `cmuxPageListen`, as data: no
+    /// script runs for it and nothing answers, as Chrome's WebUI pages get Mojo messages instead of
+    /// `WebUI::CallJavascriptFunction` scripts (content/browser/webui/web_ui_impl.cc). Pushes arrive in
+    /// call order, and the engine keeps them until the document's receiver registers or a frozen page
+    /// runs again. Call it only while ``pushesToPage``; otherwise it does nothing.
+    ///
+    /// - Parameter text: UTF-8 text, no NUL.
+    func push(_ text: String)
     /// Copies the page as it last drew, fitted inside `maxPixelSize` (never scaled up), with no DevTools
     /// agent: the fork's surface copy (`cmux_browser_capture`, p13-webui-077), as Chrome copies a tab
     /// thumbnail (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc, `RenderWidgetHostView::CopyFromSurface`).
@@ -295,6 +311,10 @@ public nonisolated enum PageChromiumStartError: Error, Sendable, Equatable {
 public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     /// A raw DevTools protocol message (an event of a domain the host turned on).
     case devTools(String)
+    /// The page's main frame posted to the host on the page channel (``PageChromiumPage/pageHostEvent``):
+    /// the text the page script sent, untrusted, and the URL of the document that sent it, which
+    /// the engine's relay read where the page cannot change it.
+    case pageHostPost(String, sender: URL)
     /// A new main-frame document committed at `url`.
     case committed(URL?)
     /// The document finished loading.

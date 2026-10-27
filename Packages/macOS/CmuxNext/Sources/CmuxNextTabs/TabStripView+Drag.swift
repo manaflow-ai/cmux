@@ -158,8 +158,20 @@ extension TabStripView {
         relayout(animated: !reduceMotion)
     }
 
+    /// A delivery of the running drag's moves (``dragMoves``): the tab or the group follows the latest point. The
+    /// tear-off was checked on each event (`mouseDragged`), so no point delivered here is past it.
+    func dragMoved(toWindowPoint windowPoint: CGPoint) {
+        let point = convert(windowPoint, from: nil)
+        if drag != nil {
+            updateDrag(at: point, event: nil)
+        } else if groups.drag != nil {
+            updateGroupDrag(at: point, event: nil)
+        }
+    }
+
     /// Escape during an in-strip drag springs the tab back to where it started.
     func cancelDrag() {
+        dragMoves.cancel()
         if groups.drag != nil {
             cancelGroupDrag()
             return

@@ -1218,6 +1218,7 @@ impl LeaderExit {
 #[cfg(unix)]
 async fn under_unreaped(child: Option<&Child>) -> Vec<crate::agent_host::tree::Started> {
     let Some(pid) = child.and_then(Child::id) else { return Vec::new() };
+    // `ps`: a WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
     tokio::task::spawn_blocking(move || crate::agent_host::tree::descendants(&[pid]))
         .await
         .unwrap_or_default()
@@ -1230,6 +1231,7 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
     if procs.is_empty() {
         return;
     }
+    // `ps`: a WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
     let _ =
         tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
             .await;
