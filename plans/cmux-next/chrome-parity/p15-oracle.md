@@ -580,6 +580,7 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 245 | The holder exits at shutdown end_terminals | S | 20-28 | 065 | |
 | 246 | Facet: a terminal's view scroll offset | S | 20-28 | 065 | |
 | 247 | Driver: a call that ends the daemon, expect.result references | S | 20-36 | 023 | MQ-daemon-ops |
+| 248 | Case daemon with installed first-party apps | S | 20-30 | 023, 200, 064 | MQ-daemon-ops |
 | 270 | Action cases: sidebar, item and group targets | M | 20-36 | 047, 071, 075 | MQ-actions |
 | 271 | Facet: a workspace group's color, icon and archived mark | S | 20-28 | 036, 075 | |
 | 272 | Facet: the top band's items | S | 20-28 | 036, 075 | |
@@ -913,14 +914,14 @@ of these three follow-ups; gen_daemon_ops.py refuses a gap that names no WORK.ts
 dependencies (done before the family task, so they close nothing).
 
 **237 Driver user connection.** Files: `driver_daemon.py`, `hermetic_env.py`, `case-v1.schema.json`, `gen_daemon_ops.py`,
-`misc/_tuning.json`. The case daemon gets a per-case DEV install key on `--owner-install-key-fd` (`cmuxik1 <install_id>
+`misc/_tuning.json`, `workspace/_tuning.json`. The case daemon gets a per-case DEV install key on `--owner-install-key-fd` (`cmuxik1 <install_id>
 <hex key>`, never argv or env; `local_owner/install_key.rs`). A step with `connection: user` runs on a second connection that
 sends `client-hello {role: main, install_id}` and answers the nonce with the install-key proof (step 2,
 `server/client_hello.rs` prove), so it derives origin user; the default connection stays agent. The success cases of
 credential.rotate, history.backups.purge, history.trail.record, history.visit.import (a History.sqlite visit log under
 `$CASE_ROOT` first), history.visit.record, history.visit.title and history.restore (record a visit, remove it, restore the
-removal's restore_id) lose their gaps. Acceptance: the 7 cases pass; a wrong proof leaves the connection agent (selftest).
-Test: VM, the 7 cases green twice; `gen_daemon_ops.py --check`.
+removal's restore_id) lose their gaps, and so does workspace.agent_folder.set's (064, a user-only operation). Acceptance:
+the 8 cases pass; a wrong proof leaves the connection agent (selftest). Test: VM, the 8 cases green twice; `gen_daemon_ops.py --check`.
 
 **238 Driver loopback pairing.** Files: `driver_daemon.py`, `hermetic_env.py`, `case-v1.schema.json`, `misc/_tuning.json`.
 The case daemon's WebSocket listener binds 127.0.0.1:0 (still offline); a `pairing.open` step connects as an unpaired peer
@@ -1009,6 +1010,15 @@ needs all three: without (1) session-shutdown-ok races the exiting daemon at the
 driver_daemon_test.py (ExpectTests, without_pointers; live: a call that ends the daemon owns its exit, three runs,
 and one outside allow_crashes is a Crash at the call); case_checks.py --selftest (ends and resultExcept vectors);
 VM, the 22 session cases green twice.
+
+**248 Case daemon with installed first-party apps.** Files: `hermetic_env.py`, `driver_daemon.py`,
+`workspace/_tuning.json`. The case daemon finds first-party packages in the app bundle, else in `apps/first-party` beside
+its binary (first_party_dir.rs resolve), and the oracle build has neither, so no app is installed and
+workspace.ensure_app's success cannot run. Stage each `first-party-apps/<name>` package (its manifest, `dist/`, `assets/`
+and `catalog/`, as sync-app-runtime.sh copies them) under the case root and start the daemon with
+`CMUX_APPS_FIRST_PARTY_DIR` naming that folder (the oracle profile has debug assertions, so a standalone daemon takes it);
+the default set then installs cmux/notes and workspace.ensure_app's success loses its gap. Test: VM, the two
+workspace.ensure_app cases green twice; no staged folder left after the run.
 
 The sidebar and workspaceGroup action cases (075, `tests/oracle/corpus/actions/sidebar/_tuning.json`) make a group of
 the shown workspace before each group action, since no case can name a group, section or item. Two follow-ups close
