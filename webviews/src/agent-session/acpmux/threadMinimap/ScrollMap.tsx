@@ -101,11 +101,7 @@ export function ScrollMap({
   const cardId = useId();
   const press = useRef<Press | undefined>(undefined);
   const placement = railPlacement(transcriptColumn(width).inset);
-  const shown =
-    turns.length >= MAP_MIN_PROMPTS &&
-    scrolls &&
-    height > 4 * MAP_MARGIN &&
-    !placement.hidden;
+  const shown = turns.length >= MAP_MIN_PROMPTS && scrolls && height > 4 * MAP_MARGIN && !placement.hidden;
 
   /// The marks the view bar covers (first and last place in `marks`), for their "current" tone.
   /// The bar moves by style on each scroll frame; this renders only when the covered marks change.
