@@ -11,6 +11,8 @@ import CmuxNextWakeupsTestSupport
 @MainActor @Suite(.serialized) struct ReleasePushListenerTests {
     static let nightlyFeed = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
     static let tipFeed = "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml"
+    /// The old feed cmux NIGHTLY (com.cmuxterm.app.nightly) reads.
+    static let legacyFeed = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 
     /// A socket the test sends frames on; ``cancel()`` (the listener's close, or the server's) ends it.
     nonisolated final class FakeSocket: ReleasePushSocket, @unchecked Sendable {
@@ -212,6 +214,29 @@ import CmuxNextWakeupsTestSupport
                                       minimumSystemVersion: nil, infoFeedURL: Self.tipFeed, hasPublicKey: true)
         #expect(ReleasePushListener.feedID(forFeedURL: nightly.feed(architecture: .arm64).url) == "nightly-next")
         #expect(ReleasePushListener.feedID(forFeedURL: tip.feed(architecture: .arm64).url) == "tip")
+    }
+
+    /// Leo 2026-10-27: "but why shoudl there be a delay if we can just listen". cmux NIGHTLY reads
+    /// the old feed: it listens on that feed's own id, and only that feed's frames start a check.
+    @Test func theNightlyAppListensOnTheOldFeedAndOnlyActsOnItsOwnFrames() async throws {
+        let legacy = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly", shortVersion: "0.1.0", build: "100",
+                                         minimumSystemVersion: nil, infoFeedURL: Self.legacyFeed, hasPublicKey: true)
+        #expect(legacy.track == .nightly)
+        #expect(ReleasePushListener.feedID(forFeedURL: legacy.feed(architecture: .arm64).url) == "nightly-next-legacy")
+        // The old feed has no Intel appcast the Worker serves.
+        #expect(ReleasePushListener.feedID(forFeedURL: legacy.feed(architecture: .x86_64).url) == nil)
+
+        let h = Harness()
+        defer { h.listener.stop() }
+        let socket = try await connected(h, feed: Self.legacyFeed)
+        #expect(h.urls == [URL(string: "wss://presence.cmux.dev/releases/v1/socket?feed=nightly-next-legacy")!])
+        // Frames for cmux NEXT's own feeds are not this app's feed: nothing checks.
+        socket.deliver(Self.frame(500, feed: "nightly-next"))
+        socket.deliver(Self.frame(600, feed: "tip"))
+        socket.deliver(Self.frame(200, feed: "nightly-next-legacy"))
+        #expect(await eventually { h.checks == [200] }, "the old feed's build did not check, or another feed's did")
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(h.checks == [200], "a frame for another feed started a check")
     }
 
     @Test func backoffIsBounded() {
