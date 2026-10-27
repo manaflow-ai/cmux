@@ -63,9 +63,9 @@ export type SendState = "sending" | "sent" | "failed" | "ended";
 export type AcpmuxSendCall = AcpmuxSend & { state: SendState };
 
 /// The send a shell call makes, with its state, or nil for every other call.
-export function acpmuxSendCall(tool: Tool): AcpmuxSendCall | undefined {
+export function acpmuxSendCall(tool: Tool, priorFiles?: ReadonlyMap<string, string>): AcpmuxSendCall | undefined {
   if (tool.kind !== "execute" || !tool.command) return undefined;
-  const send = acpmuxSend(tool.command);
+  const send = acpmuxSend(tool.command, undefined, 0, priorFiles);
   if (!send) return undefined;
   // A send moved to the background runs, and ends, there (model.ts `background`).
   const background = tool.background?.state;
@@ -95,8 +95,13 @@ export type ShellWord = { text: string; literal: boolean };
 export type ShellCommand = {
   words: ShellWord[];
   stdin?: ShellWord | "file";
+  /// The path used by a file stdin redirect. It is only resolved when a prior command in
+  /// this same recorded shell call wrote a literal here-document to that path.
+  stdinFile?: ShellWord;
   op: "" | ";" | "&&" | "||" | "|" | "&";
   writes?: true;
+  /// A literal path written by this command. The parser never reads this path from disk.
+  writeFile?: ShellWord;
   /// Its stdout goes somewhere other than the next command (`> out`, `>/dev/null`; not `2>&1`).
   stdout?: true;
   runs?: string[];
@@ -115,7 +120,9 @@ export function shellCommands(line: string): ShellCommand[] {
   const commands: ShellCommand[] = [];
   let words: ShellWord[] = [];
   let stdin: ShellCommand["stdin"];
+  let stdinFile: ShellCommand["stdinFile"];
   let writes = false;
+  let writeFile: ShellCommand["writeFile"];
   let stdout = false;
   let runs: string[] = [];
   /// Here-documents opened on the current line, read once it ends; `stdin` false when a later
@@ -135,7 +142,9 @@ export function shellCommands(line: string): ShellCommand[] {
         words,
         op,
         ...(stdin && { stdin }),
+        ...(stdinFile && { stdinFile }),
         ...(writes && { writes: true as const }),
+        ...(writeFile && { writeFile }),
         ...(stdout && { stdout: true as const }),
         ...(runs.length && { runs }),
       };
@@ -145,7 +154,9 @@ export function shellCommands(line: string): ShellCommand[] {
     }
     words = [];
     stdin = undefined;
+    stdinFile = undefined;
     writes = false;
+    writeFile = undefined;
     stdout = false;
     runs = [];
     docs = [];
@@ -198,20 +209,28 @@ export function shellCommands(line: string): ShellCommand[] {
       const start = index;
       const [target, next] = readWord(line, index, runs);
       index = next;
-      if (op === ">&" ? !/^(?:\d+|-)$/.test(target.text) : WRITES.has(op) && target.text !== "/dev/null") writes = true;
-      // Stdout leaves the pipe: `> f`, `&> f`, `>&f`, `1> f`; `2> f` and `2>&1` keep it.
+      // Stdout leaves the pipe: `> f`, `&> f`, `>&f`, `1> f`; `2> f` keeps the
+      // command's output on the terminal and must not become a message body source.
       const fd = /^\d+/.exec(redirect[0])?.[0];
+      if (op === ">&" ? !/^(?:\d+|-)$/.test(target.text) : WRITES.has(op) && target.text !== "/dev/null") {
+        writes = true;
+        if (target.literal && (fd === undefined || fd === "1")) writeFile = target;
+      }
       if ((op.startsWith(">") || op.startsWith("&>")) && (fd === undefined || fd === "1") && target.text !== "1")
         stdout = true;
       // The last redirect of stdin wins: one after a here-document takes its place.
       const takesStdin = (fd === undefined || fd === "0") && (op.startsWith("<") || op === "<>");
-      if (takesStdin) for (const doc of docs) doc.stdin = false;
+      if (takesStdin) {
+        for (const doc of docs) doc.stdin = false;
+        stdinFile = op.startsWith("<") && op !== "<<" && op !== "<<-" && op !== "<<<" ? target : undefined;
+      }
       if (op === "<<" || op === "<<-") {
         const quoted = /['"\\]/.test(line.slice(start, next));
         const doc = { delimiter: target.text, strip: op === "<<-", quoted, stdin: true, command: {} };
         pending.push(doc);
         docs.push(doc);
         stdin = undefined;
+        stdinFile = undefined;
       } else if (op === "<<<") stdin = { text: `${target.text}\n`, literal: target.literal };
       else if (op === "<" || op === "<>") stdin = "file";
       continue;
@@ -241,6 +260,27 @@ export function shellCommands(line: string): ShellCommand[] {
   end("");
   readBodies();
   return commands;
+}
+
+/**
+ * Bodies a preceding recorded shell call wrote to a literal path. This is deliberately a
+ * transcript-only projection: it never reads the host filesystem. `undefined` means the path was
+ * overwritten by a write whose contents were not safely recorded, so callers must forget it.
+ */
+export type RecordedMessageBodyChange = { path: string; text?: string };
+
+export function recordedMessageBodyChanges(line: string): RecordedMessageBodyChange[] {
+  return shellCommands(line)
+    .filter((command) => command.writeFile?.literal)
+    .map((command) => {
+      const path = command.writeFile!.text;
+      const words = unwrapped(command.words);
+      const body = command.words.length === 1 && program(words[0]) === "cat" ? command.stdin : undefined;
+      return {
+        path,
+        ...(body && typeof body !== "string" && body.literal ? { text: body.text } : {}),
+      };
+    });
 }
 
 /// What an unclosed quote leaves among a command's scripts: the shell refuses the line, so the
@@ -472,9 +512,20 @@ function afterOptions(words: ShellWord[], runner: Runner, assignments = false): 
 }
 
 /// The send a command line makes, or nil when it makes none, makes more than one, or does other work.
-export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend | undefined {
+export function acpmuxSend(
+  line: string,
+  host?: string,
+  depth = 0,
+  priorFiles?: ReadonlyMap<string, string>,
+): AcpmuxSend | undefined {
   if (depth > 3 || !/acp/.test(line)) return undefined;
   const commands = shellCommands(line);
+  // Keep file-backed message bodies inside this call only. This deliberately does not inspect
+  // the filesystem: a recorded `cat > file <<EOF … EOF` immediately followed by
+  // `acpmux send target - < file` is the one safe case where the transcript contains the body.
+  const recordedFiles = new Map<string, ShellWord>(
+    [...(priorFiles ?? [])].map(([path, text]) => [path, { text, literal: true }]),
+  );
   let found: AcpmuxSend | undefined;
   let at = -1;
   /// The send came from `acpmux send`'s own words here, not from a nested line.
@@ -514,11 +565,11 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
       while (ACPMUX_FLAGS.has(words[sub]?.text ?? "")) sub += 1;
       if (words[sub]?.text === "send") {
         sends += 1;
-        send = sendArgs(words.slice(sub + 1), stdinOf(commands, index), host);
+        send = sendArgs(words.slice(sub + 1), stdinOf(commands, index, recordedFiles), host);
       }
     } else if (name === "cmux" && words[1]?.text === "acp" && words[2]?.text === "send") {
       sends += 1;
-      send = sendArgs(words.slice(3), stdinOf(commands, index), host);
+      send = sendArgs(words.slice(3), stdinOf(commands, index, recordedFiles), host);
     }
     // A nested line counts its send, read or not: two messages keep the command row.
     const nested = name === "reach" || SHELLS.has(name);
@@ -530,6 +581,9 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
       at = index;
       direct = name !== "reach" && !SHELLS.has(name);
     }
+    const writer = command.words.length === 1 && program(command.words[0]) === "cat" ? command.stdin : undefined;
+    if (command.writeFile?.literal && writer && typeof writer !== "string" && writer.literal)
+      recordedFiles.set(command.writeFile.text, writer);
   }
   if (!found) return undefined;
   // Every other step that does more than set up, report, feed the send or filter what it printed
@@ -603,9 +657,17 @@ function onlyReads(script: string, depth: number): boolean {
 
 /// The text the command at `index` reads from stdin, when the line holds it: its here-document or
 /// here-string, or an `echo`, `printf` or bare `cat <<EOF` piped into it.
-function stdinOf(commands: readonly ShellCommand[], index: number): ShellWord | "file" | undefined {
-  const own = commands[index]!.stdin;
-  if (own) return own;
+function stdinOf(
+  commands: readonly ShellCommand[],
+  index: number,
+  recordedFiles: ReadonlyMap<string, ShellWord>,
+): ShellWord | "file" | undefined {
+  const command = commands[index]!;
+  const own = command.stdin;
+  if (own) {
+    if (own === "file" && command.stdinFile?.literal) return recordedFiles.get(command.stdinFile.text) ?? own;
+    return own;
+  }
   const before = commands[index - 1];
   // Its stdout sent elsewhere (`echo x >/dev/null | …`), nothing comes down the pipe.
   if (before?.op !== "|" || before.stdout) return undefined;

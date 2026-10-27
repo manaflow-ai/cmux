@@ -98,3 +98,26 @@ test("the other calls still draw as ToolRows around them", () => {
     ["Fetch", "Fetch", "Read a.ts", "Read a.ts", "ls", "ls"].sort(),
   );
 });
+
+test("a later Bash send resolves only a prior same-turn recorded message write", () => {
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/review.md <<'EOF'\n## Ready\n\n- checks pass\nEOF",
+  });
+  const send = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send --no-wait coord-deputy - < /tmp/review.md",
+    output: "queued",
+  });
+  const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
+  expect(group?.type).toBe("send");
+  if (group?.type === "send") {
+    expect(group.send.text).toBe("## Ready\n\n- checks pass\n");
+    expect(group.send.others).toBeUndefined();
+  }
+  const standalone = toolGroups([send]).find((entry) => entry.type === "send");
+  expect(standalone?.type).toBe("send");
+  if (standalone?.type === "send") expect(standalone.send.text).toBeUndefined();
+});

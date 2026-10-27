@@ -107,6 +107,12 @@ describe("acpmuxSend", () => {
     expect(read("echo -e 'a\\nb' | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     expect(read("cat <<'EOF' | acpmux send lane\nvia cat\nEOF")?.text).toBe("via cat\n");
     expect(read("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", noWait: false });
+    // A same-turn literal write is safe to display without reading the filesystem. The writer is
+    // still counted as other work, and a later unrelated command cannot provide its body.
+    expect(
+      read("cat > /tmp/message.md <<'EOF'\n# Review\n\n- pass\nEOF\nacpmux send --no-wait lane - < /tmp/message.md"),
+    ).toEqual({ target: "lane", text: "# Review\n\n- pass\n", noWait: true, others: 1 });
+    expect(read("acpmux send lane - < /tmp/message.md")).toEqual({ target: "lane", noWait: false });
     // The last stdin redirect wins; a writer whose stdout goes elsewhere feeds nothing.
     expect(read("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({ target: "lane", noWait: false });
     expect(read("acpmux send lane - < /tmp/message <<EOF\nbody\nEOF")?.text).toBe("body\n");
@@ -308,7 +314,13 @@ describe("shellCommands", () => {
     const [send, copy] = shellCommands('x "$(cat a)" `pwd` 2>&1 >/dev/null; > out');
     expect(send!.writes).toBeUndefined();
     expect(send!.runs).toEqual(["cat a", "pwd"]);
-    expect(copy).toEqual({ words: [], op: "", writes: true, stdout: true });
+    expect(copy).toEqual({
+      words: [],
+      op: "",
+      writes: true,
+      writeFile: { text: "out", literal: true },
+      stdout: true,
+    });
   });
 
   test("a substitution keeps its operators inside its word", () => {
