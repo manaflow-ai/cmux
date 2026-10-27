@@ -44,6 +44,9 @@ final class CEFHostStart {
     private let supervisor: any ChromiumHostSupervising
     /// Checks a downloaded runtime before each attach asks for the host that maps it (task p01-process-101).
     private let verification: CEFRuntimeVerification
+    /// The runtime the hosts map: the last one an ``attached(layout:)`` named. A restart after a host's
+    /// end names none (`CEFRuntime.restartHost`), and its attach checks this one again.
+    private var layout: CEFRuntimeLayout?
     private let open: Open
     private let helloDeadline: Duration
     private let clock: any Clock<Duration>
@@ -86,12 +89,14 @@ final class CEFHostStart {
         }
     }
 
-    /// The attached host; the first caller starts the attach, later ones await it. A downloaded
-    /// `layout` that ``CEFRuntimeVerification`` refuses fails the attach before the host is asked for,
-    /// so no host maps it.
+    /// The attached host; the first caller starts the attach, later ones await it. Every attach checks
+    /// the runtime its host maps (`layout`, else the one an earlier call named): a downloaded one that
+    /// ``CEFRuntimeVerification`` refuses fails the attach before the host is asked for, so no host maps it.
     func attached(layout: CEFRuntimeLayout? = nil) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
+        if let layout { self.layout = layout }
         let startsAttach = self.task == nil
-        let task = self.task ?? Task { [supervisor, verification, open, replies, helloDeadline, clock, fencesResizes] in
+        let task = self.task ?? Task { [supervisor, verification, open, replies, helloDeadline, clock, fencesResizes,
+                                        layout = self.layout] in
             await CEFHostStart.attach(supervisor, verifying: layout, with: verification, open: open, replies: replies,
                                       helloDeadline: helloDeadline, clock: clock, fencesResizes: fencesResizes)
         }

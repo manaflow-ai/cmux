@@ -68,6 +68,27 @@ import Testing
         #expect(supervisor.asked == 1)
     }
 
+    /// A sad tab's Reload restarts the host with no layout (`CEFRuntime.restartHost`): the new attach checks
+    /// the downloaded runtime the first attach named again, and a runtime changed on disk since never reaches a host.
+    @Test func theAttachAfterAHostEndChecksTheFirstLayoutAgain() async {
+        VerificationCounts.reset(invalid: nil)
+        let supervisor = VerificationSupervisor()
+        let start = Self.hostStart(supervisor)
+        _ = await start.attached(layout: Self.layout(.downloaded(teamID: "ABCDE12345")))
+        start.hostEnded()
+        VerificationCounts.invalid = CEFRuntimeLayout.frameworkName
+
+        let result = await start.attached(layout: nil)
+
+        guard case .failure(.untrusted(let item)) = result else {
+            Issue.record("a restarted host was asked for with no check: \(result)")
+            return
+        }
+        #expect(item == CEFRuntimeLayout.frameworkName)
+        #expect(VerificationCounts.checks == 2)
+        #expect(supervisor.asked == 1, "a host was asked to map a runtime the check refused")
+    }
+
     @Test func aBundledRuntimeIsNotCheckedAgain() async {
         VerificationCounts.reset(invalid: CEFRuntimeLayout.frameworkName)
         let supervisor = VerificationSupervisor()
