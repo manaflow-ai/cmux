@@ -87,6 +87,34 @@ CONTEXTS = {"dcLayout": Context}
 """
 
 
+# ARGUMENTS and UNDO: one factory behind two keys, one that gives no value.
+ARGUMENT_FAMILY = """
+FAMILY = "arg"
+MADE = []
+
+
+class Thing:
+    def __init__(self):
+        MADE.append(self)
+        self.name = None
+
+    def value(self, driver, base):
+        if self.name is None:
+            driver.run("thing.make", {})
+            self.name = f"thing:{len(MADE)}"
+        return self.name, None
+
+
+class NoPage:
+    def value(self, driver, base):
+        return None, "no page"
+
+
+ARGUMENTS = {("x.a", "thing"): Thing, ("x.b", "thing"): Thing, ("x.b", "url"): NoPage}
+UNDO = {"x.a": ("x.unset", {})}
+"""
+
+
 def write_family(directory, file="fam.py", name="fam", context="famLayout", prepare=None, refuse=False, leave_note=None):
     """A test family in `directory`, and its gap-closures record (<name>.json, `closed` = its CLOSES) beside it."""
     text = FAMILY.format(name=name, context=context, prepare=prepare or {}, refuse=refuse, leave_note=leave_note)
@@ -202,6 +230,43 @@ class LoaderTests(unittest.TestCase):
         with self.assertRaisesRegex(action_fixtures.FixtureError, r"only in prep.json \['x.move'\]"):
             load(self.dir)
 
+    def test_family_arguments_share_one_fixture_per_factory_per_launch(self):
+        (self.dir / "arg.py").write_text(ARGUMENT_FAMILY)
+        families = load(self.dir)
+        self.assertEqual(set(families.argument_keys()), {("x.a", "thing"), ("x.b", "thing"), ("x.b", "url")})
+        driver = FakeDriver()
+        gap = lambda why: {"skipped": why, "skip_kind": "gap"}
+        launch = families.new_arguments(driver, gap)
+        self.assertEqual(launch[("x.a", "thing")]({}), ("thing:1", None))
+        self.assertEqual(launch[("x.b", "thing")]({}), ("thing:1", None))  # the same fixture: made once
+        self.assertEqual(launch[("x.b", "url")]({}), (None, gap("no page")))
+        self.assertEqual(driver.ran, ["thing.make"])
+        relaunch = families.new_arguments(driver, gap)
+        self.assertEqual(relaunch[("x.a", "thing")]({}), ("thing:2", None))  # a relaunch's own fixture
+        self.assertEqual(driver.ran, ["thing.make", "thing.make"])
+
+    def test_family_undo_merges_into_the_sweep_undo(self):
+        (self.dir / "arg.py").write_text(ARGUMENT_FAMILY)
+        merged = load(self.dir).merged_undo(sweep_mod.UNDO)
+        self.assertEqual(merged["x.a"], ("x.unset", {}))
+        self.assertEqual(merged["browserFit"], sweep_mod.FIT_OFF)
+        with self.assertRaisesRegex(action_fixtures.FixtureError, "UNDO 'x.a' is already undone"):
+            load(self.dir).merged_undo({"x.a": ("other", {})})
+
+    def test_an_argument_the_sweep_fills_is_refused(self):
+        (self.dir / "fit.py").write_text("FAMILY = 'fit'\nARGUMENTS = {('browserFit', 'fit'): dict}\n")
+        with self.assertRaisesRegex(action_fixtures.FixtureError, "browserFit.fit is filled by the sweep"):
+            load(self.dir).check_arguments(sweep_mod.ARGUMENT_FIXTURES)
+
+    def test_an_argument_or_undo_two_families_claim_is_refused(self):
+        (self.dir / "a.py").write_text(ARGUMENT_FAMILY)
+        (self.dir / "b.py").write_text("FAMILY = 'b'\nARGUMENTS = {('x.a', 'thing'): dict}\n")
+        with self.assertRaisesRegex(action_fixtures.FixtureError, "ARGUMENTS 'x.a.thing' is also family 'arg'"):
+            load(self.dir)
+        (self.dir / "b.py").write_text("FAMILY = 'b'\nUNDO = {'x.a': ('x.unset', {})}\n")
+        with self.assertRaisesRegex(action_fixtures.FixtureError, "UNDO 'x.a' is also family 'arg'"):
+            load(self.dir)
+
     def test_malformed_families_are_refused(self):
         cases = {
             "FAMILY = 'Bad-Name'\nCONTEXTS = {'k': dict}\n": "FAMILY",
@@ -209,7 +274,11 @@ class LoaderTests(unittest.TestCase):
             "FAMILY = 'f'\nPREPARE = {'x': [('a',)]}\n": "PREPARE 'x' step",
             "FAMILY = 'f'\nPREPARE = {'x': 'newSurface'}\n": "PREPARE 'x' is a list",
             "FAMILY = 'f'\nCONTEXTS = {'k': dict}\nCLOSES = ('a', 'a')\n": "CLOSES names an id twice",
-            "FAMILY = 'f'\n": "CONTEXTS or PREPARE",
+            "FAMILY = 'f'\n": "CONTEXTS, PREPARE, ARGUMENTS or UNDO",
+            "FAMILY = 'f'\nARGUMENTS = {'x.url': dict}\n": "ARGUMENTS maps",
+            "FAMILY = 'f'\nARGUMENTS = {('x', 'url'): 'about:blank'}\n": "ARGUMENTS maps",
+            "FAMILY = 'f'\nUNDO = [('x', ('y', {}))]\n": "UNDO maps",
+            "FAMILY = 'f'\nUNDO = {'x': ('y',)}\n": "UNDO 'x' step",
         }
         for text, words in cases.items():
             with self.subTest(text=text):
@@ -297,6 +366,54 @@ class SweepFamilyTests(unittest.TestCase):
         sweep, _ = self.use(leave_note="the layout stayed")
         sweep.enter_contexts(["famLayout"])
         self.assertEqual(sweep.leave_contexts(), ["leave famLayout: the layout stayed"])
+
+    def test_a_family_argument_fills_required_and_optional_arguments_and_its_undo_is_planned(self):
+        directory = Path(tempfile.mkdtemp(prefix="families-"))
+        (directory / "arg.py").write_text(ARGUMENT_FAMILY)
+        families = load(directory)
+        with mock.patch.object(sweep_mod, "FAMILIES", families), mock.patch.object(sweep_mod, "SweepDriver", FakeDriver):
+            sweep = sweep_mod.Sweep(None, "light", None)
+        sweep.base = dict(sweep_mod.PLAN_BASE)
+        thing = {"name": "thing", "kind": "target", "target_kind": "thing", "required": True}
+        url = {"name": "url", "kind": "string", "required": False}
+        note = {"name": "note", "kind": "string", "required": False}
+        plan, skipped = sweep.plan({"id": "x.a", "arguments": [thing, note]})
+        self.assertIsNone(skipped)
+        self.assertEqual(plan["args"], {"thing": "thing:1"})  # an optional argument no fixture fills stays unset
+        _, skipped = sweep.plan({"id": "x.b", "arguments": [thing, url]})
+        self.assertEqual(skipped, {"skipped": "no page", "skip_kind": "gap"})
+        # Without the family the same row is the gap it was.
+        self.assertEqual(sweep_mod.argument_values({"id": "x.a", "arguments": [thing]}, {}, sweep_mod.ARGUMENT_FIXTURES)[1],
+                         {"skipped": "needs a thing argument", "skip_kind": "gap"})
+
+
+class BrowserProfilePlanTests(unittest.TestCase):
+    """The checked-in browserProfile family (p15-oracle-084) in --plan-only, over its actions as action.list lists
+    them (BrowserProfileActionCatalog.swift; the checked-in fixture catalog predates them)."""
+
+    def test_every_closed_id_is_planned_with_the_scratch_profile(self):
+        profile = {"name": "browserProfile", "kind": "target", "target_kind": "browser-profile", "required": True}
+        url = {"name": "url", "kind": "string", "required": False}
+        arguments = {"browserProfile.newTab": [profile, url], "browserProfile.openLink": [profile, url]}
+        ids = json.loads((action_fixtures.GAP_CLOSURES / "browserProfile.json").read_text())["closed"]
+        catalog = {"actions": [{"id": ident, "arguments": arguments.get(ident, [profile]), "requires": []} for ident in ids]}
+        out = tempfile.mkdtemp(prefix="plan-only-")
+        path = os.path.join(out, "catalog.json")
+        with open(path, "w") as f:
+            json.dump(catalog, f)
+        subprocess.run([sys.executable, "-I", str(SCRIPTS / "every-action-sweep.py"), "--plan-only", "--catalog", path,
+                        "--out", out, "--sessions", "light"], check=True, capture_output=True, text=True)
+        with open(os.path.join(out, "every-action-plan.json")) as f:
+            rows = {r["id"]: r for r in json.load(f)["sessions"][0]["rows"]}
+        self.assertEqual(set(rows), set(ids))
+        for ident, row in rows.items():
+            with self.subTest(ident=ident):
+                self.assertNotIn("skipped", row)
+                self.assertEqual(row["args"]["browserProfile"], f"<fixture {ident}.browserProfile>")
+        self.assertEqual(rows["browserProfile.openLink"]["args"]["url"], "<fixture browserProfile.openLink.url>")
+        self.assertNotIn("url", rows["browserProfile.newTab"]["args"])
+        self.assertEqual(rows["browserProfile.moveTab"]["prepare"], [["openBrowser.chromium", {"url": "about:blank"}]])
+        self.assertEqual(rows["browserProfile.setSpaceDefault"]["undo"], ["browserProfile.clearSpaceDefault", {}])
 
 
 class PlanOnlyTests(unittest.TestCase):

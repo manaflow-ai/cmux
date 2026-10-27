@@ -66,6 +66,9 @@ public final class KeyFrameSignpost {
     private var pending: [OpenKey] = []
     /// Whether secure event input is on now, read once per key-down (the system's `IsSecureEventInputEnabled`).
     private let secureEventInput: () -> Bool
+    /// Gets each committed key's `key.frame` time in microseconds, after its sample (the app's opt-in hang reports take
+    /// the black box at a slow one); nil: nothing gets it.
+    public var committedKey: ((_ micros: UInt64) -> Void)?
 
     /// The app's key-frame signposts: ``Signposter/key``, ended by an observer on the main run loop, gated by the
     /// system's secure event input.
@@ -123,6 +126,7 @@ public final class KeyFrameSignpost {
             guard outcome == .committed else { continue }
             let micros = endNanos > key.keyDownNanos ? (endNanos - key.keyDownNanos) / 1_000 : 0
             metrics.record(.keyFrame(key.target.histogramTarget), Int64(truncatingIfNeeded: micros))
+            committedKey?(micros)
         }
         pending.removeAll(keepingCapacity: true)
     }

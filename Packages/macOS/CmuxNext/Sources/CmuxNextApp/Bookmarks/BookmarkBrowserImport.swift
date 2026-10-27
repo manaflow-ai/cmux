@@ -5,6 +5,7 @@ import CmuxNextBrowserImport
 import CmuxNextDesign
 import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Bookmarks from another browser (decision BOOKMARKS-IMPORT-EVERY-BROWSER
 /// I4/I5), one path for File > Import, the palette, the Bookmark Manager and
@@ -72,15 +73,15 @@ struct BookmarkBrowserImport {
 
     // MARK: Person path: the picker
 
-    /// Finds the browsers off the main thread, then asks which profiles to import.
+    /// Finds the browsers on the files lane, then asks which profiles to import. `userBlocking`: the
+    /// person waits for the picker (Chrome's `PostTaskAndReplyWithResult`, base/task/task_runner.h).
     func choose(profile target: String, window: NSWindow?) {
         let services = services
-        // task-owner: one-shot detection for a person's picker; ends when the dialog shows
-        Task { @MainActor in
-            let sources = await Task.detached { Self.sources(environment: Self.liveEnvironment()) }.value
-            guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
-            present(sources, target: target, in: window, services: services)
-        }
+        services.work.run(.userBlocking, mayBlock: .files) { Self.sources(environment: Self.liveEnvironment()) }
+            .reply(on: services.mainWork, class: .userBlocking, owner: "BookmarkBrowserImport.picker") { sources in
+                guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+                Self(services: services).present(sources, target: target, in: window, services: services)
+            }
     }
 
     private func present(_ sources: [BrowserSource], target: String, in window: NSWindow, services: AppServices) {
@@ -102,12 +103,12 @@ struct BookmarkBrowserImport {
             case "import":
                 let picked = readable.filter { answer.isOn($0.id) }
                 guard !picked.isEmpty else { return }
-                let work = Self(services: services)
-                // task-owner: one import the person started; ends with its summary toast
-                Task { @MainActor in
-                    let outcome = await work.run(picked, target: target)
-                    work.announce(outcome, in: window)
-                }
+                // The reads run on the files lane; the apply and its toast are the rest of the person's import.
+                services.work.run(.userBlocking, mayBlock: .files) { Self.read(picked) }
+                    .reply(on: services.mainWork, class: .userBlocking, owner: "BookmarkBrowserImport.import") { reads in
+                        let work = Self(services: services)
+                        work.announce(work.apply(reads, target: target), in: window)
+                    }
             case "file":
                 BookmarkFiles(services: services).chooseImport(profile: target)
             case "privacy":
@@ -145,10 +146,26 @@ struct BookmarkBrowserImport {
     /// Reads each profile off the main thread, then applies all of them as
     /// one undo step on `target`'s bookmarks.
     func run(_ profiles: [BrowserSourceProfile], target: String) async -> Outcome {
+        apply(await Task.detached { Self.read(profiles) }.value, target: target)
+    }
+
+    /// One profile's bookmarks as read; nil when they could not be read.
+    struct Read: Sendable {
+        var profile: BrowserSourceProfile
+        var bookmarks: [ImportedBookmark]?
+    }
+
+    /// Reads each profile's bookmarks: blocking file and SQLite reads, never on the main thread.
+    nonisolated static func read(_ profiles: [BrowserSourceProfile]) -> [Read] {
+        profiles.map { Read(profile: $0, bookmarks: try? BrowserImporter.readBookmarks($0).items) }
+    }
+
+    /// Applies the reads as one undo step on `target`'s bookmarks.
+    func apply(_ reads: [Read], target: String) -> Outcome {
         var outcome = Outcome()
-        for profile in profiles {
-            let read = await Task.detached { () -> [ImportedBookmark]? in try? BrowserImporter.readBookmarks(profile).items }.value
-            guard let bookmarks = read else {
+        for read in reads {
+            let profile = read.profile
+            guard let bookmarks = read.bookmarks else {
                 outcome.failed.append(Self.pickerTitle(profile))
                 continue
             }

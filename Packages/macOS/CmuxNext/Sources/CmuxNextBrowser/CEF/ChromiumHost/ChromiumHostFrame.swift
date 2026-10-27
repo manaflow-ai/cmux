@@ -11,10 +11,10 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     enum Kind: UInt32, Sendable {
         // cmux -> host
         case navigate = 1, geometry = 2, mouse = 3, wheel = 4, key = 5, focus = 6, ping = 7, stats = 8, quit = 9, edit = 10
-        case ime = 11, textInputWatch = 12
+        case ime = 11, textInputWatch = 12, gesture = 13
         // host -> cmux
         case ready = 101, context = 102, address = 103, title = 104, pong = 105, statsReply = 106, error = 107
-        case rendererGone = 108, textInputState = 109
+        case rendererGone = 108, textInputState = 109, inputPresented = 110
     }
 
     static let headerSize = 64
@@ -61,6 +61,96 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
         set { t1 = (t1 & 0xffff_ffff) | UInt64(newValue) << 32 }
     }
     var text: String { String(decoding: payload, as: UTF8.self) }
+
+    /// A wheel frame's fields (`kWheel` and `Wheel` in the header, task
+    /// p04-input-063): the NSEvent's scroll phase, momentum phase and precise
+    /// flag, which Chrome builds its wheel event from
+    /// (`content/browser/renderer_host/input/web_input_event_builders_mac.mm`)
+    /// so its renderer host latches the gesture and flings the page
+    /// (`components/input/mouse_wheel_phase_handler.cc`).
+    nonisolated struct Wheel: Equatable, Sendable {
+        /// Page view points, top left.
+        var x: Int32
+        var y: Int32
+        /// `scrollingDeltaX/Y`: pixels when precise, lines when not; the wire
+        /// keeps hundredths (``wheelDeltaScale``).
+        var deltaX: Double
+        var deltaY: Double
+        /// `hasPreciseScrollingDeltas`.
+        var precise: Bool
+        /// `NSEvent.Phase` raw values of `phase` and `momentumPhase`.
+        var phase: UInt
+        var momentumPhase: UInt
+        /// `NSEvent.ModifierFlags` raw value.
+        var modifierFlags: UInt64
+        /// The event time (CLOCK_UPTIME_RAW nanoseconds).
+        var time: UInt64
+    }
+
+    /// `kWheelDeltaScale`: v2 and v3 of a wheel are its deltas in hundredths.
+    static let wheelDeltaScale = 100.0
+    /// `kWheelPrecise`: a wheel's flags bit for precise deltas. Modifier flags never use it.
+    static let wheelPrecise: UInt64 = 1 << 63
+
+    static func wheel(_ wheel: Wheel) -> ChromiumHostFrame {
+        ChromiumHostFrame(
+            .wheel,
+            v: [wheel.x, wheel.y, fixedPoint(wheel.deltaX), fixedPoint(wheel.deltaY),
+                Int32(truncatingIfNeeded: wheel.phase), Int32(truncatingIfNeeded: wheel.momentumPhase)],
+            flags: (wheel.modifierFlags & ~wheelPrecise) | (wheel.precise ? wheelPrecise : 0),
+            t0: wheel.time)
+    }
+
+    /// The fields of a wheel frame; nil for another kind.
+    var wheelFields: Wheel? {
+        guard kind == .wheel else { return nil }
+        return Wheel(x: v[0], y: v[1], deltaX: Double(v[2]) / Self.wheelDeltaScale, deltaY: Double(v[3]) / Self.wheelDeltaScale,
+                     precise: flags & Self.wheelPrecise != 0, phase: UInt(UInt32(bitPattern: v[4])),
+                     momentumPhase: UInt(UInt32(bitPattern: v[5])), modifierFlags: flags & ~Self.wheelPrecise, time: t0)
+    }
+
+    /// `delta` in hundredths, rounded and clamped to the field.
+    private static func fixedPoint(_ delta: Double) -> Int32 {
+        let scaled = (delta * wheelDeltaScale).rounded()
+        guard !scaled.isNaN else { return 0 }
+        return Int32(min(max(scaled, Double(Int32.min)), Double(Int32.max)))
+    }
+
+    /// An input frame's presentation (`kInputPresented` in the header, task p04-input-066): the host reports when the
+    /// frame that shows an input reached the display, by the input's event time, from the fork's presentation
+    /// feedback (`gfx::PresentationFeedback`, ui/gfx/presentation_feedback.h), as viz reports it for the frame that
+    /// carried the input's `EventMetrics` (cc/metrics/compositor_frame_reporter.cc).
+    nonisolated struct InputPresented: Equatable, Sendable {
+        /// The input frame's `t0`: its event time (CLOCK_UPTIME_RAW nanoseconds).
+        var eventNanos: UInt64
+        /// When the frame that shows it reached the display (CLOCK_UPTIME_RAW nanoseconds).
+        var presentedNanos: UInt64
+        /// `gfx::PresentationFeedback::Flags`.
+        var feedbackFlags: UInt32
+    }
+
+    /// `kPresentationFailed`: `gfx::PresentationFeedback::kFailure`, the frame never reached the display.
+    static let presentationFailed: UInt32 = 1 << 1
+    /// `kReadyReportsInputPresented`, in a `ready` frame's `v[2]`: the host sends an `inputPresented` frame for each
+    /// input (its fork has the presentation feedback callback).
+    static let readyReportsInputPresented: Int32 = 1 << 0
+
+    /// A `ready` frame whose host reports each input's presentation; false for another kind.
+    var reportsInputPresented: Bool {
+        kind == .ready && v[2] & Self.readyReportsInputPresented != 0
+    }
+
+    static func inputPresented(_ presented: InputPresented) -> ChromiumHostFrame {
+        var frame = ChromiumHostFrame(.inputPresented, v: [Int32(bitPattern: presented.feedbackFlags)], t0: presented.eventNanos)
+        frame.t1 = presented.presentedNanos
+        return frame
+    }
+
+    /// The fields of an input presented frame; nil for another kind.
+    var inputPresentedFields: InputPresented? {
+        guard kind == .inputPresented else { return nil }
+        return InputPresented(eventNanos: t0, presentedNanos: t1, feedbackFlags: UInt32(bitPattern: v[0]))
+    }
 
     /// The header and payload as sent.
     func encoded() -> [UInt8] {

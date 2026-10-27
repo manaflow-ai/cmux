@@ -13,7 +13,7 @@ extension SSHService {
     /// The install offer and the current remote-hosts policy are set before any reader gets it.
     static func made(for services: AppServices) -> SSHService {
         let made = SSHService(machines: services.machines, bundleID: services.environment.launch.bundleID, mainWork: services.mainWork,
-                              work: services.work)
+                              work: services.work, appEvents: services.appEvents, workspaceEvents: services.workspaceEvents)
         services.madeSSH = made
         made.offerInstall = { [weak registry = services.registry] session in
             // Asks through the registry's confirmation sheet (remote.install is destructive).

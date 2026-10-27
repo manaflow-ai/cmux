@@ -85,8 +85,10 @@ final class GhosttyThemeConfigCache {
             entries[name] = entry
             return
         }
-        entry.config = GhosttyThemeConfig(config: config, themeName: name,
-                                          colors: GhosttyRuntime.themeColors(of: config, backgroundOpacity: built.opacity))
+        // SAFETY: the landed build's live config, handed over to the theme config, which frees it
+        // once (GhosttyThemeConfig's `config`); nothing frees `built` after this.
+        entry.config = unsafe GhosttyThemeConfig(config: config, themeName: name,
+                                                 colors: GhosttyRuntime.themeColors(of: config, backgroundOpacity: built.opacity))
         entry.asked = false
         entries[name] = entry
         for handler in handlers { handler() }

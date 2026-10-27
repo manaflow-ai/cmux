@@ -39,6 +39,10 @@ nonisolated final class PowerSourceMonitor: Sendable {
         }
     }
 
+    /// notify(3)'s name for a battery charge change. IOPowerSources.h's `kIOPSNotifyPercentChange`
+    /// is not imported into Swift from the macOS SDK, so its value is spelled here.
+    static let percentChangeNotification = "com.apple.system.powersources.percent"
+
     /// The system calls the monitor makes; a test passes a fake Mac.
     nonisolated struct System: Sendable {
         /// The Mac has an `IOPMPowerSource` service (a Mac mini, Studio or Pro has none).
@@ -151,7 +155,7 @@ nonisolated final class PowerSourceMonitor: Sendable {
         }
         guard let next else { return }
         if reading.onBattery, next.percentToken == nil {
-            let token = system.register(kIOPSNotifyPercentChange) { [weak self] in self?.changed(run) }
+            let token = system.register(Self.percentChangeNotification) { [weak self] in self?.changed(run) }
             guard keep(token, in: \.percentToken, run: run) else { return }
         } else if !reading.onBattery, let token = next.percentToken {
             state.withLock { if $0.run == run { $0.percentToken = nil } }

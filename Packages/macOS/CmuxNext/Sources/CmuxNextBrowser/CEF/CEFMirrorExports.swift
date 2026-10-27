@@ -45,6 +45,7 @@ nonisolated enum CEFMirrorExports {
         case .passwordReplaceAvailable: address({ CEFMirrorExports.int(CEFMirrorKey(.passwordReplaceAvailable)) } as HostRead)
         case .passkeysAvailable: address({ CEFMirrorExports.int(CEFMirrorKey(.passkeysAvailable)) } as HostRead)
         case .passwordCoreAvailable: address({ CEFMirrorExports.int(CEFMirrorKey(.passwordCoreAvailable)) } as HostRead)
+        case .extLoadLaterSupported: address({ CEFMirrorExports.int(CEFMirrorKey(.extLoadLaterSupported)) } as HostRead)
         case .windowID: address({ CEFMirrorExports.int(CEFMirrorKey(.windowID, id: $0)) } as TabRead)
         case .devToolsBrowser: address({ CEFMirrorExports.int(CEFMirrorKey(.devToolsBrowser, id: $0)) } as TabRead)
         case .navigationEntries: unsafe address({ unsafe CEFMirrorExports.string(CEFMirrorKey(.navigationEntries, id: $0)) } as TabString)

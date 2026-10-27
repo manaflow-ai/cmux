@@ -1,4 +1,17 @@
 public import AppKit
+public import CmuxNextWakeups
+
+/// The deadline of a toolbar button's long press: a `visible` ``MainDeadline`` in the app (the menu shows
+/// behind the person's input, not in FIFO order beside it), a fake in tests.
+@MainActor
+public protocol LongPressDeadline: AnyObject {
+    /// Runs `action` once after `delay`, replacing a pending deadline.
+    func schedule(after delay: Duration, _ action: @escaping @MainActor () -> Void)
+    /// Drops the pending deadline.
+    func cancel()
+}
+
+extension MainDeadline: LongPressDeadline {}
 
 /// An icon button of the toolbar band and the pane's tab bar controls: the chrome's hover and
 /// pressed look.
@@ -17,6 +30,8 @@ public final class TitlebarBandButton: NSButton {
     public private(set) lazy var hover = ChromeHover(self, behindContent: true)
     /// Set once `hover` follows the pointer (not during NSButton's init).
     private var followsPointer = false
+    /// True from a mouse-down that may become a long press until its mouse-up or its deadline.
+    private(set) var isHoldingForMenu = false
 
     public init(symbol: String) {
         self.symbol = symbol
@@ -61,6 +76,8 @@ public final class TitlebarBandButton: NSButton {
 
     /// A right-click or long-press menu (Back / Forward lists); the sidebar toggle's opens on right-click only.
     public var menuProvider: (() -> NSMenu?)?, longPressOpensMenu = true
+    /// The long press's deadline (a press still held when it fires shows the menu); with none a press is a click.
+    public var longPressDeadline: (any LongPressDeadline)?
     /// A menu that opens on press, like a pop-up button (the pane toolbar's "…"): press, drag
     /// to a row and release to run it; a plain click leaves it open. The action still runs
     /// for a keyboard or VoiceOver press.
@@ -87,11 +104,45 @@ public final class TitlebarBandButton: NSButton {
             presentMenu(menu, self)
             return
         }
-        guard menuProvider != nil, longPressOpensMenu, let window else { return super.mouseDown(with: event) }
-        let deadline = Date().addingTimeInterval(NSEvent.doubleClickInterval)
-        while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: deadline, inMode: .eventTracking, dequeue: true) {
-            if next.type == .leftMouseUp { sendAction(action, to: target); return }
+        guard menuProvider != nil, longPressOpensMenu, let longPressDeadline, window != nil else {
+            return super.mouseDown(with: event)
         }
+        // The release or the deadline decides; no modal loop holds the run loop meanwhile (Chrome's
+        // ToolbarButton posts its drop-down menu as a delayed task on press, chrome/browser/ui/views/toolbar/toolbar_button.cc).
+        isHoldingForMenu = true
+        longPressDeadline.schedule(after: .seconds(NSEvent.doubleClickInterval)) { [weak self] in
+            self?.longPressDeadlinePassed()
+        }
+    }
+
+    /// Held through the deadline: the menu instead of the action.
+    private func longPressDeadlinePassed() {
+        guard isHoldingForMenu, window != nil else { return }
+        isHoldingForMenu = false
         if let menu = menuProvider?() { presentMenu(menu, self) }
+    }
+
+    /// The hold's drags move nothing (as the press always took them).
+    override public func mouseDragged(with event: NSEvent) {
+        guard !isHoldingForMenu else { return }
+        super.mouseDragged(with: event)
+    }
+
+    /// Released before the deadline, anywhere: a click.
+    override public func mouseUp(with event: NSEvent) {
+        guard isHoldingForMenu else { return super.mouseUp(with: event) }
+        endHold()
+        sendAction(action, to: target)
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Out of the window, the hold's mouse-up never comes here.
+        if window == nil { endHold() }
+    }
+
+    private func endHold() {
+        isHoldingForMenu = false
+        longPressDeadline?.cancel()
     }
 }

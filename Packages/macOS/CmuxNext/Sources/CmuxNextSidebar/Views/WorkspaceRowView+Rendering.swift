@@ -47,6 +47,7 @@ extension WorkspaceRowView {
         // so the title keeps its width; a clipped title scrolls. Under Reduce
         // Motion no marquee runs: the workspace hover card shows the whole
         // name (wrapped), so no second popover (a tooltip) shows with it.
+        // sync-layout: startMarquee reads whether the laid-out title is clipped.
         layoutSubtreeIfNeeded()
         title.startMarquee()
         updateCalmTitleTip()

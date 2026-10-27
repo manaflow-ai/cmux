@@ -45,4 +45,33 @@ public protocol HomeDiagramRendering: AnyObject, Sendable {
     ///   - scale: device pixels per point; the image is the laid-out size times this.
     /// - Returns: the image, or `nil` when the source does not render.
     func image(mermaid source: String, maxWidth: CGFloat, style: HomeDiagramStyle, scale: CGFloat) -> CGImage?
+
+    /// Whether `layout` and `image` answer now without loading an engine first (the engine is
+    /// loaded, or failed to load). Never waits: the main thread asks it before every diagram it
+    /// maps, and maps the fence as text while it is false.
+    var isReady: Bool { get }
+
+    /// Whether the engine is not loaded and may load now (memory is not critical). The transcript
+    /// asks for an opening Mermaid fence and for a closed one while ``isReady`` is false. Never waits.
+    var needsPrewarm: Bool { get }
+
+    /// Whether the transcript loads the engine as soon as the renderer is installed, before any
+    /// fence: a renderer that keeps its engine for its life.
+    var prewarmsAtInstall: Bool { get }
+
+    /// Loads the renderer's engine now, so the next diagram does not wait for it. Synchronous and
+    /// slow: call it off the main thread. Does nothing when it is loaded, loading, or may not load.
+    func prewarm()
+}
+
+extension HomeDiagramRendering {
+    /// A renderer with no engine to load is always ready.
+    public var isReady: Bool { true }
+
+    /// A renderer with no engine to load never needs a prewarm.
+    public var needsPrewarm: Bool { false }
+
+    public var prewarmsAtInstall: Bool { false }
+
+    public func prewarm() {}
 }

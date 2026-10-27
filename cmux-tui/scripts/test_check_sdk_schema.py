@@ -73,6 +73,26 @@ class HandlerCommandTests(unittest.TestCase):
             commands["pick"].payload, "key: String,\nmap: BTreeMap<String, u64>,"
         )
 
+    def test_a_module_with_a_route_and_no_try_handle_serves_its_enum(self) -> None:
+        enum = '#[serde(tag = "cmd")]\nenum Command {\n    #[serde(rename = "{0}")]\n    X,\n}\n'
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            self.write(
+                tui,
+                "routed.rs",
+                enum.replace("{0}", "routed")
+                + "pub(in crate::server) const ROUTES: &[Route] = &[];\n"
+                "fn handle(line: &RouteLine<'_>) -> Option<bool> { None }\n",
+            )
+            self.write(
+                tui,
+                "unrouted.rs",
+                enum.replace("{0}", "unrouted") + "fn handle() {}\n",
+            )
+            commands = HANDLERS.handler_commands(tui)
+        self.assertEqual(set(commands), {"routed"})
+        self.assertEqual(commands["routed"].module.name, "routed.rs")
+
     def test_the_struct_that_flattens_the_enum_adds_its_fields_to_every_command(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory) / "cmux-tui"
@@ -239,6 +259,23 @@ class SnifferNameTests(unittest.TestCase):
             },
         )
         self.assertEqual({entry.module for entry in served.values()}, {"sniffer.rs"})
+
+    def test_route_names_are_served_names(self) -> None:
+        # A typed route handler compares no `cmd`: its route's names are what it serves.
+        source = (
+            'const COMMAND: &str = "by-const";\n'
+            "pub(in crate::server) const ROUTES: &[Route] = &[Route {\n"
+            "    names: &[\n"
+            "        RouteName::Exact(COMMAND),\n"
+            '        crate::server::routes::RouteName::Exact("literal"),\n'
+            '        RouteName::OneOf(&[COMMAND, "listed"]),\n'
+            '        RouteName::Prefix("family-"),\n'
+            "    ],\n"
+            "    stage: FrameStage::Route,\n"
+            "    entry: handle,\n"
+            "}];\n"
+        )
+        self.assertEqual(self.names(source), {"by-const", "literal", "listed"})
 
     def test_guard_arms_matches_and_command_expressions(self) -> None:
         self.assertEqual(
@@ -802,7 +839,7 @@ struct SurfaceParams {
                 "literals": {
                     "machine-catalog-publish": {
                         "request": ["client_registry/machine_catalog.rs::Nope"],
-                        "handler": "try_handle",
+                        "handler": "handle",
                     }
                 },
                 "authority": "local-admin",
@@ -820,7 +857,7 @@ struct SurfaceParams {
                         "machine-catalog-publish": {
                             "request": ["client_registry/machine_catalog.rs::Publication"],
                             "fields": fields,
-                            "handler": "try_handle",
+                            "handler": "handle",
                         }
                     },
                     "authority": "local-admin",

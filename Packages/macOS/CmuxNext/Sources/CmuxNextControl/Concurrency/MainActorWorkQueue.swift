@@ -2,6 +2,8 @@ public import CmuxNextSettings
 import CmuxNextCompat
 public import CmuxNextTrace
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// The one path from the control socket to main-actor state
 /// (plans/cmux-next/architecture.md section 5a).
@@ -187,7 +189,7 @@ public final class MainActorWorkQueue: Sendable {
         let itemClass: MainWorkClass = workClass == .input ? .input : .automation
         // The site is interned here; the post is written only when the queue accepts the item (`enqueue`).
         let post = taskTrace.prepare(fileID: file, line: line, lane: .main)
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
             let request = ControlRequestTrace.begin(on: taskTrace.runtime, owner: owner, workClass: itemClass)
             let item = MainActorWorkItem(
                 connection: connection,

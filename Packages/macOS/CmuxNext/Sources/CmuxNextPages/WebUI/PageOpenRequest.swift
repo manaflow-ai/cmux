@@ -26,11 +26,14 @@ public struct PageOpenRequest {
     public var dynamicResources: (any PageDynamicResourceSource)?
     /// The agent chat open the page shows (``PageWebView/chatOpen``), known before its document starts.
     public var chatOpen: ChatOpenStages?
+    /// The pane window a Chromium page joins (``PageWebView/chromiumWindow``); nil gives it one of its
+    /// own. The pane that shows a page tab sets it when it shows the tab, so an opener may leave it nil.
+    public var chromiumWindow: PageChromiumWindow?
 
     public init(descriptor: PageDescriptor, root: URL? = nil, routes: [PageRoute], route: String? = nil,
                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                 surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
-                chatOpen: ChatOpenStages? = nil) {
+                chatOpen: ChatOpenStages? = nil, chromiumWindow: PageChromiumWindow? = nil) {
         self.descriptor = descriptor
         self.root = root
         self.routes = routes
@@ -40,6 +43,7 @@ public struct PageOpenRequest {
         self.surface = surface
         self.dynamicResources = dynamicResources
         self.chatOpen = chatOpen
+        self.chromiumWindow = chromiumWindow
     }
 }
 
@@ -55,9 +59,11 @@ extension PageWebView {
     ///   - processGroups: The host's shared WebKit processes, which a page that asks for them
     ///     (``PageEngineOptions/sharesWebKitProcess``) joins when it shows in WebKit.
     ///   - startsAtFirstShow: The document (and its renderer) starts at the view's first show, not now.
+    ///   - deadlines: The app's deadline scheduler (``PageWebView/deadlines``); a test leaves the default, its own.
     convenience init?(request: PageOpenRequest, chromium: (any PageChromiumHosting)?,
                       openPanel: MadeAheadOpenPanel?, registry: PageRegistry, processGroups: WebProcessGroups? = nil,
-                      startsAtFirstShow: Bool = false) {
+                      startsAtFirstShow: Bool = false,
+                      deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) {
         let requested = ProcessInfo.processInfo.systemUptime
         let root: URL
         if let explicit = request.root {
@@ -78,6 +84,9 @@ extension PageWebView {
                   options: request.options, surface: request.surface, dynamicResources: request.dynamicResources,
                   pooled: false, load: true, openRequested: requested, chromium: chromium,
                   openPanel: openPanel, registry: registry, processGroups: groups, startsAtFirstShow: startsAtFirstShow,
+                  deadlines: deadlines,
                   chatOpen: request.chatOpen)
+        // Before the page's Chromium start reads it: that start runs in a later turn (``startChromium(hosting:)``).
+        chromiumWindow = request.chromiumWindow
     }
 }

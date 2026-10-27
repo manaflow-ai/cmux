@@ -21,6 +21,9 @@ nonisolated struct GhosttyConfigInputs: Sendable, Equatable {
     var ownerPaintsBackground: Bool
     /// The one config file `CMUX_NEXT_GHOSTTY_CONFIG` names instead of the default files; nil reads the defaults.
     var configFile: String?
+    /// cmux's Kitty graphics budget per screen, loaded when the config leaves `image-storage-limit` unset
+    /// (``GhosttyRuntime/setImageStorageBytesPerScreen(_:)``); bounded by default, never Ghostty's own.
+    var imageStorageBytes = GhosttyRuntime.defaultImageStorageBytesPerScreen
 
     /// The inputs of a build asked for now: the user's config with `theme` (a room, workspace or terminal theme)
     /// or, nil, with `themeOverride`. Records the see-through state the build reads
@@ -43,7 +46,12 @@ public nonisolated final class GhosttyBuiltConfig: Sendable {
     /// The finalized config, carried across the reply as the module's reviewed C handle hand-off.
     private let handle: UncheckedPointer
     /// The finalized config (`ghostty_config_t`).
-    var config: ghostty_config_t? { handle.raw }
+    /// SAFETY: the handle the build made and only one owner frees: the main actor adopts it
+    /// (GhosttyRuntime's `config`, a GhosttyThemeConfig) or calls ``free()``, once.
+    @safe var config: ghostty_config_t? {
+        // SAFETY: as above; reading the address does not touch the config.
+        unsafe handle.raw
+    }
     /// `background-opacity` resolved with cmux.json's override, 0...1 (the surfaces may carry 0 instead).
     let opacity: Double
     /// The config files' own `background-opacity` and `background-blur`, before cmux.json's override
@@ -54,7 +62,9 @@ public nonisolated final class GhosttyBuiltConfig: Sendable {
     let diagnostics: [String]
 
     init(config: ghostty_config_t, opacity: Double, filesOpacity: Double, filesBlur: Int, diagnostics: [String]) {
-        self.handle = UncheckedPointer(raw: config)
+        // SAFETY: the build hands over its new finalized config, which this object carries until its
+        // one owner adopts or frees it (`config`'s note).
+        self.handle = unsafe UncheckedPointer(raw: config)
         self.opacity = opacity
         self.filesOpacity = filesOpacity
         self.filesBlur = filesBlur
@@ -63,6 +73,7 @@ public nonisolated final class GhosttyBuiltConfig: Sendable {
 
     /// Frees a config nothing adopted (a superseded build).
     func free() {
-        ghostty_config_free(config)
+        // SAFETY: the owner frees a config nothing adopted, once (`config`'s note).
+        unsafe ghostty_config_free(config)
     }
 }

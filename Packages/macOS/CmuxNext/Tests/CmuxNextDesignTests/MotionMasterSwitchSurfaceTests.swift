@@ -72,12 +72,18 @@ import CmuxNextDesignTokens
         try with(enabled: false) {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.borderless],
                                   backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.orderOut(nil) }
             let content = try #require(window.contentView)
             content.wantsLayer = true
             let layer = try #require(content.layer)
+            // On screen at alpha 0, as a popup owner orders it before an open: the window turns
+            // opaque right after the commit of the open's turn (Motion+Popup.swift).
             window.alphaValue = 0
+            window.orderFrontRegardless()
             window.openPopup(pivot: CGPoint(x: 150, y: 200))
-            #expect(window.alphaValue == 1, "the popup did not show at once")
+            PopupGrowMotionTests.commitTurn()
+            #expect(window.alphaValue == 1, "the popup did not show in the frame of its open")
             #expect(layer.animation(forKey: "sublayerTransform") == nil)
             var closed = false
             window.closePopup(pivot: CGPoint(x: 150, y: 200)) { closed = true }

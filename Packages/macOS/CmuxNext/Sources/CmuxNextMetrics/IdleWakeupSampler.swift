@@ -80,6 +80,13 @@ public final class IdleWakeupSampler {
         /// The daemon's wakeups in the period.
         public var daemon: Wakeups?
 
+        public init(nanos: UInt64, mainRunLoopWakes: UInt64?, app: Wakeups?, daemon: Wakeups?) {
+            self.nanos = nanos
+            self.mainRunLoopWakes = mainRunLoopWakes
+            self.app = app
+            self.daemon = daemon
+        }
+
         /// `count` over the period as a rate per minute, rounded down.
         public func perMinute(_ count: UInt64) -> Int64 {
             guard nanos > 0 else { return 0 }

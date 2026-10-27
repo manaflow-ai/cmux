@@ -125,10 +125,8 @@ impl PtySurface {
         cmux_flow_trace::hop("daemon.output.attach", flow, self.flow_terminal_id());
         self.snapshot_position.add_output(bytes.len());
         let mut taps = self.taps.lock().unwrap();
-        if taps.is_empty() {
-            return false;
-        }
-        let frame = AttachFrame::with_flow(bytes.to_vec(), flow);
+        let Some(chunk) = taps.output_chunk(bytes) else { return false };
+        let frame = AttachFrame::with_flow(chunk, flow);
         taps.retain(|tap| tap.try_send(frame.clone()));
         let sent = !taps.is_empty();
         drop(taps);
@@ -181,7 +179,7 @@ impl PtySurface {
     /// generation and send every snapshot viewer a snapshot.
     pub(super) fn resync_snapshot_taps(&self) {
         self.snapshot_position.bump_generation();
-        for tap in &*self.taps.lock().unwrap() {
+        for tap in self.taps.lock().unwrap().iter() {
             tap.resync_snapshot();
         }
     }

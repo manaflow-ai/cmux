@@ -270,12 +270,17 @@ final class WebPopupRows: NSView {
     }
 
     func update(_ items: [WebPopupHost.Item], highlighted: String?) {
-        if items != self.items || plain != builtPlain || rows.isEmpty != items.isEmpty { rebuild(items) }
+        let rebuilt = items != self.items || plain != builtPlain || rows.isEmpty != items.isEmpty
+        if rebuilt { rebuild(items) }
         self.highlighted = highlighted
+        // A highlight move only repaints the two rows (`isHighlighted` redraws on a change).
         for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == highlighted }
-        setFrameSize(NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight))
-        needsLayout = true
-        layoutSubtreeIfNeeded()
+        let size = NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight)
+        if rebuilt || size != frame.size {
+            setFrameSize(size)
+            needsLayout = true // invalidate: new rows or a new size (the check above) to place.
+            layoutSubtreeIfNeeded() // sync-layout: scrollToHighlight below reads the highlighted row's frame.
+        }
         scrollToHighlight()
     }
 

@@ -29,13 +29,16 @@
 // named after the module, <module basename>-<hash>.js (build-pages.mjs, chunkNames), so a section is
 // lazy when that chunk is reachable only through import(). A section with no entry, or whose chunk is
 // in the first load, is in the first load; more than one of those is a finding. Other lazy chunks
-// (the glass lens every page imports) say nothing about the sections.
+// (the glass lens every page imports) say nothing about the sections. A lazy section paints with
+// one file (task 081): its chunk's static imports outside the first load load one after another,
+// so a section that loads more than one file after the first load is a finding too.
 //
 //   node scripts/cmux-next/page-bundle-report.mjs                    # the in-tree build output
 //   node scripts/cmux-next/page-bundle-report.mjs --root DIR         # a build-web-bundles.sh --out-root tree
 //   node scripts/cmux-next/page-bundle-report.mjs --pages /tmp/pages # build-pages-web.sh --out /tmp/pages
 //   ... --agent-pane DIR --agent-activity DIR --webviews-app DIR     # one tree from elsewhere
 //   ... --json                                                       # the same report as JSON
+//   ... --baseline BASE.json   # also each document's total JS and requests against a --json report of the base
 //
 // Exits 0 when every cap holds, 1 when one fails or a document is missing, 2 on a usage error.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -166,6 +169,8 @@ export function measure(doc, sharedDir) {
     lazyChunks: 0,
     firstLoad: [],
     lazy: [],
+    // Each dynamic import() target: the files its import loads outside the first load, itself first.
+    lazyLoads: {},
     react: [],
     reactLazy: false,
     unresolved: [],
@@ -224,6 +229,9 @@ export function measure(doc, sharedDir) {
   const lazy = lazySources(lazyRoots, requested, doc, sharedDir, row);
   row.lazyChunks = lazy.size;
   row.lazy = [...lazy.keys()];
+  row.lazyLoads = Object.fromEntries(
+    [...new Set(lazyRoots)].filter((url) => lazy.has(url)).map((url) => [url, staticLoad(url, requested, lazy)]),
+  );
   // React in the first load, else in a lazy chunk (the diff page mounts React after boot); a
   // shared copy first, as it is the URL every document should name.
   const holders = (map) => [...map].filter(([, code]) => REACT_MARKER.test(code)).map(([key]) => key);
@@ -243,6 +251,17 @@ function largestLocale(dir, requested) {
     .filter((file) => !named.has(resolve(file)))
     .map((file) => statSync(file).size);
   return sizes.length === 0 ? null : Math.max(...sizes);
+}
+
+/** The files an import() of `url` loads outside the first load (`requested`): it and its static imports. */
+function staticLoad(url, requested, lazy) {
+  const files = [url];
+  for (let index = 0; index < files.length; index++)
+    for (const next of moduleImports(lazy.get(files[index])).static) {
+      const nextUrl = new URL(next, files[index]).href;
+      if (!requested.has(nextUrl) && lazy.has(nextUrl) && !files.includes(nextUrl)) files.push(nextUrl);
+    }
+  return files;
 }
 
 /** Chunks reachable through dynamic import() and their own imports, outside the first load. */
@@ -304,16 +323,32 @@ export function settingsSections(repo = REPO) {
   return sectionChunks(schema.page.categories, existsSync(lazyFile) ? readFileSync(lazyFile, "utf8") : null);
 }
 
+/** The URL in `urls` of the chunk esbuild wrote for the module `chunk` (<chunk>-<hash>.js). */
+function chunkUrl(urls, chunk) {
+  const pattern = new RegExp(`^${escapeRegExp(chunk)}-[A-Z0-9]+\\.js$`);
+  return urls.find((url) => pattern.test(basename(new URL(url).pathname)));
+}
+
+/**
+ * The lazy Settings sections whose import loads more than one file after the first load, each as
+ * "<id> loads <n> files (<names>)". The files a module imports load one after another (an import()
+ * fetches its static imports only once it has the file), so a section paints with one file only.
+ */
+function sectionWaterfalls(row, sections) {
+  return sections.flatMap(({ id, chunk }) => {
+    const url = chunk === null ? undefined : chunkUrl(Object.keys(row.lazyLoads), chunk);
+    const files = url ? row.lazyLoads[url] : [];
+    if (files.length <= 1) return [];
+    return [`${id} loads ${files.length} files (${files.map((file) => basename(new URL(file).pathname)).join(", ")})`];
+  });
+}
+
 /** The Settings sections a measured row's first load holds, each as "<id> (<why>)". */
 function firstLoadSections(row, sections) {
-  const named = (urls, chunk) => {
-    const pattern = new RegExp(`^${escapeRegExp(chunk)}-[A-Z0-9]+\\.js$`);
-    return urls.find((url) => pattern.test(basename(new URL(url).pathname)));
-  };
   return sections.flatMap(({ id, chunk }) => {
     if (chunk === null) return [`${id} (not in lazySections.ts)`];
-    if (named(row.lazy, chunk)) return [];
-    const first = named(row.firstLoad, chunk);
+    if (chunkUrl(row.lazy, chunk)) return [];
+    const first = chunkUrl(row.firstLoad, chunk);
     return [first ? `${id} (${first} loads first)` : `${id} (no lazy ${chunk}-<hash>.js chunk)`];
   });
 }
@@ -350,6 +385,8 @@ export function findings(rows, sections = settingsSections()) {
     if (first.length > 1) {
       out.push(`settings: the first load holds ${first.length} sections (D8 wants the navigation and one): ${first.join(", ")}`);
     }
+    for (const waterfall of sectionWaterfalls(settings, sections.sections))
+      out.push(`settings: section ${waterfall} after the first load (task 081 wants one)`);
   }
   return out;
 }
@@ -380,6 +417,41 @@ function table(rows) {
   return [format(header), ...lines.map(format)].join("\n");
 }
 
+/**
+ * Each document measured in both `baseline` (a --json report's documents) and `rows`: its total
+ * first-load JS and request count there and here, and whether either grew.
+ */
+export function compareWithBaseline(baseline, rows) {
+  const before = new Map(baseline.filter((row) => !row.missing).map((row) => [row.name, row]));
+  return rows
+    .filter((row) => !row.missing && before.has(row.name))
+    .map((row) => {
+      const base = before.get(row.name);
+      const baseBytes = base.ownBytes + base.sharedBytes;
+      const bytes = row.ownBytes + row.sharedBytes;
+      return {
+        name: row.name,
+        baseBytes,
+        bytes,
+        baseRequests: base.requests,
+        requests: row.requests,
+        grew: bytes > baseBytes || row.requests > base.requests,
+      };
+    });
+}
+
+function comparisonTable(comparison) {
+  const kb = (bytes) => (bytes / KB).toFixed(1);
+  const lines = comparison.map((row) => [
+    row.name,
+    `${kb(row.baseBytes)} -> ${kb(row.bytes)} KB (${row.bytes - row.baseBytes >= 0 ? "+" : ""}${row.bytes - row.baseBytes} B)`,
+    `${row.baseRequests} -> ${row.requests} requests`,
+    row.grew ? "GREW" : "",
+  ]);
+  const widths = [0, 1, 2].map((i) => Math.max(...lines.map((line) => line[i].length)));
+  return lines.map((line) => line.map((cell, i) => (i < 3 ? cell.padEnd(widths[i]) : cell)).join("  ").trimEnd()).join("\n");
+}
+
 /** Measures every document of the given trees; `sections` as findings() takes it. */
 export function report(trees, names, sections = settingsSections()) {
   const sharedDir = join(trees.pages, "_shared");
@@ -389,11 +461,17 @@ export function report(trees, names, sections = settingsSections()) {
 }
 
 function parseArgs(argv) {
-  const options = { root: REPO, json: false, overrides: {} };
+  const options = { root: REPO, json: false, overrides: {}, baseline: undefined };
   const flags = { "--pages": "pages", "--agent-pane": "agentPane", "--agent-activity": "agentActivity", "--webviews-app": "webviewsApp" };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--json") options.json = true;
+    else if (arg === "--baseline") {
+      const value = argv[i + 1];
+      if (!value) throw new UsageError("--baseline needs a --json report");
+      options.baseline = resolve(value);
+      i += 1;
+    }
     else if (arg === "--root" || arg in flags) {
       const value = argv[i + 1];
       if (!value) throw new UsageError(`${arg} needs a directory`);
@@ -414,11 +492,16 @@ function main(argv) {
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;
     console.error(`error: ${error.message}`);
-    console.error("usage: page-bundle-report.mjs [--root DIR] [--pages DIR] [--agent-pane DIR] [--agent-activity DIR] [--webviews-app DIR] [--json]");
+    console.error(
+      "usage: page-bundle-report.mjs [--root DIR] [--pages DIR] [--agent-pane DIR] [--agent-activity DIR] [--webviews-app DIR] [--json] [--baseline BASE.json]",
+    );
     return 2;
   }
   const trees = Object.fromEntries(Object.entries(TREES).map(([key, path]) => [key, options.overrides[key] ?? join(options.root, path)]));
   const result = report(trees, pageNames());
+  if (options.baseline) {
+    result.baseline = compareWithBaseline(JSON.parse(readFileSync(options.baseline, "utf8")).documents, result.documents);
+  }
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
     return result.pass ? 0 : 1;
@@ -430,6 +513,12 @@ function main(argv) {
       `requests <= ${CAPS.requests} (every page and the agent pane); one React URL; Settings first load: navigation and one section`,
   );
   for (const finding of result.findings) console.log(`FAIL ${finding}`);
+  if (result.baseline) {
+    const grew = result.baseline.filter((row) => row.grew).map((row) => row.name);
+    console.log(`against ${options.baseline}: total first-load JS and requests`);
+    console.log(comparisonTable(result.baseline));
+    console.log(grew.length ? `baseline: ${grew.join(", ")} grew` : "baseline: no document grew");
+  }
   console.log(result.pass ? "D8: pass" : `D8: FAIL (${result.findings.length} findings)`);
   return result.pass ? 0 : 1;
 }

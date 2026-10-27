@@ -1,12 +1,19 @@
+import AppKit
 public import AVFoundation
 public import CmuxNextCompat
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// The looping players behind every video wallpaper, one per file, shared by every window that
 /// shows it. A player runs while any of its windows wants it and pauses when none does. When none
 /// of its windows can even be seen (hidden, covered, the screens asleep) for ``releaseAfter``, it
 /// drops its items, which frees the decoder and its frame buffers, and picks up where it was when
 /// one is seen again: hours behind other windows cost no video memory.
+///
+/// The composition root hands it the app's deadline scheduler and workspace notices once
+/// (``follow(deadlines:session:)``): the release and each view's coverage samples are `background`
+/// ``MainDeadline``s on the main thread's one wake-up queue (Chromium's `base::OneShotTimer` on a
+/// typed task runner), and the session's resign and become-active notices reach every view through
+/// one subscription each, not one observer per view.
 @MainActor
 public final class BackdropVideoPlayers {
     public static let shared = BackdropVideoPlayers()
@@ -24,7 +31,8 @@ public final class BackdropVideoPlayers {
         /// A restored item still to be sought to ``resumeAt``, and the wait for it to be ready.
         var pendingRestore = false
         var restoring: NSKeyValueObservation?
-        let release: DemandTimer
+        /// The release deadline, made when the player first goes out of sight (nil before, or with no scheduler).
+        var release: MainDeadline?
     }
 
     private var entries: [URL: Entry] = [:]
@@ -39,14 +47,41 @@ public final class BackdropVideoPlayers {
     /// How long a player no one can see keeps its decoder.
     public var releaseAfter: Duration = .seconds(60)
 
-    private let clock: any Clock<Duration>
+    /// The app's deadline scheduler (``follow(deadlines:session:)``): the release and the views' coverage samples
+    /// are deadlines on it. Nil keeps every decoder and samples no coverage.
+    public private(set) var deadlines: MainDeadlineScheduler?
 
     /// The lanes a view lists the windows above it on (the app's, set at launch); nil samples no coverage.
     public var lanes: (any MayBlockRunner)?
 
-    /// `clock` times ``releaseAfter`` (tests step a manual one).
-    public init(clock: any Clock<Duration> = ContinuousClock()) {
-        self.clock = clock
+    /// The login session is not the active one (fast user switching): every video holds its frame.
+    public private(set) var sessionInactive = false
+    private var sessionWatch: [EventSubscription] = []
+
+    /// - Parameter deadlines: The deadline scheduler (tests pass a rig's); the app's comes through
+    ///   ``follow(deadlines:session:)``.
+    public init(deadlines: MainDeadlineScheduler? = nil) {
+        self.deadlines = deadlines
+    }
+
+    /// Takes the app's deadline scheduler and follows the login session's resign and become-active notices
+    /// (`session`: the NSWorkspace center's events). The composition root calls it once, before any window.
+    public func follow(deadlines: MainDeadlineScheduler, session: AppEvents) {
+        self.deadlines = deadlines
+        sessionWatch = [
+            session.subscribe(NSWorkspace.sessionDidResignActiveNotification, owner: "BackdropVideoPlayers") { [weak self] in
+                self?.setSessionInactive(true)
+            },
+            session.subscribe(NSWorkspace.sessionDidBecomeActiveNotification, owner: "BackdropVideoPlayers") { [weak self] in
+                self?.setSessionInactive(false)
+            },
+        ]
+    }
+
+    private func setSessionInactive(_ inactive: Bool) {
+        guard inactive != sessionInactive else { return }
+        sessionInactive = inactive
+        for view in views.allObjects { view.inputsDidChange() }
     }
 
     /// Players alive now (tests).
@@ -58,7 +93,7 @@ public final class BackdropVideoPlayers {
         guard lowPowerMode != self.lowPowerMode || thermal != thermalState else { return }
         self.lowPowerMode = lowPowerMode
         thermalState = thermal
-        for view in views.allObjects { view.energyDidChange() }
+        for view in views.allObjects { view.inputsDidChange() }
     }
 
     /// Tells `view` when the energy inputs change, while it lives.
@@ -83,8 +118,7 @@ public final class BackdropVideoPlayers {
         player.volume = 0
         player.preventsDisplaySleepDuringVideoPlayback = false
         player.actionAtItemEnd = .advance
-        entries[url] = Entry(player: player, looper: Self.looper(url, player), viewers: [viewer], playing: [], seen: [],
-                             release: DemandTimer(owner: "backdrop-video-release", clock: clock))
+        entries[url] = Entry(player: player, looper: Self.looper(url, player), viewers: [viewer], playing: [], seen: [])
         return player
     }
 
@@ -98,7 +132,7 @@ public final class BackdropVideoPlayers {
             return apply(url)
         }
         // Torn down in idlesse's order: pause, stop looping, then drop the items.
-        entry.release.cancel()
+        entry.release?.cancel()
         entry.restoring = nil
         entry.player.pause()
         entry.looper?.disableLooping()
@@ -130,12 +164,15 @@ public final class BackdropVideoPlayers {
     private func apply(_ url: URL) {
         guard var entry = entries[url] else { return }
         if entry.seen.isEmpty, entry.looper != nil {
-            // The minute counts from when the last viewer went out of sight, not from each update.
-            if !entry.release.isScheduled {
-                entry.release.scheduleOnMain(after: releaseAfter) { [weak self] in self?.releaseIfUnseen(url) }
+            // The minute counts from when the last viewer went out of sight, not from each update. Nobody sees the
+            // release: background.
+            if entry.release == nil, let deadlines {
+                entry.release = MainDeadline(owner: "BackdropVideoPlayers.release", workClass: .background, scheduler: deadlines)
+                entries[url] = entry
             }
+            entry.release?.scheduleIfIdle(after: releaseAfter) { [weak self] in self?.releaseIfUnseen(url) }
         } else {
-            entry.release.cancel()
+            entry.release?.cancel()
         }
         if entry.looper == nil, !entry.seen.isEmpty || !entry.playing.isEmpty {
             // Seen again: new items, at the exact frame it held once the first is ready (a seek
@@ -145,9 +182,12 @@ public final class BackdropVideoPlayers {
             // Stored before observing: an item already ready reports inline, on this turn.
             entries[url] = entry
             let resumeAt = entry.resumeAt
+            // raw-observer-allow: the player item's status has no notice; KVO is AVFoundation's only report of it,
+            // held only while the restore's seek is still to come
             let observation = entry.player.observe(\.currentItem?.status, options: [.initial, .new]) { [weak self] player, _ in
                 guard player.currentItem?.status == .readyToPlay else { return }
-                // AVFoundation may report from its own threads: inline on main, a hop otherwise.
+                // main-hop-allow: AVFoundation reports from its own queue: inline on main (the .initial report, this
+                // turn), else one hop, once per restored item
                 MainDelivery().run {
                     guard let self, let entry = self.entries[url], entry.pendingRestore else { return }
                     self.entries[url]?.pendingRestore = false

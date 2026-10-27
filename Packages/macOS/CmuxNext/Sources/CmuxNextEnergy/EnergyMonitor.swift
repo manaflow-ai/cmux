@@ -22,13 +22,18 @@ public nonisolated struct EnergyInputs: Sendable, Equatable {
     public var batteryPercent: Int?
     /// The Mac's thermal state.
     public var thermal: ProcessInfo.ThermalState
-    /// The Mac is going to sleep or asleep (``EnergyPolicy/suspended``). Only `debug.energy.simulate`
-    /// sets it until the sleep watch (p14-energy-120) reports the Mac's.
+    /// The Mac is going to sleep or asleep (``EnergyPolicy/suspended``): the ``SuspendWatch``'s, or
+    /// `debug.energy.simulate`'s.
     public var suspended: Bool
+    /// The displays sleep (``EnergyPolicy/screensAsleep``).
+    public var screensAsleep: Bool
+    /// The wakes whose network path came back (``EnergyPolicy/networkResumes``).
+    public var networkResumes: UInt64
 
     /// Inputs with every field given; `macOnBattery` nil is `onBattery` (nothing simulated).
     public init(lowPowerMode: Bool = false, onBattery: Bool = false, macOnBattery: Bool? = nil, hasBattery: Bool = false,
-                batteryPercent: Int? = nil, thermal: ProcessInfo.ThermalState = .nominal, suspended: Bool = false) {
+                batteryPercent: Int? = nil, thermal: ProcessInfo.ThermalState = .nominal, suspended: Bool = false,
+                screensAsleep: Bool = false, networkResumes: UInt64 = 0) {
         self.lowPowerMode = lowPowerMode
         self.onBattery = onBattery
         self.macOnBattery = macOnBattery ?? onBattery
@@ -36,6 +41,8 @@ public nonisolated struct EnergyInputs: Sendable, Equatable {
         self.batteryPercent = batteryPercent
         self.thermal = thermal
         self.suspended = suspended
+        self.screensAsleep = screensAsleep
+        self.networkResumes = networkResumes
     }
 }
 
@@ -62,7 +69,8 @@ extension EnergyInputs {
 #endif
 
 /// Energy Saver's one owner of power inputs: Low Power Mode, the power source, the battery's
-/// charge and the thermal state, each observed once for the app. The composition root makes one
+/// charge, the thermal state and (once ``follow(suspend:)`` hands it one) the Mac's sleep and wake,
+/// each observed once for the app. The composition root makes one
 /// and hands its parts out by init or pushes its ``inputs`` to the consumers below it; only
 /// CmuxNextApp imports this module. Chrome keeps the same inputs in its battery saver's manager
 /// (components/performance_manager/user_tuning/battery_saver_mode_manager.cc).
@@ -81,6 +89,8 @@ public final class EnergyMonitor {
     public let thermal: ThermalStateWatch
 
     private let power: PowerSourceInput
+    /// The sleep, wake and display sleep watch; nil reports the Mac awake.
+    @ObservationIgnored private var suspend: SuspendWatch?
     private let handlers = MainActorHandlers<EnergyInputs>()
     @ObservationIgnored private var lowPowerObservation: LowPowerModeObservation?
     @ObservationIgnored private var reading = PowerSourceReading()
@@ -124,6 +134,18 @@ public final class EnergyMonitor {
         guard started else { return }
         started = false
         power.stop()
+    }
+
+    /// Starts `watch` and reports its sleep, wake and display sleep from now on, in place of an earlier
+    /// watch (which stops). The composition root hands it the app's one watch.
+    public func follow(suspend watch: SuspendWatch) {
+        guard watch !== suspend else { return }
+        suspend?.onChange = nil
+        suspend?.stop()
+        suspend = watch
+        watch.onChange = { [weak self] _ in self?.refresh() }
+        watch.start()
+        refresh()
     }
 
     /// Calls `handler` with the new inputs after each change, until the returned registration is
@@ -186,8 +208,10 @@ public final class EnergyMonitor {
         #if DEBUG || CMUX_BENCH_HOOKS
         guard !isApplyingSimulation else { return }
         #endif
+        let sleep = suspend?.state ?? SuspendWatch.State()
         var next = EnergyInputs(lowPowerMode: lowPowerMode.isEnabled, onBattery: reading.onBattery, hasBattery: reading.hasBattery,
-                                batteryPercent: reading.batteryPercent, thermal: thermal.state)
+                                batteryPercent: reading.batteryPercent, thermal: thermal.state, suspended: sleep.suspended,
+                                screensAsleep: sleep.screensAsleep, networkResumes: sleep.networkResumes)
         #if DEBUG || CMUX_BENCH_HOOKS
         if let simulation { next = next.simulated(by: simulation) }
         #endif

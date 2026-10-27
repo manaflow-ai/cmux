@@ -6,6 +6,9 @@ import CmuxNextDaemon
 import CmuxNextFeed
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The app's feed (plans/cmux-next/feed.md): one `FeedModel` mirroring the
 /// user's `FeedDO` through `CloudFeedSource`. It starts once the cmux account
@@ -30,7 +33,7 @@ final class FeedService {
     /// check on the main thread).
     let acpmuxEnvironment: AcpmuxEnvironment?
     /// The reports reader; a page of a reader that a reset stopped is dropped.
-    private let reports = AcpmuxMailboxSubscription()
+    private let reports: AcpmuxMailboxSubscription
     /// Wakes the current reports reader's retry wait (one per reader, so a stopped reader's end
     /// never touches the next one's watch): its socket's changes, and app activation or wake.
     private var reportsWake: RetryWake?
@@ -38,12 +41,17 @@ final class FeedService {
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
     private var account: String?
-    private var observers: [MainActorObservation] = []
-    private var accountWatch: Task<Void, Never>?
+    private var observers: [EventSubscription] = []
+    /// Follows sign-in, sign-out and account switches once the session restore finished.
+    private var accountWatch: ServiceObservation<String?>?
+    /// ``stop()`` ended the account watch for good (also one whose restore wait had not replied yet).
+    private var accountWatchEnded = false
+    /// The off-main start of the account watch and the person's manual GitHub refresh.
+    private let work: BackgroundWork
     private(set) var connection: FeedConnection = .disconnected("not started")
     /// Owner-confirmed state of each item (never the overlay).
     private var confirmed: [String: FeedItemState] = [:]
-    private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var waiters: [String: [OnceContinuation<Void, OnceContinuationError>]] = [:]
     /// Told every owner-confirmed item (snapshot and events), never the overlay
     /// (the agent permission feed bridge reads answers here).
     var onConfirmedItems: (@MainActor ([FeedItem]) -> Void)?
@@ -55,15 +63,19 @@ final class FeedService {
     }
 
     /// `energy` stretches the GitHub poll under Energy Saver; with `shown`, it books nothing while no window shows.
-    init(auth: CloudAuth, deadlines: MainDeadlineScheduler, energy: EnergyPolicySource, shown: ShownWindows?, showcase: Bool = false,
-         acpmuxEnvironment: AcpmuxEnvironment? = nil) {
+    /// `appEvents` and `workspaceEvents` are the app's one fan-out of the NSApp and NSWorkspace notices.
+    init(auth: CloudAuth, deadlines: MainDeadlineScheduler, work: BackgroundWork, appEvents: AppEvents, workspaceEvents: AppEvents,
+         energy: EnergyPolicySource, shown: ShownWindows?, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
         self.auth = auth
         self.deadlines = deadlines
+        // Reports are mail agents send: each page lands as an automation task, behind the person's input.
+        reports = AcpmuxMailboxSubscription(mainWork: deadlines.work, workClass: .automation, owner: "FeedService.reports")
+        self.work = work
         self.showcase = showcase
         self.acpmuxEnvironment = acpmuxEnvironment
         apiBaseURL = Self.apiBaseURL(auth: auth)
         // The answer's device label is the owner's record (the install); this name is only the overlay's.
-        source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac") { [auth] in
+        source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac", energy: energy) { [auth] in
             try await auth.tokens().access
         }
         var observe: (@MainActor (FeedSourceEvent) -> Void)?
@@ -73,21 +85,31 @@ final class FeedService {
         model.githubDetail = { [weak self] item in self?.githubDetail(for: item) }
         observe = { [weak self] in self?.observe($0) }
         model.onRefresh = nil
-        observePresence()
-        // task-owner: FeedService.accountWatch: follows sign-in, sign-out and account switches; lives with the service.
-        accountWatch = Task { [weak self] in
+        observePresence(app: appEvents, workspace: workspaceEvents)
+        // task-owner: the session restore's wait, off main; the account watch starts in its reply and lives with the service.
+        let mainWork = deadlines.work
+        work.task(.bestEffort) { [weak self] in
             await auth.awaitRestored()
-            for await signedIn in ObservationStream({ auth.isSignedIn ? (auth.user?.id ?? "") : nil }) {
-                self?.accountChanged(signedIn)
-            }
+            mainWork.postFromAnyThread(.background, owner: "FeedService.accountWatch") { [weak self] in self?.followAccount() }
+        }
+    }
+
+    /// Follows the signed-in account (a model change, so a service observation: it must run while no window shows).
+    /// A person's sign-in flushes in their input response; a token refresh or a remote sign-out is background work.
+    private func followAccount() {
+        guard accountWatch == nil, !accountWatchEnded else { return }
+        let auth = auth
+        accountWatch = ServiceObservation(.background, owner: "FeedService.account", on: deadlines.work) {
+            auth.isSignedIn ? (auth.user?.id ?? "") : nil
+        } apply: { [weak self] user in
+            self?.accountChanged(user)
         }
     }
 
     /// Presence for the owner's push rule: active while the app is active and
-    /// the screen is awake and unlocked; events only, no heartbeat.
-    private func observePresence() {
-        let app = NotificationCenter.default
-        let workspace = NSWorkspace.shared.notificationCenter
+    /// the screen is awake and unlocked; events only, no heartbeat. Through the app's one
+    /// observer per notice (`AppEvents`); presence is reported whatever shows.
+    private func observePresence(app: AppEvents, workspace: AppEvents) {
         let update: @MainActor (Bool?) -> Void = { [weak self] forced in
             guard let self else { return }
             source.setPresence(active: forced ?? NSApp.isActive)
@@ -95,19 +117,17 @@ final class FeedService {
             // An activation or wake may find acpmux back: a reports reader past its timed retries tries again.
             if forced != false { reportsWake?.fire() }
         }
-        func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> MainActorObservation {
-            MainActorObservation(name, center: center) { update(forced) }
-        }
+        let owner = "FeedService.presence"
         observers = [
-            on(app, NSApplication.didBecomeActiveNotification, true),
-            on(app, NSApplication.didResignActiveNotification, false),
-            on(workspace, NSWorkspace.screensDidSleepNotification, false),
-            on(workspace, NSWorkspace.sessionDidResignActiveNotification, false),
-            on(workspace, NSWorkspace.willSleepNotification, false),
+            app.subscribe(NSApplication.didBecomeActiveNotification, owner: owner) { update(true) },
+            app.subscribe(NSApplication.didResignActiveNotification, owner: owner) { update(false) },
+            workspace.subscribe(NSWorkspace.screensDidSleepNotification, owner: owner) { update(false) },
+            workspace.subscribe(NSWorkspace.sessionDidResignActiveNotification, owner: owner) { update(false) },
+            workspace.subscribe(NSWorkspace.willSleepNotification, owner: owner) { update(false) },
             // After a wake the socket may be dead without an error: probe it.
-            on(workspace, NSWorkspace.didWakeNotification, nil),
-            on(workspace, NSWorkspace.screensDidWakeNotification, nil),
-            on(workspace, NSWorkspace.sessionDidBecomeActiveNotification, nil),
+            workspace.subscribe(NSWorkspace.didWakeNotification, owner: owner) { update(nil) },
+            workspace.subscribe(NSWorkspace.screensDidWakeNotification, owner: owner) { update(nil) },
+            workspace.subscribe(NSWorkspace.sessionDidBecomeActiveNotification, owner: owner) { update(nil) },
         ]
     }
 
@@ -160,6 +180,7 @@ final class FeedService {
     }
 
     func stop() {
+        accountWatchEnded = true
         accountWatch?.cancel()
         resetReports()
         model.stop()
@@ -176,8 +197,9 @@ final class FeedService {
         if enabled {
             model.onRefresh = { [weak self] in
                 guard let self, self.connection == .connected else { return }
-                // task-owner: one-shot manual refresh; the source's in-flight guard owns duplicate suppression.
-                Task { @MainActor in await self.github.refresh() }
+                // task-owner: one-shot manual refresh, the rest of the person's click; the source's in-flight guard owns
+                // duplicate suppression.
+                self.work.task(.userBlocking) { [github = self.github] in await github.refresh() }
             }
         } else {
             model.onRefresh = nil
@@ -264,7 +286,7 @@ final class FeedService {
     private func resumeClosed() {
         for (id, list) in waiters where confirmed[id].map({ $0 != .open }) ?? false {
             waiters[id] = nil
-            for waiter in list { waiter.resume() }
+            for waiter in list { waiter.resume(returning: ()) }
         }
     }
 
@@ -274,13 +296,14 @@ final class FeedService {
         // The request's deadline (at most 120 s): a CLI request waits on it; cancelled when the item closes first.
         let timer = MainDeadline(owner: "FeedService.waitClosed", workClass: .automation, scheduler: deadlines)
         timer.schedule(after: ContinuousClock.now.duration(to: deadline)) { [weak self] in self?.expireWaiters(id) }
-        await withCheckedContinuation { waiters[id, default: []].append($0) }
+        // A service dropped with the call waiting ends it abandoned, as the deadline would.
+        _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in waiters[id, default: []].append(waiter) }
         timer.cancel()
     }
 
     private func expireWaiters(_ id: String) {
         guard let list = waiters.removeValue(forKey: id) else { return }
-        for waiter in list { waiter.resume() }
+        for waiter in list { waiter.resume(returning: ()) }
     }
 
     /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`), in its

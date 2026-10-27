@@ -78,6 +78,17 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetEmbedderVisibility: (@convention(c) (Int32, Int32) -> Int32)?
     /// A page's drag out and back over it (task p01-process-051, CEFShimLibrary+PageDrag.swift).
     let pageDrag: PageDrag
+    /// Fork API 31: `cmux_shim_browser_set_page_visibility` (a ``ChromiumHostPageVisibility``), what cmux shows
+    /// of a detached page's window; host mode only (task p01-process-220).
+    let browserSetPageVisibility: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 37: `cmux_shim_tab_set_visibility(browser, visibility, capture)` (a `cmux_shim_tab_visibility_t`
+    /// and a `cmux_shim_tab_capture_t`): the tab's visibility tree node caps its WebContents' visibility
+    /// (``CEFTab/followVisibility(of:capture:)``). A post in host mode, so no caller reads its answer. Nil on a
+    /// shim without the export (task p06-scheduler-212).
+    let tabSetVisibility: (@convention(c) (Int32, Int32, Int32) -> Int32)?
+    /// Fork API 31: `cmux_shim_browser_set_page_display(browser, display_id, screen_x, screen_y)`, the display a
+    /// detached page window takes its scale, color space and refresh rate from (task 221); 0 when the fork lacks it.
+    let browserSetPageDisplay: @convention(c) (Int32, UInt32, Double, Double) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -166,6 +177,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let extSetPinned: (Int32, String?, Int32) -> Int32
     let extOpenOptions: (Int32, String?) -> Int32
     let extLoadUnpacked: (Int32, String?) -> Int32
+    /// 1 when the fork has `cmux_ext_load_command_line_async` (p13-webui-055); a mirror read in host mode.
+    let extLoadLaterSupported: @convention(c) () -> Int32
+    /// `--load-extension`'s load into a persistent context key's profile (context key, reply id, folder),
+    /// answered by a CMUX_SHIM_REPLY under the reply id (``CEFBuiltInExtensionLoads``).
+    let extLoadCommandLine: (String?, Int32, String?) -> Int32
     let extCommands: (Int32) -> String?
     let extCommandRun: (Int32, String?, String?) -> Int32
     let tabMoveToWindow: @convention(c) (Int32, Int32, Int32) -> Int32
@@ -236,6 +252,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let certificateProceed: (Int32, String?, Int32, Int32) -> Int32
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: (_ browser: Int32, _ capacity: Int32) -> [Int32]
+    /// Every browser's frames per renderer client id (``CEFRendererFrames``); nil when the list grew between
+    /// the sizing call and the read (a partial list would hide frames). Empty in host mode.
+    let rendererFrames: () -> [CEFRendererFrames.Entry]?
     /// The pid of the renderer hosting the tab's main frame (the fork's `cmux_cef_browser_renderer_pid`,
     /// p14-energy-124); 0 while none, on a fork without the call, and in host mode.
     let rendererPID: @convention(c) (Int32) -> Int32
@@ -254,14 +273,26 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tabSetFrozen: (@convention(c) (Int32, Int32) -> Int32)?
     /// `CefBrowserHost::SendMouseClickEvent` down and up: browser, x, y (view points), button, modifiers, clicks.
     let tabSendClick: (@convention(c) (Int32, Double, Double, Int32, Int32, Int32) -> Int32)?
+    /// `CefBrowserHost::SendMouseMoveEvent` with no button held (p13-webui-077): browser, x, y (view points),
+    /// modifiers. Nil without the export.
+    let tabSendMouseMove: (@convention(c) (Int32, Double, Double, Int32) -> Int32)?
     /// The page's `prefers-color-scheme` (WebPreferences preferred_color_scheme): browser, 1 light, 2 dark.
     let tabSetColorScheme: (@convention(c) (Int32, Int32) -> Int32)?
     /// `WebContents::Discard` in place (p13-webui-018): browser; 1 discarded, 0 refused. Nil without the
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
+    /// The page as it last drew, with no DevTools agent (the fork's `cmux_browser_capture`, p13-webui-077):
+    /// browser, reply id, max width, max height (pixels), format (``CEFSurfaceCopyFormat``), JPEG quality;
+    /// 1 started. CMUX_SHIM_REPLY answers (``CEFTab/copySurface(maxPixelSize:)``). Nil without the export.
+    let tabCopySurface: (@convention(c) (Int32, Int32, Int32, Int32, Int32, Int32) -> Int32)?
     let widgets: CEFShimWidgetOps
     /// Drops into a detached page and the page's own drag back over it (tasks 050 and 051, fork API 31).
     let dragTarget: CEFShimDragTargetOps
+    /// <select> popups as data (task 060, fork API 31).
+    let popupMenus: CEFShimPopupMenuOps
+    /// Autofill, password and `<datalist>` suggestions as data (task 061, fork API 31).
+    let suggestions: CEFShimSuggestionOps
+    let textInput: CEFShimTextInputOps
     /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 36, p03-rendering-044, Track B): moves the
     /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView), below its other subviews; 1 attached, 0
     /// refused (an unknown browser, no page window yet, a fork below API 36). Nil without the export and in host

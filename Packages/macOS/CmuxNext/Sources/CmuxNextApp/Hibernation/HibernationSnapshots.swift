@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// own budget, least recently used first out, so every hibernated tab wakes to its picture
 /// (PR 23083). They used to share the decoded `previews` LRU with terminal previews at up
 /// to a quarter of it each: four hibernated pages kept a picture and the others woke to an empty
-/// pane. With `HibernationTunables.compressedSnapshots` off it keeps decoded pictures instead, under
+/// pane. With feature `compressedSnapshots` off it keeps decoded pictures instead, under
 /// the same budget and the same neighbor rule.
 ///
 /// Its full size is `ImageCacheShares.hibernationSnapshotBytes`: with `memoryImageCaches` on,
@@ -52,6 +52,9 @@ final class HibernationSnapshots {
     /// The tabs beside each shown tab now, whose pictures are kept at any limit (`BrowserHibernation`
     /// sets it; read once per trim).
     var neighbors: () -> Set<String> = { [] }
+    /// Whether a new picture is kept compressed: feature `compressedSnapshots` (on by default; the App sets it
+    /// from this launch's features).
+    var keepsCompressed = true
     private(set) var totalBytes = 0
     private var pictures: [String: Picture] = [:]
     /// Least recently used first.
@@ -59,7 +62,7 @@ final class HibernationSnapshots {
     private var memoryRegistration: MemoryConsumerRegistration?
 
     /// One page's picture: `data` is the JPEG or PNG (nil for a decoded picture, when
-    /// `HibernationTunables.compressedSnapshots` is off), `image` decodes from it.
+    /// feature `compressedSnapshots` is off), `image` decodes from it.
     nonisolated struct Picture: Sendable {
         let data: Data?
         let image: CGImage
@@ -173,11 +176,13 @@ final class HibernationSnapshots {
     nonisolated static func isOpaque(_ image: CGImage) -> Bool {
         if [CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo) { return true }
         let side = 32
-        guard let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-              let pixels = context.data?.bindMemory(to: UInt8.self, capacity: side * side * 4) else { return false }
+        guard let context = CGContext.bitmapOwningPixels(width: side, height: side, bytesPerRow: side * 4,
+                                                         space: CGColorSpaceCreateDeviceRGB(),
+                                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
         context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-        return stride(from: 3, to: side * side * 4, by: 4).allSatisfy { pixels[$0] == 255 }
+        // The sample's bytes are read back as a copy (rows of exactly side * 4 bytes), not through the context's buffer.
+        guard let pixels = context.makeImage()?.dataProvider?.data as Data?, pixels.count >= side * side * 4 else { return false }
+        return stride(from: 3, to: side * side * 4, by: 4).allSatisfy { pixels[pixels.startIndex + $0] == 255 }
     }
 }
 

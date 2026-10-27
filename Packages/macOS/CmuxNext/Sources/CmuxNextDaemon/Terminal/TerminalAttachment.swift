@@ -101,6 +101,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// - Parameter createIntent: the `create.tab` intent id of the new tab whose terminal this first attach
     ///   shows (``NewTerminalTrace/FirstAttach``): its stages are that create's instants. 0: a restore or a
     ///   reattach, which writes none.
+    /// - Parameter inputQueue: the view's serial input queue; the socket writer drains on it (nil: its own queue).
     public static func attach(
         endpoint: DaemonEndpoint,
         target: Target,
@@ -112,12 +113,13 @@ public actor TerminalAttachment: TerminalByteChannel {
         clientName: String = "cmux-next-terminal",
         device: TerminalSizingDevice? = nil,
         hangs: (any HangWatchScoping)? = nil,
-        createIntent: UInt64 = 0
+        createIntent: UInt64 = 0,
+        inputQueue: DispatchQueue? = nil
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         NewTerminalTrace.shared.attachEvent(.attachStart, surface: target.surface.rawValue, intent: createIntent)
         let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
-                                                     stats: endpoint.wireStats, hangs: hangs)
+                                                     stats: endpoint.wireStats, hangs: hangs, writerTarget: inputQueue)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,

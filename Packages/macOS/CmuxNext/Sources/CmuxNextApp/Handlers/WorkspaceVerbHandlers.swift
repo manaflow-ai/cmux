@@ -60,7 +60,7 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.moveToNewGroup", run: { invocation in
             let workspace = try context.workspace(invocation).model
             let ids = try WindowMembershipHandlers.workspaces(invocation, context).map(SidebarWorkspaceID.init)
-            try sidebar(showing: workspace, context).groupFlow.newGroup(of: ids, name: invocation["name"]?.stringValue ?? "",
+            try sidebar(showing: workspace, context, builds: true).groupFlow.newGroup(of: ids, name: invocation["name"]?.stringValue ?? "",
                                                               byUser: invocation.origin == .user)
         })
 
@@ -188,7 +188,7 @@ enum WorkspaceVerbHandlers {
     private static func place(_ context: AppActionContext, _ invocation: ActionInvocation, _ slot: (WorkspaceModel) -> WorkspaceSlot) throws {
         let workspace = try context.workspace(invocation).model
         let ids = try WindowMembershipHandlers.workspaces(invocation, context)
-        guard place(ids, anchor: workspace, slot(workspace), in: try sidebar(showing: workspace, context), services: context.services)
+        guard place(ids, anchor: workspace, slot(workspace), in: try sidebar(showing: workspace, context, builds: true), services: context.services)
         else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
     }
 
@@ -223,16 +223,19 @@ enum WorkspaceVerbHandlers {
         return (try? group(of: workspace, context)) != nil
     }
 
-    /// The sidebar of the window that lists `workspace`, else the active one.
-    static func sidebar(showing workspace: WorkspaceModel, _ context: AppActionContext) throws -> SidebarBridge {
+    /// The sidebar of the window that lists `workspace`, else the active one. `builds`: a run that acts in
+    /// that sidebar builds the window when it waits for its launch build; a title, visibility or choices
+    /// read never does.
+    static func sidebar(showing workspace: WorkspaceModel, _ context: AppActionContext, builds: Bool = false) throws -> SidebarBridge {
         let windows = context.services.windows
-        if let owner = windows.registry.value.owner(of: workspace.id), let controller = windows.controller(for: owner) { return controller.sidebar }
+        if let owner = windows.registry.value.owner(of: workspace.id),
+           let controller = builds ? windows.controllerBuildingIfWaiting(for: owner) : windows.controller(for: owner) { return controller.sidebar }
         return try context.sidebar()
     }
 
-    /// The sidebar group listing `workspace` in its window, if any.
-    static func group(of workspace: WorkspaceModel, _ context: AppActionContext) throws -> SidebarGroup? {
-        let sections = try sidebar(showing: workspace, context).model.sections
+    /// The sidebar group listing `workspace` in its window, if any (`builds` as in ``sidebar(showing:_:builds:)``).
+    static func group(of workspace: WorkspaceModel, _ context: AppActionContext, builds: Bool = false) throws -> SidebarGroup? {
+        let sections = try sidebar(showing: workspace, context, builds: builds).model.sections
         for section in sections {
             for case let .group(group) in section.nodes where group.workspaces.contains(where: { $0.id.rawValue == workspace.id }) {
                 return group

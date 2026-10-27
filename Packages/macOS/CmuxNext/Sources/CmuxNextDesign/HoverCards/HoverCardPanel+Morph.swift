@@ -82,6 +82,7 @@ extension HoverCardPanel {
         let margin = PopupStyle.standard.shadowMargin + travel
         restCardFrame = rest
         setFrame(bigFrame.insetBy(dx: -margin, dy: -margin), display: false)
+        // sync-layout: the shadow springs below start from `glass.frame` laid out in the larger window.
         host.layoutSubtreeIfNeeded()
 
         Self.morphGeneration += 1
@@ -142,6 +143,7 @@ extension HoverCardPanel {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         setFrame(restCardFrame.insetBy(dx: -margin, dy: -margin), display: true)
+        // sync-layout: the callers' place() measures the glass next, at the rest frame this lays out.
         host?.layoutSubtreeIfNeeded()
         CATransaction.commit()
     }

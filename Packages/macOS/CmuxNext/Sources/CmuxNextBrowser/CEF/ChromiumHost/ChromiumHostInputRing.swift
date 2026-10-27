@@ -291,6 +291,9 @@ final class ChromiumHostInputRing {
             return true
         }
         if next.rawKind == ChromiumHostFrame.Kind.wheel.rawValue {
+            // One phase and momentum phase only (p04-input-063), as Blink's
+            // WebMouseWheelEvent::CanCoalesce: a gesture's edges reach Chromium.
+            guard waiting.v[4] == next.v[4], waiting.v[5] == next.v[5] else { return false }
             let dx = waiting.v[2], dy = waiting.v[3]
             waiting = next  // the newest position, time and seq; the summed deltas
             waiting.v[2] = saturatingAdd(dx, next.v[2])

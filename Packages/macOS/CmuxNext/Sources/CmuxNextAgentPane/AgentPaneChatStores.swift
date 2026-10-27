@@ -10,7 +10,7 @@ public import Foundation
 ///
 /// ```swift
 /// let stores = AgentPaneChatStores(directory: stateFolder)
-/// let provider = AgentPageProvider(chatStores: stores) { _ in model }
+/// let provider = AgentPageProvider(chatStores: stores, mainWork: mainThread.mainWork) { _ in model }
 /// ```
 @MainActor
 public struct AgentPaneChatStores {

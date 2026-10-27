@@ -164,7 +164,10 @@ extension BlockingContext {
     static func offMainThread() -> BlockingContext {
         let flags = BlockingThreadFlags.load()
         if let mark = flags.mark { return mark.context }
-        guard isPoolLabel(__dispatch_queue_get_label(nil)) else { return .dedicated }
+        // SAFETY: dispatch_queue_get_label(NULL) returns the current queue's label, a NUL-terminated string the queue
+        // owns while this thread runs on it (an empty one when the queue has none); isPoolLabel reads it only during
+        // the call.
+        guard unsafe isPoolLabel(__dispatch_queue_get_label(nil)) else { return .dedicated }
         if flags.isUnnamed { return .pool }
         guard isNamedThread() else {
             BlockingThreadFlags.store(flags.withUnnamed())
@@ -178,16 +181,21 @@ extension BlockingContext {
     /// (`com.apple.root.`; `strncmp` stops at the label's end, so a shorter label is no match).
     static func isPoolLabel(_ label: UnsafePointer<CChar>) -> Bool {
         let root: StaticString = "com.apple.root."
-        return root.utf8Start.withMemoryRebound(to: CChar.self, capacity: root.utf8CodeUnitCount) { bytes in
-            strncmp(label, bytes, root.utf8CodeUnitCount) == 0
+        // SAFETY: utf8Start is the literal's static storage of utf8CodeUnitCount bytes, viewed as CChar (the same
+        // size) for the closure; strncmp reads at most that many bytes of each string and stops at `label`'s NUL,
+        // and the caller lends `label` for this call.
+        return unsafe root.utf8Start.withMemoryRebound(to: CChar.self, capacity: root.utf8CodeUnitCount) { bytes in
+            unsafe strncmp(label, bytes, root.utf8CodeUnitCount) == 0
         }
     }
 
     /// Whether the calling thread has a pthread name: a `Thread` cmux made (pool workers have none).
     static func isNamedThread() -> Bool {
-        withUnsafeTemporaryAllocation(of: CChar.self, capacity: 64) { buffer in
-            guard let base = buffer.baseAddress else { return false }
-            return pthread_getname_np(pthread_self(), base, buffer.count) == 0 && base.pointee != 0
+        // SAFETY: a 64-byte scratch buffer that lives only for the closure; pthread_getname_np writes at most
+        // buffer.count bytes into it, NUL-terminated, and the first byte is read only after it succeeded.
+        unsafe withUnsafeTemporaryAllocation(of: CChar.self, capacity: 64) { buffer in
+            guard let base = unsafe buffer.baseAddress else { return false }
+            return unsafe pthread_getname_np(pthread_self(), base, buffer.count) == 0 && base.pointee != 0
         }
     }
 }
@@ -206,7 +214,8 @@ struct BlockingThreadFlags {
     /// classified by their queue label alone).
     private static let key: pthread_key_t? = {
         var key = pthread_key_t()
-        return pthread_key_create(&key, nil) == 0 ? key : nil
+        // SAFETY: pthread_key_create writes one key into `key`, a local; no destructor (nil).
+        return unsafe pthread_key_create(&key, nil) == 0 ? key : nil
     }()
 
     init(rawValue: UInt) {
@@ -216,13 +225,17 @@ struct BlockingThreadFlags {
     /// The calling thread's flags.
     static func load() -> BlockingThreadFlags {
         guard let key else { return BlockingThreadFlags(rawValue: 0) }
-        return BlockingThreadFlags(rawValue: UInt(bitPattern: pthread_getspecific(key)))
+        // SAFETY: the thread's value for `key` is never dereferenced: store keeps the flags word in the pointer's
+        // bits, and this reads the bits back.
+        return BlockingThreadFlags(rawValue: unsafe UInt(bitPattern: pthread_getspecific(key)))
     }
 
     /// Sets the calling thread's flags.
     static func store(_ flags: BlockingThreadFlags) {
         guard let key else { return }
-        pthread_setspecific(key, UnsafeRawPointer(bitPattern: flags.rawValue))
+        // SAFETY: the flags word travels in the pointer's bits and is never dereferenced (load reads the bits back);
+        // no destructor is registered for the key, so nothing frees it.
+        unsafe pthread_setspecific(key, UnsafeRawPointer(bitPattern: flags.rawValue))
     }
 
     var mark: BlockingContext.Mark? {

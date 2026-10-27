@@ -366,6 +366,35 @@ fn violation(kind: BlockingKind, location: &'static Location<'static>) -> bool {
     first_at_site
 }
 
+/// Records a [`BlockingKind::PriorityInversion`] site at `location`: a
+/// thread waited on work sent from a thread of lower QoS ([`crate::sync`]).
+/// Record only, in every mode and on every thread, as a lane-sync site is:
+/// the wait is allowed, the QoS pairing is the finding.
+#[cfg(debug_assertions)]
+#[cold]
+#[inline(never)]
+pub(crate) fn note_priority_inversion(location: &'static Location<'static>) {
+    note_violation(&SITES, report::site_report(), BlockingKind::PriorityInversion, location, false);
+}
+
+/// Records a [`BlockingKind::LockWait`] site at `location` when the current
+/// thread may not wait for a lock: a lock timed by its caller waited past
+/// the budget ([`crate::lock_wait::note_timed_lock_wait`]). Record only, in
+/// every mode, as a priority-inversion site is: the wait is over, and
+/// whether it passed the budget depends on scheduling.
+#[cold]
+#[inline(never)]
+pub(crate) fn note_long_lock_wait(location: &'static Location<'static>) {
+    if !STATE.with(Cell::get).permits(BlockingKind::LockWait) {
+        note_violation(&SITES, report::site_report(), BlockingKind::LockWait, location, false);
+    }
+}
+
+#[cfg(debug_assertions)]
+mod long_wait;
+#[cfg(debug_assertions)]
+pub(crate) use long_wait::{denies, note_long_wait};
+
 #[cfg(unix)]
 const NO_OWN_FD: std::os::fd::RawFd = -1;
 

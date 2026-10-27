@@ -354,7 +354,7 @@ struct TerminalEchoStageTests {
     nonisolated final class EchoLayer: CALayer {}
     nonisolated final class SharedGateLayer: CALayer {}
 
-    @Test func theLayerHookMarksTheStageTiedToItsLayerOnly() throws {
+    @Test(.enabled(if: TypingFrameProbe.hooksEveryLayer)) func theLayerHookMarksTheStageTiedToItsLayerOnly() throws {
         let rig = Rig()
         let layer = EchoLayer(), other = EchoLayer()
         TypingFrameProbe.install(on: layer, gate: rig.gate)
@@ -371,7 +371,7 @@ struct TerminalEchoStageTests {
 
     /// The hook a layer class got from the first set of stages marks a stage made by another set on
     /// the same process gate.
-    @Test func aSecondSetOfStagesOnTheProcessGateIsMarkedByTheFirstsHook() throws {
+    @Test(.enabled(if: TypingFrameProbe.hooksEveryLayer)) func aSecondSetOfStagesOnTheProcessGateIsMarkedByTheFirstsHook() throws {
         let gate = TerminalContentsGate()
         let first = TerminalEchoStages(contentsGate: gate), second = TerminalEchoStages(contentsGate: gate)
         let sink = RecordingSink()

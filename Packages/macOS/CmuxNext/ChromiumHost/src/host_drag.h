@@ -37,8 +37,8 @@
 
 namespace cmux_host {
 
-inline constexpr uint16_t kOpDragSourceWatch = 0x800b;
-inline constexpr uint16_t kOpDragStart = 0x800c;
+inline constexpr uint16_t kOpDragSourceWatch = 0x800c;
+inline constexpr uint16_t kOpDragStart = 0x800d;
 
 // The most bytes of a dragged file and of a drag image that go to cmux. A
 // larger file goes without its contents (the drag keeps its URL and text); a

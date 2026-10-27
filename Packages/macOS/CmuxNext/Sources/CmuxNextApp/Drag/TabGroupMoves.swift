@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextWorkspaceNaming
@@ -16,7 +17,7 @@ enum TabGroupMoves {
               !refusesIncognitoCrossing(group, to: pane, services: services),
               !ChatDockRules.refusesGroupMove(to: pane, services: services) else { return completion(false) }
         let target = pane.handle
-        run("move-tab-group", daemon: daemon, completion: completion) { connection in
+        run("move-tab-group", daemon: daemon, services: services, completion: completion) { connection in
             _ = try await connection.moveTabGroup(group, to: target, index: index, transaction: transaction)
         }
     }
@@ -40,7 +41,7 @@ enum TabGroupMoves {
             return completion(false)
         }
         let target = pane.handle, sizing = services.splitSizing(for: pane, edge: edge, emptying: emptying)
-        run("move-tab-group-to-split", daemon: daemon, completion: { ok in if ok { sizing() }; completion(ok) }) { connection in
+        run("move-tab-group-to-split", daemon: daemon, services: services, completion: { ok in if ok { sizing() }; completion(ok) }) { connection in
             _ = try await connection.moveTabGroupToSplit(group, pane: target, edge: edge, transaction: transaction)
         }
     }
@@ -52,7 +53,7 @@ enum TabGroupMoves {
         let target = pane.handle
         let spawn = services.newColumnWidth(nextTo: pane)
         let width = spawn.width
-        run("move-tab-group-to-column", daemon: daemon, completion: { ok in
+        run("move-tab-group-to-column", daemon: daemon, services: services, completion: { ok in
             if ok { spawn.commit() }
             completion(ok)
         }) { connection in
@@ -107,11 +108,13 @@ enum TabGroupMoves {
         GroupOwnership.owner(ofTabGroup: group, sameMachineAs: services.daemon(for: pane), machines: services.machines)
     }
 
-    private static func run(_ label: String, daemon: DaemonService,
+    /// Sends `body` off the main thread; `completion` runs on main as one task of the drag's completion class
+    /// (`TabMoves.send`, recipe R-hop).
+    private static func run(_ label: String, daemon: DaemonService, services: AppServices,
                             completion: @escaping Completion, _ body: @escaping DaemonCommandBody) {
-        Task {
+        TabMoves.send("TabGroupMoves.\(label)", services: services, landed: completion) {
             let ok = await daemon.request(label, body) != nil
-            completion(ok)
+            return ok ? nil : "\(label) failed (see the app log)"
         }
     }
 }

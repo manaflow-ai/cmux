@@ -122,6 +122,7 @@ struct Views : PageViews {
   int view = 0;
   void* Open(uint64_t) override { return &view; }
   void Close(uint64_t) override {}
+  void Place(uint64_t, const PageGeometry&) override {}
 };
 
 Message Op(uint16_t op, uint32_t token, const Writer& w) {

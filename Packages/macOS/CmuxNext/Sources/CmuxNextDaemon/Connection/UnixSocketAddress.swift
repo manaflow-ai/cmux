@@ -1,4 +1,4 @@
-import Darwin
+package import Darwin
 
 /// The `sockaddr_un` of a Unix-domain socket path, filled in one place, and the one place that hands it to the
 /// kernel as a `sockaddr`. Chromium fills its Unix addresses in one helper too (`FillUnixAddress`,

@@ -38,10 +38,12 @@ impl KittyReplayStats {
 }
 
 unsafe extern "C" fn collect_write(userdata: *mut c_void, data: *const u8, len: usize) -> bool {
-    // `userdata` is the `Vec<u8>` that `encode_kitty_replay` owns for the
-    // duration of the call.
+    // SAFETY: `userdata` is the `Vec<u8>` that `encode_kitty_replay` owns for
+    // the duration of the call, and nothing else borrows it meanwhile.
     let bytes = unsafe { &mut *(userdata as *mut Vec<u8>) };
     if len > 0 {
+        // SAFETY: libghostty passes `len` readable bytes at `data` for the
+        // duration of the callback (GhosttyWriterFn).
         bytes.extend_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
     }
     true
@@ -53,8 +55,8 @@ impl Terminal {
     /// image storage never changed. Process-local value.
     pub fn kitty_image_generation(&self) -> Result<u64> {
         let mut generation = 0u64;
-        // The out-pointer is valid for the call; the caller owns the
-        // terminal (`&self`).
+        // SAFETY: `self.raw()` is this Terminal's live handle and the
+        // out-pointer is a writable u64 local.
         check(unsafe {
             sys::ghostty_terminal_kitty_image_generation(self.raw(), &mut generation)
         })?;
@@ -81,7 +83,9 @@ impl Terminal {
             image_bytes: 0,
             bytes: 0,
         };
-        // `writer.userdata` and `stats` outlive the call.
+        // SAFETY: `self.raw()` is this Terminal's live handle; `writer` calls
+        // `collect_write` with `bytes`, which outlives the call, and `stats` is
+        // a writable local with its `size` set.
         check(unsafe {
             sys::ghostty_terminal_kitty_replay_encode(
                 self.raw(),
@@ -107,7 +111,8 @@ impl Terminal {
     /// with `InvalidValue` when parts were skipped; the valid commands still
     /// ran.
     pub fn apply_kitty_replay(&mut self, stream: &[u8]) -> Result<()> {
-        // The slice is valid for the call.
+        // SAFETY: `self.raw()` is this Terminal's live handle and `stream` is
+        // readable for `stream.len()` bytes for the call.
         check(unsafe {
             sys::ghostty_terminal_kitty_replay_apply(self.raw(), stream.as_ptr(), stream.len())
         })

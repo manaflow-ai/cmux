@@ -22,8 +22,10 @@ if (existsSync(chunksDir)) {
 let compilerCacheCalls = 0;
 for (const bundlePath of bundlePaths) {
   const bundle = readFileSync(bundlePath, "utf8");
-  // `x.c(6)` from Rollup/esbuild, `(0,x.c)(6)` from Rolldown's minifier.
-  compilerCacheCalls += (bundle.match(/\b[A-Za-z_$][\w$]*\.c\)?\(\d+\)/g) ?? []).length;
+  // Each compiled component checks its memo cache against React's sentinel. The cache call itself
+  // (`_c(6)`) is a plain imported binding now that React is the one shared module
+  // (webviews/scripts/shared/shared-react.mjs), so it has no name to find; the sentinel does.
+  compilerCacheCalls += (bundle.match(/react\.memo_cache_sentinel/g) ?? []).length;
 }
 
 if (compilerCacheCalls < 8) {

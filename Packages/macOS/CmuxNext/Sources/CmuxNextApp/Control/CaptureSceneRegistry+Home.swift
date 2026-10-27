@@ -23,7 +23,7 @@ extension CaptureSceneRegistry {
     /// them all: each state reached the mirror, and the first-run panel shows
     /// a row for each status. An error names what never appeared.
     func showHomeChief(windowID: String, longDraft: Bool = false) async -> CmuxNextSettings.JSONValue {
-        guard let controller = services.windows.controller(for: windowID) else {
+        guard let controller = services.windows.controllerBuildingIfWaiting(for: windowID) else {
             return .object(["error": .string("capture window is gone")])
         }
         let home = services.home

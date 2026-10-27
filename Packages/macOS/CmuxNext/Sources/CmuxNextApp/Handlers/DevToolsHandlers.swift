@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemonService
 import CmuxNextWakeups
 import WebKit
@@ -116,7 +117,7 @@ enum DevToolsHandlers {
             BrowserHandlers.copyScreenshot(context) {
                 if case .browser(let tab) = tab { return try await tab.snapshot() }
                 let image = try await webKit.takeSnapshot(configuration: nil)
-                guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                guard let cgImage = image.bestCGImage else {
                     throw ActionFailure(message: WebDevToolsLimit.browserTabOnly.message)
                 }
                 return cgImage

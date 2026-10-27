@@ -28,15 +28,15 @@ public final class KeyboardLayoutObserver {
 
     private static var live: [Weak] = []
     private static var registered = false
-    /// The identity of the one registration (CF keys observers by pointer).
-    private static let registration = NSObject()
 
     private static func registerOnce() {
         guard !registered else { return }
         registered = true
+        // No observer pointer (CF allows NULL): the registration is never removed and the callback
+        // reads no context, so there is no object address for a late notice to reach.
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDistributedCenter(),
-            Unmanaged.passUnretained(registration).toOpaque(),
+            nil,
             keyboardLayoutDidChange,
             kTISNotifySelectedKeyboardInputSourceChanged,
             nil,

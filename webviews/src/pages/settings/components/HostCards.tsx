@@ -1,36 +1,22 @@
-// The Swift window's remaining cards, drawn by the page (R82 commit 4): the background picker
-// (Appearance, where Change Background… lands), the terminal facts (Terminal) and the settings
-// file with its problems (Advanced). Data comes from the host lists; writes run host ops or
-// catalog actions, the palette's paths.
+// The background picker (Appearance, where Change Background… lands), drawn by the page (R82
+// commit 4). Data comes from the host lists; writes run host ops or catalog actions, the palette's
+// paths. The terminal facts (TerminalInfo.tsx) and the settings file (AdvancedInfo.tsx) are their
+// own modules, so each section's chunk holds only its own card (lazySections.ts).
 import { useEffect, useId, useRef, useState } from "react";
+import { BACKGROUND_KEY, BACKGROUND_OPACITY_KEY, MATERIAL_KEY, ROTATION_KEY } from "../cardRows";
 import { useSettingsState, useStore } from "../context";
-import { settingsFileName } from "../format";
 import { rowsByKey } from "../schema";
 import { Icon } from "../icons";
 import { locale, t } from "../strings";
-import { ActionRow } from "./ActionRow";
 import { ArtBrowser } from "./ArtBrowser";
 import { BackdropLink, formatBytes } from "./BackdropLink";
 import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
 
-export const BACKGROUND_KEY = "appearance.background";
-export const BACKGROUND_OPACITY_KEY = "appearance.backgroundOpacity";
 /** Shuffle Paintings (cx-t2x.5): the art set, turning as often as appearance.backgroundRotation says. */
 const DAILY_ID = "daily";
 /** The person's own images (BackdropUserImages.collection): removable, and shown in Finder. */
 const YOURS = "yours";
-/** The rows the picker draws, left out of their group while it shows. */
-/** `appearance.backgroundBlur`: the window's Material, drawn in the card beside Opacity. */
-export const MATERIAL_KEY = "appearance.backgroundBlur";
-/** `appearance.backgroundRotation`: how often a shuffle turns, shown in the card while one is chosen. */
-export const ROTATION_KEY = "appearance.backgroundRotation";
-export const BACKDROP_ROWS: ReadonlySet<string> = new Set([
-  BACKGROUND_KEY,
-  BACKGROUND_OPACITY_KEY,
-  MATERIAL_KEY,
-  ROTATION_KEY,
-]);
 /** `folder:<absolute path>`: the pictures in that folder, shuffled. */
 const FOLDER_PREFIX = "folder:";
 const folderName = (id: string) => id.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? id;
@@ -51,11 +37,6 @@ function BackdropThumb({ src }: { src: string }) {
 function revealTile(tile: HTMLElement | null): void {
   tile?.scrollIntoView?.({ block: "center" });
   tile?.focus();
-}
-
-/** Whether the picker draws (the host lists the art); its rows show in their group otherwise. */
-export function useBackdropsShown(): boolean {
-  return (useSettingsState().host?.backdrops ?? []).length > 0;
 }
 
 /**
@@ -381,62 +362,5 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         </div>
       ))}
     </section>
-  );
-}
-
-export function TerminalInfo() {
-  const { host } = useSettingsState();
-  if (!host?.terminal) return null;
-  return (
-    <section className="group" data-card="terminal">
-      <div className="rows">
-        <ActionRow title={t("settingsWindow.ghosttyConfig")} help="">
-          <span className="row-help selectable">{host.terminal.ghostty_config}</span>
-        </ActionRow>
-        <ActionRow title={t("settingsWindow.shellIntegration")} help="">
-          <span className="row-help selectable">
-            {host.terminal.shell_integration ?? t("settingsWindow.shellIntegrationUnknown")}
-          </span>
-        </ActionRow>
-      </div>
-    </section>
-  );
-}
-
-export function AdvancedInfo() {
-  const store = useStore();
-  const { host, problems } = useSettingsState();
-  return (
-    <>
-      {host?.settings_file && (
-        <section className="group" data-card="advanced">
-          <div className="rows">
-            <ActionRow title={t("settingsWindow.settingsFile")} help="">
-              <span className="row-help selectable">{host.settings_file}</span>
-              <button type="button" className="button" onClick={() => store.revealSettingsFile()}>
-                {t("settingsWindow.showInFinder")}
-              </button>
-            </ActionRow>
-          </div>
-        </section>
-      )}
-      <section className="group" data-card="problems">
-        <h3 className="group-title">{t("settingsWindow.problems", settingsFileName(host))}</h3>
-        <div className="rows">
-          {problems.length === 0 ? (
-            <div className="row">
-              <div className="empty">{t("settingsWindow.noProblems")}</div>
-            </div>
-          ) : (
-            problems.map((problem, index) => (
-              <div className="row selectable" key={`${problem.path}-${index}`} data-problem="">
-                <div className="row-title">{problem.path || settingsFileName(host)}</div>
-                <div className="row-help">{problem.message}</div>
-              </div>
-            ))
-          )}
-        </div>
-      </section>
-    </>
   );
 }

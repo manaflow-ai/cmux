@@ -27,11 +27,13 @@ inline constexpr uint32_t kMaxPayload = 64 * 1024;
 // Seconds a host may take to end after kQuit or EOF before it ends by force
 // (it _exits itself; cmux SIGKILLs it): ChromiumHostFrame.quitLimit.
 inline constexpr int kQuitLimitSeconds = 15;
-// The oldest fork API the host runs on: layer hosting (26) and the resize
-// sync (27), so its Chromium never holds a commit for a resize on its own.
-// cmux starts it with the switch set of this API (ChromiumHostConfiguration,
+// The oldest fork API the host runs on: detached hosting (30), so no page
+// window of the host is ever on screen (its windows are never ordered in,
+// HostPageViews), over layer hosting (26) and the resize sync (27), so its
+// Chromium never holds a commit for a resize on its own. cmux starts it with
+// the switch set of API 27 (ChromiumHostConfiguration,
 // CEFSwitches.resizeSyncForkAPI: no AsyncLiveResize).
-inline constexpr int kMinForkAPI = 27;
+inline constexpr int kMinForkAPI = 30;
 // Frames the reader may hand to the UI thread that it has not run yet (and
 // frames held before the UI thread exists), after coalescing (FrameQueue):
 // ChromiumHostConnection.frameBacklog.
@@ -51,8 +53,15 @@ enum Kind : uint32_t {
                    // (informational: the host's window takes the scale of the screen it is placed on;
                    // cmux sends the geometry again when the window moves or changes screen or scale)
   kMouse = 3,      // v0 x, v1 y (points, top left), v2 phase (0 move, 1 down, 2 up, 3 exit), v3 button
-                   // (0 left, 1 middle, 2 right), v4 click count, flags = NSEventModifierFlags, t0 event time
-  kWheel = 4,      // v0 x, v1 y, v2 dx, v3 dy (pixels), flags, t0
+                   // (0 left, 1 middle, 2 right; ClickButtonOf below), v4 click count, v5 pressed buttons
+                   // (bits 1 left, 2 right, 4 middle, 8 back, 16 forward: NSEvent.pressedMouseButtons and
+                   // the DOM's MouseEvent.buttons), flags = NSEventModifierFlags, t0 event time. The back
+                   // and forward buttons (NSEvent buttonNumber 3 and 4, Chrome's
+                   // WebPointerProperties::Button::kBack and kForward) are not sent until the host can
+                   // click them (p01-process-054b): CEF's SendMouseClickEvent has only left, middle, right
+  kWheel = 4,      // v0 x, v1 y (points, top left), v2 v3 scrollingDeltaX/Y x kWheelDeltaScale, v4 phase, v5
+                   // momentum phase (NSEventPhase bits), flags = NSEventModifierFlags | kWheelPrecise, t0
+                   // (Wheel below, p04-input-063)
   kKey = 5,        // v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, t0;
                    // the host sends it with cmux_shim::SendHostKeyEvent and the frame's input seq, which
                    // KEY_UNHANDLED carries back for a chord the page leaves unhandled (p01-process-030).
@@ -74,8 +83,20 @@ enum Kind : uint32_t {
                    // '\n'), then per clause i32 start, i32 end, u32 color 0xAARRGGBB, u32 thick (0 or 1).
                    // It has a payload, so it never rides the input ring.
   kTextInputWatch = 12,  // v0 1: push kTextInputState after each change; 0: stop (task 044's watch)
+  kGesture = 13,   // a trackpad gesture of the page view (p01-process-054), the input that
+                   // RenderWidgetHostNSViewHost takes as PinchEvent and SmartMagnifyEvent
+                   // (content/common/render_widget_host_ns_view.mojom; render_widget_host_view_cocoa.mm
+                   // -magnifyWithEvent:, -smartMagnifyWithEvent:) and the Force Touch pressure that
+                   // -pressureChangeWithEvent: sends as a mouse event with force: v0 x, v1 y (points,
+                   // top left), v2 type: 0 pinch begin, 1 pinch update (v3 the scale step x 1e6,
+                   // 1 + NSEvent magnification), 2 pinch end (also a cancelled pinch): PinchEvent's
+                   // kGesturePinchBegin, Update and End; 3 smart magnify (a two-finger double tap):
+                   // SmartMagnifyEvent; 4 pressure (v3 NSEvent pressure x 1e6, 0 to 1e6, v4 stage 0
+                   // none, 1 click, 2 force click; Blink's WebPointerProperties::force); v5 pressed
+                   // buttons as kMouse's, flags = NSEventModifierFlags, t0 event time. The host drops
+                   // it until the fork can send it to the page (p01-process-054b)
   // host -> cmux
-  kReady = 101,         // v0 fork API version, v1 host pid
+  kReady = 101,         // v0 fork API version, v1 host pid, v2 what the host reports (kReadyReports*)
   kContext = 102,       // v0 CAContext id (bits of a uint32)
   kAddress = 103,       // payload url (main frame)
   kTitle = 104,         // payload title
@@ -93,6 +114,8 @@ enum Kind : uint32_t {
                           // x, y, width, height, i32 text offset, i32 rect count, per composition
                           // character i32 x, y, width, height (page-view points, top left), then the
                           // text around the selection as UTF-16LE
+  kInputPresented = 110,  // t0 the input frame's t0 (its event time), t1 when the frame that shows it reached the
+                          // display, v0 gfx::PresentationFeedback flags (InputPresentedFrame, p04-input-066)
 };
 
 struct Header {
@@ -106,6 +129,86 @@ struct Header {
   uint16_t unmod = 0;
   uint32_t seq = 0;
 };
+
+// A wheel frame (kWheel, task p04-input-063). Chrome builds its wheel event
+// from the NSEvent with the trackpad's scroll phase, its momentum phase and
+// whether the deltas are precise (WebMouseWheelEventBuilder::Build in
+// content/browser/renderer_host/input/web_input_event_builders_mac.mm), and its
+// renderer host latches a gesture and hands the fling to the page from them
+// (components/input/mouse_wheel_phase_handler.cc), so the frame carries them:
+// v2 v3 NSEvent scrollingDeltaX/Y times kWheelDeltaScale, rounded (pixels when
+// precise, lines when not; WheelOf gives pixels); v4 NSEvent.phase and v5
+// NSEvent.momentumPhase as NSEventPhase bits; kWheelPrecise in flags for
+// hasPreciseScrollingDeltas.
+inline constexpr int32_t kWheelDeltaScale = 100;
+inline constexpr uint64_t kWheelPrecise = uint64_t{1} << 63;
+// NSEventPhase.
+inline constexpr int32_t kNSPhaseBegan = 1 << 0;
+inline constexpr int32_t kNSPhaseStationary = 1 << 1;
+inline constexpr int32_t kNSPhaseChanged = 1 << 2;
+inline constexpr int32_t kNSPhaseEnded = 1 << 3;
+inline constexpr int32_t kNSPhaseCancelled = 1 << 4;
+inline constexpr int32_t kNSPhaseMayBegin = 1 << 5;
+// NSEventModifierFlags.
+inline constexpr uint64_t kNSFlagCapsLock = uint64_t{1} << 16;
+inline constexpr uint64_t kNSFlagShift = uint64_t{1} << 17;
+inline constexpr uint64_t kNSFlagControl = uint64_t{1} << 18;
+inline constexpr uint64_t kNSFlagOption = uint64_t{1} << 19;
+inline constexpr uint64_t kNSFlagCommand = uint64_t{1} << 20;
+// cef_event_flags_t (include/internal/cef_types.h; browser_host_main.mm checks
+// them against CEF's).
+inline constexpr int kCefCapsLockOn = 1 << 0;
+inline constexpr int kCefShiftDown = 1 << 1;
+inline constexpr int kCefControlDown = 1 << 2;
+inline constexpr int kCefAltDown = 1 << 3;
+inline constexpr int kCefCommandDown = 1 << 7;
+inline constexpr int kCefPrecisionScrollingDelta = 1 << 14;
+// A line of a wheel with no precise deltas, in pixels: Chrome's
+// kScrollbarPixelsPerCocoaTick, which WebMouseWheelEventBuilder multiplies
+// [NSEvent deltaX/Y] by.
+inline constexpr int32_t kPixelsPerCocoaTick = 40;
+
+// The phases of cmux_shim_browser_send_wheel (the fork's wheel call).
+enum WheelPhase : int {
+  kWheelPhaseNone = 0,
+  kWheelPhaseMayBegin = 1,
+  kWheelPhaseBegan = 2,
+  kWheelPhaseChanged = 3,
+  kWheelPhaseEnded = 4,
+  kWheelPhaseCancelled = 5,
+};
+
+// A wheel frame's fields as the fork's wheel call takes them (pixel deltas,
+// cmux_shim_browser_send_wheel in cmux_cef_shim.h).
+struct Wheel {
+  double x = 0;   // page view points, top left
+  double y = 0;
+  double dx = 0;  // pixels: scrollingDeltaX/Y when precise, lines x kPixelsPerCocoaTick when not
+  double dy = 0;
+  bool precise = false;
+  int phase = kWheelPhaseNone;
+  int momentum_phase = kWheelPhaseNone;
+  int modifiers = 0;  // cef_event_flags_t
+};
+
+// The frame that showed an input reached the display (kInputPresented, task
+// p04-input-066). Chrome closes each input's EventMetrics at the presentation
+// feedback of the compositor frame that carried it
+// (cc/metrics/compositor_frame_reporter.cc, gfx::PresentationFeedback in
+// ui/gfx/presentation_feedback.h); the host reports that feedback per input
+// by the input frame's t0, the one id cmux's latency slot and the frame share
+// (InputLatencyTracker.hostPresented). Fork item for PL-cef-layer: the fork
+// calls the host back with (event time, presentation timestamp, flags) for
+// each input event of a presented frame. A host on such a fork sets
+// kReadyReportsInputPresented in its kReady's v2; without it the host sends
+// nothing and cmux closes each page slot at its turn's commit, with that
+// commit's vsync estimate.
+inline constexpr int32_t kReadyReportsInputPresented = 1 << 0;
+// gfx::PresentationFeedback::Flags.
+inline constexpr uint32_t kPresentationVSync = 1u << 0;
+inline constexpr uint32_t kPresentationFailed = 1u << 1;
+inline constexpr uint32_t kPresentationHWClock = 1u << 2;
+inline constexpr uint32_t kPresentationHWCompletion = 1u << 3;
 
 namespace detail {
 template <typename T>
@@ -148,6 +251,116 @@ inline bool Decode(const uint8_t in[kHeaderSize], Header* h) {
   return h->payload <= kMaxPayload;
 }
 
+// A kInputPresented frame: the input of event time `event_time_ns` (its
+// frame's t0) showed in a frame presented at `presented_ns` (CLOCK_UPTIME_RAW
+// nanoseconds) with gfx::PresentationFeedback `flags`.
+inline Header InputPresentedFrame(uint64_t event_time_ns, uint64_t presented_ns, uint32_t flags) {
+  Header h;
+  h.kind = kInputPresented;
+  h.v[0] = static_cast<int32_t>(flags);
+  h.t0 = event_time_ns;
+  h.t1 = presented_ns;
+  return h;
+}
+
+// One NSEventPhase as the fork's phase. A stationary gesture (fingers down,
+// not moving) is a change with no delta, as Blink's kPhaseStationary only
+// keeps the gesture latched.
+inline int WheelPhaseOf(int32_t ns_phase) {
+  if (ns_phase & kNSPhaseCancelled) return kWheelPhaseCancelled;
+  if (ns_phase & kNSPhaseEnded) return kWheelPhaseEnded;
+  if (ns_phase & kNSPhaseBegan) return kWheelPhaseBegan;
+  if (ns_phase & (kNSPhaseChanged | kNSPhaseStationary)) return kWheelPhaseChanged;
+  if (ns_phase & kNSPhaseMayBegin) return kWheelPhaseMayBegin;
+  return kWheelPhaseNone;
+}
+
+// NSEventModifierFlags as cef_event_flags_t.
+inline int CefModifiersOf(uint64_t ns_flags) {
+  int flags = 0;
+  if (ns_flags & kNSFlagCapsLock) flags |= kCefCapsLockOn;
+  if (ns_flags & kNSFlagShift) flags |= kCefShiftDown;
+  if (ns_flags & kNSFlagControl) flags |= kCefControlDown;
+  if (ns_flags & kNSFlagOption) flags |= kCefAltDown;
+  if (ns_flags & kNSFlagCommand) flags |= kCefCommandDown;
+  return flags;
+}
+
+// A kWheel frame's fields.
+inline Wheel WheelOf(const Header& h) {
+  Wheel wheel;
+  wheel.x = h.v[0];
+  wheel.y = h.v[1];
+  wheel.precise = (h.flags & kWheelPrecise) != 0;
+  const double scale = wheel.precise ? 1 : kPixelsPerCocoaTick;
+  wheel.dx = h.v[2] * scale / kWheelDeltaScale;
+  wheel.dy = h.v[3] * scale / kWheelDeltaScale;
+  wheel.phase = WheelPhaseOf(h.v[4]);
+  wheel.momentum_phase = WheelPhaseOf(h.v[5]);
+  wheel.modifiers = CefModifiersOf(h.flags);
+  return wheel;
+}
+
+// SendMouseWheelEvent's whole pixel deltas.
+struct WheelPixels {
+  int dx = 0;
+  int dy = 0;
+};
+
+// The deltas for CefBrowserHost::SendMouseWheelEvent, on a fork with no wheel
+// call, which takes whole pixels (as WheelOf: a line is kPixelsPerCocoaTick).
+// Each frame's fraction carries to the next frame of the same browser and
+// gesture, as the OS carries it in the CG integer point deltas, so a slow
+// trackpad scroll of under half a pixel a frame still moves the page. A
+// gesture's or momentum's start or end, a change of browser or of precise
+// clears the carry. UI thread.
+class WheelPixelCarry {
+ public:
+  WheelPixels Take(int32_t browser, const Header& frame) {
+    const bool precise = (frame.flags & kWheelPrecise) != 0;
+    const int phase = WheelPhaseOf(frame.v[4]);
+    const int momentum_phase = WheelPhaseOf(frame.v[5]);
+    if (browser != browser_ || precise != precise_ || IsStart(phase) || IsStart(momentum_phase)) Clear();
+    browser_ = browser;
+    precise_ = precise;
+    const int64_t scale = precise ? 1 : kPixelsPerCocoaTick;
+    const WheelPixels pixels{Whole(&dx_, frame.v[2] * scale), Whole(&dy_, frame.v[3] * scale)};
+    if (IsEnd(phase) || IsEnd(momentum_phase)) Clear();
+    return pixels;
+  }
+
+ private:
+  static bool IsStart(int phase) { return phase == kWheelPhaseMayBegin || phase == kWheelPhaseBegan; }
+  static bool IsEnd(int phase) { return phase == kWheelPhaseEnded || phase == kWheelPhaseCancelled; }
+  // Adds hundredths of a pixel to `carry` and takes its whole pixels out.
+  static int Whole(int64_t* carry, int64_t hundredths) {
+    *carry += hundredths;
+    const int64_t whole = std::clamp<int64_t>(*carry / kWheelDeltaScale, INT32_MIN, INT32_MAX);
+    *carry -= whole * kWheelDeltaScale;
+    return static_cast<int>(whole);
+  }
+  void Clear() { dx_ = dy_ = 0; }
+
+  int32_t browser_ = 0;
+  bool precise_ = false;
+  int64_t dx_ = 0;  // hundredths of a pixel not sent yet
+  int64_t dy_ = 0;
+};
+
+// The time Chromium gives an input frame's event (task p04-input-065): its t0,
+// the NSEvent's timestamp, as Chrome stamps each event with
+// ui::EventTimeStampFromSeconds([event timestamp])
+// (content/browser/renderer_host/input/web_input_event_builders_mac.mm), so
+// EventLatency and the page's event.timeStamp start at the OS event, not at the
+// host's dispatch. 0 (the time it is sent) for a frame that is not input or has
+// no event time, and for a t0 later than `now_ns`, which is not of this clock
+// (ui::ValidateEventTimeClock in ui/events/base_event_utils.cc replaces such a
+// time with now).
+inline uint64_t EventTimeOf(const Header& frame, uint64_t now_ns) {
+  if (frame.kind != kMouse && frame.kind != kWheel && frame.kind != kKey) return 0;
+  return frame.t0 <= now_ns ? frame.t0 : 0;
+}
+
 // One ordered input stream (task p01-process-092). Chrome sends input and the
 // view's state (focus, IME, edit commands, geometry) to the renderer host on
 // one ordered pipe, RenderWidgetHostNSViewHost
@@ -185,10 +398,20 @@ inline bool IsOrderedInput(const Header& h) {
     case kKey:
     case kFocus:
     case kEdit:
+    case kGesture:
       return true;
     default:
       return false;
   }
+}
+
+// A kMouse down or up's button as CEF clicks it (cef_mouse_button_type_t MBT_LEFT 0, MBT_MIDDLE 1,
+// MBT_RIGHT 2: the wire's values), or kNoClickButton for any other v3. CEF's SendMouseClickEvent has
+// no back or forward button, and a frame that names one must never become a left click at the
+// pointer (p01-process-054): the host's SendMouse (p01-process-042) dispatches no click for it.
+inline constexpr int32_t kNoClickButton = -1;
+inline int32_t ClickButtonOf(const Header& h) {
+  return h.v[3] >= 0 && h.v[3] <= 2 ? h.v[3] : kNoClickButton;
 }
 
 // The seq after `seq`, skipping 0.
@@ -216,7 +439,7 @@ inline bool IsPointerMove(const Header& h) {
 
 // The frames the reader thread has read and the UI thread has not run yet.
 // Bounded: a newer pointer move replaces a waiting move, wheel deltas add up
-// into the waiting wheel frame and a newer geometry replaces a waiting one,
+// into the waiting wheel frame of the same phases and a newer geometry replaces a waiting one,
 // each only at the tail, so the order of moves, clicks, keys and geometry
 // stays the order cmux sent. Keys, clicks and every other frame are never
 // dropped. More than `limit` waiting frames (a UI thread that has stopped)
@@ -294,7 +517,12 @@ class FrameQueue {
       *waiting = next;  // the newest position, buttons and event time
       return true;
     }
-    if (waiting->kind == kWheel && next.kind == kWheel && waiting->flags == next.flags) {
+    // Wheels fold only within one phase and momentum phase, as Blink's
+    // WebMouseWheelEvent::CanCoalesce (third_party/blink/common/input/
+    // web_mouse_wheel_event.cc): a gesture's begin and end, and the switch to
+    // momentum, each reach Chromium.
+    if (waiting->kind == kWheel && next.kind == kWheel && waiting->flags == next.flags &&
+        waiting->v[4] == next.v[4] && waiting->v[5] == next.v[5]) {
       const int32_t dx = waiting->v[2], dy = waiting->v[3];
       *waiting = next;  // the newest position and event time, the summed deltas
       waiting->v[2] = SaturatingAdd(dx, next.v[2]);

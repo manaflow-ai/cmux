@@ -106,8 +106,11 @@ final class ScrollerPanContainerView: NSView, PanMotionContainer {
     var shownPanTranslation: CGVector { fling == nil ? translation : shown.translation }
     var clipsSubviews: Bool { layer?.masksToBounds ?? false }
 
+    /// The layer key the scroller's axis moves on: x for a scroll area, y for rows.
+    var axisKey: RenderSpringKey<CGFloat> { scroller.isArea ? .sublayerTranslationX : .sublayerTranslationY }
+
     /// The layer key path the scroller's axis moves on: x for a scroll area, y for rows.
-    var axisKeyPath: String { scroller.isArea ? "sublayerTransform.translation.x" : "sublayerTransform.translation.y" }
+    var axisKeyPath: String { axisKey.path }
 
     /// `vector`'s component along the scroller's axis.
     func alongAxis(_ vector: CGVector) -> CGFloat { scroller.isArea ? vector.dx : vector.dy }
@@ -162,7 +165,8 @@ final class ScrollerPanContainerView: NSView, PanMotionContainer {
     func startFling(from displacement: CGFloat, velocity: CGFloat, spring: RenderSpring,
                     landed: @escaping @MainActor @Sendable () -> Void) -> Bool {
         if fling != nil { stopFling() }
-        let keyPath = axisKeyPath
+        let key = axisKey
+        let keyPath = key.path
         guard displacement != 0 || velocity != 0, spring.animates(keyPath, in: self) else {
             setTranslation(.zero)
             return false
@@ -177,7 +181,7 @@ final class ScrollerPanContainerView: NSView, PanMotionContainer {
         let area = scroller.isArea
         let moves = layers.compactMap { view -> RenderSpring.Move? in
             guard let layer = view.layer else { return nil }
-            return RenderSpring.Move(layer, keyPath, to: CGFloat(0), velocity: velocity * Self.axisSign(of: view, area: area))
+            return RenderSpring.Move(layer, key, to: CGFloat(0), velocity: velocity * Self.axisSign(of: view, area: area))
         }
         spring.animateGroup(moves, in: self) { [weak self] finished in
             guard let self, finished, self.fling?.serial == serial else { return }

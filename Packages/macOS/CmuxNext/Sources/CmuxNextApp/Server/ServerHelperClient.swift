@@ -2,6 +2,8 @@ import CmuxNextCompat
 import CmuxNextServerHelper
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// The app side of the cmux server's privileged helper (plans/cmux-next/server.md 9.4).
 /// The helper is a LaunchDaemon the app bundle carries in
@@ -96,38 +98,19 @@ private final nonisolated class HelperConnection: @unchecked Sendable {
     func invalidate() { connection.invalidate() }
 
     func send(fixID: String, revert: Bool) async throws -> String? {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String?, any Error>) in
-            let once = ResumeOnce(continuation)
-            let proxy = connection.remoteObjectProxyWithErrorHandler { once.fail($0) }
+        // XPC may call both the reply and the error handler: the first resume wins.
+        try await withOnceThrowingContinuation { (once: OnceContinuation<String?, any Error>) in
+            let proxy = connection.remoteObjectProxyWithErrorHandler { once.resume(throwing: $0) }
             guard let helper = proxy as? any ServerHelperProtocol else {
-                once.fail(CocoaError(.featureUnsupported))
+                once.resume(throwing: CocoaError(.featureUnsupported))
                 return
             }
-            let reply: @Sendable (String?) -> Void = { once.succeed($0) }
+            let reply: @Sendable (String?) -> Void = { once.resume(returning: $0) }
             if revert {
                 helper.revert(fixID: fixID, reply: reply)
             } else {
                 helper.apply(fixID: fixID, reply: reply)
             }
-        }
-    }
-}
-
-/// Resumes a continuation once: XPC may call both the reply and the error handler.
-private final nonisolated class ResumeOnce: Sendable {
-    private let continuation: Mutex<CheckedContinuation<String?, any Error>?>
-
-    init(_ continuation: CheckedContinuation<String?, any Error>) {
-        self.continuation = Mutex(continuation)
-    }
-
-    func succeed(_ value: String?) { take()?.resume(returning: value) }
-    func fail(_ error: any Error) { take()?.resume(throwing: error) }
-
-    private func take() -> CheckedContinuation<String?, any Error>? {
-        continuation.withLock { continuation in
-            defer { continuation = nil }
-            return continuation
         }
     }
 }

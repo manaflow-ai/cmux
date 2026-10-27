@@ -24,9 +24,11 @@
 #   web-overlay.sh status
 #
 # The overlay folder is $CMUX_WEB_OVERLAY_DIR, else ~/Library/Application Support/cmux-next/web-overlay.
-# An install copies the bundles into a new generation folder, swaps the agent-pane, pages and
-# webviews-app symlinks to it one by one (a page loading mid-swap gets its bundled files), writes
-# manifest.json last (the app reloads on it) and keeps the newest generations. A server wins over
+# An install copies the bundles into a new generation folder, swaps the agent-pane, pages,
+# webviews-app and agent-activity symlinks to it one by one (a page loading mid-swap gets its
+# bundled files), writes manifest.json last (the app reloads on it) and keeps the newest
+# generations. pages swaps before the surfaces that import its _shared files (React, served as
+# cmux-page://cmux.shared/), and those surfaces are never installed without it. A server wins over
 # the overlay for the files it serves; a stopped server falls back to the overlay or bundle.
 #
 # The bundles talk to the app over the page bridge, so serve or build them from a tree close to the
@@ -44,6 +46,7 @@ overlay="${CMUX_WEB_OVERLAY_DIR:-$HOME/Library/Application Support/cmux-next/web
 PANE="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 APP="Resources/markdown-viewer/webviews-app"
+ACTIVITY="Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"
 
 # The comment block at the top of this file, up to `set`.
 usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit "${1:-0}"; }
@@ -82,20 +85,31 @@ PY
 
 json_string() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
 
-# Installs the bundles in $1 (agent pane), $2 (pages) and $3 (webviews app); $4 is their commit.
+# Installs the bundles in $1 (agent pane), $2 (pages), $3 (webviews app) and $4 (Agent Activity);
+# $5 is their commit.
 install_dirs() {
-  local pane="$1" pages="$2" app="$3" source_commit="$4"
+  local pane="$1" pages="$2" app="$3" activity="$4" source_commit="$5"
   local stamp gen
   stamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"
   gen="$overlay/.gen-$stamp"
   mkdir -p "$gen"
   local installed=()
   if [[ -f "$pane/index.html" ]]; then cp -R "$pane" "$gen/agent-pane"; installed+=(agent-pane); fi
+  # pages before the surfaces that import its _shared files (React, cmux-page://cmux.shared/), so
+  # the swap below gives the app those files before any page that names them.
   if [[ -d "$pages" ]]; then cp -R "$pages" "$gen/pages"; installed+=(pages); fi
   if [[ -d "$app" ]]; then cp -R "$app" "$gen/webviews-app"; installed+=(webviews-app); fi
+  if [[ -f "$activity/index.html" ]]; then cp -R "$activity" "$gen/agent-activity"; installed+=(agent-activity); fi
   if [[ ${#installed[@]} -eq 0 ]]; then
     rm -rf "$gen"
-    echo "no web bundles in $pane, $pages or $app" >&2
+    echo "no web bundles in $pane, $pages, $app or $activity" >&2
+    exit 1
+  fi
+  # The app serves cmux.shared from the overlay's pages/_shared: a surface that imports it is
+  # installed only with the pages it came from.
+  if [[ ! -d "$gen/pages/_shared" ]] && grep -rqs 'cmux-page://cmux\.shared/' "$gen"; then
+    rm -rf "$gen"
+    echo "the bundles import cmux-page://cmux.shared/ but $pages has no _shared; install the whole build" >&2
     exit 1
   fi
   for name in "${installed[@]}"; do
@@ -115,7 +129,7 @@ PY
   # Keep the two newest generations (a page that started loading the previous one finishes) and any
   # a surface still points at (an install of only some surfaces leaves the others where they were).
   local live=" "
-  for name in agent-pane pages webviews-app; do
+  for name in agent-pane pages webviews-app agent-activity; do
     target="$(readlink "$overlay/$name" 2>/dev/null || true)"
     [[ -n "$target" ]] && live+="${target%%/*} "
   done
@@ -128,7 +142,7 @@ PY
 
 # An output root of build-web-bundles.sh --out-root, built from this checkout.
 install_from() {
-  install_dirs "$1/$PANE" "$1/$PAGES" "$1/$APP" "$(git -C "$ROOT" rev-parse HEAD)"
+  install_dirs "$1/$PANE" "$1/$PAGES" "$1/$APP" "$1/$ACTIVITY" "$(git -C "$ROOT" rev-parse HEAD)"
 }
 
 # A built cmux .app: its module bundles and its viewer folder hold the same files. $2 is the
@@ -137,7 +151,8 @@ install_app() {
   local res="$1/Contents/Resources" commit="${2:-}"
   [[ -n "$commit" ]] || commit="$(/usr/libexec/PlistBuddy -c "Print CMUXCommit" "$1/Contents/Info.plist" 2>/dev/null || echo unknown)"
   install_dirs "$res/CmuxNext_CmuxNextAgentPane.bundle/Contents/Resources/agent-pane" \
-    "$res/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages" "$res/markdown-viewer/webviews-app" "$commit"
+    "$res/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages" "$res/markdown-viewer/webviews-app" \
+    "$res/CmuxNext_CmuxNextAgentActivity.bundle/Contents/Resources/agent-activity" "$commit"
 }
 
 # Whether a server on 127.0.0.1:$1 serves the agent pane, retrying for up to $2 seconds (a server

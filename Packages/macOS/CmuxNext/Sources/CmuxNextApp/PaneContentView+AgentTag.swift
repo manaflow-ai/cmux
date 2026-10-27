@@ -17,6 +17,7 @@ extension PaneContentView {
             model.selectedID.flatMap { model.tab($0)?.presence }
         } apply: { [weak self] presence in
             self?.agentTag.configure(presence)
+            // invalidate: the presence changed (an Equatable observation applies a new value only); the pane places the tag.
             self?.needsLayout = true
         }
     }

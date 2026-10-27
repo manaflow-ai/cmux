@@ -30,13 +30,6 @@ enum CEFPageDragCallback {
 /// app shim view start it (`WebContentsViewMac::StartDragging`, content/browser/web_contents/web_contents_view_mac.mm).
 /// In process the page window is cmux's own child window and Chromium starts the session itself.
 extension CEFRuntime {
-    /// Host mode, at the start (the host attached, Chromium not initialized yet): what cmux shows of the
-    /// host's pages besides their pixels, its widgets and its pages' drags.
-    func startHostPageUI(_ shim: CEFShimLibrary) {
-        showHostWidgets(shim)
-        installPageDragSource(shim)
-    }
-
     /// Sends the pages' drags to cmux (host mode with the feature on). The remote shim keeps the handler and
     /// gives every host it attaches its state, so a restarted host sends its drags here too.
     func installPageDragSource(_ shim: CEFShimLibrary) {

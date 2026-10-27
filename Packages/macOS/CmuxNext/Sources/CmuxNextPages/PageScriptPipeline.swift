@@ -1,5 +1,8 @@
 public import CmuxNextSettings
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 /// Delivers the router's envelopes to one page in send order, and renders large ones off the main
@@ -54,12 +57,12 @@ final class PageScriptPipeline {
     final class Gate {
         private var isReached = false
         private var isOpen = false
-        private var reachedWaiters: [CheckedContinuation<Void, Never>] = []
-        private var openWaiters: [CheckedContinuation<Void, Never>] = []
+        private var reachedWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
+        private var openWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
 
         func reached() async {
             guard !isReached else { return }
-            await withCheckedContinuation { reachedWaiters.append($0) }
+            try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in reachedWaiters.append(waiter) }
         }
 
         func open() {
@@ -68,7 +71,7 @@ final class PageScriptPipeline {
             isOpen = true
             let waiters = openWaiters
             openWaiters.removeAll()
-            for waiter in waiters { waiter.resume() }
+            for waiter in waiters { waiter.resume(returning: ()) }
         }
 
         fileprivate func markReached() {
@@ -76,12 +79,12 @@ final class PageScriptPipeline {
             isReached = true
             let waiters = reachedWaiters
             reachedWaiters.removeAll()
-            for waiter in waiters { waiter.resume() }
+            for waiter in waiters { waiter.resume(returning: ()) }
         }
 
         func opened() async {
             guard !isOpen else { return }
-            await withCheckedContinuation { openWaiters.append($0) }
+            try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in openWaiters.append(waiter) }
         }
     }
 
@@ -145,6 +148,7 @@ final class PageScriptPipeline {
         }
         if isIdle, envelope.fits(Self.inlineBudget) {
             // main-actor-ok: bounded by inlineBudget; larger envelopes render off the main actor.
+            // MQ12 held queue: the router holds envelopes while the page is hidden (PageRouter+Hold.swift).
             evaluate(PageRouter.receiveScript(envelope))
             return
         }
@@ -199,6 +203,7 @@ final class PageScriptPipeline {
         guard drain == nil else { return }
         let generation = generation
         // task-owner: drains this page's FIFO; ends when it is empty or on reset()
+        // main-hop-allow: the drain awaits the off-main render of large runs and the gates in FIFO order; its main parts only evaluate the rendered script in order (small runs drain inline in the frame task)
         drain = Task { @MainActor [weak self] in
             await self?.run(generation: generation)
         }
@@ -236,6 +241,7 @@ final class PageScriptPipeline {
             guard JSONValue.array(run.envelopes).fits(Self.inlineBudget) else { return startDrain() }
             head = end
             // main-actor-ok: bounded by inlineBudget; larger runs render off the main actor.
+            // MQ12 held queue: as above.
             evaluate(PageRouter.receiveManyScript(run.envelopes))
             compact()
         }
@@ -280,6 +286,7 @@ final class PageScriptPipeline {
                     return
                 }
                 inFlightDrops = []
+                // MQ12 held queue: as above.
                 evaluate(script)
             } else if case .gate(let gate) = queue[head] {
                 head += 1

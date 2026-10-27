@@ -56,6 +56,20 @@ struct KeyFrameHistogramTests {
         #expect(keyFrames.openCount == 0)
     }
 
+    @Test("Each committed key reaches committedKey with its key.frame time; a missed key does not")
+    func committedKeysReachTheObserver() {
+        let (keyFrames, _, uptime) = Self.rig()
+        var seen: [UInt64] = []
+        keyFrames.committedKey = { seen.append($0) }
+        keyFrames.begin(target: .terminal, eventTimestamp: 10, now: 10.002) // it waited 2 ms in the queue
+        uptime.advance(micros: 78_000)
+        keyFrames.runLoopReached(.beforeWaiting)
+        keyFrames.begin(target: .view, eventTimestamp: 0)
+        uptime.advance(micros: 500_000)
+        keyFrames.runLoopReached(.afterWaiting)
+        #expect(seen == [80_000])
+    }
+
     @Test("A key ended as missed records nothing: its time would hold the run loop's sleep")
     func aMissedKeyRecordsNothing() {
         let (keyFrames, store, uptime) = Self.rig()

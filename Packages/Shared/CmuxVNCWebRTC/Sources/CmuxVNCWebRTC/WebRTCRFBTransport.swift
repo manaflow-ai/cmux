@@ -116,7 +116,7 @@ final class ByteInbox: Sendable {
         var incoming: [Data] = []
         /// Oldest last (`incoming` reversed, so taking one is `popLast`).
         var outgoing: [Data] = []
-        var waiter: CheckedContinuation<Data?, Never>?
+        var waiter: OnceContinuation<Data?, OnceContinuationError>?
         var finished = false
 
         mutating func take() -> Data? {
@@ -131,7 +131,7 @@ final class ByteInbox: Sendable {
     private let state = Mutex(State())
 
     func yield(_ data: Data) {
-        let waiter: CheckedContinuation<Data?, Never>? = state.withLock { state in
+        let waiter: OnceContinuation<Data?, OnceContinuationError>? = state.withLock { state in
             guard !state.finished else { return nil }
             // A waiter is there only while nothing is queued, so the order holds.
             guard let waiter = state.waiter else {
@@ -146,7 +146,7 @@ final class ByteInbox: Sendable {
 
     /// No more bytes: the reader gets what is queued, then nil.
     func finish() {
-        let waiter: CheckedContinuation<Data?, Never>? = state.withLock { state in
+        let waiter: OnceContinuation<Data?, OnceContinuationError>? = state.withLock { state in
             state.finished = true
             defer { state.waiter = nil }
             return state.waiter
@@ -160,7 +160,8 @@ final class ByteInbox: Sendable {
     /// the same time gets nil.
     func next() async -> Data? {
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+            // The inbox holds the waiter until a yield or finish; a dropped one reads as the end (nil).
+            try? await withOnceContinuation { (continuation: OnceContinuation<Data?, OnceContinuationError>) in
                 let ready: Data?? = state.withLock { state in
                     if let chunk = state.take() { return .some(chunk) }
                     if state.finished || state.waiter != nil { return .some(nil) }
@@ -179,19 +180,19 @@ final class ByteInbox: Sendable {
 final class OpenSignal: Sendable {
     private struct State: Sendable {
         var result: (any Error)??
-        var waiter: CheckedContinuation<Void, any Error>?
+        var waiter: OnceContinuation<Void, any Error>?
     }
 
     private let state = Mutex(State())
 
     func fire(_ error: (any Error)?) {
-        let waiter: CheckedContinuation<Void, any Error>? = state.withLock { state in
+        let waiter: OnceContinuation<Void, any Error>? = state.withLock { state in
             guard state.result == nil else { return nil }
             state.result = .some(error)
             defer { state.waiter = nil }
             return state.waiter
         }
-        if let error { waiter?.resume(throwing: error) } else { waiter?.resume() }
+        if let error { waiter?.resume(throwing: error) } else { waiter?.resume(returning: ()) }
     }
 
     func wait(timeout seconds: Double) async throws {
@@ -200,14 +201,14 @@ final class OpenSignal: Sendable {
             self?.fire(RFBError.transport("no WebRTC path to the Mac in \(Int(seconds)) s"))
         }
         defer { timer.cancel() }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             let done: (any Error)?? = state.withLock { state in
                 if let result = state.result { return .some(result) }
                 state.waiter = continuation
                 return nil
             }
             if let done {
-                if let error = done { continuation.resume(throwing: error) } else { continuation.resume() }
+                if let error = done { continuation.resume(throwing: error) } else { continuation.resume(returning: ()) }
             }
         }
     }

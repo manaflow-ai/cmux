@@ -759,7 +759,7 @@ extension PaneHostView {
         self.assertEqual(stale, [], "every MQ6 seed still names a declared tunable or env read")
         keys = [key for key, _ in rows]
         self.assertIn("motion.pane.holdContent", keys)
-        self.assertIn("CMUX_TUI_TERMINAL_HOST_MODEL", keys)
+        self.assertNotIn("CMUX_TUI_TERMINAL_HOST_MODEL", keys, "terminalHolder replaces the env switch")
 
 
 if __name__ == "__main__":

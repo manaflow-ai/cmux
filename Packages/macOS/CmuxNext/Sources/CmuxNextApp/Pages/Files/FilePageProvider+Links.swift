@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -46,9 +47,7 @@ extension FilePageProvider {
             !name.hasPrefix(".") && name != "node_modules" && name.lowercased().hasPrefix(start)
         }
         let entries: [(name: String, isDirectory: Bool)] = shown.map { (name: String) -> (name: String, isDirectory: Bool) in
-            var isDirectory: ObjCBool = false
-            FileManager.default.fileExists(atPath: directory.appending(path: name).path, isDirectory: &isDirectory)
-            return (name, isDirectory.boolValue)
+            (name, FileManager.default.directoryExists(atPath: directory.appending(path: name).path))
         }
         let ordered = entries.sorted { (a: (name: String, isDirectory: Bool), b: (name: String, isDirectory: Bool)) -> Bool in
             if a.isDirectory != b.isDirectory { return a.isDirectory }
@@ -71,12 +70,11 @@ extension FilePageProvider {
                 links[relative] = ["exists": false]
                 continue
             }
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: real.path, isDirectory: &isDirectory) else {
+            guard let entry = FileManager.default.entryKind(atPath: real.path) else {
                 links[relative] = ["exists": false, "path": .string(real.path)]
                 continue
             }
-            let kind = isDirectory.boolValue ? "directory" : FilePageKind.isMarkdown(real) ? "markdown" : "file"
+            let kind = entry == .directory ? "directory" : FilePageKind.isMarkdown(real) ? "markdown" : "file"
             if kind == "markdown" { markdown.append(real.path) }
             links[relative] = ["exists": true, "path": .string(real.path), "kind": .string(kind)]
         }

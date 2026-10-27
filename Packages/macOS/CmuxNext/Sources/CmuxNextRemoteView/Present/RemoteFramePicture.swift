@@ -18,6 +18,7 @@ extension RemoteVideoView {
     /// layout as the pane, so a picture of it lines up with the pane it stands in for. Nil when
     /// `host` cannot be drawn (no size).
     package func composite(_ frame: CGImage, in host: NSView) -> CGImage? {
+        // sync-layout: cacheDisplay below draws the laid-out host.
         host.layoutSubtreeIfNeeded()
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
         host.cacheDisplay(in: host.bounds, to: rep)

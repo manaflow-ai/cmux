@@ -51,7 +51,7 @@ extension CloudHandlers {
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
                 // The window that still shows the creation shows its
                 // workspace; one that moved on gets it filed quietly.
-                guard let windowID = creation.windowID, let state = windows.controller(for: windowID)?.state else {
+                guard let windowID = creation.windowID, let state = windows.controllerBuildingIfWaiting(for: windowID)?.state else {
                     windows.reveal(workspaceID: id)
                     return
                 }

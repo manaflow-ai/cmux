@@ -72,6 +72,11 @@ nonisolated enum GlyphMask {
         if glyphs.contentsScale != scale { glyphs.contentsScale = scale }
     }
 
+    /// The bytes an image of ``image(size:scale:ink:draw:)`` holds: its rows, at least 4 bytes a pixel.
+    static func bytes(of image: CGImage) -> Int {
+        max(image.bytesPerRow * image.height, image.width * image.height * 4)
+    }
+
     private static let weights = Mutex<[UInt32: Int]>([:])
 
     /// True when `layer`'s space runs top-down on screen (the flags of the layer and its

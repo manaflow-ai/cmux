@@ -97,7 +97,7 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
             if let closing = value.firstIndex(of: "]") {
                 value = String(value[value.index(after: value.startIndex)..<closing])
             } else {
-                value.removeFirst()
+                value = String(value.dropFirst())
             }
         } else if let colon = value.lastIndex(of: ":"), value[value.index(after: colon)...].allSatisfy(\.isNumber),
                   value.filter({ $0 == ":" }).count == 1 {

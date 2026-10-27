@@ -32,16 +32,6 @@ extension ChromiumHostPageView {
         return (children ?? []) + [element]
     }
 
-    /// A point over the page is answered from the page's tree, as Chrome's page view answers from
-    /// its root element (`-[RenderWidgetHostViewCocoa accessibilityHitTest:]`).
-    public override func accessibilityHitTest(_ point: NSPoint) -> Any? {
-        guard let element = remoteAccessibility.element else {
-            askForRemoteAccessibility()
-            return super.accessibilityHitTest(point)
-        }
-        return accessibilityBridge.hitTest(element, point) ?? element
-    }
-
     /// Chromium built the page's accessibility tree (an assistive client came, `CEFAccessibility`): a
     /// page the host refused while it had none, or refuses a request already in flight, is asked
     /// again at the next read, which the layout change prompts.

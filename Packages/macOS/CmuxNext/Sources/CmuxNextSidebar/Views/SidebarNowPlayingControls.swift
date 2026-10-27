@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 import QuartzCore
 
 /// The Now Playing card's Play or Pause: the one filled control, a disc in the
@@ -68,7 +69,7 @@ final class SidebarNowPlayingPlayButton: NSButton {
         layer?.opacity = isHighlighted ? 0.75 : (isEnabled ? 1 : 0.4)
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: only invalidates: AppKit draws a hidden view when it shows
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }
@@ -80,6 +81,8 @@ final class SidebarNowPlayingPlayButton: NSButton {
 /// Animation, so the render server runs it and the app takes no wakeups.
 /// Paused, under Reduce Motion or with animations off, they rest still at
 /// low heights, also when Reduce Motion turns on mid-track; nothing flashes.
+/// The loops run through ``LoopVisibility``: off while the card is out of its
+/// window, hidden, or its window is occluded.
 final class SidebarNowPlayingLevels: NSView {
     static let size = NSSize(width: 13, height: 11)
     static let levelsKey = "levels"
@@ -94,6 +97,10 @@ final class SidebarNowPlayingLevels: NSView {
         ([0.3, 0.75, 0.45, 0.9, 0.5, 0.3], 1.9),
     ]
     private let bars = (0..<3).map { _ in CALayer() }
+    private let loopVisibility = LoopVisibility("sidebar.nowPlaying.levels")
+    private var loopNode: VisibilityNode { loopVisibility.node }
+    /// The view height the attached loops were made for; nil while none is attached.
+    private var loopHeight: CGFloat?
     private(set) var isPlaying = false
     /// Pins Reduce Motion for these bars only (tests); nil follows `Motion.animatesLoops`.
     var reduceMotionOverride: Bool? { didSet { update() } }
@@ -140,10 +147,13 @@ final class SidebarNowPlayingLevels: NSView {
         }
     }
 
-    /// Whether the bars move now.
-    var moves: Bool {
-        isPlaying && window != nil && !isHiddenOrHasHiddenAncestor && (reduceMotionOverride.map { !$0 } ?? Motion.indicators.animatesLoops)
+    /// Whether the bars loop where a person can see them: a track plays and loops are on.
+    private var wantsLoops: Bool {
+        isPlaying && (reduceMotionOverride.map { !$0 } ?? Motion.indicators.animatesLoops)
     }
+
+    /// Whether the bars move now: they loop, and the view is in its window, shown and not occluded.
+    var moves: Bool { wantsLoops && loopNode.isVisible }
 
     override func layout() {
         super.layout()
@@ -152,6 +162,7 @@ final class SidebarNowPlayingLevels: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        loopVisibility.place(in: window)
         observeMotion(window != nil)
         applyColors()
         update()
@@ -159,12 +170,12 @@ final class SidebarNowPlayingLevels: NSView {
 
     override func viewDidHide() {
         super.viewDidHide()
-        update()
+        loopNode.set(.hidden)
     }
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        update()
+        loopNode.set(.visible)
     }
 
     private func update() {
@@ -173,14 +184,17 @@ final class SidebarNowPlayingLevels: NSView {
         defer { CATransaction.commit() }
         let height = bounds.height, width = Self.barWidth
         let gap = bars.count > 1 ? max(0, (bounds.width - CGFloat(bars.count) * width) / CGFloat(bars.count - 1)) : 0
-        let moves = moves
         for (index, bar) in bars.enumerated() {
-            bar.removeAnimation(forKey: Self.levelsKey)
             bar.cornerRadius = width / 2
             bar.bounds = CGRect(x: 0, y: 0, width: width, height: Self.rest[index] * height)
             bar.position = CGPoint(x: CGFloat(index) * (width + gap) + width / 2, y: 0)
-            guard moves, height > 0 else { continue }
-            bar.add(Self.loop(index, height: height), forKey: Self.levelsKey)
+        }
+        let loopsAt = wantsLoops && height > 0 ? height : nil
+        guard loopsAt != loopHeight else { return }
+        loopHeight = loopsAt
+        guard loopsAt != nil else { return loopVisibility.detachAll() }
+        for (index, bar) in bars.enumerated() {
+            loopVisibility.attach(bar, key: Self.levelsKey) { Self.loop(index, height: height) }
         }
     }
 

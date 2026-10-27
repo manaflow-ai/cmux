@@ -33,7 +33,8 @@ public final class GhosttyGPUResidency: TerminalGPUResidency {
     public func setResident(_ resident: Bool, of view: TerminalSurfaceView) {
         #if GHOSTTY_GPU_RESIDENT
         guard let surface = view.surface else { return }
-        ghostty_surface_set_gpu_resident(surface, resident)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        unsafe ghostty_surface_set_gpu_resident(surface, resident)
         #endif
     }
 }

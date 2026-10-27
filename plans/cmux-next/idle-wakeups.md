@@ -99,7 +99,7 @@ Status: **fixed** (this work), **ok** (event-driven, one-shot, or stops itself),
 | HomeCache writes | Home | every owner event (typing, connection, recovery) | 250 ms later | **rewrote the whole cache with the same bytes** (358 KB/s idle on Home); then still woke the main actor 250 ms later and built and compared the full snapshot | fixed (2026-10-23): the mirror and the intent log count writes to what the cache holds (HomeChangeCount); only a moved count, a draft or a scroll anchor schedules a write, so typing, connection changes and recoveries start no Task and build no snapshot; no retained copy of the written snapshot; equal rows are not assigned (red/green HomeCacheIdleWriteTests.ephemeralOwnerEventsScheduleNoWrite). Review follow-up: an equal inbox refetch no longer moves the mirror's count (HomeMirrorEqualInboxTests); a real write is proportional to the change and off the main actor: HomeCache is an actor, the main actor hands it copy-on-write values, and the files are a small index plus one file per window, of which only the changed ones are rewritten (HomeCacheProportionalWriteTests). Second follow-up: the actor compared the encoded index bytes, and JSONEncoder writes keys and ConversationID-keyed dictionaries in hash order, so an equal state still rewrote home.json (the flaky aMessageInOneConversationRewritesOnlyItsWindow); it now compares the index value (sorted keys order only struct and String keys; the ConversationID-keyed dictionaries still encode in hash order, so the compare must stay a value compare) (red/green anEqualStateBuiltInAnotherOrderDoesNotRewriteTheIndex). Home disk B/s with agents active (light and STRESS) is not measured yet: the 358 KB/s row is not claimed until then |
 | Media observer page script (both engines, every frame of every page) | Browser | page load | never | **setInterval 1 s in every frame for the page's life**, idle or hidden | fixed (2026-10-23): the timer runs only while the frame's report plays or waits for the binding. Reports carry a per-document frame id and the tab keeps one per frame (BrowserMediaFrames), so one frame's null no longer erases another's paused report (what the 3 s re-send hid); pagehide drops the frame's report. Review follow-up: no DOM watch at all (the subtree MutationObserver kept while a paused report was live ran on every mutation of a busy page for hours): a removed paused element reports null at the next media event or show; a report waiting for the binding retries at most 10 looks, then at the next media event or show; a pagehide null that waits is retried too (red/green BrowserMediaObserverIdleTests, BrowserMediaFramesTests) |
 | Verification detector page script (both engines, top frame of https pages) | Browser | DOM change, 10 min after load | report / 10 min | **whole-page `innerText` (forced layout) up to 1/s on a hidden page; a missing binding retried at 4 Hz forever** | fixed (2026-10-23): a hidden page's changes are noted and checked once on show; a page found waiting before the binding exists keeps no timer and reads no text, and reports when CEFVerificationBridge calls its ready hook (once per document, at .finished, after that document's addBinding) or at the next show. There is no timed binding wait (an earlier 10 s cap was replaced by the ready hook). The 10-minute end disconnects the observer and the visibility listener (red/green VerificationDetectorHiddenTests, CEFVerificationBridgeCallsTests). Open: that background tabs of both engines really report `visibilityState: hidden` on macOS 14/15/26/27 is a runtime check for the batch run (JSC tests fake it) |
-| HostPressureMonitor read timer (cmuxterm-hq#2995) | HostPressure | 15 s timer (2 s leeway) for load, swap and acpmux's `host_pressure`, which have no event; memory pressure is a DispatchSource event | Runs only while the Debug toggle `hostPressure.enabled` (default off, cmux#22662) is on and at least one window can be seen. Each window's indicator unsubscribes when the toggle goes off or its window hides, minimizes, is fully occluded or closes (`HostPressureSampling`); the last unsubscribe, and app quit, call `stop()`, which cancels the source, timer and read. Cleanup: the indicator removes its window observers and cancels its toggle and level observations on leaving the window and in deinit | one timer for the app, not one per window: 4 wakeups a minute while a window with the toggle on is visible, 0 while off or hidden; one sysctl batch each; a missing acpmux verdict is retried every 20th read, not every read | reviewed |
+| HostPressureMonitor read timer (cmuxterm-hq#2995) | HostPressure | 15 s timer (2 s leeway) for load, swap and acpmux's `host_pressure`, which have no event; memory pressure is a DispatchSource event | Runs only while the feature `hostPressure` (default off, cmux#22662; the Debug toggle `hostPressure.enabled` overrides it at launch) is on and at least one window can be seen. Each window's indicator unsubscribes when its window hides, minimizes, is fully occluded or closes (`HostPressureSampling`); the last unsubscribe, and app quit, call `stop()`, which cancels the source, timer and read. Cleanup: the indicator removes its window observers and cancels its forced-level and level observations on leaving the window and in deinit | one timer for the app, not one per window: 4 wakeups a minute while a window with the feature on is visible, 0 while off or hidden; one sysctl batch each; a missing acpmux verdict is retried every 20th read, not every read | reviewed |
 
 ### Polling sites removed
 
@@ -435,6 +435,61 @@ Paths are in chromium/src at main, read 2026-10-25 (p14-energy.md sec. 1 has the
 | No app-level polls | Background polls stretch 4 times in saver | cmux has polls that Chrome does not have | 032, landed |
 | Power notifications are handled on the UI thread | Power inputs arrive on a utility queue; main hears only an edge | Fewer main wakes on battery | 058 |
 | The browser process can not App Nap | The Chromium Host may App Nap while every page it hosts is hidden; idle agent harnesses of hidden sessions freeze | The same rule as `FreezingPolicy`, applied to processes Chrome does not have | 128, 117 |
+
+### 9.9 The built-in uBlock Origin (cef-extension, p14-energy-108)
+
+The built-in uBlock Origin 1.75.0 (Manifest V2, `fetch-ublock.sh`) runs its background page in one extension
+renderer, the `cef-extension` kind (budget 0.1 wakeups/s per process, tabs-static). Its timers are profiled with
+`cef-idle-probe.py --extension-timers` (with `--app`, in place of the trace and pump window, since its
+debugger pauses run on the browser main thread; window 120 s, at least 60 s) or `--cdp-port PORT` (any running
+Chromium, Chrome in chrome-static too): `extension_timers.py` sets DevTools' timer instrumentation breakpoints on
+the background target and counts each callback (a JS wake), each arm by the stack that armed it (the owner) and
+each `chrome.alarms` fire.
+
+Measured 2026-10-26 on Linux (no Mac here): Chrome for Testing 138.0.7204.183 (the last one that loads an MV2
+extension with `--load-extension`), the same staged uBlock Origin, headless, 11 static tabs from a local server,
+settled 120-150 s, no input. Fresh profile = first start of uBlock Origin; warm = a profile it ran in before.
+
+| Window | uBlock Origin JS wakes/s | extension process wakes/s (Linux context switches) | by thread |
+| --- | --- | --- | --- |
+| fresh, 660 s | 0.0515 (34 in 660 s) | 0.23 (300 s) | main 0.10, HangWatcher 0.10, IO 0.023, MemoryInfra 0.007 |
+| warm, 660 s | 0.0182 (12 in 660 s) | 0.157 (300 s) | HangWatcher 0.10, main 0.047, IO 0.01 |
+| warm, `--disable-features=EnableHangWatcher` | not profiled | 0.06 (300 s) | main 0.05, IO 0.01 |
+
+The JS owners (every one is code, none is a setting):
+
+| Owner (uBlock Origin 1.75.0 source) | Period | Rate with 11 tabs | When |
+| --- | --- | --- | --- |
+| `js/traffic.js` `gc` (behind-the-scene journal cache) | 30.011 s, re-arms itself | 0.033/s | until a tab opens or closes (the page-store token changes) |
+| `js/tab.js` `TabContext.onGC` (one per tab; `vAPI.tabs.get` to the browser) | 10 min per tab | 0.017/s | always, one per open tab |
+| `js/tab.js` `pageStoreJanitor` | 15 min | 0.0011/s | always |
+| alarm `assetUpdater` (`js/storage.js` `scheduleAssetUpdater`, hidden setting `autoUpdatePeriod` 1 h) | 1 h | 0.0003/s | always; a list is fetched only when its `updateAfter` (days) has passed |
+| `js/storage.js` `saveLocalSettings` (request counters), `selfieManager` | once, 3.6 min and 53 s after activity | 0 at idle | after page loads, after a list change |
+
+Results:
+
+- uBlock Origin itself is under the budget: 0.018-0.052 JS wakes/s with 11 tabs. Its asset updates already run on
+  the hourly `assetUpdater` alarm, and an update check with nothing due writes no cache (`js/assets.js`
+  `updateNext`: no list due, no fetch and no list written). The only idle write in the window was the one-shot request-counter save.
+- No admin setting can remove more. uBlock Origin reads admin settings only from `chrome.storage.managed`
+  (`js/vapi-background.js` `vAPI.adminStorage`), which Chromium fills from enterprise policy
+  (`chrome/browser/extensions/api/storage/managed_value_store_cache.cc`; on macOS a managed-preferences profile),
+  so a bundle can not ship them; and the owners above are not settings. Changing the staged code was not done: the
+  copy stays the unmodified release (SOURCE.txt) and the same build as Chrome's in chrome-static.
+- Remaining owner above 0.1/s: Chromium's `HangWatcher` thread (base/threading/hang_watcher.cc, `kEnableHangWatcher`,
+  `kMonitoringPeriod` 10 s), 0.10/s in the extension process alone. It runs in every Chromium child that has it on,
+  so each hidden renderer pays the same 0.1/s (D4's hidden-renderer limit is 0.1/s). It is a Q8 item, not a uBlock
+  Origin one: `--disable-features=EnableHangWatcher` removes it (0.157/s to 0.06/s above), and costs Chromium's own
+  hang dumps of its children; cmux's HangMonitor watches the app, not the Chromium children. The decision and the
+  switch belong to the Q8 slot that owns CEFSwitches.swift.
+- Option, not taken: uBlock Origin Lite (Manifest V3, `declarativeNetRequest`) in Energy Saver. It has no background
+  page: its service worker stops after 30 s idle (content/browser/service_worker/service_worker_version.cc), so its
+  idle cost is 0 and filtering runs in the network service. Costs: a different extension id
+  (ddkjiahejlhfcafbddmgiahcphecmpfh), so the person's uBlock Origin settings do not carry over; less filtering power
+  (no dynamic filtering, fewer scriptlets, lists fixed per release); and `--load-extension` is read at Chromium's
+  start, so a saver change needs a Chromium restart.
+- The macOS numbers (interrupt wakeups, the idle-budget `cef-extension` row) come from the test phase:
+  `idle-budget.py --sessions tabs-static,chrome-static` on a measure host.
 
 ## 10. Hidden main wakes (p14-energy-095)
 

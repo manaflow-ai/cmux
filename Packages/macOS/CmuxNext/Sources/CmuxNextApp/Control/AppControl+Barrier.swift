@@ -6,6 +6,9 @@ import CmuxNextWakeups
 import CmuxNextDesign
 import CmuxNextOracle
 import CmuxNextSignposts
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 #endif
 
 extension AppControl {
@@ -40,9 +43,9 @@ extension AppControl {
         let sources = OracleSettleSources(
             store: daemon.store,
             sync: { [weak daemon] in await Self.oracleSync(daemon) },
-            motionIdle: { await Self.motionIdle(windows) },
-            commit: { await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in CommitBoundary().after { _ in done.resume() } } },
-            motion: { Self.runningMotion(windows()) })
+            motionIdle: { await Motion.waitAtRest(windows) },
+            commit: { _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in CommitBoundary().after { _ in done.resume(returning: ()) } } },
+            motion: { Motion.running(in: windows()) })
         router.register(OracleSettleControl(router: router, facets: services.makeOracleFacets(), sources: sources).methods)
         #endif
     }
@@ -63,21 +66,6 @@ extension AppControl {
         }
         guard let sequence = await connection.eventSequence(), daemon.connection === connection else { return .unavailable(epoch: epoch) }
         return .reached(OracleDaemonMark(sequence: sequence, epoch: epoch))
-    }
-
-    /// The traces of the animators running now, on every clock that can step one (no clock is created).
-    private static func runningMotion(_ windows: [NSWindow]) -> [String] {
-        MotionClock.existing(in: windows).filter { !$0.isIdle }.flatMap(\.running)
-    }
-
-    /// True once no motion clock steps an animator (the windows' and the app clock window-less views share),
-    /// false when cancelled. Each wait is the clock's own idle continuation; a clock that starts again while
-    /// another is awaited is found on the next pass.
-    private static func motionIdle(_ windows: @MainActor @Sendable () -> [NSWindow]) async -> Bool {
-        while let busy = MotionClock.existing(in: windows()).first(where: { !$0.isIdle }) {
-            guard await busy.waitIdle() else { return false }
-        }
-        return true
     }
     #endif
 }

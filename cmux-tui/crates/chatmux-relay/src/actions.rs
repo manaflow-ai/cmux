@@ -262,7 +262,7 @@ fn is_eloop(error: &std::io::Error) -> bool {
 }
 
 fn assert_not_dangling_link(path: &Path) -> Result<(), HostError> {
-    match std::fs::symlink_metadata(path) {
+    match cmux_blocking::fs::symlink_metadata(path) {
         Ok(info) => {
             if info.file_type().is_symlink() {
                 return Err(HostError::Refusal(format!(
@@ -284,7 +284,7 @@ fn canonical_potential_path(path: &Path) -> Result<PathBuf, HostError> {
     let mut cursor = path.to_path_buf();
     let mut suffix: Vec<std::ffi::OsString> = Vec::new();
     loop {
-        match std::fs::canonicalize(&cursor) {
+        match cmux_blocking::fs::canonicalize(&cursor) {
             Ok(canonical) => {
                 let mut out = canonical;
                 for part in suffix.iter().rev() {
@@ -512,7 +512,7 @@ pub fn resolve_scoped_host_path(
         let path = if allow_missing {
             canonical_potential_path(&lexical.path)?
         } else {
-            std::fs::canonicalize(&lexical.path)?
+            cmux_blocking::fs::canonicalize(&lexical.path)?
         };
         enforce_canonical_roots(&path, &roots).map_err(HostError::Refusal)?;
         #[cfg(unix)]
@@ -569,13 +569,14 @@ fn read_utf8_no_follow(path: &HostScopedPath) -> Result<String, HostError> {
     let file =
         open_beneath(&path.anchor, &path.relative, libc::O_RDONLY | libc::O_NONBLOCK, false)?;
     #[cfg(not(unix))]
-    let mut file = open_options_no_follow(true).open(&path.path).map_err(|error| {
-        if is_eloop(&error) {
-            HostError::Refusal("refusing a symlink that changed during read".to_owned())
-        } else {
-            HostError::Io(error)
-        }
-    })?;
+    let mut file = crate::blocking_fs::open_with(&open_options_no_follow(true), &path.path)
+        .map_err(|error| {
+            if is_eloop(&error) {
+                HostError::Refusal("refusing a symlink that changed during read".to_owned())
+            } else {
+                HostError::Io(error)
+            }
+        })?;
     let info = file.metadata()?;
     if !info.file_type().is_file() {
         return Err(HostError::Refusal("read only supports regular files".to_owned()));
@@ -618,19 +619,21 @@ fn write_utf8_no_follow(path: &HostScopedPath, content: &str) -> Result<(), Host
     #[cfg(not(unix))]
     let mut file = {
         create_parent_dirs_no_symlink(parent)?;
-        let canonical_parent = std::fs::canonicalize(parent)?;
+        let canonical_parent = cmux_blocking::fs::canonicalize(parent)?;
         let file_name =
             path.path.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
         let canonical = canonical_parent.join(file_name);
         assert_not_dangling_link(&canonical)?;
         enforce_canonical_roots(&canonical, &path.roots).map_err(HostError::Refusal)?;
-        open_options_no_follow(false).open(&canonical).map_err(|error| {
-            if is_eloop(&error) {
-                HostError::Refusal("refusing a symlink that changed during write".to_owned())
-            } else {
-                HostError::Io(error)
-            }
-        })?
+        crate::blocking_fs::open_with(&open_options_no_follow(false), &canonical).map_err(
+            |error| {
+                if is_eloop(&error) {
+                    HostError::Refusal("refusing a symlink that changed during write".to_owned())
+                } else {
+                    HostError::Io(error)
+                }
+            },
+        )?
     };
     if !file.metadata()?.file_type().is_file() {
         return Err(HostError::Refusal("write only supports regular files".to_owned()));
@@ -658,7 +661,7 @@ fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), HostError> {
             Component::Normal(name) => current.push(name),
             _ => return Err(HostError::Refusal("invalid parent path".to_owned())),
         }
-        match std::fs::symlink_metadata(&current) {
+        match cmux_blocking::fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
                 return Err(HostError::Refusal(format!("path {} is a symlink", current.display())));
             }
@@ -670,7 +673,7 @@ fn create_parent_dirs_no_symlink(path: &Path) -> Result<(), HostError> {
             }
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(&current)?;
+                crate::blocking_fs::create_dir(&current)?;
             }
             Err(error) => return Err(HostError::Io(error)),
         }
@@ -740,7 +743,7 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError>
     {
         let mut entries = Vec::with_capacity(MAX_LISTING_ENTRIES.min(64));
         let mut truncated = false;
-        for entry in std::fs::read_dir(&path.path).map_err(HostError::Io)? {
+        for entry in cmux_blocking::fs::read_dir(&path.path).map_err(HostError::Io)? {
             let entry = entry.map_err(HostError::Io)?;
             if entries.len() < MAX_LISTING_ENTRIES {
                 entries.push(ScopedDirEntry {
@@ -1639,6 +1642,47 @@ fn prepare_grep_paths(
     Ok((path_guard, process_path, cwd_guard, command_cwd_path))
 }
 
+/// A directory a command runs in: the path it is given and a descriptor
+/// pinning it, which the child inherits (`inherited_directory_path`).
+#[cfg(unix)]
+struct CommandCwd {
+    guard: std::fs::File,
+    path: String,
+}
+
+#[cfg(unix)]
+fn prepare_command_cwd(scope: &OwnedPathScope, raw: &str) -> Result<CommandCwd, BlockingFsError> {
+    let cwd = scope.resolve(raw, false)?;
+    let (guard, path) =
+        inherited_directory_path(&cwd).map_err(|error| operation_error(error, false))?;
+    Ok(CommandCwd { guard, path })
+}
+
+/// What `find` does once its paths are checked on a blocking thread.
+#[cfg(unix)]
+enum FindPlan {
+    /// The path is a regular file: this is find's whole output.
+    RegularFile(String),
+    /// Run find over `process_path` in `cwd`; `path_guard` pins the path.
+    Walk { path_guard: std::fs::File, process_path: String, cwd: CommandCwd },
+}
+
+#[cfg(unix)]
+fn prepare_find(
+    scope: &OwnedPathScope,
+    raw: &str,
+    pattern: Option<&str>,
+) -> Result<FindPlan, BlockingFsError> {
+    let path = scope.resolve(raw, false)?;
+    let (path_guard, process_path) =
+        inherited_path(&path).map_err(|error| operation_error(error, false))?;
+    if cmux_blocking::fs::metadata(&path.path).is_ok_and(|metadata| metadata.is_file()) {
+        return Ok(FindPlan::RegularFile(find_regular_file_output(&path, pattern)));
+    }
+    let cwd = prepare_command_cwd(scope, ".")?;
+    Ok(FindPlan::Walk { path_guard, process_path, cwd })
+}
+
 enum BlockingFsError {
     Refusal(String),
     Io(std::io::Error),
@@ -1783,6 +1827,8 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
         home: home.clone(),
         workdir: workdir.clone(),
     };
+    // Unix resolves on a blocking thread through `path_scope`.
+    #[cfg(not(unix))]
     let scoped = |raw: &str, allow_missing: bool| {
         resolve_scoped_host_path(raw, &root_lists, &home, &workdir, allow_missing)
     };
@@ -1843,7 +1889,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
         // the bounded operation instead of returning a checked path. It also
         // retains process-owned capacity across reconnects, which bounds
         // kernel calls that cannot be interrupted in user space.
-        let output = match tokio::task::spawn_blocking(move || {
+        let output = match cmux_blocking::spawn_blocking(move || {
             let _file_permit = file_permit;
             perform_bounded_file_operation(path_scope, operation)
         })
@@ -1890,7 +1936,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             }
             #[cfg(unix)]
             let (_path_guard, process_path, _cwd_guard, command_cwd_path) =
-                match tokio::task::spawn_blocking({
+                match cmux_blocking::spawn_blocking({
                     let scope = path_scope.clone();
                     let raw = raw.to_owned();
                     move || prepare_grep_paths(scope, raw)
@@ -1959,74 +2005,64 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
         "find" => {
             let raw =
                 args.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(".");
-            let path = match scoped(raw, false) {
-                Ok(Ok(path)) => path,
-                Ok(Err(message)) => return fail("path_forbidden", &message),
-                Err(error) => return io_fail(error),
-            };
-            if cfg!(windows) {
+            #[cfg(not(unix))]
+            {
+                if let Err(response) = scoped(raw, false).map_err(io_fail).and_then(|resolved| {
+                    resolved.map(drop).map_err(|message| fail("path_forbidden", &message))
+                }) {
+                    return response;
+                }
                 return fail("unsupported_verb", "find is not available on Windows relays yet");
             }
             #[cfg(unix)]
-            let (_path_guard, process_path) = match inherited_path(&path) {
-                Ok(value) => value,
-                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
-                Err(HostError::Io(error)) => return io_fail(error),
-            };
-            #[cfg(unix)]
-            if path.path.is_file() {
-                let pattern = args.get("pattern").and_then(Value::as_str).filter(|p| !p.is_empty());
-                return run_reply(
-                    version,
-                    &action_id,
-                    RunOutcome::Done {
-                        exit_code: 0,
-                        output: find_regular_file_output(&path, pattern),
-                    },
-                    args.get("limit"),
-                    Some(500),
-                    timeout_ms,
-                );
-            }
-            #[cfg(not(unix))]
-            let process_path = path.path.display().to_string();
-            let command_cwd = match scoped(".", false) {
-                Ok(Ok(path)) => path,
-                Ok(Err(message)) => return fail("path_forbidden", &message),
-                Err(error) => return io_fail(error),
-            };
-            #[cfg(unix)]
-            let (_cwd_guard, command_cwd_path) = match inherited_directory_path(&command_cwd) {
-                Ok(value) => value,
-                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
-                Err(HostError::Io(error)) => return io_fail(error),
-            };
-            #[cfg(not(unix))]
-            let command_cwd_path = command_cwd.path.display().to_string();
-            #[cfg(unix)]
-            let command_cwd_fd = {
-                use std::os::fd::AsRawFd as _;
-                Some(_cwd_guard.as_raw_fd())
-            };
-            #[cfg(not(unix))]
-            let command_cwd_fd = None;
-            let mut find_args = vec![process_path];
-            if let Some(pattern) =
-                args.get("pattern").and_then(Value::as_str).filter(|p| !p.is_empty())
             {
-                find_args.push("-name".to_owned());
-                find_args.push(pattern.to_owned());
+                use std::os::fd::AsRawFd as _;
+                let pattern = args.get("pattern").and_then(Value::as_str).filter(|p| !p.is_empty());
+                let plan = match cmux_blocking::spawn_blocking({
+                    let (scope, raw) = (path_scope.clone(), raw.to_owned());
+                    let pattern = pattern.map(str::to_owned);
+                    move || prepare_find(&scope, &raw, pattern.as_deref())
+                })
+                .await
+                {
+                    Ok(Ok(plan)) => plan,
+                    Ok(Err(BlockingFsError::Refusal(message))) => {
+                        return fail("path_forbidden", &message);
+                    }
+                    Ok(Err(BlockingFsError::Io(error))) => return io_fail(error),
+                    Err(_) => return fail("failed", "operation failed"),
+                };
+                let (_path_guard, process_path, cwd) = match plan {
+                    FindPlan::RegularFile(output) => {
+                        return run_reply(
+                            version,
+                            &action_id,
+                            RunOutcome::Done { exit_code: 0, output },
+                            args.get("limit"),
+                            Some(500),
+                            timeout_ms,
+                        );
+                    }
+                    FindPlan::Walk { path_guard, process_path, cwd } => {
+                        (path_guard, process_path, cwd)
+                    }
+                };
+                let mut find_args = vec![process_path];
+                if let Some(pattern) = pattern {
+                    find_args.push("-name".to_owned());
+                    find_args.push(pattern.to_owned());
+                }
+                let outcome = run_spec(
+                    RunSpec::Argv { file: "find", args: find_args },
+                    Path::new(&cwd.path),
+                    Some(cwd.guard.as_raw_fd()),
+                    timeout_ms,
+                    &env,
+                    Some(process_cancellation.clone()),
+                )
+                .await;
+                run_reply(version, &action_id, outcome, args.get("limit"), Some(500), timeout_ms)
             }
-            let outcome = run_spec(
-                RunSpec::Argv { file: "find", args: find_args },
-                Path::new(&command_cwd_path),
-                command_cwd_fd,
-                timeout_ms,
-                &env,
-                Some(process_cancellation.clone()),
-            )
-            .await;
-            run_reply(version, &action_id, outcome, args.get("limit"), Some(500), timeout_ms)
         }
         "exec" => {
             let command = args.get("command").and_then(Value::as_str).unwrap_or_default();
@@ -2038,23 +2074,30 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             // intersection when the root lists do not overlap.
             let raw_cwd =
                 args.get("cwd").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(".");
-            let scoped_cwd = match scoped(raw_cwd, false) {
-                Ok(Ok(path)) => path,
-                Ok(Err(message)) => return fail("path_forbidden", &message),
-                Err(error) => return io_fail(error),
+            #[cfg(unix)]
+            let cwd = match cmux_blocking::spawn_blocking({
+                let (scope, raw) = (path_scope.clone(), raw_cwd.to_owned());
+                move || prepare_command_cwd(&scope, &raw)
+            })
+            .await
+            {
+                Ok(Ok(cwd)) => cwd,
+                Ok(Err(BlockingFsError::Refusal(message))) => {
+                    return fail("path_forbidden", &message);
+                }
+                Ok(Err(BlockingFsError::Io(error))) => return io_fail(error),
+                Err(_) => return fail("failed", "operation failed"),
             };
             #[cfg(unix)]
-            let (_cwd_guard, scoped_cwd_path) = match inherited_directory_path(&scoped_cwd) {
-                Ok(value) => value,
-                Err(HostError::Refusal(message)) => return fail("path_forbidden", &message),
-                Err(HostError::Io(error)) => return io_fail(error),
+            let (scoped_cwd_path, scoped_cwd_fd) = {
+                use std::os::fd::AsRawFd as _;
+                (cwd.path.clone(), Some(cwd.guard.as_raw_fd()))
             };
             #[cfg(not(unix))]
-            let scoped_cwd_path = scoped_cwd.path.display().to_string();
-            #[cfg(unix)]
-            let scoped_cwd_fd = {
-                use std::os::fd::AsRawFd as _;
-                Some(_cwd_guard.as_raw_fd())
+            let scoped_cwd_path = match scoped(raw_cwd, false) {
+                Ok(Ok(path)) => path.path.display().to_string(),
+                Ok(Err(message)) => return fail("path_forbidden", &message),
+                Err(error) => return io_fail(error),
             };
             #[cfg(not(unix))]
             let scoped_cwd_fd = None;
@@ -2077,3 +2120,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
 // ---------------------------------------------------------------------------
 // Tests — mirror packages/relay/test/actions.test.mjs.
 // ---------------------------------------------------------------------------
+
+#[cfg(all(test, unix))]
+#[path = "actions_tests.rs"]
+mod tests;

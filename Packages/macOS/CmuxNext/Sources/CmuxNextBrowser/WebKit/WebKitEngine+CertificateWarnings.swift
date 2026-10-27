@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// Certificate warnings the user turned off by proceeding past them
@@ -30,24 +31,38 @@ extension WebKitEngine {
         let probe = certificateProbe
         let admission = (certificateAdmissions[tabID] ?? 0) + 1
         certificateAdmissions[tabID] = admission
-        Task { [weak self, weak tab] in
+        let mainWork = mainWork
+        // task-owner: one probe, ended by its answer. R-hop: the TLS probe runs off main; the load's decision is one
+        // visible task (the page waits on it), as a NavigationThrottle resumes its navigation on the UI thread
+        // (content/public/browser/navigation_throttle.h).
+        Task { @concurrent [weak self, weak tab] in
             let result = await probe(url)
-            let newest = self?.certificateAdmissions[tabID] == admission
-            if newest { self?.certificateAdmissions[tabID] = nil }
-            guard let self, let tab, !tab.isClosed else { return decide(false) }
-            switch result {
-            case .trusted:
-                certificateRechecks[profile]?.remove(host)
-                decide(true)
-            case .unknown:
-                // WebKit's own TLS check still runs on a new connection.
-                decide(true)
-            case .untrusted(let chain, let reason):
-                decide(false)
-                // A newer load of this tab replaced this one: no interstitial for it.
-                guard newest else { return }
-                showCertificateInterstitial(url, chain: chain, reason: reason, in: tab)
+            await mainWork.apply(.visible, owner: "WebKitEngine.certificateAdmission") {
+                guard let self else { return decide(false) }
+                self.admitted(url, result: result, admission: admission, tabID: tabID, profile: profile, host: host, tab: tab,
+                              decide: decide)
             }
+        }
+    }
+
+    /// The probe of the load `admission` of tab `tabID` answered `result`.
+    private func admitted(_ url: URL, result: CertificateProbeResult, admission: Int, tabID: BrowserTabID, profile: BrowserProfileID,
+                          host: String, tab: WebKitTab?, decide: @MainActor (Bool) -> Void) {
+        let newest = certificateAdmissions[tabID] == admission
+        if newest { certificateAdmissions[tabID] = nil }
+        guard let tab, !tab.isClosed else { return decide(false) }
+        switch result {
+        case .trusted:
+            certificateRechecks[profile]?.remove(host)
+            decide(true)
+        case .unknown:
+            // WebKit's own TLS check still runs on a new connection.
+            decide(true)
+        case .untrusted(let chain, let reason):
+            decide(false)
+            // A newer load of this tab replaced this one: no interstitial for it.
+            guard newest else { return }
+            showCertificateInterstitial(url, chain: chain, reason: reason, in: tab)
         }
     }
 

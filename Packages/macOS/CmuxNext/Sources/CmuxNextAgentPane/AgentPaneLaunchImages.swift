@@ -86,6 +86,8 @@ public final class AgentPaneLaunchImages {
     public init(directory: URL?, reader: LaunchFileReader = LaunchFileReader(), clock: any Clock<Duration> = ContinuousClock()) {
         self.directory = directory
         self.reader = reader
+        // timer-class-allow: armed in the app's main before NSApplication.run (prefetch(on:keep:mark:)), before the
+        // composition root makes its deadline scheduler; one 30 s fire per launch that drops unclaimed pages
         discard = DemandTimer(owner: "agent-pane.launch-images.keep", clock: clock)
     }
 
@@ -119,6 +121,12 @@ public final class AgentPaneLaunchImages {
         discard.scheduleOnMain(after: keep) { [weak self] in self?.dropRead() }
         // task-owner: ends with the read; only tests await it.
         return Task { _ = await read.finished() }
+    }
+
+    /// The launch settled (`LaunchSettle`) and no pane draws a launch page any more: the decoded pages no pane
+    /// took go now, not at the keep deadline, and no read starts later. Held frames stay: they are not launch reads.
+    public func dropLaunchRead() {
+        dropRead()
     }
 
     /// Drops the read's results that no pane took, and the deadline that would drop them.
@@ -165,8 +173,12 @@ public final class AgentPaneLaunchImages {
     /// Holds `data`, tab `key`'s frame encoded already (the picture its page took as it hid, kept by the
     /// page lifecycle), as ``hold(_:_:size:appearance:)`` holds one.
     public func hold(_ key: String, encoded data: Data, size: NSSize, appearance: NSAppearance.Name?) {
-        guard size.width > 0 else { return }
-        held[key] = (data, size, appearance)
+        removeHeld(key)
+        guard size.width > 0, heldLimit > 0 else { return }
+        held[key] = HeldFrame(data: data, size: size, appearance: appearance, order: nextHeldOrder)
+        nextHeldOrder += 1
+        heldBytes += data.count
+        while held.count > heldLimit { dropOldestHeld() }
     }
 
     /// The tab closed or showed its live page: its held frame goes.

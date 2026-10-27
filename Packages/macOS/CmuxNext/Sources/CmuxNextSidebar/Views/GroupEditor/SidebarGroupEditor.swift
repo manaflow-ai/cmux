@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import QuartzCore
 
 /// The workspace group editor (cx-rcby, Lawrence 2026-10-08: the Chrome tab
@@ -22,9 +23,11 @@ final class SidebarGroupEditor {
     private var member: WorkspaceID?
     /// The groups the last update showed (`follow`).
     private var known: Set<GroupID> = []
-    /// The group whose editor closed last, the event time it closed at, and
-    /// the click it closed during (a mouse-up has its mouse-down's number).
-    private var lastClosed: (group: GroupID, time: TimeInterval, click: Int?)?
+    /// The group whose editor closed last and the input the app dispatched last when it closed (the
+    /// press that made the sidebar's window key); nil input when none was dispatched yet.
+    private var lastClosed: (group: GroupID, input: InputEventRecord?)?
+    /// The input the app dispatched last (the input tap's record): the list sets it.
+    var lastInput: @MainActor () -> InputEventRecord? = { nil }
     /// The shown group's color, where the color panel starts.
     private var shownTint: GroupTint?
     private let colorPanel = GroupColorPanel.shared
@@ -60,8 +63,7 @@ final class SidebarGroupEditor {
             guard let self, let id = self.shownGroup else { return }
             self.shownGroup = nil
             self.member = nil
-            let event = NSApp.currentEvent
-            self.lastClosed = (id, event?.timestamp ?? ProcessInfo.processInfo.systemUptime, Self.clickNumber(event))
+            self.noteClosed(id)
             self.onClose?(id)
         }
         shownGroup = group.id
@@ -95,23 +97,21 @@ final class SidebarGroupEditor {
         hide()
     }
 
+    /// The editor of `group` closed now, during the app's last dispatched input.
+    func noteClosed(_ group: GroupID) {
+        lastClosed = (group, lastInput())
+    }
+
     /// Whether the editor of `group` closed during the click that is
     /// happening now (the click made the sidebar's window key, which closes
     /// the bubble first): that click toggles it closed, it does not reopen it.
-    /// Clicks are matched by their event number, so fast repeated clicks
-    /// toggle open, closed, open (cx-q5jw); a close outside a click falls
-    /// back to the double-click time.
-    func closedByThisClick(_ group: GroupID, event: NSEvent?) -> Bool {
-        guard let closed = lastClosed, closed.group == group, let event else { return false }
-        if let click = Self.clickNumber(event), let closedClick = closed.click { return click == closedClick }
-        return event.timestamp - closed.time <= NSEvent.doubleClickInterval
-    }
-
-    private static func clickNumber(_ event: NSEvent?) -> Int? {
-        switch event?.type {
-        case .leftMouseDown?, .leftMouseUp?: event?.eventNumber
-        default: nil
-        }
+    /// `input` is the app's last dispatched input now (a button's action runs in its press's
+    /// dispatch). Presses are matched exactly, so fast repeated clicks toggle open, closed, open
+    /// (cx-q5jw); a close outside a press falls back to the double-click time.
+    func closedByThisClick(_ group: GroupID, input: InputEventRecord?) -> Bool {
+        guard let closed = lastClosed, closed.group == group, let input, let closedBy = closed.input else { return false }
+        if input.type == .leftMouseDown, closedBy.type == .leftMouseDown { return input.timestamp == closedBy.timestamp }
+        return input.timestamp - closedBy.timestamp <= NSEvent.doubleClickInterval
     }
 
     func hide() {
@@ -319,6 +319,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
+        // sync-layout: fittingSize below measures the card.
         glass?.layoutSubtreeIfNeeded()
         let size = glass?.fittingSize ?? .zero
         let card = anchor.cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame,

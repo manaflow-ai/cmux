@@ -14,7 +14,7 @@ public import CmuxNextDesignTokens
 /// ```swift
 /// Motion.sidebar.animate(.move, in: row) { row.animator().frame = target }
 /// Motion.tabs.set(layer, "opacity", to: 1, fade: .hover)
-/// if let spin = Motion.indicators.spinAnimation() { layer.add(spin, forKey: "spin") }
+/// loops.attach(layer, key: "spin") { Motion.indicators.spinAnimation() } // a LoopVisibility
 /// ```
 ///
 /// With its category off (or the master switch off) the gate answers like

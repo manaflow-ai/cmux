@@ -3,6 +3,9 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Foundation
 import UniformTypeIdentifiers
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The native steps of the guided CSV import. The live presenter shows cmux
 /// dialogs and the open panel; tests answer with a script.
@@ -72,7 +75,8 @@ struct LivePasswordCSVGuidePresenter: PasswordCSVGuidePresenting {
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.allowsMultipleSelection = false
         panel.message = PasswordCSVStrings.prompt
-        return await withCheckedContinuation { continuation in
+        // A panel that drops its reply chose nothing.
+        return try? await withOnceContinuation { (continuation: OnceContinuation<URL?, OnceContinuationError>) in
             panel.beginForCmux { continuation.resume(returning: $0) }
         }
     }

@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextInput
 
 /// The name-and-colors header of a right-click menu (Chrome's tab-group menu): a name field over a
 /// row of color swatches, inset as the menu's rows are. The app's `MenuIdentityHeader` builds it
@@ -6,11 +7,19 @@ public import AppKit
 public final class MenuIdentityHeaderView: NSView, ThemedMenuItemView {
     public let field: MenuNameField?
     public let strip: MenuSwatchStrip?
+    /// The app's input tap: the menu's own events are newer than its last dispatched event
+    /// (``InputEventTap/trackedEvent(current:)``).
+    private let input: InputEventTap?
     static let inset: CGFloat = 12, top: CGFloat = 6, fieldHeight: CGFloat = 24, gap: CGFloat = 4, minimumWidth: CGFloat = 240
 
-    public init(field: MenuNameField?, strip: MenuSwatchStrip?) {
+    /// A header with `field` over `strip`; `input` is the app's tap (nil: the overlay hosts' tap,
+    /// ``WindowOverlayHost/appInputTap``).
+    public init(field: MenuNameField?, strip: MenuSwatchStrip?, input: InputEventTap? = nil) {
         self.field = field
         self.strip = strip
+        let tap = input ?? WindowOverlayHost.appInputTap
+        self.input = tap
+        field?.input = tap
         let height = Self.top + (field == nil ? 0 : Self.fieldHeight + Self.gap) + (strip == nil ? 0 : MenuSwatchStrip.height)
         let width = max(Self.minimumWidth, (strip?.naturalWidth ?? 0) + 2 * Self.inset)
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
@@ -46,7 +55,8 @@ public final class MenuIdentityHeaderView: NSView, ThemedMenuItemView {
         super.viewDidMoveToWindow()
         guard let field else { return }
         if window == nil {
-            field.menuClosed(by: NSApp.currentEvent)
+            // The event the menu's loop closed on (Escape, a click outside), never one dispatched before.
+            field.menuClosed(by: input?.trackedEvent())
         } else {
             field.reset()
             // Typing renames at once, as in Chrome; the name starts selected.
@@ -61,6 +71,8 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
     private let original: String
     private let onRename: (String) -> Void
     private var done = false
+    /// The app's input tap (its header sets it): the arrow the field hands back is the menu loop's.
+    var input: InputEventTap?
 
     public init(name: String, placeholder: String, onRename: @escaping (String) -> Void) {
         original = name
@@ -117,7 +129,8 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
             // The arrows leave the field for the menu's rows (the name typed so far is kept); the
             // same press then moves the menu's highlight.
             // Only once the field let go, so the press can't come back here.
-            if let window, window.makeFirstResponder(nil), let event = NSApp.currentEvent, event.type == .keyDown { window.sendEvent(event) }
+            let arrow = input?.trackedEvent() // current-event: target-action
+            if let window, window.makeFirstResponder(nil), let arrow, arrow.type == .keyDown { window.sendEvent(arrow) }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             // Escape puts the name back and closes the menu, as Escape on any menu does.
@@ -191,8 +204,9 @@ public final class MenuSwatchStrip: NSView {
     public required init?(coder: NSCoder) { fatalError() }
 
     public func adoptMenuScope(_ scope: ThemeScope) {
+        guard scope !== menuScope else { return }
         menuScope = scope
-        needsDisplay = true
+        needsDisplay = true // invalidate: another menu scope (the guard above) draws other accent and ink.
     }
 
     /// The hovered swatch's ring: the menu scope's accent.
@@ -259,6 +273,7 @@ public final class MenuSwatchStrip: NSView {
 
     // input-coalesce: native (an NSMenu item view: AppKit's menu tracking loop delivers its moves, and
     // setHovered redraws only when the swatch under the pointer changes)
+    // local-monitor-allow: an NSMenu item view; the menu's tracking loop delivers its moves, where no window frame runs
     public override func mouseMoved(with event: NSEvent) { setHovered(swatch(at: event)) }
     public override func mouseEntered(with event: NSEvent) { setHovered(swatch(at: event)) }
     public override func mouseExited(with event: NSEvent) { setHovered(nil) }
@@ -267,7 +282,7 @@ public final class MenuSwatchStrip: NSView {
         guard index != hovered else { return }
         hovered = index
         toolTip = index == 0 && clearChoice != nil ? Self.noColorTitle : nil
-        needsDisplay = true
+        needsDisplay = true // invalidate: the hovered swatch changed (the guard above).
     }
 
     public override func mouseUp(with event: NSEvent) {

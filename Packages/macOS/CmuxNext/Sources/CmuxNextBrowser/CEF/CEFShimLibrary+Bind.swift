@@ -5,7 +5,8 @@ import Foundation
 // (`CEFShimABI`, the SHA-256 of cmux_cef_shim.h) matched, or a test's stand-in of the same C type,
 // so each cast below is that export's C type in the header. A C string argument is the
 // NUL-terminated buffer `withCString` gives for the call alone; the shim reads it during the call
-// and copies what it keeps. A returned string is the shim's own allocation, copied and then freed
+// and copies what it keeps. A byte array argument is the array's own storage for the call alone,
+// passed with its count; the shim copies the bytes before it returns. A returned string is the shim's own allocation, copied and then freed
 // once with the free function cmux_cef_shim.h names for it (`take`).
 nonisolated extension CEFShimLibrary {
     /// Every function from `r` (`open`; `resolving` and `overriding` in CEFShimLibrary+Resolver.swift).
@@ -53,6 +54,9 @@ nonisolated extension CEFShimLibrary {
         }
         browserSetEmbedderVisibility = r.optional("cmux_shim_browser_set_embedder_visibility")
         pageDrag = try PageDrag(r)
+        browserSetPageVisibility = try r("cmux_shim_browser_set_page_visibility")
+        tabSetVisibility = r.optional("cmux_shim_tab_set_visibility")
+        browserSetPageDisplay = try r("cmux_shim_browser_set_page_display")
         unsafe initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         unsafe setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
@@ -138,6 +142,10 @@ nonisolated extension CEFShimLibrary {
         extOpenOptions = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cExtOpenOptions(a0, s1) } }
         let cExtLoadUnpacked: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_ext_load_unpacked")
         extLoadUnpacked = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cExtLoadUnpacked(a0, s1) } }
+        extLoadLaterSupported = try r("cmux_shim_ext_load_later_supported")
+        let cExtLoadCommandLine: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32 =
+            try unsafe r("cmux_shim_ext_load_command_line")
+        extLoadCommandLine = { a0, a1, a2 in unsafe Self.withCString(a0) { s0 in unsafe Self.withCString(a2) { s2 in unsafe cExtLoadCommandLine(s0, a1, s2) } } }
         let cExtCommands: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>? = try unsafe r("cmux_shim_ext_commands")
         extCommands = { a0 in unsafe Self.take(cExtCommands(a0), cFree) }
         let cExtCommandRun: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_ext_command_run")
@@ -230,6 +238,22 @@ nonisolated extension CEFShimLibrary {
             let count = unsafe cRendererClientIDs(browser, &ids, room)
             return Array(ids.prefix(Int(min(max(count, 0), room))))
         }
+        let cRendererFrames: @convention(c) (UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, Int32) -> Int32 =
+            try unsafe r("cmux_shim_renderer_frames")
+        rendererFrames = {
+            // A second call sized to the first one's count; the browsers cannot change between them on this thread.
+            var room = 64
+            for _ in 0 ..< 2 {
+                var browsers = [Int32](repeating: 0, count: room), ids = browsers, frames = browsers
+                // SAFETY: the shim writes at most `room` entries into each array's buffer during the call.
+                let count = Int(max(unsafe cRendererFrames(&browsers, &ids, &frames, Int32(room)), 0))
+                guard count > room else {
+                    return (0 ..< count).map { CEFRendererFrames.Entry(browser: browsers[$0], clientID: ids[$0], frames: Int(frames[$0])) }
+                }
+                room = count
+            }
+            return nil
+        }
         rendererPID = try r("cmux_shim_renderer_pid")
         let cAddDocumentScript: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32, Int32) -> Int32)? = unsafe r.optional("cmux_shim_add_document_script")
         if let c = unsafe cAddDocumentScript {
@@ -251,11 +275,32 @@ nonisolated extension CEFShimLibrary {
         }
         tabSetFrozen = r.optional("cmux_shim_tab_set_frozen")
         tabSendClick = r.optional("cmux_shim_tab_send_click")
+        tabSendMouseMove = r.optional("cmux_shim_tab_send_mouse_move")
         tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
+        tabCopySurface = r.optional("cmux_shim_tab_copy_surface")
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
         dragTarget = try CEFShimDragTargetOps(r)
+        popupMenus = try CEFShimPopupMenuOps(r)
+        suggestions = try CEFShimSuggestionOps(r)
+        let cImeSetComposition: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32, Int32,
+                                                 Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_set_composition")
+        let cImeCommitText: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_commit_text")
+        var imeSetComposition: ((Int32, [UInt8], [UInt8], Int32, Int32, Int32, Int32) -> Void)?
+        if let c = unsafe cImeSetComposition {
+            imeSetComposition = { browser, text, clauses, selectionStart, selectionEnd, replaceStart, replaceEnd in
+                unsafe c(browser, text, Int32(clamping: text.count), clauses, Int32(clamping: clauses.count), selectionStart, selectionEnd,
+                         replaceStart, replaceEnd)
+            }
+        }
+        var imeCommitText: ((Int32, [UInt8], Int32, Int32) -> Void)?
+        if let c = unsafe cImeCommitText {
+            imeCommitText = { browser, text, replaceStart, replaceEnd in unsafe c(browser, text, Int32(clamping: text.count), replaceStart, replaceEnd) }
+        }
+        textInput = CEFShimTextInputOps(setComposition: imeSetComposition, commitText: imeCommitText,
+                                        finishComposing: r.optional("cmux_shim_browser_ime_finish_composing"),
+                                        cancelComposition: r.optional("cmux_shim_browser_ime_cancel_composition"))
         let cBrowserAttachView: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> Int32)? = unsafe r.optional("cmux_shim_browser_attach_view")
         if r.hostExports == nil, let c = unsafe cBrowserAttachView {  // host mode: no view pointer crosses the process
             browserAttachView = { browser, parent in unsafe c(browser, parent?.pointer) }

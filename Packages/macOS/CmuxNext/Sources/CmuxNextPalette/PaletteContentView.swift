@@ -162,7 +162,7 @@ final class PaletteContentView: NSView {
         let hintHidden = !showEmpty || model.query.isEmpty
         if emptyHint.isHidden != hintHidden {
             emptyHint.isHidden = hintHidden
-            needsLayout = true
+            needsLayout = true // invalidate: the hint shows or goes (the check above)
         }
 
         searchBar.update(
@@ -185,7 +185,7 @@ final class PaletteContentView: NSView {
         if fieldHint.stringValue != model.fieldHint ?? "" || fieldHint.isHidden != (model.fieldHint == nil) {
             fieldHint.stringValue = model.fieldHint ?? ""
             fieldHint.isHidden = model.fieldHint == nil
-            needsLayout = true
+            needsLayout = true // invalidate: the field hint changed (the check above)
         }
         if pageToken != appliedPage {
             appliedPage = pageToken
@@ -197,19 +197,23 @@ final class PaletteContentView: NSView {
             appliedSize = size
             list.relayoutRows()
             onPreferredSizeChange?(size)
-            needsLayout = true
+            needsLayout = true // invalidate: a new window size (the check above)
         }
     }
 
+    /// Every render passes the open recorder's and menu's state; only one that shows them or changes
+    /// their height lays the palette out (their own `update` rebuilds what changed inside).
     private func updateRecorder(_ state: PaletteShortcutRecorderState?) {
         guard let state else {
             recorderView.isHidden = true
             return
         }
         recorderView.update(state)
-        recorderHeight = PaletteShortcutRecorderView.height(for: state)
+        let height = PaletteShortcutRecorderView.height(for: state)
+        guard recorderView.isHidden || height != recorderHeight else { return }
+        recorderHeight = height
         recorderView.isHidden = false
-        needsLayout = true
+        needsLayout = true // invalidate: the recorder shows or takes a new height (the guard above)
     }
 
     private func updateMenu(_ state: PaletteActionsMenuState?) {
@@ -218,12 +222,16 @@ final class PaletteContentView: NSView {
             return
         }
         actionsMenuView.update(state, alternateID: model.selectedItem?.alternate?.id)
-        menuHeight = PaletteActionsMenuView.height(for: state)
+        let height = PaletteActionsMenuView.height(for: state)
         // Fading out counts as hidden, so a reopen retargets the fade.
         let wasHidden = actionsMenuView.isHidden || actionsMenuFadingOut
-        needsLayout = true
+        guard wasHidden || height != menuHeight else { return }
+        menuHeight = height
+        needsLayout = true // invalidate: the menu opens or takes a new height (the guard above)
+        guard wasHidden else { return }
+        // sync-layout: the open scales the menu about the center of its laid-out frame (scaled(_:)).
         layoutSubtreeIfNeeded()
-        if wasHidden { animateActionsMenu(appearing: true) }
+        animateActionsMenu(appearing: true)
     }
 
     // MARK: Layout
@@ -274,8 +282,8 @@ final class PaletteContentView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        // Colors only: `layout()` reads no appearance.
         applyColors()
-        needsLayout = true
     }
 
     override func viewDidMoveToWindow() {
@@ -313,6 +321,7 @@ final class PaletteContentView: NSView {
     /// restarting from zero.
     func animateIn() {
         guard let layer else { return }
+        // sync-layout: panelScale below scales about the laid-out panel's center.
         layoutSubtreeIfNeeded()
         let closing = layer.animation(forKey: "opacity") != nil
         Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: closing ? nil : Float(0))

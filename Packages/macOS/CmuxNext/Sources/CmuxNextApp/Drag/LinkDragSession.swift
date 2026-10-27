@@ -5,6 +5,7 @@ import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextCompat
 import CmuxNextTabs
+import CmuxNextWakeups
 
 /// A link dragged out of a chat bubble into the layout (Lawrence 2026-10-20: "drag a link, like a
 /// PR URL, to the right side or anywhere and make a split").
@@ -31,7 +32,8 @@ final class LinkDragSession {
         let ghost: LinkDragGhost
         /// The drag's input tap intercept; cancelled when the drag ends.
         var input: InputSubscription?
-        var resign: MainActorObservation?
+        /// The app's resign-active notice ends the drag (``AppEvents``: one observer for the app).
+        var resign: EventSubscription?
         /// The window whose layout shows the preview now, and the plan a release there runs.
         weak var window: WindowController?
         var plan: LinkDropPlan?
@@ -56,7 +58,7 @@ final class LinkDragSession {
         drag.input = services.inputTap.subscribe(class: TabDragSession.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
             self?.handle(event) ?? .pass
         }
-        drag.resign = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+        drag.resign = services.appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "LinkDragSession.resign") { [weak self] in
             self?.finish(commit: false)
         }
         self.drag = drag
@@ -122,6 +124,7 @@ final class LinkDragSession {
         self.drag = nil
         drag.input?.cancel()
         drag.input = nil
+        drag.resign?.cancel()
         drag.resign = nil
         drag.ghost.close()
         let content = drag.window?.content

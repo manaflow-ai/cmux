@@ -143,7 +143,8 @@ pub(super) fn prepare_in_background() {
                 .stderr(cmux_process::Stdio::null())
                 .status();
         };
-        let _ = std::thread::Builder::new().name("cmux-host-exe".into()).spawn(warm);
+        // Best-effort warm-up that no request waits on.
+        let _ = cmux_threads::spawn("cmux-host-exe", cmux_threads::ThreadQos::Utility, warm);
     });
 }
 

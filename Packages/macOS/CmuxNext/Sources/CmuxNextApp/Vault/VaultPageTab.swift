@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import Foundation
 import Observation
 import CmuxNextHistory
@@ -42,8 +43,7 @@ final class VaultPageTab: BrowserTab {
     }
 
     func reload() {
-        let vault = vault
-        Task { await vault.reload() }
+        vault.startReload()
     }
 
     func goBack() {}
@@ -62,9 +62,8 @@ final class VaultPageTab: BrowserTab {
     }
 
     func snapshot() async throws -> CGImage {
-        guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
-        contentView.cacheDisplay(in: contentView.bounds, to: rep)
-        guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
+        // A hidden page's SwiftUI is out of the window (feature visibilityGatedHosting): this draws it too.
+        guard let image = contentView.cachedDisplayImage() else { throw BrowserTabError.snapshotUnavailable }
         return image
     }
 
