@@ -7,7 +7,7 @@ const user = (at: number): AcpmuxRow => ({ id: "user", version: 1, at, kind: "us
 test("a resumed live turn counts from turn_started instead of its old prompt", () => {
   const rows: AcpmuxRow[] = [
     user(1_000),
-    // direct.ts keeps this marker from the live turn_started event in the snapshot.
+    // direct.ts carries this timestamp from the live turn_started event in the snapshot.
     { id: "typing", version: 1, at: 100_000, kind: "typing" },
   ];
   const shown = turnView(rows, new Set(), {
