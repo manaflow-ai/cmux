@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextInput
 import CmuxNextWakeups
 
@@ -185,8 +186,10 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
                 .font: font,
                 .foregroundColor: OmnibarStyle.textSecondary,
             ])
-            let host = BrowserURLDisplay.hostRange(in: text, for: url) ?? NSRange(location: 0, length: (text as NSString).length)
-            attributed.addAttribute(.foregroundColor, value: OmnibarStyle.textPrimary, range: host)
+            let whole = NSRange(location: 0, length: attributed.length)
+            if let host = attributed.checkedRange(BrowserURLDisplay.hostRange(in: text, for: url) ?? whole) {
+                attributed.addAttribute(.foregroundColor, value: OmnibarStyle.textPrimary, range: host)
+            }
             attributedStringValue = attributed
         }
     }

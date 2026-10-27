@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Removes secrets from text before it is journaled: auth headers, cookies, bearer and API
@@ -65,46 +66,51 @@ public struct ErrorRedactor {
             text = rule.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text),
                                                  withTemplate: replacement)
         }
-        return redactQueryAssignments(in: redactAssignments(in: text, anchors: assignmentAnchors), queryAssignments)
+        // A value range outside the text is a bug in the scan below: keep no text rather than raise or leak.
+        guard let assigned = redactAssignments(in: text, anchors: assignmentAnchors),
+              let redacted = redactQueryAssignments(in: assigned, queryAssignments) else { return "<redacted>" }
+        return redacted
     }
 
-    private func redactAssignments(in text: String, anchors assignmentAnchors: NSRegularExpression) -> String {
+    /// `text` with each sensitive `key=value` / `key: value` value replaced; nil when a value range falls outside it.
+    private func redactAssignments(in text: String, anchors assignmentAnchors: NSRegularExpression) -> String? {
         let source = text as NSString
         let result = NSMutableString(string: text)
         let matches = assignmentAnchors.matches(in: text, range: NSRange(location: 0, length: source.length))
         var ranges: [NSRange] = []
         var coveredUntil = 0
         for match in matches {
-            guard match.range.location >= coveredUntil else { continue }
-            let key = source.substring(with: match.range(at: 1))
-            guard Self.isSensitiveAssignmentKey(key) else { continue }
+            guard match.range.location >= coveredUntil, let key = source.checkedSubstring(match.range(at: 1)),
+                  Self.isSensitiveAssignmentKey(key) else { continue }
             let valueStart = NSMaxRange(match.range)
             let valueEnd = Self.assignmentValueEnd(in: source, from: valueStart)
             ranges.append(NSRange(location: valueStart, length: valueEnd - valueStart))
             coveredUntil = valueEnd
         }
-        for range in ranges.reversed() {
+        for value in ranges.reversed() {
+            guard let range = result.checkedRange(value) else { return nil }
             result.replaceCharacters(in: range, with: "<redacted>")
         }
         return result as String
     }
 
-    private func redactQueryAssignments(in text: String, _ queryAssignments: NSRegularExpression) -> String {
+    /// `text` with each sensitive query value replaced; nil when a value range falls outside it.
+    private func redactQueryAssignments(in text: String, _ queryAssignments: NSRegularExpression) -> String? {
         let source = text as NSString
         let result = NSMutableString(string: text)
         let matches = queryAssignments.matches(in: text, range: NSRange(location: 0, length: source.length))
         var ranges: [NSRange] = []
         var coveredUntil = 0
         for match in matches {
-            let key = source.substring(with: match.range(at: 2))
-            guard Self.isSensitiveQueryKey(key) else { continue }
+            guard let key = source.checkedSubstring(match.range(at: 2)), Self.isSensitiveQueryKey(key) else { continue }
             let valueStart = NSMaxRange(match.range(at: 2)) + 1
             guard valueStart >= coveredUntil else { continue }
             let valueEnd = Self.queryValueEnd(in: source, from: valueStart)
             ranges.append(NSRange(location: valueStart, length: valueEnd - valueStart))
             coveredUntil = valueEnd
         }
-        for range in ranges.reversed() {
+        for value in ranges.reversed() {
+            guard let range = result.checkedRange(value) else { return nil }
             result.replaceCharacters(in: range, with: "<redacted>")
         }
         return result as String
@@ -152,13 +158,12 @@ public struct ErrorRedactor {
 
     private static func assignmentValueEnd(in source: NSString, from start: Int) -> Int {
         var quoteIndex = start
-        while quoteIndex < source.length, source.character(at: quoteIndex) == 92 { quoteIndex += 1 }
-        guard quoteIndex < source.length else { return source.length }
-        let quote = source.character(at: quoteIndex)
+        while source.checkedCharacter(at: quoteIndex) == 92 { quoteIndex += 1 }
+        guard let quote = source.checkedCharacter(at: quoteIndex) else { return source.length }
         guard quote == 34 || quote == 39 else {
             var end = start
-            while end < source.length, !isUnquotedBoundary(source.character(at: end)) {
-                if isHorizontalWhitespace(source.character(at: end)), hasAssignmentAfterWhitespace(in: source, from: end) {
+            while let character = source.checkedCharacter(at: end), !isUnquotedBoundary(character) {
+                if isHorizontalWhitespace(character), hasAssignmentAfterWhitespace(in: source, from: end) {
                     return end
                 }
                 end += 1
@@ -168,13 +173,12 @@ public struct ErrorRedactor {
 
         let delimiterEscapeDepth = quoteIndex - start
         var index = quoteIndex + 1
-        while index < source.length {
-            let character = source.character(at: index)
+        while let character = source.checkedCharacter(at: index) {
             if character == 10 || character == 13 { return index }
             if character == 92 {
                 let runStart = index
-                while index < source.length, source.character(at: index) == 92 { index += 1 }
-                if index < source.length, source.character(at: index) == quote {
+                while source.checkedCharacter(at: index) == 92 { index += 1 }
+                if source.checkedCharacter(at: index) == quote {
                     if index - runStart == delimiterEscapeDepth { return index + 1 }
                     index += 1
                 }
@@ -192,13 +196,12 @@ public struct ErrorRedactor {
 
     private static func hasAssignmentAfterWhitespace(in source: NSString, from start: Int) -> Bool {
         var index = start
-        while index < source.length, isHorizontalWhitespace(source.character(at: index)) { index += 1 }
-        guard index < source.length, isAssignmentKeyStart(source.character(at: index)) else { return false }
+        while let character = source.checkedCharacter(at: index), isHorizontalWhitespace(character) { index += 1 }
+        guard let first = source.checkedCharacter(at: index), isAssignmentKeyStart(first) else { return false }
         index += 1
-        while index < source.length, isAssignmentKeyCharacter(source.character(at: index)) { index += 1 }
-        while index < source.length, isHorizontalWhitespace(source.character(at: index)) { index += 1 }
-        guard index < source.length else { return false }
-        let separator = source.character(at: index)
+        while let character = source.checkedCharacter(at: index), isAssignmentKeyCharacter(character) { index += 1 }
+        while let character = source.checkedCharacter(at: index), isHorizontalWhitespace(character) { index += 1 }
+        guard let separator = source.checkedCharacter(at: index) else { return false }
         return separator == 58 || separator == 61
     }
 
@@ -217,8 +220,8 @@ public struct ErrorRedactor {
 
     private static func queryValueEnd(in source: NSString, from start: Int) -> Int {
         var end = start
-        while end < source.length, !isQueryValueBoundary(source.character(at: end)) {
-            if isHorizontalWhitespace(source.character(at: end)), hasAssignmentAfterWhitespace(in: source, from: end) {
+        while let character = source.checkedCharacter(at: end), !isQueryValueBoundary(character) {
+            if isHorizontalWhitespace(character), hasAssignmentAfterWhitespace(in: source, from: end) {
                 return end
             }
             end += 1

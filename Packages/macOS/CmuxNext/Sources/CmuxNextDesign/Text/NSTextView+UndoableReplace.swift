@@ -27,10 +27,11 @@ public extension NSTextView {
             string = text
             return
         }
-        let all = NSRange(location: 0, length: (current as NSString).length)
+        // The view's whole text, in UTF-16 units.
+        let length = (current as NSString).length
         breakUndoCoalescing()
-        if shouldChangeText(in: all, replacementString: text) {
-            replaceCharacters(in: all, with: text)
+        if shouldChangeText(in: NSRange(location: 0, length: length), replacementString: text) {
+            replaceCharacters(in: NSRange(location: 0, length: length), with: text)
             didChangeText()
             breakUndoCoalescing()
         } else {

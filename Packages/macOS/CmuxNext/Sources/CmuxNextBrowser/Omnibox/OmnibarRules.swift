@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Text rules the omnibar state machine uses (Chromium's autocomplete rules,
@@ -97,8 +98,7 @@ nonisolated extension OmnibarReducer {
         guard state.hasFocus else { return nil }
         let text = state.fieldText as NSString
         let selection = OmnibarRules.clamped(state.edit.selection, length: text.length)
-        guard selection.length > 0 else { return nil }
-        let selected = text.substring(with: selection)
+        guard selection.length > 0, let selected = text.checkedSubstring(selection) else { return nil }
         guard selection.location == 0 else { return OmnibarCopy(text: selected, url: nil) }
         let modified = state.phase != .focused || (selected != state.displayText && selected != state.permanentText)
         if !modified, let page = state.pageURL {

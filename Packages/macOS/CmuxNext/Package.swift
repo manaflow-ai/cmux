@@ -164,7 +164,7 @@ import Foundation
 //     scripts/cmux-next/bundle-server-helper.sh, not linked into the App)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
-//   CmuxNextErrorJournal -> system frameworks only (the bounded, deduplicated error journal
+//   CmuxNextErrorJournal -> Compat, Wakeups (the bounded, deduplicated error journal
 //     `cmux errors` reads: app log, page consoles, acpmux and Chief logs, crash reports)
 //   CmuxNextFiles -> Compat, Wakeups (Files pane core: listing, FSEvents, file operations,
 //     Undo, the pane model; no AppKit; plans/finder-parity/PARITY.md)
@@ -1436,7 +1436,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
             name: "CmuxNextErrorJournal",
-            dependencies: ["CmuxNextWakeups"],
+            // Compat: the redactor's checked NSString reads (CheckedFoundation, p10-stability-170).
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(

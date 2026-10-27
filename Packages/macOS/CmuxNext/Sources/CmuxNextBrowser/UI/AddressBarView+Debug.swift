@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// What automation reads about the omnibar (`debug.omnibar`): the state
 /// machine and the field editor side by side, so a test sees both the model
@@ -133,7 +134,7 @@ extension AddressBarView {
         }
         let text = field.attributedStringValue
         let clamped = min(max(index, 0), text.length)
-        let prefix = text.attributedSubstring(from: NSRange(location: 0, length: clamped)).size().width
+        let prefix = text.checkedAttributedSubstring(NSRange(location: 0, length: clamped))?.size().width ?? 0
         let origin = field.cell?.titleRect(forBounds: field.bounds).minX ?? 2
         return field.convert(NSPoint(x: origin + prefix + 2 + 0.5, y: field.bounds.midY), to: nil)
     }

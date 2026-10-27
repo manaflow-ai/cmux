@@ -274,10 +274,10 @@ public final class MockBrowserTab: BrowserTab {
         guard !text.isEmpty else { return .none }
         let options: String.CompareOptions = caseSensitive ? [] : [.caseInsensitive]
         var count = 0
-        var range = pageText.startIndex..<pageText.endIndex
-        while let found = pageText.range(of: text, options: options, range: range) {
+        var rest = Substring(pageText)
+        while let found = rest.range(of: text, options: options) {
             count += 1
-            range = found.upperBound..<pageText.endIndex
+            rest = rest.suffix(from: found.upperBound)
         }
         return BrowserFindResult(matchFound: count > 0, matchCount: count)
     }

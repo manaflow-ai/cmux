@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Selection rules: the focusing click, drags and
@@ -107,6 +108,7 @@ nonisolated extension OmnibarStep {
         guard state.phase == .focused, state.elided else { return nil }
         let shown = state.fieldText
         let selection = OmnibarRules.clamped(state.edit.selection, length: OmnibarRules.length(shown))
+        guard let selected = (shown as NSString).checkedSubstring(selection) else { return nil }
         // "If everything is selected, the user likely does not intend to
         // edit the URL." Home is the exception.
         if isAllSelected, gesture != .home { return nil }
@@ -122,7 +124,6 @@ nonisolated extension OmnibarStep {
         let offset = found.location
         var start = selection.location
         var end = selection.upperBound
-        let selected = (shown as NSString).substring(with: selection)
         if selection.length > 0, gesture == .mouseRelease, !classifiesAsSearch(selected) {
             // A URL-like drag from the start keeps the scheme in the
             // selection: google.com/maps => https://www.google.com/maps.

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The chrome label: static text whose color blends on a theme change (I5, cx-8w027.3,
 /// cx-8w027.12, cx-8w027.26).
@@ -181,8 +182,11 @@ open class ChromeLabel: NSView {
     /// The text with the label's font, in `color` (all runs).
     func inkText(color: NSColor?) -> NSAttributedString {
         let text = NSMutableAttributedString(attributedString: LabelText.styled(content, font: font, color: nil))
-        let all = NSRange(location: 0, length: text.length)
-        if let color { text.addAttribute(.foregroundColor, value: color, range: all) } else { text.removeAttribute(.foregroundColor, range: all) }
+        if let color {
+            text.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: text.length))
+        } else {
+            text.removeAttribute(.foregroundColor, range: NSRange(location: 0, length: text.length))
+        }
         return text
     }
 
@@ -414,13 +418,11 @@ open class ChromeLabel: NSView {
     override open func accessibilityVisibleCharacterRange() -> NSRange { NSRange(location: 0, length: content.length) }
 
     override open func accessibilityString(for range: NSRange) -> String? {
-        guard range.location >= 0, NSMaxRange(range) <= content.length else { return nil }
-        return (content.string as NSString).substring(with: range)
+        (content.string as NSString).checkedSubstring(range)
     }
 
     override open func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
-        guard range.location >= 0, NSMaxRange(range) <= content.length else { return nil }
-        return attributedStringValue.attributedSubstring(from: range)
+        attributedStringValue.checkedAttributedSubstring(range)
     }
 }
 

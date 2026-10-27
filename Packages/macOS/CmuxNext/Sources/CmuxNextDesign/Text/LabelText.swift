@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// The text layout of ``ChromeLabel`` (cx-8w027.26): one TextKit stack, shared by every label on
 /// the main thread, lays a label's text out for its size, its baselines and its glyphs.
@@ -54,14 +55,13 @@ enum LabelText {
     /// `content` with `font` on the runs that have none and `color` (if any) on the runs that have none.
     static func styled(_ content: NSAttributedString, font: NSFont?, color: NSColor?) -> NSAttributedString {
         let text = NSMutableAttributedString(attributedString: content)
-        let all = NSRange(location: 0, length: text.length)
         let base = font ?? .systemFont(ofSize: NSFont.systemFontSize)
-        text.enumerateAttribute(.font, in: all) { value, range, _ in
-            if value == nil { text.addAttribute(.font, value: base, range: range) }
+        text.enumerateAttribute(.font, in: NSRange(location: 0, length: text.length)) { value, run, _ in
+            if value == nil, let range = text.checkedRange(run) { text.addAttribute(.font, value: base, range: range) }
         }
         if let color {
-            text.enumerateAttribute(.foregroundColor, in: all) { value, range, _ in
-                if value == nil { text.addAttribute(.foregroundColor, value: color, range: range) }
+            text.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: text.length)) { value, run, _ in
+                if value == nil, let range = text.checkedRange(run) { text.addAttribute(.foregroundColor, value: color, range: range) }
             }
         }
         return text
@@ -71,16 +71,15 @@ enum LabelText {
     /// `.natural`), the line break of a line, tightening.
     static func paragraphed(_ text: NSAttributedString, shape: Shape) -> NSAttributedString {
         let result = NSMutableAttributedString(attributedString: text)
-        let all = NSRange(location: 0, length: result.length)
         let lineBreak: NSLineBreakMode = shape.wraps ? (shape.lineBreak == .byCharWrapping ? .byCharWrapping : .byWordWrapping) : shape.lineBreak
-        result.enumerateAttribute(.paragraphStyle, in: all) { value, range, _ in
+        result.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: result.length)) { value, run, _ in
             let own = value as? NSParagraphStyle
             let style = (own ?? .default).mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
             if own == nil || shape.alignment != .natural { style.alignment = shape.alignment }
             style.lineBreakMode = lineBreak
             if own == nil { style.lineBreakStrategy = shape.strategy }
             style.allowsDefaultTighteningForTruncation = shape.tightens
-            result.addAttribute(.paragraphStyle, value: style, range: range)
+            if let range = result.checkedRange(run) { result.addAttribute(.paragraphStyle, value: style, range: range) }
         }
         return result
     }
@@ -148,7 +147,9 @@ enum LabelText {
         let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
         let string = storage.string as NSString
         var end = NSMaxRange(characters)
-        while end > characters.location, [0x20, 0x09, 0x0A, 0x0D, 0x2028, 0x2029].contains(string.character(at: end - 1)) { end -= 1 }
+        while end > characters.location, let unit = string.checkedCharacter(at: end - 1), [0x20, 0x09, 0x0A, 0x0D, 0x2028, 0x2029].contains(unit) {
+            end -= 1
+        }
         guard end < NSMaxRange(characters), end > characters.location else { return usedRect }
         let kept = manager.glyphRange(forCharacterRange: NSRange(location: characters.location, length: end - characters.location),
                                       actualCharacterRange: nil)
@@ -165,11 +166,12 @@ enum LabelText {
         let shown = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
         let end = NSMaxRange(shown)
         guard end < text.length, end > 0 else { return nil }
-        let characters = text.string as NSString
-        let last = characters.character(at: end - 1)
-        guard last == 0x0A || last == 0x0D || last == 0x2028 || last == 0x2029 else { return nil }
-        let cut = NSMutableAttributedString(attributedString: text.attributedSubstring(from: NSRange(location: 0, length: end - 1)))
-        let attributes = end >= 2 ? text.attributes(at: end - 2, effectiveRange: nil) : text.attributes(at: 0, effectiveRange: nil)
+        guard let last = (text.string as NSString).checkedCharacter(at: end - 1),
+              last == 0x0A || last == 0x0D || last == 0x2028 || last == 0x2029,
+              let kept = text.checkedAttributedSubstring(NSRange(location: 0, length: end - 1)),
+              let attributeIndex = text.checkedIndex(max(end - 2, 0)) else { return nil }
+        let cut = NSMutableAttributedString(attributedString: kept)
+        let attributes = text.attributes(at: attributeIndex, effectiveRange: nil)
         cut.append(NSAttributedString(string: "\u{2026}", attributes: attributes))
         return cut
     }
@@ -214,7 +216,8 @@ enum LabelText {
         /// The rounded ascent and the line height of the fonts of `text` in `range`; nil without a font.
         static func metrics(of text: NSAttributedString, in range: NSRange) -> (ascent: CGFloat, height: CGFloat)? {
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
-            let range = NSIntersectionRange(range, NSRange(location: 0, length: text.length))
+            // An empty intersection's location is undefined, so it is checked like any other range.
+            guard let range = text.checkedRange(NSIntersectionRange(range, NSRange(location: 0, length: text.length))) else { return nil }
             text.enumerateAttribute(.font, in: range) { value, _, _ in
                 guard let font = value as? NSFont else { return }
                 ascent = max(ascent, font.ascender.rounded())
