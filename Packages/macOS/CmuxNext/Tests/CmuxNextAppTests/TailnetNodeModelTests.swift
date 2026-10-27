@@ -69,6 +69,29 @@ import Testing
         #expect(model.phase == .signedOut, "after Cancel the node's link is not shown again")
     }
 
+    @Test func aDelayedLoginReplyCannotOverwriteNewerStreamedState() async {
+        let fake = Fake()
+        let (started, notify) = AsyncStream<Void>.makeStream()
+        let (answers, reply) = AsyncStream<TailnetNodeState>.makeStream()
+        var services = fake.services()
+        services.loginStart = {
+            notify.yield(())
+            var responses = answers.makeAsyncIterator()
+            return await responses.next() ?? TailnetNodeState(state: "needs_login")
+        }
+        let model = TailnetNodeModel(services: services)
+        let signingIn = Task { await model.signIn() }
+        var starts = started.makeAsyncIterator()
+        _ = await starts.next()
+        model.apply(Self.running)
+        reply.yield(TailnetNodeState(state: "needs_login", browseToURL: Self.link))
+        reply.finish()
+        await signingIn.value
+        notify.finish()
+        #expect(model.phase == .signedIn(address: "https://mac-cmux.tail1.ts.net", login: "me@example.com"))
+        #expect(fake.opened.isEmpty, "a reply older than the Running stream item cannot open sign-in again")
+    }
+
     @Test func otherStates() {
         let phase = { (state: TailnetNodeState, asked: Bool) in TailnetNodeModel.phase(of: state, signInRequested: asked) }
         #expect(phase(TailnetNodeState(state: "needs_machine_auth"), false) == .needsApproval)
