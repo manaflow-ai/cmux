@@ -60,7 +60,11 @@ extension PageWebView {
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
     func loadDocument(_ url: URL) {
-        if let chromiumSession { chromiumSession.page.load(url) } else { webView.load(URLRequest(url: url)) }
+        if let chromiumSession { chromiumSession.page.load(url) } else {
+            // The host loaded a document itself: the crash notice's pending WebKit load is moot.
+            webKitLoadsOnReload = false
+            webView.load(URLRequest(url: url))
+        }
     }
 
     /// Reloads the document in whichever engine shows it.
@@ -159,8 +163,10 @@ extension PageWebView {
         if shouldFocusOnAttach == false, window?.firstResponder === webView { focusPage() }
     }
 
-    /// Chromium failed for this page: it reopens in WebKit, at the route it showed.
-    func fallBackToWebKit(_ reason: PageWebKitReason, detail: String) {
+    /// Chromium failed for this page: it reopens in WebKit, at the route it showed. A host that
+    /// shows the crash notice (``reloadsAfterCrash`` false) gets the notice instead when Chromium
+    /// ended under a page that had loaded (`ended`), and the WebKit load waits for its Reload.
+    func fallBackToWebKit(_ reason: PageWebKitReason, detail: String, ended: Bool = false) {
         // A Chromium start that fails after the tab closed: the retired web view stays unloaded.
         guard !isClosed else { return }
         chromiumStart?.cancel()
@@ -176,6 +182,12 @@ extension PageWebView {
         webView.isHidden = false
         router.reset()
         loaded = false
+        if ended, !reloadsAfterCrash {
+            logger.error("page \(self.descriptor.id, privacy: .public) Chromium ended; no automatic reload (the crash notice offers Reload)")
+            webKitLoadsOnReload = true
+            onCrash?(self, false)
+            return
+        }
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 
@@ -213,7 +225,7 @@ extension PageWebView {
         case .crashed:
             contentProcessTerminated()
         case .ended:
-            fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended")
+            fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)
         case .openRequested(let url):
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):

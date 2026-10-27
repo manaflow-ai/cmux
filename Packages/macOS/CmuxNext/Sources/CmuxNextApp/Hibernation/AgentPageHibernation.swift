@@ -10,7 +10,11 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import os
 
-/// Lets hidden agent chat pages go (cx-x15rz). Each chat tab's page is a web view with its own
+/// Lets hidden agent chat pages go (cx-x15rz), only once cmux.json sets `browser.hibernation`
+/// (`BrowserHibernationSetting.discardsAutomatically`), as for browser tabs: a page built again
+/// keeps what ``AgentPaneWakeState`` carries (chips, shell text, scroll) and acpmux's draft, but
+/// not an open menu or popover, the caret, a queued prompt being edited or an IME composition
+/// (Leo, 2026-10-26: "why does cmux-next's browser keep refreshing and reloading?"). Each chat tab's page is a web view with its own
 /// web content process (about 75 MB), and before this it stayed until the tab closed. A chat
 /// hidden past the browser pages' threshold (`browser.hibernation` and memory pressure, as
 /// `HibernationPlanner` sets it) lets its page go; its tab keeps its session, so showing it again
@@ -139,7 +143,8 @@ final class AgentPageHibernation {
         guard let tabs = store() else { return }
         hiddenAt = hiddenAt.filter { tabs.existingView($0.key) != nil }
         shown = shown.filter { tabs.existingView($0) != nil }
-        guard let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
+        guard setting.discardsAutomatically,
+              let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
             deadline.cancel()
             return
         }
@@ -170,6 +175,8 @@ final class AgentPageHibernation {
     /// whether its view is still in a window (planning a deadline: the pane takes it out after the hide).
     func keepsPage(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? {
         if !setting.isEnabled { return .disabled }
+        // No `browser.hibernation` written: a hidden chat keeps its page (nothing goes on its own).
+        if !setting.discardsAutomatically { return .keepsState }
         guard let tabs = store(), Self.canRelease(key, in: tabs, onScreen: onScreen) else { return .unsupported }
         if isPinned(key), !setting.includesPinnedTabs { return .pinned }
         // No watch, no known turn: a chat that looks idle may be working.
@@ -182,7 +189,8 @@ final class AgentPageHibernation {
     /// command run in it.
     private static func canRelease(_ key: String, in tabs: AgentTabStore, onScreen: Bool) -> Bool {
         let key = tabs.resolve(key)
-        guard let view = tabs.views[key], !(onScreen && isOnScreen(view)), view.model.newTab == nil, !view.model.shell.hasRuns,
+        // A crashed page keeps its notice: a rebuild would reload it without the person's Reload.
+        guard let view = tabs.views[key], !view.showsCrashNotice, !(onScreen && isOnScreen(view)), view.model.newTab == nil, !view.model.shell.hasRuns,
               tabs.newTabPages[key] == nil, let (record, _) = tabs.lookup(key),
               AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .local,
               tabs.daemonForTab(key)?.isLocal != false else { return false }
@@ -199,6 +207,8 @@ final class AgentPageHibernation {
     private func release(_ key: String) {
         guard let tabs = store(), let view = tabs.existingView(key), releasing.insert(key).inserted else { return }
         let readWake = wakeState
+        let hiddenFor = hiddenAt[key].map { Int((now() - $0).seconds) } ?? 0
+        let cause = pressure == .normal ? "timeout hidden=\(hiddenFor)s" : "memory-pressure=\(pressure.rawValue) hidden=\(hiddenFor)s"
         Task { @MainActor [weak self] in
             let wake = await readWake(view)
             let frame = await Self.frame(view)
@@ -228,7 +238,8 @@ final class AgentPageHibernation {
             tabs.stopCustomizationWhenUnused()
             hiddenAt[key] = nil
             releasedCount += 1
-            logger.info("released agent page \(key, privacy: .public)")
+            // Notice, not info: the field log keeps it (the page is built again when shown).
+            logger.notice("released agent page \(key, privacy: .public) cause=\(cause, privacy: .public); it is built again when shown")
         }
     }
 
