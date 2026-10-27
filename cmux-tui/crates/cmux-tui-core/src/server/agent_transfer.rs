@@ -423,13 +423,31 @@ impl Verb {
     /// The verb of a frame (its `cmd` and params, `id` taken out); `None` for
     /// a forbidden, unknown or malformed param or an unknown verb.
     fn parse(frame: Map<String, Value>) -> Option<Self> {
-        if frame.keys().any(|key| {
+        Self::decode(frame).ok()
+    }
+
+    /// [`Verb::parse`] with the reason it refused the frame.
+    fn decode(frame: Map<String, Value>) -> Result<Self, String> {
+        if let Some(key) = frame.keys().find(|key| {
             FORBIDDEN_PARAMS.contains(&key.as_str()) || COMMAND_PARAMS.contains(&key.as_str())
         }) {
-            return None;
+            return Err(format!("forbidden param `{key}`"));
         }
-        serde_json::from_value(Value::Object(frame)).ok()
+        serde_json::from_value(Value::Object(frame)).map_err(|e| e.to_string())
     }
+}
+
+/// [`handle`]'s decode of `message` and nothing more: the request fuzzer
+/// decodes the lines it never runs here (server/test_harness.rs).
+#[cfg(any(test, feature = "fuzz"))]
+pub(in crate::server) fn decode(message: &str) -> Result<(), String> {
+    let Value::Object(mut object) =
+        crate::line_parses::parse::<Value>(message).map_err(|e| e.to_string())?
+    else {
+        return Err("not an object".to_owned());
+    };
+    object.remove("id");
+    Verb::decode(object).map(drop)
 }
 
 /// Refusal codes (`error_code`).

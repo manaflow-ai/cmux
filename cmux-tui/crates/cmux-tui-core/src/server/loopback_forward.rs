@@ -704,7 +704,7 @@ fn run_writer(stream: Arc<ForwardStream>, forwarder: Arc<Mux>) {
 // MARK: Requests
 
 #[derive(Deserialize)]
-struct LoopbackRequest {
+pub(super) struct LoopbackRequest {
     id: Option<Value>,
     #[serde(flatten)]
     command: LoopbackCommand,

@@ -1,0 +1,12 @@
+# Read by scripts/cmux-next/rust-fuzz.sh (Chromium's <target>.options format).
+#
+# Each input is a request sequence (server/test_harness.rs `InputChoices`):
+# the step count, two bytes per method, then a byte or two per parameter
+# decision, about 50 to 200 bytes per request. libFuzzer's length ramp
+# (-len_control) starts inputs at a few bytes and grows them over many
+# thousands of runs, and this target runs tens of inputs a second, so a run
+# would test mostly one-request inputs: turn the ramp off and allow 24
+# requests' worth of bytes.
+[libfuzzer]
+len_control = 0
+max_len = 8192

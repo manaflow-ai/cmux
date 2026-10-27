@@ -136,6 +136,15 @@ struct Request {
     command: Command,
 }
 
+/// [`handle`]'s decode of an `apps-*` `message` and nothing more: the
+/// request fuzzer decodes the lines it never runs here
+/// (server/test_harness.rs).
+#[cfg(any(test, feature = "fuzz"))]
+pub(in crate::server) fn decode(message: &str) -> Result<(), String> {
+    let value: Value = crate::line_parses::parse(message).map_err(|e| e.to_string())?;
+    serde_json::from_value::<Request>(value).map(drop).map_err(|e| e.to_string())
+}
+
 fn reply(
     writer: &MessageWriter,
     id: Option<Value>,

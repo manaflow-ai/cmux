@@ -300,7 +300,7 @@ pub const PAGE_REQUEST_HEAD_MAX_BYTES: usize = crate::server::page_files::REQUES
 pub mod requests {
     pub use crate::mux::fuzz_support::LiveIds;
     pub use crate::server::test_harness::{
-        Choices, Finding, HOST_EFFECTS, RequestCatalog, RequestHarness, RunSummary,
+        Choices, Finding, HOST_EFFECTS, InputChoices, RequestCatalog, RequestHarness, RunSummary,
         record_request_thread_blocking, run,
     };
 }

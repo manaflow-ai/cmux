@@ -174,6 +174,7 @@ impl AllowReason {
 }
 
 mod mode;
+pub(crate) use mode::InheritedMode;
 pub use mode::{BlockingMode, MODE_ENV, mode, set_mode, with_mode};
 
 /// Per-thread restriction state in one word, so the check is one TLS read and

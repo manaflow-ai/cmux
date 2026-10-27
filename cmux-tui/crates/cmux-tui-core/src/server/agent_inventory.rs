@@ -54,6 +54,16 @@ enum Command {
     Refresh(RefreshParams),
 }
 
+/// [`handle`]'s decode of `message` and nothing more: the request fuzzer
+/// decodes the lines it never runs here (server/test_harness.rs).
+#[cfg(any(test, feature = "fuzz"))]
+pub(in crate::server) fn decode(message: &str) -> Result<(), String> {
+    let mut fields =
+        crate::line_parses::parse::<Map<String, Value>>(message).map_err(|e| e.to_string())?;
+    fields.remove("id");
+    serde_json::from_value::<Command>(Value::Object(fields)).map(drop).map_err(|e| e.to_string())
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReadParams {

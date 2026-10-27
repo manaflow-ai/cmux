@@ -166,6 +166,21 @@ pub(super) struct StartParams {
     person_instance: Option<String>,
 }
 
+/// The route's decode of an `agent-session-start` `message` and nothing
+/// more (agent_session_attach.rs `handle` takes out `cmd` and `id`, then
+/// `start` reads these params): the request fuzzer decodes the lines it
+/// never runs here (server/test_harness.rs).
+#[cfg(any(test, feature = "fuzz"))]
+pub(in crate::server) fn decode(message: &str) -> Result<(), String> {
+    let mut object = crate::line_parses::parse::<serde_json::Map<String, Value>>(message)
+        .map_err(|e| e.to_string())?;
+    object.remove("cmd");
+    object.remove("id");
+    serde_json::from_value::<StartParams>(Value::Object(object))
+        .map(drop)
+        .map_err(|e| e.to_string())
+}
+
 impl StartParams {
     fn valid(&self) -> bool {
         let harness_ok = self.harness.as_deref().is_none_or(|harness| {

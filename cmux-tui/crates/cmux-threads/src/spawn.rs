@@ -3,12 +3,14 @@
 use std::io;
 use std::thread::{Builder, JoinHandle};
 
+use crate::blocking::InheritedMode;
 use crate::qos::ThreadQos;
 use crate::registry;
 
 /// Starts thread `name` at `qos`: it registers itself, sets its QoS before
 /// `f` runs, and removes its row when `f` returns or panics, so the row is
-/// gone once [`JoinHandle::join`] returns.
+/// gone once [`JoinHandle::join`] returns. It keeps its creator's
+/// [`crate::blocking::with_mode`] override, if any.
 ///
 /// On Linux a thread starts at its creator's nice value; a class above it
 /// stays at the creator's value unless the process may lower nice (see
@@ -42,7 +44,9 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
+    let mode = InheritedMode::current();
     builder.name(name.clone()).spawn(move || {
+        mode.adopt();
         registry::register_current(name, qos);
         let _deregister = Deregister;
         f()
@@ -401,6 +405,34 @@ mod tests {
         finish_tx.send(()).unwrap();
         handle.join().unwrap();
         assert_eq!(row(NAME), None);
+    }
+
+    /// A thread started under a `with_mode` override keeps it, and so do the
+    /// threads it starts; a thread started outside the scope does not.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn threads_started_under_with_mode_keep_its_mode() {
+        use crate::blocking::{BlockingMode, mode, with_mode};
+        let mode_on_new_thread = || {
+            spawn("cmux-threads-test-mode-child", ThreadQos::Utility, mode)
+                .expect("spawn")
+                .join()
+                .expect("child")
+        };
+        let (child, grandchild) = with_mode(BlockingMode::Panic, || {
+            spawn("cmux-threads-test-mode-parent", ThreadQos::Utility, move || {
+                (mode(), mode_on_new_thread())
+            })
+            .expect("spawn")
+            .join()
+            .expect("parent")
+        });
+        assert_eq!((child, grandchild), (BlockingMode::Panic, BlockingMode::Panic));
+        let (recorded, nested) = with_mode(BlockingMode::Panic, || {
+            with_mode(BlockingMode::Record, || (mode_on_new_thread(), mode()))
+        });
+        assert_eq!((recorded, nested), (BlockingMode::Record, BlockingMode::Record));
+        assert_eq!(mode_on_new_thread(), mode(), "outside the scope a thread has the process mode");
     }
 
     /// libc is the one dependency every user builds; crossbeam-channel is

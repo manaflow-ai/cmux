@@ -248,6 +248,13 @@ struct RuntimeRequest {
     command: RuntimeCommand,
 }
 
+/// [`handle`]'s decode of `message` and nothing more: the request fuzzer
+/// decodes the lines it never runs here (server/test_harness.rs).
+#[cfg(any(test, feature = "fuzz"))]
+pub(in crate::server) fn decode(message: &str) -> Result<(), String> {
+    crate::line_parses::parse::<RuntimeRequest>(message).map(drop).map_err(|e| e.to_string())
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "cmd")]
 enum RuntimeCommand {

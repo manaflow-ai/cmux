@@ -8,6 +8,11 @@
 //! typed result or error, an answer sent twice, a broken layout invariant or
 //! a durable topology that differs from memory is a finding.
 //!
+//! The input's layout is `InputChoices`': the step count, two bytes per
+//! step's method, then the parameter decisions, so a short input is still a
+//! sequence. cmux-tui/fuzz/seeds.py writes sequences in that layout, and
+//! mux_requests.options turns off libFuzzer's length ramp.
+//!
 //! The process gets a HOME of its own before the first input, as the
 //! daemon's socket tests do, so no request reads or writes the person's
 //! files. A blocking call on a request thread is recorded, not a crash; run
@@ -17,29 +22,15 @@
 
 use std::sync::OnceLock;
 
-use arbitrary::Unstructured;
 use cmux_tui_core::fuzz_entry::requests::{
-    Choices, RequestCatalog, record_request_thread_blocking, run,
+    InputChoices, RequestCatalog, record_request_thread_blocking, run,
 };
 use libfuzzer_sys::fuzz_target;
 
-/// Requests per input.
+/// Requests per input at most (seeds.py's `MUX_REQUESTS_MAX_STEPS`).
 const MAX_STEPS: usize = 24;
 
 static CATALOG: OnceLock<RequestCatalog> = OnceLock::new();
-
-/// The generator's decisions, read from the input.
-struct Input<'a>(Unstructured<'a>);
-
-impl Choices for Input<'_> {
-    fn below(&mut self, n: usize) -> usize {
-        self.0.choose_index(n).unwrap_or(0)
-    }
-
-    fn exhausted(&self) -> bool {
-        self.0.is_empty()
-    }
-}
 
 /// Points HOME and the XDG and cmux config locations at a private folder.
 /// Runs in `LLVMFuzzerInitialize`, before any thread of this target starts.
@@ -65,13 +56,14 @@ fn isolate_home() {
 fuzz_target!(
     init: {
         isolate_home();
+        // This process is the fuzzer's: the mode is process-wide here.
         record_request_thread_blocking();
         let catalog = RequestCatalog::daemon().unwrap_or_else(|finding| panic!("{finding}"));
         let _ = CATALOG.set(catalog);
     },
     |data: &[u8]| {
         let Some(catalog) = CATALOG.get() else { return };
-        let mut input = Input(Unstructured::new(data));
+        let mut input = InputChoices::new(data, MAX_STEPS);
         if let Err(finding) = run(catalog, &mut input, MAX_STEPS) {
             panic!("{finding}");
         }

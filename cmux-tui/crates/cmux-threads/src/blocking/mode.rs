@@ -43,7 +43,10 @@ thread_local! {
 
 /// Runs `f` with `mode` as this thread's violation mode, then restores the
 /// previous one: a test checks one thread in panic mode without changing
-/// the process-wide mode the other tests of its binary run in.
+/// the process-wide mode the other tests of its binary run in. A thread
+/// started in `f` through [`crate::spawn`] keeps the mode for its life, and
+/// so do the threads it starts (a daemon's request and work pool threads):
+/// a test's own daemon runs in the test's mode.
 pub fn with_mode<R>(mode: BlockingMode, f: impl FnOnce() -> R) -> R {
     struct Restore(u8);
     impl Drop for Restore {
@@ -57,6 +60,23 @@ pub fn with_mode<R>(mode: BlockingMode, f: impl FnOnce() -> R) -> R {
     };
     let _restore = Restore(THREAD_MODE.with(|cell| cell.replace(raw)));
     f()
+}
+
+/// The calling thread's [`with_mode`] override, for a thread it starts
+/// ([`crate::spawn`]) to take on.
+#[derive(Clone, Copy)]
+pub(crate) struct InheritedMode(u8);
+
+impl InheritedMode {
+    /// The calling thread's override, or none.
+    pub(crate) fn current() -> Self {
+        Self(THREAD_MODE.with(Cell::get))
+    }
+
+    /// Makes the override the calling thread's for the rest of its life.
+    pub(crate) fn adopt(self) {
+        THREAD_MODE.with(|cell| cell.set(self.0));
+    }
 }
 
 /// The violation mode in effect on this thread: its [`with_mode`] override,

@@ -19,7 +19,11 @@
 //!
 //! The methods in [`HOST_EFFECTS`] reach outside the process (child
 //! processes, sockets, the person's files, the daemon's own exit): their
-//! lines are decoded as the dispatcher decodes them but never run.
+//! lines are decoded as the dispatcher decodes them (the `Command` decode, or
+//! the decode of the feature route that answers them) but never run.
+//!
+//! The daemon's threads record a blocking call instead of panicking at it
+//! ([`DaemonMode`]), for that daemon only.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -30,6 +34,7 @@ use std::time::{Duration, Instant};
 
 use cmux_api_compat::coverage::{Shape, surface_from_sdk_schema};
 use cmux_api_compat::pointer::{self, WILDCARD};
+use cmux_threads::blocking::{self, BlockingMode};
 use cmux_threads::checked::sync as waits;
 use serde_json::{Map, Value, json};
 
@@ -132,8 +137,57 @@ fn setup(error: impl std::fmt::Display) -> Finding {
 pub trait Choices {
     /// A number in `0..n` (`n > 0`); 0 once the input is used up.
     fn below(&mut self, n: usize) -> usize;
+    /// The next request's method, an index in `0..n` of the catalog's
+    /// methods by name.
+    fn method(&mut self, n: usize) -> usize {
+        self.below(n)
+    }
     /// The input is used up.
     fn exhausted(&self) -> bool;
+}
+
+/// A fuzzer input as choices. Byte 0 is the step count
+/// (`1 + byte % max_steps`), the next two bytes per step that step's method
+/// (little-endian, [`Choices::method`]), and the rest every other decision,
+/// one byte each (two past 256 choices). A short input still runs several
+/// requests, the method sequence mutates apart from the parameters, and
+/// seeds can name methods (cmux-tui/fuzz/seeds.py).
+pub struct InputChoices<'a> {
+    methods: &'a [u8],
+    params: &'a [u8],
+}
+
+impl<'a> InputChoices<'a> {
+    pub fn new(data: &'a [u8], max_steps: usize) -> Self {
+        let Some((steps, rest)) = data.split_first() else {
+            return Self { methods: &[], params: &[] };
+        };
+        let steps = 1 + usize::from(*steps) % max_steps.max(1);
+        let (methods, params) = rest.split_at((steps * 2).min(rest.len()));
+        Self { methods, params }
+    }
+
+    /// The next `width` bytes (fewer at the end) as a little-endian number.
+    fn take(bytes: &mut &[u8], width: usize) -> usize {
+        let (taken, rest) = bytes.split_at(width.min(bytes.len()));
+        *bytes = rest;
+        taken.iter().rev().fold(0, |value, byte| (value << 8) | usize::from(*byte))
+    }
+}
+
+impl Choices for InputChoices<'_> {
+    fn below(&mut self, n: usize) -> usize {
+        let width = if n <= 256 { 1 } else { 2 };
+        Self::take(&mut self.params, width) % n.max(1)
+    }
+
+    fn method(&mut self, n: usize) -> usize {
+        Self::take(&mut self.methods, 2) % n.max(1)
+    }
+
+    fn exhausted(&self) -> bool {
+        self.methods.is_empty()
+    }
 }
 
 /// One parameter of a method: its shape and its members, by pointer token
@@ -201,15 +255,23 @@ impl RequestCatalog {
                 }
             }
             let host_effect = HOST_EFFECTS.iter().any(|(effect, _)| effect == name);
+            if host_effect && super::routes::find(name).is_some() && route_decode(name).is_none() {
+                return Err(setup(format!(
+                    "{name} is a feature route's: give it the route's decode in route_decode"
+                )));
+            }
             methods.push(Method { name: name.clone(), params, host_effect });
         }
         if methods.is_empty() {
             return Err(setup("the SDK schema has no commands"));
         }
+        // By name, whatever order the JSON map keeps: a seed names a method
+        // by its index here.
+        methods.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(Self { methods })
     }
 
-    /// The method names, in schema order.
+    /// The method names, sorted.
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.methods.iter().map(|method| method.name.as_str())
     }
@@ -328,6 +390,8 @@ struct Generator<'a> {
     live: &'a LiveIds,
     seen: &'a Seen,
     learned: &'a [String],
+    /// Stale ids put in the line (seen earlier, not live now).
+    stale: usize,
 }
 
 impl Generator<'_> {
@@ -438,6 +502,9 @@ impl Generator<'_> {
             }
             2 => {
                 if let Some(id) = self.pick(&kind.seen(self.seen)) {
+                    if !kind.live(self.live).contains(&id) {
+                        self.stale += 1;
+                    }
                     return json!(id);
                 }
             }
@@ -463,7 +530,11 @@ impl Generator<'_> {
         let stale = self.seen.names.iter().cloned().collect::<Vec<_>>();
         let picked = match self.below(5) {
             0 | 1 => self.pick(&live),
-            2 => self.pick(&stale),
+            2 => self.pick(&stale).inspect(|name| {
+                if !live.contains(name) {
+                    self.stale += 1;
+                }
+            }),
             3 => self.pick(BOGUS_STRINGS).map(str::to_owned),
             _ => {
                 let length = self.below(9);
@@ -538,6 +609,11 @@ pub struct RunSummary {
     pub dispatched: BTreeMap<String, usize>,
     /// Host-effect lines decoded only, by method.
     pub decoded: BTreeMap<String, usize>,
+    /// Decoded host-effect lines whose decoder did not know their `cmd`, by
+    /// method: none of their parameters was read.
+    pub unknown_command: BTreeMap<String, usize>,
+    /// Stale ids the requests named (seen earlier, not live then).
+    pub stale_ids: usize,
     /// Answers checked.
     pub answers: usize,
     /// Requests not answered within the wait, by method.
@@ -550,6 +626,8 @@ pub struct RunSummary {
 
 /// One in-memory daemon and one connection to it.
 pub struct RequestHarness {
+    /// The blocking mode of this daemon's threads.
+    mode: DaemonMode,
     mux: Arc<Mux>,
     connection: Option<Connection>,
     next_id: u64,
@@ -566,15 +644,21 @@ impl RequestHarness {
     pub fn open() -> Result<Self, Finding> {
         static SESSIONS: AtomicU64 = AtomicU64::new(0);
         let session = format!("request-fuzz-{}", SESSIONS.fetch_add(1, Ordering::Relaxed));
-        let mux = Mux::in_memory_for_fuzz(&session).map_err(setup)?;
-        let connection = match Connection::open(&mux) {
-            Ok(connection) => connection,
-            Err(finding) => {
-                mux.shutdown();
-                return Err(finding);
+        let mode = DaemonMode::from_env();
+        // The daemon's threads (its work pool's launcher among them) start
+        // here and in `dispatch`, so they take the mode from these scopes.
+        let (mux, connection) = mode.run(|| {
+            let mux = Mux::in_memory_for_fuzz(&session).map_err(setup)?;
+            match Connection::open(&mux) {
+                Ok(connection) => Ok((mux, connection)),
+                Err(finding) => {
+                    mux.shutdown();
+                    Err(finding)
+                }
             }
-        };
+        })?;
         Ok(Self {
+            mode,
             mux,
             connection: Some(connection),
             next_id: 1,
@@ -598,7 +682,7 @@ impl RequestHarness {
         catalog: &RequestCatalog,
         choices: &mut dyn Choices,
     ) -> Result<(), Finding> {
-        let index = choices.below(catalog.methods.len().max(1));
+        let index = choices.method(catalog.methods.len().max(1));
         let Some(method) = catalog.method(index) else {
             return Ok(());
         };
@@ -623,10 +707,14 @@ impl RequestHarness {
         self.seen.add(&live);
         let id = self.next_id;
         self.next_id += 1;
-        let line = Generator { choices, live: &live, seen: &self.seen, learned: &self.learned }
-            .line(method, id);
+        let mut generator =
+            Generator { choices, live: &live, seen: &self.seen, learned: &self.learned, stale: 0 };
+        let line = generator.line(method, id);
+        self.summary.stale_ids += generator.stale;
         if method.host_effect {
-            decode(&line);
+            if decode(&method.name, &line) == Err(Refused::UnknownCommand) {
+                *self.summary.unknown_command.entry(method.name.clone()).or_default() += 1;
+            }
             *self.summary.decoded.entry(method.name.clone()).or_default() += 1;
             return Ok(());
         }
@@ -635,6 +723,11 @@ impl RequestHarness {
 
     /// Sends `line`, whose `id` is `id`, through the connection's dispatch.
     fn dispatch(&mut self, method: &str, id: u64, line: &str) -> Result<(), Finding> {
+        let mode = self.mode;
+        mode.run(|| self.dispatch_in_mode(method, id, line))
+    }
+
+    fn dispatch_in_mode(&mut self, method: &str, id: u64, line: &str) -> Result<(), Finding> {
         let connection = match self.connection.take() {
             Some(connection) => connection,
             None => Connection::open(&self.mux)?,
@@ -740,30 +833,117 @@ impl RequestHarness {
 impl Drop for RequestHarness {
     /// Closes the connection and shuts the daemon down.
     fn drop(&mut self) {
-        if let Some(connection) = self.connection.take() {
-            connection.close(&self.mux);
+        let mode = self.mode;
+        mode.run(|| {
+            if let Some(connection) = self.connection.take() {
+                connection.close(&self.mux);
+            }
+            self.mux.shutdown();
+        });
+    }
+}
+
+/// The blocking mode a harness's daemon threads run in: a blocking call on
+/// a request thread is recorded, not a panic, unless `CMUX_DAEMON_BLOCKING`
+/// says otherwise. Those sites are the p02-threads sweep's
+/// (`server-blocking`, MQ-13); this fuzzer looks for crashes and broken
+/// invariants past them. It is the harness's own threads' mode
+/// (`with_mode`, which the threads they start keep), so the other tests of
+/// a binary keep theirs.
+#[derive(Clone, Copy, Debug)]
+struct DaemonMode(Option<BlockingMode>);
+
+impl DaemonMode {
+    fn from_env() -> Self {
+        Self(std::env::var_os(blocking::MODE_ENV).is_none().then_some(BlockingMode::Record))
+    }
+
+    fn run<R>(self, f: impl FnOnce() -> R) -> R {
+        match self.0 {
+            Some(mode) => blocking::with_mode(mode, f),
+            None => f(),
         }
-        self.mux.shutdown();
     }
 }
 
-/// Records, and does not panic at, a blocking call on a request thread,
-/// unless `CMUX_DAEMON_BLOCKING` says otherwise. Those sites are the
-/// p02-threads sweep's (`server-blocking`, MQ-13); this fuzzer looks for
-/// crashes and broken invariants past them. The mode is process-wide.
+/// [`DaemonMode`] for the whole process, for a process the fuzzer owns
+/// (the libFuzzer target): it also covers threads a harness does not start.
+#[cfg(feature = "fuzz")]
 pub fn record_request_thread_blocking() {
-    if std::env::var_os(cmux_threads::blocking::MODE_ENV).is_none() {
-        cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Record);
+    if let DaemonMode(Some(mode)) = DaemonMode::from_env() {
+        blocking::set_mode(mode);
     }
 }
 
-/// The dispatcher's decode of a line it does not run: its head, then the
-/// `Command` it names. Either may refuse the line; neither may panic.
-fn decode(line: &str) {
-    let head = RequestHead::parse(line);
-    if head.is_command() {
-        let _ = crate::line_parses::parse::<Request>(line);
+/// Why a decoder refused a decode-only line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Refused {
+    /// No decoder knows the line's `cmd`: none read a parameter.
+    UnknownCommand,
+    /// A parameter is missing, unknown or malformed.
+    Params,
+}
+
+/// The dispatcher's decode of a line it does not run: the decode of the
+/// feature route `cmd` names ([`super::routes::find`]), else, when the head
+/// names a `Command`, that `Command`'s. Either may refuse the line; neither
+/// may panic.
+fn decode(cmd: &str, line: &str) -> Result<(), Refused> {
+    let decoded = match route_decode(cmd) {
+        Some(decode) => decode(line),
+        None if RequestHead::parse(line).is_command() => {
+            crate::line_parses::parse::<Request>(line).map(drop).map_err(|e| e.to_string())
+        }
+        None => return Err(Refused::UnknownCommand),
+    };
+    decoded.map_err(|error| {
+        // serde's error for an internally tagged enum with no such variant.
+        if error.starts_with(&format!("unknown variant `{cmd}`")) {
+            Refused::UnknownCommand
+        } else {
+            Refused::Params
+        }
+    })
+}
+
+/// A feature route's decode of a line it answers: the decode its entry
+/// runs, and nothing more.
+type RouteDecode = fn(&str) -> Result<(), String>;
+
+/// The decode of the feature route that answers `cmd`, for each route a
+/// decode-only method takes. [`RequestCatalog::from_sdk_schema`] refuses a
+/// decode-only method whose route has none here.
+fn route_decode(cmd: &str) -> Option<RouteDecode> {
+    if cmd.starts_with("loopback-") {
+        return Some(|line| {
+            crate::line_parses::parse::<super::loopback_forward::LoopbackRequest>(line)
+                .map(drop)
+                .map_err(|e| e.to_string())
+        });
     }
+    unix_route_decode(cmd)
+}
+
+#[cfg(unix)]
+fn unix_route_decode(cmd: &str) -> Option<RouteDecode> {
+    let decode: RouteDecode = match cmd {
+        "agent-session-start" => super::agent_session_attach::agent_session_start::decode,
+        "agent-inventory" | "agent-inventory-refresh" => super::agent_inventory::decode,
+        "agent-update-plan" | "agent-update-apply" => super::agent_transfer::agent_update::decode,
+        _ if cmd.starts_with("agent-transfer-") => super::agent_transfer::decode,
+        _ if cmd.starts_with("apps-") => super::apps::decode,
+        _ if cmd.starts_with("script-") => super::scripts::decode,
+        _ if cmd.starts_with("browser-runtime-") => super::browser_runtime::decode,
+        _ => return None,
+    };
+    Some(decode)
+}
+
+/// Those feature routes are Unix only: elsewhere the `Command` decode
+/// answers every line.
+#[cfg(not(unix))]
+fn unix_route_decode(_cmd: &str) -> Option<RouteDecode> {
+    None
 }
 
 /// String ids an answer hands back (`"group": "tg-..."`, `"tab_id"`), for

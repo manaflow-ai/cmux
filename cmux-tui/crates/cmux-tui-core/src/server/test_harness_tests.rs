@@ -41,7 +41,8 @@ fn schema() -> Value {
 fn request_fuzz_catalog_has_every_schema_method_and_only_schema_host_effects() {
     let catalog = RequestCatalog::daemon().unwrap();
     let schema = schema();
-    let expected = schema["commands"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+    let mut expected = schema["commands"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+    expected.sort();
     assert_eq!(catalog.names().map(str::to_owned).collect::<Vec<_>>(), expected);
     for (name, why) in HOST_EFFECTS {
         assert!(expected.iter().any(|method| method == name), "{name} is not a schema method");
@@ -70,8 +71,9 @@ fn request_fuzz_lines_carry_the_schema_parameters() {
     let mut members = BTreeSet::new();
     for seed in 0..64 {
         let mut choices = Seeded::new(seed, 256);
-        let line = Generator { choices: &mut choices, live: &live, seen: &seen, learned: &[] }
-            .line(method, 5);
+        let line =
+            Generator { choices: &mut choices, live: &live, seen: &seen, learned: &[], stale: 0 }
+                .line(method, 5);
         let line: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(line["cmd"], "move-tab");
         assert_eq!(line["id"], 5);
@@ -84,7 +86,6 @@ fn request_fuzz_lines_carry_the_schema_parameters() {
 
 #[test]
 fn request_fuzz_every_method_reaches_the_dispatcher_and_answers_typed() {
-    record_request_thread_blocking();
     let catalog = RequestCatalog::daemon().unwrap();
     let mut harness = RequestHarness::open().unwrap();
     // Something for ids to name first.
@@ -109,6 +110,8 @@ fn request_fuzz_every_method_reaches_the_dispatcher_and_answers_typed() {
         };
         assert!(counted.is_some_and(|count| *count > 0), "{name} was not covered");
     }
+    // Every decode-only line reached a decoder that knows its `cmd`.
+    assert!(summary.unknown_command.is_empty(), "{:?}", summary.unknown_command);
     // The dispatcher kept answering: almost every request got its answer in time.
     let late = summary.late.values().sum::<usize>();
     assert!(
@@ -123,7 +126,6 @@ fn request_fuzz_every_method_reaches_the_dispatcher_and_answers_typed() {
 
 #[test]
 fn request_fuzz_random_sequences_keep_the_layout_invariants() {
-    record_request_thread_blocking();
     let catalog = RequestCatalog::daemon().unwrap();
     let seeds =
         std::env::var("REQUEST_FUZZ_SEEDS").ok().and_then(|seeds| seeds.parse().ok()).unwrap_or(12);
@@ -162,7 +164,6 @@ fn send(harness: &mut RequestHarness, mut request: Value) -> Result<(), Finding>
 
 #[test]
 fn request_fuzz_closes_that_end_terminals_answer_and_keep_the_layout() {
-    record_request_thread_blocking();
     let mut harness = RequestHarness::open().unwrap();
     for _ in 0..2 {
         send(&mut harness, json!({"cmd": "new-workspace"})).unwrap();
@@ -182,4 +183,104 @@ fn request_fuzz_closes_that_end_terminals_answer_and_keep_the_layout() {
     }
     assert!(harness.pending.is_empty(), "unanswered: {:?}", harness.summary.late);
     assert_eq!(harness.summary.succeeded.get("list-workspaces"), Some(&1));
+}
+
+#[test]
+fn request_fuzz_decodes_routed_lines_with_their_route_decoder() {
+    // The `Command` decode knows no feature route's `cmd`.
+    let script = r#"{"cmd":"script-run","id":1,"code":"1"}"#;
+    let command = crate::line_parses::parse::<Request>(script).map(drop).unwrap_err();
+    assert!(command.to_string().starts_with("unknown variant `script-run`"), "{command}");
+    let unknown = r#"{"cmd":"fuzz-no-such-method","id":1}"#;
+    assert_eq!(decode("fuzz-no-such-method", unknown), Err(Refused::UnknownCommand));
+    let parsed: &[(&str, &str)] = &[
+        ("loopback-open", r#"{"cmd":"loopback-open","id":1,"stream":1,"host":"h","port":1}"#),
+        #[cfg(unix)]
+        ("script-run", script),
+        #[cfg(unix)]
+        ("apps-run", r#"{"cmd":"apps-run","id":1,"app":"a","op":"o"}"#),
+        #[cfg(unix)]
+        ("browser-runtime-start", r#"{"cmd":"browser-runtime-start","id":1}"#),
+    ];
+    for (cmd, line) in parsed {
+        assert_eq!(decode(cmd, line), Ok(()), "{line}");
+    }
+    // A routed line with a bad parameter is a parameter refusal.
+    let missing_port = r#"{"cmd":"loopback-open","id":1,"stream":1,"host":"h"}"#;
+    assert_eq!(decode("loopback-open", missing_port), Err(Refused::Params));
+    // Every decode-only method of a feature route has its route's decode.
+    for (name, _) in HOST_EFFECTS {
+        if super::super::routes::find(name).is_some() {
+            assert!(route_decode(name).is_some(), "{name}");
+        }
+    }
+}
+
+/// The harness's daemon records blocking calls on its own threads even
+/// when the calling thread panics at them: another test's mode never
+/// reaches it.
+#[test]
+fn request_fuzz_daemon_keeps_its_own_blocking_mode() {
+    if std::env::var_os(blocking::MODE_ENV).is_some() {
+        return;
+    }
+    blocking::with_mode(BlockingMode::Panic, || {
+        let mut harness = RequestHarness::open().unwrap();
+        send(&mut harness, json!({"cmd": "new-workspace"})).unwrap();
+        send(&mut harness, json!({"cmd": "new-screen"})).unwrap();
+        let ids = harness.mux.fuzz_live_ids();
+        // The close reaches recorded SQLite sites on the dispatcher thread.
+        let close = json!({"cmd": "close-pane", "pane": ids.panes[0], "end_terminals": true});
+        send(&mut harness, close).unwrap();
+        send(&mut harness, json!({"cmd": "list-workspaces"})).unwrap();
+        assert!(harness.pending.is_empty(), "unanswered: {:?}", harness.summary.late);
+        assert_eq!(harness.summary.succeeded.get("list-workspaces"), Some(&1));
+    });
+}
+
+/// A fuzzer input laid out as cmux-tui/fuzz/seeds.py lays out the
+/// `mux_requests` seeds: the step count, two bytes per method (its index by
+/// name), then the parameter bytes.
+fn seed(catalog: &RequestCatalog, methods: &[&str], params: &[u8]) -> Vec<u8> {
+    let names = catalog.names().collect::<Vec<_>>();
+    let mut input = vec![u8::try_from(methods.len() - 1).unwrap()];
+    for method in methods {
+        let index = names.iter().position(|name| name == method).unwrap();
+        input.extend(u16::try_from(index).unwrap().to_le_bytes());
+    }
+    input.extend(params);
+    input
+}
+
+#[test]
+fn request_fuzz_short_inputs_run_request_sequences_with_stale_ids() {
+    let catalog = RequestCatalog::daemon().unwrap();
+    let sequence = [
+        "new-workspace",
+        "new-screen",
+        "split",
+        "close-pane",
+        "close-pane",
+        "close-surface",
+        "list-workspaces",
+    ];
+    // No parameter bytes: every request names live ids.
+    let input = seed(&catalog, &sequence, &[]);
+    assert_eq!(input.len(), 15);
+    let summary = run(&catalog, &mut InputChoices::new(&input, 24), 24).unwrap();
+    assert_eq!(summary.dispatched.values().sum::<usize>(), sequence.len(), "{summary:?}");
+    assert_eq!(summary.dispatched.get("close-pane"), Some(&2));
+    assert_eq!(summary.stale_ids, 0);
+    // Parameter bytes of 2 pick seen ids, stale ones among them.
+    let input = seed(&catalog, &sequence, &[2; 512]);
+    let summary = run(&catalog, &mut InputChoices::new(&input, 24), 24).unwrap();
+    assert_eq!(summary.dispatched.values().sum::<usize>(), sequence.len(), "{summary:?}");
+    assert!(summary.stale_ids > 0, "{summary:?}");
+    // Past the method bytes the input is used up; a method cut short still
+    // names a method, and parameters past the end are 0.
+    assert!(InputChoices::new(&[], 24).exhausted());
+    let mut cut = InputChoices::new(&[5, 7], 24);
+    assert_eq!(cut.method(362), 7);
+    assert!(cut.exhausted());
+    assert_eq!(cut.below(6), 0);
 }

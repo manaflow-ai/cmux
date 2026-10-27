@@ -125,6 +125,36 @@ def holder(_repo: Path) -> Iterable[bytes]:
     yield b"cmux-holder wire 1-5\n"
 
 
+# fuzz_targets/mux_requests.rs MAX_STEPS.
+MUX_REQUESTS_MAX_STEPS = 24
+
+# Request sequences that build a layout, take parts of it away and then name
+# the parts that are gone.
+MUX_REQUEST_SEQUENCES = (
+    ("new-workspace", "new-screen", "split", "close-pane", "close-pane", "close-surface",
+     "list-workspaces"),
+    ("new-workspace", "new-workspace", "new-tab", "split", "move-tab", "close-screen",
+     "focus-pane", "close-workspace", "select-workspace", "rename-workspace"),
+    ("new-workspace", "split", "split", "close-workspace", "split", "close-pane", "new-tab",
+     "close-surface", "list-workspaces"),
+)
+
+
+def mux_requests(repo: Path) -> Iterable[bytes]:
+    # cmux-tui-core server/test_harness.rs InputChoices: the step count (1 + byte % max steps),
+    # each step's method as its index among the schema's methods by name (u16 LE), then one
+    # byte per parameter decision. Empty parameters name live ids; bytes of 2 pick seen ids,
+    # so the closed ones come back as stale ids.
+    methods = sorted(json.loads((repo / "cmux-tui/spec/sdk-schema.json").read_text())["commands"])
+    for sequence in MUX_REQUEST_SEQUENCES:
+        assert len(sequence) <= MUX_REQUESTS_MAX_STEPS
+        steps = bytes([len(sequence) - 1]) + b"".join(
+            struct.pack("<H", methods.index(method)) for method in sequence)
+        yield steps
+        yield steps + bytes([2]) * 1024
+        yield steps + bytes(range(256)) * 4
+
+
 TARGETS: dict[str, Callable[[Path], Iterable[bytes]]] = {
     "ghostty_vt_output": terminal_corpus,
     "terminal_host_read_frame": terminal_host_frames,
@@ -132,6 +162,7 @@ TARGETS: dict[str, Callable[[Path], Iterable[bytes]]] = {
     "remote_protocol": remote_protocol,
     "config_jsonc": config_jsonc,
     "holder_decode": holder,
+    "mux_requests": mux_requests,
 }
 
 

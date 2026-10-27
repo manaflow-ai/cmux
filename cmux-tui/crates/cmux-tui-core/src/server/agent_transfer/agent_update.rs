@@ -154,12 +154,31 @@ impl ApplyParams {
 impl Frame {
     /// The frame of `object` (`id` taken out); `None` for a malformed one.
     fn parse(object: serde_json::Map<String, Value>) -> Option<Self> {
-        let frame: Self = serde_json::from_value(Value::Object(object)).ok()?;
+        Self::decode(object).ok()
+    }
+
+    /// [`Frame::parse`] with the reason it refused the frame.
+    fn decode(object: serde_json::Map<String, Value>) -> Result<Self, String> {
+        let frame: Self =
+            serde_json::from_value(Value::Object(object)).map_err(|e| e.to_string())?;
         match &frame.verb {
-            Verb::Apply(params) if !params.valid() => None,
-            _ => Some(frame),
+            Verb::Apply(params) if !params.valid() => Err("invalid apply params".to_owned()),
+            _ => Ok(frame),
         }
     }
+}
+
+/// [`handle`]'s decode of `message` and nothing more: the request fuzzer
+/// decodes the lines it never runs here (server/test_harness.rs).
+#[cfg(any(test, feature = "fuzz"))]
+pub(in crate::server) fn decode(message: &str) -> Result<(), String> {
+    let Value::Object(mut object) =
+        crate::line_parses::parse::<Value>(message).map_err(|e| e.to_string())?
+    else {
+        return Err("not an object".to_owned());
+    };
+    object.remove("id");
+    Frame::decode(object).map(drop)
 }
 
 /// Refusal codes (`error_code`).
