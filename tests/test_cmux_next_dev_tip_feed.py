@@ -723,7 +723,8 @@ with tempfile.TemporaryDirectory() as tmp:
           "the Linux appcast offers the signed full DMG alone, for this build")
     rc, _ = run_appcast(write_archive("101", good))
     check(rc != 0, "an archive of another build gets no appcast")
-    rc, _ = run_appcast(write_archive("102", base64.b64encode(os.urandom(32)).decode()))
+    # A base64 key can start with "/", which made the archive name a missing subdirectory (a flake).
+    rc, _ = run_appcast(write_archive("102", "/" * 4 + base64.b64encode(os.urandom(32)).decode()))
     check(rc != 0, "an app that trusts another key gets no appcast")
 
 if failures:
