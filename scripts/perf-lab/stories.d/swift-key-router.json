@@ -1,0 +1,20 @@
+{
+  "id": "swift-key-router",
+  "tier": "builder",
+  "description": "KeyRouterBench: KeyRouter.interceptKeyDown in a 60-workspace window with a terminal among 30 panes, us per key-down for a plain key, Cmd-T, Cmd-D, a when-clause binding and Ctrl-C, allocations per key, Text Input Sources reads and key-equivalent views per key.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-key-router", "--filter", "KeyRouterBench", "--env", "CMUX_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.key_router\\.(plain_a|cmd_t|cmd_d|when_clause|ctrl_c)\\.dispatch", "unit": "us", "better": "lower"},
+    {"name": "swift\\.key_router\\.(plain_a|cmd_t|cmd_d|when_clause|ctrl_c)\\.allocs", "unit": "count", "better": "lower"},
+    {"name": "swift\\.key_router\\.(tis_calls|key_equiv_views)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/KeyRouterBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-typing",
+  "component": "Input>KeyRouter",
+  "hot_paths": ["key-dispatch"]
+}

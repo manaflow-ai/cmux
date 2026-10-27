@@ -2,6 +2,7 @@
 import CmuxNextActions
 import CmuxNextControl
 import CmuxNextOracle
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,8 @@ import Testing
 /// same registry with no observer. The two arms alternate in rounds in one process, so drift hits
 /// both; the line gives the mean difference with its 95% interval over the rounds. What Release adds
 /// over the push base is ActionPerformBench's A/B (scripts/cmux-next/action-perform-ab.py). A
-/// measurement, not a gate: run it with bench hooks in a Release build on each macOS major.
+/// measurement, not a gate: run it with bench hooks in a Release build on each macOS major. With
+/// CMUX_PERF_RESULT_DIR it also writes the rounds as result-v1 (lab story swift-oracle-turns).
 ///
 /// ```
 /// CMUX_ORACLE_TURNS_BENCH=1 swift test -c release -Xswiftc -DCMUX_BENCH_HOOKS --filter OracleActionTurnsBench
@@ -40,7 +42,7 @@ struct OracleActionTurnsBench {
         return Double(nanos) / Double(performsPerRound)
     }
 
-    @Test func theDisarmedRecorderCostsUnderAMicrosecondPerPerform() {
+    @Test func theDisarmedRecorderCostsUnderAMicrosecondPerPerform() throws {
         let turns = OracleActionTurns()
         let bare = Self.registry(nil)
         let observed = Self.registry(turns)
@@ -66,6 +68,10 @@ struct OracleActionTurnsBench {
                      + "disarmed OracleActionTurns adds %.1f ns (95%% CI %.1f to %.1f)",
                      ProcessInfo.processInfo.operatingSystemVersionString, Self.rounds, Self.performsPerRound, base,
                      mean, mean - halfWidth, mean + halfWidth))
+        if let results = try PerfResultWriter() {
+            try results.record("swift.oracle_turns.no_observer_ns", unit: .ns, samples: bareMeans)
+            try results.record("swift.oracle_turns.disarmed_added_ns", unit: .ns, samples: differences)
+        }
         #expect(turns.recorder.ring.count == 0)
         #expect(mean + halfWidth < 1_000)
     }
