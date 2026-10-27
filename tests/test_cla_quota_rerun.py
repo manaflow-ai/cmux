@@ -130,11 +130,18 @@ class Tests(unittest.TestCase):
         self.assertEqual(fake.calls, [("GET", "/rate_limit")] * 2)
 
     def test_a_far_reset_is_not_waited_for(self):
-        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=0, reset=NOW + dt.timedelta(minutes=50))
+        reset = NOW + dt.timedelta(minutes=50)
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=0, reset=reset)
         slept = []
-        self.sweep(fake, slept=slept)
+        # Spent until past the deadline: red, with the time, for the next tick.
+        self.assertIn(f"spent until {reset + rerun.RESET_GRACE:%H:%M:%SZ}", self.sweep(fake, slept=slept, code=1))
         self.assertEqual(slept, [])
         self.assertEqual(fake.calls, [("GET", "/rate_limit")])
+
+    def test_a_far_reset_under_the_floor_but_not_spent_stays_green(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=100, reset=NOW + dt.timedelta(minutes=50))
+        self.assertIn("a re-run would fail the same way", self.sweep(fake))
+        self.assertEqual(fake.posts, [])
 
     def test_re_runs_are_capped_to_keep_the_floor(self):
         floor = int(15000 * rerun.FLOOR_SHARE)
@@ -406,10 +413,63 @@ class Tests(unittest.TestCase):
         self.assertNotIn("continue-on-error", job)
         self.assertNotIn("continue-on-error", step)
 
+    def test_a_retried_pass_never_reruns_a_run_twice(self):
+        fake = FakeGitHub([run(1, "a" * 40, number=1), run(2, "b" * 40, number=2)], [], {1: LIMITED_LOG, 2: LIMITED_LOG})
+        fake.fail("POST", rerun_path(2), 403)  # run 1, accepted first, still lists as failed
+        self.sweep(fake)
+        self.assertEqual(sorted(fake.posts), [rerun_path(1), rerun_path(2)])
+
+    def test_a_pass_out_of_time_exits_non_zero(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        fake.request = mock.Mock(side_effect=rerun.PastDeadline("no time left for GET /rate_limit"))
+        self.assertIn("deadline", self.sweep(fake, code=1))
+
     def test_dry_run_writes_nothing(self):
         fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
         self.assertIn("would re-run", self.sweep(fake, dry=True))
         self.assertEqual(fake.posts, [])
+
+
+class Response(io.BytesIO):
+    def __init__(self, body=b"{}", status=200, headers=None):
+        super().__init__(body)
+        self.status, self.headers = status, headers or {}
+
+
+class RealRequestTests(unittest.TestCase):
+    """GitHub.request itself, with urlopen mocked."""
+
+    def test_a_403_becomes_a_spent_budget_with_its_reset(self):
+        error = urllib.error.HTTPError(API + "/x", 403, "Forbidden", {"X-RateLimit-Reset": "1793124441"}, None)
+        with mock.patch.object(rerun.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(rerun.SpentBudget) as caught:
+                rerun.GitHub("t", "o/r").request("POST", "/x")
+        self.assertEqual(caught.exception.reset, dt.datetime.fromtimestamp(1793124441, dt.timezone.utc))
+        error.close()
+
+    def test_a_successful_response_with_none_left_stops_the_next_call(self):
+        gh = rerun.GitHub("t", "o/r")
+        headers = {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1793124441"}
+        with mock.patch.object(rerun.urllib.request, "urlopen", return_value=Response(headers=headers)) as opened:
+            self.assertEqual(gh.request("GET", "/repos/o/r/pulls"), {})
+            with self.assertRaises(rerun.SpentBudget):
+                gh.request("GET", "/repos/o/r/pulls")
+        self.assertEqual(opened.call_count, 1)
+
+    def test_the_free_rate_limit_read_is_judged_by_its_body(self):
+        gh = rerun.GitHub("t", "o/r")
+        with mock.patch.object(rerun.urllib.request, "urlopen",
+                               side_effect=lambda *a, **k: Response(headers={"X-RateLimit-Remaining": "0"})) as opened:
+            gh.request("GET", "/rate_limit")
+            gh.request("GET", "/rate_limit")
+        self.assertEqual(opened.call_count, 2)
+
+    def test_no_call_starts_past_the_deadline(self):
+        gh = rerun.GitHub("t", "o/r")
+        gh.deadline = dt.datetime.now(dt.timezone.utc)
+        with mock.patch.object(rerun.urllib.request, "urlopen") as opened, self.assertRaises(rerun.PastDeadline):
+            gh.request("GET", "/x")
+        opened.assert_not_called()
 
 
 if __name__ == "__main__":
