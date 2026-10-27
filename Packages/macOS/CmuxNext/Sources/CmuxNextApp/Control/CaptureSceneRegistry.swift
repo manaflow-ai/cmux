@@ -274,7 +274,8 @@ extension CaptureSceneRegistry {
                 "expected_name": .string(expected), "frames": frameStats,
             ]
             guard let settled else {
-                report["error"] = .string("auto-name scene did not settle before deadline")
+                let readiness = autoNameReadinessSummary(workspace: workspace, tabID: created.key, windowID: windowID, expected: expected).summary
+                report["error"] = .string("auto-name scene did not settle: \(readiness)")
                 return .object(report)
             }
             var snapshotParams = params
@@ -301,16 +302,25 @@ extension CaptureSceneRegistry {
     }
 
     private func autoNameReady(workspace: WorkspaceModel, tabID: String, windowID: String, expected: String) -> Bool {
-        guard workspace.name == expected, workspace.nameSource == .auto,
-              let tab = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == tabID }),
-              let session = tab.agentSession, session.session == Self.autoNameSession,
-              AgentTurnStateStore.shared.generatedTitle(for: session) == Self.generatedAutoName,
-              let view = services.agentTabs.existingView(tabID), view.model.hasPainted,
-              view.webView.window != nil, !view.webView.isLoading,
-              let sidebar = services.windows.controller(for: windowID)?.sidebar.model else { return false }
-        return sidebar.sections.flatMap(\.workspaces).contains {
-            $0.id.rawValue == workspace.id && $0.title == expected && !$0.rowState.isPending
-        }
+        autoNameReadinessSummary(workspace: workspace, tabID: tabID, windowID: windowID, expected: expected).ready
+    }
+
+    private func autoNameReadinessSummary(workspace: WorkspaceModel, tabID: String, windowID: String, expected: String) -> (ready: Bool, summary: String) {
+        let nameMatches = workspace.name == expected
+        let sourceAuto = workspace.nameSource == .auto
+        let tab = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == tabID })
+        let sessionMatches = tab?.agentSession?.session == Self.autoNameSession
+        let generatedMatches = tab?.agentSession.map { AgentTurnStateStore.shared.generatedTitle(for: $0) == Self.generatedAutoName } ?? false
+        let view = services.agentTabs.existingView(tabID)
+        let painted = view?.model.hasPainted == true
+        let inWindow = view?.webView.window != nil
+        let loading = view?.webView.isLoading == true
+        let row = services.windows.controller(for: windowID)?.sidebar.model?.sections.flatMap(\.workspaces).first { $0.id.rawValue == workspace.id }
+        let rowReady = row?.title == expected
+        let pending = row?.rowState.isPending == true
+        let ready = nameMatches && sourceAuto && tab != nil && sessionMatches && generatedMatches && painted && inWindow && !loading && rowReady && !pending
+        let summary = "name=\(workspace.name) expected=\(expected) source=\(workspace.nameSource.rawValue) tab=\(tab != nil) session=\(sessionMatches) generated=\(generatedMatches) painted=\(painted) inWindow=\(inWindow) loading=\(loading) row=\(rowReady) pending=\(pending)"
+        return (ready, summary)
     }
 }
 #endif
