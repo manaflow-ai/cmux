@@ -38,12 +38,6 @@ extension PageWebView {
     func finishContextMenu(_ picked: String?, at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> JSONValue {
         // PageRouter cancels the old call on close/rebind; its menu cannot authorize the next page.
         guard !Task.isCancelled else { return .object(["picked": .null]) }
-        if picked != nil {
-            // The menu can stay open longer than the opener's gesture lifetime. Its real choice
-            // backs the page call that follows; dismissal and script parameters grant nothing.
-            if chromiumSession != nil { chromiumUserInput(at: uptime) }
-            else { webView.noteNativeMenuSelection(at: uptime) }
-        }
         return .object(["picked": picked.map(JSONValue.string) ?? .null])
     }
 }
