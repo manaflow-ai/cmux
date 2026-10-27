@@ -206,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ghosttyKeybinds.start()
         let ghosttyConfigLiveReload = GhosttyConfigLiveReload(deadlines: services.mainDeadlines)
         self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
-        ghosttyConfigLiveReload.start()
+        ghosttyConfigLiveReload.startAfterStartup(on: order.startup)
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         // The terminal key path's input-source switch keys, read off main now and on each activation.

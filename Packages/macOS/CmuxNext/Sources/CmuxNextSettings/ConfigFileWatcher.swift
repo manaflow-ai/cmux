@@ -63,13 +63,32 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
     /// save made after this call but before the watch exists is one of them: the arm compares the
     /// file's and its folder's change times with this call's time. A ``stop()`` after it ends the watch.
     public func start(reportInitialChange: Bool = true) {
-        let startedAt = Self.wallClock()
+        begin(changedSince: reportInitialChange ? nil : Self.wallClock())
+    }
+
+    /// A point on the file system's clock, taken when a consumer read the file, for a watch it arms
+    /// later (``start(changedSince:)``).
+    public struct Since: Sendable {
+        fileprivate let time: timespec
+
+        /// Now, on the clock file change times come from.
+        public static var now: Since { Since(time: ConfigFileWatcher.wallClock()) }
+    }
+
+    /// Arms the watch on the watcher's queue and returns at once, for a consumer that read the file
+    /// at `since` and arms its watch later (a launch watch posted after startup): one change is
+    /// reported when the file or its folder changed at or after `since`, else only later edits.
+    public func start(changedSince since: Since) {
+        begin(changedSince: since.time)
+    }
+
+    private func begin(changedSince: timespec?) {
         let generation = run.withLock { run in
             run.generation &+= 1
             run.running = true
             return run.generation
         }
-        queue.async { [self] in arm(generation, changedSince: reportInitialChange ? nil : startedAt) }
+        queue.async { [self] in arm(generation, changedSince: changedSince) }
     }
 
     /// The same as ``start(reportInitialChange:)``, which does not wait either.
@@ -204,7 +223,7 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
     }
 
     /// The file system's clock: file change times come from it (`vfs_timestamp`).
-    private static func wallClock() -> timespec {
+    fileprivate static func wallClock() -> timespec {
         var now = timespec()
         clock_gettime(CLOCK_REALTIME, &now)
         return now

@@ -83,6 +83,36 @@ struct ConfigFileWatcherNoWaitTests {
         #expect(changes.count.withLock { $0 } == 0, "a quiet start reported a change no save made")
     }
 
+    /// A watch armed after its consumer read the file (the Ghostty config watch, posted after startup,
+    /// p08-startup-086) reports a save made between that read and the arm.
+    @Test func aSaveSinceTheReadIsReportedWhenALaterWatchArms() async throws {
+        let url = try ConfigFileWatcherStartTests.file()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let since = ConfigFileWatcher.Since.now
+        try Data(#"{ "appearance": { "density": "compact" } }"#.utf8).write(to: url, options: .atomic)
+        let changes = ConfigFileWatcherStartTests.Changes()
+        let watcher = ConfigFileWatcher(url: url, queue: DispatchQueue(label: "test.config-watcher.since", qos: .utility)) { changes.record() }
+        defer { watcher.stop() }
+        watcher.start(changedSince: since)
+        var seen = changes.stream.makeAsyncIterator()
+        _ = await seen.next()  // a watch that only heard later edits sends no call and the test hits its time limit
+        #expect(changes.count.withLock { $0 } >= 1)
+    }
+
+    /// With no save since the read, the later arm reports nothing.
+    @Test func noSaveSinceTheReadReportsNothingWhenALaterWatchArms() async throws {
+        let url = try ConfigFileWatcherStartTests.file()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let since = ConfigFileWatcher.Since.now
+        let queue = DispatchQueue(label: "test.config-watcher.since-quiet", qos: .utility)
+        let changes = ConfigFileWatcherStartTests.Changes()
+        let watcher = ConfigFileWatcher(url: url, queue: queue) { changes.record() }
+        defer { watcher.stop() }
+        watcher.start(changedSince: since)
+        await withCheckedContinuation { (armed: CheckedContinuation<Void, Never>) in queue.async { armed.resume() } }
+        #expect(changes.count.withLock { $0 } == 0, "a later arm reported a change no save made")
+    }
+
     @Test func eventsQueuedBehindAStopAreNotReported() async throws {
         let url = try ConfigFileWatcherStartTests.file()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

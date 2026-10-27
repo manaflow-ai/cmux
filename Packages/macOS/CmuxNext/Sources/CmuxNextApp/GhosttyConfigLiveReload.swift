@@ -43,10 +43,18 @@ final class GhosttyConfigLiveReload {
         }
     }
 
-    func start() {
+    /// Arms the watch; with `since`, a save made at or after it, before the watch existed, reloads once.
+    func start(changedSince since: ConfigFileWatcher.Since? = nil) {
         guard !started else { return }
         started = true
-        rearm()
+        rearm(changedSince: since)
+    }
+
+    /// Arms the watch after startup completes (Q13, p08-startup-086): nothing before it reads a config edit, as Chrome
+    /// posts non-critical launch work (chrome/browser/after_startup_task_utils.cc). A save since this call reloads once.
+    func startAfterStartup(on startup: StartupScheduler) {
+        let since = ConfigFileWatcher.Since.now
+        startup.post(.afterStartup, "GhosttyConfigLiveReload.start", on: .main) { [weak self] in self?.start(changedSince: since) }
     }
 
     func stop() {
@@ -56,14 +64,14 @@ final class GhosttyConfigLiveReload {
         watchers.removeAll()
     }
 
-    private func rearm() {
+    private func rearm(changedSince since: ConfigFileWatcher.Since? = nil) {
         guard started else { return }
         watchers.forEach { $0.stop() }
         watchers = files().map { path in
             let watcher = ConfigFileWatcher(url: URL(fileURLWithPath: path)) { [weak self, mainWork] in
                 mainWork.postFromAnyThread(.visible, owner: "GhosttyConfigLiveReload.fileChanged") { [weak self] in self?.requestReload() }
             }
-            watcher.start(reportInitialChange: false)
+            if let since { watcher.start(changedSince: since) } else { watcher.start(reportInitialChange: false) }
             return watcher
         }
     }
