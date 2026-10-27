@@ -34,11 +34,8 @@ import Foundation
 /// A cmux NEXT NIGHTLY (track ``UpdateTrack/nightly``, not the tip app) runs the same check every
 /// ``nightlyInterval`` (Leo 2026-10-26: "am I on the latest nightly here, or not? ... why is the
 /// last nightly, like, four fucking hours away?"). nightly-next ships every 20 to 40 minutes, and
-/// the hourly Sparkle schedule plus its one-time delta wait (``UpdateController/pendingDeltaWindow``)
-/// left a NIGHTLY up to two hours behind. As the delta wait does, a nightly build that lists no
-/// deltas yet and was published within that window is not asked for until a later read finds its
-/// deltas or the window has passed, so the check never downloads the full archive a delta minutes
-/// away would replace.
+/// the hourly Sparkle schedule left a NIGHTLY an hour or more behind. A newer build is asked for at
+/// once, whether or not its deltas are listed yet: the full update is never held back for them.
 @MainActor
 final class TipUpdateCheck {
     /// How often the tip app reads its feed while nothing waits (an internal constant, not a setting).
@@ -50,9 +47,6 @@ final class TipUpdateCheck {
         if identity.isTipBuild { return interval }
         return identity.track == .nightly ? nightlyInterval : nil
     }
-    /// How long a fresh build that lists no deltas waits for them; nil reads the driver's
-    /// ``UpdateController/pendingDeltaWindow`` (set for a NIGHTLY, nil for the tip app).
-    var deltaWindow: TimeInterval?
     /// Starts the check that downloads the newer build; nil runs the driver's ``UpdateController/checkForUpdates()``.
     var startCheck: (() -> Void)?
     /// Whether found updates download by themselves; nil reads the driver (``UpdateController/downloadsUpdatesInBackground``).
@@ -89,6 +83,18 @@ final class TipUpdateCheck {
         }
     }
 
+    /// The release push (``UpdaterService/releasePushed(_:)``): read the feed now instead of at the
+    /// interval's deadline. Joins a read in flight; nothing reads where the interval's read would not.
+    /// Returns whether a read runs.
+    @discardableResult
+    func readNow(_ updater: UpdaterService) -> Bool {
+        guard task == nil else { return true }
+        guard mayCheck(updater) else { return false }
+        timer.cancel()
+        run(updater)
+        return task != nil
+    }
+
     private func mayCheck(_ updater: UpdaterService) -> Bool {
         guard Self.interval(for: updater.identity) != nil, automatic, updater.isStarted, updater.disabledReason == nil,
               !updater.flow.installRequested, !updater.isSheetPresented(), downloads(updater) else { return false }
@@ -98,7 +104,7 @@ final class TipUpdateCheck {
         }
     }
 
-    private func downloads(_ updater: UpdaterService) -> Bool {
+    func downloads(_ updater: UpdaterService) -> Bool {
         if let downloadsInBackground { return downloadsInBackground() }
         return updater.controller?.downloadsUpdatesInBackground ?? false
     }
@@ -121,11 +127,6 @@ final class TipUpdateCheck {
         if let skip = updater.defaults.string(forKey: UpdaterService.skipsBuildsThroughKey),
            !AppcastSelector.isOlder(skip, than: item.version) { return }
         if let asked, !AppcastSelector.isOlder(asked, than: item.version) { return }
-        if !item.listsDeltas, let window = deltaWindow ?? updater.controller?.pendingDeltaWindow,
-           let date = item.date, abs(updater.now().timeIntervalSince(date)) < window {
-            updater.log.append("fast check: build \(item.version) lists no deltas yet: a later read takes it")
-            return
-        }
         asked = item.version
         updater.log.append("fast check: build \(item.version) is newer than build \(updater.identity.build): checking")
         if let startCheck { startCheck() } else { updater.controller?.checkForUpdates() }

@@ -83,6 +83,8 @@ enum DestructiveConfirmation {
             return AgentExtensionHandlers.prompt(invocation, context)
         case "space.delete":
             return await RoomConfirmation.prompt(invocation, context)
+        case "space.clearDefaults":
+            return await RoomConfirmation.clearDefaultsPrompt(invocation, context)
         case "remote.install":
             return await RemoteConfirmation.prompt(for: id, invocation, context)
         case "updates.rollback": // palette, menu and the pulled-build banner's Roll Back

@@ -122,6 +122,12 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 targets: [.profile], cliName: "space set-defaults"
             ),
             ActionDescriptor(
+                id: "space.clearDefaults",
+                title: String(localized: "action.space.clearDefaults", defaultValue: "Clear Space Terminal Defaults…", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "directory", "cwd", "environment", "env", "reset", "clear", "remove"], category: .workspace,
+                symbol: "eraser", surfaces: [.palette, .contextMenu], targets: [.profile], cliName: "space clear-defaults", destructive: true
+            ),
+            ActionDescriptor(
                 id: "space.newGroup",
                 title: String(localized: "action.space.newGroup", defaultValue: "New Group in Space", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "group", "folder", "create"], category: .workspace, symbol: "folder.badge.plus",

@@ -41,7 +41,7 @@ Linux. The app is one sheet on top of it.
 {"step":"reach","state":"ok|fail|skip|fixed","detail":"...","fix":"text for a person, or null"}
 ```
 
-A failure the app acts on itself also carries `"reason"`: `install` sets `wrong-platform` (this build is for another OS or CPU) or `not-this-program` (the host needs a binary only the app has); only those make the app install its own build and run enroll again.
+A failure the app acts on itself also carries `"reason"`: `install` sets `wrong-platform` (this build is for another OS or CPU), `peer_version_skew` (the peer's stale build needs a target-aware app install), or `not-this-program` (the host needs a binary only the app has); these make the app install its own build and run enroll again.
 
 The steps run in this order, and a failed step stops the steps that depend on it:
 

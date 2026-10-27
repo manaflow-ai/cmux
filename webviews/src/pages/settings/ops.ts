@@ -65,6 +65,16 @@ export type GhosttyDiagnostic = {
   replacement: string | null;
 };
 
+/** A color the Ghostty config sets itself, which no theme changes (Ghostty applies the config over the theme). */
+export type ThemeOverride = {
+  /** The Ghostty key: `background`, `foreground`, `palette`, … */
+  key: string;
+  /** The file, with `~` for home. */
+  file: string;
+  /** The 1-based line of the assignment in effect. */
+  line: number;
+};
+
 /** One space or machine row (`cmux.settings.host.lists`). */
 /** `icon` is the row's wire icon (a space's; a machine's symbol): an emoji, a symbol or a stored asset. */
 export type HostListRow = {
@@ -142,6 +152,8 @@ export type HostLists = {
   terminal?: { ghostty_config: string; shell_integration: string | null };
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
   ghostty_diagnostics?: GhosttyDiagnostic[] | null;
+  /** The Theme section's notice: colors the Ghostty config sets itself, which no theme changes. */
+  theme_overrides?: ThemeOverride[];
   settings_file?: string | null;
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
@@ -747,6 +759,8 @@ export type ChannelsState = {
   tracks: ChannelTrack[];
   /** The app's local acpmux daemon: its build, and whether it is up to date or restarting. */
   daemon?: { title: string; value: string } | null;
+  /** Other machines the app updates that cannot update in place or whose update failed, one line each. */
+  machines?: { title: string; lines: string[] } | null;
 };
 
 /** Every op the page calls: params and result. */
@@ -810,6 +824,10 @@ export type SettingsOps = {
   "cmux.settings.theme.save": [{ name: string; base: string; replace: boolean }, { name?: string }];
   /** Native: copy a theme file the person picks into their Ghostty themes; `token` retries a name in use. */
   "cmux.settings.theme.import": [{ token?: string; replace?: boolean }, { name?: string }];
+  /** Let Themes Set Colors: the host comments out the `theme_overrides` lines and reloads the config. */
+  "cmux.settings.theme.overrides.release": [Record<string, never>, { files: number }];
+  /** Native: open the file of the first `theme_overrides` line in cmux's editor, at that line. */
+  "cmux.settings.theme.overrides.open": [Record<string, never>, unknown];
   /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
@@ -876,6 +894,8 @@ export type SettingsStreams = {
   "cmux.settings.devices.changed": DevicesState;
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
+  /** Settings > Updates' row of other machines changed (its new value; null: none to list). */
+  "cmux.settings.channels.machines.changed": ChannelsState["machines"];
   /** The page bridge's link to the daemon (one stream for every page). */
   "cmux.page.connection": { connected: boolean };
   /** Commands from the app's key dispatcher (the page handles no Cmd or Ctrl chords). */

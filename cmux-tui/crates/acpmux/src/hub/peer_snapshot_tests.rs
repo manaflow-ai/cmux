@@ -1,6 +1,6 @@
 //! `peer_snapshot.rs`: the store's bounds, a full disk, refused removals, a restart, and a
-//! directory that does not read; then which copy may grow: generations, joins, links, lags
-//! (the files: `disk_tests.rs`). The tests drive the store's thread body directly; `keep` puts a
+//! directory that does not read; then which copy may grow: generations, joins, links, lags;
+//! purges, removed peers and the queue's losses; the hub's taps (the files: `disk_tests.rs`). The tests drive the store's thread body directly; `keep` puts a
 //! copy in place for the tests of what is done with it.
 
 use super::*;
@@ -440,10 +440,6 @@ fn live(store: &mut Store, mux: &str, link: u64, seq: u64) {
     store.take(Op::Record { key: key(mux), link: (1, link), record: rec(mux, seq) });
 }
 
-fn whole(store: &Store, mux: &str) -> bool {
-    store.copies[&key(mux)].head.from_start
-}
-
 #[test]
 fn only_the_listed_generation_starts_or_grows_a_copy() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
@@ -666,24 +662,6 @@ fn a_record_of_another_session_is_never_kept_as_this_ones() {
 }
 
 #[test]
-fn what_was_unlisted_before_the_disk_read_is_applied_to_it() {
-    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
-    let mut store = store_at(dir.path());
-    list(&mut store, &[("m2", 7), ("m3", 7)]);
-    for m in ["m2", "m3"] {
-        put(&mut store, m, attach(7, 1, false, recs(1..=2)));
-    }
-    store.write_due(None, When::Last);
-    // The next run cannot read the disk at first; meanwhile m2 is recreated and a full list
-    // leaves m3 out.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
-    list(&mut again, &[("m2", 8)]);
-    assert!(again.scan());
-    assert!(again.copies.is_empty(), "{:?}", again.copies.keys().collect::<Vec<_>>());
-    assert!(!file(dir.path(), "m2").exists() && !file(dir.path(), "m3").exists());
-}
-
-#[test]
 fn an_empty_journal_starts_an_empty_copy_and_a_page_out_of_bounds_is_not_one() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     let mut store = store_at(dir.path());
@@ -715,4 +693,601 @@ fn a_name_too_long_for_a_file_is_never_kept() {
     list(&mut store, &[(long.as_str(), 7)]);
     put(&mut store, &long, attach(7, 1, false, recs(1..=2)));
     assert!(!store.copies.contains_key(&key(&long)));
+}
+
+/// What `mux`'s file holds: its head and its seqs.
+fn on_disk(path: &Path, mux: &str) -> Option<(Head, Vec<u64>)> {
+    let read = disk::read(path, &(PEER.to_owned(), mux.to_owned())).unwrap();
+    read.map(|(head, records)| (head, records.into_keys().collect()))
+}
+
+#[test]
+fn a_purged_generation_stays_purged_until_the_peer_lists_without_it() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
+    store.write_due(None, When::Last);
+    store.take(Op::Gone { key: key("m1"), generation: Some(7) });
+    assert!(!file(dir.path(), "m1").exists());
+    // A list sent before the purge names 7 again: still purged.
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
+    assert!(seqs(&mut store, "m1").is_empty());
+    // The session recreated as 8 is kept.
+    list(&mut store, &[("m1", 8)]);
+    put(&mut store, "m1", attach(8, 1, false, recs(1..=2)));
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2]);
+    // A purge with no generation bars every one until a full list leaves the session out.
+    store.take(Op::Gone { key: key("m1"), generation: None });
+    list(&mut store, &[("m1", 9)]);
+    put(&mut store, "m1", attach(9, 1, false, recs(1..=2)));
+    assert!(seqs(&mut store, "m1").is_empty());
+    list(&mut store, &[]);
+    assert!(store.barred.is_empty());
+    list(&mut store, &[("m1", 9)]);
+    put(&mut store, "m1", attach(9, 1, false, recs(1..=2)));
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2]);
+}
+
+#[test]
+fn what_was_purged_or_unlisted_before_the_disk_read_is_applied_to_it() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7), ("m2", 7), ("m3", 7)]);
+    for m in ["m1", "m2", "m3"] {
+        put(&mut store, m, attach(7, 1, false, recs(1..=2)));
+    }
+    store.write_due(None, When::Last);
+    // The next run cannot read the disk at first; meanwhile m1 is purged, m2 recreated, and a
+    // full list leaves m3 out.
+    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    again.take(Op::Gone { key: key("m1"), generation: Some(7) });
+    list(&mut again, &[("m2", 8)]);
+    assert!(again.scan());
+    assert!(again.copies.is_empty(), "{:?}", again.copies.keys().collect::<Vec<_>>());
+    for m in ["m1", "m2", "m3"] {
+        assert!(!file(dir.path(), m).exists());
+    }
+
+    // Every op of m4's peer, and of another peer, lost before the disk reads: what an earlier run
+    // kept of them goes too, so no copy comes back past what it missed.
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m4", 7)]);
+    put(&mut store, "m4", attach(7, 1, false, recs(1..=2)));
+    let rows = vec![("n".to_owned(), Some(7))];
+    store.take(Op::Listed { peer: "other".into(), rows, full: true });
+    let page = attach(7, 1, false, vec![json!({"sessionId": "n", "seq": 1, "kind": "k"})]);
+    store.take(Op::Page { key: ("other".into(), "n".into()), page });
+    store.write_due(None, When::Last);
+    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    again.take(Op::LostPeer(PEER.into()));
+    again.take(Op::LostPeer("other".into()));
+    assert!(again.scan());
+    assert!(again.copies.is_empty(), "{:?}", again.copies.keys().collect::<Vec<_>>());
+}
+
+#[test]
+fn a_late_purge_of_an_older_generation_leaves_the_newer_copy() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 8)]);
+    put(&mut store, "m1", attach(8, 1, false, recs(1..=2)));
+    store.take(Op::Gone { key: key("m1"), generation: Some(7) });
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2]);
+    put(&mut store, "m1", events(8, 1, 2, recs(3..=3)));
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3], "8 is still the listed generation");
+    store.take(Op::Gone { key: key("m1"), generation: Some(8) });
+    assert!(seqs(&mut store, "m1").is_empty());
+}
+
+#[test]
+fn a_late_purge_of_an_older_generation_keeps_a_newer_copy_on_disk_and_a_late_listing_leaves_it() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 8)]);
+    put(&mut store, "m1", attach(8, 1, false, recs(1..=2)));
+    store.write_due(None, When::Last);
+    // The next run lists 8, then is told of a purge of 7, before it can read the disk: generation
+    // 8 there stays.
+    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    list(&mut again, &[("m1", 8)]);
+    again.take(Op::Gone { key: key("m1"), generation: Some(7) });
+    assert!(again.scan());
+    assert_eq!(seqs(&mut again, "m1"), vec![1, 2]);
+    // A list sent before the purge, naming 7, takes nothing and leaves 8 listed and kept.
+    list(&mut again, &[("m1", 7)]);
+    assert_eq!(again.listed.get(&key("m1")), Some(&Some(8)));
+    put(&mut again, "m1", events(8, 1, 2, recs(3..=3)));
+    assert_eq!(seqs(&mut again, "m1"), vec![1, 2, 3]);
+}
+
+#[test]
+fn a_purge_told_again_without_its_generation_still_lets_the_recreated_session_back() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 42)]);
+    put(&mut store, "m1", attach(42, 1, false, recs(1..=2)));
+    // The hub's own purge names 42; the peer's notice of it comes once the row is gone.
+    store.take(Op::Gone { key: key("m1"), generation: Some(42) });
+    store.take(Op::Gone { key: key("m1"), generation: None });
+    assert_eq!(store.barred.get(&key("m1")), Some(&Some(42)));
+    list(&mut store, &[("m1", 43)]);
+    put(&mut store, "m1", attach(43, 1, false, recs(1..=2)));
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2]);
+    // Purges of sessions churned through stay within their bound.
+    for i in 0..3 * BARRED_KEYS {
+        store.take(Op::Gone { key: key(&format!("x{i}")), generation: Some(1) });
+    }
+    assert!(store.barred.len() <= BARRED_KEYS);
+    // Before the disk reads, a bar that goes takes everything an earlier run kept with it.
+    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    for i in 0..=BARRED_KEYS {
+        again.take(Op::Gone { key: key(&format!("x{i}")), generation: Some(1) });
+    }
+    assert!(again.unread_all);
+}
+
+#[test]
+fn a_removed_peer_added_again_keeps_its_new_copies() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=2)));
+    store.write_due(None, When::Last);
+    store.take(Op::ForgetPeer(PEER.into()));
+    assert!(!file(dir.path(), "m1").exists());
+    list(&mut store, &[("m1", 9)]);
+    store.take(Op::Page {
+        key: key("m1"),
+        page: Page { link: (2, 0), ..attach(9, 0, false, recs(1..=3)) },
+    });
+    store.write_due(None, When::Last);
+    store.sweep();
+    assert!(file(dir.path(), "m1").exists());
+}
+
+#[test]
+fn captures_that_fall_behind_drop_the_copy_instead_of_leaving_a_hole() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let snaps = PeerSnapshots::open(Some(dir.path().to_owned()));
+    snaps.listed(PEER, vec![("m1".into(), Some(7))], true);
+    snaps.page((PEER, "m1"), attach(7, 1, false, recs(1..=3)));
+    snaps.flush_now();
+    snaps.queued.fetch_add(QUEUED_BYTES, Ordering::AcqRel);
+    snaps.record((PEER, "m1"), (1, 1), rec("m1", 4));
+    snaps.queued.fetch_sub(QUEUED_BYTES, Ordering::AcqRel);
+    snaps.record((PEER, "m1"), (1, 1), rec("m1", 5));
+    snaps.flush_now();
+    assert_eq!(on_disk(&disk::path(&disk::root(dir.path()), &key("m1")).unwrap(), "m1"), None);
+    assert!(snaps.dropped().peers.is_empty());
+}
+
+#[test]
+fn nothing_of_a_peer_is_queued_while_its_loss_waits() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let snaps = PeerSnapshots::open(Some(dir.path().to_owned()));
+    // The thread's end of the queue, held here: nothing is taken.
+    let rx = hold(&snaps);
+    snaps.queued.store(QUEUED_BYTES, Ordering::Release);
+    snaps.gone(PEER, "m1", Some(7));
+    snaps.queued.store(0, Ordering::Release);
+    // Room again, but the loss stands for these: a list from before the purge, a page, a purge.
+    snaps.listed(PEER, vec![("m1".into(), Some(7))], true);
+    snaps.page((PEER, "m1"), attach(7, 1, false, recs(1..=2)));
+    snaps.gone(PEER, "m1", Some(7));
+    snaps.listed("other", vec![], true);
+    // A removal of the peer lost too is kept with the loss.
+    snaps.forget_peer(PEER);
+    let mut ops: Vec<Op> = rx.try_iter().filter_map(Queued::take).collect();
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(&ops[0], Op::LostPeer(p) if p == PEER));
+    assert!(matches!(&ops[1], Op::Listed { peer, .. } if peer == "other"));
+    let mut store = Store::new(disk::root(dir.path()), snaps.dropped.clone());
+    store.scan();
+    store.barred.insert(key("m1"), None);
+    store.links.insert(PEER.into(), (1, 1));
+    store.take(ops.remove(0));
+    assert!(store.barred.is_empty() && store.links.is_empty() && snaps.dropped().peers.is_empty());
+}
+
+#[test]
+fn past_its_bound_what_went_before_the_disk_read_takes_every_earlier_copy() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=2)));
+    store.write_due(None, When::Last);
+    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    for i in 0..=UNREAD_KEYS {
+        again.remove(&key(&format!("x{i}")));
+        again.take(Op::LostPeer(format!("p{i}")));
+    }
+    assert_eq!((again.unread.len(), again.forgotten.len()), (UNREAD_KEYS, UNREAD_KEYS));
+    assert!(again.scan());
+    assert!(again.copies.is_empty() && !file(dir.path(), "m1").exists());
+}
+
+#[test]
+fn a_capture_the_thread_never_took_is_a_loss_and_a_thread_that_ended_starts_again() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let snaps = PeerSnapshots::open(Some(dir.path().to_owned()));
+    snaps.listed(PEER, vec![("m1".into(), Some(7))], true);
+    snaps.page((PEER, "m1"), attach(7, 1, false, recs(1..=3)));
+    snaps.flush_now();
+    // The thread ends (a panic) with the record in its queue: the record is not taken, so the copy
+    // goes instead of growing past a hole, and the next op starts a thread again.
+    let rx = hold(&snaps);
+    snaps.record((PEER, "m1"), (1, 1), rec("m1", 4));
+    drop(rx);
+    snaps.flush_now();
+    assert!(snaps.dropped().peers.is_empty() && snaps.dropped().unsent.is_empty());
+    assert_eq!(on_disk(&disk::path(&disk::root(dir.path()), &key("m1")).unwrap(), "m1"), None);
+    assert_eq!(snaps.queued.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn a_loss_not_sent_yet_goes_with_the_next_op_or_flush_of_any_peer() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let snaps = PeerSnapshots::open(Some(dir.path().to_owned()));
+    let unsent = |p: &str| {
+        let mut dropped = snaps.dropped();
+        dropped.peers.insert(p.to_owned(), false);
+        dropped.unsent.insert(p.to_owned());
+    };
+    // The thread's end of the queue, held here.
+    let rx = hold(&snaps);
+    unsent("a");
+    snaps.listed("other", vec![], true);
+    unsent("b");
+    snaps.flush(None);
+    let ops: Vec<Op> = rx.try_iter().filter_map(Queued::take).collect();
+    assert!(matches!(&ops[0], Op::Listed { peer, .. } if peer == "other"));
+    assert!(matches!(&ops[1], Op::LostPeer(p) if p == "a"));
+    assert!(matches!(&ops[2], Op::LostPeer(p) if p == "b"));
+    assert!(matches!(&ops[3], Op::Flush { peer: None, .. }));
+    assert!(snaps.dropped().unsent.is_empty());
+    {
+        // Taken, as the thread does.
+        let mut dropped = snaps.dropped();
+        dropped.peers.clear();
+        dropped.flushes.clear();
+    }
+    // The thread ends (a panic) with a page of "d" and a flush in its queue: the page goes as a
+    // loss of its peer, sent with the next op, and the flush is no longer counted as queued.
+    snaps.page(("d", "m1"), attach(7, 1, false, recs(1..=2)));
+    snaps.flush(None);
+    drop(rx);
+    assert_eq!(snaps.untaken.lock().unwrap().len(), 2);
+    snaps.flush_now();
+    assert!(snaps.untaken.lock().unwrap().is_empty() && snaps.dropped().flushes.is_empty());
+    assert!(snaps.dropped().peers.is_empty() && snaps.dropped().unsent.is_empty());
+    assert_eq!(snaps.queued.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn a_purge_of_an_id_no_file_can_have_bars_nothing() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    let long = "x".repeat(200);
+    list(&mut store, &[(long.as_str(), 7)]);
+    store.take(Op::Gone { key: key(&long), generation: Some(7) });
+    assert!(store.barred.is_empty() && store.listed.is_empty());
+}
+
+#[test]
+fn flushes_and_losses_wait_in_the_queue_once_and_captures_reserve_their_room() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let snaps = PeerSnapshots::open(Some(dir.path().to_owned()));
+    for _ in 0..1000 {
+        snaps.flush(Some(PEER));
+    }
+    assert!(snaps.queued.load(Ordering::Acquire) <= OP_BYTES, "one flush of a peer waits at most");
+    assert!(snaps.reserve(QUEUED_BYTES / 2));
+    assert!(!snaps.reserve(QUEUED_BYTES), "past the bound, nothing is counted");
+    snaps.queued.fetch_sub(QUEUED_BYTES / 2, Ordering::AcqRel);
+}
+
+#[test]
+fn a_catch_up_that_finds_nothing_new_joins_its_link_and_a_lag_leaves_late_pages_late() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
+    // A reconnect (link 2) whose catch-up after 3 holds all there is and nothing new: it covers
+    // no seq, but the copy now continues on link 2.
+    let mut caught = events(7, 2, 3, vec![]);
+    (caught.through, caught.host_last_seq) = (Some(3), Some(3));
+    put(&mut store, "m1", caught);
+    live(&mut store, "m1", 2, 4);
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3, 4]);
+    // A lag of link 2 stops its records until a page, but link 2 still joined the copy: a page of
+    // it that read `lastSeq` 3 before record 4 came is only late, not a peer gone back.
+    store.take(Op::Lagged { peer: PEER.into(), link: (1, 2) });
+    live(&mut store, "m1", 2, 5);
+    let mut late = events(7, 2, 2, recs(3..=3));
+    late.host_last_seq = Some(3);
+    put(&mut store, "m1", late);
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3, 4]);
+}
+
+fn hub_at(dir: &Path) -> Arc<Hub> {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store = crate::store::open(&cfg.store, dir).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// The daemon home the hub keeps its snapshots in (beside its peer caches).
+fn snapshot_home(hub: &Hub) -> PathBuf {
+    hub.store.peer_cache_dir().unwrap().parent().unwrap().to_owned()
+}
+
+fn add_idle_peer(hub: &Hub, name: &str) -> Arc<crate::peer::Peer> {
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
+    peer
+}
+
+#[test]
+fn the_hub_keeps_a_down_peers_records_and_pages_and_purges_drop_them() {
+    use crate::peer::PeerNotice;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let home = snapshot_home(&hub);
+    let path = |mux: &str| disk::path(&disk::root(&home), &key(mux)).unwrap();
+    let peer = add_idle_peer(&hub, PEER);
+    let row = json!({"sessionId": "m1", "name": "lane", "status": "running", "createdAt": 42,
+                     "updatedAt": 5, "retry": {"attempt": 1, "of": 3, "nextAt": 99}});
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![row]));
+    let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
+    let on = |link: u64| (PEER, peer.generation, link, hub.listed_generation(PEER, "m1"));
+    let notice = |seq: u64, link: u64| {
+        let params = json!({"sessionId": "m1", "seq": seq, "at": seq, "dir": "mux", "kind": "prompt", "msg": {}});
+        PeerNotice::Notification { method: method::MUX_EVENT.into(), params, link }
+    };
+    hub.capture_peer_page(
+        on(0),
+        ("m1", false),
+        &json!({"limit": 400, "kinds": ["transcript"]}),
+        &page,
+    );
+    // Older history, and a page of some kinds that leaves the transcript out, are not kept.
+    hub.capture_peer_page(on(0), ("m1", false), &json!({"beforeSeq": 1}), &page);
+    hub.capture_peer_page(on(0), ("m1", false), &json!({"kinds": ["prompt"]}), &page);
+    hub.capture_peer_page(on(0), ("m1", false), &json!({"kinds": "prompt"}), &page);
+    for seq in 3..=4 {
+        hub.apply_peer_notice(PEER, peer.generation, notice(seq, 0));
+    }
+    // The link ends: what was read on it and handled late is not kept.
+    peer.link_ended();
+    hub.apply_peer_notice(PEER, peer.generation, notice(5, 0));
+    let late = json!({"events": recs(5..=6), "hasMore": false, "lastSeq": 6});
+    hub.capture_peer_page(on(0), ("m1", true), &json!({"afterSeq": 4}), &late);
+    hub.apply_peer_notice(
+        PEER,
+        peer.generation,
+        PeerNotice::Disconnected("connect timed out".into()),
+    );
+    hub.peer_snapshots.flush_now();
+    let (head, seqs) = on_disk(&path("m1"), "m1").expect("m1's copy was written");
+    assert_eq!(seqs, vec![1, 2, 3, 4]);
+    assert_eq!((head.generation, head.summary["stale"].clone()), (Some(42), json!(true)));
+    assert!(head.summary.get("retry").is_none(), "no countdown from a peer that is down: {head:?}");
+
+    // A purge on the peer drops it, and a page of it afterwards is not kept.
+    let purged = PeerNotice::SessionChanged {
+        session: json!({"sessionId": "m1"}),
+        kind: "purged".into(),
+        seq: 5,
+    };
+    hub.apply_peer_notice(PEER, peer.generation, purged);
+    hub.capture_peer_page(
+        (PEER, peer.generation, peer.link_epoch(), Some(42)),
+        ("m1", false),
+        &json!({}),
+        &page,
+    );
+    hub.peer_snapshots.flush_now();
+    assert!(!path("m1").exists());
+    // A recreated session (a changed row) replaces its copy; removing the peer drops them all.
+    let m2 = |created: u64| json!({"sessionId": "m2", "name": "two", "status": "idle", "createdAt": created, "updatedAt": 5});
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![m2(42)]));
+    let link = peer.link_epoch();
+    let events: Vec<Value> = recs(1..=2).into_iter().map(|r| of("m2", r)).collect();
+    let page =
+        json!({"session": {"createdAt": 42}, "events": events, "hasMore": false, "lastSeq": 2});
+    hub.capture_peer_page(
+        (PEER, peer.generation, link, Some(42)),
+        ("m2", false),
+        &json!({}),
+        &page,
+    );
+    hub.peer_snapshots.flush_now();
+    assert!(path("m2").exists());
+    let changed = PeerNotice::SessionChanged { session: m2(43), kind: "created".into(), seq: 6 };
+    hub.apply_peer_notice(PEER, peer.generation, changed);
+    hub.peer_snapshots.flush_now();
+    assert!(!path("m2").exists());
+    hub.forget_peer_cache(PEER);
+    hub.peer_snapshots.flush_now();
+    assert!(!disk::peer_dir(&disk::root(&home), PEER).unwrap().exists());
+}
+
+#[test]
+fn an_events_page_of_a_session_recreated_meanwhile_is_not_kept() {
+    use crate::peer::PeerNotice;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let home = snapshot_home(&hub);
+    let peer = add_idle_peer(&hub, PEER);
+    let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "createdAt": 42, "updatedAt": 5});
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![row]));
+    let on = (PEER, peer.generation, peer.link_epoch(), Some(42));
+    let page = |created: u64, to: u64| {
+        json!({"events": recs(3..=to), "hasMore": false, "lastSeq": to, "pageThrough": to,
+               "createdAt": created})
+    };
+    let first = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false,
+                       "lastSeq": 2, "pageThrough": 2});
+    hub.capture_peer_page(on, ("m1", false), &json!({}), &first);
+    // Asked while the row named 42, answered by the session recreated as 43 meanwhile.
+    hub.capture_peer_page(on, ("m1", true), &json!({"afterSeq": 2}), &page(43, 4));
+    hub.capture_peer_page(on, ("m1", true), &json!({"afterSeq": 2}), &page(42, 3));
+    hub.peer_snapshots.flush_now();
+    let path = disk::path(&disk::root(&home), &key("m1")).unwrap();
+    assert_eq!(on_disk(&path, "m1").unwrap().1, vec![1, 2, 3]);
+}
+
+#[test]
+fn a_purge_through_this_daemon_drops_only_its_peers_generation() {
+    use crate::peer::PeerNotice;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let home = snapshot_home(&hub);
+    let path = |peer: &str| disk::path(&disk::root(&home), &(peer.into(), "m1".into())).unwrap();
+    let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "createdAt": 42, "updatedAt": 5});
+    let mut instances = HashMap::new();
+    for name in [PEER, "clone"] {
+        let peer = add_idle_peer(&hub, name);
+        instances.insert(name, peer.generation);
+        hub.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(vec![row.clone()]));
+        let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
+        let on = (name, peer.generation, peer.link_epoch(), Some(42));
+        hub.capture_peer_page(on, ("m1", false), &json!({}), &page);
+    }
+    hub.peer_snapshots.flush_now();
+    assert!(path(PEER).exists() && path("clone").exists());
+    // A clone's purge leaves the other machine's chat of the same id.
+    hub.forget_remote(("clone", instances["clone"]), "m1", Some(42));
+    // A purge asked of an older generation leaves the session recreated since.
+    hub.forget_remote((PEER, instances[PEER]), "m1", Some(41));
+    // One whose row named no generation leaves a session of one.
+    hub.forget_remote((PEER, instances[PEER]), "m1", None);
+    // A purge a replaced instance answered leaves the machine registered under the name now.
+    hub.forget_remote((PEER, instances[PEER] + 1000), "m1", None);
+    hub.peer_snapshots.flush_now();
+    assert!(path(PEER).exists() && !path("clone").exists());
+    assert!(hub.resolve_remote(&format!("{PEER}/m1")).is_some());
+}
+
+#[test]
+fn an_events_page_with_no_cursor_covers_only_what_it_holds() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let home = snapshot_home(&hub);
+    let peer = add_idle_peer(&hub, PEER);
+    let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "createdAt": 42, "updatedAt": 5});
+    hub.apply_peer_notice(PEER, peer.generation, crate::peer::PeerNotice::Sessions(vec![row]));
+    let on = (PEER, peer.generation, peer.link_epoch(), Some(42));
+    let first = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
+    hub.capture_peer_page(on, ("m1", false), &json!({}), &first);
+    // `_acpmux/events` with no `afterSeq` pages forward from the first record: 1 to 3 of 10.
+    let page = json!({"events": recs(1..=3), "hasMore": true, "lastSeq": 10});
+    hub.capture_peer_page(on, ("m1", true), &json!({"limit": 3}), &page);
+    hub.peer_snapshots.flush_now();
+    let (head, seqs) = on_disk(&disk::path(&disk::root(&home), &key("m1")).unwrap(), "m1").unwrap();
+    assert_eq!((head.last_seq, seqs), (3, vec![1, 2, 3]));
+    // A page whose peer says how far it holds (`pageThrough`) covers that far; `lastSeq` alone,
+    // which an older peer reads after its page, never does.
+    let rest = json!({"events": recs(4..=5), "hasMore": false, "lastSeq": 9});
+    hub.capture_peer_page(on, ("m1", true), &json!({"afterSeq": 3}), &rest);
+    hub.peer_snapshots.flush_now();
+    let path = disk::path(&disk::root(&home), &key("m1")).unwrap();
+    assert_eq!(on_disk(&path, "m1").unwrap().0.last_seq, 5);
+    let told = json!({"events": [], "hasMore": false, "lastSeq": 9, "pageThrough": 7});
+    hub.capture_peer_page(
+        on,
+        ("m1", true),
+        &json!({"afterSeq": 5, "kinds": ["transcript"]}),
+        &told,
+    );
+    hub.peer_snapshots.flush_now();
+    assert_eq!(on_disk(&path, "m1").unwrap().0.last_seq, 7);
+}
+
+#[test]
+fn a_listing_under_way_when_a_peer_is_removed_never_lets_its_copies_back() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let home = snapshot_home(&hub);
+    let path = disk::path(&disk::root(&home), &key("m1")).unwrap();
+    let peer = add_idle_peer(&hub, PEER);
+    // A listing that found the peer current holds the rows lock; the removal waits for it, so its
+    // op comes before the removal's.
+    let rows = hub.remote_sessions.lock().unwrap();
+    let remover = {
+        let hub = hub.clone();
+        std::thread::spawn(move || hub.forget_peer_cache(PEER))
+    };
+    std::thread::sleep(Duration::from_millis(50));
+    hub.peer_snapshots.listed(PEER, vec![("m1".into(), Some(42))], true);
+    drop(rows);
+    remover.join().unwrap();
+    // A page asked before the removal, answered after it.
+    let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
+    hub.capture_peer_page(
+        (PEER, peer.generation, peer.link_epoch(), Some(42)),
+        ("m1", false),
+        &json!({}),
+        &page,
+    );
+    hub.peer_snapshots.flush_now();
+    assert!(!path.exists(), "a removed peer's copy came back");
+}
+
+#[test]
+fn a_capture_of_an_instance_replaced_while_it_was_sent_is_not_kept() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let home = snapshot_home(&hub);
+    let path = disk::path(&disk::root(&home), &key("m1")).unwrap();
+    let old = add_idle_peer(&hub, PEER);
+    hub.peer_snapshots.listed(PEER, vec![("m1".into(), Some(42))], true);
+    // The replacing instance registers under the rows lock, as `spawn_peer` does, and lists the
+    // session; a capture of the old one checks and sends under that lock, so it goes first or not.
+    let rows = hub.remote_sessions.lock().unwrap();
+    let capture = {
+        let hub = hub.clone();
+        let on = (PEER, old.generation, old.link_epoch(), Some(42));
+        std::thread::spawn(move || {
+            let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
+            hub.capture_peer_page(on, ("m1", false), &json!({}), &page);
+        })
+    };
+    std::thread::sleep(Duration::from_millis(50));
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let new = crate::peer::Peer::new(PEER, "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert(PEER.to_owned(), new);
+    hub.peer_snapshots.listed(PEER, vec![("m1".into(), Some(42))], true);
+    drop(rows);
+    capture.join().unwrap();
+    hub.peer_snapshots.flush_now();
+    assert!(!path.exists(), "the replaced instance's page was kept");
+}
+
+#[test]
+fn the_hub_keeps_its_snapshots_beside_the_peer_caches_never_among_them() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let peers = hub.store.peer_cache_dir().unwrap();
+    // A directory an older build left among the caches is not the store's, and stays as it was.
+    std::fs::create_dir_all(peers.join(".snapshots")).unwrap();
+    let peer = add_idle_peer(&hub, PEER);
+    hub.peer_snapshots.listed(PEER, vec![("m1".into(), Some(42))], true);
+    let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
+    hub.capture_peer_page(
+        (PEER, peer.generation, peer.link_epoch(), Some(42)),
+        ("m1", false),
+        &json!({}),
+        &page,
+    );
+    hub.peer_snapshots.flush_now();
+    assert!(disk::path(&disk::root(&snapshot_home(&hub)), &key("m1")).unwrap().exists());
+    // What lists the peer caches sees only what it saved, and the directory it found.
+    let listed: Vec<_> =
+        std::fs::read_dir(&peers).unwrap().flatten().map(|e| e.file_name()).collect();
+    assert_eq!(listed, vec![std::ffi::OsString::from(".snapshots")]);
+    assert!(std::fs::read_dir(peers.join(".snapshots")).unwrap().next().is_none());
 }
