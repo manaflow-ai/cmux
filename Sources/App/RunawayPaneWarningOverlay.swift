@@ -38,7 +38,7 @@ struct RunawayPaneWarningOverlay: NSViewRepresentable {
 
 extension ContentView {
     @ViewBuilder
-    fileprivate func runawayPaneWarningBackground(
+    func runawayPaneWarningBackground(
         tabManager: TabManager,
         selection: SidebarSelectionState
     ) -> some View {
