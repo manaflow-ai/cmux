@@ -33,6 +33,16 @@ import { useT } from "./i18n";
 import { GitToolbarButtons, GitWriteBar } from "./changes/GitActions";
 import type { GitWriteOp, WriteKeys } from "./changes/gitWrite";
 import { useGitWrite } from "./changes/useGitWrite";
+import { useDiffWrites } from "../../diff-writes";
+import {
+  loadViewedFiles,
+  patchFingerprint,
+  persistViewedChange,
+  type ViewedFileEntry,
+  type ViewedScope,
+} from "../../viewed-files";
+import { loadViewerPrefs, readLocalViewerPrefs, saveViewerPrefs } from "../../viewer-prefs";
+import { splitFits } from "../../diff-viewer/state";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
 const WRAP_KEY = "cmux.acpmux.diffWrap";
@@ -55,6 +65,50 @@ function store(key: string, value: string) {
 }
 
 type Tool = "collapse" | "wrap" | "split" | "tree";
+
+function fileFingerprint(file: TurnFile): string {
+  const patch = file.edits
+    .flatMap((edit) => edit.hunks)
+    .map((hunk) => {
+      const oldLines = hunk.lines.filter((line) => line.type !== "add");
+      const newLines = hunk.lines.filter((line) => line.type !== "del");
+      const oldStart = oldLines.find((line) => line.oldLine)?.oldLine ?? 0;
+      const newStart = newLines.find((line) => line.newLine)?.newLine ?? 0;
+      return [
+        `@@ -${oldStart},${oldLines.length} +${newStart},${newLines.length} @@`,
+        ...hunk.lines.map((line) => `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`),
+      ].join("\n");
+    })
+    .join("\n");
+  return patchFingerprint(patch || `${file.created ? "new" : file.deleted ? "deleted" : "file"}:${file.displayPath}`);
+}
+
+function localViewedKey(scopeKey: string): string {
+  return `cmux.acpmux.diffViewed:${scopeKey}`;
+}
+
+function readLocalViewed(scopeKey: string): ViewedFileEntry[] {
+  try {
+    const raw = window.localStorage?.getItem(localViewedKey(scopeKey));
+    const value = raw ? JSON.parse(raw) : [];
+    return Array.isArray(value)
+      ? value.filter(
+          (entry): entry is ViewedFileEntry =>
+            entry != null && typeof entry.path === "string" && typeof entry.fingerprint === "string",
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalViewed(scopeKey: string, entries: ReadonlyMap<string, ViewedFileEntry>): void {
+  try {
+    window.localStorage?.setItem(localViewedKey(scopeKey), JSON.stringify([...entries.values()]));
+  } catch {
+    // A blocked store leaves the native bridge or this session's state authoritative.
+  }
+}
 
 export function bindDiffPanelEscape(panel: HTMLElement, onClose: () => void): () => void {
   const ownerDocument = panel.ownerDocument;
@@ -91,6 +145,8 @@ export function DiffPanel({
   writeKeys,
   onAddressThread,
   findHandle,
+  initialLayout,
+  initialShowTree,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -117,9 +173,13 @@ export function DiffPanel({
   onAddressThread?: (prompt: string) => Promise<unknown>;
   /// Where the page reaches this view's find (Cmd-F and the Edit menu's Find commands).
   findHandle?: React.MutableRefObject<DiffFindHandle | undefined>;
+  /// Gallery and host fixtures can seed a layout; normal panels use the shared viewer preference.
+  initialLayout?: "auto" | DiffLayout;
+  initialShowTree?: boolean;
 }) {
   const t = useT();
   registerAgentDiffTheme();
+  const writes = useDiffWrites();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
   const { load, retry, branch, threads } = useScopeChanges(source, scope);
   const [commitOpen, setCommitOpen] = useState(false);
@@ -186,15 +246,101 @@ export function DiffPanel({
       : load.state === "loaded"
         ? "empty"
         : load.state;
-  const [layout, setLayout] = useState<DiffLayout>(() => (stored(LAYOUT_KEY) === "split" ? "split" : "unified"));
+  const [layout, setLayout] = useState<"auto" | DiffLayout>(() => {
+    if (initialLayout) return initialLayout;
+    const preferred = readLocalViewerPrefs().layout;
+    return preferred === "split" || preferred === "unified" || preferred === "auto"
+      ? preferred
+      : stored(LAYOUT_KEY) === "split"
+        ? "split"
+        : "auto";
+  });
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
-  const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
+  const [showTree, setShowTree] = useState(() => initialShowTree ?? stored(TREE_KEY) !== "off");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
-  const [viewed, setViewed] = useState<ReadonlySet<string>>(() => new Set());
+  const [viewedEntries, setViewedEntries] = useState<ReadonlyMap<string, ViewedFileEntry>>(() => new Map());
+  const [panelWidth, setPanelWidth] = useState(0);
   const [selected, setSelected] = useState<string | undefined>(initialPath ?? files[0]?.path);
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | undefined>(undefined);
+  const layoutTouched = useRef(Boolean(initialLayout));
+  const viewedScope = useMemo<ViewedScope | null>(() => {
+    const root = load.state === "loaded" ? load.changeSet.root : undefined;
+    if (!root || scope === "lastTurn") return null;
+    const source =
+      scope === "branch" ? `branch:${load.state === "loaded" ? (load.changeSet.base ?? "HEAD") : "HEAD"}` : scope;
+    return { repoRoot: root, source };
+  }, [load, scope]);
+  // A transcript turn has no daemon scope identity, so keep its marks in a stable local bucket;
+  // repository scopes use the same native key as the full diff viewer.
+  const viewedScopeKey = useMemo(
+    () =>
+      viewedScope
+        ? `${viewedScope.repoRoot}\n${viewedScope.source}`
+        : `turn:${files
+            .map((file) => file.path)
+            .sort()
+            .join("|")}`,
+    [viewedScope, files],
+  );
+  const viewed = useMemo(() => {
+    const next = new Set<string>();
+    for (const file of files) {
+      if (viewedEntries.get(file.displayPath)?.fingerprint === fileFingerprint(file)) next.add(file.path);
+    }
+    return next;
+  }, [files, viewedEntries]);
+  useEffect(() => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      for (const path of viewed) next.add(path);
+      return next.size === current.size ? current : next;
+    });
+  }, [viewed]);
+  useEffect(() => {
+    let live = true;
+    const local = new Map(readLocalViewed(viewedScopeKey).map((entry) => [entry.path, entry] as const));
+    setViewedEntries(local);
+    if (!viewedScope)
+      return () => {
+        live = false;
+      };
+    void loadViewedFiles(viewedScope).then(
+      (entries) => {
+        if (!live) return;
+        const merged = new Map(local);
+        for (const entry of entries) merged.set(entry.path, entry);
+        setViewedEntries(merged);
+        writeLocalViewed(viewedScopeKey, merged);
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [viewedScope, viewedScopeKey]);
+  useEffect(() => {
+    if (initialLayout) return;
+    let live = true;
+    void loadViewerPrefs().then((prefs) => {
+      if (!live || layoutTouched.current || !prefs.layout) return;
+      setLayout(prefs.layout);
+    });
+    return () => {
+      live = false;
+    };
+  }, [initialLayout]);
+  useEffect(() => {
+    const node = panel.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const measure = () => setPanelWidth(Math.round(node.getBoundingClientRect().width));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const renderedLayout: DiffLayout = layout === "auto" ? (splitFits(panelWidth) ? "split" : "unified") : layout;
   // Decisions are keyed by the turn's tool calls. Checkpoint hunks carry the matching keys when
   // the net diff still contains a tool change, while formatter-only hunks remain read-only.
   const hunkReview = scope === "lastTurn" ? review : undefined;
@@ -375,17 +521,47 @@ export function DiffPanel({
       toggleViewed: (path) => {
         revealing.current = undefined;
         const marking = !viewed.has(path);
+        const file = files.find((candidate) => candidate.path === path);
+        if (!file) return;
+        // Viewed entries use the repository-relative path, matching the full viewer's bridge key.
+        const viewedPath = file.displayPath;
+        const change = marking
+          ? { kind: "set" as const, entry: { path: viewedPath, fingerprint: fileFingerprint(file) } }
+          : { kind: "clear" as const, path: viewedPath };
         const flip = (current: ReadonlySet<string>) => {
           const next = new Set(current);
           if (marking) next.add(path);
           else next.delete(path);
           return next;
         };
-        setViewed(flip);
+        setViewedEntries((current) => {
+          const next = new Map(current);
+          if (change.kind === "set") next.set(viewedPath, change.entry);
+          else next.delete(viewedPath);
+          writeLocalViewed(viewedScopeKey, next);
+          return next;
+        });
+        persistViewedChange(viewedScope, change, writes);
         setCollapsed(flip);
       },
     }),
-    [viewed, openFile, canStage, unstages, stageFile, canStageHunk, hunkUnstages, stageHunk, source, scope, wholeFile],
+    [
+      viewed,
+      files,
+      viewedScope,
+      viewedScopeKey,
+      writes,
+      openFile,
+      canStage,
+      unstages,
+      stageFile,
+      canStageHunk,
+      hunkUnstages,
+      stageHunk,
+      source,
+      scope,
+      wholeFile,
+    ],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
@@ -395,9 +571,11 @@ export function DiffPanel({
       setWrap(!wrap);
       store(WRAP_KEY, wrap ? "off" : "on");
     } else if (tool === "split") {
-      const next = layout === "split" ? "unified" : "split";
+      const next = layout === "auto" ? "split" : layout === "split" ? "unified" : "auto";
+      layoutTouched.current = true;
       setLayout(next);
       store(LAYOUT_KEY, next);
+      saveViewerPrefs({ layout: next }, writes);
     } else {
       setShowTree(!showTree);
       store(TREE_KEY, showTree ? "off" : "on");
@@ -446,7 +624,14 @@ export function DiffPanel({
     { label: t("changes.copyApply"), disabled: !command, run: () => command && copyText(command) },
   ];
   return (
-    <section ref={panel} className="acpmux-diff-panel" data-enter="right" aria-label={t("changes.panel")}>
+    <section
+      ref={panel}
+      className="acpmux-diff-panel"
+      data-enter="right"
+      data-layout={layout}
+      data-rendered-layout={renderedLayout}
+      aria-label={t("changes.panel")}
+    >
       <header className="acpmux-diff-header">
         <button ref={back} type="button" className="acpmux-diff-back" aria-label={t("changes.back")} onClick={onClose}>
           <ChevronLeft />
@@ -459,7 +644,7 @@ export function DiffPanel({
             stopRevealing();
             setScope(next);
             setCollapsed(new Set());
-            setViewed(new Set());
+            setViewedEntries(new Map());
             setSelected(undefined);
             latestOpen.current += 1;
             setOpenFailure(undefined);
@@ -554,7 +739,7 @@ export function DiffPanel({
                     file={file}
                     edit={edit}
                     index={index}
-                    layout={layout}
+                    layout={renderedLayout}
                     wrap={wrap}
                     view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
                     on={on}
