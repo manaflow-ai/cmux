@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -89,6 +90,18 @@ class CaseEnvTests(unittest.TestCase):
         for owned in ("HOME", "CMUX_TUI_OFFLINE", "lower"):
             with self.subTest(owned=owned), self.assertRaises(hermetic_env.HermeticError):
                 hermetic_env.daemon_case(self.tmp / "a" / "c", NO_ISOLATION, extra={owned: "x"})
+
+    def test_only_the_coverage_profile_path_comes_from_the_harness(self):
+        harness = {"LLVM_PROFILE_FILE": "/tmp/cov/cmux-%8m.profraw", "RUSTFLAGS": "-C instrument-coverage"}
+        with unittest.mock.patch.dict(os.environ, harness):
+            env = self.case().env
+        self.assertEqual(env["LLVM_PROFILE_FILE"], "/tmp/cov/cmux-%8m.profraw")
+        self.assertNotIn("RUSTFLAGS", env)
+        with unittest.mock.patch.dict(os.environ, {"LLVM_PROFILE_FILE": ""}):
+            self.assertNotIn("LLVM_PROFILE_FILE", self.case().env)
+        with unittest.mock.patch.dict(os.environ, {"LLVM_PROFILE_FILE": "cov/%p.profraw"}), \
+                self.assertRaises(hermetic_env.HermeticError):
+            self.case()
 
     def test_socket_path_limit(self):
         with self.assertRaises(hermetic_env.SocketPathTooLong):

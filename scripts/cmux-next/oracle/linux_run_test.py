@@ -29,16 +29,39 @@ sys.path.insert(0, str(HERE))
 import oracle  # noqa: E402
 
 STUB_CARGO = """#!/bin/sh
-# cargo build --locked --profile P [--features F] -p cmux-tui -j N
-profile=""
+# cargo build --locked --profile P [--features F] [--target T] -p cmux-tui -j N
+profile="" out="$CARGO_TARGET_DIR"
 while [ $# -gt 0 ]; do
-  case "$1" in --profile) profile="$2"; shift 2 ;; *) shift ;; esac
+  case "$1" in --profile) profile="$2"; shift 2 ;; --target) out="$CARGO_TARGET_DIR/$2"; shift 2 ;; *) shift ;; esac
 done
+if [ -n "${RUSTFLAGS:-}" ]; then
+  echo "rustflags $RUSTFLAGS out=$out" >> "$ORACLE_TEST_LOG"
+fi
 echo "cargo $(git -C .. rev-parse HEAD) $CARGO_TARGET_DIR changed=$(git -C .. diff --name-only | tr '\\n' ,)" >> "$ORACLE_TEST_LOG"
 sleep 0.5
-mkdir -p "$CARGO_TARGET_DIR/$profile"
-printf '#!/bin/sh\\necho stub\\n' > "$CARGO_TARGET_DIR/$profile/cmux-tui"
-chmod +x "$CARGO_TARGET_DIR/$profile/cmux-tui"
+mkdir -p "$out/$profile"
+printf '#!/bin/sh\\necho stub\\n' > "$out/$profile/cmux-tui"
+chmod +x "$out/$profile/cmux-tui"
+"""
+
+# rustc --version | -vV | --print sysroot; the sysroot's llvm tools are stubs too.
+STUB_RUSTC = """#!/bin/sh
+case "$1" in
+  -vV) printf 'rustc 0.0.0-stub\\nhost: x86_64-unknown-linux-gnu\\n' ;;
+  --print) echo "$ORACLE_TEST_SYSROOT" ;;
+  *) echo rustc 0.0.0-stub ;;
+esac
+"""
+
+# llvm-profdata merge -sparse --failure-mode=all -o OUT INPUT...: OUT lists the inputs' contents.
+STUB_PROFDATA = """#!/bin/sh
+out=""
+[ "$1" = merge ] && shift
+while [ $# -gt 0 ]; do
+  case "$1" in -o) out="$2"; shift 2 ;; -*) shift ;; *) break ;; esac
+done
+echo "profdata $out" >> "$ORACLE_TEST_LOG"
+cat "$@" > "$out"
 """
 
 STUB_ORACLE = """#!/usr/bin/env python3
@@ -48,6 +71,13 @@ log = os.environ["ORACLE_TEST_LOG"]
 if args[0] == "run":
     out = args[args.index("--out") + 1]
     os.makedirs(out, exist_ok=True)
+    profile = os.environ.get("LLVM_PROFILE_FILE")
+    if profile:
+        # What an instrumented case process does at exit: its counters go to the pool the pattern names.
+        with open(profile.replace("%8m", "0"), "w") as handle:
+            handle.write("counters " + args[args.index("--suite") + 1] + "\\n")
+        with open(log, "a") as handle:
+            handle.write("profile " + profile + "\\n")
     code = int(os.environ.get("ORACLE_TEST_RUN_EXIT", "0"))
     with open(os.path.join(out, "receipt.json"), "w") as handle:
         json.dump({"ok": code == 0, "args": args}, handle)
@@ -113,9 +143,16 @@ class LinuxRunCase(unittest.TestCase):
         bin_dir = cls.bin_dir = base / "bin"
         bin_dir.mkdir()
         (bin_dir / "cargo").write_text(STUB_CARGO)
-        (bin_dir / "rustc").write_text("#!/bin/sh\necho rustc 0.0.0-stub\n")
+        (bin_dir / "rustc").write_text(STUB_RUSTC)
         for name in ("cargo", "rustc"):
             (bin_dir / name).chmod(0o755)
+        tools = cls.sysroot = base / "sysroot"
+        tool_dir = tools / "lib" / "rustlib" / "x86_64-unknown-linux-gnu" / "bin"
+        tool_dir.mkdir(parents=True)
+        (tool_dir / "llvm-profdata").write_text(STUB_PROFDATA)
+        (tool_dir / "llvm-cov").write_text("#!/bin/sh\nexit 0\n")
+        for name in ("llvm-profdata", "llvm-cov"):
+            (tool_dir / name).chmod(0o755)
 
     @classmethod
     def write_mutant(cls, path: Path, old: str, new: str, context: Optional[str] = None) -> Path:
@@ -146,7 +183,7 @@ class LinuxRunCase(unittest.TestCase):
                if not k.startswith(("RUNNERD_", "GIT_", "ORACLE_")) and k != "CMUX_GHOSTTY_SRC"}
         env.update({"PATH": f"{self.bin_dir}:{env.get('PATH', '/usr/bin:/bin')}", "ORACLE_RUNNERD_SCOPE": "none",
                     "ORACLE_RUNNERD_ROOT": str(self.work / "root"), "ORACLE_TEST_LOG": str(self.log),
-                    "TMPDIR": str(self.work)})
+                    "TMPDIR": str(self.work), "ORACLE_TEST_SYSROOT": str(self.sysroot)})
         env.update(extra)
         return env
 
@@ -365,6 +402,49 @@ class MutantTests(LinuxRunCase):
         self.assertIsNone(receipt["base"]["build"]["mutant"])
         self.assertEqual(receipt["head"]["build"]["mutant"]["id"], "daemon/index-off-by-one")
         self.assertEqual(receipt["mutant"]["id"], "daemon/index-off-by-one")
+
+
+class CoverageTests(LinuxRunCase):
+    """--coverage (p15-oracle-190): an instrumented build in its own target dir, counters merged per run."""
+
+    def test_a_coverage_build_instruments_the_target_only_and_names_its_tools(self) -> None:
+        covered = self.linux_run("build", self.base_sha, "--coverage")
+        self.assertEqual(covered.returncode, 0, covered.stderr)
+        plain = self.linux_run("build", self.base_sha)
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        self.assertEqual(len(self.logged("cargo")), 2, "an instrumented build and a plain build are two keys")
+        flags = self.logged("rustflags")
+        self.assertEqual(len(flags), 1, "only the coverage build sets RUSTFLAGS")
+        self.assertIn("-C instrument-coverage", flags[0])
+        self.assertTrue(flags[0].endswith("/x86_64-unknown-linux-gnu"), "an explicit --target keeps build scripts plain")
+        binary = Path(covered.stdout.strip().splitlines()[-1])
+        receipt = json.loads((binary.parent / "build.json").read_text())
+        self.assertEqual(Path(receipt["targetDir"]).name, f"{self.base_sha}-oracle-feat-oracle+cov")
+        tools = receipt["coverage"]
+        self.assertEqual(Path(tools["llvmProfdata"]).name, "llvm-profdata")
+        self.assertTrue(tools["llvmCov"].startswith(str(self.sysroot)))
+        self.assertEqual(tools["target"], "x86_64-unknown-linux-gnu")
+        self.assertTrue(tools["sourceRoot"].endswith("/scratch/wt"), tools["sourceRoot"])
+        self.assertIsNone(json.loads((Path(plain.stdout.strip()).parent / "build.json").read_text())["coverage"])
+
+    def test_a_coverage_run_merges_its_counters_into_the_run_dir(self) -> None:
+        result = self.linux_run("run", self.base_sha, "--suite", "iota", "--coverage")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        run_dir = Path(result.stdout.strip().splitlines()[-1])
+        self.assertEqual((run_dir / "coverage.profdata").read_text(), "counters iota\n")
+        self.assertFalse((run_dir.parent / "profraw").exists(), "the raw pools go once merged")
+        [profile] = self.logged("profile")
+        self.assertTrue(profile.endswith("/profraw/cmux-%8m.profraw"), profile)
+        plain = self.linux_run("run", self.base_sha, "--suite", "iota")
+        self.assertEqual(plain.returncode, 0, plain.stderr)
+        self.assertFalse((Path(plain.stdout.strip().splitlines()[-1]) / "coverage.profdata").exists())
+        self.assertEqual(len(self.logged("profile")), 1, "a plain build's run sets no LLVM_PROFILE_FILE")
+
+    def test_diff_refuses_coverage(self) -> None:
+        result = self.linux_run("diff", self.base_sha, self.head_sha, "--coverage", "--out", str(self.work / "c"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--coverage is for run", result.stderr)
+        self.assertEqual(self.logged("cargo"), [])
 
 
 class QueuedDiffArgsTests(unittest.TestCase):
