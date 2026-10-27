@@ -26,6 +26,8 @@ enum WatchdogReporting {
             work: services.work, mainWork: services.mainWork,
             capture: { [weak services] in services.map(WatchdogReporting.hiddenWorkspaceCapture) ?? .init() },
             rendererPIDs: { Dictionary(AppProcesses.tabRendererClients().map { pid, client in (client, pid) }, uniquingKeysWith: { first, _ in first }) })
+        // The blocking sink's main-thread sites from before the metrics store is attached count once it is.
+        let blockingViolations = BlockingViolationCounter(metrics: Metrics())
         let hangReports = HangReportsController.forThisLaunch(
             policy: reporter.policy, folder: SidebarSnapshotFile.buildDirectory(launch: services.environment.launch)
                 .appending(path: "HangReports", directoryHint: .isDirectory),
@@ -37,7 +39,7 @@ enum WatchdogReporting {
             wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)),
             features: { [features = FeatureFlagsPage.report(services.features, tunables: TunableStore.shared)] in
                 HangReport.FeatureState(features.fieldState)
-            })
+            }, metricsAttached: { blockingViolations.metricsAttached() })
         let collector = hangReports.collector
         #if DEBUG || CMUX_BLOCKING_CHECKS
         // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before
@@ -46,7 +48,7 @@ enum WatchdogReporting {
         services.blocking.watchDrain { job in drain.run(job) }
         // Replays the sites the detector recorded before this point (BlockingDetector.install). Only a build with the
         // detector (Debug, the Nightly's CMUX_BLOCKING_CHECKS) has the sink (p09-observability-089).
-        services.blocking.install(sink: BlockingReportSink(collector: collector, metrics: Metrics(), nonFatal: .init(
+        services.blocking.install(sink: BlockingReportSink(collector: collector, violations: blockingViolations, nonFatal: .init(
             consented: { reporter.isStarted },
             send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) })))
         #endif

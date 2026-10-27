@@ -2,6 +2,7 @@
 import CmuxNextCompat
 @testable import CmuxNextHangReports
 import CmuxNextMetrics
+import CmuxNextTrace
 import Foundation
 import Testing
 
@@ -18,12 +19,12 @@ struct BlockingReportSinkTests {
     }
 
     private static func sink(consented: Bool, lastSent: [String: Date] = [:],
-                             metrics: Metrics? = nil) -> (BlockingReportSink, BlockingSinkRecorder) {
+                             violations: BlockingViolationCounter? = nil) -> (BlockingReportSink, BlockingSinkRecorder) {
         let recorder = BlockingSinkRecorder()
         let at = now
         let sink = BlockingReportSink(
             collector: recorder.collector,
-            metrics: metrics,
+            violations: violations,
             nonFatal: BlockingReportSink.NonFatal(consented: { consented }, send: { recorder.send($0) }),
             store: BlockingReportSink.LastSentStore(load: { lastSent }, save: { recorder.save($0) }),
             now: { at })
@@ -74,7 +75,7 @@ struct BlockingReportSinkTests {
     /// `blocking.violations`: one sample of 1 per new main-thread site, with or without consent; a pool site counts none.
     @Test func eachMainThreadSiteIsOneBlockingViolationsSample() throws {
         let (store, metrics) = HangReportWireFormatTests.metrics([.blockingViolations])
-        let (sink, _) = Self.sink(consented: false, metrics: metrics)
+        let (sink, _) = Self.sink(consented: false, violations: BlockingViolationCounter(metrics: metrics))
         sink.record(Self.violation(1))
         sink.record(Self.violation(2))
         sink.record(BlockingViolation(kind: .fileIO, context: .pool, frames: [BlockingFrame(imageUUID: Self.image, offset: 3)]))
@@ -82,6 +83,45 @@ struct BlockingReportSinkTests {
         let violations = try #require(store.delta().histograms.first { $0.name == HistogramID.blockingViolations.name })
         #expect(violations.count == 2)
         #expect(violations.sum == 2)
+    }
+
+    /// The detector replays the launch's early sites to the sink before the app's store is attached on the files lane:
+    /// they are kept, recorded when the store is attached (`MetricsStore.startApp`'s `attached`), and a later site
+    /// counts at once.
+    @Test func mainThreadSitesBeforeTheStoreIsAttachedAreCounted() throws {
+        let runtime = TraceRuntime(role: .app)
+        let counter = BlockingViolationCounter(metrics: Metrics(runtime: runtime))
+        let (sink, _) = Self.sink(consented: false, violations: counter)
+        sink.record(Self.violation(1))
+        sink.record(Self.violation(2))
+        counter.metricsAttached()
+
+        let store = MetricsStore(role: .app, profile: HangReportWireFormatTests.metricsProfile, pid: 4_243, catalog: [.blockingViolations])
+        try #require(store.delta().histograms.isEmpty)
+        store.attach(to: runtime)
+        counter.metricsAttached()
+        let early = try #require(store.delta().histograms.first { $0.name == HistogramID.blockingViolations.name })
+        #expect(early.count == 2)
+
+        sink.record(Self.violation(3))
+        counter.metricsAttached()
+        let all = try #require(store.delta().histograms.first { $0.name == HistogramID.blockingViolations.name })
+        #expect(all.count == 3)
+        #expect(all.sum == 3)
+    }
+
+    /// Without the attach call, the first site after the store is attached records the kept ones with it.
+    @Test func theFirstSiteAfterTheStoreIsAttachedRecordsTheKeptOnes() throws {
+        let runtime = TraceRuntime(role: .app)
+        let counter = BlockingViolationCounter(metrics: Metrics(runtime: runtime))
+        let (sink, _) = Self.sink(consented: false, violations: counter)
+        sink.record(Self.violation(1))
+        let store = MetricsStore(role: .app, profile: HangReportWireFormatTests.metricsProfile, pid: 4_244, catalog: [.blockingViolations])
+        store.attach(to: runtime)
+        sink.record(Self.violation(2))
+
+        let violations = try #require(store.delta().histograms.first { $0.name == HistogramID.blockingViolations.name })
+        #expect(violations.count == 2)
     }
 
     /// A pool thread's site (p02-threads-005's context) is reported as one, in the sample and the event.

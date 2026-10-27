@@ -27,9 +27,11 @@ extension HangReportCollectorTests {
         collector.setEnabled(true)
         let planted = [HangReportFixtures.appUUID, HangReportFixtures.imeUUID, HangReportFixtures.pluginUUID,
                        UUID().uuidString]
+        // The IME, the plugin and the unknown image all resolve to `other`, so each site's AppKit caller differs:
+        // equal samples are one site to the collector, and every planted image must reach the report.
         for (index, image) in planted.enumerated() {
             collector.noteBlocking(BlockingViolation(kind: .fileIO, context: index.isMultiple(of: 2) ? .main : .pool, frames: [
-                Self.frame(image, 0x100 + UInt64(index)), Self.frame(HangReportFixtures.appKitUUID, 0x2000),
+                Self.frame(image, 0x100 + UInt64(index)), Self.frame(HangReportFixtures.appKitUUID, 0x2000 + UInt64(index)),
             ]))
         }
         for offset in 0..<UInt64(HangReport.maxBlocking) {

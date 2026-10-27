@@ -97,13 +97,15 @@ final class HangReportsController {
     /// daemon's request latency is folded from its metrics file in `metricsFolder` on `work`'s files lane. `memory`
     /// samples at the report triggers too, and runs where nothing is sent. `wireSchema` is schema 3 only while the
     /// `hangReportsSchema3` feature says cmux.com accepts it. `features` reads the features hash and overrides the
-    /// app runs with, at each report.
+    /// app runs with, at each report. `metricsAttached` runs on the files lane once this process's metrics store is
+    /// attached, never where no store starts.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
                               work: BackgroundWork, mainWork: MainWorkScheduler,
                               metricsFolder: URL, daemonPID: @escaping @MainActor @Sendable () -> Int32?,
                               wireSchema: HangReport.WireSchema = .deployed,
                               features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
+                              metricsAttached: @escaping @Sendable () -> Void = {},
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -123,7 +125,8 @@ final class HangReportsController {
         let flows = DaemonDiagnosticKnobs(processEnvironment: environment).daemonEnvironment["CMUX_TRACE_FLOWS"]
         let rings = HangReportFieldSources.RingFolders.app(bundleID: bundleID, flowsDirectory: flows.map { URL(filePath: $0, directoryHint: .isDirectory) })
         if wireSchema.carriesFieldData {
-            MetricsStore.startApp(directory: metricsDirectory, channel: policy.channel?.rawValue ?? "dev", work: work)
+            MetricsStore.startApp(directory: metricsDirectory, channel: policy.channel?.rawValue ?? "dev", work: work,
+                                  attached: metricsAttached)
         }
         // A managed block, or this Mac's consent record removed, while cmux runs: the next trigger
         // turns reports off and drops what was recorded. UserDefaults is thread-safe; the record is
