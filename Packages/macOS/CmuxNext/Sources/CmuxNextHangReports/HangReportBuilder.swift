@@ -81,7 +81,7 @@ public nonisolated struct HangReportBuilder: Sendable {
         }
         // Blocking samples have no duration: they take their own slots first, so neither the
         // longest-first cut nor the body cap (which drops from the end) pushes them out.
-        let blocking = wireSchema.carriesBlocking ? Array(watchdog.blocking.prefix(StallAggregate.maxSamples)) : []
+        let blocking = wireSchema.carriesBlocking ? watchdog.reportedBlocking : []
         // A watched thread's hang goes only in a schema that carries them, and only with its thread; no other sample names one.
         let threadHangs = wireSchema.carriesThreadHangs ? watchdog.threadHangs.filter { $0.thread != nil } : []
         let hangs = watchdog.hangs.filter { $0.source != .hangWatch }

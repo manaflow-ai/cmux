@@ -185,6 +185,7 @@ public final class TerminalSurfaceView: NSView {
         offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        addCursorUpdateArea()
         bridge.target = self
         windowWatch.onChange = { [weak self] change in self?.windowStateChanged(change) }
         bridge.followLinkAnswers(on: mainWork)

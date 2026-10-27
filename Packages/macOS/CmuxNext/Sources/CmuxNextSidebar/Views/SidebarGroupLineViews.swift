@@ -74,16 +74,19 @@ final class SidebarGroupLineViews {
             }
             return (changes, leaving.map(\.0), (moves + leaving).map { ($0.0 as NSView, $0.1) })
         }
-        // Without motion the lines take their frames in one step: a spring an earlier move left on one comes off.
+        // Without motion the lines take their frames in one step: a spring an earlier move left on one comes off,
+        // and the zero-length group stops a move AppKit still runs on one, wherever the caller runs the changes.
         SidebarDragSpring.stop(moves.map(\.0) + leaving.map(\.0))
         let changes = {
-            for (view, frame) in moves {
-                view.animator().frame = frame
-                view.animator().alphaValue = 1
-            }
-            for (view, frame) in leaving {
-                view.animator().frame = frame
-                view.animator().alphaValue = 0
+            Motion.withoutAnimation {
+                for (view, frame) in moves {
+                    view.animator().frame = frame
+                    view.animator().alphaValue = 1
+                }
+                for (view, frame) in leaving {
+                    view.animator().frame = frame
+                    view.animator().alphaValue = 0
+                }
             }
         }
         return (changes, leaving.map(\.0), [])
