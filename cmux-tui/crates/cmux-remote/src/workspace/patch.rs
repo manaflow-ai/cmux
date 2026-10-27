@@ -19,10 +19,21 @@ const MAX_PATCH_TOTAL_BYTES: usize = 64 * 1024 * 1024;
 type FileSnapshots = BTreeMap<String, Option<WorkspaceFileSnapshot>>;
 
 #[derive(Debug)]
-struct PreparedChange {
-    old_path: Option<String>,
-    new_path: Option<String>,
-    new_contents: Option<Vec<u8>>,
+enum PreparedChange {
+    /// Writes `contents` to `path`. `previous` is the file it came from:
+    /// `None` creates `path`, `path` itself edits it, another path renames.
+    Write {
+        previous: Option<String>,
+        path: String,
+        contents: Vec<u8>,
+    },
+    Delete {
+        path: String,
+    },
+}
+
+fn both_paths_dev_null() -> RpcError {
+    RpcError::new("invalid-patch", "patch cannot use /dev/null for both paths")
 }
 
 enum AppliedState {
@@ -219,10 +230,7 @@ async fn prepare_unified_patch(
         let old_path = parsed.original().map(normalize_patch_path).transpose()?.flatten();
         let new_path = parsed.modified().map(normalize_patch_path).transpose()?.flatten();
         if old_path.is_none() && new_path.is_none() {
-            return Err(RpcError::new(
-                "invalid-patch",
-                "patch cannot use /dev/null for both paths",
-            ));
+            return Err(both_paths_dev_null());
         }
         snapshot_change_paths(
             root,
@@ -238,11 +246,15 @@ async fn prepare_unified_patch(
         let original = existing_text(&snapshots, old_path.as_deref(), source_path)?;
         let applied = diffy::apply(&original, &parsed)
             .map_err(|error| RpcError::new("patch-conflict", error.to_string()))?;
-        let new_contents = new_path
-            .as_ref()
-            .map(|_| checked_new_contents(applied, &mut total_new_bytes))
-            .transpose()?;
-        changes.push(PreparedChange { old_path, new_path, new_contents });
+        changes.push(match (old_path, new_path) {
+            (previous, Some(path)) => PreparedChange::Write {
+                previous,
+                path,
+                contents: checked_new_contents(applied, &mut total_new_bytes)?,
+            },
+            (Some(path), None) => PreparedChange::Delete { path },
+            (None, None) => return Err(both_paths_dev_null()),
+        });
     }
     Ok(finish_preparation(changes, changed_paths, snapshots))
 }
@@ -262,7 +274,7 @@ async fn prepare_codex_patch(
     let mut total_snapshot_bytes = 0usize;
     let mut total_new_bytes = 0usize;
     for hunk in hunks {
-        let (old_path, new_path, new_contents) = match hunk {
+        let change = match hunk {
             Hunk::Add { path, contents } => {
                 let new = normalize_protocol_path(&path)?;
                 snapshot_change_paths(
@@ -276,7 +288,7 @@ async fn prepare_codex_patch(
                 .await?;
                 reject_existing_destination(&None, &Some(new.clone()), &snapshots)?;
                 let contents = checked_new_contents(contents, &mut total_new_bytes)?;
-                (None, Some(new), Some(contents))
+                PreparedChange::Write { previous: None, path: new, contents }
             }
             Hunk::Delete { path } => {
                 let old = normalize_protocol_path(&path)?;
@@ -290,7 +302,7 @@ async fn prepare_codex_patch(
                 )
                 .await?;
                 existing_text(&snapshots, Some(&old), &old)?;
-                (Some(old), None, None)
+                PreparedChange::Delete { path: old }
             }
             Hunk::Update { path, move_path, chunks } => {
                 let old = normalize_protocol_path(&path)?;
@@ -313,10 +325,10 @@ async fn prepare_codex_patch(
                 let applied = super::codex_patch::apply_update(&original, &old, &chunks)
                     .map_err(|error| RpcError::new("patch-conflict", error))?;
                 let contents = checked_new_contents(applied, &mut total_new_bytes)?;
-                (Some(old), Some(new), Some(contents))
+                PreparedChange::Write { previous: Some(old), path: new, contents }
             }
         };
-        changes.push(PreparedChange { old_path, new_path, new_contents });
+        changes.push(change);
     }
     Ok(finish_preparation(changes, changed_paths, snapshots))
 }
@@ -471,36 +483,37 @@ fn enforce_requested_preconditions(
 fn patch_results(changes: &[PreparedChange], snapshots: &FileSnapshots) -> Vec<PatchFileResult> {
     changes
         .iter()
-        .map(|change| match (&change.old_path, &change.new_path, &change.new_contents) {
-            (Some(old), Some(new), Some(contents)) if old != new => PatchFileResult {
-                path: new.clone(),
-                previous_path: Some(old.clone()),
-                action: PatchFileAction::Renamed,
-                old_content_hash: snapshot_hash(snapshots, old),
-                new_content_hash: Some(hash_bytes(contents)),
-            },
-            (Some(path), Some(_), Some(contents)) => PatchFileResult {
+        .map(|change| match change {
+            PreparedChange::Write { previous: Some(old), path: new, contents } if old != new => {
+                PatchFileResult {
+                    path: new.clone(),
+                    previous_path: Some(old.clone()),
+                    action: PatchFileAction::Renamed,
+                    old_content_hash: snapshot_hash(snapshots, old),
+                    new_content_hash: Some(hash_bytes(contents)),
+                }
+            }
+            PreparedChange::Write { previous: Some(_), path, contents } => PatchFileResult {
                 path: path.clone(),
                 previous_path: None,
                 action: PatchFileAction::Modified,
                 old_content_hash: snapshot_hash(snapshots, path),
                 new_content_hash: Some(hash_bytes(contents)),
             },
-            (None, Some(path), Some(contents)) => PatchFileResult {
+            PreparedChange::Write { previous: None, path, contents } => PatchFileResult {
                 path: path.clone(),
                 previous_path: None,
                 action: PatchFileAction::Created,
                 old_content_hash: None,
                 new_content_hash: Some(hash_bytes(contents)),
             },
-            (Some(path), None, None) => PatchFileResult {
+            PreparedChange::Delete { path } => PatchFileResult {
                 path: path.clone(),
                 previous_path: None,
                 action: PatchFileAction::Deleted,
                 old_content_hash: snapshot_hash(snapshots, path),
                 new_content_hash: None,
             },
-            _ => unreachable!("prepared patches contain valid transitions"),
         })
         .collect()
 }
@@ -542,13 +555,13 @@ fn split_unified_patch(source: &str) -> Result<Vec<String>, RpcError> {
     let mut index = 0;
     let mut section_open = false;
     let mut hunk_remaining = None;
-    while index < lines.len() {
+    while let Some(&line) = lines.get(index) {
         if let Some((old_remaining, new_remaining)) = hunk_remaining.as_mut() {
             if *old_remaining == 0 && *new_remaining == 0 {
                 hunk_remaining = None;
                 continue;
             }
-            match lines[index].as_bytes().first().copied() {
+            match line.as_bytes().first().copied() {
                 Some(b' ') if *old_remaining > 0 && *new_remaining > 0 => {
                     *old_remaining -= 1;
                     *new_remaining -= 1;
@@ -564,12 +577,12 @@ fn split_unified_patch(source: &str) -> Result<Vec<String>, RpcError> {
             index += 1;
             continue;
         }
-        if section_open && let Some(counts) = unified_hunk_line_counts(lines[index]) {
+        if section_open && let Some(counts) = unified_hunk_line_counts(line) {
             hunk_remaining = Some(counts);
             index += 1;
             continue;
         }
-        if lines[index].starts_with("--- ")
+        if line.starts_with("--- ")
             && lines.get(index + 1).is_some_and(|line| line.starts_with("+++ "))
         {
             starts.push(index);
@@ -577,7 +590,7 @@ fn split_unified_patch(source: &str) -> Result<Vec<String>, RpcError> {
             index += 2;
             continue;
         }
-        if lines[index].starts_with("diff --git ") {
+        if line.starts_with("diff --git ") {
             section_open = false;
         }
         index += 1;
@@ -591,12 +604,17 @@ fn split_unified_patch(source: &str) -> Result<Vec<String>, RpcError> {
     let mut sections = Vec::with_capacity(starts.len());
     for (position, start) in starts.iter().copied().enumerate() {
         let candidate_end = starts.get(position + 1).copied().unwrap_or(lines.len());
-        let end = lines[start + 2..candidate_end]
+        let candidate = lines
+            .get(start..candidate_end)
+            .ok_or_else(|| RpcError::new("internal", "unified patch sections are out of order"))?;
+        // A section is its --- and +++ headers and the lines after them, up
+        // to the next file's `diff --git` header.
+        let end = candidate
             .iter()
+            .skip(2)
             .position(|line| line.starts_with("diff --git "))
-            .map(|offset| start + 2 + offset)
-            .unwrap_or(candidate_end);
-        sections.push(lines[start..end].concat());
+            .map_or(candidate.len(), |offset| offset + 2);
+        sections.push(candidate.iter().take(end).copied().collect::<String>());
     }
     Ok(sections)
 }
@@ -640,8 +658,8 @@ async fn commit_changes(
         };
     }
     for change in changes {
-        match (&change.old_path, &change.new_path, &change.new_contents) {
-            (Some(old), Some(new), Some(contents)) if old != new => {
+        match change {
+            PreparedChange::Write { previous: Some(old), path: new, contents } if old != new => {
                 let destination = commit_try!(snapshot_precondition(snapshots, new));
                 let source = commit_try!(snapshot_precondition(snapshots, old));
                 let source_mode = commit_try!(snapshot_mode(snapshots, old));
@@ -671,7 +689,7 @@ async fn commit_changes(
                     }
                 }
             }
-            (_, Some(new), Some(contents)) => {
+            PreparedChange::Write { path: new, contents, .. } => {
                 let precondition = commit_try!(snapshot_precondition(snapshots, new));
                 match write_bytes_locked_with_outcome(root, new, contents, &precondition, true)
                     .await
@@ -686,7 +704,7 @@ async fn commit_changes(
                     }
                 }
             }
-            (Some(old), None, None) => {
+            PreparedChange::Delete { path: old } => {
                 let precondition = commit_try!(snapshot_precondition(snapshots, old));
                 match remove_file_precondition_locked_with_outcome(root, old, &precondition).await {
                     Ok(()) => tracker.applied(old, AppliedState::Missing),
@@ -694,12 +712,6 @@ async fn commit_changes(
                         return Err(tracker.mutation_failure(old, AppliedState::Missing, failure));
                     }
                 }
-            }
-            _ => {
-                return Err(tracker.failure(RpcError::new(
-                    "invalid-patch",
-                    "patch produced an invalid file transition",
-                )));
             }
         }
     }
@@ -780,3 +792,6 @@ async fn rollback(
     }
     report
 }
+
+#[cfg(test)]
+mod split_tests;

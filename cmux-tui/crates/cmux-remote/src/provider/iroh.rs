@@ -363,15 +363,20 @@ enum PreAuthAdmission {
     Queued(OwnedSemaphorePermit),
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: IrohAdmission owns its pre-auth semaphores and nothing closes them"
+)]
+async fn acquire_pre_auth(capacity: Arc<Semaphore>) -> OwnedSemaphorePermit {
+    capacity.acquire_owned().await.expect("Iroh pre-auth admission semaphore is never closed")
+}
+
 impl PreAuthAdmission {
     async fn acquire(self, capacity: Arc<Semaphore>) -> OwnedSemaphorePermit {
         match self {
             Self::Ready(permit) => permit,
             Self::Queued(overflow) => {
-                let permit = capacity
-                    .acquire_owned()
-                    .await
-                    .expect("Iroh pre-auth admission semaphore is never closed");
+                let permit = acquire_pre_auth(capacity).await;
                 drop(overflow);
                 permit
             }
@@ -395,9 +400,7 @@ impl PreAuthAdmission {
                         drop(overflow);
                         None
                     }
-                    permit = capacity.acquire_owned() => {
-                        let permit =
-                            permit.expect("Iroh pre-auth admission semaphore is never closed");
+                    permit = acquire_pre_auth(capacity) => {
                         drop(overflow);
                         Some(permit)
                     }
@@ -725,7 +728,9 @@ impl IrohListener {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
-        self.task.take().expect("Iroh listener task is present").await.map_err(|error| {
+        // Only this method takes the task, and it consumes the listener.
+        let Some(task) = self.task.take() else { return Ok(()) };
+        task.await.map_err(|error| {
             ProviderError::Transport(format!("Iroh listener task failed: {error}"))
         })
     }

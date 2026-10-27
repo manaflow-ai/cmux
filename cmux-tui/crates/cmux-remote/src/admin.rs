@@ -532,7 +532,7 @@ fn poll_pidfd(descriptor: &OwnedFd) -> io::Result<bool> {
 impl LinuxProcProcessExit {
     fn observe(pid: libc::pid_t) -> io::Result<(Self, bool)> {
         let path = std::ffi::CString::new(format!("/proc/{pid}"))
-            .expect("a decimal process id cannot contain NUL");
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         // SAFETY: `path` is a NUL-terminated CString that lives across the call; open does not keep
         // the pointer.
         let directory = unsafe {
@@ -597,12 +597,18 @@ fn parse_linux_proc_stat(contents: &[u8]) -> io::Result<LinuxProcStat> {
         .windows(2)
         .rposition(|window| window == b") ")
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "malformed process stat"))?;
-    let mut fields =
-        contents[comm_end + 2..].split(u8::is_ascii_whitespace).filter(|field| !field.is_empty());
+    let (_, after_comm) = contents.split_at(comm_end);
+    let mut fields = after_comm
+        .strip_prefix(b") ")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "malformed process stat"))?
+        .split(u8::is_ascii_whitespace)
+        .filter(|field| !field.is_empty());
     let state = fields
         .next()
-        .filter(|field| field.len() == 1)
-        .map(|field| field[0])
+        .and_then(|field| match field {
+            [state] => Some(*state),
+            _ => None,
+        })
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing process state"))?;
     // starttime is field 22. `fields` now starts at field 4 because state,
     // field 3, was consumed above.
@@ -733,12 +739,12 @@ async fn dispatch(
         AdminRequest::MuxBinding => mux_binding
             .ok_or_else(|| IdentityError::Invalid("mux binding is unavailable".into()))
             .and_then(|binding| serde_json::to_value(binding).map_err(IdentityError::Json)),
-        AdminRequest::Status => Ok(serde_json::to_value(DaemonStatus {
+        AdminRequest::Status => serde_json::to_value(DaemonStatus {
             daemon_name: auth.daemon_name().to_string(),
             daemon_fingerprint: auth.identity().fingerprint(),
             connected_clients: daemon.connections().await.len(),
         })
-        .expect("daemon status is serializable")),
+        .map_err(IdentityError::Json),
         AdminRequest::CreateInvitation { ttl_seconds, route_hints, relay_access } => auth
             .create_invitation_with_relay_access(
                 Duration::from_secs(ttl_seconds),
@@ -748,19 +754,22 @@ async fn dispatch(
             .await
             .and_then(|invitation| invitation.to_uri())
             .map(|uri| serde_json::json!({ "uri": uri })),
-        AdminRequest::Pending => Ok(serde_json::to_value(auth.pending_enrollments().await)
-            .expect("pending enrollments are serializable")),
+        AdminRequest::Pending => {
+            serde_json::to_value(auth.pending_enrollments().await).map_err(IdentityError::Json)
+        }
         AdminRequest::Approve { invitation_id } => auth
             .approve(&invitation_id)
             .await
-            .map(|record| serde_json::to_value(record).expect("device record is serializable")),
+            .and_then(|record| serde_json::to_value(record).map_err(IdentityError::Json)),
         AdminRequest::Deny { invitation_id } => {
             auth.deny(&invitation_id).await.map(|()| serde_json::json!({}))
         }
-        AdminRequest::Devices => Ok(serde_json::to_value(auth.list_devices().await)
-            .expect("device records are serializable")),
-        AdminRequest::Connections => Ok(serde_json::to_value(daemon.connection_snapshots().await)
-            .expect("connection snapshots are serializable")),
+        AdminRequest::Devices => {
+            serde_json::to_value(auth.list_devices().await).map_err(IdentityError::Json)
+        }
+        AdminRequest::Connections => {
+            serde_json::to_value(daemon.connection_snapshots().await).map_err(IdentityError::Json)
+        }
         AdminRequest::Revoke { device_id } => {
             auth.revoke(&device_id).await.map(|()| serde_json::json!({}))
         }
@@ -882,6 +891,24 @@ mod tests {
     use super::*;
     use crate::identity::AuthDatabase;
     use crate::session::SessionLimits;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_proc_stat_parses_state_and_start_time_after_last_comm_paren() {
+        let stat = b"42 (a) b) c) S 1 42 42 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 98765 0 0";
+        let parsed = parse_linux_proc_stat(stat).unwrap();
+        assert_eq!(parsed.state, b'S');
+        assert_eq!(parsed.start_time, 98765);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_proc_stat_rejects_malformed_input_with_invalid_data() {
+        for stat in [&b"42 (comm)"[..], b"42 (comm) ", b"42 (comm) SS 1", b""] {
+            let error = parse_linux_proc_stat(stat).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{stat:?}");
+        }
+    }
 
     #[test]
     fn admin_listener_retries_recoverable_accept_errors() {

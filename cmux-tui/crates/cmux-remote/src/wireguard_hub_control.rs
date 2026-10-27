@@ -47,6 +47,7 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::admin::verify_unix_peer_owner;
 use crate::provider::socks::{ADDRESS_IPV4, ADDRESS_IPV6};
+use crate::read_buffer::filled;
 use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
 use crate::wireguard_hub::HubError;
 
@@ -560,7 +561,7 @@ impl Relay {
                     if let Some(path) = from.as_pathname() {
                         client = Some(path.to_path_buf());
                     }
-                    let Some((peer, payload)) = decode_header(&buffer[..len]) else {
+                    let Some((peer, payload)) = decode_header(filled(&buffer, len)) else {
                         count(&self.drops.malformed);
                         continue;
                     };
@@ -609,36 +610,33 @@ pub fn encode_header(peer: SocketAddr) -> Vec<u8> {
 /// The peer and payload of a datagram with a SOCKS5 UDP request header, or
 /// `None` for a malformed header, a fragment, or a domain name.
 pub fn decode_header(datagram: &[u8]) -> Option<(SocketAddr, &[u8])> {
-    let prefix = datagram.get(..HEADER_PREFIX)?;
-    if prefix[..3] != [0, 0, 0] {
+    let ([0, 0, 0, address_type], rest) = datagram.split_first_chunk::<HEADER_PREFIX>()? else {
         return None;
-    }
-    let (address, rest): (IpAddr, &[u8]) = match prefix[3] {
+    };
+    let (address, rest): (IpAddr, &[u8]) = match *address_type {
         ADDRESS_IPV4 => {
-            let octets: [u8; 4] =
-                datagram.get(HEADER_PREFIX..HEADER_PREFIX + 4)?.try_into().ok()?;
-            (Ipv4Addr::from(octets).into(), &datagram[HEADER_PREFIX + 4..])
+            let (octets, rest) = rest.split_first_chunk::<4>()?;
+            (Ipv4Addr::from(*octets).into(), rest)
         }
         ADDRESS_IPV6 => {
-            let octets: [u8; 16] =
-                datagram.get(HEADER_PREFIX..HEADER_PREFIX + 16)?.try_into().ok()?;
-            (Ipv6Addr::from(octets).into(), &datagram[HEADER_PREFIX + 16..])
+            let (octets, rest) = rest.split_first_chunk::<16>()?;
+            (Ipv6Addr::from(*octets).into(), rest)
         }
         _ => return None,
     };
-    let port = u16::from_be_bytes(rest.get(..2)?.try_into().ok()?);
-    Some((SocketAddr::new(address, port), &rest[2..]))
+    let (port, payload) = rest.split_first_chunk::<2>()?;
+    Some((SocketAddr::new(address, u16::from_be_bytes(*port)), payload))
 }
 
 async fn forward_events(mut events: broadcast::Receiver<PathEvent>, lines: mpsc::Sender<String>) {
     loop {
         match events.recv().await {
             Ok(event) => {
-                let mut body = path_json(&event);
-                body["event"] = json!("path.changed");
+                let mut body = path_fields(&event);
+                body.insert("event".into(), json!("path.changed"));
                 // A full queue skips this event; the next one carries the
                 // same fields.
-                match lines.try_send(body.to_string()) {
+                match lines.try_send(Value::Object(body).to_string()) {
                     Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
                     Err(mpsc::error::TrySendError::Closed(_)) => return,
                 }
@@ -650,14 +648,18 @@ async fn forward_events(mut events: broadcast::Receiver<PathEvent>, lines: mpsc:
 }
 
 fn path_json(event: &PathEvent) -> Value {
-    json!({
-        "path": event.path.map(|path| path.0),
-        "kind": event.kind.map(kind_name),
-        "rtt_ms": event.rtt_ms,
-        "jitter_ms": event.jitter_ms,
-        "loss_pct": event.loss_pct,
-        "max_datagram": event.max_datagram,
-    })
+    Value::Object(path_fields(event))
+}
+
+fn path_fields(event: &PathEvent) -> serde_json::Map<String, Value> {
+    serde_json::Map::from_iter([
+        ("path".to_owned(), json!(event.path.map(|path| path.0))),
+        ("kind".to_owned(), json!(event.kind.map(kind_name))),
+        ("rtt_ms".to_owned(), json!(event.rtt_ms)),
+        ("jitter_ms".to_owned(), json!(event.jitter_ms)),
+        ("loss_pct".to_owned(), json!(event.loss_pct)),
+        ("max_datagram".to_owned(), json!(event.max_datagram)),
+    ])
 }
 
 /// The wire name of a path kind.
@@ -673,3 +675,6 @@ pub fn kind_name(kind: PathKind) -> &'static str {
 fn error_line(id: &Value, code: &str, message: &str) -> String {
     json!({ "id": id, "error": { "code": code, "message": message } }).to_string()
 }
+
+#[cfg(test)]
+mod header_tests;

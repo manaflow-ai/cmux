@@ -134,7 +134,7 @@ mod unix {
                 }
                 Err(open_error) => {
                     let status = metadata_at(directory.as_raw_fd(), &component)?;
-                    if status.as_ref().is_some_and(is_symlink) {
+                    if let Some(status) = status.filter(is_symlink) {
                         trusted_symlinks = trusted_symlinks.saturating_add(1);
                         if trusted_symlinks > MAX_TRUSTED_SYMLINK_EXPANSIONS {
                             return Err(invalid_path(
@@ -147,7 +147,7 @@ mod unix {
                             &mut directory,
                             &mut pending,
                             &component,
-                            status.expect("symlink status is present"),
+                            status,
                         )?;
                         // The walk now follows the target: from the root for
                         // an absolute one, else from the symlink's directory.
@@ -215,9 +215,7 @@ mod unix {
     }
 
     fn open_anchor(absolute: bool) -> io::Result<File> {
-        let anchor = if absolute { Path::new("/") } else { Path::new(".") };
-        let encoded = CString::new(anchor.as_os_str().as_bytes())
-            .expect("Unix root and current-directory paths contain no NUL bytes");
+        let encoded = if absolute { c"/" } else { c"." };
         // SAFETY: `encoded` is live and NUL-terminated, and `open` does not
         // retain its pointer.
         let descriptor = unsafe {

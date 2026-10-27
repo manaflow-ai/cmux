@@ -252,11 +252,9 @@ impl WorkspaceHttpServer {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
-        self.task
-            .take()
-            .expect("HTTP server task is present")
-            .await
-            .map_err(|error| io::Error::other(format!("HTTP server task failed: {error}")))?
+        // Only this method takes the task, and it consumes the server.
+        let Some(task) = self.task.take() else { return Ok(()) };
+        task.await.map_err(|error| io::Error::other(format!("HTTP server task failed: {error}")))?
     }
 }
 
@@ -343,6 +341,11 @@ async fn run_workspace_http_server(
                 }
             }
             permit = permits.clone().acquire_owned() => {
+                #[allow(
+                    clippy::expect_used,
+                    reason = "INVARIANT: the admission semaphore is local to this loop and \
+                              nothing closes it"
+                )]
                 let permit = permit.expect("workspace HTTP admission semaphore is never closed");
                 let accepted = tokio::select! {
                     biased;
@@ -494,13 +497,12 @@ async fn workspace_rpc(
     State(state): State<WorkspaceHttpState>,
     Json(request): Json<RpcRequest>,
 ) -> Response {
-    let mut prepared = state.workspace.prepare_rpc(request).await;
-    let response = prepared.take_response();
+    let (response, delivery) = state.workspace.prepare_rpc(request).await.into_parts();
     let response_id = response.id;
     let encoded = match serde_json::to_vec(&response) {
         Ok(encoded) => encoded,
         Err(error) => {
-            drop(prepared);
+            drop(delivery);
             eprintln!("cmux workspace HTTP response serialization failed: {error}");
             return Json(RpcResponse {
                 id: response_id,
@@ -509,7 +511,7 @@ async fn workspace_rpc(
             .into_response();
         }
     };
-    prepared.commit_delivery();
+    delivery.commit();
     let mut response = Response::new(Body::from(encoded));
     response.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     response

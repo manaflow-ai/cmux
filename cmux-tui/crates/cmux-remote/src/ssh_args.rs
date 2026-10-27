@@ -51,13 +51,14 @@ fn normalized_caller_arguments(extra_args: &[String], forwarding_off: bool) -> (
             continue;
         };
         let mut kept = String::from("-");
-        for (index, flag) in flags.char_indices() {
+        let mut rest = flags.chars();
+        while let Some(flag) = rest.next() {
             if forwarding_off && matches!(flag, 'A' | 'X' | 'Y') {
                 continue;
             }
             kept.push(flag);
             if u8::try_from(flag).is_ok_and(|flag| FLAGS_WITH_VALUE.contains(&flag)) {
-                let attached = &flags[index + flag.len_utf8()..];
+                let attached = rest.as_str();
                 kept.push_str(attached);
                 normalized.push(kept);
                 kept = String::from("-");
@@ -114,12 +115,13 @@ impl CallerOptions {
                 break;
             }
             let Some(flags) = argument.strip_prefix('-') else { continue };
-            for (index, flag) in flags.char_indices() {
+            let mut rest = flags.chars();
+            while let Some(flag) = rest.next() {
                 if !u8::try_from(flag).is_ok_and(|flag| FLAGS_WITH_VALUE.contains(&flag)) {
                     master_flag |= flag == 'M';
                     continue;
                 }
-                let attached = &flags[index + flag.len_utf8()..];
+                let attached = rest.as_str();
                 let value = if attached.is_empty() {
                     arguments.next().map(String::as_str)
                 } else {

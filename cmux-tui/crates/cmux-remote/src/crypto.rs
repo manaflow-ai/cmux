@@ -70,8 +70,13 @@ impl fmt::Debug for StaticIdentity {
 }
 
 pub fn public_key_fingerprint(public: &[u8; 32]) -> String {
-    let digest = Sha256::digest(public);
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&digest[..16])
+    let digest: [u8; 32] = Sha256::digest(public).into();
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: a SHA-256 digest is 32 bytes, so 16 fit"
+    )]
+    let prefix = &digest[..16];
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(prefix)
 }
 
 #[derive(Clone)]
@@ -380,10 +385,17 @@ impl FrameLink for SecureLink {
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |nonce| nonce.checked_add(1))
             .map_err(|_| LinkError::Protocol("Noise send nonce exhausted".into()))?;
         let mut ciphertext = vec![0_u8; NOISE_NONCE_BYTES + frame.len() + NOISE_TAG_BYTES];
-        ciphertext[..NOISE_NONCE_BYTES].copy_from_slice(&nonce.to_be_bytes());
+        #[allow(
+            clippy::expect_used,
+            reason = "INVARIANT: the record buffer is allocated just above with the nonce prefix"
+        )]
+        let (nonce_prefix, sealed) = ciphertext
+            .split_first_chunk_mut::<NOISE_NONCE_BYTES>()
+            .expect("the record buffer holds the nonce prefix");
+        *nonce_prefix = nonce.to_be_bytes();
         let size = self
             .transport
-            .write_message(nonce, &frame, &mut ciphertext[NOISE_NONCE_BYTES..])
+            .write_message(nonce, &frame, sealed)
             .map_err(|error| LinkError::Protocol(format!("Noise encrypt failed: {error}")))?;
         ciphertext.truncate(NOISE_NONCE_BYTES + size);
         self.inner.send(Bytes::from(ciphertext)).await
@@ -397,14 +409,17 @@ impl FrameLink for SecureLink {
                 maximum: NOISE_MAX_MESSAGE,
             });
         }
-        if ciphertext.len() < NOISE_NONCE_BYTES + NOISE_TAG_BYTES {
+        let Some((nonce, sealed)) = ciphertext
+            .split_first_chunk::<NOISE_NONCE_BYTES>()
+            .filter(|(_, sealed)| sealed.len() >= NOISE_TAG_BYTES)
+        else {
             return Err(LinkError::Protocol("Noise record is truncated".into()));
-        }
-        let nonce = u64::from_be_bytes(ciphertext[..NOISE_NONCE_BYTES].try_into().unwrap());
-        let mut plaintext = vec![0_u8; ciphertext.len() - NOISE_NONCE_BYTES];
+        };
+        let nonce = u64::from_be_bytes(*nonce);
+        let mut plaintext = vec![0_u8; sealed.len()];
         let size = self
             .transport
-            .read_message(nonce, &ciphertext[NOISE_NONCE_BYTES..], &mut plaintext)
+            .read_message(nonce, sealed, &mut plaintext)
             .map_err(|error| LinkError::Protocol(format!("Noise decrypt failed: {error}")))?;
         plaintext.truncate(size);
         Ok(Some(Bytes::from(plaintext)))
@@ -463,9 +478,11 @@ pub async fn initiate_secure_link(
         read_handshake(&*link, &mut handshake).await?;
 
         let remote_static = handshake_remote_static(&handshake)?;
-        if config.expected_daemon.is_some_and(|expected| expected != remote_static) {
+        if let Some(expected) = config.expected_daemon
+            && expected != remote_static
+        {
             return Err(CryptoError::DaemonKeyMismatch {
-                expected: config.expected_daemon.map(|key| public_key_fingerprint(&key)).unwrap(),
+                expected: public_key_fingerprint(&expected),
                 actual: public_key_fingerprint(&remote_static),
             });
         }
