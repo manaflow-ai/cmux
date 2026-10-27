@@ -9,7 +9,9 @@ internal import ObjectiveC
 ///
 /// Nothing is hooked until someone asks: ``install()`` scans the loaded classes off the main thread, replaces
 /// `-[NSView hitTest:]` and every subclass's own `hitTest:` with a recording one, and subscribes to the input tap to
-/// bracket each event. ``uninstall()`` stops recording at once, cancels the subscriptions and puts every original IMP
+/// bracket each event. Each ``report()`` while installed scans again when the runtime's class count changed since
+/// (a framework loaded later, such as CEF, or a generic Swift view class registered on first use) and hooks the new
+/// overrides. ``uninstall()`` stops recording at once, cancels the subscriptions and puts every original IMP
 /// back. A build that never asks, or asked and uninstalled, runs AppKit's and the app's own IMPs and has no tap
 /// subscription: no cost at all.
 ///
@@ -60,12 +62,16 @@ public final class HitTestAudit {
     private let input: InputEventTap?
     private var eventSubscriptions: [InputSubscription] = []
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Class pointers to scan instead of every loaded class (tests).
+    /// The ``classKey(_:)`` of each class to scan instead of every loaded class (tests).
     let onlyClassKeys: [UInt]?
     /// The hooks of the last install, kept so a reinstall reuses the blocks it made.
     var hooks: [HookEntry] = []
+    /// The runtime's class count when the hooks' scan began.
+    private var scannedClassCount: Int32?
     /// The state the last ``install()`` or ``uninstall()`` asked for.
     private var wantsInstalled = false
+    /// A ``report()`` found classes loaded since the last scan: scan and hook them while installed.
+    private var wantsRescan = false
     /// A ``converge()`` is running (it awaits the scan and the swap off main).
     private var isChanging = false
     #endif
@@ -90,7 +96,7 @@ public final class HitTestAudit {
         self.thresholds = thresholds
         recorder = HitTestAuditRecorder(now: now)
         #if DEBUG || CMUX_BENCH_HOOKS
-        onlyClassKeys = onlyClasses.map { classes in classes.map { type in unsafeBitCast(type, to: UInt.self) } }
+        onlyClassKeys = onlyClasses.map { classes in classes.map { type in HitTestAudit.classKey(type) } }
         #endif
     }
 
@@ -119,7 +125,8 @@ public final class HitTestAudit {
 
     /// Stops recording now, cancels the event brackets and puts every original IMP back (off the main thread: each
     /// set flushes method caches). What was recorded stays readable in ``report()`` until the next ``install()``.
-    /// Called while another install or uninstall runs, it returns at once and the running one uninstalls.
+    /// Called while another install, uninstall or a report's rescan runs, it returns at once and the running one
+    /// uninstalls.
     public func uninstall() async {
         #if DEBUG || CMUX_BENCH_HOOKS
         wantsInstalled = false
@@ -132,9 +139,13 @@ public final class HitTestAudit {
         recorder.clear()
     }
 
-    /// The report: one copy of the samples on the main thread, the percentiles off it.
+    /// The report: one copy of the samples on the main thread, the percentiles off it. While installed, it first
+    /// hooks the overrides of classes loaded since the last scan.
     public func report() async -> HitTestAuditReport {
-        await HitTestAuditReport.making(from: snapshot(), thresholds: thresholds)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        await hookClassesLoadedSinceScan()
+        #endif
+        return await HitTestAuditReport.making(from: snapshot(), thresholds: thresholds)
     }
 
     /// The samples recorded so far, copied.
@@ -151,26 +162,58 @@ public final class HitTestAudit {
         return DebugInputScrollViews.className(type)
     }
 
+    /// A class's one identity here: its Objective-C class object, the same for a Swift metatype (`NSView.self`,
+    /// `object_getClass(_:)`) and an entry of the runtime's class list (as `RenderStats.classKey(_:)`).
+    nonisolated static func classKey(_ type: AnyClass) -> UInt {
+        UInt(bitPattern: ObjectIdentifier(type as AnyObject))
+    }
+
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Installs or uninstalls until the state is the one last asked for. One runs at a time: a call made while one
-    /// runs leaves its wish in ``wantsInstalled`` for the running one.
+    /// Installs or uninstalls until the state is the one last asked for, and rescans while installed when a report
+    /// asked. One runs at a time: a call made while one runs leaves its wish in ``wantsInstalled`` or
+    /// ``wantsRescan`` for the running one.
     private func converge() async {
         guard !isChanging else { return }
         isChanging = true
-        while wantsInstalled != isInstalled {
-            if wantsInstalled { await installNow() } else { await uninstallNow() }
+        while true {
+            if wantsInstalled != isInstalled {
+                if wantsInstalled { await installNow() } else { await uninstallNow() }
+            } else if wantsRescan, isInstalled {
+                await hookLoadedClasses()
+            } else {
+                break
+            }
         }
+        wantsRescan = false
         isChanging = false
+    }
+
+    /// Asks for a rescan while installed over every loaded class, when the class count moved since the last scan.
+    private func hookClassesLoadedSinceScan() async {
+        guard isInstalled, onlyClassKeys == nil else { return }
+        let count = await Self.loadedClassCount()
+        guard isInstalled, count != scannedClassCount else { return }
+        wantsRescan = true
+        await converge()
     }
 
     private func installNow() async {
         guard !isInstalled else { return }
-        let definers = await Self.scanDefiners(onlyClassKeys: onlyClassKeys)
-        hooks = makeHooks(for: definers)
-        await Self.swap(hooks, installing: true)
+        await hookLoadedClasses()
         recorder.start()
         isInstalled = true
         subscribeToEvents()
+    }
+
+    /// Scans the classes and puts a hook on every `hitTest:` the scan found that runs its original (a kept hook
+    /// stays as it is).
+    private func hookLoadedClasses() async {
+        wantsRescan = false
+        let classCount = await Self.loadedClassCount()
+        let definers = await Self.scanDefiners(onlyClassKeys: onlyClassKeys)
+        hooks = makeHooks(for: definers)
+        scannedClassCount = classCount
+        await Self.swap(hooks, installing: true)
     }
 
     private func uninstallNow() async {

@@ -6,7 +6,7 @@ internal import ObjectiveC
 private typealias HitTestIMP = @convention(c) (NSView, Selector, NSPoint) -> NSView?
 
 extension HitTestAudit {
-    /// One class's own `hitTest:` method (raw pointers: the class and its `Method`).
+    /// One class's own `hitTest:` method: its ``classKey(_:)`` and its `Method`'s address.
     nonisolated struct Definer: Sendable, Equatable {
         let key: UInt
         let method: UInt
@@ -23,7 +23,7 @@ extension HitTestAudit {
     /// a new one over the method's IMP now.
     func makeHooks(for definers: [Definer]) -> [HookEntry] {
         let kept = Dictionary(hooks.map { ($0.method, $0) }, uniquingKeysWith: { first, _ in first })
-        let root = unsafeBitCast(NSView.self as AnyClass, to: UInt.self)
+        let root = Self.classKey(NSView.self)
         var made: [HookEntry] = []
         made.reserveCapacity(definers.count)
         for definer in definers {
@@ -57,7 +57,14 @@ extension HitTestAudit {
         }
     }
 
-    /// The `hitTest:` methods defined by `NSView` and by each loaded subclass itself, or by the given classes only.
+    /// How many classes the runtime has loaded. Off the main thread: it takes the runtime lock.
+    @concurrent
+    nonisolated static func loadedClassCount() async -> Int32 {
+        objc_getClassList(nil, 0)
+    }
+
+    /// The `hitTest:` methods defined by `NSView` and by each loaded subclass itself, or by the given classes only
+    /// (by ``classKey(_:)``).
     /// Off the main thread. It reads the class list as raw pointers and sends no message (a retain included) to a
     /// class: a root class without `retain` (JSExport) aborts on one.
     @concurrent
@@ -66,11 +73,12 @@ extension HitTestAudit {
         // A lookup resolves a method NSView adds lazily, so its method list has it.
         _ = class_getInstanceMethod(NSView.self, selector)
         if let onlyClassKeys { return onlyClassKeys.flatMap { ownMethods(of: $0, selector: selector) } }
-        let root = unsafeBitCast(NSView.self as AnyClass, to: UInt.self)
+        let root = classKey(NSView.self)
         var listCount: UInt32 = 0
         guard let list = objc_copyClassList(&listCount) else { return [] }
         let raw = UnsafeMutableRawPointer(list)
         defer { free(raw) }
+        // The list holds Objective-C class objects: each entry's bits are its ``classKey(_:)``.
         let classes = raw.assumingMemoryBound(to: UInt.self)
         var underView: [UInt: Bool] = [root: true]
         var found: [Definer] = []
@@ -84,7 +92,7 @@ extension HitTestAudit {
     }
 
     /// Whether the class at `key` is `NSView` or under it, by superclass pointers only (`memo` holds the answer per
-    /// class already walked; it starts with NSView's).
+    /// ``classKey(_:)`` already walked; it starts with NSView's).
     nonisolated static func descends(_ key: UInt, memo: inout [UInt: Bool]) -> Bool {
         var walked: [UInt] = []
         var next: UInt? = key
@@ -95,7 +103,7 @@ extension HitTestAudit {
                 break
             }
             walked.append(current)
-            next = class_getSuperclass(unsafeBitCast(current, to: AnyClass.self)).map { unsafeBitCast($0, to: UInt.self) }
+            next = class_getSuperclass(unsafeBitCast(current, to: AnyClass.self)).map { classKey($0) }
         }
         for walkedKey in walked { memo[walkedKey] = result }
         return result

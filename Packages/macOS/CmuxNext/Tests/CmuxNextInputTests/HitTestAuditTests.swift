@@ -257,15 +257,86 @@ import Testing
         #expect(Set(ns.keys) == ["max", "p50", "p95", "p99"])
     }
 
-    /// The full scan finds NSView's own `hitTest:` and each subclass that defines one, never one that inherits it.
+    /// The full scan finds NSView's own `hitTest:` and each subclass that defines one, never one that inherits it,
+    /// keyed the way metatypes and `object_getClass` are.
     @Test func scanFindsOverrides() async {
         let definers = await HitTestAudit.scanDefiners(onlyClassKeys: nil)
         let keys = Set(definers.map(\.key))
-        func key(_ type: AnyClass) -> UInt { unsafeBitCast(type, to: UInt.self) }
+        func key(_ type: AnyClass) -> UInt { HitTestAudit.classKey(type) }
+        #expect(key(NSView.self) == UInt(bitPattern: ObjectIdentifier(NSView.self as AnyObject)))
+        #expect(object_getClass(NSView()).map(key) == key(NSView.self))
         #expect(keys.contains(key(NSView.self)))
         #expect(keys.contains(key(SuperCallingView.self)))
         #expect(!keys.contains(key(LeafView.self)))
         #expect(!keys.contains(key(NSObject.self)))
+    }
+
+    /// The app's full scan hooks NSView's own `hitTest:`, so a view that inherits it is a visit at its class's row;
+    /// and a report hooks the override of a class registered after the install: its row, first made by NSView's hook
+    /// for the override's `super` call, then says `override`, and the call counts there once.
+    @Test func fullScanHooksNSViewAndClassesLoadedLater() async throws {
+        let selector = #selector(NSView.hitTest(_:))
+        let clock = StepClock(step: Self.step)
+        let audit = HitTestAudit(
+            input: nil, thresholds: HitTestAuditThresholds(), onlyClasses: nil, now: { clock.read() }
+        )
+        let viewOriginal = class_getMethodImplementation(NSView.self, selector)
+        #expect(await audit.install())
+        #expect(class_getMethodImplementation(NSView.self, selector) != viewOriginal)
+        audit.reset()
+        let root = rootWithLeaves()
+        #expect(root.hitTest(NSPoint(x: 90, y: 90)) === root)
+        let inherited = recorded(audit)
+        #expect(inherited.hitTests.count == 1)
+        #expect(inherited.hitTests.views.max == 4)
+        #expect(row(inherited, RootView.self)?.definesHitTest == false)
+        #expect(row(inherited, LeafView.self)?.calls == 3)
+
+        let late = try #require(Self.registerSuperCallingViewClass())
+        let lateOriginal = class_getMethodImplementation(late, selector)
+        let lateType = try #require(late as? NSView.Type)
+        let lateView = lateType.init(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        audit.reset()
+        #expect(lateView.hitTest(NSPoint(x: 5, y: 5)) === lateView)
+        #expect(row(recorded(audit), late)?.definesHitTest == false)
+
+        let hookedBefore = audit.hookedImplementations
+        _ = await audit.report()
+        #expect(audit.hookedImplementations > hookedBefore)
+        #expect(class_getMethodImplementation(late, selector) != lateOriginal)
+        audit.reset()
+        #expect(lateView.hitTest(NSPoint(x: 5, y: 5)) === lateView)
+        let report = recorded(audit)
+        await audit.uninstall()
+
+        let lateRows = report.rows.filter { $0.className == HitTestAudit.name(of: late) }
+        #expect(lateRows.count == 1)
+        #expect(lateRows.first?.definesHitTest == true)
+        #expect(lateRows.first?.calls == 1)
+        #expect(report.hitTests.views.max == 1)
+        #expect(class_getMethodImplementation(NSView.self, selector) == viewOriginal)
+        #expect(class_getMethodImplementation(late, selector) == lateOriginal)
+    }
+
+    /// A new `NSView` subclass, registered now, whose own `hitTest:` calls NSView's (through whatever IMP NSView
+    /// runs at the call).
+    nonisolated private static func registerSuperCallingViewClass() -> AnyClass? {
+        typealias HitTest = @convention(c) (NSView, Selector, NSPoint) -> NSView?
+        let selector = #selector(NSView.hitTest(_:))
+        let name = "HitTestAuditLateView_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        guard let viewMethod = class_getInstanceMethod(NSView.self, selector),
+              let type = objc_allocateClassPair(NSView.self, name, 0) else { return nil }
+        let block: @convention(block) (NSView, NSPoint) -> NSView? = { view, point in
+            guard let viewIMP = class_getMethodImplementation(NSView.self, selector) else { return nil }
+            return unsafeBitCast(viewIMP, to: HitTest.self)(view, selector, point)
+        }
+        let imp = imp_implementationWithBlock(block)
+        guard class_addMethod(type, selector, imp, method_getTypeEncoding(viewMethod)) else {
+            objc_disposeClassPair(type)
+            return nil
+        }
+        objc_registerClassPair(type)
+        return type
     }
 
     /// Reset clears the samples and keeps the hooks.

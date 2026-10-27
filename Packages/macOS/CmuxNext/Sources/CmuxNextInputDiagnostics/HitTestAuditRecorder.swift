@@ -48,9 +48,13 @@ final class HitTestAuditRecorder {
         self.now = now
     }
 
-    /// The row of the class at `key`, made on first use.
+    /// The row of the class at ``HitTestAudit/classKey(_:)`` `key`, made on first use. A row first made for a class
+    /// that inherited NSView's own `hitTest:` is marked an override once a hook of its own asks for it.
     func row(key: UInt, type: AnyClass?, definesHitTest: Bool) -> Int {
-        if let index = rowIndex[key] { return index }
+        if let index = rowIndex[key] {
+            if definesHitTest { rows[index].definesHitTest = true }
+            return index
+        }
         rows.append(RowState(type: type, definesHitTest: definesHitTest))
         rowIndex[key] = rows.count - 1
         return rows.count - 1
@@ -58,7 +62,7 @@ final class HitTestAuditRecorder {
 
     /// The row of a view that runs NSView's own `hitTest:`: its class's.
     func inheritedRow(of type: AnyClass?) -> Int {
-        row(key: type.map { unsafeBitCast($0, to: UInt.self) } ?? 0, type: type, definesHitTest: false)
+        row(key: type.map { HitTestAudit.classKey($0) } ?? 0, type: type, definesHitTest: false)
     }
 
     func start() {
