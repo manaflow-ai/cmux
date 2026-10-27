@@ -42273,7 +42273,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Führe den folgenden Befehl aus, um %@ zu aktualisieren."
+            "value": "Aktualisiere %@ mit dem folgenden Befehl."
           }
         },
         "es": {
@@ -42285,7 +42285,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exécutez la commande ci-dessous pour mettre à jour %@."
+            "value": "Mettez %@ à jour avec la commande ci-dessous."
           }
         },
         "it": {
@@ -42321,7 +42321,7 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uruchom poniższe polecenie, aby zaktualizować %@."
+            "value": "Zaktualizuj %@ poleceniem poniżej."
           }
         },
         "pt-BR": {
@@ -42345,13 +42345,13 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ için aşağıdaki güncelleme komutunu çalıştırın."
+            "value": "%@ için güncelleme komutunu çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Виконайте наведену нижче команду, щоб оновити %@."
+            "value": "Оновіть %@ за допомогою команди нижче."
           }
         },
         "vi": {
