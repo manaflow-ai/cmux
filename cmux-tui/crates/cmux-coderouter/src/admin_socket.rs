@@ -30,6 +30,16 @@ pub fn admin_socket_path(home: &Path) -> PathBuf {
     home.join("router").join("router.sock")
 }
 
+/// [`admin_socket_path`] from async code: the short folder's create and stat
+/// run as a `cmux_blocking::spawn_blocking` task (Chrome's `MayBlock()` task,
+/// base/task/task_traits.h), never on the thread that runs the caller.
+pub(crate) async fn admin_socket_path_async(home: &Path) -> std::io::Result<PathBuf> {
+    let home = home.to_owned();
+    cmux_blocking::spawn_blocking(move || admin_socket_path(&home))
+        .await
+        .map_err(std::io::Error::other)
+}
+
 /// The short path for a home whose `router/router.sock` is past the limit;
 /// None when the preferred path fits or the short folder is not private.
 #[cfg(unix)]
@@ -50,11 +60,12 @@ fn short_admin_socket_path(home: &Path) -> Option<PathBuf> {
 
 /// Create `dir` mode 0700 if missing; true only when it is a real folder
 /// owned by `uid` that nobody else can enter (acpmux `config::private_dir`).
+/// Blocks on the file system: async code uses [`admin_socket_path_async`].
 #[cfg(unix)]
 fn private_dir(dir: &Path, uid: u32) -> bool {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    let _ = std::fs::DirBuilder::new().mode(0o700).create(dir);
-    match std::fs::symlink_metadata(dir) {
+    let _ = cmux_threads::checked::fs::create_dir_with(std::fs::DirBuilder::new().mode(0o700), dir);
+    match cmux_blocking::fs::symlink_metadata(dir) {
         Ok(m) => m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0,
         Err(_) => false,
     }
@@ -69,4 +80,27 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     hash
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// A home long enough for the short path: its private folder is made and
+    /// checked on the blocking pool, not on the thread driving the runtime
+    /// (cmux_blocking's block_on disallows blocking there; a file call left
+    /// there panics in debug and counts as stalled).
+    #[test]
+    fn the_short_path_folder_is_checked_off_the_runtime_thread() {
+        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let home = Path::new("/nonexistent-coderouter-home").join("h".repeat(120));
+        let stalled = cmux_blocking::counts().stalled;
+
+        let path =
+            cmux_blocking::runtime::block_on(&runtime, admin_socket_path_async(&home)).unwrap();
+
+        assert_eq!(cmux_blocking::counts().stalled, stalled);
+        assert_eq!(path, admin_socket_path(&home));
+        assert!(path.as_os_str().len() <= MAX_SOCKET_PATH_BYTES, "{}", path.display());
+    }
 }

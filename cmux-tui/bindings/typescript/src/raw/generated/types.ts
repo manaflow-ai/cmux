@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499. */
+/* cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -424,6 +424,11 @@ export type BrowserRuntimeStopResult = {
   "stopped": true;
 };
 
+export type CancelStreamResult = {
+  "outcome": "applied" | "ended";
+  "stream": number;
+};
+
 export type CellPixelFailure = {
   "error": string;
   "surface": Id;
@@ -442,6 +447,23 @@ export type CellPixelSurface = {
   "width_px": number;
 };
 
+export type ClientHelloFeaturePending = {
+  "app": boolean;
+  "daemon": boolean;
+  "name": string;
+};
+
+export type ClientHelloFeatureReport = {
+  "applied": Array<string>;
+  "hash": string;
+  "pending": Array<ClientHelloFeaturePending>;
+};
+
+export type ClientHelloFeatures = {
+  "hash"?: string;
+  "values": Record<string, boolean>;
+};
+
 export type ClientHelloPageOperations = {
   "confirm": Array<string>;
   "gesture": Array<string>;
@@ -450,6 +472,7 @@ export type ClientHelloPageOperations = {
 
 export type ClientHelloResult = {
   "connection_id": string;
+  "features"?: ClientHelloFeatureReport;
   "install_id"?: string;
   "nonce"?: string;
   "page"?: string;
