@@ -25,7 +25,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::ExitStatusExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -193,8 +193,13 @@ fn validate_handoff_with_notify(
         return Err("handoff missing supervisor notification fd".into());
     }
     let notify = fds.pop().ok_or("handoff missing supervisor notification fd")?;
+    validate_notify_fd(notify.as_raw_fd())?;
     let listeners = validate_handoff_inner(payload, fds, proxy_port, api_port, true)?;
     Ok((listeners, notify))
+}
+
+fn validate_notify_fd(_fd: RawFd) -> Result<()> {
+    Ok(())
 }
 
 fn validate_handoff_inner(
@@ -416,7 +421,7 @@ fn executable(denies: &[PathBuf], writable: &[PathBuf]) -> Result<(OwnedFd, Path
 }
 /// Stops on child completion (caller drops this future), closed signal stream,
 /// or forwarding error. Only the unreaped direct child's PID is signalled.
-async fn forward_signals(pid: u32, signals: [Signal; 3]) -> Result<i32> {
+async fn forward_signals(pid: u32, signals: [Signal; 3], _stop: CancellationToken) -> Result<i32> {
     let [mut term, mut int, mut hup] = signals;
     loop {
         let (received, number) = tokio::select! {
@@ -519,6 +524,35 @@ async fn session(
         (Ok(_), Err(error)) => Err(error),
     }
 }
+
+fn init_prefix(
+    exe: &Path,
+    daemon_prefix: Vec<OsString>,
+    handoff_fd: RawFd,
+    proxy_port: u16,
+    api: Option<SocketAddr>,
+) -> Result<Vec<String>> {
+    let mut prefix = vec![exe.to_str().ok_or("non-UTF-8 executable")?.to_owned()];
+    prefix.extend(
+        daemon_prefix
+            .into_iter()
+            .map(|s| s.into_string().map_err(|_| "non-UTF-8 invocation prefix"))
+            .collect::<std::result::Result<Vec<_>, _>>()?,
+    );
+    prefix.extend([
+        "__remote-sandbox-init".into(),
+        "--handoff-fd".into(),
+        handoff_fd.to_string(),
+        "--proxy-port".into(),
+        proxy_port.to_string(),
+    ]);
+    if let Some(api) = api {
+        prefix.extend(["--api-port".into(), api.port().to_string(), "--api-loopback-v4".into()]);
+    }
+    prefix.push("--".into());
+    Ok(prefix)
+}
+
 /// Setup collections are finite. Signal relay ends with session; on failure,
 /// SIGKILL/reaping has a five-second deadline and kill_on_drop is a final backstop.
 async fn run(options: Options) -> Result<i32> {
@@ -567,23 +601,8 @@ async fn run(options: Options) -> Result<i32> {
     }
     let (exe_fd, exe) = executable(&denies, &writable)?;
     let bwrap_fd = open_bwrap()?;
-    let mut prefix = vec![exe.to_str().ok_or("non-UTF-8 executable")?.to_owned()];
-    prefix.extend(
-        crate::daemon::daemon_prefix()
-            .into_iter()
-            .map(|s| s.into_string().map_err(|_| "non-UTF-8 invocation prefix"))
-            .collect::<std::result::Result<Vec<_>, _>>()?,
-    );
-    prefix.extend([
-        "__remote-sandbox-init".into(),
-        "--handoff-fd".into(),
-        "3".into(),
-        "--proxy-port".into(),
-        options.proxy_port.to_string(),
-    ]);
-    if let Some(api) = options.api {
-        prefix.extend(["--api-port".into(), api.port().to_string(), "--api-loopback-v4".into()]);
-    }
+    let mut prefix =
+        init_prefix(&exe, crate::daemon::daemon_prefix(), 3, options.proxy_port, options.api)?;
     prefix.push("--".into());
     let (mut argv, bind_fds) = bwrap::plan(paths, &denies, &prefix)?;
     let separator =
@@ -646,7 +665,7 @@ async fn run(options: Options) -> Result<i32> {
     let pid = child.id().ok_or("bwrap has no PID")?;
     let result = tokio::select! {
         result = session(&mut child, parent, &options, policy) => result,
-        result = forward_signals(pid, [term, int, hup]) => result,
+        result = forward_signals(pid, [term, int, hup], CancellationToken::new()) => result,
     };
     if result.is_err() {
         let _ = tokio::time::timeout(Duration::from_secs(5), child.kill()).await;
@@ -909,6 +928,48 @@ mod tests {
         let (fd, port) = listener("127.0.0.1");
         // Missing notify is rejected before listener validation.
         assert!(validate_handoff_with_notify(&payload(port, None), vec![fd], port, None).is_err());
+    }
+
+    #[test]
+    fn notify_fd_must_be_a_seccomp_listener() {
+        let null: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
+        assert!(validate_notify_fd(null.as_raw_fd()).is_err());
+        let event = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
+        assert!(event >= 0);
+        let event = unsafe { OwnedFd::from_raw_fd(event) };
+        assert!(validate_notify_fd(event.as_raw_fd()).is_err());
+        let socket: OwnedFd = TcpListener::bind("127.0.0.1:0").unwrap().into();
+        assert!(validate_notify_fd(socket.as_raw_fd()).is_err());
+    }
+
+    #[tokio::test]
+    async fn signal_relay_stops_after_child_exit() {
+        let signals = [
+            signal(SignalKind::terminate()).unwrap(),
+            signal(SignalKind::interrupt()).unwrap(),
+            signal(SignalKind::hangup()).unwrap(),
+        ];
+        let stop = CancellationToken::new();
+        stop.cancel();
+        let result = tokio::time::timeout(
+            Duration::from_millis(100),
+            forward_signals(std::process::id(), signals, stop),
+        )
+        .await;
+        assert!(result.is_ok(), "signal relay remained alive after child exit");
+    }
+
+    #[test]
+    fn keeper_to_init_api_contract_has_no_unknown_family_flag() {
+        let args = init_prefix(
+            Path::new("/usr/bin/acpmux"),
+            Vec::new(),
+            3,
+            8118,
+            Some("127.0.0.1:31415".parse().unwrap()),
+        )
+        .unwrap();
+        assert!(!args.iter().any(|arg| arg == "--api-loopback-v4"));
     }
 
     #[test]
