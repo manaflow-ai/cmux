@@ -181,3 +181,33 @@ fn a_panic_on_the_connections_reader_closes_the_connection() {
         "the panicked connection's client is gone"
     );
 }
+
+/// Whether a thread named `name` is registered now.
+fn running(name: &str) -> bool {
+    cmux_threads::snapshot().into_iter().any(|row| row.name == name)
+}
+
+/// An attach's writers (`mux-attach-out`, `mux-render-attach-out`, echo
+/// threads with blocking disallowed) start before the attach commits and
+/// wait for its go. That wait is the thread being idle before its first
+/// item, not a blocking call: in panic mode both writers panicked at once,
+/// so an attached client got its reply and then no frames.
+#[test]
+fn an_attachs_writers_wait_for_the_commit_without_a_violation() {
+    let served = Served::new("attach");
+    let surface = served.mux.new_workspace(None, Some((20, 8))).unwrap();
+    let (mut socket, mut replies) = served.connect();
+    for (id, mode) in [(1, None), (2, Some("render"))] {
+        let mut request = json!({"id": id, "cmd": "attach-surface", "surface": surface.id});
+        if let Some(mode) = mode {
+            request["mode"] = json!(mode);
+        }
+        socket.write_all(format!("{request}\n").as_bytes()).unwrap();
+        let reply = next_reply(&mut replies).unwrap().expect("the attach is answered");
+        assert_eq!((reply["id"].clone(), reply["ok"].clone()), (json!(id), json!(true)), "{reply}");
+    }
+    std::thread::sleep(Duration::from_millis(200));
+    for name in ["mux-attach-out", "mux-render-attach-out"] {
+        assert!(running(name), "{name} is still serving its attach");
+    }
+}

@@ -45,3 +45,38 @@ fn a_reported_directory_is_published_and_the_reader_keeps_reading_in_panic_mode(
     mux.close_surface(surface.id).unwrap();
     mux.shutdown();
 }
+
+/// The reader is the last to see a terminal end when a background child
+/// still holds the PTY after the shell exited: the reaper records the exit
+/// first, and the reader's EOF publishes it. That publication is a registry
+/// commit (exit_state.rs), which the reader, an echo thread with blocking
+/// disallowed, may not make: in panic mode it panicked and the exit was
+/// never published.
+#[cfg(unix)]
+#[test]
+fn an_exit_the_reader_sees_last_is_published_in_panic_mode() {
+    cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Panic);
+    let options = SurfaceOptions {
+        command: Some(vec!["/bin/sh".into(), "-c".into(), "(sleep 0.5) & exit 0".into()]),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::new(format!("exit-off-reader-{}", std::process::id()), options);
+    let events = mux.subscribe();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let deadline = Instant::now() + WAIT;
+    let exited = loop {
+        if events
+            .try_iter()
+            .any(|event| matches!(event, MuxEvent::SurfaceExited(id, _) if id == surface.id))
+        {
+            break true;
+        }
+        if Instant::now() >= deadline {
+            break false;
+        }
+        cmux_threads::checked::sync::sleep(Duration::from_millis(10));
+    };
+    assert!(exited, "the terminal's exit is published once its reader sees the end");
+    assert!(mux.terminal_registry_revision().is_ok(), "nothing poisoned the registry");
+    mux.shutdown();
+}
