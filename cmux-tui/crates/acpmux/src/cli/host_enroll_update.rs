@@ -28,8 +28,11 @@ const MARK: &str = "ACPMUX_AU=";
 /// system's administrator put it there (a distribution ships them: Fedora's
 /// `10-timeout-abort.conf`), whatever the path says. The paths are
 /// `systemd-analyze`'s, the running manager's `UnitPath` (whose environment
-/// may differ from this shell's; not reading it, or a list whose spaces
-/// could be inside a path, counts as foreign) and the defaults. They are
+/// may differ from this shell's: a path made of its space-separated pieces
+/// that exists counts as foreign, and a list with two spaces or a tab in a
+/// row is not read) and the defaults. A unit file of either name in any of
+/// them but `~/.config/systemd/user` is foreign too (a reload would load it
+/// over acpmux's). They are
 /// acpmux's own only when each file there holds acpmux's own text, each unit
 /// the manager knows loads from there, and no drop-in exists for either;
 /// any other is someone else's (`foreign`), which runs what it likes. An
@@ -58,8 +61,12 @@ au_d=$HOME/.config/systemd/user; au_there=; au_own=1; au_all=1
 au_c=${{XDG_CONFIG_HOME:-$HOME/.config}}; au_r=${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}; au_l=${{XDG_DATA_HOME:-$HOME/.local/share}}
 au_u=$(systemctl --user show -p UnitPath --value 2>/dev/null) && [ -n "$au_u" ] || au_ok=
 au_a=$(systemd-analyze --user unit-paths 2>/dev/null) && [ -n "$au_a" ] || au_ok=
-au_q=; for au_e in $au_u; do case "$au_e" in /*) ;; *) au_there=1; au_own= ;; esac
-[ -z "$au_q" ] || [ ! -e "$au_q $au_e" ] || {{ au_there=1; au_own=; }}; au_q=$au_e; done
+case "$au_u" in *"  "*|*"	"*) au_ok= ;; esac
+au_g=; for au_e in $au_u; do case "$au_e" in /*) ;; *) au_there=1; au_own= ;; esac
+au_k=; au_i=$IFS; IFS='
+'; for au_h in $au_g; do [ ! -e "$au_h $au_e" ] || {{ au_there=1; au_own=; }}; au_k="$au_k$au_h $au_e
+"; done; IFS=$au_i; au_g="$au_k$au_e
+"; done
 au_paths="$au_a
 $(printf %s "$au_u" | tr ' ' '\n')
 $au_d
@@ -88,6 +95,7 @@ au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_x
 for au_y in $au_x; do case "$au_y" in */"${{au_f##*.}}".d/*) ! au_mine "$au_y" && ! au_mine "${{au_y%/*}}" ;; *) false ;; esac || {{ au_there=1; au_own=; }}; done
 au_i=$IFS; IFS='
 '; for au_p in $au_paths; do [ -n "$au_p" ] || continue
+[ ! -e "$au_p/$au_f" ] || [ "$au_p/$au_f" -ef "$au_d/$au_f" ] || {{ au_there=1; au_own=; }}
 for au_n in "$au_f.d" "acpmux-.${{au_f##*.}}.d"; do [ ! -d "$au_p/$au_n" ] || {{ au_there=1; au_own=; }}; done
 au_w="$au_p/${{au_f##*.}}.d"; [ ! -d "$au_w" ] || ! au_mine "$au_w" || {{ au_there=1; au_own=; }}
 set +f; set -- "$au_w"/*; set -f

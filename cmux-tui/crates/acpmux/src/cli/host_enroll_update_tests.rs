@@ -317,6 +317,9 @@ mod probe_in_a_shell {
         no_manager: bool,
         /// `systemd-analyze` fails.
         no_analyze: bool,
+        /// A unit file `acpmux-update.service` of another's text in this
+        /// directory under $HOME (another unit path).
+        full_unit_in: Option<&'static str>,
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
         timer: Option<&'static str>,
@@ -340,6 +343,7 @@ mod probe_in_a_shell {
         manager_dir: "manager-units",
         no_manager: false,
         no_analyze: false,
+        full_unit_in: None,
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
         drop_in_dir: None,
@@ -359,6 +363,7 @@ mod probe_in_a_shell {
         manager_dir: "manager-units",
         no_manager: false,
         no_analyze: false,
+        full_unit_in: None,
         service: None,
         timer: None,
         drop_in_dir: None,
@@ -416,6 +421,10 @@ mod probe_in_a_shell {
         };
         read_only(0o444, 0o555);
         let manager = root.join(u.manager_dir);
+        if let Some(dir) = u.full_unit_in {
+            fs::create_dir_all(home.join(dir)).unwrap();
+            fs::write(home.join(dir).join("acpmux-update.service"), OTHER_TEXT).unwrap();
+        }
         // A sibling a glob of the manager's path would match instead.
         fs::create_dir_all(root.join("manager-unitsa")).unwrap();
         let unit_path = match u.manager_drop_in_dir {
@@ -584,6 +593,54 @@ esac
             };
             assert_eq!(kind(&probe(glob)), "foreign");
         }
+    }
+
+    /// acpmux's own units, loaded, and another `acpmux-update.service` in a
+    /// unit path systemd would load first after a reload (`enable` reloads):
+    /// foreign, and the install writes and enables nothing.
+    #[test]
+    fn a_unit_file_in_another_unit_path_is_foreign() {
+        for u in [OWN, Units { active: false, ..OWN }, NONE] {
+            for dir in [".config/systemd/user.control", ".local/share/systemd/user"] {
+                assert_eq!(
+                    kind(&probe(Units { full_unit_in: Some(dir), ..u })),
+                    "foreign",
+                    "{dir}"
+                );
+            }
+        }
+        let control = Some(".config/systemd/user.control");
+        let (out, written) =
+            run(Units { full_unit_in: control, ..NONE }, &guarded_install_script());
+        assert!(parse(&out).foreign && !written, "{out}");
+    }
+
+    /// The manager's `UnitPath` is space-separated: a path with spaces in it
+    /// is still found (any run of pieces that exists counts), and a list with
+    /// two spaces in a row is not read.
+    #[test]
+    fn a_manager_path_with_spaces_is_not_lost() {
+        for u in [OWN, NONE] {
+            let three = Units {
+                manager_drop_in_dir: Some("acpmux-update.service.d"),
+                manager_dir: "manager /one /two",
+                ..u
+            };
+            assert_eq!(kind(&probe(three)), "foreign");
+            let doubled = Units {
+                manager_drop_in_dir: Some("acpmux-update.service.d"),
+                manager_dir: "manager  /units",
+                ..u
+            };
+            assert!(!probe(doubled).checked);
+        }
+        let doubled = Units {
+            manager_drop_in_dir: Some("acpmux-update.service.d"),
+            manager_dir: "manager  /units",
+            ..NONE
+        };
+        let (out, written) = run(doubled, &guarded_install_script());
+        assert!(parse(&out).unchecked && !written, "{out}");
     }
 
     /// A unit path list the manager or `systemd-analyze` does not give (it
