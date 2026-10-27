@@ -15,6 +15,7 @@ public struct AgentPaneHeaderHooks {
     /// `/btw` side session): a tab in the chat's side pane when one is open, else a new split
     /// (``AgentSidePanes``).
     public var openSide: @MainActor (_ chat: String, _ fork: String) -> Void
+    public var openSideBackground: (@MainActor (_ chat: String, _ fork: String) -> Void)?
     /// Opens acpmux session `id` (a fork, a started Continue In…) at a ``AgentForkDestination``: a
     /// new tab beside the chat's, a split beside it, a new workspace or a new window, so the chat
     /// keeps its own tab and session; false when nothing opened.
@@ -46,6 +47,7 @@ public struct AgentPaneHeaderHooks {
     /// Shows and focuses the tab that shows acpmux session `id` already, so a chat never streams in
     /// two tabs (``AgentPaneOfferOpen``); false when no tab shows it.
     public var showSession: @MainActor (String) -> Bool
+    public var showSessionBackground: (@MainActor (String) -> Bool)?
     /// Whether acpmux session `session` is of chat `chat`'s family: a sub-session it started at any
     /// depth, or the session that started it (acpmux `startedBy`, mirrored by the app's turn-state
     /// watch). ``AgentPaneOfferOpen`` opens only those, or the pane's own sessions; none by default.
@@ -73,6 +75,7 @@ public struct AgentPaneHeaderHooks {
         self.toggle = toggle ?? run
         self.tabState = tabState
         self.openSide = openSide
+        self.openSideBackground = nil
         self.openTab = openTab
         self.openSubagent = openSubagent
         self.openProcess = openProcess
@@ -83,6 +86,7 @@ public struct AgentPaneHeaderHooks {
         self.moveToFloatingChat = moveToFloatingChat
         self.refreshPullRequest = refreshPullRequest
         self.showSession = showSession
+        self.showSessionBackground = nil
         self.isFamily = isFamily
     }
 
@@ -195,8 +199,8 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.openTab")
             }
             return AgentPaneReply.success()
-        case .offerOpen(let session, let sender, let workspace):
-            return AgentPaneOfferOpen.respond(session, sender: sender, workspace: workspace, in: self)
+        case .offerOpen(let session, let sender, let workspace, let focus):
+            return AgentPaneOfferOpen.respond(session, sender: sender, workspace: workspace, focus: focus, in: self)
         case .asksOpen(let session):
             return AgentPaneAskOpen.respond(session, in: self)
         case .asksAnswer(let ask):

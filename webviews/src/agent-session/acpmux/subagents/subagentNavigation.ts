@@ -12,11 +12,11 @@ export function subagentName(agent: Subagent): string {
 }
 export const subagentTitle = (agent: Subagent) => [agent.task, agent.id].filter(Boolean).join("\n");
 
-/** Resolve destination once at the native boundary; normal clicks always stay beside the source. */
+/** Cmd-click opens a background tab beside the source; ordinary clicks select it. */
 export function openChildSession(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   sessionId: string,
   event?: SubagentClick,
 ) {
-  return call("chat.offer.open", { sessionId, ...(event?.metaKey && { workspace: true }) });
+  return call("chat.offer.open", { sessionId, ...(event?.metaKey && { focus: false }) });
 }

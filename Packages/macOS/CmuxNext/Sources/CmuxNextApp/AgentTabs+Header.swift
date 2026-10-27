@@ -63,6 +63,8 @@ extension AgentTabStore {
         model.header?.openSubagentList = { [weak self] session in
             self?.openSubagent(nil, of: session, focus: true, beside: provisional) ?? false
         }
+        model.header?.openSideBackground = { [weak self] _, fork in _ = self?.openChildBeside(fork, beside: provisional, focus: false) }
+        model.header?.showSessionBackground = { [weak self] session in self?.showSessionBeside(session, chat: provisional, focus: false) ?? false }
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }
@@ -85,6 +87,8 @@ extension AgentTabStore {
             isOpen: { [weak self] key in self?.isBeside(source, self?.resolve(key) ?? key) ?? false },
             focus: { [weak self] key, script in
                 _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user))
+            }, reveal: { [weak self] key, agent in
+                self?.revealTurn(AgentSubagentPanes.reveal(agent), in: key)
             }, place: { [weak self] anchor, hasSide, created, finished in
                 guard let self else { return false }
                 return openBeside(hasSide ? anchor : source, split: !hasSide, origin: focus ? .user : .script, main: source,
@@ -128,18 +132,19 @@ extension AgentTabStore {
 extension AgentTabStore {
     /// Reuse only a tab in this chat's right pane, on its acpmux host. A tab in another
     /// workspace must never pull the person away from the chat they clicked in.
-    @MainActor func showSessionBeside(_ session: String, chat: String, host: String? = nil) -> Bool {
+    @MainActor func showSessionBeside(_ session: String, chat: String, host: String? = nil, focus: Bool = true) -> Bool {
         let source = resolve(chat), host = host ?? lookup(resolve(chat))?.record.host ?? localHost
         guard let tab = subagentTabsBeside(source).first(where: {
             $0.record.host == host && self.session(of: $0.key) == session && isBeside(source, resolve($0.key))
         }) else { return false }
+        if !focus { return true }
         return actionRegistry?.perform("tab.focus", invocation: .init(target: .init(kind: .tab, id: resolve(tab.key)), origin: .user)) == true
     }
 
     /// The side-session queue serializes placement; queued re-clicks recheck reuse after the
     /// first tab lands. Keyed by source tab so the same chat in another workspace stays there.
     @discardableResult
-    @MainActor func openChildBeside(_ session: String, beside chat: String, host: String? = nil) -> Bool {
+    @MainActor func openChildBeside(_ session: String, beside chat: String, host: String? = nil, focus: Bool = true) -> Bool {
         let source = subagentSource(chat), host = host ?? lookup(resolve(chat))?.record.host
         let pane: (String) -> String? = { [weak self] key in
             guard let self, isBeside(resolve(source), resolve(key)), let location = locate(resolve(key)) else { return nil }
@@ -147,13 +152,13 @@ extension AgentTabStore {
         }
         let place: (String?, @escaping @MainActor (String) -> Void, @escaping @MainActor () -> Void) -> Bool = { [weak self] anchor, created, finished in
             guard let self else { return false }
-            if showSessionBeside(session, chat: source, host: host) { finished(); return true }
+            if showSessionBeside(session, chat: source, host: host, focus: focus) { finished(); return true }
             let open: (DaemonPaneID, DaemonService) throws -> AgentTabPending = { [weak self] pane, daemon in
                 guard let self else { throw CancellationError() }
                 let record = lookup(source)?.record
                 return try self.open(in: pane, of: daemon, session: session, host: daemon.isLocal || host != record?.host ? host : nil, reopening: record)
             }
-            return openBeside(anchor ?? source, split: anchor == nil, main: source, open: open, created: created, finished: { _ in finished() })
+            return openBeside(anchor ?? source, split: anchor == nil, origin: focus ? .user : .script, main: source, open: open, created: created, finished: { _ in finished() })
         }
         return AgentSidePanes.chat(source).open(session, chat: source, pane: pane, place: place)
     }

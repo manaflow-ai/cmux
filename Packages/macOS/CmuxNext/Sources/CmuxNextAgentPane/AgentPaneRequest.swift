@@ -165,7 +165,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.offer.open {sessionId, sender?}`: the person opened a session the chat shows (a
     /// sub-session its agent started, the session that started it, with `sender` the chat that sent
     /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
-    case offerOpen(String, sender: Bool, workspace: Bool = false)
+    case offerOpen(String, sender: Bool, workspace: Bool = false, focus: Bool = true)
     /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
     /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
     case asksOpen(String)

@@ -103,6 +103,8 @@ public final class AgentSubagentPanes {
         public var isOpen: (String) -> Bool
         /// Focuses tab `key`; `script` for a focus the user did not ask for (a refocus).
         public var focus: (_ key: String, _ script: Bool) -> Void
+        /// Restores the requested subagent view when reusing an existing tab.
+        public var reveal: (_ key: String, _ agent: String) -> Void
         /// Opens the pane beside tab `anchor` (below it with `down`, else right of it); calls
         /// `created` with the new tab, then `finished` with whether it moved. False when nothing opened.
         public var place: (_ anchor: String, _ down: Bool, _ created: @escaping @MainActor (String) -> Void,
@@ -115,11 +117,13 @@ public final class AgentSubagentPanes {
         public var watchUser: (_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void
 
         public init(isOpen: @escaping (String) -> Bool, focus: @escaping (String, Bool) -> Void,
+                    reveal: @escaping (String, String) -> Void = { _, _ in },
                     place: @escaping (String, Bool, @escaping @MainActor (String) -> Void, @escaping @MainActor (Bool) -> Void) -> Bool,
                     again: @escaping (Request) -> Void, now: @escaping () -> ContinuousClock.Instant = { .now },
                     watchUser: @escaping (@escaping @MainActor @Sendable () -> Void) -> () -> Void = AgentSubagentPanes.watchUser) {
             self.isOpen = isOpen
             self.focus = focus
+            self.reveal = reveal
             self.place = place
             self.again = again
             self.now = now
@@ -133,6 +137,7 @@ public final class AgentSubagentPanes {
     /// focus throughout. False when nothing opened.
     public func open(_ agent: String, focus: Bool, chat: String, hooks: Hooks) -> Bool {
         if let open = tab(for: agent, isOpen: hooks.isOpen) {
+            hooks.reveal(open, agent)
             if focus { hooks.focus(open, false) }
             return true
         }

@@ -59,9 +59,9 @@ export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
 /// Asks the app for subagent `id`'s pane; false when it opened none.
-export async function openSubagentPane(call: Call, id: string, focus: boolean, workspace = false): Promise<boolean> {
+export async function openSubagentPane(call: Call, id: string, focus: boolean): Promise<boolean> {
   try {
-    const reply = await call("chat.subagentPane", { subagent: id, focus, ...(workspace && { workspace: true }) });
+    const reply = await call("chat.subagentPane", { subagent: id, focus });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
     return false;

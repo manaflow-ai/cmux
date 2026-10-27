@@ -5850,9 +5850,8 @@ function AcpmuxPane() {
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   /// Native placement owns subagent identity and tab reuse, including nested row clicks.
   const showSubagent = useCallback((id: string, intent: boolean | SubagentClick = true) => {
-    const focus = typeof intent === "boolean" ? intent : true;
-    const workspace = typeof intent !== "boolean" && intent.metaKey;
-    void openSubagentPane(callNative, id, focus, workspace);
+    const focus = typeof intent === "boolean" ? intent : !intent.metaKey;
+    void openSubagentPane(callNative, id, focus);
   }, []);
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   useOpenNewSubagents(
@@ -7559,7 +7558,7 @@ function AcpmuxPane() {
           },
           // Open a started offer or a sub-session: the app shows its tab or opens it beside this
           // chat (AgentPaneOfferOpen); a host without that opens it as a side chat; else here.
-          "chat.offer.open": async ({ sessionId, sender, workspace }) => {
+          "chat.offer.open": async ({ sessionId, sender, workspace, focus }) => {
             const id = String(sessionId);
             try {
               // `sender`: a message's sender, any listed chat (AgentPaneOfferOpen).
@@ -7567,8 +7566,11 @@ function AcpmuxPane() {
                 sessionId: id,
                 ...(sender === true && { sender: true }),
                 ...(workspace === true && { workspace: true }),
+                ...(focus === false && { focus: false }),
               });
             } catch (error) {
+              // Background opens must never fall back to selecting this source transcript.
+              if (focus === false) return;
               // The app refused a session outside this chat's family: nothing opens, not even here.
               if (error instanceof NativeError && error.code === "chat.offer.refused") return;
               try {

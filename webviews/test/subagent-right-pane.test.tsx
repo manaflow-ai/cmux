@@ -101,7 +101,7 @@ for (const [name, surface] of surfaces) {
     expect(button.title || host.textContent).toContain(agent.id);
     expect(button.getAttribute("aria-label")).toContain(agent.id);
   });
-  test(`${name}: ordinary and Cmd-click preserve destination intent`, async () => {
+  test(`${name}: ordinary clicks select and Cmd-clicks open background tabs`, async () => {
     const calls: [string, Record<string, unknown>][] = [];
     const call = async (method: string, params: Record<string, unknown>) => {
       calls.push([method, params]);
@@ -110,7 +110,7 @@ for (const [name, surface] of surfaces) {
     await act(async () =>
       root.render(
         surface((id, event) => {
-          void openSubagentPane(call, id, true, event?.metaKey);
+          void openSubagentPane(call, id, !event?.metaKey);
         }),
       ),
     );
@@ -119,11 +119,11 @@ for (const [name, surface] of surfaces) {
     await act(async () => button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, metaKey: true })));
     expect(calls).toEqual([
       ["chat.subagentPane", { subagent: agent.id, focus: true }],
-      ["chat.subagentPane", { subagent: agent.id, focus: true, workspace: true }],
+      ["chat.subagentPane", { subagent: agent.id, focus: false }],
     ]);
   });
 }
-test("child-session row preserves Cmd-click and exposes identity", async () => {
+test("child-session Cmd-click requests a background tab and exposes identity", async () => {
   const calls: Record<string, unknown>[] = [];
   const call = async (_method: string, params: Record<string, unknown>) => {
     calls.push(params);
@@ -141,7 +141,7 @@ test("child-session row preserves Cmd-click and exposes identity", async () => {
   const button = host.querySelector<HTMLButtonElement>("button")!;
   await act(async () => button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, metaKey: true })));
   await act(async () => button.click());
-  expect(calls).toEqual([{ sessionId: "child-1", workspace: true }, { sessionId: "child-1" }]);
+  expect(calls).toEqual([{ sessionId: "child-1", focus: false }, { sessionId: "child-1" }]);
   expect(button.title).toContain("child-1");
 });
 
@@ -166,7 +166,7 @@ test("View all requests the full list in the companion pane", async () => {
           agents={finished.map((row) => row.agent)}
           waiting={waiting}
           onOpen={(id, event) => {
-            void openSubagentPane(async (method, params) => calls.push([method, params]), id, true, event?.metaKey);
+            void openSubagentPane(async (method, params) => calls.push([method, params]), id, !event?.metaKey);
           }}
         />
       );
@@ -196,4 +196,10 @@ test("View all requests the full list in the companion pane", async () => {
   expect(pane.querySelectorAll("li").length).toBe(7);
   await act(async () => pane.querySelector<HTMLButtonElement>("li button")!.click());
   expect(calls.at(-1)).toEqual(["chat.subagentPane", { subagent: "0", focus: true }]);
+  await act(async () =>
+    pane
+      .querySelector<HTMLButtonElement>("li button")!
+      .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, metaKey: true })),
+  );
+  expect(calls.at(-1)).toEqual(["chat.subagentPane", { subagent: "0", focus: false }]);
 });

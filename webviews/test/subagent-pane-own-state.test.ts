@@ -69,8 +69,22 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
         { sessionUpdate: "subagent_spawned" },
         {
           subagents: [
-            { id: "a1", parent: null, name: "Reviewer", state: "running", startedAt: START + 4000 },
-            { id: "a2", parent: "a1", name: "Nested reviewer", state: "running", startedAt: START + 4000 },
+            {
+              id: "a1",
+              parent: null,
+              name: "Reviewer",
+              task: "Review release implementation",
+              state: "running",
+              startedAt: START + 4000,
+            },
+            {
+              id: "a2",
+              parent: "a1",
+              name: "Nested reviewer",
+              task: "Check nested coverage",
+              state: "running",
+              startedAt: START + 4000,
+            },
             ...Array.from({ length: 7 }, (_, i) => ({
               id: `done-${i}`,
               parent: null,
@@ -207,6 +221,10 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     expect(chat.composer).toBe(1);
     expect(chat.prDock).toBe(1);
     expect(chat.readOnly).toBe("");
+    // Reusing this native tab sends its reveal again, restoring the tracked subagent.
+    await reveal(page, "subagent:a1");
+    await page.locator(".cv-subagent-of__task").filter({ hasText: "Review release implementation" }).waitFor();
+    expect((await bottom(page)).composer).toBe(0);
     await page.close();
   });
 
@@ -224,11 +242,35 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     await nested.click({ modifiers: ["Meta"] });
     expect(await nativeRequests(page)).toEqual([
       { method: "chat.subagentPane", params: { subagent: "a2", focus: true } },
-      { method: "chat.subagentPane", params: { subagent: "a2", focus: true, workspace: true } },
+      { method: "chat.subagentPane", params: { subagent: "a2", focus: false } },
     ]);
     expect(await page.locator(".cv-subagent-of__parent").textContent()).toBe("Release review");
     await page.close();
   });
+
+  for (const back of ["transcript", "Session Info"] as const) {
+    test(`${back} Back navigation is restored by the reused tab's native reveal`, async () => {
+      const page = await open();
+      if (back === "Session Info")
+        await page.evaluate(() => {
+          (
+            window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
+          ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true });
+        });
+      await reveal(page, "subagent:a2");
+      await page.locator(".cv-subagent-of__task").filter({ hasText: "Check nested coverage" }).waitFor();
+      if (back === "Session Info") await page.getByRole("button", { name: "Back to Reviewer", exact: true }).click();
+      else await page.locator(".cv-subagent-of__pill").click();
+      await page.locator(".cv-subagent-of__task").filter({ hasText: "Review release implementation" }).waitFor();
+      await reveal(page, "subagent:a2");
+      await page.locator(".cv-subagent-of__task").filter({ hasText: "Check nested coverage" }).waitFor();
+      expect(await page.locator(".cv-subagent-of__parent").textContent()).toBe("Reviewer");
+      if (back === "Session Info")
+        expect(await page.locator(".acpmux-chat-inspector-scope__agent").textContent()).toBe("Nested reviewer");
+      expect((await bottom(page)).composer).toBe(0);
+      await page.close();
+    });
+  }
 
   test("View all requests native placement and its reveal renders the destination list", async () => {
     const page = await open();
