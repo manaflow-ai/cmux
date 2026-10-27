@@ -75,13 +75,24 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// (the provider's timeout, a dropped request) is followed by the next; with none left, or a
     /// start that did not answer, the answer is `machine_update_unresolved`, so the policy asks
     /// again and the machine then reports its build.
-    static func run(pin: Pin, script: String, nonce: String = newNonce(), directory: String = directory,
-                    waitSeconds: Int = waitSeconds, waits: Int = waits, exec: Exec) async -> CloudMoveCLI.Answer {
+    ///
+    /// `expected`: the 40-hex commit the app saw the machine run when it chose to update it (the
+    /// automatic update, after `link machine update --if-older` judged that build older). The run
+    /// starts only while the machine's binary is still that build; one that changed since (another
+    /// app or the fleet updated it meanwhile, maybe to a newer build) changes nothing and answers
+    /// `machine_update_busy`, so the policy asks again and `--if-older` reads the new build.
+    static func run(pin: Pin, script: String, expected: String? = nil, nonce: String = newNonce(), directory: String = directory,
+                    binary: String? = nil, waitSeconds: Int = waitSeconds, waits: Int = waits, exec: Exec) async -> CloudMoveCLI.Answer {
         // A start that did not answer, or that the provider ended (exit 124), may have started the
         // run: the waits read what it left. Only a start that ended on its own and said otherwise
         // started nothing, so one wait is enough to read the run that never began.
-        let started = try? await exec(startCommand(pin: pin, script: script, nonce: nonce, directory: directory), 60_000)
+        let started = try? await exec(startCommand(pin: pin, script: script, nonce: nonce, directory: directory,
+                                                   expected: expected, binary: binary), 60_000)
         if let started, lastLine(started) == "NOROOT" { return answer(started, pin: pin) }
+        if let started, lastLine(started).hasPrefix("CHANGED") {
+            return CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_busy",
+                                       error: "the machine's build changed since the app read it (\(lastLine(started))); asked again")
+        }
         let refused = started.map { lastLine($0) != "started" && $0.exitCode != 124 } ?? false
         let wait = waitCommand(nonce: nonce, directory: directory, seconds: waitSeconds)
         for _ in 0..<(refused ? 1 : waits) {
@@ -97,13 +108,27 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// guest script starts as root in a transient systemd unit (without systemd, under `setsid` in
     /// its own session), detached from the exec. `unit` (the unit's name) or `pid` (the setsid
     /// run's) tells the waits what to wait on. Says `started`, or `NOROOT` from an account that
-    /// cannot become root (nothing changed).
-    static func startCommand(pin: Pin, script: String, nonce: String, directory: String = directory) -> String {
+    /// cannot become root (nothing changed), or `CHANGED <commit>` when `expected` is set and the
+    /// machine's binary (`binary`, else the daemon's own in its layout) reports another commit
+    /// (nothing changed). A binary whose `--version` names no commit is not held back: there is
+    /// no build to compare, and the guest script still checks the pin.
+    static func startCommand(pin: Pin, script: String, nonce: String, directory: String = directory,
+                             expected: String? = nil, binary: String? = nil) -> String {
         let args = "\(pin.sha256) \(pin.commit) \"$r\""
+        // Both reach a shell: only a 40-hex commit and a plain absolute path.
+        let expected = expected?.lowercased()
+        let guarded = expected.map { isHex($0, count: 40) } ?? false
+        let binary = binary.flatMap { $0.hasPrefix("/") && !$0.contains("'") ? $0 : nil }
+        let unchanged: [String] = guarded ? [
+            binary.map { "bin='\($0)'" } ?? "\(layout); bin=\"$h/.cmux/bin/cmux-tui\"",
+            #"now=$("$bin" --version 2>/dev/null | sed -n 's/.*(\([0-9a-f]\{40\}\)[;)].*/\1/p' | head -n 1 || true)"#,
+            "if [ -n \"$now\" ] && [ \"$now\" != \(expected ?? "") ]; then echo \"CHANGED $now\"; exit 0; fi",
+        ] : []
         return [
             "set -eu",
             rootHelper,
             "root true 2>/dev/null || { echo NOROOT; exit 0; }",
+        ] + unchanged + [
             "d=\(directory); r=\"$d/app-\(nonce)\"",
             #"root mkdir -p "$r""#,
             #"root find "$d" -maxdepth 1 -name 'app-*' -mtime +7 -exec rm -rf {} + 2>/dev/null || true"#,
@@ -148,7 +173,7 @@ nonisolated enum CloudLegacyMachineUpdate {
         let check = { (file: String) in "printf '%s  %s\\n' \(pin.sha256) \"\(file)\" | sha256sum -c >/dev/null 2>&1" }
         return [
             "set -eu",
-            "if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then u=cmux; h=/home/cmux; else u=root; h=/root; fi",
+            layout,
             #"bin="$h/.cmux/bin/cmux-tui"; tmp="$bin.app-update""#,
             "if [ -x \"$bin\" ] && \(check("$bin")); then :; else",
             "  curl -fsSL --retry 3 -o \"$tmp\" '\(pin.url)' && \(check("$tmp")) || { rm -f \"$tmp\"; echo 'the pinned build did not download or match its pin' >&2; exit 1; }",
@@ -206,6 +231,10 @@ nonisolated enum CloudLegacyMachineUpdate {
     static func newNonce() -> String {
         String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(16))
     }
+
+    /// The daemon's user `u` and home `h` (`cmuxTuiLayoutSelector` in
+    /// web/services/vms/drivers/cmuxTuiDaemon.ts).
+    private static let layout = "if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then u=cmux; h=/home/cmux; else u=root; h=/root; fi"
 
     /// `root CMD`: CMD as root, from the machine's user (passwordless sudo) or root.
     private static let rootHelper = #"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }"#

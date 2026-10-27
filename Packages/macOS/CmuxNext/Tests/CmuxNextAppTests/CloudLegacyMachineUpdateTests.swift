@@ -161,6 +161,38 @@ struct CloudLegacyMachineUpdateTests {
         #expect(shell.unitStarted == systemd)
     }
 
+    /// The automatic update starts the exec run only while the machine's binary is still the build
+    /// the app judged older: one another app moved meanwhile (maybe to a newer build) is left as it
+    /// is and asked again (busy), run for real under /bin/sh with a stand-in binary.
+    @Test func theRunStartsOnlyWhileTheMachineRunsTheBuildTheAppSaw() async throws {
+        let shell = try ShellMachine(systemd: true)
+        defer { shell.remove() }
+        let seen = String(repeating: "1", count: 40), moved = String(repeating: "2", count: 40)
+        let binary = shell.root.appendingPathComponent("cmux-tui")
+        func reports(_ commit: String) throws {
+            try Data("#!/bin/sh\necho 'cmux 1.0.0 (\(commit); ghostty \(String(repeating: "9", count: 40)))'\n".utf8).write(to: binary)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        }
+        let guest = #"echo "OK upgraded terminals=1->1 daemon=5 hosts-before=1" > "$3/result""#
+
+        try reports(moved)
+        let changed = await CloudLegacyMachineUpdate.run(pin: Self.pin, script: guest, expected: seen, nonce: "aaaaaaaaaaaaaaaa",
+                                                         directory: shell.directory.path, binary: binary.path, waitSeconds: 5, exec: shell.exec)
+        #expect(changed.errorCode == "machine_update_busy", "\(changed)")
+        #expect(changed.error?.contains("CHANGED \(moved)") == true)
+        #expect(!shell.unitStarted, "the run started on a machine another app updated")
+        #expect(!FileManager.default.fileExists(atPath: shell.directory.appendingPathComponent("app-aaaaaaaaaaaaaaaa").path))
+
+        try reports(seen)
+        let same = await CloudLegacyMachineUpdate.run(pin: Self.pin, script: guest, expected: seen.uppercased(), nonce: "bbbbbbbbbbbbbbbb",
+                                                      directory: shell.directory.path, binary: binary.path, waitSeconds: 5, exec: shell.exec)
+        #expect(same == CloudMoveCLI.Answer(ok: true, updated: true, build: Self.pin.commit))
+
+        // Without a build to compare (Update Machine's click, or a refused daemon): no guard.
+        #expect(!CloudLegacyMachineUpdate.startCommand(pin: Self.pin, script: "", nonce: "c").contains("CHANGED"))
+        #expect(!CloudLegacyMachineUpdate.startCommand(pin: Self.pin, script: "", nonce: "c", expected: "not-hex").contains("CHANGED"))
+    }
+
     /// Each result line of the guest script as a `link machine update` answer.
     @Test func resultLinesMapToAnswers() {
         func code(_ stdout: String, exit: Int = 0) -> String? {

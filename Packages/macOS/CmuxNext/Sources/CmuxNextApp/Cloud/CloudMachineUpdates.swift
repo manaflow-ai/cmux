@@ -115,10 +115,18 @@ final class CloudMachineUpdates {
                       let pin = CloudLegacyMachineUpdate.pin(for: build.hash, besideCLI: binary),
                       let script = CloudLegacyMachineUpdate.script else { return nil }
                 logger.info("cloud machine \(machineID, privacy: .public): too old to update in place; installing cmux-tui \(pin.commit, privacy: .public) through exec")
-                return await CloudLegacyMachineUpdate.run(pin: pin, script: script) { command, timeoutMs in
+                // Only while it still runs the build `--if-older` judged older: an update by another
+                // app meanwhile is never undone here.
+                let expected = await CloudMachineUpdates.observedBuild(session)
+                return await CloudLegacyMachineUpdate.run(pin: pin, script: script, expected: expected) { command, timeoutMs in
                     try await api.exec(machineID, command: command, timeoutMs: timeoutMs)
                 }
             })
+    }
+
+    /// The build the connected daemon of `session` reported (its `identify` commit); nil while none.
+    private static func observedBuild(_ session: CloudMachineSession?) -> String? {
+        session?.daemon.identity?.buildCommit
     }
 
     /// Whether the Cloud API runs commands on the machine of `session` (the legacy update's channel).
