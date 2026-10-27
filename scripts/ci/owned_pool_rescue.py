@@ -964,6 +964,8 @@ RESCUE_JOB_LIFETIME_SECONDS = 345 * 60
 RESCUE_RUN_PAGES = 4
 # A rescue job's log is read as a stream up to this much; a longer one is not judged (the run stays cancelled).
 JOB_LOG_MAX_BYTES = 256 * 1024 * 1024
+# A log line is read at most this much at a time; the rest of a longer one is skipped.
+JOB_LOG_LINE_BYTES = 64 * 1024
 
 
 def cancel_marks(lines: Any) -> dict[tuple[int, int], str]:
@@ -1727,8 +1729,11 @@ class GitHub:
 
     def rescue_jobs(self, earliest_end: dt.datetime, latest_start: dt.datetime) -> list[int]:
         """The job ids of the finished ci-owned-pool-rescue.yml runs that started by `latest_start` and ended
-        at or after `earliest_end`, newest first (one page of runs: a sweeper or a single watch)."""
-        since = (earliest_end - dt.timedelta(seconds=RESCUE_JOB_LIFETIME_SECONDS)).astimezone(dt.timezone.utc)
+        at or after `earliest_end`, newest first (a sweeper or a single watch).
+
+        Listed by creation, which precedes the start by the run's wait in the sweeper's concurrency group: at most
+        the one sweeper ahead of it (it never cancels in progress, so one waits), RESCUE_JOB_LIFETIME_SECONDS."""
+        since = (earliest_end - dt.timedelta(seconds=2 * RESCUE_JOB_LIFETIME_SECONDS)).astimezone(dt.timezone.utc)
         runs: list[Mapping[str, Any]] = []
         for page in range(1, RESCUE_RUN_PAGES + 1):
             data = self.request("GET", f"/actions/workflows/{RESCUE_WORKFLOW_FILE}/runs?status=completed&per_page=100"
@@ -1761,19 +1766,29 @@ class GitHub:
         request = urllib.request.Request(f"{API}/repos/{self.repo}/actions/jobs/{job_id}/logs",
                                          headers=dict(self.read_headers))
         def scan(response: Any) -> dict[tuple[int, int], str] | None:
-            read_bytes = 0
-
-            def lines() -> Any:
-                nonlocal read_bytes
-                for raw in response:
-                    read_bytes += len(raw)
-                    if read_bytes > JOB_LOG_MAX_BYTES:
-                        raise OverflowError
-                    yield raw.decode("utf-8", "replace")
-            try:
-                return cancel_marks(lines())
-            except OverflowError:
+            """None unless the whole log was read: a length GitHub stated and got, or a chunked transfer (whose
+            early end http.client raises). Lines are read JOB_LOG_LINE_BYTES at a time; a longer one is skipped
+            (a mark is a short line of its own)."""
+            headers = getattr(response, "headers", None) or {}
+            stated = headers.get("Content-Length")
+            chunked = "chunked" in str(headers.get("Transfer-Encoding") or "").lower()
+            if stated is None and not chunked:
                 return None
+            read_bytes, lines, partial = 0, [], False
+            while True:
+                raw = response.readline(JOB_LOG_LINE_BYTES)
+                if not raw:
+                    break
+                read_bytes += len(raw)
+                if read_bytes > JOB_LOG_MAX_BYTES:
+                    return None
+                whole = raw.endswith(b"\n")
+                if not partial and (whole or len(raw) < JOB_LOG_LINE_BYTES):
+                    lines.append(raw.decode("utf-8", "replace"))
+                partial = not whole
+            if stated is not None and read_bytes != int(stated):
+                return None
+            return cancel_marks(lines)
         try:
             with urllib.request.build_opener(Stay).open(request, timeout=20) as response:
                 marks = scan(response)
@@ -1783,7 +1798,8 @@ class GitHub:
                 raise
             with urllib.request.urlopen(location, timeout=60) as response:
                 marks = scan(response)
-        self._logs[job_id] = marks
+        if marks is not None:
+            self._logs[job_id] = marks
         return marks
 
     def annotations(self, job_id: int) -> list[Mapping[str, Any]]:

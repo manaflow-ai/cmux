@@ -1390,6 +1390,36 @@ class CancelledAPI(FakeAPI):
         return rescue.cancel_marks(self.rescue_log)
 
 
+def log_response(body, *, length="auto", cut=None, chunked=False, repeat=1):
+    """A job log's HTTP response: `body` (`repeat` times), its Content-Length (`length`, "auto" the true one), cut
+    off after `cut` bytes as a dropped connection does, recording each readline() limit."""
+    class Response(io.BytesIO):
+        def __init__(self):
+            super().__init__(body[:cut] if cut is not None else body * (1 if repeat > 10 else repeat))
+            self.reads, self.left = [], repeat
+            self.headers = {}
+            if length is not None:
+                self.headers["Content-Length"] = str(len(body) * repeat if length == "auto" else length)
+            if chunked:
+                self.headers["Transfer-Encoding"] = "chunked"
+
+        def readline(self, limit=-1):
+            self.reads.append(limit)
+            line = super().readline(limit)
+            if not line and repeat > 10 and self.left > 1:
+                self.left -= 1
+                self.seek(0)
+                line = super().readline(limit)
+            return line
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+    return Response()
+
+
 class StrandedCancel(unittest.TestCase):
     """A rescue that stopped between its cancel and its re-run leaves the run to the next watch, which re-runs it;
     every other cancel is final."""
@@ -1493,10 +1523,28 @@ class StrandedCancel(unittest.TestCase):
         api.request = request
         self.assertEqual(api.rescue_jobs(START - dt.timedelta(seconds=1200), START), [11])
         self.assertEqual(asked[1:], ["/actions/runs/1/jobs?per_page=20"])
-        # A five-hour sweeper that rescued near its end is in the window: created up to its whole life before.
-        since = (START - dt.timedelta(seconds=1200 + rescue.RESCUE_JOB_LIFETIME_SECONDS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # A five-hour sweeper that rescued near its end is in the window, even one that first waited behind another.
+        since = (START - dt.timedelta(seconds=1200 + 2 * rescue.RESCUE_JOB_LIFETIME_SECONDS)).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.assertIn(f"created=%3E%3D{since}", asked[0])
         self.assertGreaterEqual(rescue.RESCUE_JOB_LIFETIME_SECONDS, rescue.SWEEP_SECONDS + rescue.RESCUE_GRACE_SECONDS)
+
+    def test_a_sweeper_that_queued_behind_another_is_in_the_window(self):
+        # Created 05:30, waited in the sweeper group until 07:00, stopped 11:59:30; the cancelled run ended 12:00.
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        asked = []
+        end = START
+        created = end - dt.timedelta(hours=6, minutes=30)
+        runs = {"workflow_runs": [{"id": 1, "conclusion": "cancelled", "created_at": stamp(-6.5 * 3600),
+                                   "run_started_at": stamp(-5 * 3600), "updated_at": stamp(-30)}]}
+
+        def request(method, path, **_):
+            asked.append(path)
+            if path.startswith("/actions/workflows/"):
+                since = rescue.urllib.parse.unquote(path.split("created=")[1])[2:]
+                return runs if created >= dt.datetime.fromisoformat(since.replace("Z", "+00:00")) else {}
+            return {"jobs": [{"id": 11, "conclusion": "cancelled"}]}
+        api.request = request
+        self.assertEqual(api.rescue_jobs(end - dt.timedelta(seconds=rescue.CANCEL_WAIT_SECONDS), end), [11])
 
     def test_the_rescue_run_listing_pages_while_full(self):
         api = rescue.GitHub("t", "manaflow-ai/cmux")
@@ -1576,7 +1624,7 @@ class StrandedCancel(unittest.TestCase):
 
         def urlopen(url, timeout=None):
             sent.append((url, None))
-            return Response(f"x {rescue.CANCEL_SENT} run 5 attempt 1\nother\n".encode() * 3)
+            return log_response(f"x {rescue.CANCEL_SENT} run 5 attempt 1\nother\n".encode() * 3)
         api = rescue.GitHub("t", "manaflow-ai/cmux")
         with unittest.mock.patch.object(rescue.urllib.request, "build_opener", lambda *handlers: Opener()), \
                 unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen):
@@ -1585,23 +1633,28 @@ class StrandedCancel(unittest.TestCase):
         self.assertEqual(sent, [(f"{rescue.API}/repos/manaflow-ai/cmux/actions/jobs/11/logs", "Bearer t"),
                                 ("https://logs.example/job-11", None)])
 
-    def test_a_log_past_the_cap_is_not_judged(self):
-        class Huge:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-            def __iter__(self):
-                line = b"x" * 1024 + b"\n"
-                while True:
-                    yield line
-        api = rescue.GitHub("t", "manaflow-ai/cmux")
-        with unittest.mock.patch.object(rescue, "JOB_LOG_MAX_BYTES", 64 * 1024), \
-                unittest.mock.patch.object(rescue.urllib.request, "build_opener",
-                                           lambda *handlers: types.SimpleNamespace(open=lambda request, timeout: Huge())):
-            self.assertIsNone(api.job_marks(12))
+    def test_a_log_past_the_cap_or_cut_short_is_not_judged(self):
+        def marks(response, **patches):
+            api = rescue.GitHub("t", "manaflow-ai/cmux")
+            with unittest.mock.patch.multiple(rescue, **(patches or {"JOB_LOG_LINE_BYTES": rescue.JOB_LOG_LINE_BYTES})), \
+                    unittest.mock.patch.object(rescue.urllib.request, "build_opener",
+                                               lambda *handlers: types.SimpleNamespace(open=lambda request, timeout: response)):
+                return api.job_marks(12), api
+        sent, settled = f"{rescue.CANCEL_SENT} run 5 attempt 1\n".encode(), f"{rescue.CANCEL_SETTLED} run 5 attempt 1\n".encode()
+        # Past the cap.
+        self.assertIsNone(marks(log_response(b"x" * 1023 + b"\n", repeat=10 ** 6), JOB_LOG_MAX_BYTES=64 * 1024)[0])
+        # Cut short: the SETTLED mark was in the bytes that never came. Not judged, and not cached.
+        found, api = marks(log_response(sent + settled, length=len(sent + settled), cut=len(sent)))
+        self.assertIsNone(found)
+        self.assertNotIn(12, api._logs)
+        # No length and not chunked: whether it all came cannot be told.
+        self.assertIsNone(marks(log_response(sent, length=None))[0])
+        self.assertEqual(marks(log_response(sent, length=None, chunked=True))[0], {(5, 1): "sent"})
+        # A line longer than JOB_LOG_LINE_BYTES is read in bounded pieces and skipped; the marks around it count.
+        long_line = b"y" * (3 * 1024 * 1024) + b"\n"
+        response = log_response(sent + long_line + settled)
+        self.assertEqual(marks(response, JOB_LOG_LINE_BYTES=4096)[0], {(5, 1): "settled"})
+        self.assertLessEqual(max(response.reads), 4096)
         # And a successor reading such a log leaves the run cancelled.
         clock = Clock()
         cancelled = CancelledAPI(clock, cancelled=True)
