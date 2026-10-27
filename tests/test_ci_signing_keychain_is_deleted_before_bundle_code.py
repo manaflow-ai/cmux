@@ -155,27 +155,38 @@ def deferred_step(step: dict) -> bool:
     return env.get("CMUX_DEFER_LAUNCH_SMOKES") == "true" or env.get("CMUX_SKIP_NOTARIZATION") == "true"
 
 
-def inline_step_scripts(job: dict) -> dict:
-    """The job with each step's moved run block (STEP_SCRIPT) appended to its `run`.
+def inline_step_scripts(job: dict, missing: list[str] | None = None) -> dict:
+    """The job with each moved run block (STEP_SCRIPT) expanded where its step invokes it.
 
     nightly.yml keeps under GitHub's size limit by moving run blocks into
-    scripts/ci/nightly-steps (#25879); the commands in them still run in the
-    step, so every rule reads them as part of it.
+    scripts/ci/nightly-steps (#25879); their commands still run in the step, in
+    the order of the invocation, so every rule reads them there. Comment lines
+    invoke nothing. A script that does not exist is added to `missing`.
     """
     steps = []
     for step in job.get("steps") or []:
         if isinstance(step, dict) and STEP_SCRIPT.search(str(step.get("run", ""))):
-            run = str(step["run"])
-            for script in sorted(set(STEP_SCRIPT.findall(run))):
-                path = ROOT / script
-                run += "\n" + (path.read_text(encoding="utf-8") if path.is_file() else f"missing-step-script {script}")
-            step = {**step, "run": run}
+            lines = []
+            for line in re.sub(r"\\\n\s*", " ", str(step["run"])).splitlines():
+                lines.append(line)
+                if line.strip().startswith("#"):
+                    continue
+                for script in STEP_SCRIPT.findall(line):
+                    path = ROOT / script
+                    if path.is_file():
+                        lines.extend(path.read_text(encoding="utf-8").splitlines())
+                    elif missing is not None:
+                        missing.append(script)
+            step = {**step, "run": "\n".join(lines)}
         steps.append(step)
     return {**job, "steps": steps}
 
 
 def check_job(name: str, job: dict, failures: list[str]) -> None:
-    job = inline_step_scripts(job)
+    missing: list[str] = []
+    job = inline_step_scripts(job, missing)
+    for script in missing:
+        failures.append(f"{name}: runs {script}, which does not exist")
     steps = job.get("steps") or []
     open_window = ""
     created = False
