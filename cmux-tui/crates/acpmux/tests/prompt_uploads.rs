@@ -512,15 +512,15 @@ fn noise_png(w: u32, h: u32) -> Vec<u8> {
 }
 
 /// A screenshot past what the model takes inline reaches the agent as the link to its original
-/// and, next to it, a copy sized for the harness (`model_copies.rs`): long edge at most 1568 px,
-/// under the inline image size, saved next to the upload. The transcript keeps the prompt as
-/// sent.
+/// and, next to it, a copy sized for the harness (`model_copies.rs`; this hub's harness is of the
+/// codex family): long edge at most 2048 px, under the inline image size, saved next to the
+/// upload. The transcript keeps the prompt as sent.
 #[tokio::test]
 async fn a_large_screenshot_reaches_the_model_as_a_sized_copy_next_to_its_original() {
     let hub = hub();
     let mut c = client(&hub, Origin::Local);
     let session = c.new_session("uploads-model-copy").await;
-    let big = noise_png(1700, 1000);
+    let big = noise_png(2400, 1200);
     assert!(big.len() > acpmux::prompt_uploads::INLINE_IMAGE_BYTES, "{}", big.len());
     let id = c.upload(&session, "shot.png", &big).await;
     let p = prompt(&session, &v7(), "see", vec![image_ref(&id, "shot.png")]);
@@ -546,7 +546,7 @@ async fn a_large_screenshot_reaches_the_model_as_a_sized_copy_next_to_its_origin
     assert_eq!(sent.len(), 1, "copies {copies:?}: {}", c.text);
     let reader = png::Decoder::new(std::io::Cursor::new(&sent[0])).read_info().unwrap();
     let (w, h) = (reader.info().width, reader.info().height);
-    assert!(w.max(h) <= 1568 && w > h, "{w}x{h}");
+    assert!(w.max(h) <= 2048 && w == 2 * h, "{w}x{h}");
     assert!(sent[0].len() <= acpmux::prompt_uploads::INLINE_IMAGE_BYTES, "{}", sent[0].len());
     let messages = c.user_messages(&session).await;
     let logged = serde_json::to_string(&messages).unwrap();

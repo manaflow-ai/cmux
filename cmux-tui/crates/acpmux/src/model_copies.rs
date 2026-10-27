@@ -120,7 +120,7 @@ fn copy_of(path: &Path, max_edge: u32, max_bytes: usize) -> Option<(Vec<u8>, u32
     let dir = path.parent()?;
     let mut edge = max_edge;
     // A copy past `max_bytes` is made again, smaller, a few times.
-    for _ in 0..4 {
+    for _ in 0..6 {
         let saved = dir.join(format!(".model-{edge}.png"));
         let made = match std::fs::read(&saved) {
             Ok(bytes) => png_size(&bytes).map(|(w, h)| (bytes, w, h)),
@@ -135,11 +135,8 @@ fn copy_of(path: &Path, max_edge: u32, max_bytes: usize) -> Option<(Vec<u8>, u32
         if bytes.len() <= max_bytes {
             return Some((bytes, w, h));
         }
-        // An image already within the edge is not scaled again: it will not get smaller.
-        if w.max(h) < edge {
-            return None;
-        }
-        edge = edge * 3 / 4;
+        // Past the bytes (a noisy image, or one already within the edge): smaller again.
+        edge = edge.min(w.max(h)) * 3 / 4;
     }
     None
 }
