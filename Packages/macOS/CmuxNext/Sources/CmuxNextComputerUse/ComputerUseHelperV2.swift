@@ -171,6 +171,9 @@ public final class ComputerUseHelperV2 {
         guard enabled else { return await stop() }
         if case .running = state { return }
         guard let embedded = helperApp() else { return unavailable("the cmux Computer Use (dev) helper is not in this build") }
+        let runningCheck = await staging.runningCheck(for: embedded)
+        guard current == generation else { return }
+        guard let runningCheck else { return unavailable("the helper code requirement could not be read") }
         // Nested in this app, macOS checks the helper's Screen Recording as this app: run a verified copy outside it.
         let staged = await staging.stage(embedded)
         guard current == generation else { return }
@@ -187,6 +190,17 @@ public final class ComputerUseHelperV2 {
                                         logPath: directory + "/helper.log")
         } catch {
             return unavailable("the helper did not start: \(error)")
+        }
+        let trusted = await staging.acceptsRunningProcess(spawned.pid, check: runningCheck)
+        guard current == generation else {
+            spawned.closeInput()
+            spawner.terminate(spawned.pid)
+            return
+        }
+        guard trusted else {
+            spawned.closeInput()
+            spawner.terminate(spawned.pid)
+            return unavailable("the running helper pid \(spawned.pid) failed its signature check")
         }
         let secret = Self.makeSecret()
         let acpmux = self.acpmux()

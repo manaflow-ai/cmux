@@ -177,6 +177,13 @@ public final class ComputerUseHelperDaemon {
             state = .unavailable
             return
         }
+        let runningCheck = await staging.runningCheck(for: helper)
+        guard current == generation else { return }
+        guard let runningCheck else {
+            helperLogger.error("cmux Computer Use helper: cannot read the code requirement")
+            state = .unavailable
+            return
+        }
         // Launch a verified copy outside this app: nested in it, macOS checks
         // the helper's Screen Recording as this app (ComputerUseHelperStaging).
         let staged = await staging.stage(helper)
@@ -206,6 +213,17 @@ public final class ComputerUseHelperDaemon {
         }
         guard let pid else {
             state = .unavailable
+            return
+        }
+        let trusted = await staging.acceptsRunningProcess(pid, check: runningCheck)
+        guard current == generation else {
+            launcher.terminate(pid)
+            return
+        }
+        guard trusted else {
+            launcher.terminate(pid)
+            state = .unavailable
+            helperLogger.error("cmux Computer Use helper pid \(pid, privacy: .public) failed its signature check")
             return
         }
         agentToken = agent
@@ -295,8 +313,14 @@ public final class ComputerUseHelperDaemon {
     }
 
     nonisolated static func defaultStateDirectory(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app") -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: "Library/Application Support/cmux/cmux-cua/runtime/\(scope(bundleID))/state", directoryHint: .isDirectory)
+        cuaRoot(home: FileManager.default.homeDirectoryForCurrentUser)
+            .appending(path: "runtime/\(scope(bundleID))/state", directoryHint: .isDirectory)
+    }
+
+    /// The cmux-cua folder every build shares with classic cmux; each build's
+    /// own items in it are named by its scope.
+    nonisolated static func cuaRoot(home: URL) -> URL {
+        home.appending(path: "Library/Application Support/cmux/cmux-cua", directoryHint: .isDirectory)
     }
 
     /// A stable 16-hex scope for a bundle id (FNV-1a).
