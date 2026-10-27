@@ -29,11 +29,11 @@ struct SocketTasksSourceBadSnapshotTests {
         let owner = try BadSnapshotOwner(line: line)
         defer { owner.close() }
 
-        let clock = ManualClock()
-        // A scheduler with no display link: each read's lines run on the next main run loop pass.
+        // The app's deadline scheduler on a hand-fired wake-up queue: the reconnect attempt is a MainDeadline
+        // (p06-scheduler-340), and each read's lines run at the rig's next frame.
+        let rig = MainDeadlineRig()
         let source = SocketTasksSource(path: owner.path,
-                                       mainWork: MainWorkScheduler.testing(budget: MainFrameBudget()) { _ in nil },
-                                       retryTimer: DemandTimer(owner: "test.tasks.reconnect", clock: clock, ledger: WakeupLedger()),
+                                       deadlines: rig.deadlines,
                                        backoff: Backoff(initial: .milliseconds(200), maximum: .seconds(10), jitter: 0))
         let disconnects = Disconnects()
         source.start { event in
@@ -41,22 +41,32 @@ struct SocketTasksSourceBadSnapshotTests {
         }
         defer { source.stop() }
 
-        // Each sleep starts only after a connection got the refused snapshot and closed.
+        // Each wake is planned only after a connection got the refused snapshot and closed.
         var delays: [Double] = []
         for _ in 0..<3 {
-            try await clock.waitForSleeper()
-            let request = try #require(clock.sleepRequests.last)
-            let delay = clock.now.duration(to: request.deadline)
+            Self.spin {
+                rig.frame()
+                return rig.deadlines.nextFire != nil
+            }
+            let delay = try #require(rig.deadlines.nextFire, "no reconnect was planned after a refused snapshot")
             delays.append(delay.inSeconds)
-            clock.advance(by: delay)
+            rig.fireAndRun()
         }
 
         #expect(delays.count == 3)
+        // A flexible deadline below 1 s fires no sooner than its delay, within one 8 ms alignment step.
         for (delay, expected) in zip(delays, [0.2, 0.4, 0.8]) {
-            #expect(abs(delay - expected) < 0.000_001, "reconnect delays \(delays)")
+            #expect(delay >= expected - 0.000_001 && delay <= expected + 0.008 + 0.000_001, "reconnect delays \(delays)")
         }
         #expect(disconnects.reasons.count >= 3)
         #expect(disconnects.reasons.allSatisfy { $0 == TasksStrings.ownerSentBadSnapshot })
+    }
+
+    private static func spin(until done: () -> Bool) {
+        let end = Date(timeIntervalSinceNow: 5)
+        while !done(), Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
     }
 }
 

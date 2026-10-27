@@ -14,6 +14,7 @@ public final class ObservationDeadline {
     private let timer: DemandTimer
 
     public init(owner: String) {
+        // timer-class-allow: the deadline half of this wait primitive; its action only ends the wait
         timer = DemandTimer(owner: owner)
     }
 
@@ -21,7 +22,9 @@ public final class ObservationDeadline {
         try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             self.continuation = continuation
             // task-owner: this wait (cancelled in finish); event-driven (Observation)
+            // main-hop-allow: the observation half of this wait primitive: a main-actor loop that only ends the wait
             watch = Task { @MainActor [weak self] in
+                // view-observation-allow: the wait primitive itself; it applies nothing, it only ends the wait
                 for await done in ObservationStream(condition) where done { break }
                 self?.finish()
             }

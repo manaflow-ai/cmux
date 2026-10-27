@@ -58,6 +58,7 @@ final class ControlSocketPathWatch: Sendable {
     // timer's handler; a tiny struct, never held across a call out.
     private let failures = Mutex(Failures())
     /// The retry after ``maxFailedRestores`` failures in a row.
+    // timer-class-allow: off main: the retry runs on the watch's queue
     private let retry = DemandTimer(owner: "ControlSocketPathWatch.retry")
     #if DEBUG
     /// Path checks run so far: each is one wakeup of `queue` (tests count them).

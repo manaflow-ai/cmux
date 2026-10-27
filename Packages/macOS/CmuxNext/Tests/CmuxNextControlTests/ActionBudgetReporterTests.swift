@@ -1,8 +1,10 @@
 import CmuxNextActions
 @testable import CmuxNextCompat
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import CoreFoundation
 @testable import CmuxNextControl
+import Foundation
 import Testing
 
 /// The off-main half of the per-action budget: the ledger's Release counters, and the Debug log
@@ -158,7 +160,7 @@ import Testing
         let (reads, read) = AsyncStream<BlockingContext>.makeStream()
         let reporter = ActionBudgetReporter(monitor: monitor, naming: ActionReportNaming(catalog: ["test.slow"]),
                                             overBudget: watchdog.overBudget, sampling: true, logsRuns: true,
-                                            work: BackgroundWork(label: "test.action-budget.symbols"),
+                                            work: BackgroundWork(label: "test.action-budget.symbols"), mainWork: .still(),
                                             symbolMap: { read.yield(BlockingContext.current()); return nil })
         Self.runSlowActionTurn(registry)
         var contexts = reads.makeAsyncIterator()
@@ -167,4 +169,108 @@ import Testing
         withExtendedLifetime(reporter) {}
     }
     #endif
+}
+
+/// p06-scheduler-340 (rule 9, the automation class): a report reads the monitor's main-actor counters in one automation
+/// task on the app's scheduler. Before, `counts()` hopped with `MainActor.run`, an unclassed main job that ran inside
+/// the person's input response.
+@MainActor
+@Suite(.serialized, .timeLimit(.minutes(1))) struct ActionBudgetReporterSchedulingTests {
+    @Test func theCountsReadIsOneAutomationTaskThatWaitsOutThePersonsInputResponse() async {
+        let rig = ReporterRig()
+        defer { rig.stop() }
+        let reporter = ActionBudgetReporter(monitor: ActionBudgetMonitor(budget: .milliseconds(10)),
+                                            naming: ActionReportNaming(catalog: []), overBudget: nil, sampling: false,
+                                            logsRuns: false, work: BackgroundWork(label: "test.action-budget.counts"),
+                                            mainWork: rig.work)
+        rig.work.noteDiscreteInput(expectsFrame: true)
+        let done = ReporterDone()
+        let counts = Task { @MainActor in
+            _ = await reporter.counts()
+            done.value = true
+        }
+        for _ in 0..<64 where rig.work.postedCount(.automation) < 1 { await Task.yield() }
+        #expect(rig.work.postedCount(.automation) == 1, "the counts read is not one posted automation task")
+
+        rig.turns.runAll()
+        rig.frame()
+        for _ in 0..<16 { await Task.yield() }
+        #expect(rig.work.budget.isInputResponseOpen)
+        #expect(!done.value, "the counts read ran inside the person's input response")
+
+        rig.work.renderPassEnded(nanos: 1_000_000)
+        #expect(!rig.work.budget.isInputResponseOpen, "the frame's render pass did not close the response")
+        // Past the typing burst, so its one-task-per-interval rate plays no part.
+        rig.clock.advance(ms: 600)
+        rig.frame()
+        await counts.value
+        #expect(done.value)
+        #expect(rig.work.postedCount(.automation) == 0)
+    }
+}
+
+@MainActor
+private final class ReporterDone {
+    var value = false
+}
+
+/// A scheduler on a fake link kept up by a frame client, so posts wait for hand-fired frames, with a clock the test
+/// moves and the scheduler's run loop turns run only when the test says (as ControlConditionWaitTests' rig).
+@MainActor
+private final class ReporterRig {
+    let clock = ReporterClock()
+    let turns = ReporterTurns()
+    let work: MainWorkScheduler
+    private let keeper: FrameClient
+    private var timestamp: Double = 0
+
+    init() {
+        work = MainWorkScheduler.testing(budget: MainFrameBudget(input: ReporterNoInput(), uptimeNanos: clock.read),
+                                         performTurn: turns.perform) { _ in ReporterFakeLink() }
+        keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
+        keeper.activate()
+    }
+
+    /// One display frame, a frame period after the last.
+    func frame() {
+        clock.advance(ms: 17)
+        timestamp += 1
+        work.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
+    }
+
+    func stop() { keeper.deactivate() }
+}
+
+/// The scheduler's run loop turns, run only when the test says (``MainWorkScheduler/TurnPerformer``).
+@MainActor
+private final class ReporterTurns {
+    private var queued: [@MainActor () -> Void] = []
+
+    var perform: MainWorkScheduler.TurnPerformer { { [weak self] turn in self?.queued.append(turn) } }
+
+    func runAll() {
+        let turns = queued
+        queued.removeAll()
+        for turn in turns { turn() }
+    }
+}
+
+/// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
+@MainActor
+private final class ReporterClock {
+    private var now: UInt64 = 1_000_000_000
+    var read: () -> UInt64 { { [self] in self.now } }
+    func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
+}
+
+/// No pending input: only the open input response holds automation.
+@MainActor
+private final class ReporterNoInput: InputPendingSource {
+    func hasPendingInput(uptime: TimeInterval) -> Bool { false }
+}
+
+@MainActor
+private final class ReporterFakeLink: FrameLink {
+    var isPaused = false
+    func invalidate() {}
 }

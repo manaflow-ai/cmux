@@ -46,6 +46,7 @@ final class ObservationTracker<Value> {
         guard isArmed else { return }
         counts.disarmed()
         let signal = self.signal
+        // main-hop-allow: the tracker's own disarm from a deinit that may run off main; inline on main
         MainDelivery().run { signal.epoch &+= 1 }
     }
 
@@ -55,10 +56,12 @@ final class ObservationTracker<Value> {
         isArmed = true
         counts.armed()
         let armedGeneration = generation, signal = self.signal, observed = self.read, causes = self.causes
+        // view-observation-allow: this is the tracker the classed observations (VisibleObservation) are built on
         return withObservationTracking {
             _ = signal.epoch
             return observed()
         } onChange: { @Sendable [weak self] in
+            // main-hop-allow: the tracker's own onChange: inline in the change's turn on main, where it only marks the observation dirty
             MainDelivery().run { [weak self] in
                 guard let self else {
                     causes.noteReleasedTrackingFire()

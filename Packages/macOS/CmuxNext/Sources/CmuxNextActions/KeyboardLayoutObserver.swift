@@ -56,5 +56,6 @@ public final class KeyboardLayoutObserver {
 /// the current layout), so a hop is enough.
 nonisolated func keyboardLayoutDidChange(_ center: CFNotificationCenter?, _ observer: UnsafeMutableRawPointer?,
                                          _ name: CFNotificationName?, _ object: UnsafeRawPointer?, _ userInfo: CFDictionary?) {
+    // main-hop-allow: a C callback with no context reaches no scheduler; the one hop only fans the change out to the live observers
     Task { @MainActor in KeyboardLayoutObserver.layoutChanged() }
 }

@@ -123,7 +123,7 @@ public struct OracleSettleControl: Sendable {
         let (signals, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let from = snapshots.current.generation
         // task-owner: this wait; cancelled when it returns, and it ends itself at the deadline
-        let publishes = Task {
+        let publishes = Task { @concurrent in
             var seen = from
             while let published = await snapshots.snapshot(where: { [seen] in $0.generation > seen }, deadline: deadline) {
                 seen = published.generation
@@ -135,7 +135,7 @@ public struct OracleSettleControl: Sendable {
         let providerChanges = facets.changes(condition.facet)?()
         let forwarding = providerChanges.map { changes in
             // task-owner: this wait; cancelled when it returns, which ends the provider's subscription
-            Task {
+            Task { @concurrent in
                 for await _ in changes { signal.yield() }
             }
         }

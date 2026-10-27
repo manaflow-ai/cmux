@@ -270,6 +270,7 @@ public final class ActionBudgetMonitor {
         nextReader &+= 1
         let (stream, continuation) = AsyncStream<ActionTimingSample>.makeStream(bufferingPolicy: .bufferingNewest(capacity))
         continuation.onTermination = { [weak self] _ in
+            // main-hop-allow: AsyncStream ends a reader on any thread; the hop only drops that reader's entry
             Task { @MainActor in self?.removeReader(id) }
         }
         readers[id] = Reader(continuation: continuation, everyRun: everyRun)

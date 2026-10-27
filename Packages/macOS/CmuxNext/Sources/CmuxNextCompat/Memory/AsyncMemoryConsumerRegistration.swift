@@ -78,7 +78,7 @@ public struct AsyncMemoryConsumerHop: Sendable {
 
     /// One utility-priority `Task` per delivery; the consumer's own calls then run on its executor.
     public static let task = AsyncMemoryConsumerHop { delivery in
-        Task(priority: .utility) { await delivery() }
+        Task(priority: .utility) { @concurrent in await delivery() }
     }
 
     /// Sends `delivery` off the main actor.

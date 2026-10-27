@@ -54,6 +54,7 @@ private final class EventStreamKeepalive: Sendable {
     private let beat: @Sendable () -> Void
 
     init(clock: any Clock<Duration>, beat: @escaping @Sendable () -> Void) {
+        // timer-class-allow: off main: the heartbeat writes on the stream's connection
         timer = DemandTimer(owner: "ControlEventBus.heartbeat", clock: clock)
         self.beat = beat
     }

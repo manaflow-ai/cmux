@@ -34,6 +34,7 @@ public final class TraceBlackBoxFileSteps: Sendable {
     public init(blackBox: TraceBlackBox, work: any MayBlockRunner, clock: any Clock<Duration> = ContinuousClock()) {
         self.blackBox = blackBox
         self.work = work
+        // timer-class-allow: off main: the spare file's deadline posts to the files lane, never to main
         spare = DemandTimer(owner: "trace.blackbox.spare", clock: clock)
     }
 

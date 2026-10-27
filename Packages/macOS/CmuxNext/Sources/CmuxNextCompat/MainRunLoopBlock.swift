@@ -66,6 +66,7 @@ public nonisolated struct MainRunLoopBlock: Sendable {
         #endif
         let workClass = workClass
         let main = CFRunLoopGetMain()
+        // main-hop-allow: the run-loop block primitive; each caller names the AppKit order that needs it
         CFRunLoopPerformBlock(main, mode.rawValue) {
             // main-proof: a block queued on CFRunLoopGetMain() runs only on the main thread.
             MainActor.assumeIsolated { workClass.run(body) }

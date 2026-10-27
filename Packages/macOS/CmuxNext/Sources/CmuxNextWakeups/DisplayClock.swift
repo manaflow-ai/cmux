@@ -226,6 +226,7 @@ public final class DisplayClock {
             display.linklessTickQueued = true
             let id = display.id
             // task-owner: one hop; the subscribers leave or keep ticking on the stall deadline
+            // main-hop-allow: the frame clock's own tick for a display with no link; p06 section A: a frame source is never queued behind the classes it drives
             Task { @MainActor [weak self] in self?.linklessTick(id) }
         }
         applyRate(display)
@@ -317,6 +318,7 @@ public final class DisplayClock {
         display.raiseTickQueued = true
         let id = display.id, framesBefore = display.frames
         // task-owner: one hop; the link ticks the display after it
+        // main-hop-allow: the frame clock's own tick, as the linkless tick; p06 section A: a frame source is never queued behind the classes it drives
         Task { @MainActor [weak self] in self?.raiseTick(id, framesBefore: framesBefore) }
     }
 
@@ -421,6 +423,7 @@ public final class DisplayClock {
 
     private func record(_ id: CGDirectDisplayID) -> Display {
         if let display = displays[id] { return display }
+        // timer-class-allow: the frame clock's own stall deadline, an unposted scheduler timer (p06 section A)
         let display = Display(id: id, stall: DemandTimer(owner: "DisplayClock.stall", clock: clock, ledger: ledger))
         displays[id] = display
         return display

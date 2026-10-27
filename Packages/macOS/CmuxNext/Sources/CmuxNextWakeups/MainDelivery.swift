@@ -25,6 +25,7 @@ public struct MainDelivery: Sendable {
             MainActor.assumeIsolated(work)
         } else {
             let work = Self.censused(work)
+            // main-hop-allow: the delivery primitive's own off-main path
             // main-proof: DispatchQueue.main runs its blocks on the main thread
             DispatchQueue.main.async { MainActor.assumeIsolated(work) }
         }

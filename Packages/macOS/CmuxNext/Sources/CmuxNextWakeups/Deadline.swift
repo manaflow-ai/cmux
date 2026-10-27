@@ -78,6 +78,7 @@ public struct Deadline: Sendable {
                     }
                 }
                 let timer = Task {
+                    // timer-class-allow: this is the Deadline helper recipe R-timer sends sleeps in races to; the race runs off main
                     do { try await clock.sleep(for: limit, tolerance: tolerance) } catch { return }
                     ledger.record(label, reason: "deadline")
                     race.finish(.failure(Exceeded(label: label, limit: limit)), first: onTimeout)

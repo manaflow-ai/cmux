@@ -75,6 +75,7 @@ public final class MainThreadEngineStart: Sendable {
         guard let id else { return }
         let bound = Task { [weak self] in
             // wakeup-allow: deadline bound of a wait for a step's end, cancelled when the step ends
+            // timer-class-allow: off main: the bound of a wait for a step's end, in this wait's own task
             do { try await Task.sleep(until: limit, tolerance: tolerance, clock: .continuous) } catch { return }
             self?.state.withLock { $0.waiters.removeValue(forKey: id) }?.resume(returning: ())
         }
@@ -106,6 +107,7 @@ public final class MainThreadEngineStart: Sendable {
         // wakeup-allow: bounded: a turn repeats only when step time moved the deadline out, by at most maxCredit in all
         while true {
             // wakeup-allow: deadline of the request, cancelled when the request answers
+            // timer-class-allow: off main: the request's own deadline, in the request's task
             try await Task.sleep(until: target, tolerance: tolerance, clock: .continuous)
             await waitUntilIdle(until: deadline + Self.maxCredit, tolerance: tolerance)
             try Task.checkCancellation()

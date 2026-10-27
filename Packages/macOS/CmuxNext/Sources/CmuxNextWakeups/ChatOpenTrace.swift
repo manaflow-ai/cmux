@@ -301,6 +301,7 @@ public final class ChatOpenTrace {
     /// Waits until the chat shows or `timeout` passes; true when it showed.
     public func waitUntilShown(timeout: Duration) async -> Bool {
         if chatShown { return true }
+        // timer-class-allow: debug trace: the bench command's bound on its wait; a classed deadline would wait behind the chat open it measures
         let deadline = DemandTimer(owner: "chatOpenTrace.wait")
         deadline.scheduleOnMain(after: timeout) { [weak self] in self?.resume() }
         // A second wait replaces the first, whose waiter then ends abandoned: it reads chatShown at once.
@@ -311,6 +312,7 @@ public final class ChatOpenTrace {
 
     /// Lets `duration` of frames be sampled before the caller finishes the trace.
     public func settle(for duration: Duration) async {
+        // timer-class-allow: debug trace: the bench's sampling window, a bound like the wait's above
         let timer = DemandTimer(owner: "chatOpenTrace.settle")
         try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
             timer.scheduleOnMain(after: duration) { done.resume(returning: ()) }

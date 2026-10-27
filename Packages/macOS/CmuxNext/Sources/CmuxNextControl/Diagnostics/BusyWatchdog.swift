@@ -90,6 +90,7 @@ public final class BusyWatchdog: Sendable {
         self.ledger = ledger
         self.activity = activity
         self.helpers = Mutex(HelperSource(list: { [] }, tabs: nil))
+        // timer-class-allow: off main: the watchdog samples the main thread, so its window cannot wait on main
         self.timer = DemandTimer(owner: "BusyWatchdog.window", clock: clock, ledger: ledger)
     }
 
