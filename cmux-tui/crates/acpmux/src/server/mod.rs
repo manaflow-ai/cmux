@@ -832,12 +832,12 @@ pub async fn serve_ws_with(
                         }
                     };
                     let sent = match frame {
+                        // After the frames before it are written (`upload_frames::InFlight`).
                         tokio_tungstenite::tungstenite::Message::Text(t) => {
+                            frames.in_flight.drained().await;
                             in_tx.send(t.to_string()).await.is_ok()
                         }
-                        tokio_tungstenite::tungstenite::Message::Binary(b) => {
-                            frames.send(b).await.is_ok()
-                        }
+                        tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
                         _ => true,
                     };
                     if !sent {

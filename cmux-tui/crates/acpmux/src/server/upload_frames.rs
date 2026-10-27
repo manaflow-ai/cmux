@@ -18,6 +18,11 @@
 //! echoed), and the worker waits for room in the connection's bounded answer queue, so a client
 //! that stops reading stops its own frames. A frame whose offset is not the upload's end is `upload.offset {offset}`.
 //!
+//! A text message after a frame on the same connection is read only once every frame before it is
+//! written and answered ([`InFlight`]): a finish, a status or a prompt sent right after the last
+//! frame, without waiting for its answer, sees all its bytes. (A frame needs its upload id, which
+//! the begin's answer gives, so a begin always precedes its frames.)
+//!
 //! Only the local app's connection (`local_app.rs`) may send them; any other gets
 //! `filePut.remote` as its answer, never silence. A chat on a peer gets the bytes there, as
 //! base64 `file_put_chunk` requests of at most `CHUNK_BYTES` over the peer link.
@@ -27,7 +32,8 @@ use crate::hub::file_uploads::{self, CHUNK_BYTES};
 use crate::rpc::{Message, RpcError, method};
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::{Notify, mpsc};
 use tokio_tungstenite::tungstenite::Bytes;
 
 /// The `initialize` feature of a daemon that takes binary upload frames and
@@ -41,24 +47,80 @@ const MAX_HEADER: usize = 16 << 10;
 /// The longest request id echoed in an answer; a longer one is answered with a null id.
 const MAX_ID: usize = 128;
 
-/// Starts `origin`'s frame worker; frames sent to the answer are written in order and answered on
-/// `out`. It ends when the sender is dropped (the connection's reader ended) or `out` closes.
+/// A connection's frames not yet answered: its reader holds a text message until there are none.
+#[derive(Default)]
+pub(super) struct InFlight {
+    count: AtomicUsize,
+    none: Notify,
+}
+
+impl InFlight {
+    fn done(&self) {
+        if self.count.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.none.notify_waiters();
+        }
+    }
+
+    /// Returns once every frame sent before it was answered.
+    pub(super) async fn drained(&self) {
+        loop {
+            let none = self.none.notified();
+            tokio::pin!(none);
+            none.as_mut().enable();
+            if self.count.load(Ordering::SeqCst) == 0 {
+                return;
+            }
+            none.await;
+        }
+    }
+}
+
+/// A connection's frame worker: frames given to [`Frames::send`] are written in order and
+/// answered on the connection.
+pub(super) struct Frames {
+    tx: mpsc::Sender<Bytes>,
+    pub(super) in_flight: Arc<InFlight>,
+}
+
+impl Frames {
+    /// Queues `frame`, waiting for room in the window; false once the worker ended.
+    pub(super) async fn send(&self, frame: Bytes) -> bool {
+        self.in_flight.count.fetch_add(1, Ordering::SeqCst);
+        let sent = self.tx.send(frame).await.is_ok();
+        if !sent {
+            self.in_flight.done();
+        }
+        sent
+    }
+}
+
+/// Starts `origin`'s frame worker; frames sent to it are written in order and answered on `out`.
+/// It ends when the sender is dropped (the connection's reader ended) or `out` closes.
 pub(super) fn spawn(
     hub: Arc<Hub>,
     origin: Origin,
     auth: ConnAuth,
     out: mpsc::Sender<String>,
-) -> mpsc::Sender<Bytes> {
+) -> Frames {
     let (tx, mut rx) = mpsc::channel::<Bytes>(WINDOW);
+    let in_flight = Arc::new(InFlight::default());
+    let counted = in_flight.clone();
     tokio::spawn(async move {
         while let Some(frame) = rx.recv().await {
             let reply = handle(&hub, origin, auth, frame).await;
-            if out.send(reply.to_value().to_string()).await.is_err() {
+            let answered = out.send(reply.to_value().to_string()).await.is_ok();
+            counted.done();
+            if !answered {
                 break;
             }
         }
+        // Ended: nothing it holds will be answered, so no text message waits on it.
+        rx.close();
+        while rx.try_recv().is_ok() {
+            counted.done();
+        }
     });
-    tx
+    Frames { tx, in_flight }
 }
 
 /// The header's id, params and where the bytes start.
@@ -136,7 +198,7 @@ async fn write(
         Err(e) => e,
     };
     let Some((peer, id, _)) = hub.resolve_remote(key) else { return Err(missing) };
-    if !peer.supports_file_put() {
+    if !peer.supports_file_put_chunks() {
         return Err(file_uploads::peer_unsupported(&peer));
     }
     use base64::Engine;
