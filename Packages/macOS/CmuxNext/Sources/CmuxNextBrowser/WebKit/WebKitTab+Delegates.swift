@@ -3,6 +3,7 @@ public import Foundation
 public import WebKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSignposts
 
 // MARK: - Navigation
 
@@ -162,13 +163,12 @@ extension WebKitTab: WKNavigationDelegate {
         apply(.failed(id, failure))
     }
 
-    /// WebKit gives no reason; the sad tab says the page crashed.
+    /// WebKit gives no reason; the sad tab says the page crashed. The end is a stability event (no URL).
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        // No commit or finish is coming, so the page area goes back to
-        // WebKit's own background rather than keeping none for good.
-        // Unconditionally, not through `pageDidFinish`: a crash can leave
-        // `webView.url` nil, which that one reads as a blank page and skips,
-        // putting the tab back in the stuck state this is here to prevent.
+        engine?.rendererStability.webKitContentEnded(on: .browserTab)
+        // No commit or finish is coming, so the page area goes back to WebKit's own background rather than
+        // keeping none for good. Unconditionally, not through `pageDidFinish`: a crash can leave `webView.url`
+        // nil, which that one reads as a blank page and skips, putting the tab back in the stuck state this is here to prevent.
         pageBaseHold.cancel()
         setDrawsPageBackground(true)
         removeStandIn()

@@ -1,4 +1,5 @@
 import AppKit
+public import CmuxNextSignposts
 public import CmuxNextWakeups
 public import Foundation
 public import WebKit
@@ -68,6 +69,8 @@ public final class WebKitEngine: BrowserEngine {
     /// The organization's URL blocklist and allowlist (Chrome's `URLBlocklist`
     /// and `URLAllowlist` policies); the App sets it from the managed policy.
     public var urlFilter: BrowserURLFilter = .none
+    /// Where its tabs' content-process ends go as stability events (p09-observability-108); the App sets its reporting one.
+    public var rendererStability = RendererStability()
     /// Answers every tab's `<input type="file">` (the tab's `runOpenPanelWith`): the App's one
     /// made-ahead panel (`AppServices.openPanel`, passed through `TabContentCache`), which agent
     /// composer pages share, so a browser tab's file input gets the panel made ahead when one is,

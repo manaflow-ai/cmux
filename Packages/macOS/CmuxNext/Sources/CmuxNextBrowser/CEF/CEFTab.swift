@@ -80,6 +80,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             let phaseChanged = machine.state.phase != oldValue.state.phase
             if phaseChanged { pageWaiters.notePhase(machine.state.phase) }
             if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil { onRenderersMayChange?() }
+            runtime.rendererStability.tabStateChanged(from: oldValue.state, to: machine.state, of: self)
         }
     }
     /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation
@@ -202,7 +203,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// The next emulation run clears this session's metrics first (after DevTools device mode).
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
-    @ObservationIgnored private(set) var isClosed = false
+    @ObservationIgnored private(set) var isClosed = false { didSet { runtime.rendererStability.unresponsiveEnded(ObjectIdentifier(self), .closed) } }
     /// The current document's first content frame (`CEFFirstPaintBridge`, or its load end with nothing painted).
     @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()
     @ObservationIgnored private var isOccluded = false
@@ -409,8 +410,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         return .load(url)
     }
 
-    /// Answers "Page unresponsive": wait restarts Chromium's hang timer,
-    /// terminate ends the renderer (the sad tab follows).
+    /// Answers "Page unresponsive": wait restarts Chromium's hang timer, terminate ends the renderer (the sad tab follows).
     public func answerUnresponsivePage(terminate: Bool) {
         guard state.isUnresponsive else { return }
         if let browserID { _ = runtime.shim?.unresponsiveReply(browserID, terminate ? 1 : 0) }

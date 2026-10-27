@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextSettings
+package import CmuxNextSignposts
 public import CmuxNextWakeups
 
 /// A small pool of prewarmed bundled React page hosts.
@@ -63,6 +64,9 @@ public final class PageHostPool {
     /// The frame a claimed host delivers its router envelopes on, as a page ``WebUIHost`` opens does
     /// (``WebUIHost/scriptFrames``, `pageScriptFrames`). Nil: each envelope is its own script.
     package var scriptFrames: PageScriptFrame?
+    /// Where a claimed host's WebKit content-process ends go as stability events, as a page ``WebUIHost`` opens
+    /// (``WebUIHost/rendererStability``). Nil records none.
+    package var rendererStability: RendererStability?
 
     final class WeakHost {
         weak var view: PageWebView?
@@ -128,6 +132,7 @@ public final class PageHostPool {
         host.shouldFocusOnAttach = focus
         host.popupHoverFrameInput = hoverFrameInput
         if let scriptFrames, !host.deliversOnFrames { host.deliverOnFrames(scriptFrames) }
+        host.crash.stability = rendererStability
         host.engineDecision = decision
         _ = host.retarget(descriptor: descriptor, routes: routes, route: route,
                           documentAttributes: documentAttributes, surface: surface,

@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import CmuxNextDesign
 import AppKit
+package import CmuxNextSignposts
 public import CmuxNextWakeups
 public import WebKit
 
@@ -37,6 +38,9 @@ public final class WebUIHost {
     /// per frame (``PageWebView/deliverOnFrames(_:)``, p06-scheduler-222). Nil while
     /// `pageScriptFrames` is off: each envelope is its own script, as before. The composition root sets it.
     package var scriptFrames: PageScriptFrame?
+    /// Where the WebKit content-process ends of the pages this host opens go as stability events (p09-observability-108).
+    /// Nil records none; the composition root sets the app's one.
+    package var rendererStability: RendererStability?
     /// The app's one preloaded page (p13-webui.md 3.D); the host's memory registration
     /// (`preloadMemory`) drops it at any level but normal. Nil until the composition root installs it
     /// with the app's deadline scheduler (p13-webui-044, 045); installing it hands it the current level.
@@ -132,6 +136,7 @@ public final class WebUIHost {
         // Read when the Chromium page reaches the host, after this turn; set before then.
         view.chromiumClock = clock
         if lifecycle != nil { view.crash.groups = crashGroups }
+        view.crash.stability = rendererStability
         // The view joined processGroups (PageWebView(request:...) passes them on these terms).
         view.crash.sharesWebKitProcess = request.options.sharesWebKitProcess && view.engineDecision.engine == .webKit
         view.popupHoverFrameInput = hoverFrameInput

@@ -177,7 +177,17 @@ final class AppServices {
         ? .afterFirstUse(overlayPageDiscards.terms(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300)))
         : .ahead)
     /// The agent page WebKit warm-up.
-    private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat)
+    private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat, stability: rendererStability)
+    /// WebKit content-process ends and Chromium page hangs as stability events (p09-observability-108): one for the
+    /// app, so its rate limit sees every surface; its reports go to crash reporting on that module's own lane.
+    private(set) lazy var rendererStability: RendererStability = {
+        let sentry = RendererStabilityReporter(reporter: crashReporting.reporter)
+        return RendererStability { report in
+            sentry.send(RendererStabilityEvent(kind: report.kind.rawValue, engine: report.engine.rawValue, surface: report.surface.name,
+                                               count: report.count, unresponsiveMilliseconds: report.unresponsiveMilliseconds,
+                                               ending: report.ending?.rawValue))
+        }
+    }()
     /// Whether a new agent page may show in Chromium: feature `agentChromium`, its Debug tunable `agent.chromium` (the
     /// tunable's only reader) as the local override, read at each page; the warm-up and every agent pane share it.
     private(set) lazy var agentChromiumChat: @MainActor () -> Bool = { [features = self.features] in
@@ -439,6 +449,7 @@ final class AppServices {
         let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
                                 hoverFrameInput: hoverFrameInput)
         pool.scriptFrames = pageScriptFrame
+        pool.rendererStability = rendererStability
         return pool
     }()
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
@@ -456,6 +467,7 @@ final class AppServices {
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
+        host.rendererStability = rendererStability
         return host
     }()
     /// The frame cmux pages deliver their router envelopes on, one board task per page per frame
@@ -758,6 +770,7 @@ final class AppServices {
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
         _ = cache  // built here, as before
+        cache.webKit.rendererStability = rendererStability
         pages.createTabs = cache.createTabs  // a page tab's close ends its create.tab wait
         pages.showsStandIns = self.features.isEnabled(.pageStandIn)
         pages.sharesChromiumWindows = self.features.isEnabled(.pageTabsShareChromiumWindow)
