@@ -26,6 +26,7 @@ pub fn read_owner_only(path: &Path, maximum_bytes: usize) -> io::Result<Zeroizin
             "secret path is not a regular file",
         ));
     }
+    // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
     if metadata.uid() != unsafe { libc::geteuid() } {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
