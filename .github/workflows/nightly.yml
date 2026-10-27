@@ -1217,12 +1217,13 @@ jobs:
   # carrying both trusted labels (scripts/ci/classic_nightly_build_runner.py). Idle: the pinned
   # pair. Busy: look again for up to 5 min. Offline or still busy: the moving cloud macOS 26 label.
   # Unreadable: the pinned pair, as before. Never another owned label (this build holds the cache
-  # writer keys). It never fails, so build-nightly-app is never skipped for it.
+  # writer keys). Every step continues on error and their budgets fit the job's, so it ends green and
+  # the jobs after build-nightly-app (implicit success() over the needs chain) are never skipped for it.
   pick-nightly-app-runner:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 12
+    timeout-minutes: 15
     permissions:
       # The queue janitor's pool snapshot (an artifact).
       actions: read
@@ -1234,6 +1235,7 @@ jobs:
       - name: Checkout the picker at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         continue-on-error: true
+        timeout-minutes: 2
         with:
           persist-credentials: false
           ref: ${{ github.sha }}

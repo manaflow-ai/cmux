@@ -140,6 +140,25 @@ class Main(unittest.TestCase):
             self.assertIn(f"cloud={picker.LARGE}", out.read_text())
 
 
+class WallClock(unittest.TestCase):
+    def test_the_wait_is_counted_once_without_an_injected_now(self) -> None:
+        # Busy for the whole wait; a snapshot made at the start shows 12 vCPU moving (oldest 4 min).
+        # Read after the 5-min wait its oldest job has waited 9 min, under the 10-min stall rule; counting
+        # the wait twice (14 min) would wrongly call it stalled. The wall clock moves with the fake clock.
+        clock = Clock()
+        start = NOW
+        snap = {"generated_at": start.isoformat(), "pools": {picker.LARGE: {"queued": 1, "oldest_queued_minutes": 4}}}
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "out"
+            picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "s", "TRUSTED_POOL": POOL,
+                         "TRUSTED_RUNNER": RUNNER, "ENABLED": "1", "GITHUB_OUTPUT": str(out)},
+                        read_runners=lambda token, repo: [runner(POOL, RUNNER, busy=True)],
+                        read_snapshot=lambda token, repo: snap, sleep=clock.sleep, clock=clock,
+                        wall=lambda: start + dt.timedelta(seconds=clock()))
+            self.assertIn(f"cloud={picker.LARGE}", out.read_text())
+            self.assertIn("trusted=false", out.read_text())
+
+
 class Workflow(unittest.TestCase):
     TEXT = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
 
@@ -161,6 +180,13 @@ class Workflow(unittest.TestCase):
         job = self.job("pick-nightly-app-runner")
         self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", job)
         self.assertNotIn("macos", re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1).split("||")[-1])
+        # Every step continues on error and their budgets fit inside the job's, so the job ends green.
+        steps = job[job.index("    steps:"):]
+        names = re.findall(r"^      - name: ", steps, re.MULTILINE)
+        self.assertEqual(steps.count("continue-on-error: true"), len(names))
+        budgets = [int(value) for value in re.findall(r"^        timeout-minutes: (\d+)$", steps, re.MULTILINE)]
+        self.assertEqual(len(budgets), len(names))
+        self.assertLess(sum(budgets), int(re.search(r"^    timeout-minutes: (\d+)$", job, re.MULTILINE).group(1)))
         step = job[job.index("id: pick"):]
         self.assertIn("continue-on-error: true", step[:200])
         self.assertIn("scripts/ci/classic_nightly_build_runner.py", step)

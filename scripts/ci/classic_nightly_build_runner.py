@@ -113,7 +113,8 @@ def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tu
 def main(env: Mapping[str, str] = os.environ,
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
-         sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> int:
+         sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+         wall: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.timezone.utc)) -> int:
     repo = env.get("GITHUB_REPOSITORY", "")
     route_token = env.get("ROUTE_TOKEN", "")
 
@@ -130,12 +131,14 @@ def main(env: Mapping[str, str] = os.environ,
             print(f"::warning title=classic nightly build runner::could not list runners ({str(error)[:200]})")
             return None
 
+    # Wall time before the wait: the snapshot's queue ages are read against it plus the wait.
+    now = now or wall()
     started = clock()
     trusted, trusted_why = trusted_route((env.get("TRUSTED_POOL") or "").strip(),
                                          (env.get("TRUSTED_RUNNER") or "").strip(), read,
                                          (env.get("ENABLED") or "").strip() == "1",
                                          (env.get("GITHUB_RUN_ATTEMPT") or "").strip(), sleep=sleep, clock=clock)
-    now = (now or dt.datetime.now(dt.timezone.utc)) + dt.timedelta(seconds=max(0.0, clock() - started))
+    now += dt.timedelta(seconds=max(0.0, clock() - started))
     snapshot = None
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
     if snapshot_token and repo:
