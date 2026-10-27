@@ -645,6 +645,9 @@ impl Hub {
                 Take::Ready(mut p) => {
                     #[cfg(debug_assertions)]
                     self.claim_gap_report(&p);
+                    // While the entry is out of both the pool and the claims (review 120).
+                    #[cfg(debug_assertions)]
+                    self.off_blip_seam();
                     // A dead or wedged host is ended; the session starts on
                     // a fresh host (`spawn_hosted_child`).
                     let asked = std::time::Instant::now();

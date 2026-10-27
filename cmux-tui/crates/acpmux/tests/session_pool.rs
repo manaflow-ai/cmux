@@ -707,6 +707,57 @@ async fn a_pinned_prewarm_holds_an_off_that_came_and_went_as_it_began() {
     );
 }
 
+/// A daemon whose fakeb harness comes up in full access, prewarmed with MDM unset (so kept).
+/// `blip_at_claim` then has MDM's off come and go once while the next chat claims it.
+async fn full_access_entry_claimed_through_an_off(tag: &str) -> (Daemon, Rpc, Value) {
+    let mut fakeb = profile("b");
+    fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
+    fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
+    let daemon = Daemon::with_fakeb(tag, 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let record = daemon.pool_records()[0].clone();
+    (daemon, rpc, record)
+}
+
+fn blip_at_claim(daemon: &Daemon) {
+    std::fs::write(daemon.home.join("off-blip"), "").unwrap();
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 120): a pooled agent in full access
+/// that a chat was claiming while MDM's off came and went is not handed to the chat after the
+/// unset. It ran in full access while the off held, out of reach of the push's drain.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_access_pooled_agent_claimed_through_an_mdm_off_is_not_taken() {
+    let (daemon, mut rpc, _) = full_access_entry_claimed_through_an_off("faclaim").await;
+    let home = daemon.home.clone();
+    blip_at_claim(&daemon);
+    let (session, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(!taken(&daemon, &session), "a chat took a pooled agent that ran through MDM's off");
+}
+
+/// The same entry, when the chat that claimed it fails to start, does not go back to the pool.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_access_pooled_agent_claimed_through_an_mdm_off_does_not_go_back() {
+    let (daemon, mut rpc, _) = full_access_entry_claimed_through_an_off("faback").await;
+    let home = daemon.home.clone();
+    let (_first, _) = new_session(&mut rpc, &home, "fake").await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    blip_at_claim(&daemon);
+    // The name is taken: the create fails after it claimed the pooled entry.
+    let err = rpc
+        .call_err(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb", "name": "fake"}}}),
+        )
+        .await;
+    assert!(err.contains("taken"), "{err}");
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert!(!fakeb_ready(&status), "a pooled agent that ran through MDM's off went back: {status}");
+}
+
 /// MDM forces `sessions.allowFullAccess` off (#23322, review 25): a harness whose own settings
 /// start it in full access is never kept warm in the pool, where nothing runs `cap_full_access`
 /// until a chat takes it. The pooled agent ends instead, and a chat starts cold.

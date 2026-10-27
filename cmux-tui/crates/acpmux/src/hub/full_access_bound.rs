@@ -363,7 +363,8 @@ fn after_off_count(hub: &Hub) {
 
 impl Hub {
     /// Test seam (debug builds): when the file `ACPMUX_TEST_OFF_BLIP_FILE` names exists, MDM's off
-    /// comes and goes once, right after a pooled start read it (reviews 73, 75 and 77 of #23322).
+    /// comes and goes once, at the next pooled start (right after it read the off) or pool claim
+    /// (reviews 73, 75, 77 and 120 of #23322).
     #[cfg(debug_assertions)]
     pub(super) fn off_blip_seam(&self) {
         let Some(file) = std::env::var_os("ACPMUX_TEST_OFF_BLIP_FILE") else { return };
