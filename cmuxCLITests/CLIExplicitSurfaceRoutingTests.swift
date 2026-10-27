@@ -727,7 +727,7 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
-    static func runMockCommand(
+    func runMockCommand(
         arguments: [String],
         socketName: String,
         environmentOverrides: [String: String] = [:],
