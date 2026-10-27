@@ -101,6 +101,10 @@ extension ShellWindow: OverlayTopLayerHosting {
             return host.topLayer.performKeyEquivalent(with: event)
         }
         if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
+        // A chord the dispatcher decided for a focused terminal or page: that surface alone answers, no view walk.
+        if let surface = keyRouter?.directKeyEquivalentTarget(for: event, firstResponder: firstResponder) {
+            return surface.performKeyEquivalent(with: event)
+        }
         return super.performKeyEquivalent(with: event)
     }
 

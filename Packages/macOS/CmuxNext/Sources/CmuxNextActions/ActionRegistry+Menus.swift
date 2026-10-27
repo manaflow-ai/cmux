@@ -92,11 +92,11 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
             menuItem.title = title
         }
         if let route = registry.keyWindowRoute?(registry.canonicalID(for: payload.id), invocation) { return route.enablesMenuItem }
-        guard ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: registry, withArguments: false), in: registry) else { return false }
-        if let gate = registry.menuKeyEquivalentGate, !menuItem.keyEquivalent.isEmpty, registry.isDispatchingKeyDown() {
-            return gate(payload.id)
-        }
-        return true
+        // The gate first: a chord the key router decided runs no menu item but a system one, and that
+        // refusal of the menu search asks no availability.
+        if let gate = registry.menuKeyEquivalentGate, !menuItem.keyEquivalent.isEmpty, registry.isDispatchingKeyDown(),
+           !gate(payload.id) { return false }
+        return ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: registry, withArguments: false), in: registry)
     }
 
     private static func payload(of item: NSMenuItem) -> ActionMenuPayload? {

@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextFocus
+import CmuxNextRemoteBrowser
+import CmuxNextTerminal
 
 // The places a key can reach after the dispatcher: the window hook, the
 // Chromium hooks and main-menu key equivalents. Each runs nothing for a key
@@ -22,6 +24,27 @@ extension KeyRouter {
             return RegistryKeyBindings(registry).run(winner, keyContext: context.bits)
         }
         return runExtensionShortcut(event, focus: focus)
+    }
+
+    /// The one view a chord the dispatcher decided goes to as a key equivalent, instead of AppKit's
+    /// depth-first walk over every view of the window: the first responder, when it is a surface that
+    /// takes its own key equivalents (a terminal, a page host). Chrome's `CommandDispatcher` gives a key
+    /// to a first responder that is a `CommandDispatcherTarget` the same way, with no walk
+    /// (ui/base/cocoa/command_dispatcher.mm, `performKeyEquivalent:`). Every other view that takes a
+    /// chord in a pane (a find bar, a dialog, a Mac Screen button) takes it only while it holds the
+    /// keyboard. Nil for any other key or responder: a field editor's chord can belong to the view that
+    /// holds it (a find bar's Cmd-G), so it keeps the walk.
+    func directKeyEquivalentTarget(for event: NSEvent, firstResponder: NSResponder?) -> NSView? { // perf-hot: 0.5ms key-dispatch (every chord a window gets)
+        guard let view = firstResponder as? NSView, Self.takesOwnKeyEquivalents(view), Self.isChord(event.modifierFlags),
+              decided.contains(event) else { return nil }
+        trace?("window: key equivalent to the focused surface only")
+        return view
+    }
+
+    /// A surface whose key equivalents are its own while it is first responder: the terminal (its
+    /// Ghostty keybinds), a Chromium host page and a remote browser page (their page's keys).
+    static func takesOwnKeyEquivalents(_ view: NSView) -> Bool {
+        view is TerminalSurfaceView || view is ChromiumHostPageView || view is RemoteBrowserContentView
     }
 
     /// An overlay (palette, sheet, rename, group editor) has the keyboard. AppKit also offers
