@@ -190,8 +190,10 @@ for line in sys.stdin:
     assert!(std::fs::read_to_string(home.0.join("auth.json")).unwrap().contains("rotated-private"));
     let mismatch =
         json!({"method": "access", "force": true, "previousAccountId": "different-account"});
-    assert!(owner.request(&home.0, &mismatch).await.is_err());
-    assert!(owner.request(&home.0, &json!({"method": "login"})).await.is_err());
+    let mismatch_error = owner.request(&home.0, &mismatch).await.unwrap_err();
+    assert_eq!(error_code(&mismatch_error), "codex_auth_account_changed");
+    let login_error = owner.request(&home.0, &json!({"method": "login"})).await.unwrap_err();
+    assert_eq!(error_code(&login_error), "codex_auth_account_changed");
     owner.stop().await;
     assert!(prepare(&home.0).is_ok());
 }
