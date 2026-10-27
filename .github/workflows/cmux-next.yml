@@ -170,6 +170,8 @@ on:
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
+      - scripts/cmux-next/check-leo-bans.py
+      - tests/test_leo_bans.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
       - scripts/cmux-next/gen-protected-folders.py
@@ -416,6 +418,8 @@ on:
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
+      - scripts/cmux-next/check-leo-bans.py
+      - tests/test_leo_bans.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
       - scripts/cmux-next/gen-protected-folders.py
@@ -1506,6 +1510,24 @@ jobs:
           python3 -I scripts/cmux-next/gen-type-scale.py --check
           python3 -I scripts/cmux-next/check-swift-type-scale.py
 
+      # Leo's bans (Leo 2026-10-21, ask-52da478628): the UI font is Inter, bundled, with its calculated
+      # tracking (schemas/type-scale/leo-bans.json pins them). Fails on another family or tracking, a
+      # stylesheet that names the system font instead of var(--font-ui), or a pin change with no
+      # `Leo-order:` trailer. A pull request's own commits are fetched for the trailer, which the
+      # pushed-commits step below then sees too.
+      - name: Leo's bans (Inter UI font and tracking)
+        id: leo-bans
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            git fetch --no-tags --quiet --depth=200 origin "$GITHUB_SHA" || true
+            python3 -I scripts/cmux-next/check-leo-bans.py --rev HEAD --base HEAD^1
+          else
+            python3 -I scripts/cmux-next/check-leo-bans.py --rev HEAD
+          fi
+
       # The one motion duration scale (schemas/motion-scale/motion-scale.json): its Swift, CSS and
       # TypeScript copies (Leo 2026-10-20: one token file both sides read).
       - name: Motion scale
@@ -1570,6 +1592,8 @@ jobs:
             bash tests/test_strip_release_bundle.sh
             # The pre-push gate refuses a push that adds a violation and names the commit in CI.
             python3 tests/test_cmux_next_prepush_gate.py
+            # Leo's bans: the UI font stays Inter with its calculated tracking (check-leo-bans.py).
+            python3 tests/test_leo_bans.py
             # The perf gate skips its per-frame timings on a window that draws no frames (--frames auto).
             python3 tests/test_cmux_next_perf_gate_unlit.py
             # A base merge pushed while the PR's CI runs gets a warning (scripts/ci/base_merge_warning.py).
@@ -1994,6 +2018,7 @@ jobs:
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.type-scale.outcome }}|Type scale
+            ${{ steps.leo-bans.outcome }}|Leo's bans (Inter UI font and tracking)
             ${{ steps.motion-scale.outcome }}|Motion scale
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
