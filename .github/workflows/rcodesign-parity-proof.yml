@@ -304,8 +304,10 @@ jobs:
           (umask 077 && printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 -D > "$secrets/AuthKey.p8")
           ditto -c -k --keepParent "$app" "$RUNNER_TEMP/reference.zip"
           xcrun notarytool submit "$RUNNER_TEMP/reference.zip" --key "$secrets/AuthKey.p8" \
-            --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID" --wait --timeout 45m 2>&1 | tee notary-reference.log
-          grep -q 'status: Accepted' notary-reference.log
+            --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID" --wait --timeout 45m --output-format json > notary-reference.json
+          cat notary-reference.json
+          status="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("status", ""))' notary-reference.json)"
+          [[ "$status" == Accepted ]] || { echo "reference notarization status: ${status:-none}" >&2; exit 1; }
           xcrun stapler staple "$app"
           mkdir -p reference
           COPYFILE_DISABLE=1 tar -C "$RUNNER_TEMP/work" -cf reference/stapled.tar "$APP_NAME.app"
