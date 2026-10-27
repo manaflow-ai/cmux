@@ -137,5 +137,19 @@ struct AgentPanePeerStartFolderTests {
         #expect(params["cwd"] as? String == Self.peerOnly)
         #expect(((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["peer"] as? String == "devbox")
         #expect(transport.addedRoots.isEmpty, "a peer's folder became a root of this Mac's pane")
+
+        // The person's click on a start in a folder of the same name on this Mac, outside its roots:
+        // the start goes to devbox and the click adds no root of this Mac's pane.
+        let outside = try Self.macFolder("peer-start-outside")
+        defer { try? FileManager.default.removeItem(atPath: outside) }
+        transport.gestures.record()
+        #expect(await transport.send(connection: id, frames: [try Self.start(id: 3, cwd: outside)]) == nil)
+        _ = await inbox.frame(containing: #""id":3"#)
+        #expect(starts().count == 2)
+        #expect(transport.addedRoots.isEmpty, "the click made a peer's folder a root of this Mac's pane")
+        // The same click on a start on this Mac still adds that folder (the person typed it).
+        transport.gestures.record()
+        #expect(await transport.send(connection: id, frames: [try Self.start(id: 4, cwd: outside, peer: nil)]) == nil)
+        #expect(transport.addedRoots == [outside])
     }
 }
