@@ -51,4 +51,18 @@ struct AgentPaneArtifactNavigationTests {
                                                  sourceFrameURL: pane.pageURL, targetFrameURL: target) == .allow)
         }
     }
+
+    @Test func artifactResponsesEnforceOpaqueSandboxAndPaneAncestors() throws {
+        let headers = AgentPaneRenderFrame.headers(length: 1, artifact: true)
+        let policy = try #require(headers["Content-Security-Policy"])
+        let directives = policy.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
+        #expect(directives.contains("sandbox allow-scripts"))
+        #expect(directives.contains("frame-ancestors cmux-agent://pane"))
+        #expect(!policy.contains("allow-same-origin"))
+        #expect(!policy.contains("127.0.0.1"))
+        let render = try #require(AgentPaneRenderFrame.headers(length: 1)["Content-Security-Policy"])
+        #expect(render.contains("https://cdn.jsdelivr.net"))
+        #expect(render.contains("'unsafe-eval'"))
+        #expect(!render.contains("sandbox"))
+    }
 }

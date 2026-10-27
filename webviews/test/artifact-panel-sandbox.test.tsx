@@ -137,3 +137,21 @@ test("the shared page host previews passive HTML and SVG and grants scripts only
     scope.location = previous;
   }
 });
+
+test("render-card versions retain the original CDN-capable render endpoint", async () => {
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const code = '<script src="https://cdn.jsdelivr.net/npm/chart.js"></script><canvas id="chart"></canvas>';
+  const versions = [code, code + '<script>new Chart(document.getElementById("chart"), {})</script>'].map((code) => ({
+    kind: "html" as const,
+    lang: "html",
+    code,
+    render: "chart-tool",
+  }));
+  act(() => root!.render(<ArtifactPanel artifact={versions[0]!} versions={versions} onClose={() => {}} />));
+  act(() => button("Run")!.click());
+  expect(host.querySelector("iframe")?.getAttribute("src")).toBe("cmux-agent://render/frame");
+  act(() => button("Next version")!.click());
+  act(() => button("Run")!.click());
+  expect(host.querySelector("iframe")?.getAttribute("src")).toBe("cmux-agent://render/frame");
+  expect(host.querySelector("iframe")?.getAttribute("sandbox")).toBe("allow-scripts");
+});
