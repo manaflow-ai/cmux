@@ -84,6 +84,8 @@ parser.add_argument("--first-key", type=int, default=0,
 parser.add_argument("--first-key-keys", type=int, default=5)
 parser.add_argument("--first-key-focus", action="store_true",
                     help="read debug.focus once before key 0 and once after it (shifts key 0 by the read)")
+parser.add_argument("--first-key-base", action="store_true",
+                    help="first-key trials open their tab beside a base terminal tab opened once (not into the emptied pane)")
 parser.add_argument("--first-key-settle", type=float, default=1.5)
 parser.add_argument("--shell", default="", help="terminal.shell for the app's cmux.json (default: the app's own)")
 opts = parser.parse_args()
@@ -230,6 +232,11 @@ def run_first_key(session, poster):
     types into the new tab); per key index the probe row's key-to-frame and hops, or why it has none."""
     trials = session["first_key"] = []
     session_start = probe_count()  # the probe CSV is shared by every session; each launch numbers presses from 0
+    if opts.first_key_base:
+        session["first_key_base_open"] = json.dumps(action("newSurface"))[:200]
+        time.sleep(3.0)
+        session["first_key_base_focus"] = focus_brief(full=True)
+        note(f"  base: {json.dumps(session['first_key_base_focus'])[:400]}")
     for trial in range(opts.first_key):
         t0 = time.perf_counter()
         reply = action("newSurface")
