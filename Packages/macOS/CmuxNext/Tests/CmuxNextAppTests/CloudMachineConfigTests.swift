@@ -13,6 +13,8 @@ struct CloudMachineConfigTests {
         #expect(CloudMachineConfig.applier.contains("def write(path, text, mode=0o600)"))
         #expect(CloudMachineConfig.applier.hasPrefix("#!/usr/bin/env python3\n"))
         #expect(!CloudMachineConfig.applier.contains("log_tail"), "no setup output in status.json, which the app reads over the file API")
+        #expect(CloudMachineConfig.applier.contains(#"='((?:[^']|'\\'')*)'"#) && !CloudMachineConfig.applier.contains("len(value) >="),
+                "every delivered value is masked in setup's log, however short, multi-line ones too")
     }
 
     @Test func aBootstrapStartWaitsForARunningApplyAndNeverRerunsADoneScript() throws {

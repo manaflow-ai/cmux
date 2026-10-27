@@ -352,14 +352,18 @@ public struct CloudMachineConfig: Equatable, Sendable {
                 if not stat.S_ISREG(st.st_mode) or st.st_size > 4 << 20:
                     return []
                 text = f.read()
-            values = []
-            for m in re.finditer(r"^export [A-Za-z_][A-Za-z0-9_]*='(.*)'$", text, re.M):
-                value = m.group(1).replace("'\\''", "'")
-                if len(value) >= 4:  # shorter would mask ordinary output; set longer secrets
-                    values.append(value.encode())
-                    # And as the file holds it (a setup that prints the file prints this form), when that differs.
-                    values.append(m.group(1).encode())
-            return sorted(set(values), key=len, reverse=True)
+            # Every value, however short (`cmux cloud secret set` takes 8 characters and up; a shorter one was
+            # written by hand), as the file holds it too (a setup that prints the file prints that form), each
+            # line of one that spans lines, and whole any line no `export NAME='…'` covers (a hand-written form).
+            values, rest, at = set(), [], 0
+            for m in re.finditer(r"^export [A-Za-z_][A-Za-z0-9_]*='((?:[^']|'\\'')*)'[ \t]*$", text, re.M):
+                rest.append(text[at:m.start()])
+                at = m.end()
+                for form in (m.group(1).replace("'\\''", "'"), m.group(1)):
+                    values |= {form} | {line.strip() for line in form.splitlines()}
+            for chunk in rest + [text[at:]]:
+                values |= {line.strip() for line in chunk.splitlines()}
+            return sorted({v.encode() for v in values if v}, key=len, reverse=True)
 
 
         class Masked:
