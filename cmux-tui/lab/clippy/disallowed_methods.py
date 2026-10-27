@@ -7,12 +7,15 @@ cmux-tui/lab/clippy/clippy.toml says (Linux and macOS), then:
   python3 cmux-tui/lab/clippy/disallowed_methods.py linux=linux.jsonl macos=macos.jsonl [--json] [--check]
 
 A hit is one method at one workspace file:line:column, so a line both runs see
-counts once (the merge rust_panic_ratchet.py --clippy-json does). Only the
-production targets the run checked count; build scripts never do. --check
-exits 1 while code outside the wrappers has a hit (p10-stability done check
-10) or a run did not finish. The wrappers are cmux-blocking, whose modules
-allow the lint, and cmux_threads::checked, the policy's own checked std calls;
-the table lists the latter's hits on a row of their own.
+counts once (the merge rust_panic_ratchet.py --clippy-json does), and a macro
+span that expands to several methods counts each of them. Only the production
+targets the run checked count; build scripts never do. --check exits 1 while
+code outside the wrappers has a hit (p10-stability done check 10) or a run did
+not finish. The wrappers are cmux-blocking, whose modules allow the lint, and
+the two crates it depends on: cmux-threads (the sync primitives, spawn, work,
+hang and cmux_threads::checked) and cmux-panic-log. Those two build the policy
+itself and cannot call cmux-blocking without a dependency cycle, so the table
+lists their hits on rows of their own and --check never counts them.
 """
 import argparse
 import collections
@@ -27,16 +30,20 @@ sys.path.insert(0, os.path.join(REPO, "scripts", "cmux-next"))
 from rust_panic_ratchet import FROZEN_FIXTURES, crate_of, package_name, workspace_path  # noqa: E402
 
 LINT = "clippy::disallowed_methods"
-# The sanctioned callers of the blocking std calls: (row, path prefix).
+# The sanctioned callers of the blocking std calls: (row, path prefix); the
+# first prefix that matches names the row. cmux-blocking depends on
+# cmux-threads and cmux-panic-log, so those layers call std directly.
 WRAPPERS = (
     ("cmux-blocking", "crates/cmux-blocking/"),
     ("cmux-threads (checked)", "crates/cmux-threads/src/checked.rs"),
+    ("cmux-threads", "crates/cmux-threads/"),
+    ("cmux-panic-log", "crates/cmux-panic-log/"),
 )
 METHOD = re.compile(r"use of a disallowed method `([^`]+)`")
 
 
 def read_run(path):
-    """(finished, {(file, line, column): (crate, method)}) for one clippy JSON run."""
+    """(finished, {(file, line, column, method): crate}) for one clippy JSON run."""
     finished = None
     hits = {}
     with open(path, encoding="utf-8", errors="replace") as handle:
@@ -70,7 +77,7 @@ def read_run(path):
             method = match.group(1) if match else "?"
             path = workspace_path(file_name)
             crate = next((row for row, prefix in WRAPPERS if path.startswith(prefix)), crate)
-            hits.setdefault((path, span.get("line_start"), span.get("column_start")), (crate, method))
+            hits.setdefault((path, span.get("line_start"), span.get("column_start"), method), crate)
     return finished, hits
 
 
@@ -91,7 +98,7 @@ def summarize(runs):
         for key, value in hits.items():
             merged.setdefault(key, value)
     methods = collections.defaultdict(collections.Counter)
-    for crate, method in merged.values():
+    for (_, _, _, method), crate in merged.items():
         methods[crate][method] += 1
     crates = {
         crate: {"total": sum(counter.values()), "methods": dict(counter.most_common())}

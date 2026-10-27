@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import disallowed_methods  # noqa: E402
 
 
-def hit(file_name, line, method, package="cmux-config", kind="lib"):
+def hit(file_name, line, method, package="cmux-config", kind="lib", column=9):
     return {
         "reason": "compiler-message",
         "package_id": f"path+file:///w/cmux-tui/crates/{package}#0.1.0",
@@ -19,7 +19,7 @@ def hit(file_name, line, method, package="cmux-config", kind="lib"):
         "message": {
             "code": {"code": "clippy::disallowed_methods"},
             "message": f"use of a disallowed method `{method}`",
-            "spans": [{"is_primary": True, "file_name": file_name, "line_start": line, "column_start": 9}],
+            "spans": [{"is_primary": True, "file_name": file_name, "line_start": line, "column_start": column}],
         },
     }
 
@@ -63,6 +63,29 @@ class DisallowedMethodsTest(unittest.TestCase):
         macos = self.run_file([same, hit("/m/cmux-tui/crates/cmux-config/src/mac.rs", 7, "std::fs::read")], label="macos")
         summary = disallowed_methods.summarize([linux, macos])
         self.assertEqual(summary["crates"]["cmux-config"]["total"], 2)
+
+    def test_one_macro_span_counts_each_method(self):
+        # checked_fs!'s `$call($($arg),*)` gives every std call it expands to one span.
+        span = ("crates/cmux-config/src/m.rs", 30)
+        linux = self.run_file([hit(*span, "std::fs::read"), hit(*span, "std::fs::write")], label="linux")
+        macos = self.run_file([hit(*span, "std::fs::write"), hit(*span, "std::fs::File::sync_data")], label="macos")
+        crates = disallowed_methods.summarize([linux, macos])["crates"]
+        self.assertEqual(crates["cmux-config"], {
+            "total": 3,
+            "methods": {"std::fs::read": 1, "std::fs::write": 1, "std::fs::File::sync_data": 1},
+        })
+
+    def test_check_ignores_the_layers_below_cmux_blocking(self):
+        run = self.run_file([
+            hit("crates/cmux-threads/src/sync_locks.rs", 226, "std::sync::Condvar::wait", package="cmux-threads"),
+            hit("crates/cmux-threads/src/spawn.rs", 45, "std::thread::Builder::spawn", package="cmux-threads"),
+            hit("crates/cmux-panic-log/src/lib.rs", 80, "std::fs::OpenOptions::open", package="cmux-panic-log"),
+        ])
+        self.assertEqual(disallowed_methods.main([run[1], "--check"]), 0)
+        summary = disallowed_methods.summarize([run])
+        self.assertEqual(summary["crates"]["cmux-threads"]["total"], 2)
+        self.assertEqual(summary["crates"]["cmux-panic-log"]["total"], 1)
+        self.assertEqual(disallowed_methods.outside_wrappers(summary), 0)
 
     def test_check_ignores_wrappers_and_build_scripts(self):
         run = self.run_file([
