@@ -601,3 +601,74 @@ async fn a_peer_that_does_not_save_attachments_is_refused_before_anything_is_sen
     assert!(begun.get("error").is_none(), "{begun}");
     assert_eq!(prompts.load(Ordering::SeqCst), 101);
 }
+
+/// Uploads `bytes` as `name` to chat `session` the way `acpmux send --attach` does
+/// (`attach::blocks_for`), and answers its id.
+async fn upload(c: &mut Client, session: &str, name: &str, bytes: &[u8]) -> String {
+    let begin =
+        json!({"sessionId": session, "fileName": name, "size": bytes.len(), "forPrompt": true});
+    let begun = c.call(method::MUX_FILE_PUT_BEGIN, begin).await;
+    let id = begun["result"]["uploadId"].as_str().unwrap_or_else(|| panic!("{begun}")).to_owned();
+    let chunk = json!({"sessionId": session, "uploadId": id, "offset": 0, "data": b64(bytes)});
+    let put = c.call(method::MUX_FILE_PUT_CHUNK, chunk).await;
+    assert!(put.get("error").is_none(), "{put}");
+    let finish =
+        json!({"sessionId": session, "uploadId": id, "fileName": name, "size": bytes.len()});
+    let done = c.call(method::MUX_FILE_PUT_FINISH, finish).await;
+    assert!(done.get("error").is_none(), "{done}");
+    id
+}
+
+/// The block `acpmux send --attach` names an upload with, marked as the prompt's own.
+fn owned_ref(id: &str, name: &str) -> Value {
+    json!({"type": "image", "mimeType": "image/png",
+        "_meta": {"acpmux": {"upload": {"uploadId": id, "fileName": name, "owned": true}}}})
+}
+
+async fn gone(dir: &Path) -> bool {
+    for _ in 0..200 {
+        if !dir.exists() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    false
+}
+
+/// The uploads a send made for its prompt alone (`attach::blocks_for`) are never left behind: a
+/// prompt refused before the chat takes it (a bad sender, a steer with no turn to steer) deletes
+/// them, one the chat runs keeps them, and cancelling a finished upload deletes it.
+#[tokio::test]
+async fn a_refused_prompt_leaves_none_of_its_own_uploads_behind() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("attach-owned").await;
+    let folder = |id: &str| home().join("uploads").join(&session).join(id);
+
+    let id = upload(&mut c, &session, "a.png", &png(256 << 10)).await;
+    assert!(folder(&id).is_dir());
+    let p = json!({"sessionId": session, "prompt": [{"type": "text", "text": "x"},
+        owned_ref(&id, "a.png")], "_meta": {"acpmux": {"promptId": v7(), "fromAgent": 7}}});
+    let reply = c.call(method::SESSION_PROMPT, p).await;
+    assert!(reply.get("error").is_some(), "{reply}");
+    assert!(gone(&folder(&id)).await, "a prompt refused by its checks left its upload");
+
+    let id = upload(&mut c, &session, "b.png", &png(256 << 10)).await;
+    let p = json!({"sessionId": session, "prompt": [{"type": "text", "text": "x"},
+        owned_ref(&id, "b.png")],
+        "_meta": {"acpmux": {"promptId": v7(), "steer": true, "steerOnly": true}}});
+    let reply = c.call(method::SESSION_PROMPT, p).await;
+    assert_eq!(reply["error"]["data"]["reason"], "steer.unavailable", "{reply}");
+    assert!(gone(&folder(&id)).await, "a prompt the chat refused left its upload");
+
+    let id = upload(&mut c, &session, "c.png", &png(256 << 10)).await;
+    let (ran, echoed) = c.send(&session, &v7(), "see", vec![owned_ref(&id, "c.png")]).await;
+    assert!(ran.get("error").is_none(), "{ran}");
+    assert!(echoed.contains(&format!("image:{}", sha(&png(256 << 10)))), "{echoed}");
+    assert!(folder(&id).is_dir(), "a prompt that ran lost its upload");
+
+    let cancel = json!({"sessionId": session, "uploadId": id});
+    let cancelled = c.call(method::MUX_FILE_PUT_CANCEL, cancel).await;
+    assert!(cancelled.get("error").is_none(), "{cancelled}");
+    assert!(!folder(&id).exists(), "cancel left a finished upload");
+}
