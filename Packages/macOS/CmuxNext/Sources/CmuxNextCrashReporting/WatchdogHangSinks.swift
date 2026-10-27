@@ -53,7 +53,7 @@ public struct WatchdogHangSinks: Sendable {
     /// Sends `hang` to crash reporting; nothing while Sentry is off. Watchdog thread.
     public static func send(_ hang: MainThreadWatchdog.Hang, to reporter: CrashReporter) {
         reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
-                            phase: hang.phase, attribution: attribution(of: hang))
+                            phase: hang.phase, cef: hang.cef, attribution: attribution(of: hang))
     }
 
     /// The scheduled task the hang's sample caught, as crash reporting names it.

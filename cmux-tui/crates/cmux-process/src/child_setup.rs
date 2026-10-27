@@ -1,15 +1,20 @@
-//! The std path's child side (Linux and other non-Apple Unix): what runs
-//! between std's fork and its exec. Only async-signal-safe calls on data the
+//! The std path's child side: what runs between std's fork and its exec, on
+//! Linux and other non-Apple Unix for every child that needs more than std,
+//! and on macOS only for a child that needs a controlling terminal
+//! ([`crate::Command::open_stdin_path`] with [`crate::Command::new_session`]),
+//! which `posix_spawn` cannot give. Only async-signal-safe calls on data the
 //! parent prepared; nothing here allocates or takes a lock.
 
 use std::ffi::CString;
 use std::io;
 use std::os::fd::RawFd;
 
-/// What one child does before its exec, in this order: leave the session,
-/// change to its directory, set its open-file limit, reset its signals and
-/// mark every descriptor close-on-exec ([`DescriptorSweep`]), open its stdin
-/// path, place its inherited descriptors, install its process-group fence.
+/// What one child does before its exec, in this order: (macOS) set its QoS
+/// class, leave the session, change to its directory, set its open-file
+/// limit, reset its signals and mark every descriptor close-on-exec
+/// ([`DescriptorSweep`]), open its stdin path and make it the controlling
+/// terminal, place its inherited descriptors, install its process-group
+/// fence.
 pub(crate) struct ChildSetup {
     pub(crate) new_session: bool,
     pub(crate) cwd_fd: Option<RawFd>,
@@ -22,11 +27,28 @@ pub(crate) struct ChildSetup {
     pub(crate) inherit: Vec<(RawFd, RawFd)>,
     pub(crate) process_group_fence: bool,
     pub(crate) open_file_limit: Option<u64>,
+    /// After `new_session` and the open of `stdin_path`: make that terminal
+    /// the controlling terminal (`TIOCSCTTY` on descriptor 0), so its line
+    /// discipline sends SIGINT, SIGQUIT and SIGTSTP to the foreground group
+    /// and its hangup reaches the session.
+    pub(crate) controlling_terminal: bool,
+    /// macOS: the QoS class the child's thread runs at before its exec. A
+    /// forked child keeps the spawning thread's class across the exec (a
+    /// `posix_spawn` child starts at its attribute's), so a shell started
+    /// from a UserInteractive echo thread would run at it.
+    #[cfg(target_vendor = "apple")]
+    pub(crate) qos_class: libc::qos_class_t,
 }
 
 impl ChildSetup {
     /// Run in the forked child.
     pub(crate) fn run(&self) -> io::Result<()> {
+        // SAFETY: one system call on the calling (only) thread, with no lock
+        // (the holder makes the same call after its fork).
+        #[cfg(target_vendor = "apple")]
+        unsafe {
+            libc::pthread_set_qos_class_self_np(self.qos_class, 0);
+        }
         // SAFETY: setsid and fchdir are async-signal-safe and change only
         // this (child) process.
         unsafe {
@@ -64,6 +86,14 @@ impl ChildSetup {
                 }
                 if fd > 2 {
                     libc::close(fd);
+                }
+                // Linux acquires the terminal at that open; macOS does not
+                // when the open runs before setsid (as in posix_spawn), so ask
+                // for it, and fail the spawn when the terminal cannot become
+                // the controlling one instead of starting a shell that Ctrl-C
+                // never reaches. On the session's own terminal it is a no-op.
+                if self.controlling_terminal && libc::ioctl(0, libc::TIOCSCTTY as _, 0) == -1 {
+                    return Err(io::Error::last_os_error());
                 }
             }
             // No source is numbered as a target (`fd::lift_sources_above_targets`
@@ -159,7 +189,11 @@ impl DescriptorSweep {
     }
 
     /// Linux: `close_range(CLOSE_RANGE_CLOEXEC)` (5.11+), else the child's
-    /// own `/proc/self/fd`, else each number up to the limit.
+    /// own descriptor directory, else each number up to the limit. macOS:
+    /// the child's own descriptor directory, else each number up to the
+    /// limit. The directory is `/proc/self/fd` on Linux and `/dev/fd` on
+    /// macOS (fdesc: the calling process's own table), as Chromium's
+    /// `CloseSuperfluousFds` reads it.
     pub(crate) fn mark_close_on_exec(&self) -> io::Result<()> {
         #[cfg(target_os = "linux")]
         {
@@ -183,18 +217,19 @@ impl DescriptorSweep {
             ) {
                 return Err(error);
             }
-            if let Ok(directory) = open_proc_self_fd() {
-                let result = mark_listed_close_on_exec(directory);
-                // The directory is close-on-exec, so a failed close cannot
-                // leak through exec; no retry after EINTR (the number may
-                // already be reused).
-                // SAFETY: the descriptor opened just above.
-                unsafe { libc::close(directory) };
-                return result;
-            }
-            if self.limit > MAX_INDIVIDUAL_DESCRIPTOR_LIMIT {
-                return Err(io::Error::from_raw_os_error(libc::EOVERFLOW));
-            }
+        }
+        if let Ok(directory) = open_own_descriptor_directory() {
+            let result = mark_listed_close_on_exec(directory);
+            // The directory is close-on-exec, so a failed close cannot leak
+            // through exec; no retry after EINTR (the number may already be
+            // reused).
+            // SAFETY: the descriptor opened just above.
+            unsafe { libc::close(directory) };
+            return result;
+        }
+        #[cfg(target_os = "linux")]
+        if self.limit > MAX_INDIVIDUAL_DESCRIPTOR_LIMIT {
+            return Err(io::Error::from_raw_os_error(libc::EOVERFLOW));
         }
         for descriptor in 3..self.limit {
             match mark_close_on_exec(descriptor) {
@@ -206,22 +241,35 @@ impl DescriptorSweep {
     }
 }
 
-/// Open the child's `/proc/self/fd` (after the fork, so it names the
-/// child's table) with a raw syscall: no allocator or libc lock.
-#[cfg(target_os = "linux")]
-fn open_proc_self_fd() -> io::Result<RawFd> {
-    const PROC_SELF_FD: &[u8] = b"/proc/self/fd\0";
+/// Open the child's own descriptor directory (after the fork, so it names
+/// the child's table): Linux `/proc/self/fd` with a raw syscall (no
+/// allocator or libc lock), macOS `/dev/fd` with `open(2)`, which is
+/// async-signal-safe.
+fn open_own_descriptor_directory() -> io::Result<RawFd> {
+    #[cfg(target_os = "linux")]
+    const DIRECTORY: &[u8] = b"/proc/self/fd\0";
+    #[cfg(not(target_os = "linux"))]
+    const DIRECTORY: &[u8] = b"/dev/fd\0";
     loop {
+        #[cfg(target_os = "linux")]
         // SAFETY: a NUL-terminated path; the result is a new descriptor or -1.
         let descriptor = unsafe {
             libc::syscall(
                 libc::SYS_openat,
                 libc::AT_FDCWD,
-                PROC_SELF_FD.as_ptr().cast::<libc::c_char>(),
+                DIRECTORY.as_ptr().cast::<libc::c_char>(),
                 libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
                 0,
             )
         };
+        #[cfg(not(target_os = "linux"))]
+        // SAFETY: a NUL-terminated path; the result is a new descriptor or -1.
+        let descriptor = i64::from(unsafe {
+            libc::open(
+                DIRECTORY.as_ptr().cast::<libc::c_char>(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+            )
+        });
         if descriptor >= 0 {
             return RawFd::try_from(descriptor)
                 .map_err(|_| io::Error::from_raw_os_error(libc::EOVERFLOW));
@@ -233,26 +281,65 @@ fn open_proc_self_fd() -> io::Result<RawFd> {
     }
 }
 
-/// Mark each descriptor `/proc/self/fd` lists (read with `getdents64` into a
-/// stack buffer).
+/// Where a directory entry's record length and name are (Linux
+/// `linux_dirent64`; macOS the 64-bit-inode `struct dirent` that
+/// `__getdirentries64` fills: ino, seekoff, reclen, namlen, type, name).
 #[cfg(target_os = "linux")]
-fn mark_listed_close_on_exec(directory: RawFd) -> io::Result<()> {
-    const DIRENT_NAME_OFFSET: usize = 19;
-    let mut entries = [0_u8; 4096];
+const DIRENT_NAME_OFFSET: usize = 19;
+#[cfg(not(target_os = "linux"))]
+const DIRENT_NAME_OFFSET: usize = 21;
+const DIRENT_RECORD_LENGTH_OFFSET: usize = 16;
+
+#[cfg(target_vendor = "apple")]
+unsafe extern "C" {
+    /// libsystem_kernel's directory read (what `readdir` calls), with no
+    /// allocation or lock: a raw system call into the caller's buffer.
+    fn __getdirentries64(
+        fd: libc::c_int,
+        buffer: *mut libc::c_void,
+        length: libc::size_t,
+        base: *mut libc::off_t,
+    ) -> libc::ssize_t;
+}
+
+/// Read the next directory entries of `directory` into `entries`: the byte
+/// count, 0 at the end.
+fn read_directory_entries(directory: RawFd, entries: &mut [u8]) -> io::Result<usize> {
     loop {
-        let count = loop {
-            // SAFETY: getdents64 fills at most `entries.len()` bytes.
-            let count = unsafe {
-                libc::syscall(libc::SYS_getdents64, directory, entries.as_mut_ptr(), entries.len())
-            };
-            if count >= 0 {
-                break count as usize;
-            }
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::EINTR) {
-                return Err(error);
+        #[cfg(target_os = "linux")]
+        // SAFETY: getdents64 fills at most `entries.len()` bytes.
+        let count = unsafe {
+            libc::syscall(libc::SYS_getdents64, directory, entries.as_mut_ptr(), entries.len())
+        };
+        #[cfg(target_vendor = "apple")]
+        let count = {
+            let mut base: libc::off_t = 0;
+            // SAFETY: fills at most `entries.len()` bytes and writes `base`.
+            unsafe {
+                __getdirentries64(directory, entries.as_mut_ptr().cast(), entries.len(), &mut base)
             }
         };
+        #[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
+        let count: isize = {
+            let _ = (directory, &entries);
+            return Err(io::Error::from_raw_os_error(libc::ENOSYS));
+        };
+        if count >= 0 {
+            return Ok(count as usize);
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINTR) {
+            return Err(error);
+        }
+    }
+}
+
+/// Mark each descriptor the child's own descriptor directory lists (read
+/// into a stack buffer).
+fn mark_listed_close_on_exec(directory: RawFd) -> io::Result<()> {
+    let mut entries = [0_u8; 4096];
+    loop {
+        let count = read_directory_entries(directory, &mut entries)?;
         if count == 0 {
             return Ok(());
         }
@@ -262,7 +349,10 @@ fn mark_listed_close_on_exec(directory: RawFd) -> io::Result<()> {
             if remaining.len() <= DIRENT_NAME_OFFSET {
                 return Err(io::Error::from_raw_os_error(libc::EIO));
             }
-            let record_length = u16::from_ne_bytes([remaining[16], remaining[17]]) as usize;
+            let record_length = u16::from_ne_bytes([
+                remaining[DIRENT_RECORD_LENGTH_OFFSET],
+                remaining[DIRENT_RECORD_LENGTH_OFFSET + 1],
+            ]) as usize;
             if record_length <= DIRENT_NAME_OFFSET || record_length > remaining.len() {
                 return Err(io::Error::from_raw_os_error(libc::EIO));
             }
@@ -282,7 +372,6 @@ fn mark_listed_close_on_exec(directory: RawFd) -> io::Result<()> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn parse_descriptor(name: &[u8]) -> Option<RawFd> {
     if name.is_empty() {
         return None;

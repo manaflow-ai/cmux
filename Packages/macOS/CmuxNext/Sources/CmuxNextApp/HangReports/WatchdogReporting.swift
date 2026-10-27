@@ -14,8 +14,8 @@ import CmuxNextWakeups
 /// running after 2 s to crash reporting with its stack and to a file per hang; each finished lag
 /// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
 /// (``HangReportsController``), whose sink does nothing while they are off, as each committed key's `key.frame`
-/// time (`AppServices.inputFrameSignposts`); with the main thread's phase
-/// (`main_thread_phase`, `cef_pump`). The blocking detector's new call sites go to ``BlockingReportSink``.
+/// time (`AppServices.inputFrameSignposts`); with the main thread's phase (`main_thread_phase`, `cef_pump`)
+/// and `hang.cef` in the CEF pump. The blocking detector's new call sites go to ``BlockingReportSink``.
 @MainActor
 enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
@@ -85,7 +85,7 @@ enum WatchdogReporting {
             }
         }
         watchdog.onStall = { record in
-            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue)
+            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue, cef: record.details["cef"]?.boolValue == true)
             collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
         }
         // A slow key frame takes the black box (one compare, then one atomic load while reports are off).

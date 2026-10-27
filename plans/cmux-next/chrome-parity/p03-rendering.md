@@ -1381,6 +1381,31 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: counter test: `createWithActiveCGDisplays` not called with the flag; standalone behavior unchanged.
 - Test phase: zig build test (initialized submodule).
 - Size M. Queue: MQ-displaylinks.
+- As built (ghostty-next branch cp/p03-rendering-082, 7436f3b9a, draft PR manaflow-ai/ghostty-next#59; 083 writes
+  against this):
+  - `ghostty_surface_config_s` gets `bool vsync_external`, `ghostty_surface_vsync_wanted_cb vsync_wanted_cb`,
+    `void* vsync_userdata`, after `io_write_userdata` (64-bit offsets 112, 120, 128; size 136).
+    `ghostty_surface_new` fails when `vsync_external` is set without the callback. Split surfaces Ghostty asks
+    for do not inherit the fields.
+  - `void (*ghostty_surface_vsync_wanted_cb)(void* userdata, bool wanted)` runs on the renderer thread, on each
+    edge only (calls alternate, starting with true): true when the surface is visible and has a new frame or an
+    animation (the same condition that started the CVDisplayLink), false when idle or hidden, and false once more
+    when the renderer thread exits. It may call `ghostty_surface_vsync` and nothing else in Ghostty.
+  - `void ghostty_surface_vsync(ghostty_surface_t)`: one refresh; any thread, from `ghostty_surface_new` until
+    `ghostty_surface_free` is called; no effect without `vsync_external`. It notifies the renderer thread's
+    `draw_now`, the async a display link of its own notifies, so frames, coalescing and the early first frame
+    after idle (`drawsNow`) are the same as standalone.
+  - Differences from the spec: no `target_ns` argument. The tick draws at once and the renderer has no use for a
+    deadline (a stale tick still draws the newest cells); a deadline goes with the BeginFrame-args work, not here.
+    The tick is the `draw_now` async, not a mailbox message, so a burst of ticks coalesces as link ticks do.
+    `ghostty_surface_set_display_id` does not change pacing under external vsync: the embedder moves the surface to
+    its display's clock (083).
+  - Pacing lives in `ghostty-next/src/renderer/vsync.zig` (`Pacer`). Standalone, the link is made, run and stopped
+    as before; the "vsync external" tests count the link factory (0 calls of `createWithActiveCGDisplays` with the
+    flag). The flag reaches the renderer as `renderer.Options.vsync_external`, which `Surface.zig` sets from the
+    embedded surface only (`apprt.runtime == apprt.embedded`, so a renamed field fails the lib build). The test
+    "renderer external vsync: ..." runs `renderer.Renderer`'s own sync with its real link factory and counts 0
+    link creates. The gitlink and the GhosttyNextKit pin do not move here: 082 rides pin 1 (task 079).
 
 #### p03-rendering-083 cmux drives surfaces from VSyncHub
 - Files: `.../CmuxNextTerminal/TerminalVSync.swift` (new), `TerminalSurfaceView.swift`, `GhosttyRuntimeCallbacks.swift`.
@@ -1400,6 +1425,15 @@ every task that changes behavior or performance and is not repeated per row.
 - Test phase: bench-terminal-resize.py light drag: main p95 per drag frame <= base 12.2 ms, drops <= base;
   fresh_presents and late_presents reported.
 - Size M. Depends: 080.
+- Fork state (2026-10-27): ghostty-next branch `cp/p03-rendering-084`, commit 1c714bec5, on 080 (f60815cf5).
+  `presentHostSized` takes the fresh frame only if drawn, else keeps the last (`host_late_presents`); no futex, no
+  timeout. `PresentState` gives every frame an id under the draw lock and both writers compare-and-swap it over the
+  newest committed id before they show it (renderer at encode, main in `cover`); a refused main present counts
+  `host_superseded_presents` (new last field of the render counters). cmux side: `TerminalHostFramePresenter`
+  (feature `terminalPreCommitPresent`, default off) runs once, as a `.preCommit` handler of the open Core Animation
+  transaction, ahead of the commit that carries a resized or shown terminal's size (a run-loop observer added
+  from AppKit's display-cycle layout would run after that commit); it is made only when the pin has `GHOSTTY_PRESENT_NEVER_WAITS` (Package.swift, off until the pin bump
+  that brings 080 and 084, with 081). `TerminalResizeFrameTests` run only then.
 
 #### p03-rendering-085 Grid, snapshot and status off the main actor (G4 rest)
 - Files: `.../CmuxNextTerminal/TerminalSession.swift`, `TerminalSession+Output.swift`, `TerminalGridLock.swift`,
@@ -1457,6 +1491,18 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: TerminalIdleCursorFrameTests: steady focused cursor draws 0 frames in 10 s (red at base).
 - Test phase: render-idle-damage.py Ghostty frames at idle = 0 (with 091).
 - Size S.
+- Fork branch: manaflow-ai/ghostty-next `cp/p03-rendering-089`, commit `19eb96940` (on ghostty-next main `9ce9b7d08`). `cells_rebuilt`
+  (set by every `rebuildCells`, so every renderer wake drew a frame) becomes `frame_changed`: a frame update sets it
+  only when it built a row, or when what the frame shows outside its rows changed (`FrameShown`: cursor cell,
+  uniforms, block cursor text color, color target, cells' screen size), or Kitty images or the overlay updated.
+  Config, font grid, screen size, focus, shown again and `ghostty_surface_refresh` (new renderer message
+  `.redraw`) set it directly. The blink timer runs only for a focused, visible surface with a shown blinking
+  cursor: a tick that finds none does not re-arm, and the next frame update or focus that needs it starts it
+  (`syncCursorTimer`). The 600 ms timer no longer starts at thread start. Chromium: no damage, no draw
+  (`cc/scheduler/scheduler_state_machine.cc`, `ShouldDraw` needs `needs_redraw_`).
+  App test: `TerminalIdleCursorFrameTests.aSteadyFocusedCursorDrawsNoFrameForOutputThatChangesNothing` (title
+  output every 250 ms for 10 s, 0 frames; red at 723c4ab). The ghostty-next gitlink is not moved: the integrator
+  lane (task 079) lands the branch and bumps the pin.
 
 #### p03-rendering-090 ghostty-next: external cursor with cell image
 - Files: `ghostty-next/src/renderer/generic.zig`, `src/renderer/cursor.zig`, `src/apprt/embedded.zig`, `include/ghostty.h`.
