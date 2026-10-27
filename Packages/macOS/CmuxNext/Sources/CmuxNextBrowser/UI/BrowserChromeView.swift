@@ -110,6 +110,13 @@ public final class BrowserChromeView: NSView {
     var toolbarToggles = 0
     /// The frames a toolbar change starts from, until the layout that places the rows at rest.
     var pendingToolbarSlide: ToolbarSlide?
+    /// The last toolbar change ran on the render server: a hidden row parks past its edge at its height.
+    var toolbarParks = false
+    /// Whether toolbar changes move on the render server (`motion.renderServer`, off by default); read
+    /// at each change. Off: the rows' frames animate on the main thread as before.
+    let rendersMotionOnServer: () -> Bool
+    /// Under the page area: the page's background fills a gap the sliding page leaves (Chrome's gutter).
+    let pageGutter = NSView()
     /// The edge the toolbar rows sit on (`browser.toolbarPosition`); the pane sets it.
     public var toolbarPosition: ToolbarPosition = .top {
         didSet { if toolbarPosition != oldValue { applyToolbarPosition() } }
@@ -167,8 +174,11 @@ public final class BrowserChromeView: NSView {
     var finishedURL: URL?
 
     /// `mainWork` is the app's one main-thread scheduler; `node` the tab's (`TabContentCache.node(for:)`).
-    public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), mainWork: MainWorkScheduler, node: VisibilityNode?) {
+    /// `rendersMotionOnServer`: the app's `motion.renderServer` switch (``MotionBackend``).
+    public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), mainWork: MainWorkScheduler,
+                node: VisibilityNode?, rendersMotionOnServer: @escaping () -> Bool = { false }) {
         (self.tab, self.mainWork, self.node) = (tab, mainWork, node)
+        self.rendersMotionOnServer = rendersMotionOnServer
         visibilityNode = node ?? VisibilityNode(root: "browser.chrome.standalone", own: .visible)
         let find = BrowserFindModel()
         self.find = find
@@ -235,14 +245,16 @@ public final class BrowserChromeView: NSView {
     // MARK: Layout
 
     private func buildLayout() {
-        for view in [toolbar, separator, contentContainer] { view.wantsLayer = true }
+        for view in [toolbar, separator, contentContainer, pageGutter] { view.wantsLayer = true }
         contentContainer.layer?.masksToBounds = true
+        pageGutter.isHidden = true
 
         extensionSlot.orientation = .horizontal
         extensionSlot.setAccessibilityLabel(Strings.extensions)
 
         // Frame layout from the top: toolbar, separator, accessory bar, band, page; from the
         // bottom the same rows mirrored, the page on top (`BrowserChromeLayout`, `layout()`).
+        addSubview(pageGutter)
         addSubview(contentContainer)
         addSubview(toolbar)
         addSubview(separator)
@@ -300,10 +312,10 @@ public final class BrowserChromeView: NSView {
         syncHeaderBand(animated: false)
     }
 
-    /// The toolbar row's frame: hidden, it keeps its height past its edge, so a hide moves the
-    /// row and never resizes it.
+    /// The toolbar row's frame: hidden on the render server, it keeps its height past its edge, so a
+    /// hide moves the row and never resizes it.
     private func toolbarFrame(_ rows: BrowserChromeLayout) -> CGRect {
-        guard isToolbarHidden else { return rows.toolbar }
+        guard isToolbarHidden, toolbarParks else { return rows.toolbar }
         let height = rowMetrics.toolbarHeight
         return CGRect(x: 0, y: toolbarPosition == .top ? -height : bounds.height, width: bounds.width, height: height)
     }
@@ -423,6 +435,7 @@ public final class BrowserChromeView: NSView {
         separator.setChromeFrame(mapping.map(rows.separator))
         accessoryBar.setChromeFrame(mapping.map(rows.accessoryBar))
         contentContainer.setChromeFrame(mapping.map(rows.content))
+        pageGutter.setChromeFrame(contentContainer.frame)
         progressLine.setChromeFrame(mapping.map(rows.progressLine))
         accessoryView?.setChromeFrame(accessoryBar.bounds)
         if tab.contentView.superview === contentContainer { tab.contentView.setChromeFrame(contentContainer.bounds) }
