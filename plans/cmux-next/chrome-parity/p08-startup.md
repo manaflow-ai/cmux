@@ -210,7 +210,13 @@ Launch path (`Packages/macOS/CmuxNext/Sources`):
 - No cmux window sets `isRestorable = false` except `BrowserPopupWindow`; AppKit state restoration runs.
 
 Chromium:
-- ChromiumWarmup: launchPreloadDelay 3 s, idleInput 750 ms, maxWait 60 s. Chromium is the default engine,
+- ChromiumWarmup (p06-scheduler-050, task 018): the launch check, `CefInitialize` and the spare window are
+  idle tasks of the main-thread scheduler, posted once startup settled (`ChromiumWarmupIdle`); the
+  preload's framework read waits behind the startup fence (p08-startup-045). inputQuiet 750 ms, counted from
+  the app's last input, with one deadline (`ChromiumWarmup.quiet`) only after input while a step waits;
+  maxDelay 5 s (500 ms for a spare), then background work. No launch timer. `CefInitialize` runs in its idle
+  task's own turn (`CEFEngine.initializeLoaded` after `libraryLoadEnded`, `CEFLoadedStart`), not in a later
+  continuation; the Chromium Host's launch start (`startWithoutIdleWait`) awaits it. Chromium is the default engine,
   and cmux pages (Home, New Tab, agent pages) are hosted in Chromium (`PageWebView.chromiumHosting`,
   perf-lead F3). `CEFEngine.makeTab` -> `CEFRuntime.shared.start` runs at once for a restored visible
   Chromium tab. 11 `CEFRuntime.shared.start(` sites (9 are user features: passwords, passkeys).

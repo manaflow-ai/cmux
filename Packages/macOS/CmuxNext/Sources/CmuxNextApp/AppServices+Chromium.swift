@@ -12,9 +12,10 @@ import CmuxNextWakeups
 import Observation
 
 // When Chromium is likely (ChromiumWarmup): Chromium tabs and the palette's Chromium
-// entries (while Chromium is the default engine it starts after launch). The "+" engine menu reports from
+// entries (while Chromium is the default engine it starts after startup). The "+" engine menu reports from
 // PaneController.contextMenu(for: .newTabButton), the default-engine action
-// from SettingsHandlers.
+// from SettingsHandlers. Every warm-start step is an idle task of the app's main-thread scheduler
+// (`AppServices.mainDeadlines`, given to ChromiumWarmup at init), posted once startup settled.
 extension AppServices {
     /// The cmux-shipped uBlock Origin's pinned folder (``AgentExtensionAccess/readTrustedBuiltInFolder(resources:)``,
     /// a manifest read and hash), read once on `work`'s files lane: each tab's extension access
