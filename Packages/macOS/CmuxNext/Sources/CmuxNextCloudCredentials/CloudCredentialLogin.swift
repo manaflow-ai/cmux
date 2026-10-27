@@ -47,14 +47,14 @@ import Security
         guard result.status == 0 else { throw Failure.storeFailed }
     }
 
-    static func acquire(provider: Provider, openTerminal: @MainActor (String) -> Bool) async throws -> Data {
+    static func acquire(provider: Provider, openTerminal: @MainActor (String) async -> Bool) async throws -> Data {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-credential-\(UUID().uuidString)")
         try await prepare(directory: directory, provider: provider)
         // The visible terminal owns the provider process. Do not remove this directory while a
         // cancelled login may still be writing it; the shell's private umask and no shared path
         // keep a cancelled attempt unreadable. Completed attempts clean up below.
         let script = directory.appendingPathComponent("login.sh")
-        guard openTerminal("/bin/bash " + CloudCredentialInstaller.quote(script.path)) else { throw Failure.localLoginUnavailable }
+        guard await openTerminal("/bin/bash " + CloudCredentialInstaller.quote(script.path)) else { throw Failure.localLoginUnavailable }
         let status = directory.appendingPathComponent("status")
         let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(300))
         while clock.now < deadline {

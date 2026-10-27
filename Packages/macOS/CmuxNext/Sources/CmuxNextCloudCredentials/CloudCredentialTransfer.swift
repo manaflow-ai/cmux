@@ -30,9 +30,9 @@ import Foundation
     /// Nil is the authenticated user's personal Cloud scope; a non-nil value is a selected team.
     let teamID: String?
     let userID: String
-    let openTerminal: @MainActor (String) -> Bool
+    let openTerminal: @MainActor (String) async -> Bool
 
-    public init(provider: Provider, machineID: String, teamID: String?, userID: String, openTerminal: @escaping @MainActor (String) -> Bool) { self.provider = provider; self.machineID = machineID; self.teamID = teamID; self.userID = userID; self.openTerminal = openTerminal }
+    public init(provider: Provider, machineID: String, teamID: String?, userID: String, openTerminal: @escaping @MainActor (String) async -> Bool) { self.provider = provider; self.machineID = machineID; self.teamID = teamID; self.userID = userID; self.openTerminal = openTerminal }
 
     public func run(api: CloudAPIClient, currentTeamID: @MainActor () -> String?, currentUserID: @MainActor () -> String?, confirmed: Bool,
              refresh: Bool = false) async throws {
