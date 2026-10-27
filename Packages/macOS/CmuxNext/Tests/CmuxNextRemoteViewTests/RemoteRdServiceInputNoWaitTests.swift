@@ -57,6 +57,8 @@ struct RemoteRdServiceInputNoWaitTests {
 
         func cancel() {}
 
+        var isBackedUp: Bool { false }
+
         /// The next send holds the queue until ``open()``.
         func holdNextSend() { state.withLock { $0.holding = true } }
         func open() { release.signal() }

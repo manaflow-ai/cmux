@@ -15,8 +15,10 @@ extension CrashReporter {
     /// forced `DisableTelemetry` from the managed domains, all read once.
     /// `previousRun`: the previous run's crash keys and black box for its
     /// crash event (``previousRunEvidence(marker:bundleID:)``).
+    /// `hangTracking` follows feature `fatalHangReports` (p09-observability-076).
     static func forThisLaunch(
         bundleID: String?,
+        hangTracking: CrashReporter.HangTracking = .sentry,
         info: [String: Any] = Bundle.main.infoDictionary ?? [:],
         defaults: UserDefaults = .standard,
         managed: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
@@ -31,7 +33,7 @@ extension CrashReporter {
             isDebugBuild: DevTools.isDebugBuild,
             telemetryOptIn: CrashReportingPolicy.telemetryOptIn(in: defaults),
             managedDisablesTelemetry: forced,
-            processEnvironment: environment), previousRun: previousRun)
+            processEnvironment: environment), hangTracking: hangTracking, previousRun: previousRun)
     }
 
     /// The previous run's files for its crash event (p09-observability-079): its black box and crash-key page in
@@ -98,15 +100,18 @@ struct AppCrashReporting: Sendable {
     ///   - features: The features the app runs with, put on the Sentry scope right after it starts
     ///     (`DebugSettingsService.start` keeps them current as live Debug toggles change, `CrashReporter.followFeatures`).
     ///   - afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
+    ///   - hangSinks: The main-thread watchdog's hang sinks, set before Sentry starts; they decide whether Sentry's
+    ///     app-hang tracker runs (``WatchdogHangSinks/hangTracking``). Nil (tests, no watchdog) keeps the tracker.
     ///   - forwardersAfterStartup: The launch's scheduler with feature `crashForwardersAfterStartup`: the
     ///     forwarders run in its afterStartup lane post (``CrashForwarders/post(on:)``). Nil: they start now.
     ///   - runMarker: The app's run marker: the previous run's crash event, sent after the start, gets that run's
     ///     crash keys and black box (p09-observability-079).
     init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
          afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil),
-         forwardersAfterStartup: StartupScheduler? = nil, runMarker: AppRunMarker? = nil) {
+         hangSinks: WatchdogHangSinks? = nil, forwardersAfterStartup: StartupScheduler? = nil, runMarker: AppRunMarker? = nil) {
         let previousRun = CrashReporter.previousRunEvidence(marker: runMarker, bundleID: environment.launch.bundleID)
-        reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID, previousRun: previousRun)
+        reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID, hangTracking: hangSinks?.hangTracking ?? .sentry,
+                                               previousRun: previousRun)
         let bundleVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
         guard environment.marksRun else {
             // No Sentry in this process: the running build still decides when a notFatalUntil site traps.
@@ -114,6 +119,8 @@ struct AppCrashReporting: Sendable {
             forwarders = nil
             return
         }
+        // Before the start: with Sentry's tracker off, the watchdog reports every hang from the start on (p09-observability-076).
+        hangSinks?.install(reporter: reporter)
         DebugTimings.markLaunch("crash.sentry_start")
         let sends = reporter.start(profile: afterStartup.profile)
         DebugTimings.markLaunch("crash.sentry_started")

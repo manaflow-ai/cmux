@@ -53,8 +53,7 @@ pub(super) fn read_trusted(path: &Path) -> Option<Vec<u8>> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        // SAFETY: geteuid has no preconditions.
-        if meta.uid() != unsafe { libc::geteuid() } {
+        if meta.uid() != crate::platform::effective_uid() {
             return None;
         }
     }
