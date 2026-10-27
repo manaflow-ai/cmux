@@ -149,6 +149,7 @@ struct CuaTargetGuard: Sendable {
     }
 
     private func checkBatch(_ object: [String: Any]) async throws {
+        let defaults = object.filter { ["pid", "window_id"].contains($0.key) }
         func walk(_ value: Any, depth: Int) async throws {
             guard depth < 16 else { throw ToolError("Computer use batch arguments are nested too deeply.") }
             if let object = value as? [String: Any] {
@@ -159,7 +160,17 @@ struct CuaTargetGuard: Sendable {
                         throw ToolError("Computer use batches must name each window by pid and window_id, not by `\(key)`. Use list_windows first.")
                     }
                 }
-                try await checkTargets(in: object, name: nil)
+                // Upstream v0.38 batch_tools.rs gives an untargeted step the
+                // batch's pid/window_id. An explicit step target stands alone.
+                var fields = object
+                let targetKeys = ["pid", "window_id", "target", "scope", "app", "window",
+                                  "bundle_id", "app_bundle_id", "app_name"]
+                if !targetKeys.contains(where: { key in
+                    object[key].map { !($0 is NSNull) } ?? false
+                }) {
+                    fields.merge(defaults) { _, inherited in inherited }
+                }
+                try await checkTargets(in: fields, name: nil)
                 for (key, nested) in object where key != "app_name" {
                     try await walk(nested, depth: depth + 1)
                 }

@@ -50,6 +50,25 @@ import Testing
         #expect(!CuaTargetPolicy(allowedBundleIDs: bundleID).allows(bundleID: bundleID))
     }
 
+    @Test(arguments: [
+        "org.keepassxc.keepassxc", "com.markmcguill.strongbox", "com.markmcguill.strongbox.mac",
+        "com.hicknhacksoftware.MacPass", "in.sinew.Enpass", "in.sinew.Enpass-Desktop",
+        "com.keepersecurity.passwordmanager", "com.keepersecurity.keeper.mac",
+        "com.siber.RoboForm", "com.siber.RoboForm.helper",
+        "com.outercorner.Secrets", "com.outercorner.Secrets4",
+    ])
+    func moreSecretAppsAreAlwaysDenied(bundleID: String) {
+        #expect(!CuaTargetPolicy().allows(bundleID: bundleID))
+        #expect(!CuaTargetPolicy(allowedBundleIDs: bundleID).allows(bundleID: bundleID.uppercased()))
+    }
+
+    @Test(arguments: ["KeePassXC", "Strongbox", "MacPass", "Enpass", "Keeper", "RoboForm", "Secrets"])
+    func secretAppNamesCannotBeUnlocked(name: String) {
+        let bundleID = "example.alternate-build"
+        let policy = CuaTargetPolicy(allowedBundleIDs: bundleID)
+        #expect(!policy.allows(bundleID: bundleID, appName: " \(name.uppercased())\n"))
+    }
+
     @Test(arguments: ["Terminal", "Wave", "1Password", "SecurityAgent", "coreautha"])
     func resolvedNamesProtectAlternateBundleIDs(name: String) {
         #expect(!CuaTargetPolicy().allows(bundleID: "example.alternate-build", appName: name))

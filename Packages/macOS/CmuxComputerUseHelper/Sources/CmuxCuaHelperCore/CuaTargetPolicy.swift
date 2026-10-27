@@ -52,16 +52,20 @@ struct CuaTargetPolicy: Sendable {
         "com.apple.localauthenticationremoteservice", "com.apple.coreautha",
         "com.apple.coreauthentication.agent", "com.apple.loginwindow",
         "com.apple.coreservicesuiagent", "com.apple.authorizationhost", "com.apple.systempreferences",
+        "org.keepassxc.keepassxc", "com.hicknhacksoftware.macpass",
     ]
     private static let securityPrefixes = [
         "com.agilebits.onepassword", "com.1password.", "com.bitwarden.", "com.dashlane.",
         "com.lastpass.", "com.nordpass.", "com.nordvpn.nordpass", "com.apple.localauthentication.",
         "com.apple.authenticationservices.", "com.apple.coreauthentication.",
+        "com.markmcguill.strongbox", "in.sinew.enpass", "com.keepersecurity.",
+        "com.siber.roboform", "com.outercorner.secrets",
     ]
     private static let securityNames: Set<String> = [
         "keychain access", "passwords", "1password", "bitwarden", "dashlane", "lastpass",
         "nordpass", "proton pass", "securityagent", "usernotificationcenter",
         "localauthenticationremoteservice", "coreautha", "coreauthd", "loginwindow",
         "authorizationhost", "system settings", "system preferences", "cmux-cua", "cmux computer use",
+        "keepassxc", "strongbox", "macpass", "enpass", "keeper", "roboform", "secrets",
     ]
 }

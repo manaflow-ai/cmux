@@ -127,7 +127,7 @@ import Testing
         #"{"steps":[{"tool":"click","args":{"app":"Calculator","role":"button","name":"7"}}]}"#,
         #"{"app":"TextEdit","steps":[{"tool":"press_key","args":{"key":"a"}}]}"#,
         #"{"pid":102,"steps":[{"tool":"click","args":{"window":"Terminal","x":1,"y":1}}]}"#,
-        #"{"pid":102,"steps":[{"tool":"click","args":{"element_token":"s00000001:3"}}]}"#,
+        #"{"steps":[{"tool":"click","args":{"element_token":"s00000001:3"}}]}"#,
         #"{"steps":[{"tool":"click","args":{"scope":"desktop","x":1,"y":1}}]}"#,
         #"{"steps":[{"tool":"type_text","args":{"app_name":"Terminal","text":"ls"}}]}"#,
     ])
@@ -145,6 +145,48 @@ import Testing
         let result = try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
             .check(name: "run_steps", arguments: arguments)
         #expect(result == arguments)
+    }
+
+    @Test(arguments: ["run_steps", "run_actions"])
+    func batchStepsInheritTheTopLevelTarget(name: String) async throws {
+        for step in [
+            #"{"tool":"click","args":{"element_token":"s00000001:3"}}"#,
+            #"{"click":{"element_token":"s00000001:3"}}"#,
+        ] {
+            let arguments = Data("{\"pid\":102,\"window_id\":9001,\"steps\":[\(step)]}".utf8)
+            let result = try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                .check(name: name, arguments: arguments)
+            #expect(result == arguments)
+        }
+    }
+
+    @Test(arguments: ["run_steps", "run_actions"])
+    func blockedBatchDefaultsAndStepOverridesAreRefused(name: String) async {
+        for arguments in [
+            #"{"pid":100,"window_id":9000,"steps":[{"tool":"click","args":{"element_token":"s00000001:3"}}]}"#,
+            #"{"pid":102,"window_id":9000,"steps":[{"click":{"element_token":"s00000001:3"}}]}"#,
+            #"{"pid":102,"window_id":9001,"steps":[{"tool":"click","args":{"pid":100,"element_token":"s00000001:3"}}]}"#,
+            #"{"pid":102,"window_id":9001,"steps":[{"click":{"pid":100,"element_token":"s00000001:3"}}]}"#,
+        ] {
+            await #expect(throws: ToolError.self) {
+                try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                    .check(name: name, arguments: Data(arguments.utf8))
+            }
+        }
+    }
+
+    @Test(arguments: ["run_steps", "run_actions"])
+    func explicitBatchTargetsDoNotBorrowTheDefaultPid(name: String) async {
+        for target in [
+            #""window_id":9001"#,
+            #""target":{"kind":"desktop","display_id":"primary"}"#,
+        ] {
+            let arguments = Data("{\"pid\":102,\"window_id\":9001,\"steps\":[{\"click\":{\(target),\"element_token\":\"s00000001:3\"}}]}".utf8)
+            await #expect(throws: ToolError.self) {
+                try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                    .check(name: name, arguments: arguments)
+            }
+        }
     }
 
     @Test func elementTokenNeedsItsPid() async throws {
