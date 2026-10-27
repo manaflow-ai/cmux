@@ -20,7 +20,7 @@ pub(super) fn connect_and_attach(
     let slot: Arc<Mutex<ReaderSlot>> = Arc::default();
     let reader_slot = slot.clone();
     let reader_mux = Arc::downgrade(&mux);
-    let link = AcpmuxLink::connect(&socket, move |inbound| {
+    let link = AcpmuxLink::connect(&mux.fd_readers, &socket, move |inbound| {
         let inbound = match reader_slot.lock().unwrap_or_else(|e| e.into_inner()).hold(inbound) {
             Ok(()) => return,
             Err(inbound) => inbound,

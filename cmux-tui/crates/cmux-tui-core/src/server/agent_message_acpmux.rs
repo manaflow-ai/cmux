@@ -57,7 +57,7 @@ impl crate::mux::Mux {
         let (heard, hearing) = sync_channel::<Heard>(4);
         let accepted = heard.clone();
         let prompt_id = id.to_owned();
-        let Ok(link) = AcpmuxLink::connect(&socket, move |inbound| {
+        let Ok(link) = AcpmuxLink::connect(&self.fd_readers, &socket, move |inbound| {
             if let Inbound::Notification(method, params) = inbound
                 && method == "_acpmux/prompt_accepted"
                 && params.get("promptId").and_then(Value::as_str) == Some(prompt_id.as_str())
@@ -139,7 +139,8 @@ impl crate::mux::Mux {
     ) -> Result<Withdrawn, WithdrawError> {
         let socket =
             self.control_clients.agent_sessions.socket().ok_or(WithdrawError::Unavailable)?;
-        let link = AcpmuxLink::connect(&socket, |_| {}).map_err(|_| WithdrawError::Unavailable)?;
+        let link = AcpmuxLink::connect(&self.fd_readers, &socket, |_| {})
+            .map_err(|_| WithdrawError::Unavailable)?;
         let answer = link.call(
             "_acpmux/prompt_withdraw",
             json!({"sessionId": session, "msgId": message_id}),

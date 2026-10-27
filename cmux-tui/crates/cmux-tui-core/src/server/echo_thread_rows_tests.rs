@@ -1,8 +1,9 @@
 //! The daemon's echo path threads run at UserInteractive with blocking
-//! disallowed (p02-threads task 210): a served connection's writer, its
-//! attach writers, the read loop a local PTY surface reads on and the frame
-//! producer are registered at that class. Connection readers stay at their own class until
-//! the client class is known (task 224).
+//! disallowed (p02-threads task 210): a served connection's writer, the
+//! read loop a local PTY surface reads on and the frame producer are
+//! registered at that class. An attach holds no writer thread: its view is
+//! a drain on the sequenced pool's input workers (p05-ipc-147). Connection
+//! readers stay at their own class until the client class is known (task 224).
 
 use std::time::{Duration, Instant};
 
@@ -56,8 +57,11 @@ fn connection_writers_and_surface_reader_are_echo_path_threads() {
     // A local PTY reads on its owner's read loop, not a thread of its own
     // (p07-memory-095).
     let reader = crate::mux::terminal_work::read_loop::READ_LOOP_THREAD;
-    for name in ["mux-line-out", "mux-attach-out", "mux-render-attach-out", reader] {
+    for name in ["mux-line-out", reader] {
         assert_rows(name, ECHO_PATH_QOS);
+    }
+    for name in ["mux-attach-out", "mux-render-attach-out"] {
+        assert!(declared(name).is_empty(), "an attach started {name}");
     }
     assert_rows("surface-frames", ECHO_PATH_QOS);
     drop(client);

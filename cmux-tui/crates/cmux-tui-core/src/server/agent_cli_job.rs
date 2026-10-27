@@ -13,6 +13,7 @@ use super::routes::RouteLine;
 use super::{
     MessageWriter, Response, agent_inventory, apps, origin_gate, responses::send_response,
 };
+use crate::Mux;
 use crate::WorkspaceMutation;
 use crate::resource::{MachinePublicId, ResourceError, SessionPublicId};
 
@@ -152,11 +153,12 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let socket = mux.control_clients.agent_sessions.socket();
     let output = writer.clone();
     let request_id = id.clone();
+    let link_mux = mux.clone();
     // The job's preparation waits on acpmux (`request_wait.rs`).
     let posted = mux.post_request_wait(move || {
         let cli = params.cli;
         let result = owner.create_agent_cli_update_job(&cli, &mutation, || {
-            prepare(socket.as_deref().ok_or(Failure::Unavailable)?, &cli)
+            prepare(&link_mux, socket.as_deref().ok_or(Failure::Unavailable)?, &cli)
         });
         drop(slot);
         reply(&output, request_id, result);
@@ -167,8 +169,9 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     Some(true)
 }
 
-fn prepare(socket: &Path, cli: &str) -> anyhow::Result<Vec<String>> {
-    let link = AcpmuxLink::connect(socket, |_| {}).map_err(|_| Failure::Unavailable)?;
+fn prepare(mux: &Mux, socket: &Path, cli: &str) -> anyhow::Result<Vec<String>> {
+    let link =
+        AcpmuxLink::connect(&mux.fd_readers, socket, |_| {}).map_err(|_| Failure::Unavailable)?;
     let hello = link
         .call("initialize", json!({"protocolVersion":1}), TIMEOUT)
         .map_err(|_| Failure::Unavailable)?;

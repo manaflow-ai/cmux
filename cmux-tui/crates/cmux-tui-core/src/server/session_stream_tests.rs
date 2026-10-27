@@ -1,8 +1,8 @@
 //! Session event and journal streams end when their outbound closes on its
 //! own (a victim of a full connection queue), not only when the stream is
 //! canceled or the connection closes. The outbound close fires the stream's
-//! interrupt; a loop that did not check the outbound returned from the wait
-//! at once on every pass and spun at 100% CPU until the next journal event.
+//! drain's stop; both run as drains on the work lanes (p05-ipc-146, 147)
+//! and hold no thread.
 
 use super::super::*;
 
@@ -23,27 +23,6 @@ fn request(
         "params":params,
     });
     crate::resource_router::parse_resource_request(&message.to_string()).unwrap()
-}
-
-/// Runs `body` on a thread, lets it reach its wait loop, closes `outbound`
-/// alone, and fails if `body` does not return within 2 s.
-fn returns_after_outbound_close(
-    what: &str,
-    outbound: OutboundStream,
-    body: impl FnOnce() + Send + 'static,
-) {
-    let (done_tx, done_rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        body();
-        let _ = done_tx.send(());
-    });
-    // Test-only settle: the initial items are sent and the loop is waiting.
-    std::thread::sleep(Duration::from_millis(300));
-    assert!(done_rx.try_recv().is_err(), "{what} ended before its outbound closed");
-    outbound.close();
-    done_rx
-        .recv_timeout(Duration::from_secs(2))
-        .unwrap_or_else(|_| panic!("{what} kept running after its outbound closed"));
 }
 
 /// The next line the connection writes, within 2 s.

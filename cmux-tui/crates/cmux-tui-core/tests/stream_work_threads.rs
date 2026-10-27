@@ -93,7 +93,8 @@ impl Connection {
         self.v2(
             &format!("journal-{stream_id}"),
             "session.journal.subscribe",
-            json!({"machine": "current", "session": "current", "stream_id": stream_id}),
+            json!({"machine": "current", "session": "current", "stream_id": stream_id,
+                   "filter": {"kinds": ["workspace.*"], "max_sensitivity": "sensitive"}}),
         );
     }
 
@@ -110,12 +111,17 @@ impl Connection {
         }));
     }
 
-    fn attach_agent(&mut self, pane: cmux_tui_core::PaneId) {
+    /// An agent tab bound to the fake's session. A tab is a page with
+    /// threads of its own, so the test makes them all before the count.
+    fn agent_tab(&mut self, pane: cmux_tui_core::PaneId) -> u64 {
         let tab = self.rpc(json!({
             "cmd": "new-conversation-tab", "pane": pane,
             "agent_session": {"host": "install:brain", "session": SESSION, "harness": "claude"},
         }));
-        let surface = tab["data"]["surface"].as_u64().expect("conversation tab surface");
+        tab["data"]["surface"].as_u64().expect("conversation tab surface")
+    }
+
+    fn attach_agent(&mut self, surface: u64) {
         self.rpc(json!({"cmd": "agent-session-attach", "surface": surface, "limit": 10}));
     }
 }
@@ -176,18 +182,20 @@ fn journal_reads_agent_attaches_and_waits_add_at_most_two_threads() {
     let terminal = surface.terminal_public_id().expect("terminal id").as_str().to_owned();
     let pane = mux.with_state(|state| state.pane_of(surface.id)).expect("pane");
 
+    let tabs: Vec<u64> = (0..AGENT_ATTACHES).map(|_| connection.agent_tab(pane)).collect();
+
     // One of each first: whatever a first one starts once (a worker of
     // its lane, the shared reader) is not a per-request thread.
     connection.open_journal(&stream_id(0));
-    connection.attach_agent(pane);
+    connection.attach_agent(tabs[0]);
     connection.start_wait(0, &terminal);
     let before = settled_threads();
 
     for index in 1..JOURNAL_STREAMS {
         connection.open_journal(&stream_id(index));
     }
-    for _ in 1..AGENT_ATTACHES {
-        connection.attach_agent(pane);
+    for tab in &tabs[1..] {
+        connection.attach_agent(*tab);
     }
     for index in 1..WAITS {
         connection.start_wait(index, &terminal);

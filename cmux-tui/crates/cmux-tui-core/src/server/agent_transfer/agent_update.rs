@@ -268,7 +268,7 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     // The update waits on acpmux (`request_wait.rs`).
     let posted = mux.post_request_wait(move || {
         let result = match verb {
-            Verb::Plan {} => plan(&socket),
+            Verb::Plan {} => plan(&worker_mux, &socket),
             Verb::Apply(params) => apply(&worker_mux, &socket, params),
         }
         .map(|mut value| {
@@ -311,9 +311,9 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failur
 
 // MARK: Plan
 
-fn plan(socket: &Path) -> Result<Value, Failure> {
+fn plan(mux: &Mux, socket: &Path) -> Result<Value, Failure> {
     // Nothing listens: no acpmux, so nothing to update and no chat.
-    let Ok(link) = AcpmuxLink::connect(socket, |_| {}) else {
+    let Ok(link) = AcpmuxLink::connect(&mux.fd_readers, socket, |_| {}) else {
         return Ok(json!({"harnesses": [], "live_threads": 0, "running_threads": 0}));
     };
     let health =

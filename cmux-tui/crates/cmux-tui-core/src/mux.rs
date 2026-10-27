@@ -837,6 +837,10 @@ pub struct Mux {
     /// The daemon-wide sequenced pool: every connection's control sequence
     /// and stream sequences run on its fixed workers (p05-ipc-073).
     pub(crate) sequenced_pool: crate::server::SequencedPool,
+    /// The one thread that reads every acpmux link and browser host's
+    /// stdout (p05-ipc-147): no thread per link.
+    #[cfg(unix)]
+    pub(crate) fd_readers: crate::server::FdReaders,
     /// Records requests that run past 250 ms (server-stats `slow_requests`).
     pub(crate) request_watchdog: crate::server::RequestWatchdog,
     /// The blocking, inversion and slow-request sites of this daemon life

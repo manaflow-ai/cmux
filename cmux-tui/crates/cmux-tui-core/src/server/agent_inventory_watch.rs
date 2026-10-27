@@ -112,11 +112,12 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
         let failure_watch = watch.clone();
         let worker_id = id.clone();
         let mux_for_refusal = Arc::downgrade(mux);
+        let link_mux = mux.clone();
         // The handshake waits on acpmux: a request wait on the System lane
         // (request_wait.rs), as `agent-inventory-read`, not a thread of its
         // own (p05-ipc-146). The watch's events then arrive on its link.
         let posted = mux.post_request_wait(move || {
-            let result = start(&watch, worker_id.clone());
+            let result = start(&link_mux, &watch, worker_id.clone());
             drop(slot);
             match result {
                 Ok(true) => {}
@@ -172,12 +173,12 @@ fn refuse(
     agent_inventory::reply(writer, id, Err(error))
 }
 
-fn start(watch: &Arc<state::Watch>, id: Option<Value>) -> Result<bool, Failure> {
+fn start(mux: &Mux, watch: &Arc<state::Watch>, id: Option<Value>) -> Result<bool, Failure> {
     if !watch.current_socket() {
         return Err(Failure::Unavailable);
     }
     let weak = Arc::downgrade(watch);
-    let link = AcpmuxLink::connect(&watch.socket, move |inbound| {
+    let link = AcpmuxLink::connect(&mux.fd_readers, &watch.socket, move |inbound| {
         if let Some(watch) = weak.upgrade() {
             watch.inbound(inbound);
         }

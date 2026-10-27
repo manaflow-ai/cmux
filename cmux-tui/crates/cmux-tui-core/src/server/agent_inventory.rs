@@ -186,9 +186,10 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let owner_echo = matches!(mode, ReadMode::Refresh).then(|| mux.machine_public_id.clone());
+    let link_mux = mux.clone();
     // The read waits on acpmux (`request_wait.rs`).
     let posted = mux.post_request_wait(move || {
-        let result = read(&socket, mode).map(|mut value| {
+        let result = read(&link_mux, &socket, mode).map(|mut value| {
             if let Some(machine) = owner_echo {
                 value.insert("machine", json!(machine));
             }
@@ -231,10 +232,11 @@ pub(super) fn valid_snapshot(value: &Value) -> bool {
     serde_json::from_value::<Inventory>(value.clone()).is_ok_and(|inventory| inventory.valid())
 }
 
-fn read(socket: &Path, mode: ReadMode) -> Result<Value, Failure> {
+fn read(mux: &Mux, socket: &Path, mode: ReadMode) -> Result<Value, Failure> {
     // Never use agent_session_start::connect: a read must not start or
     // hand off acpmux. Nothing listening is unavailable, not an empty inventory.
-    let link = AcpmuxLink::connect(socket, |_| {}).map_err(|_| Failure::Unavailable)?;
+    let link =
+        AcpmuxLink::connect(&mux.fd_readers, socket, |_| {}).map_err(|_| Failure::Unavailable)?;
     let initialized = link
         .call(
             "initialize",

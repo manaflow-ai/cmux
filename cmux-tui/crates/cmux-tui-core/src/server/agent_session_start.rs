@@ -226,7 +226,7 @@ pub(super) fn start(
         // the request thread.
         let result = super::agent_session_trust::home_rule(&params.cwd, params.home_confirmed)
             .map_err(|refusal| (refusal, None))
-            .and_then(|()| keyed_gate(&socket, &params))
+            .and_then(|()| keyed_gate(&worker_mux, &socket, &params))
             .and_then(|()| run(&worker_mux, client, socket, params).map_err(|r| (r, None)));
         drop(slot);
         match result {
@@ -250,6 +250,7 @@ pub(super) fn start(
 /// run id or any key material). Nothing listening is acpmux not running: the
 /// gate never starts an acpmux without a key.
 fn keyed_gate(
+    mux: &Mux,
     socket: &std::path::Path,
     params: &StartParams,
 ) -> Result<(), (Refusal, Option<Value>)> {
@@ -260,7 +261,7 @@ fn keyed_gate(
     // Any other connect error, and a status that cannot be read, is an
     // unknown fact: not safe, and the client starts without its key.
     let unknown = || (Refusal::NeedsKeyedStart, Some(keyed_restart_reason(Some(&json!({})))));
-    let status = match AcpmuxLink::connect(socket, |_| {}) {
+    let status = match AcpmuxLink::connect(&mux.fd_readers, socket, |_| {}) {
         Err(error)
             if matches!(
                 error.kind(),
@@ -347,7 +348,7 @@ pub(in crate::server) fn connect(
     mux: &Mux,
     socket: &std::path::Path,
 ) -> Result<Arc<AcpmuxLink>, Refusal> {
-    let open = || AcpmuxLink::connect(socket, |_| {});
+    let open = || AcpmuxLink::connect(&mux.fd_readers, socket, |_| {});
     if let Ok(link) = open() {
         return Ok(link);
     }
@@ -377,7 +378,7 @@ pub(in crate::server) fn restart_with(
     if let Err(error) = restart() {
         eprintln!("cmux-tui: acpmux handoff for an agent update failed: {error}");
     }
-    AcpmuxLink::connect(socket, |_| {}).ok()
+    AcpmuxLink::connect(&mux.fd_readers, socket, |_| {}).ok()
 }
 
 fn start_and_bind(

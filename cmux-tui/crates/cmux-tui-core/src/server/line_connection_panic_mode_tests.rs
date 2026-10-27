@@ -187,11 +187,11 @@ fn running(name: &str) -> bool {
     cmux_threads::snapshot().into_iter().any(|row| row.name == name)
 }
 
-/// An attach's writers (`mux-attach-out`, `mux-render-attach-out`, echo
-/// threads with blocking disallowed) start before the attach commits and
-/// wait for its go. That wait is the thread being idle before its first
-/// item, not a blocking call: in panic mode both writers panicked at once,
-/// so an attached client got its reply and then no frames.
+/// An attach's output is a drain on the sequenced pool that starts when the
+/// attach commits (p05-ipc-147): no writer thread waits for the commit, so
+/// panic mode has no wait to refuse. (The writers it replaced,
+/// `mux-attach-out` and `mux-render-attach-out`, once panicked there and
+/// left an attached client with its reply and no frames.)
 #[test]
 fn an_attachs_writers_wait_for_the_commit_without_a_violation() {
     let served = Served::new("attach");
@@ -208,6 +208,6 @@ fn an_attachs_writers_wait_for_the_commit_without_a_violation() {
     }
     std::thread::sleep(Duration::from_millis(200));
     for name in ["mux-attach-out", "mux-render-attach-out"] {
-        assert!(running(name), "{name} is still serving its attach");
+        assert!(!running(name), "an attach started {name}");
     }
 }

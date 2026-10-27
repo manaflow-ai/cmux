@@ -145,7 +145,7 @@ impl Drop for WakeSource {
         match self {
             Self::Output { surface, waiter } => surface.unwatch_terminal_stream_change(*waiter),
             Self::Exit { mux, terminal_id, waiter } => {
-                mux.unwatch_terminal_exit(terminal_id, *waiter)
+                mux.unwatch_terminal_exit(terminal_id, *waiter);
             }
         }
     }

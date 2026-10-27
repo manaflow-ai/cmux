@@ -478,7 +478,7 @@ impl TraceTargets for LiveTargets<'_> {
     fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>> {
         use super::agent_session_attach::agent_session_link::AcpmuxLink;
         let socket = self.mux.control_clients.agent_sessions.socket()?;
-        let link = AcpmuxLink::connect(&socket, |_| {}).ok()?;
+        let link = AcpmuxLink::connect(&self.mux.fd_readers, &socket, |_| {}).ok()?;
         Some(Box::new(move |op, timeout| {
             let reply = link.call(ACPMUX_TRACE_METHOD, acpmux_params(op), timeout);
             reply.map_err(|error| format!("{error:?}")).and_then(|value| {

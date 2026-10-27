@@ -132,7 +132,7 @@ fn expected_live(class: ThreadQos) -> cmux_threads::LiveQos {
 /// reads its class inside the body: watchers and bulk through `spawn_raisable`,
 /// the echo path through `echo_thread::spawn`. Only the echo path disallows
 /// blocking: a control stream that waits for its attach to commit
-/// (mux-snapshot-attach-out, mux-resource-terminal-attach) must not be one.
+/// (mux-snapshot-attach-out) must not be one.
 /// The deadline fanout worker, a control stream, is checked the same way in
 /// mux/tests/cell_pixel_fanout.rs.
 #[test]

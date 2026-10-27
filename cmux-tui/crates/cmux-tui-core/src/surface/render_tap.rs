@@ -217,38 +217,6 @@ impl RenderAttachFrameReceiver {
         }
     }
 
-    /// Wakes a blocked `recv_until_interrupted` when `interrupt` fires.
-    pub(crate) fn wake_on(&self, interrupt: &crate::stream_interrupt::StreamInterrupt) {
-        let state = Arc::downgrade(&self.state);
-        interrupt.on_fire(move || {
-            if let Some(state) = state.upgrade() {
-                let _queue = state.queue.lock().unwrap_or_else(|error| error.into_inner());
-                state.ready.notify_all();
-            }
-        });
-    }
-
-    /// Blocks for an event. Returns `Timeout` once `interrupt` has fired
-    /// and nothing is queued.
-    pub(crate) fn recv_until_interrupted(
-        &self,
-        interrupt: &crate::stream_interrupt::StreamInterrupt,
-    ) -> Result<RenderAttachFrame, RecvTimeoutError> {
-        let mut queue = self.state.queue.lock().recover_poison();
-        loop {
-            if let Some(event) = queue.pop() {
-                return Ok(event);
-            }
-            if !queue.sender_alive {
-                return Err(RecvTimeoutError::Disconnected);
-            }
-            if interrupt.is_fired() {
-                return Err(RecvTimeoutError::Timeout);
-            }
-            queue = self.state.ready.wait(queue).recover_poison();
-        }
-    }
-
     pub fn try_recv(&self) -> Result<RenderAttachFrame, TryRecvError> {
         let mut queue = self.state.queue.lock().recover_poison();
         if let Some(event) = queue.pop() {

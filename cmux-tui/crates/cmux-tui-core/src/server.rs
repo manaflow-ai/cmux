@@ -69,11 +69,11 @@ use crate::NotificationSource;
 use crate::SurfaceRenderFrame;
 #[cfg(test)]
 use crate::TreeDeltaKind;
+#[cfg(test)]
+use crate::browser::BrowserFrameUpdate;
 use crate::browser::BrowserMouseDispatch;
 #[cfg(test)]
 use crate::browser::BrowserPointerOwner;
-#[cfg(test)]
-use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 #[cfg(test)]
 use crate::journal_kernel::JournalDocument;
 use crate::model::{Screen, State};
@@ -2386,6 +2386,10 @@ pub(crate) use request_watchdog::{
 mod connection_scheduler;
 mod sequenced_pool;
 pub(crate) use sequenced_pool::SequencedPool;
+#[cfg(unix)]
+mod fd_readers;
+#[cfg(unix)]
+pub(crate) use fd_readers::{FdReader, FdReaders};
 mod stream_lanes;
 #[cfg(test)]
 use connection_scheduler::ConnectionSurfaceState;
@@ -2602,21 +2606,23 @@ use terminal_colors::terminal_colors_json;
 mod render_messages;
 use render_messages::{
     AttachWireShape, RenderClientState, VtStateMessage, browser_state_message,
-    encode_browser_attach_update, render_state_message, send_encoded_browser_attach_update,
-    styled_run_json, write_output_flow_json, write_pending_sequence_json,
+    render_state_message, styled_run_json, write_output_flow_json, write_pending_sequence_json,
 };
 #[cfg(test)]
 use render_messages::{browser_frame_json, render_graphics_message};
 
 mod attach_lifecycle;
-use attach_lifecycle::{
-    AttachWorkerCommit, MarkedClientAttach, attach_overflow_json, attach_response,
-    commit_client_attach_and_start_worker, detach_committed_attach, handle_attach_send_error,
-    mark_client_attached, mark_resource_client_attached, report_attach_overflow,
-    rollback_failed_attach, spawn_attach_notification_stream, wait_for_initial_browser_resize,
-};
 #[cfg(test)]
-use attach_lifecycle::{cleanup_failed_attach, commit_client_attach};
+use attach_lifecycle::{
+    AttachWorkerCommit, cleanup_failed_attach, commit_client_attach,
+    commit_client_attach_and_start_worker,
+};
+use attach_lifecycle::{
+    MarkedClientAttach, attach_overflow_json, attach_response, detach_committed_attach,
+    handle_attach_send_error, mark_client_attached, mark_resource_client_attached,
+    report_attach_overflow, rollback_failed_attach, spawn_attach_notification_stream,
+    wait_for_initial_browser_resize,
+};
 
 #[cfg(test)]
 fn handle_command(

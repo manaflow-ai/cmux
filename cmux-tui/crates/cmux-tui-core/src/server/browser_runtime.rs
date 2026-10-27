@@ -29,8 +29,9 @@
 use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
+use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::ChildStdin;
@@ -46,7 +47,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::routes::{Route, RouteLine, RouteName};
-use super::{FrameStage, MessageWriter, Response, send_response};
+use super::{FdReader, FrameStage, MessageWriter, Response, send_response};
 use crate::mux::Mux;
 
 pub const BROWSER_RUNTIME_CAPABILITY: &str = "browser-runtime-v1";
@@ -67,7 +68,6 @@ pub(crate) const MAX_STATUS_READS_PER_CLIENT: usize = 4;
 pub(crate) const MAX_STATUS_READS_TOTAL: usize = 16;
 const MAX_URL_BYTES: usize = 8 * 1024;
 const LOG_TAIL_BYTES: u64 = 2 * 1024;
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 struct Runtime {
     owner: u64,
@@ -429,7 +429,7 @@ fn start(
             );
             return;
         };
-        let launched = launch(runtimes, client, &executable, url.as_deref());
+        let launched = launch(&worker_mux, runtimes, client, &executable, url.as_deref());
         runtimes.lock().release(client);
         match launched {
             Ok((runtime_id, port, secret)) => {
@@ -461,6 +461,7 @@ fn start(
 /// Starts the host, gives it the secret and waits for its port. The
 /// runtime is registered before this returns.
 fn launch(
+    mux: &Mux,
     runtimes: &BrowserRuntimes,
     client: u64,
     executable: &Path,
@@ -502,23 +503,19 @@ fn launch(
         stdin.write_all(format!("{secret}\n").as_bytes()).and_then(|()| stdin.flush())
     });
     let (line_tx, line_rx) = std::sync::mpsc::sync_channel(1);
+    // The daemon's descriptor readers take its first line and then keep
+    // the pipe drained until the host exits: no thread per runtime
+    // (fd_readers.rs, p05-ipc-147).
     let reader = stdout.map(|stdout| {
-        cmux_threads::spawn_with_stack(
-            "mux-browser-runtime-out",
-            crate::thread_qos::ThreadType::Utility.qos(),
-            THREAD_STACK_BYTES,
-            move || {
-                let mut reader = BufReader::new(stdout);
-                let mut line = String::new();
-                let read = reader.read_line(&mut line).map(|_| line);
-                let _ = line_tx.send(read.ok());
-                // Keep the pipe drained until the host exits.
-                let _ = std::io::copy(&mut reader, &mut std::io::sink());
-            },
-        )
+        set_nonblocking(&stdout)?;
+        mux.fd_readers.watch(Box::new(HostStdout {
+            stdout,
+            line: Vec::new(),
+            first_line: Some(line_tx),
+        }))
     });
     let port = match (written, reader) {
-        (Some(Ok(())), Some(Ok(_))) => match waits::recv_timeout(&line_rx, START_TIMEOUT) {
+        (Some(Ok(())), Some(Ok(()))) => match waits::recv_timeout(&line_rx, START_TIMEOUT) {
             Ok(Some(line)) => listening_port(&line),
             Ok(None) | Err(_) => None,
         },
@@ -536,6 +533,79 @@ fn launch(
     };
     runtimes.lock().runtimes.insert(runtime_id, runtime);
     Ok((runtime_id, port, secret))
+}
+
+/// Longest first line a host may print (its `listening` line is short).
+const FIRST_LINE_BYTES: usize = 4096;
+
+/// A browser host's stdout on the descriptor readers: its first line goes
+/// to the start that waits for it, the rest is read and dropped so the host
+/// never blocks on a full pipe.
+struct HostStdout {
+    stdout: std::process::ChildStdout,
+    line: Vec<u8>,
+    /// Taken by the first line, an end of file or an over-long line.
+    first_line: Option<std::sync::mpsc::SyncSender<Option<String>>>,
+}
+
+impl FdReader for HostStdout {
+    fn fd(&self) -> RawFd {
+        self.stdout.as_raw_fd()
+    }
+
+    fn readable(&mut self) -> bool {
+        let mut chunk = [0_u8; 4096];
+        loop {
+            let read = match self.stdout.read(&mut chunk) {
+                Ok(0) => {
+                    self.answer(None);
+                    return false;
+                }
+                Ok(read) => read,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return true,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => {
+                    self.answer(None);
+                    return false;
+                }
+            };
+            if self.first_line.is_none() {
+                continue;
+            }
+            let bytes = chunk.get(..read).unwrap_or_default();
+            match bytes.iter().position(|byte| *byte == b'\n') {
+                Some(end) => {
+                    self.line.extend_from_slice(bytes.get(..end).unwrap_or_default());
+                    let line = String::from_utf8_lossy(&self.line).into_owned();
+                    self.answer(Some(line));
+                }
+                None if self.line.len() + bytes.len() > FIRST_LINE_BYTES => self.answer(None),
+                None => self.line.extend_from_slice(bytes),
+            }
+        }
+    }
+}
+
+impl HostStdout {
+    fn answer(&mut self, line: Option<String>) {
+        if let Some(sender) = self.first_line.take() {
+            let _ = sender.try_send(line);
+        }
+        self.line = Vec::new();
+    }
+}
+
+/// Makes `stdout` non-blocking: the descriptor readers never wait on it.
+fn set_nonblocking(stdout: &std::process::ChildStdout) -> std::io::Result<()> {
+    let fd = stdout.as_raw_fd();
+    // SAFETY: `fd` is the open pipe `stdout` owns; F_GETFL/F_SETFL only
+    // read and set its status flags.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    // SAFETY: as above.
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 /// The port of the host's `{"listening":"127.0.0.1:PORT"}` line; only a

@@ -802,7 +802,7 @@ fn run(mux: &Mux, socket: &Path, unresolved: Unresolved) -> Result<Value, Failur
     if let Prepared::Answer(answer) = prepared {
         return Ok(answer);
     }
-    let link = match AcpmuxLink::connect(socket, |_| {}) {
+    let link = match AcpmuxLink::connect(&mux.fd_readers, socket, |_| {}) {
         Ok(link) => link,
         Err(_) => {
             if let Prepared::Forget { receive_id, live, .. } = prepared {
