@@ -175,6 +175,36 @@ test("untrusted or partial add provenance never opens a document", () => {
   }
 });
 
+test("multi-file add provenance scans recorded paths with bounded work", () => {
+  const fileCount = 128;
+  const changes = Array.from({ length: fileCount }, (_, index) => ({
+    path: `/repo/file-${index}.html`,
+    type: "add" as const,
+    additions: 1,
+    deletions: 0,
+  }));
+  const recorded = normalizedCodex(
+    changes,
+    changes.map(({ path }) => ({ type: "diff", path, newText: page })),
+    "codex-bounded-work",
+  );
+  let pathReads = 0;
+  recorded.diffs = recorded.diffs!.map((diff) => {
+    const path = diff.path;
+    return Object.defineProperty({ ...diff }, "path", {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        pathReads += 1;
+        return path;
+      },
+    });
+  });
+
+  expect(toolArtifacts(recorded)).toHaveLength(fileCount);
+  expect(pathReads).toBeLessThan(fileCount * 20);
+});
+
 test("empty bodies, unrelated files, malformed inputs and shell commands are not documents", () => {
   for (const recorded of [
     call({ diffs: [{ path: "weather.html", newText: " \n " }] }),
