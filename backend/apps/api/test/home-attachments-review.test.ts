@@ -158,14 +158,14 @@ describe("Home attachments: review fixes (P2/P3)", { timeout: 120_000 }, () => {
     expect(head.status).toBe(200)
   })
 
-  it("stored bytes per uploader are capped at 10 GB", async () => {
+  it("stored bytes do not reject a new attachment at the former 10 GB limit", async () => {
     const alice = await signIn("att-stored-alice")
     const g = await group(alice)
     const user = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(alice.user)) as unknown as { recordAttachmentStorage(e: string, key: string, bytes: number): Promise<void> }
     await user.recordAttachmentStorage(alice.user, "home/v1/elsewhere/x", 10_000_000_000 - 5)
     const r = await intent(alice, g.id, bytesOf("123456"))
-    expect(r.status).toBe(429)
-    expect(r.json.error.code).toBe("attachment.storage_quota")
+    expect(r.status).toBe(200)
+    expect(r.json.value.state).toBe("upload")
   })
 })
 

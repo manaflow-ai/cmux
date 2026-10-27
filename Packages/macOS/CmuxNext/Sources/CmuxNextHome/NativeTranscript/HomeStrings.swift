@@ -24,12 +24,6 @@ enum HomeStrings {
         String(format: String(localized: "home.composer.attach.folder",
                               defaultValue: "“%@” is a folder. Attach the files in it, or a ZIP of the folder.", bundle: .module), name)
     }
-    static func attachTooLarge(_ name: String) -> String {
-        String(format: String(localized: "home.composer.attach.tooLarge", defaultValue: "“%@” is larger than 100 MB.", bundle: .module), name)
-    }
-    static func attachTooLargeAny() -> String {
-        String(localized: "home.composer.attach.tooLargeAny", defaultValue: "A file is larger than 100 MB.", bundle: .module)
-    }
     static func attachEmpty(_ name: String) -> String {
         String(format: String(localized: "home.composer.attach.empty", defaultValue: "“%@” is empty.", bundle: .module), name)
     }
@@ -94,7 +88,6 @@ enum HomeStrings {
         switch refusal {
         case .typeRefused(_, let file): attachUnsupported(name ?? file)
         case .folder(let file): attachFolder(name ?? file)
-        case .tooLarge: name.map(attachTooLarge) ?? attachTooLargeAny()
         case .empty(let file): attachEmpty(name ?? file)
         case .invalidName(let file): attachInvalidName(name ?? file)
         case .locationNotRemoved(let file): attachLocationNotRemoved(name ?? file)

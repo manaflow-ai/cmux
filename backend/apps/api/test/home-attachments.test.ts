@@ -19,7 +19,7 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
     expect((await intent({ ...eve, token: "" }, id, body)).status).toBe(401)
   })
 
-  it("refuses types off the owner's list (any name attaches) and sizes over the cap", async () => {
+  it("refuses types off the owner's list while accepting any attachment size", async () => {
     const alice = await signIn("att-type-alice")
     const { id } = await group(alice)
     const body = bytesOf("<svg/>")
@@ -28,8 +28,7 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
     expect((await intent(alice, id, body, { mime_type: "text/plain", name: "index.html" })).status).toBe(200)
     expect((await intent(alice, id, bytesOf("\u0000bin"), { mime_type: "application/octet-stream", name: "setup.exe" })).status).toBe(200)
     const big = await intent(alice, id, body, { byte_count: 100_000_001 })
-    expect(big.status).toBe(413)
-    expect(big.json.error.code).toBe("attachment.too_large")
+    expect(big.status).toBe(200)
   })
 
   it("takes the daily byte quota per user (2 GB); every slot is charged, also a repeated intent for the same hash", async () => {

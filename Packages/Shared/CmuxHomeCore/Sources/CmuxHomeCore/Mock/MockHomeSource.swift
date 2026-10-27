@@ -259,7 +259,7 @@ public actor MockHomeSource: HomeSource {
             guard file.ref.mimeType.hasPrefix("video/") else { throw HomeRejection.invalid("poster_refused") }
             guard let posterURL = file.posterURL else { throw HomeRejection.invalid("poster_missing") }
             let poster = try Data(contentsOf: posterURL)
-            guard HomeAttachmentPolicy.posterTypes.contains(meta.mimeType), poster.count <= HomeAttachmentPolicy.posterMaxBytes,
+            guard HomeAttachmentPolicy.posterTypes.contains(meta.mimeType), poster.count <= HomeAttachmentPolicy.posterBytesLimit,
                   poster.count == meta.byteCount, AttachmentMedia.sha256(of: poster) == meta.hash else {
                 throw HomeRejection.invalid("hash_mismatch")
             }
@@ -270,7 +270,7 @@ public actor MockHomeSource: HomeSource {
             guard file.ref.mimeType.hasPrefix("image/") else { throw HomeRejection.invalid("preview_refused") }
             guard let previewURL = file.previewURL else { throw HomeRejection.invalid("preview_missing") }
             let preview = try Data(contentsOf: previewURL)
-            guard HomeAttachmentPolicy.posterTypes.contains(meta.mimeType), preview.count <= HomeAttachmentPolicy.previewMaxBytes,
+            guard HomeAttachmentPolicy.posterTypes.contains(meta.mimeType), preview.count <= HomeAttachmentPolicy.previewBytesLimit,
                   preview.count == meta.byteCount, AttachmentMedia.sha256(of: preview) == meta.hash else {
                 throw HomeRejection.invalid("hash_mismatch")
             }

@@ -37,11 +37,9 @@ enum AttachmentMedia {
         return root.appendingPathComponent(hash, isDirectory: true).appendingPathComponent(name)
     }
 
-    /// Hashes and copies a file into the cache in one streamed pass. Stops
-    /// one byte past `maxBytes` (the file grew after its size was read) and
-    /// throws `tooLarge`, leaving nothing in the cache.
-    static func ingest(fileURL: URL, root: URL,
-                       maxBytes: Int = HomeAttachmentPolicy.maxBytes) throws -> (hash: String, url: URL, byteCount: Int) {
+    /// Hashes and copies a file into the cache in one streamed pass without
+    /// loading the source into memory.
+    static func ingest(fileURL: URL, root: URL) throws -> (hash: String, url: URL, byteCount: Int) {
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         let temp = root.appendingPathComponent(".incoming-\(UUID().uuidString)")
@@ -54,12 +52,11 @@ enum AttachmentMedia {
         var hasher = SHA256()
         var count = 0
         do {
-            while let chunk = try input.read(upToCount: min(chunkSize, maxBytes + 1 - count)), !chunk.isEmpty {
+            while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
                 try Task.checkCancellation()
                 hasher.update(data: chunk)
                 try output.write(contentsOf: chunk)
                 count += chunk.count
-                if count > maxBytes { throw HomeAttachmentError.tooLarge(byteCount: count, limit: maxBytes) }
             }
             try output.close()
         } catch {
@@ -193,7 +190,7 @@ enum AttachmentMedia {
     }
 
     /// An image's preview: a JPEG at most `previewMaxPixel` on its long edge
-    /// and `previewMaxBytes`, trying lower quality and size before giving
+    /// and `previewBytesLimit`, trying lower quality and size before giving
     /// up. Nil when the image is small enough to show itself (and not HEIC,
     /// which some readers cannot decode), when a pixel of its 512 px sample
     /// is transparent (Lawrence's rule: transparent images get no preview;
@@ -202,7 +199,7 @@ enum AttachmentMedia {
     /// opaque image with an alpha channel gets a preview.
     static func previewJPEG(of url: URL, mimeType: String, byteCount: Int, displaySize: (width: Int, height: Int)) -> Data? {
         let maxPixel = HomeAttachmentPolicy.previewMaxPixel
-        let maxBytes = HomeAttachmentPolicy.previewMaxBytes
+        let maxBytes = HomeAttachmentPolicy.previewBytesLimit
         if mimeType != "image/heic", max(displaySize.width, displaySize.height) <= maxPixel, byteCount <= maxBytes { return nil }
         guard let sample = try? thumbnailImage(of: url, maxPixel: 512),
               !isTransparent(sample.source, sample: sample.image) else { return nil }
@@ -880,7 +877,7 @@ enum AttachmentMedia {
             ref.durationMs = movie.durationMs
             // A poster over the owner's cap is dropped: the video still sends.
             if mimeType.hasPrefix("video/"), let poster = movie.poster, let posterData = try? jpeg(poster),
-               posterData.count <= HomeAttachmentPolicy.posterMaxBytes {
+               posterData.count <= HomeAttachmentPolicy.posterBytesLimit {
                 let (posterHash, url) = try ingest(data: posterData, fileExtension: "jpg", root: root)
                 ref.poster = AttachmentPoster(hash: posterHash, mimeType: "image/jpeg", byteCount: posterData.count)
                 posterURL = url
