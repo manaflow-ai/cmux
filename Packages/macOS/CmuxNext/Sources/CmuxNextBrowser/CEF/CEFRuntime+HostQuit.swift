@@ -33,8 +33,14 @@ extension CEFRuntime {
         guard state == .ready, shutdownSequence == nil else { return .leave(asked: false) }
         let tabs = tabsByBrowser.sorted { $0.key < $1.key }.map(\.value).filter { !$0.isClosed }
         let answers = await withTaskGroup(of: (Int, Bool).self) { group in
-            for (index, tab) in tabs.enumerated() {
-                group.addTask { @MainActor in (index, await asks(tab)) }
+            // Each child captures only Sendable values (an Int and a main-actor tab) and hops to the main actor
+            // through `asks`, so the region-based isolation checker sees plain sends.
+            for index in tabs.indices {
+                let tab = tabs[index]
+                group.addTask {
+                    let wouldAsk = await asks(tab)
+                    return (index, wouldAsk)
+                }
             }
             var asking: Set<Int> = []
             for await (index, wouldAsk) in group where wouldAsk { asking.insert(index) }

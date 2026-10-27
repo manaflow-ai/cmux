@@ -74,6 +74,18 @@ struct PrivacyLeakScannerTests {
         #expect(planted.map(\.path) == ["$.input_latency[0].target"])
     }
 
+    @Test func theInteractionKindSkipsTheTermCheckOnlyForItsOwnClosedSet() throws {
+        // A person called Tap still gets `kind_of_worst: tap`; any other value there is checked (p04-input-097).
+        let scanner = PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms + ["Tap"])
+        var report = InputLatencyReportTests.report(InputLatencyReportTests.interactionSnapshot())
+        report.interactionLatency?.kindOfWorst = "tap"
+        #expect(scanner.findings(in: try HangReport.encoder.encode(report)).isEmpty)
+        report.interactionLatency?.kindOfWorst = "Alice"
+        let found = scanner.findings(in: try HangReport.encoder.encode(report))
+        #expect(found.map(\.path) == ["$.interaction_latency.kind_of_worst"])
+        #expect(found.map(\.kind) == [.personalTerm])
+    }
+
     @Test func refusesTextThatIsNotJSON() {
         #expect(scanner.findings(in: Data("not json".utf8)).map(\.kind) == [.notJSON])
     }
