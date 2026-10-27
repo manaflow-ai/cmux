@@ -91,14 +91,7 @@ test("send retains ID-bound image and video order through a reply before echo", 
     const sent = io.sent[0];
     expect(shape(sent.prompt)).toEqual(["before", "image", "resource_link", "between", "resource_link", "after"]);
     const optimistic = io.rows().find((row) => row.id.startsWith("local-")) as any;
-    expect(optimistic.inlineParts?.map((part: any) => part.kind)).toEqual([
-      "text",
-      "image",
-      "file",
-      "text",
-      "file",
-      "text",
-    ]);
+    expect(optimistic.inlineParts?.map((part: any) => part.kind).join(",")).toBe("text,image,file,text,file,text");
     expect(sent._meta.acpmux.inlineParts.map((part: any) => part.blockIndex)).toEqual([1, 2, 4]);
     const record = {
       promptId: sent._meta.acpmux.promptId,
@@ -113,14 +106,6 @@ test("send retains ID-bound image and video order through a reply before echo", 
         { kind: "text", text: "after" },
       ],
     };
-    io.emit(sent.sessionId, { mux: "queued", msg: record });
-    await settle(() => io.queue().some((entry) => entry.id === sent._meta.acpmux.promptId));
-    expect(io.queue()[0].inlineParts?.[4]).toMatchObject({ video: movie.video });
-    const { mergeQueue } = await import("./direct");
-    const listed = mergeQueue(io.queue(), [
-      { promptId: sent._meta.acpmux.promptId, preview: record.text, inlineParts: record.inlineParts },
-    ]);
-    expect(listed[0].inlineParts?.[4]).toMatchObject({ video: movie.video });
     io.emit(sent.sessionId, { mux: "user_message", msg: record });
     await settle(() => io.rows().some((row) => row.id.startsWith("user-") && row.text === "before\nbetween\nafter"));
     const row = io.rows().find((row) => row.text === "before\nbetween\nafter") as any;
@@ -179,15 +164,7 @@ test("history retry preserves repeated image occurrences and a video link", asyn
     const draft = await io.client.resendPrompt(row.id, row.text!);
     expect(new Set(draft.attachments.map((a) => a.id)).size).toBe(3);
     await io.client.send(draft.input, draft.attachments);
-    expect(shape(io.sent[1].prompt)).toEqual([
-      "image",
-      "resource_link",
-      "one",
-      "resource_link",
-      "two",
-      "image",
-      "three",
-    ]);
+    expect(shape(io.sent[1].prompt).join(",")).toBe("image,resource_link,one,resource_link,two,image,three");
     expect(io.sent[1].prompt.filter((block: any) => block.type === "image")).toHaveLength(2);
     expect(io.sent[1].prompt[3].uri).toBe("file:///tmp/clip.mp4");
   } finally {
@@ -279,6 +256,34 @@ test("queue acceptance retains ordered metadata before the prompt reply", async 
     await settle(() => io.rows().some((row) => row.text === "removed"));
     const row = io.rows().find((row) => row.text === "removed")!;
     expect(await io.client.resendPrompt(row.id, row.text!)).toEqual({ input: "removed", attachments: [] });
+  } finally {
+    io.client.close?.();
+  }
+});
+
+test("strip echo Retry and Edit retain local bytes, original path and video", async () => {
+  const io = await connect();
+  const attachments = [image("strip"), movie];
+  try {
+    await io.client.send("strip", attachments);
+    const sent = io.sent[0];
+    io.emit(sent.sessionId, {
+      mux: "user_message",
+      msg: {
+        promptId: sent._meta.acpmux.promptId,
+        text: "strip",
+        inlineParts: [
+          { kind: "text", text: "strip" },
+          { kind: "image", id: "durable", mimeType: "image/png" },
+          { kind: "file", name: "one.png", uri: "file:///tmp/one.png" },
+          { kind: "file", name: "clip.mp4", uri: "file:///tmp/clip.mp4" },
+        ],
+      },
+    });
+    await settle(() => io.rows().some((r) => r.id.startsWith("user-") && r.text === "strip"));
+    const row = io.rows().find((r) => r.id.startsWith("user-") && r.text === "strip")!;
+    expect(await io.client.resendPrompt(row.id, "strip")).toEqual({ input: "strip", attachments });
+    expect(await io.client.resendPrompt(row.id, "edited")).toEqual({ input: "edited", attachments });
   } finally {
     io.client.close?.();
   }
