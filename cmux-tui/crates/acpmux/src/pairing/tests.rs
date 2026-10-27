@@ -69,7 +69,7 @@ fn the_device_gets_the_role_the_minter_stored() {
 fn a_refused_redeem_leaves_the_ticket_open() {
     let (mut s, _) = minted(Role::Daemon);
     let e = s
-        .redeem(SECRET, "box", &"ab".repeat(32), "dv_1", T0 + 1, |_| {
+        .redeem(SECRET, "box", &"ab".repeat(32), "dv_1", T0 + 1, "test-instance", |_| {
             Err(RpcError::invalid_params("no").with_data(serde_json::json!({"reason": "x"})))
         })
         .unwrap_err();
