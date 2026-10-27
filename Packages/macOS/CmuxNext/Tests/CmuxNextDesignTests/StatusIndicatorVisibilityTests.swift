@@ -13,7 +13,9 @@ import Testing
         let source: WindowVisibilitySource
         let center = NotificationCenter()
         let screen: Screen
-        /// The indicators' appearance; its app notices arrive on ``center``.
+        /// The appearance's follows; its app notices arrive on ``center``.
+        let follows: StatusIndicatorTestFollows
+        /// The indicators' appearance.
         let appearance: StatusIndicatorAppearance
 
         /// What the test window's own state reads as.
@@ -32,7 +34,9 @@ import Testing
             content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
             window.contentView = content
             let windows = [window]
-            appearance = StatusIndicatorAppearance(appCenter: center, workspaceCenter: NotificationCenter(), windows: { windows })
+            follows = StatusIndicatorTestFollows(app: center)
+            appearance = StatusIndicatorAppearance(windows: { windows })
+            follows.start(appearance)
         }
 
         func indicator(in parent: NSView? = nil) -> StatusIndicatorView {

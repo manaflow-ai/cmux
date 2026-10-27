@@ -65,6 +65,7 @@ public final class GlassBackdropImages {
             entries.removeFirst(evicted.count)
         }
         let source = Bitmap(image: bitmap), size = maxPixelSize
+        // main-hop-allow: the task only awaits its detached encode; its one resume stores the URL and marks each waiting feed for its next update
         entry.encode = Task { [weak entry] in
             let url = await Task.detached(priority: Task.currentPriority) { Self.jpegDataURL(source.image, maxPixelSize: size) }.value
             guard let entry, !Task.isCancelled else { return }
