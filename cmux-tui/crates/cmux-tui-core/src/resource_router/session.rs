@@ -390,4 +390,37 @@ mod tests {
         assert_eq!(error.code, "validation.invalid");
         assert_eq!(error.details["field"], "correlation_key");
     }
+
+    #[test]
+    fn hex_colors_with_multibyte_or_signed_digits_are_validation_errors() {
+        // Six bytes, but the first two-byte range ends inside 'é': slicing panicked.
+        for color in ["#aééb", "#+f+f+f", "#12345", "#1234567", "123456"] {
+            let error = parse_hex_color(color).unwrap_err();
+            assert_eq!(error.code, "validation.invalid", "{color}");
+        }
+        let color = parse_hex_color("#0A1b2C").unwrap();
+        assert_eq!((color.r, color.g, color.b), (0x0a, 0x1b, 0x2c));
+    }
+
+    #[test]
+    fn terminal_defaults_reject_uncatalogued_shapes_without_panicking() {
+        let mux = Mux::new_for_test("session-defaults-shapes", SurfaceOptions::default());
+        for (key, fields) in [
+            ("defaults-style", json!({"cursor_style":7})),
+            ("defaults-style-name", json!({"cursor_style":"beam"})),
+            ("defaults-blink", json!({"cursor_blink":"yes"})),
+            ("defaults-color", json!({"foreground":1})),
+            ("defaults-palette", json!({"palette":[]})),
+            ("defaults-palette-index", json!({"palette":{"256":"#000000"}})),
+            ("defaults-palette-value", json!({"palette":{"1":1}})),
+            ("defaults-palette-color", json!({"palette":{"1":"#aééb"}})),
+        ] {
+            let error = dispatch(
+                &mux,
+                request(ResourceOperation::SessionTerminalDefaultsUpdate, key, fields.clone()),
+            )
+            .unwrap_err();
+            assert_eq!(error.code, "validation.invalid", "{fields}");
+        }
+    }
 }
