@@ -25,7 +25,7 @@ final class TerminalEventQueue: Sendable {
     /// Counts the output bytes the queue copies when it merges chunks
     /// (``DaemonWireStats/Snapshot/outputBytesCopiedApp``); nil counts nothing.
     private let recorder: DaemonWireStats.Recorder?
-    private let state = Mutex(State())
+    private let state = Mutex(State(), rank: .daemonTerminalEventQueue)
     // concurrency-allow: the designed backpressure that makes the daemon drop a slow view: only the attach
     // connection's dedicated reader thread (LineTransport) waits on it, never the main thread or a pool thread.
     private let readerWake = DispatchSemaphore(value: 0)

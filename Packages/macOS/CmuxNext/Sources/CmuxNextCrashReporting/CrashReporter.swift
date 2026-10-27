@@ -50,7 +50,7 @@ public final class CrashReporter: Sendable {
     public static let appOwnedSignals: [Int32] = [SIGPIPE, SIGTERM]
 
     public let policy: CrashReportingPolicy
-    private let sentryHandlers = Mutex<SignalActions?>(nil)
+    private let sentryHandlers = Mutex<SignalActions?>(nil, rank: .crashReporterSentryHandlers)
 
     public init(policy: CrashReportingPolicy) {
         self.policy = policy
