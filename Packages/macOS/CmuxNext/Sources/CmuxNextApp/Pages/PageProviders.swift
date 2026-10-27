@@ -122,13 +122,16 @@ final class DaemonPageRelay: PageProvider {
     /// The page host's channels, shared by every page of the host.
     let channels: PageRelayChannels
     private let work: BackgroundWork
+    private let eventWake: () -> FrameOutboxWake
     private let idleDeadline: () -> any PageRelayIdleDeadline
     private let streams = PageRelayStreams()
 
-    /// The app's relay: the local daemon, the page host's channels, idle closes on the app's deadlines.
+    /// The app's relay: the local daemon, the page host's channels, events on the app's frames,
+    /// idle closes on the app's deadlines.
     convenience init(services: AppServices) {
-        let deadlines = services.mainDeadlines
-        self.init(daemon: services.machines.local, channels: services.webUI.relayChannels, work: services.work) {
+        let deadlines = services.mainDeadlines, mainWork = services.mainWork
+        self.init(daemon: services.machines.local, channels: services.webUI.relayChannels, work: services.work,
+                  eventWake: { FrameOutboxWake.nextFrame(owner: "PageRelayChannel.events", on: mainWork) }) {
             // A close tears down what nobody uses: background class, behind input and visible work.
             MainDeadline(owner: "PageRelayChannel.idleClose", workClass: .background, scheduler: deadlines)
         }
@@ -137,19 +140,21 @@ final class DaemonPageRelay: PageProvider {
     /// - Parameters:
     ///   - daemon: The daemon the pages call (the local one in the app).
     ///   - channels: The page host's relay channels.
-    ///   - work: Where a channel's idle close closes its connection.
+    ///   - work: Where a channel reads its events and its idle close closes its connection.
+    ///   - eventWake: Makes a new channel's frame wake for the events it read off main.
     ///   - idleDeadline: Makes a new channel's idle close deadline.
     init(daemon: any PageRelayDaemon, channels: PageRelayChannels, work: BackgroundWork,
-         idleDeadline: @escaping () -> any PageRelayIdleDeadline) {
+         eventWake: @escaping () -> FrameOutboxWake, idleDeadline: @escaping () -> any PageRelayIdleDeadline) {
         self.daemon = daemon
         self.channels = channels
         self.work = work
+        self.eventWake = eventWake
         self.idleDeadline = idleDeadline
     }
 
     /// The relay channel of `page` on the daemon, kept by the page host.
     private func channel(for page: String) -> PageRelayChannel {
-        PageRelayChannel.of(page: page, daemon: daemon, in: channels, work: work, idle: idleDeadline)
+        PageRelayChannel.of(page: page, daemon: daemon, in: channels, work: work, events: eventWake, idle: idleDeadline)
     }
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
@@ -163,7 +168,7 @@ final class DaemonPageRelay: PageProvider {
             // The page relay connection: origin `page`, or the user with a native-sheet token.
             let result = try await channel(for: context.page).send(
                 operation: String(op.dropFirst("cmux.".count)), params: try Self.daemonParams(members), idempotencyKey: key,
-                context: context)
+                context: context, on: daemon)
             return try Self.pageValue(result)
         } catch let error as DaemonError {
             throw Self.pageError(error)
@@ -173,7 +178,9 @@ final class DaemonPageRelay: PageProvider {
     /// A page stream `cmux.<ns>.<event>` is the daemon subscribe event `<ns>-<event>`
     /// (`cmux.history.changed` -> `history-changed`), as the daemon sent it, on the page's relay
     /// connection (page-events-v1, cx-hnmbt.9). The daemon decides which events a page hears; a
-    /// stream it does not name is `unknown_op` (the page then reads without live updates).
+    /// stream it does not name is `unknown_op` (the page then reads without live updates). The
+    /// channel reads each event off main and hands the page its members as they arrived, a frame's
+    /// worth at a time (p05-ipc-109).
     func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
         guard stream.hasPrefix("cmux.") else { throw PageError.unknownOp(stream) }
@@ -181,10 +188,8 @@ final class DaemonPageRelay: PageProvider {
         let event = stream.dropFirst("cmux.".count).replacingOccurrences(of: ".", with: "-")
         do {
             let channel = self.channel(for: context.page)
-            let listener = try await channel.listen(event: event) { payload in
-                onEvent((try? Self.pageValue(payload)) ?? .object([:]))
-            }
-            let stop = streams.add(listener: listener, on: channel) { onEvent(["resync": true]) }
+            let listener = try await channel.listen(event: event, on: daemon, onEvent: onEvent)
+            let stop = streams.add(listener: listener, on: channel.listeners) { onEvent(["resync": true]) }
             return Self.subscription(onCancel: stop)
         } catch is PageRelayChannel.NoSuchEvent {
             throw PageError.unknownOp(stream)

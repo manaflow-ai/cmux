@@ -86,6 +86,8 @@ import Testing
         let channels = PageRelayChannels()
         let work = BackgroundWork(label: "test.page-relay")
         let deadline = ManualDeadline()
+        /// The frames that hand the channels' events to the pages (``ManualFrameWake/frame()``).
+        let wake = ManualFrameWake()
 
         init() throws {
             socket = try FakePageRelaySocket()
@@ -98,8 +100,8 @@ import Testing
         }
 
         func page() -> Page {
-            let deadline = deadline
-            let relay = DaemonPageRelay(daemon: daemon, channels: channels, work: work) { deadline }
+            let deadline = deadline, wake = wake
+            let relay = DaemonPageRelay(daemon: daemon, channels: channels, work: work, eventWake: { wake.wake }) { deadline }
             let router = PageRouter(descriptor: PageRelayChannelFreezeTests.descriptor, routes: [
                 PageRoute(prefix: "cmux.history.", provider: relay),
                 PageRoute(prefix: "cmux.workspace.", provider: relay),
@@ -141,13 +143,15 @@ import Testing
         #expect(rig.deadline.armed == nil, "live listeners keep the connection")
 
         rig.socket.publish("history-changed")
+        await rig.wake.frame()
         await frozen.sent.waitForEvents(1)
         await other.sent.waitForEvents(1)
 
         frozen.router.pageWillFreeze()
         #expect(rig.deadline.armed == nil, "the other tab's live listener keeps the connection")
         rig.socket.publish("history-changed")
-        // Both listeners hear the same daemon line in one pass: the live one got it, so the paused one never will.
+        // Both listeners hear the same daemon line in one frame: the live one got it, so the paused one never will.
+        await rig.wake.frame()
         await other.sent.waitForEvents(2)
         #expect(frozen.sent.events.count == 1, "a paused listener hears nothing")
 
@@ -173,6 +177,7 @@ import Testing
         #expect(rig.socket.opened == 2)
         #expect(rig.socket.openNow == 1)
         rig.socket.publish("history-changed")
+        await rig.wake.frame()
         await frozen.sent.waitForEvents(3)
         #expect(other.sent.events.count == 2, "the ended stream hears nothing")
     }
@@ -201,6 +206,7 @@ import Testing
         #expect(events.first?["data"]?["resync"]?.boolValue == true)
         try await Self.historyList(page)
         rig.socket.publish("history-changed")
+        await rig.wake.frame()
         await page.sent.waitForEvents(2)
     }
 
@@ -348,6 +354,8 @@ nonisolated final class FakePageRelaySocket: Sendable {
     nonisolated private struct State {
         var clients: Set<Int32> = []
         var opened = 0
+        /// `cmux.protocol/2` requests answered.
+        var calls = 0
         var waits: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     }
 
@@ -394,6 +402,8 @@ nonisolated final class FakePageRelaySocket: Sendable {
     var opened: Int { state.withLock { $0.opened } }
     /// Connections open now.
     var openNow: Int { state.withLock { $0.clients.count } }
+    /// `cmux.protocol/2` requests (page calls) that reached the socket.
+    var calls: Int { state.withLock { $0.calls } }
 
     /// Returns once exactly `open` connections are open.
     func waitUntil(open target: Int) async {
@@ -407,10 +417,15 @@ nonisolated final class FakePageRelaySocket: Sendable {
         }
     }
 
-    /// Sends `{"event": name}` to every open connection.
-    func publish(_ name: String) {
+    /// Sends `{"event": name}` to every open connection, `count` times.
+    func publish(_ name: String, count: Int = 1) {
+        for _ in 0..<count { publish(event: ["event": name]) }
+    }
+
+    /// Sends the event line `event` (its `event` member names it) to every open connection.
+    func publish(event: [String: Any]) {
         let clients = state.withLock { $0.clients }
-        for client in clients { _ = Self.send(["event": name], to: client) }
+        for client in clients { _ = Self.send(event, to: client) }
     }
 
     func stop() {
@@ -431,6 +446,7 @@ nonisolated final class FakePageRelaySocket: Sendable {
                 let line = Data(buffer[buffer.startIndex..<newline])
                 buffer.removeSubrange(buffer.startIndex...newline)
                 guard let request = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
+                if request["protocol"] as? String == "cmux.protocol/2" { state.withLock { $0.calls += 1 } }
                 guard Self.answer(request, to: client) else { return }
             }
         }

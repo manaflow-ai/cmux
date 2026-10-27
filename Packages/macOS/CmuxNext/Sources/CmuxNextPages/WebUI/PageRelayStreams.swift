@@ -1,5 +1,5 @@
-/// The listeners of a page relay channel as a page's streams drive them: the app's
-/// `PageRelayChannel`, a fake in tests.
+/// The listeners of a page relay channel as a page's streams drive them: the app channel's
+/// ``PageRelayListenerTable``, a fake in tests.
 @MainActor
 public protocol PageRelayListeners: AnyObject {
     /// Listener `id` delivers nothing and no longer keeps the channel's connection (the page froze).
