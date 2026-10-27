@@ -4,21 +4,24 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import { subscribePageStreams } from "../shared/pageStreams";
 import table from "./generated/strings.json";
 import { HistoryPage } from "./HistoryPage";
 import { MockHistoryProvider } from "./mockProvider";
-import { HistoryStore } from "./store";
+import { HISTORY_PAGE, HistoryStore } from "./store";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "./styles.css";
 import { appPopupHost } from "../shared/pagePopupHost";
 
 export function mountHistoryPage(root: HTMLElement, client: PageClient | null = defaultClient()): HistoryStore {
+  const state = openPageState(client, HISTORY_PAGE);
   const store = new HistoryStore(client, {
     writeClipboard: (text) => navigator.clipboard.writeText(text),
   });
+  state.keep(() => store.pageInputs());
   // The app's key dispatcher sends page commands (Cmd-F is `find`); the page never reads chords.
   if (client) {
     void subscribePageStreams(client, {

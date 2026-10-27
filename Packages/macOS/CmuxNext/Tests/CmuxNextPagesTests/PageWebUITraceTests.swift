@@ -27,7 +27,7 @@ struct PageWebUITraceTests {
         let recorder = PageTraceRecorder()
         let hosting = FakeChromiumHosting()
         let view = page(recorder, load: true, chromium: hosting)
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let chromium = try #require(hosting.made.first)
         let painted: Bool? = await PageTestWait.value("paint") { done in

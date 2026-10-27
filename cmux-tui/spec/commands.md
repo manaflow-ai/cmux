@@ -944,7 +944,12 @@ object{
     name:string, tid:uint64|null,
     declared:qos, desired:qos, effective:qos|null,
     requested_qos:string|null, nice:int32|null, priority:int32|null,
-    refused_changes:uint32, matches:bool|null
+    refused_changes:uint32, matches:bool|null,
+    connection:object{
+      client:uint64, transport:"unix"|"ws"|"remote"|null, remote_device:bool|null,
+      origin:"page"|"agent"|"app"|"user"|null, peer_pid:uint32|null,
+      class:"unclassified"|"person"|"automation"|null
+    }|null
   }>,
   lanes:array<object{
     lane:"files"|"system"|"cpu", pending:uint64, running:uint64, blocked:uint64,
@@ -963,7 +968,14 @@ change succeeded). The kernel's value is `requested_qos` on macOS (a qos name,
 says whether it is `desired` (null when it could not be read). `priority` is
 the scheduler priority now: macOS `pth_curpri` (Default 31), Linux 20 + nice
 (the `priority` field of `/proc/<pid>/task/<tid>/stat`), or `-1 -
-rt_priority` for a real-time thread. `role` is the Mach task role (`reniced`,
+rt_priority` for a real-time thread. `connection` names the connection a
+reader or request thread works for (its client id) with the facts its client
+class comes from (`transport`, `remote_device`, the derived request `origin`,
+the socket peer's `peer_pid` at accept) and the `class` the daemon gave it
+(server/connection_qos.rs); it is null for every other thread, and its facts
+are null once the connection is gone. The QoS audit
+(scripts/cmux-next/qos-audit.py) judges the person's connection threads by
+it. `role` is the Mach task role (`reniced`,
 `unspecified`, `foreground`, `background`, `control`, `graphics-server`,
 `throttle`, `non-ui`, `default`, `darwin-bg`, or `other` with `role_raw`);
 the daemon sets `foreground` at start (Chromium's `SetCurrentTaskDefaultRole`).
@@ -1287,6 +1299,7 @@ Params:
 | `role` | `string` | required | `main` (the app's own connection) or `page_relay` (relays a page's requests) |
 | `install_id` | `string` | optional | 1-128 characters of `A-Z a-z 0-9 _ -`; with role `main` it asks for a nonce (step 2 proves it) |
 | `page` | `string` or null | optional | role `page_relay` only (`page-router-v1`): the page the relay serves |
+| `features` | `object{hash?:string, values:object<string,bool>}` or null | optional | role `main` only: the app's values of its `daemon` and `both` features (at most 512) |
 
 Step 2 sends `install_id` and `proof` (both required strings). Other members
 are ignored. spec/sdk-schema.json types both steps as one command whose
@@ -1309,12 +1322,29 @@ daemon refuses origin `user` (`origin.forbidden`, `apps.origin_forbidden`), the
 client shows the refusal and never sends the same request again with another
 origin. A daemon without this field allows no client to assume `user`.
 
+Features (p12-perf-process 3.9): the daemon outlives the app, so the app's
+`main` connection sends its daemon features in every hello. `hash` is FNV-1a
+64 over `name=1\n` (or `=0\n`) for each feature in registry order, as 16 hex
+digits; when it equals the daemon's, nothing is compared. Otherwise the reply's
+`features: object{hash, applied:[string], pending:[object{name, app:bool,
+daemon:bool}]}` says what the daemon did. For a verified app (the code
+signature at step 1, or the install-key proof, then reported again in step 2's
+result) an off for a `process=daemon` kill switch applies at once and is
+listed in `applied`; it stays off until the daemon restarts. Every other
+difference, a `both` feature's included, is `pending`: the daemon keeps its
+own value for its session, and the app runs each pending `both` feature with
+the daemon's value too (fixed by the hello of the connection it attaches), so
+no feature is read from two sources. Names the
+daemon does not declare are ignored. The daemon reads no file and fetches
+nothing for it. The member is left out before the daemon resolved its own
+features.
+
 Errors (`error_code`; none changes state, and each closes the hello window):
 
 | Code | When |
 | --- | --- |
 | `client_hello.local_only` | the connection is not a local Unix socket connection |
-| `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed |
+| `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed; `{field: "features"}`: features malformed or not on role `main` |
 | `client_hello.window_closed` | after any other line, after two `identify` lines, or a second `client-hello` |
 | `client_hello.refused` | step 2 with a wrong or missing proof or install id (the connection stays unverified) |
 
@@ -5095,6 +5125,14 @@ the terminal. Its result adds `participant:string`, the host participant id
 (`c<client>/<view>`); `accepted` is whether the sub-view now sets a dimension
 of the grid. Terminals only.
 
+With `attach-streams-v1`, optional `stream:uint16` names the view's attach
+stream and is checked: `unknown_stream` when this connection has no open
+stream with that id, `stream_surface_mismatch` when it views another
+surface. Without `lease` and `view` it selects that stream's lease
+(`stream_has_no_lease` when the view has none); with `lease`, the lease must
+be that stream's (`stream_lease_mismatch`). See
+[events.md](events.md#attach-streams).
+
 ### release-attached-view-size
 
 | Field | Value |
@@ -5114,6 +5152,14 @@ Result:
 ```text
 object{outcome:"applied"|"passive"|"superseded"}
 ```
+
+With `attach-streams-v1`, optional `stream:uint16` names the view's attach
+stream and is checked: `unknown_stream` when this connection has no open
+stream with that id, `stream_surface_mismatch` when it views another
+surface. Without `lease` and `view` it selects that stream's lease
+(`stream_has_no_lease` when the view has none); with `lease`, the lease must
+be that stream's (`stream_lease_mismatch`). See
+[events.md](events.md#attach-streams).
 
 ### detach-attached-view
 
@@ -5136,6 +5182,16 @@ Result:
 ```text
 object{outcome:"applied"|"superseded"}
 ```
+
+With `attach-streams-v1`, optional `stream:uint16` names the view's attach
+stream and is checked: `unknown_stream` when this connection has no open
+stream with that id, `stream_surface_mismatch` when it views another
+surface. Without `lease` and `view` it selects that stream's lease
+(`stream_has_no_lease` when the view has none); with `lease`, the lease must
+be that stream's (`stream_lease_mismatch`). See
+[events.md](events.md#attach-streams).
+A client-minted stream detached this way ends with
+`stream-end{reason:"canceled"}`.
 
 ### set-size-policy
 
@@ -8606,6 +8662,7 @@ Params:
 | `reason` | `string` | optional | `digest_mismatch`, `gap`, `generation_mismatch` or `attach`; any other value is `invalid` |
 | `have` | `{generation?, offset?, snapshot_version?}` | optional | A `snapshot_version` other than the host's is `unsupported_version` |
 | `request_id` | `string` | optional | At most 128 bytes; echoed; repeats while a snapshot is pending collapse |
+| `stream` | `uint16` | optional, `attach-streams-v1` | The view to ask: an open attach stream of `surface` on this connection, else `unknown_stream` or `stream_surface_mismatch`. Absent: every snapshot view of `surface` on this connection |
 
 Result:
 
@@ -8776,6 +8833,18 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 | `mode`, `cols`, `rows` fields | protocol 7 additive extensions |
+| `stream` field | protocol 12, capability `attach-streams-v1` |
+
+A connection granted `attach-streams-v1` (offered by `identify`, echoed in
+`set-client-info`; [transports.md](transports.md#framed-ipc-grants)) may
+send `stream:uint16`, an id the client mints for this view; without the
+grant it is `streams_not_granted`. Every item of the view then carries `stream`, and
+`stream-end` is its last item; an id whose `stream-end` is not queued yet is
+refused with `stream_in_use`. Past 4096 open streams on the connection or
+16384 in the daemon the open is refused with `stream_capacity` or
+`server_stream_capacity`, and nothing else changes. A failure after the id was taken queues
+`stream-end{reason:"attach_failed"}` before the error reply. See
+[events.md](events.md#attach-streams) and `cancel-stream`.
 
 Attaches the connection to a PTY or browser surface stream. In protocol v5, the server first sends a `vt-state` event for the current PTY surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
 
@@ -10813,6 +10882,28 @@ provider invalidates the agent inventory. Answers `{}`. A stale sequence is
 
 `{request_id, ok, body?}` answers one provider call. Only the connection the
 call went to may answer (`apps.provider.unknown`). Answers `{}`.
+
+### cancel-stream
+
+| Field | Value |
+| --- | --- |
+| name | `cancel-stream` |
+| status | implemented |
+| since | protocol 12, capability `attach-streams-v1` |
+
+Ends one client-minted attach stream of this connection: the daemon drops
+what the stream still queues, queues `stream-end{reason:"canceled"}`, frees
+the id and removes the view's attachment and size participation, all before
+the reply. Idempotent: an id with no open stream (it ended already, or was
+never opened) answers `outcome:"ended"` and changes nothing.
+
+Params: required `stream:uint16`.
+
+Result:
+
+```text
+object{stream:uint16,outcome:"applied"|"ended"}
+```
 
 ### cancel-request
 

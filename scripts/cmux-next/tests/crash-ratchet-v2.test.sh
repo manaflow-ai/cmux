@@ -483,6 +483,208 @@ out="$(report trap_api)" || fail "--report trap_api failed: $out"
 printf 'guard !other.isEmpty else { return }\nlet b = queue.removeFirst()\n' > "$app/Sources/M/A.swift"
 out="$(report trap_api)" || fail "--report trap_api failed: $out"
 [[ "$(hits trap_api M <<<"$out")" == 1 ]] || fail "another collection's guard exempted a removal: $out"
+# 21b. (p10-stability-098) validated counts and longer guards: a count shown non-negative (a literal comparison, a
+#      guard above in scope, a `let` of a safe count, a `max` assignment, a type constant, a C constant, base64
+#      padding, a ternary of literals, sums and products of those) and a removal behind a guard whose else block
+#      runs several lines, or bounded by its receiver's count, do not count; the same shapes with a value that may
+#      be negative still do.
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+enum Sizes {
+    static let words = 8
+    static let bytes = words * 4
+}
+func a(n: Int, keyLength: Int, side: Int, value: String, t: T, ipv6: Bool) {
+    guard keyLength >= 1, keyLength <= 1024 else {
+        return
+    }
+    let one = 1
+    let two = 2
+    let three = 3
+    var key = [UInt8](repeating: 0, count: keyLength)
+    let b = n > 0 ? Array(repeating: 0, count: n) : []
+    let cols = max(1, t.columns)
+    let c = [CGFloat](repeating: 16, count: cols)
+    let d = [UInt8](repeating: 0, count: Sizes.bytes)
+    let e = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
+    let f = String(repeating: "=", count: (4 - value.count % 4) % 4)
+    let g = [UInt8](repeating: 0, count: ipv6 ? 16 : 4)
+    let h = [UInt8](repeating: 0, count: cols * cols * 4)
+    let w = max(0, side), hh = max(0, t.height)
+    let i = [UInt32](repeating: 0, count: w * hh)
+}
+func next() -> Int? {
+    guard let first = items.first else {
+        idle()
+        return nil
+    }
+    // the guard above holds here
+    items.removeFirst()
+    transcript.removeFirst(transcript.count / 4)
+    scalars.removeLast(min(scalars.count, 64))
+    return first
+}
+SWIFT
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api <<<"$out")" == 0 ]] || fail "a validated count or a longer guard counted as trap_api: $out"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+enum Sizes {
+    static let words = other - 1
+}
+func a(n: Int, side: Int, value: String, t: T, ipv6: Bool) {
+    if n > 0 {
+        a()
+        b()
+        c()
+    }
+    let a = Array(repeating: 0, count: n)
+    let cols = t.columns - 1
+    let c = [CGFloat](repeating: 16, count: cols)
+    let d = [UInt8](repeating: 0, count: Sizes.words)
+    let f = String(repeating: "=", count: 4 - remainder)
+    let g = [UInt8](repeating: 0, count: ipv6 ? n : 4)
+    let w = max(0, side), hh = t.height
+    let i = [UInt32](repeating: 0, count: w * hh)
+}
+func next() -> Int? {
+    guard let first = other.first else {
+        idle()
+        return nil
+    }
+    items.removeFirst()
+    transcript.removeFirst(other.count / 4)
+    scalars.removeLast(min(scalars.count, n))
+    return first
+}
+SWIFT
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api M <<<"$out")" == 9 ]] || fail "an unvalidated count or an unguarded removal was missed (want 9): $out"
+# 21c. (p10-stability-098) a check that does not hold at the call proves nothing: each shape counts once. A
+#      comparison in the false branch of a ternary, in an `if` block that closed before the call or in its `else`,
+#      in a `||`; a `let` or a `guard` in another function; a C constant that is not a size; a clamp the value then
+#      leaves (`max(0, x) - 10`); a clamp of `self.width` for a count of the parameter `width`; a reassignment, an
+#      inout use or a later turn of a loop after the check; a closure parameter of the same name.
+trap_shape() {
+    local shape="$1"
+    cat > "$app/Sources/M/A.swift"
+    out="$(report trap_api)" || fail "--report trap_api failed: $out"
+    [[ "$(hits trap_api M <<<"$out")" == 1 ]] || fail "a negative count passed as validated ($shape): $out"
+}
+trap_shape "the ternary's false branch" <<'SWIFT'
+func f(n: Int) {
+    let a = n > 0 ? [] : Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "an if block closed before the call" <<'SWIFT'
+func f(n: Int) {
+    if n > 0 { log() }
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "the else of the check's if" <<'SWIFT'
+func f(n: Int) {
+    if n > 0 {
+        log()
+    } else {
+        let a = Array(repeating: 0, count: n)
+    }
+}
+SWIFT
+trap_shape "a disjunction in the guard" <<'SWIFT'
+func f(s: String, n: Int) {
+    guard s.isEmpty || n > 0 else { return }
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a && under a || in the guard" <<'SWIFT'
+func f(s: String, n: Int) {
+    guard n > 0 && s.isEmpty || other else { return }
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a let in another function" <<'SWIFT'
+func g() {
+    let n = 4
+    use(n)
+}
+func f(n: Int) {
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a guard in another function" <<'SWIFT'
+func g(n: Int) {
+    guard n >= 0 else { return }
+    use(n)
+}
+func f(n: Int) {
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a C constant that is not a size" <<'SWIFT'
+func f() {
+    let a = Array(repeating: 0, count: Int(INT_MIN))
+}
+SWIFT
+trap_shape "a clamp the value then leaves" <<'SWIFT'
+func f(x: Int) {
+    var m = max(0, x) - 10
+    let a = Array(repeating: 0, count: m)
+}
+SWIFT
+trap_shape "self.width clamped, the parameter width counted" <<'SWIFT'
+init(width: Int) {
+    self.width = max(0, width)
+    self.cells = Array(repeating: 0, count: width)
+}
+SWIFT
+trap_shape "a reassignment after the guard" <<'SWIFT'
+func f(n: Int) {
+    var n = n
+    guard n >= 0 else { return }
+    n -= 5
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "an inout use after the binding" <<'SWIFT'
+func f() {
+    var size = 0
+    query(&size)
+    let a = [UInt8](repeating: 0, count: size)
+}
+SWIFT
+trap_shape "a later turn of a loop" <<'SWIFT'
+func f() {
+    var room = 64
+    for _ in 0 ..< 2 {
+        let a = [Int32](repeating: 0, count: room)
+        room = needed()
+    }
+}
+SWIFT
+trap_shape "a closure parameter of the same name" <<'SWIFT'
+func f(n: Int) {
+    guard n >= 0 else { return }
+    let all = sizes.map { n in Array(repeating: 0, count: n) }
+}
+SWIFT
+# ... and the same checks where they hold do not count.
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+init(width: Int, s: String, n: Int, x: Int) {
+    self.width = max(0, width)
+    self.cells = Array(repeating: 0, count: self.width)
+    guard s.isEmpty && n >= 0 else {
+        return
+    }
+    let a = Array(repeating: 0, count: n)
+    var m = max(0, x)
+    let b = Array(repeating: 0, count: m)
+    let c = [CChar](repeating: 0, count: Int(PATH_MAX))
+    if x > 0, s.isEmpty {
+        let d = Array(repeating: 0, count: x)
+    }
+}
+SWIFT
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api <<<"$out")" == 0 ]] || fail "a check that holds at the call did not validate its count: $out"
 g reset -q
 reset
 

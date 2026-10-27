@@ -49,9 +49,9 @@ import CmuxNextWakeups
     @Test func aDiscardedCodeRouterTabClosesItsPageAndMakesANewOne() async throws {
         let web = try WebRig()
         defer { web.close() }
-        let clock = ManualClock()
+        let deadlineRig = MainDeadlineRig() // never fired: the Chromium fallback never runs out
         let tab = WebPageTab(.coderouter, symbol: "arrow.triangle.branch", title: "CodeRouter",
-                             discardPolicy: CodeRouterPageTab.hiddenPolicy) { Self.testPage(web, route: nil, clock: clock) }
+                             discardPolicy: CodeRouterPageTab.hiddenPolicy) { Self.testPage(web, route: nil, deadlines: deadlineRig.deadlines) }
         let rig = Rig(tab)
         let discarded = try await Self.discard(rig)
         #expect(!tab.hasPage(rig.key))
@@ -71,12 +71,12 @@ import CmuxNextWakeups
         let web = try WebRig()
         defer { web.close() }
         Self.answerFragment(web, "#/installed") // the person moved there with the page's own links
-        let clock = ManualClock()
+        let deadlineRig = MainDeadlineRig() // never fired: the Chromium fallback never runs out
         let services = MachineIconTests.services()
         var routes: [String] = []
         let apps = AppsService(services: services) { route in
             routes.append(route)
-            return Self.testPage(web, route: route, clock: clock)
+            return Self.testPage(web, route: route, deadlines: deadlineRig.deadlines)
         }
         let rig = Rig(apps)
         let discarded = try await Self.discard(rig)
@@ -97,12 +97,12 @@ import CmuxNextWakeups
         defer { web.close() }
         Self.answerFragment(web, "#/get")
         web.scrollY = 700 // the person scrolled the machine list
-        let clock = ManualClock()
+        let deadlineRig = MainDeadlineRig() // never fired: the Chromium fallback never runs out
         let services = MachineIconTests.services()
         var routes: [String?] = []
         let cloud = CloudPageService(services: services) { route in
             routes.append(route)
-            return Self.testPage(web, route: route, clock: clock).map { (page: $0, provider: CloudPageProvider(op: { _, _, _, _ in .object([:]) })) }
+            return Self.testPage(web, route: route, deadlines: deadlineRig.deadlines).map { (page: $0, provider: CloudPageProvider(op: { _, _, _, _ in .object([:]) })) }
         }
         let rig = Rig(cloud)
         let discarded = try await Self.discard(rig)
@@ -299,11 +299,11 @@ import CmuxNextWakeups
     static let pairingDescriptor = PageDescriptor(id: "test.mobile-pairing", resource: "discard", processGroup: .privileged, namespaces: ["cmux.mobilePairing."])
 
     /// A page in `web`'s fake Chromium host, opened on `route`.
-    static func testPage(_ web: WebRig, route: String?, clock: ManualClock) -> PageWebView? {
+    static func testPage(_ web: WebRig, route: String?, deadlines: MainDeadlineScheduler) -> PageWebView? {
         let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", processGroup: .solo, namespaces: []),
                                root: web.folder, routes: [], route: route, chromium: web.hosting)
         // The engine's no-message deadline never runs out here.
-        page?.chromiumClock = clock
+        page?.chromiumDeadlines = deadlines
         return page
     }
 
@@ -354,7 +354,7 @@ import CmuxNextWakeups
 
     static func macScreenPages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
+        return MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
     }
 
     static func phones() -> PhoneService {

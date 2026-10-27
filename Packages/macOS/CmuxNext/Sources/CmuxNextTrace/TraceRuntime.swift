@@ -19,8 +19,8 @@ public import CmuxNextCompat
 /// The write methods publish into the ring its owner attaches (``attach(_:)``): the black box, which
 /// `TraceBlackBox` makes and attaches at launch (task 005), so the runtime holds it from then on. Catalog
 /// names go by id and interned names by their id in the active ring (tasks 003 and 004). The category
-/// defaults are ``TraceCategories`` (task 005). The API is frozen (task 000); recording (020) and crash keys
-/// (078) are still stubs.
+/// defaults are ``TraceCategories`` (task 005). The crash keys go into the page its owner attaches
+/// (``attachCrashKeys(_:)``, task 078). The API is frozen (task 000); recording (020) is still a stub.
 ///
 /// ```swift
 /// TraceRuntime.shared.write(name: 46, categoryBit: 10, phase: .instant)
@@ -65,6 +65,8 @@ public final class TraceRuntime: Sendable {
     /// The address of the histogram store ``attachMetrics(_:)`` attached (retained once and never released, as
     /// the ring), 0 until its owner attaches one.
     let metricsAddress = Atomic<UInt64>(0)
+    /// The crash-key page ``attachCrashKeys(_:)`` attached; none until its owner attaches one.
+    let crashKeyPage = AttachedCrashKeyPage()
 
     /// A runtime for a process of kind `role`, with every category off and no ring yet.
     ///
@@ -264,18 +266,6 @@ public final class TraceRuntime: Sendable {
     /// the same way (base/atomic_sequence_num.h).
     public func nextAsyncScope() -> UInt64 {
         asyncScopes.add(1, ordering: .relaxed).newValue
-    }
-
-    // MARK: crash keys
-
-    /// Stores `value` in a crash-key slot (one relaxed store into the crash-key page).
-    public func setCrashKey(_ slot: CrashKeySlot, _ value: UInt64) {
-        // Task 078: the page.
-    }
-
-    /// The value a crash-key slot holds now (0 when never set).
-    public func crashKey(_ slot: CrashKeySlot) -> UInt64 {
-        0 // Task 078.
     }
 }
 

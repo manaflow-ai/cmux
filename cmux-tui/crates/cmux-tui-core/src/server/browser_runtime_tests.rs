@@ -235,6 +235,43 @@ fn start_reads_the_install_off_the_reader_thread() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A stop waits out the host's grace on a `mux` work item, not a
+/// `mux-browser-runtime-stop` thread (p02-threads 230): the host exits on
+/// its closed lifeline, is reaped, and its log goes. Without a bound owner
+/// (no work) the log would stay.
+#[test]
+fn a_stop_reaps_the_host_on_a_work_item() {
+    use super::super::request_thread_tests::{next_reply, on_request_thread_with};
+    use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
+
+    let root = scratch("stop-work");
+    let markers = install(&root, "v-stop-work", STAND_IN_HOST);
+    let mux = daemon("rt-stop-work", &root);
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    mux.control_clients
+        .set_info(client, None, None, Some(vec![BROWSER_RUNTIME_CAPABILITY.to_owned()]))
+        .unwrap();
+    let line = json!({"id": 1, "cmd": "browser-runtime-start"}).to_string();
+    let handled =
+        on_request_thread_with(&mux, move |mux| through_route(mux, client, &line, &writer));
+    assert_eq!(handled, Some(true));
+    let started = next_reply(&outbound);
+    assert_eq!(started["ok"], json!(true), "{started}");
+    let logs = || std::fs::read_dir(root.join("logs")).map_or(0, Iterator::count);
+    assert_eq!(logs(), 1, "the started host has a log");
+    mux.control_clients.browser_runtimes.disconnect(client);
+    assert!(wait_for_file(&markers.join("stopped")), "the host outlived its stop");
+    let deadline = Instant::now() + WAIT;
+    while logs() != 0 {
+        assert!(Instant::now() < deadline, "the stop item did not finish");
+        // Test harness wait for the stop item.
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Status reads wait on the files lane: past the per-connection bound a
 /// status is refused at once, so one connection cannot fill the lane.
 #[test]

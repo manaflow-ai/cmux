@@ -156,12 +156,15 @@ fn prepare_datagram_directory(control: &Path) -> io::Result<PathBuf> {
             ),
         ));
     }
-    match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
+    match cmux_threads::checked::fs::create_dir_with(
+        std::fs::DirBuilder::new().mode(0o700),
+        &directory,
+    ) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error),
     }
-    let metadata = std::fs::symlink_metadata(&directory)?;
+    let metadata = cmux_blocking::fs::symlink_metadata(&directory)?;
     let owner = unsafe { libc::geteuid() };
     if !metadata.file_type().is_dir() || metadata.uid() != owner || metadata.mode() & 0o077 != 0 {
         return Err(io::Error::new(
@@ -187,7 +190,11 @@ pub async fn serve_hub_control(
     let path = path.into();
     let listener = OwnedUnixListener::bind(path.clone()).await?;
     let socket_cleanup = listener.cleanup();
-    prepare_datagram_directory(&path).map_err(HubError::Io)?;
+    let control = path.clone();
+    cmux_blocking::spawn_blocking(move || prepare_datagram_directory(&control))
+        .await
+        .map_err(|error| HubError::Io(error.into()))?
+        .map_err(HubError::Io)?;
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_CONTROL_CONNECTIONS));
     let hub = Arc::new(Hub { net, paths, control: path.clone(), drops: Arc::default() });
@@ -324,11 +331,11 @@ impl Binding {
     }
 
     fn remove_file(&self) {
-        if let Ok(metadata) = std::fs::symlink_metadata(&self.path)
+        if let Ok(metadata) = cmux_blocking::fs::symlink_metadata(&self.path)
             && metadata.file_type().is_socket()
             && (metadata.dev(), metadata.ino()) == self.identity
         {
-            let _ = std::fs::remove_file(&self.path);
+            let _ = cmux_blocking::fs::remove_file(&self.path);
         }
     }
 }
@@ -474,8 +481,16 @@ impl Hub {
             .await
             .map_err(|error| Failure("port_busy", error.to_string()))?;
         let path = datagram_socket_path(&self.control, params.port);
-        let (local, identity) = bind_datagram_socket(&path)
-            .map_err(|error| Failure("socket_failed", format!("{}: {error}", path.display())))?;
+        let socket_failed =
+            |error: io::Error| Failure("socket_failed", format!("{}: {error}", path.display()));
+        let (local, identity) = {
+            let path = path.clone();
+            cmux_blocking::spawn_blocking(move || bind_datagram_socket(&path))
+                .await
+                .map_err(|error| socket_failed(error.into()))?
+                .map_err(socket_failed)?
+        };
+        let local = UnixDatagram::from_std(local).map_err(socket_failed)?;
         let max_datagram = socket.max_datagram();
         let relay = Relay { drops: Arc::clone(&self.drops), priority: params.class.priority() };
         let task = tokio::spawn(relay.run(socket, local));
@@ -492,19 +507,22 @@ impl Hub {
 /// Bind a Unix datagram socket at `path` inside the hub's `0700` datagram
 /// directory, with large buffers. A leftover socket file (an earlier hub
 /// that held this control path) is replaced; any other file is refused.
-fn bind_datagram_socket(path: &Path) -> io::Result<(UnixDatagram, (u64, u64))> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_socket() => std::fs::remove_file(path)?,
+fn bind_datagram_socket(path: &Path) -> io::Result<(std::os::unix::net::UnixDatagram, (u64, u64))> {
+    match cmux_blocking::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_socket() => cmux_blocking::fs::remove_file(path)?,
         Ok(_) => return Err(io::Error::new(io::ErrorKind::AlreadyExists, "not a socket")),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    let socket = UnixDatagram::bind(path)?;
+    let socket = std::os::unix::net::UnixDatagram::bind(path)?;
     // The 0700 directory already keeps others out; 0600 says so on the file.
-    if let Err(error) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
-        let _ = std::fs::remove_file(path);
+    if let Err(error) =
+        cmux_threads::checked::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+    {
+        let _ = cmux_blocking::fs::remove_file(path);
         return Err(error);
     }
+    socket.set_nonblocking(true)?;
     for option in [libc::SO_RCVBUF, libc::SO_SNDBUF] {
         let size = DATAGRAM_SOCKET_BUFFER;
         // A smaller buffer than asked is fine; it only drops sooner.
@@ -518,7 +536,7 @@ fn bind_datagram_socket(path: &Path) -> io::Result<(UnixDatagram, (u64, u64))> {
             );
         }
     }
-    let metadata = std::fs::symlink_metadata(path)?;
+    let metadata = cmux_blocking::fs::symlink_metadata(path)?;
     Ok((socket, (metadata.dev(), metadata.ino())))
 }
 

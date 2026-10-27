@@ -68,10 +68,11 @@ public nonisolated struct HangReportBuilder: Sendable {
     /// the last report. `inputLatency` (the field ledger's counts, ``HangReportInputLatencySource``)
     /// and `mainThread` (active seconds and the main-turn and input-queueing histograms,
     /// ``MainThreadInput``) go in only when ``wireSchema`` carries them, and so does `fieldData` (the catalog
-    /// histograms, stability counts, earlier launches and black box, ``FieldDataInput``).
+    /// histograms, stability counts, earlier launches and black box, ``FieldDataInput``), and `blockingSites` (the
+    /// main thread's blocking call counts since the last report, ``BlockingSiteLedger/take()``).
     public func build(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput],
                       inputLatency: InputLatencySnapshot? = nil, mainThread: MainThreadInput? = nil,
-                      fieldData: FieldDataInput? = nil) -> HangReport {
+                      fieldData: FieldDataInput? = nil, blockingSites: [HangReport.BlockingSiteCount]? = nil) -> HangReport {
         var report = HangReport(reportId: context.reportId, installId: context.installId, day: Self.safeDay(context.day),
                                 app: Self.safeApp(context.app), os: HangReport.OS(version: Self.safeVersion(context.os.version)),
                                 hardware: context.hardware, counts: safeCounts(context.counts))
@@ -103,6 +104,7 @@ public nonisolated struct HangReportBuilder: Sendable {
         if let mainThread, wireSchema.carriesMainThread { Self.addMainThread(mainThread, to: &report) }
         if let fieldData, wireSchema.carriesFieldData { Self.addFieldData(fieldData, to: &report) }
         if let features = context.features, wireSchema.carriesFeatures { Self.addFeatures(features, to: &report) }
+        if let blockingSites, wireSchema.carriesBlockingSites { Self.addBlockingSites(blockingSites, to: &report) }
         return report
     }
 

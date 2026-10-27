@@ -9,7 +9,7 @@ import Foundation
 /// frame boundaries; the core validates the frames.
 nonisolated struct RemoteRdStreamSplitter {
     /// One piece of the received bytes, in order.
-    struct Segment: Equatable {
+    nonisolated struct Segment: Equatable {
         var bytes: Data
         /// The piece ends with the last byte of a control frame.
         var endsControlFrame: Bool
@@ -25,32 +25,36 @@ nonisolated struct RemoteRdStreamSplitter {
 
     mutating func split(_ data: Data) -> [Segment] {
         var segments: [Segment] = []
-        var start = data.startIndex
-        var index = data.startIndex
-        while index < data.endIndex {
+        // `rest` is the bytes not yet walked and `piece` the bytes since the last cut: both are
+        // counted from the front, and a cut is a prefix or suffix of `data`: no byte is subscripted.
+        var rest = data
+        var piece = 0
+        while !rest.isEmpty {
             if inPayload {
-                let take = min(remaining, data.endIndex - index)
-                index += take
+                let take = min(remaining, rest.count)
+                rest = rest.dropFirst(take)
+                piece += take
                 remaining -= take
-            } else {
-                header.append(data[index])
-                index += 1
+            } else if let byte = rest.popFirst() {
+                piece += 1
+                header.append(byte)
                 guard header.count == Self.headerLength else { continue }
-                type = header[0]
-                remaining = Int(UInt32(header[1]) | UInt32(header[2]) << 8 | UInt32(header[3]) << 16 | UInt32(header[4]) << 24)
+                type = header.first ?? 0
+                // A u32 length always fits a 64-bit Int.
+                remaining = Int(truncatingIfNeeded: header.dropFirst().reversed().reduce(UInt32(0)) { $0 << 8 | UInt32(truncatingIfNeeded: $1) })
                 header.removeAll(keepingCapacity: true)
                 inPayload = true
             }
             if inPayload, remaining == 0 {
                 inPayload = false
                 if type == Self.controlType {
-                    segments.append(Segment(bytes: data[start..<index], endsControlFrame: true))
-                    start = index
+                    segments.append(Segment(bytes: data.dropFirst(data.count - rest.count - piece).prefix(piece), endsControlFrame: true))
+                    piece = 0
                 }
             }
         }
-        if start < data.endIndex {
-            segments.append(Segment(bytes: data[start..<data.endIndex], endsControlFrame: false))
+        if piece > 0 {
+            segments.append(Segment(bytes: data.suffix(piece), endsControlFrame: false))
         }
         return segments
     }

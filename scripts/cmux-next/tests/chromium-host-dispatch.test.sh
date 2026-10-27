@@ -16,6 +16,9 @@
 #                           (ChromiumHost/client, built as a shared library
 #                           from the committed client/generated/remote_shim.inc)
 #                           on a socket pair: what cmux's shim reads
+#   host_page_resource_test.cpp  the same pair: cmux-page:// schemes as preinit
+#                           ops with their verdicts, PAGE_RESOURCE and a 10 MB
+#                           answer in shared memory (task p01-process-070)
 # Every test links a fake of the shim: the test's own functions, and a weak
 # zero stub for each other export of cmux_cef_shim.h (the generated cases call
 # them all). First, the sources compile alone with -Werror against the same
@@ -109,3 +112,7 @@ fi
   "$host/tests/host_mirror_test.cpp" -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc" \
   ${test_libs[@]+"${test_libs[@]}"}
 "$work/host_mirror_test"
+"${cxx[@]}" "${flags[@]}" -I"$host/client" -O1 -DCMUX_REMOTE_SHIM_PATH="\"$client\"" -o "$work/host_page_resource_test" \
+  "$host/tests/host_page_resource_test.cpp" -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc" \
+  ${test_libs[@]+"${test_libs[@]}"}
+"$work/host_page_resource_test"

@@ -65,6 +65,8 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// `daemon.line` scope, never its `read(2)` wait). The App's composition root sets it to its
     /// ``HangWatch``; nil (the default) watches nothing.
     public var hangWatch: (any HangWatchScoping)?
+    /// Told each time the connection's quiet-handoff gate parks a wait (a test seam; the default ignores it).
+    var handoffWaits: @Sendable (QuietHandoffGate.Wait) -> Void = { _ in }
 
     public init(
         clientName: String = "cmux-next",
@@ -108,9 +110,12 @@ public struct ClientHelloIdentity: Sendable {
     /// Nil: role main only (the daemon may still verify the app by its
     /// code signature).
     public var installKey: FrontendInstallKey?
+    /// The app's daemon features, sent in each hello (p12-perf-process-150); nil sends none.
+    public var features: DaemonFeatureHello?
 
-    public init(installKey: FrontendInstallKey?) {
+    public init(installKey: FrontendInstallKey?, features: DaemonFeatureHello? = nil) {
         self.installKey = installKey
+        self.features = features
     }
 }
 
