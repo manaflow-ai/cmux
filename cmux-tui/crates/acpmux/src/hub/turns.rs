@@ -686,6 +686,15 @@ impl Hub {
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
         session.queue_moved.notify_waiters();
+        // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is
+        // taken, as a slow end does (`tests/durable_agents.rs`). Bounded; release builds have no
+        // seam.
+        #[cfg(debug_assertions)]
+        if let Some(ms) =
+            std::env::var("ACPMUX_TEST_FINISH_HOLD_MS").ok().and_then(|v| v.parse::<u64>().ok())
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+        }
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
             let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);

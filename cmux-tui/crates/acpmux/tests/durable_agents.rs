@@ -2308,6 +2308,76 @@ async fn a_turn_mdm_ended_leaves_its_chat_idle() {
     assert_eq!(entry["status"], "idle", "{entry}");
 }
 
+/// The chat's status in the daemon's session list.
+async fn status_of(daemon: &Daemon, session: &str) -> Value {
+    let mut rpc = daemon.rpc().await;
+    let summary = rpc.call("_acpmux/sessions", json!({})).await;
+    let entry = summary["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["sessionId"] == session)
+        .cloned()
+        .expect("the chat is kept");
+    entry["status"].clone()
+}
+
+/// Review 3 of #26034: a turn MDM's off cut is not run again on the chat's fallback profile, as
+/// a stopped one is not.
+#[tokio::test]
+async fn a_turn_mdm_ended_is_not_failed_over() {
+    let mut daemon = Daemon::new("mdmnofailover", "ask");
+    daemon.sigterm();
+    let fake = json!({"argv": ["python3", FAKE, "--yolo"], "fallback": "fake-pool"});
+    let config = json!({"harnesses": {"fake": fake, "fake-pool": {"argv": ["python3", FAKE]}},
+                        "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let mut turn = daemon.rpc().await;
+    let held = json!({"sessionId": session,
+                      "prompt": [{"type": "text", "text": "set-mode-hold: 25000 default"}]});
+    let prompt = tokio::spawn(async move { turn.reply("session/prompt", held).await });
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(gone_within(harness_pid, Duration::from_secs(10)), "MDM's off did not end the agent");
+    let answered = tokio::time::timeout(Duration::from_secs(15), prompt).await;
+    let failovers: Vec<Value> =
+        daemon.events(&session).into_iter().filter(|e| e["kind"] == "failover").collect();
+    assert!(failovers.is_empty(), "the cut turn failed over: {failovers:#?}");
+    assert!(answered.is_ok(), "the turn waited on after MDM ended its agent");
+}
+
+/// Review 3 of #26034: a turn whose end is under way (its turn already taken) when MDM's off ends
+/// its agent leaves the chat idle too. `ACPMUX_TEST_FINISH_HOLD_MS` holds the end there.
+#[tokio::test]
+async fn a_turn_ending_as_mdm_ends_its_agent_leaves_its_chat_idle() {
+    let mut daemon =
+        Daemon::with_env("mdmfinishidle", "ask", &[("ACPMUX_TEST_FINISH_HOLD_MS", "6000")]);
+    daemon.sigterm();
+    let config = json!({"harnesses": {"fake": {"argv": ["python3", FAKE, "--yolo"]}},
+                        "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let mut turn = daemon.rpc().await;
+    let hello = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]});
+    let prompt = tokio::spawn(async move { turn.reply("session/prompt", hello).await });
+    // The agent has answered; the turn's end is held.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(gone_within(harness_pid, Duration::from_secs(10)), "MDM's off did not end the agent");
+    let answered = tokio::time::timeout(Duration::from_secs(15), prompt).await;
+    assert!(answered.is_ok(), "the turn's end never finished");
+    assert_eq!(status_of(&daemon, &session).await, "idle");
+}
+
 /// #24337 review: a prompt the next daemon adopts carries acpmux's own display line, worked out
 /// again, never one its log held (an older daemon's record, or a line the agent forged).
 #[tokio::test]
