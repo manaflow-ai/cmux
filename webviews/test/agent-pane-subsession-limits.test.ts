@@ -10,9 +10,9 @@ import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 const CHAT = "0190a000-0000-7000-8000-0000000000f7";
 const START = Date.UTC(2026, 9, 21, 9, 0, 0);
 type Step = [dir: string, kind: string, msg: Record<string, unknown>];
-const record = (steps: Step[], from = 1) =>
+const record = (steps: Step[], from = 1, sessionId = CHAT) =>
   steps.map(([dir, kind, msg], index) => ({
-    sessionId: CHAT,
+    sessionId,
     seq: from + index,
     at: START + (from + index) * 1000,
     dir,
@@ -26,8 +26,9 @@ const changed = (maxRunning: number): Step => ["mux", "subsession", { event: "li
 /// A daemon over a fake socket: attach answers with `history` and the detail's limit of 8 (the
 /// chat's own unless `inherited`); `push` sends live events; `asked` keeps each request's params by
 /// method, `limitAsks` each `_acpmux/subsession/limits` request's; `held` is the limit acpmux holds,
-/// and `beforeReply` runs between a limits answer and its reply.
-function fakeDaemon(history: Recorded[], inherited = false) {
+/// and `beforeReply` runs between a limits answer and its reply. A change acpmux takes is logged as
+/// a `limits` record, streamed before its reply, as acpmux does.
+function fakeDaemon(history: Recorded[], inherited = false, chat = CHAT) {
   let socket: any;
   const asked = new Map<string, any>();
   const limitAsks: any[] = [];
@@ -35,7 +36,7 @@ function fakeDaemon(history: Recorded[], inherited = false) {
     held: 8,
     source: inherited ? "inherited" : "session",
   };
-  const session = { sessionId: CHAT, cwd: "/Users/dev/app", title: "x", harness: "claude", status: "idle" };
+  const session = { sessionId: chat, cwd: "/Users/dev/app", title: "x", harness: "claude", status: "idle" };
   const lastSeq = () => history.at(-1)?.seq ?? 0;
   const answer = (method: string) => {
     switch (method) {
@@ -45,7 +46,7 @@ function fakeDaemon(history: Recorded[], inherited = false) {
         return { sessions: [session] };
       case "_acpmux/attach":
         return {
-          session: { ...session, subsessionLimits: limits(8, state.source) },
+          session: { ...session, subsessionLimits: limits(state.held, state.source) },
           lastSeq: lastSeq(),
           events: history,
           hasMore: false,
@@ -63,7 +64,7 @@ function fakeDaemon(history: Recorded[], inherited = false) {
           state.held = params.maxRunning;
           state.source = "session";
         }
-        return { sessionId: CHAT, subsessionLimits: limits(state.held, state.source) };
+        return { sessionId: chat, subsessionLimits: limits(state.held, state.source) };
       }
       default:
         return null;
@@ -79,8 +80,11 @@ function fakeDaemon(history: Recorded[], inherited = false) {
         if (message.id !== undefined)
           queueMicrotask(() => {
             const result = answer(message.method);
-            // What the daemon streams after it answered and before the reply reaches the pane.
-            if (message.method === "_acpmux/subsession/limits") state.beforeReply?.();
+            if (message.method === "_acpmux/subsession/limits") {
+              if ("maxRunning" in (message.params ?? {})) push(record([changed(state.held)], lastSeq() + 1, chat));
+              // What the daemon streams after it answered and before the reply reaches the pane.
+              state.beforeReply?.();
+            }
             socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) });
           });
       },
@@ -102,7 +106,9 @@ function fakeDaemon(history: Recorded[], inherited = false) {
       data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { dropped: events.length } }),
     });
   };
-  return { open, push, drop, asked, limitAsks, state };
+  /// The seq acpmux gives its next record.
+  const next = () => lastSeq() + 1;
+  return { open, push, drop, asked, limitAsks, state, next };
 }
 
 /// Yields until `ready()` holds; fails after 2 s with what it waited for.
@@ -218,7 +224,7 @@ test("a reply older than a limit streamed while it was in flight never takes the
     daemon.state.beforeReply = () => {
       daemon.state.beforeReply = undefined;
       daemon.state.held = 20;
-      daemon.push(record([changed(20)], 2));
+      daemon.push(record([changed(20)], daemon.next()));
     };
     await client.setRunningLimit(CHAT, 9, 8);
     expect(daemon.limitAsks).toEqual([{ sessionId: CHAT, maxRunning: 9 }]);
@@ -230,4 +236,50 @@ test("a reply older than a limit streamed while it was in flight never takes the
   } finally {
     client.close();
   }
+});
+
+/// A + on the inherited 8 whose read acpmux answers with 8 just before the chat's inherited limit
+/// moves to 20 and the pane attaches the chat again (`beforeReply`); `history` is the chat's log.
+async function stepOverReattach(chat: string, history: Recorded[]) {
+  const daemon = fakeDaemon(history, true, chat);
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: chat },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.summary.subsessionLimits).toEqual({ maxRunning: 8, maxRunningSource: "inherited" });
+    daemon.state.beforeReply = () => {
+      daemon.state.beforeReply = undefined;
+      daemon.state.held = 20;
+      void client.select(chat);
+    };
+    await client.setRunningLimit(chat, 9, 8);
+    // The read the attach overtook is read again: the step builds on 20, never the stale 8.
+    expect(daemon.limitAsks.filter((ask) => "maxRunning" in ask)).toEqual([{ sessionId: chat, maxRunning: 21 }]);
+    expect(daemon.limitAsks.length).toBeGreaterThanOrEqual(3);
+    await until(() => snapshot.summary?.subsessionLimits?.maxRunning === 21, "the limit after the re-attach");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(snapshot.summary.subsessionLimits.maxRunning).toBe(21);
+  } finally {
+    client.close();
+  }
+}
+
+test("a read a re-attach overtook is read again, so the step builds on the limit acpmux holds", async () => {
+  const chat = "0190a000-0000-7000-8000-0000000000f8";
+  await stepOverReattach(chat, record([["mux", "user_message", { text: "start the agents" }]], 1, chat));
+});
+
+test("a kept tail's old limit, replayed as the chat is opened again, is never stepped from", async () => {
+  // The log holds an old change to 5; opening the chat again draws its kept tail, whose replay
+  // passes that record before the attach answers.
+  const chat = "0190a000-0000-7000-8000-0000000000f9";
+  await stepOverReattach(
+    chat,
+    record([["mux", "user_message", { text: "start the agents" }], changed(5)], 1, chat),
+  );
 });
