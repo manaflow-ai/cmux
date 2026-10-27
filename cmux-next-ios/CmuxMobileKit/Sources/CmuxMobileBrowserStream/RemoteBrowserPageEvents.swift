@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// What the page asks the viewer for, as the host's `rb.*` messages carry it

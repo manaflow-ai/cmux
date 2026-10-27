@@ -471,8 +471,8 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
                     guard let self else { return completion([]) }
                     if !wait.asked {
                         wait.asked = true
-                        stopMomentum()
-                        model.requestContextMenu(x: x, y: y) { open in wait.arrived(open) }
+                        self.stopMomentum()
+                        self.model.requestContextMenu(x: x, y: y) { open in wait.arrived(open) }
                     }
                     wait.whenArrived { [weak self] open in completion(self?.menuElements(open) ?? []) }
                 }
