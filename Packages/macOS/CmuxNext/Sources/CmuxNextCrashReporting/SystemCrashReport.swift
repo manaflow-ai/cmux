@@ -25,7 +25,8 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
     public var processName: String
     /// `procPath` as macOS wrote it (the user name already replaced with `USER`).
     public var processPath: String
-    /// The crashed process's pid, when the report has one.
+    /// The crashed process's pid (`pid`), when the report has one: a Chromium helper's matches its helper-exit
+    /// event and its minidump.
     public var pid: Int32?
     /// When the crashed process started (`procLaunch`), in microseconds since 1970; nil when the report has no
     /// such time. With ``pid`` it names one process: a later process given the same pid started later.

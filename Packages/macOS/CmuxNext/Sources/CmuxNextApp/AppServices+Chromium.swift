@@ -203,13 +203,13 @@ extension AppServices {
     }
 
     /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine
-    /// built, before CefInitialize can run: the crash log's writer, the renderer stability events, the run marker's and
-    /// Sentry's signal handlers (Chromium resets them at start), the assistive-client switch of Chromium's accessibility
-    /// trees; then `routes`.
+    /// built, before CefInitialize can run: the crash log's writer and helper-exit events, the renderer stability events,
+    /// the run marker's and Sentry's signal handlers (Chromium resets them at start), the assistive-client switch of
+    /// Chromium's accessibility trees; then `routes`.
     static func chromiumEngineHook(crashRecovery: CrashRecoveryService, reporter: CrashReporter, stability: RendererStability,
                                    routes: @escaping (CEFEngine) -> Void) -> (CEFEngine) -> Void {
         { engine in
-            crashRecovery.observe(engine.crashLog)
+            crashRecovery.observe(engine.crashLog, reporter: reporter)
             engine.rendererStability = stability
             AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: engine, reporter: reporter)
             (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak engine] active in engine?.setAssistiveClientActive(active) }
