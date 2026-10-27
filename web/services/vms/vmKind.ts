@@ -34,3 +34,18 @@ export function resolveVmGuestKind(row: VmGuestKindRow): VmGuestKind | null {
   if (!teamId) return null;
   return "team";
 }
+
+/**
+ * The kind the attach endpoint tells the signed-in caller (`vmKind`). The Mac
+ * app gives up the local sandbox for its own session only on `owner`, so this
+ * is stricter than resolveVmGuestKind: `owner` only for a machine on the
+ * caller's own personal account (owner_team_id is the caller's user id) that
+ * the caller created. Every Stack team is `team`, even while the caller is its
+ * only member, and so is a machine the caller reaches but did not create. A
+ * row with no usable billing owner is null. Computed per request, never stored.
+ */
+export function vmKindForCaller(row: VmGuestKindRow, callerUserId: string): VmGuestKind | null {
+  if (!row.ownerTeamId.trim()) return null;
+  const caller = callerUserId.trim();
+  return caller !== "" && vmIsOnPersonalAccount(row) && row.userId.trim() === caller ? "owner" : "team";
+}
