@@ -180,10 +180,22 @@ impl Hub {
     /// For such a host what it reported is read back from the log too (`reported_by_left_host`):
     /// the saved chat can be older. Called under the session's spawn lock.
     pub(super) async fn end_if_runs_full_access(&self, session: &Session) -> FullAccessEnd {
-        if !self.full_access_managed_off() || !self.runs_full_access_by_any_record(session) {
+        if !self.full_access_managed_off()
+            || !(self.runs_full_access_by_any_record(session) || Self::host_unheard(session).await)
+        {
             return FullAccessEnd::NotInFullAccess;
         }
         self.end_managed_full_access(session).await
+    }
+
+    /// Whether `session`'s agent host may hold reports this daemon has not seen: its link broke
+    /// (an entry could not be logged) or closed while the host still runs. What it reported since
+    /// is unknown, so under MDM's off it counts as full access (review 64 of #23322); a request
+    /// would reattach it, but the push does not wait for one.
+    async fn host_unheard(session: &Session) -> bool {
+        let child = session.child.lock().await.clone();
+        let Some(child) = child.filter(|c| c.host_record().is_some()) else { return false };
+        child.is_broken() || (!child.is_alive().await && Self::host_record_live(&session.id))
     }
 
     /// Whether `session`'s agent runs in full access by what acpmux keeps of it, or, for a host a
@@ -214,7 +226,10 @@ impl Hub {
     /// progress ends with it), each under its session's spawn lock, checked again there.
     pub(super) async fn end_every_managed_full_access(&self) {
         for session in self.sessions() {
-            if self.full_access_managed_off() && self.runs_full_access_by_any_record(&session) {
+            if self.full_access_managed_off()
+                && (self.runs_full_access_by_any_record(&session)
+                    || Self::host_unheard(&session).await)
+            {
                 let _spawning = session.spawn_lock.lock().await;
                 self.end_if_runs_full_access(&session).await;
             }
