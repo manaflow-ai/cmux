@@ -295,7 +295,7 @@ export function stripFileDisplay(
             kind: "file",
             blockIndex,
             name: file.name,
-            mimeType: file.mimeType,
+            ...(file.mimeType ? { mimeType: file.mimeType } : {}),
             ...(file.mimeType || file.size > 0 ? { size: file.size } : {}),
           },
         ]

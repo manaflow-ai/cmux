@@ -46,13 +46,16 @@ export function UserBubble({
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
   const resend = row.resend ?? row.text ?? text;
-  // Older strip echoes put an untyped original link immediately after its image. Only a
-  // standalone file's display metadata overrides that legacy relation; images stay thumbnails.
-  const recorded = row.inlineParts?.flatMap((part, index, parts): FileAttachmentInfo[] =>
+  // Only a recorded companion relation or an exact retained original path proves that a
+  // file belongs to an image. An unrelated file after an image must remain visible on replay.
+  const originals = new Set(
+    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
+  );
+  const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
     part.kind === "file" &&
     part.companionOf === undefined &&
     !part.mimeType?.startsWith("video/") &&
-    !(parts[index - 1]?.kind === "image" && part.mimeType === undefined && part.size === undefined)
+    !originals.has(attachmentPath(part.uri) ?? "")
       ? [{ ...part, path: attachmentPath(part.uri) }]
       : [],
   );

@@ -340,3 +340,16 @@ test("strip-mode files keep type and byte count in the actual prompt metadata an
     io.client.close();
   }
 });
+
+test("path-only files omit an empty MIME so the daemon accepts their display metadata", async () => {
+  const io = await connect();
+  try {
+    await io.client.send("Use this", [
+      { id: "key", kind: "link", name: "key.pem", path: "/tmp/key.pem", mimeType: "", size: 0 },
+    ]);
+    const sent = io.sent[0];
+    expect(sent._meta.acpmux.inlineParts).toEqual([{ kind: "file", name: "key.pem", blockIndex: 1 }]);
+  } finally {
+    io.client.close?.();
+  }
+});
