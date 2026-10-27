@@ -217,12 +217,12 @@ if [[ "$lan_object" == *.tar.zst ]]; then tar -cf - -C "$WORK/lan-copy" . | zstd
 else tar -czf "$WORK/lan-src/archive" -C "$WORK/lan-copy" .; fi
 export CMUX_LAN_CACHE_SOCKET="$lan_dir/fetch.sock"
 # lan_cache_fetch.py takes only an https bucket; the local test server is http, so pretend for it.
-real_url="$CI_CACHE_R2_PUBLIC_URL"
 lan_shim="$WORK/shim"; mkdir -p "$lan_shim"
+real_python="$(command -v python3)"  # resolved before the shim goes first on PATH
 cat > "$lan_shim/python3" <<SH
 #!/usr/bin/env bash
 if [[ "\$1" == *lan_cache_fetch.py ]]; then set -- "\$1" "https://ci-cache.example" "\${@:3}"; fi
-exec "$(command -v python3)" "\$@"
+exec "$real_python" "\$@"
 SH
 chmod +x "$lan_shim/python3"
 echo hit > "$WORK/lan-src/mode"
