@@ -1,4 +1,4 @@
-/// The Add Machine card's checklist: the seven steps, filled in live from the CLI's JSON lines.
+/// The Add Machine card's checklist: the eight steps, filled in live from the CLI's JSON lines.
 /// Before a step's line arrives it is pending; the first pending step after the last finished one
 /// is running. A step this build does not know joins after the last line that arrived, by its
 /// raw name.

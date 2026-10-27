@@ -13,6 +13,8 @@ pub enum Step {
     Reach,
     Install,
     Daemon,
+    /// How the daemon stays current: a Linux host's acpmux-update.timer.
+    Update,
     Harness,
     Peer,
     PeerBack,

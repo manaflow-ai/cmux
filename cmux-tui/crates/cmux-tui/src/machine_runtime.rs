@@ -269,15 +269,21 @@ impl MachineRuntime {
 }
 
 fn discover_ssh_config_hosts() -> Vec<MachineConnectionTarget> {
+    ssh_config_hosts()
+        .into_iter()
+        .map(|host| MachineConnectionTarget { name: host.clone(), target: host })
+        .collect()
+}
+
+/// The concrete `Host` names of `~/.ssh/config` and the files it includes,
+/// in file order (no patterns, no negations).
+pub(crate) fn ssh_config_hosts() -> Vec<String> {
     let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
         return Vec::new();
     };
     let home = PathBuf::from(home);
     let ssh_root = home.join(".ssh");
     ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, &home)
-        .into_iter()
-        .map(|host| MachineConnectionTarget { name: host.clone(), target: host })
-        .collect()
 }
 
 fn ssh_config_hosts_from_path(config: &Path, ssh_root: &Path, home: &Path) -> Vec<String> {

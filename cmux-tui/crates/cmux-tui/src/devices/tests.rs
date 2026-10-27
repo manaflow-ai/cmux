@@ -98,6 +98,7 @@ fn sources() -> Sources {
                 {"login": "new@manaflow.ai", "scopes": ["shell"], "consented_at": null, "revoked_at": null}
             ]
         }),
+        ssh_hosts: Vec::new(),
     }
 }
 
@@ -237,6 +238,36 @@ fn available_lists_online_network_computers_that_are_not_devices_mine_first() {
     let listing = model::merge(&sources(), tailscale_up(), &more);
     let names: Vec<&str> = listing.available.iter().map(|a| a.name.as_str()).collect();
     assert_eq!(names, vec!["studio", "build-box"]);
+}
+
+#[test]
+fn ssh_config_hosts_follow_the_network_computers_without_repeats() {
+    let mut src = sources();
+    src.ssh_hosts =
+        ["Zeta", "github.com", "vm-1", "10.0.4.2", "mini-7", "build-box", "old-air", "alpha"]
+            .map(str::to_owned)
+            .to_vec();
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let rows: Vec<(&str, model::Found)> =
+        listing.available.iter().map(|a| (a.name.as_str(), a.found)).collect();
+    assert_eq!(
+        rows,
+        vec![
+            ("build-box", model::Found::Network),
+            ("alpha", model::Found::SshConfig),
+            ("Zeta", model::Found::SshConfig),
+        ],
+        "a peer's name or host, a tailnet node (online or not) and a git forge are not offered again"
+    );
+    let alpha = &listing.available[1];
+    assert_eq!((alpha.address.as_str(), alpha.os.as_str(), alpha.mine), ("alpha", "", true));
+    let row = serde_json::to_value(alpha).unwrap();
+    assert_eq!(row["found"], "ssh-config");
+
+    // With no network at all, the ssh config still offers its hosts.
+    let listing = model::merge(&src, NetworkStatus::none("no tailscale"), &[]);
+    let names: Vec<&str> = listing.available.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["alpha", "build-box", "old-air", "Zeta"]);
 }
 
 #[test]

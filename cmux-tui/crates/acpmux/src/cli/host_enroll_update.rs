@@ -1,0 +1,144 @@
+//! The `update` step of `host enroll` and `host doctor`: how the host's
+//! daemon stays on a current build once it is added. A Linux host updates
+//! itself with `acpmux-update.timer` (`host_auto_update.rs`), which enroll
+//! installs when it is missing, also on a host whose daemon was already
+//! running this build (the daemon step installs it only when it restarts the
+//! daemon). A Mac is moved to the build of the cmux that connects to it (the
+//! app's peer updates, `host update`), and a cmux Cloud VM by cmux Cloud
+//! (`cmux link machine update --to-bundled`); neither changes here.
+
+use super::hosts;
+use crate::cli::host_steps::{Step, StepResult, StepState};
+use crate::cli::hosts::Remote;
+
+/// Starts each line of [`probe_script`], so a login banner is not read as one.
+const MARK: &str = "ACPMUX_AU=";
+
+/// What the step reads before it changes anything: the kernel, whether the
+/// host is a cmux Cloud VM, whether automatic updates were turned off, and
+/// whether a user systemd manager runs with the timer enabled in it.
+pub(super) fn probe_script() -> String {
+    let home = hosts::REMOTE_HOME;
+    let off = hosts::NO_AUTO_UPDATE;
+    let cloud = hosts::CLOUD_VM_MARK;
+    format!(
+        r#"echo "{MARK}os=$(uname -s)"; [ ! -e {cloud} ] || echo {MARK}cloud; [ ! -e {home}/{off} ] || echo {MARK}off; if systemctl --user show-environment >/dev/null 2>&1; then echo {MARK}systemd; [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" != enabled ] || echo {MARK}timer; fi"#
+    )
+}
+
+/// What [`probe_script`] found.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct Found {
+    pub os: String,
+    pub cloud: bool,
+    pub off: bool,
+    pub systemd: bool,
+    pub timer: bool,
+}
+
+pub(super) fn parse(stdout: &str) -> Found {
+    let mut found = Found::default();
+    for word in stdout.lines().filter_map(|line| line.trim().strip_prefix(MARK)) {
+        match word {
+            "cloud" => found.cloud = true,
+            "off" => found.off = true,
+            "systemd" => found.systemd = true,
+            "timer" => found.timer = true,
+            other => {
+                if let Some(os) = other.strip_prefix("os=") {
+                    os.clone_into(&mut found.os);
+                }
+            }
+        }
+    }
+    found
+}
+
+const EVERY: &str = "updates itself to the newest build every 15 minutes (acpmux-update.timer)";
+
+/// The step. With `fix`, a Linux host without the timer gets it, under the
+/// host's update lock; without `fix` nothing changes.
+pub(super) fn update(r: &dyn Remote, fix: bool) -> StepResult {
+    let host = r.host();
+    let found = match r.exec(&probe_script(), None) {
+        Ok(out) if out.ok => parse(&out.stdout),
+        Ok(out) => {
+            let why = out.stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+            return warn(format!("could not read how {host} updates: {}", why.trim()), None);
+        }
+        Err(e) => return warn(format!("could not read how {host} updates: {e:#}"), None),
+    };
+    let ok = |detail: &str| StepResult::new(Step::Update, StepState::Ok, detail);
+    if found.cloud {
+        return ok("a cmux Cloud VM: cmux moves it to the app's build each time it connects");
+    }
+    if found.os == "Darwin" {
+        return ok("a Mac: cmux moves it to this Mac's build each time it connects");
+    }
+    if found.off {
+        return StepResult::new(
+            Step::Update,
+            StepState::Skip,
+            format!("automatic updates are off ({}/{})", hosts::REMOTE_HOME, hosts::NO_AUTO_UPDATE),
+        )
+        .with_fix(format!(
+            "Remove {}/{} on {host} to turn them on, then check again with --fix.",
+            hosts::REMOTE_HOME,
+            hosts::NO_AUTO_UPDATE
+        ));
+    }
+    if found.timer {
+        return ok(EVERY);
+    }
+    if !found.systemd {
+        return warn(
+            "no user systemd here, so it cannot update itself; cmux moves it to this Mac's build each time it connects",
+            None,
+        );
+    }
+    if !fix {
+        return StepResult::new(
+            Step::Update,
+            StepState::Warn,
+            "acpmux-update.timer is not installed, so it does not update itself",
+        )
+        .with_fix(format!("Check again with --fix to install acpmux-update.timer on {host}."));
+    }
+    install(r, host)
+}
+
+/// Writes and starts the timer ([`hosts::install_script`]), then reads
+/// whether it is enabled now.
+fn install(r: &dyn Remote, host: &str) -> StepResult {
+    let ran = hosts::lock_to_install(r)
+        .and_then(|lock| hosts::run(&lock.fence(r), &hosts::install_script()));
+    let out = match ran {
+        Ok(out) => out,
+        Err(e) => return warn(format!("installing acpmux-update.timer failed: {e:#}"), Some(host)),
+    };
+    if let Some(why) = hosts::take_auto_update_off(&out).1 {
+        return warn(why, None);
+    }
+    match r.exec(&probe_script(), None) {
+        Ok(after) if after.ok && parse(&after.stdout).timer => StepResult::new(
+            Step::Update,
+            StepState::Fixed,
+            format!("installed acpmux-update.timer: it {EVERY}"),
+        ),
+        _ => warn("acpmux-update.timer was written but is not enabled", Some(host)),
+    }
+}
+
+/// A warning: the host works, but does not keep itself current. `again`
+/// names the host a person checks again with --fix.
+fn warn(detail: impl Into<String>, again: Option<&str>) -> StepResult {
+    let result = StepResult::new(Step::Update, StepState::Warn, detail);
+    match again {
+        Some(host) => result.with_fix(format!("Check {host} again with --fix.")),
+        None => result,
+    }
+}
+
+#[cfg(test)]
+#[path = "host_enroll_update_tests.rs"]
+mod tests;

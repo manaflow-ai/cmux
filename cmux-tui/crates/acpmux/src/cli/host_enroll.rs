@@ -19,6 +19,8 @@ use std::sync::Arc;
 
 #[path = "host_enroll_daemon.rs"]
 mod daemon_step;
+#[path = "host_enroll_update.rs"]
+mod update_step;
 use daemon_step::daemon;
 #[cfg(test)]
 use daemon_step::{Verdict, judge_daemon};
@@ -98,6 +100,10 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
     let mut emit = |r: &StepResult| print_step(r, json_out);
     let remote = SshRemote(&plan.host);
     let (mut done, port) = machine_steps(&remote, &plan, &local, fix, &mut emit);
+    // Once the daemon runs: how it stays current (a Linux host's timer).
+    let update = gate(Step::Update, &done).unwrap_or_else(|| update_step::update(&remote, fix));
+    emit(&update);
+    done.push(update);
     let local_name = hosts::short_name(&crate::hand::pair::hostname());
     let t = PeerTarget {
         name: &plan.name,
@@ -206,7 +212,7 @@ fn needs(step: Step) -> &'static [Step] {
         Step::Reach => &[],
         Step::Install | Step::Identity => &[Step::Reach],
         Step::Daemon => &[Step::Install],
-        Step::Harness | Step::Peer | Step::PeerBack => &[Step::Daemon],
+        Step::Update | Step::Harness | Step::Peer | Step::PeerBack => &[Step::Daemon],
     }
 }
 
@@ -249,6 +255,7 @@ fn fail(step: Step, detail: impl Into<String>, fix: impl Into<String>) -> StepRe
         Step::Reach => "ssh_unreachable",
         Step::Install => "remote_install_failed",
         Step::Daemon => "remote_daemon_unhealthy",
+        Step::Update => "remote_update_off",
         Step::Harness => "remote_harness_unhealthy",
         Step::Peer => "peer_unreachable",
         Step::PeerBack => "peer_back_unreachable",

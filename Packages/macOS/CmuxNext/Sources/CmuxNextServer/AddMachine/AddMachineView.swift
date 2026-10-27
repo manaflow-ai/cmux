@@ -5,7 +5,7 @@ import SwiftUI
 
 /// The Add Machine card (palette "Add Machine…", Settings > Machines, the Machines section, the
 /// sidebar menu) and Check Machine: the host field with the tailnet's machines under it, then the
-/// seven steps filling in live, then ready or failed. One layout per ``AddMachineModel/Phase``;
+/// eight steps filling in live, then ready or failed. One layout per ``AddMachineModel/Phase``;
 /// every button shows and binds its key, and the click and the key run the same
 /// ``AddMachineModel/perform(_:)``.
 struct AddMachineView: View {
