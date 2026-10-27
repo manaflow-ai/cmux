@@ -133,7 +133,7 @@ enum ScreenshotHandlers {
         guard let made else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.pageFailed("no page")) }
         services.cache.hibernation?.noteAgentUse(tab.id)
         guard let page = await AppBrowserPage.awakePage(tab.id, page: made, cache: services.cache, within: AppBrowserPage.actionWait) else {
-            throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.wakeFailed)
+            throw ActionWorkFailure(code: unavailableCode, reason: AppBrowserPage.wakeError(tab.id, cache: services.cache).message)
         }
         do {
             try await AppBrowserPage.ensureBrowser(page)

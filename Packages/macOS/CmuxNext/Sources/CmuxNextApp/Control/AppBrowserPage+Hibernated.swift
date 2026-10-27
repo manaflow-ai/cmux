@@ -37,7 +37,8 @@ extension AppBrowserPage {
     /// The live page of tab `key`: `page` itself unless it is a hibernated
     /// placeholder or a restored page the launch defers, else the page made
     /// for it (woken or started in the background, awaited for at most
-    /// `within`). Nil when it did not come in time.
+    /// `within`). Nil when it did not come in time or the wake was deferred
+    /// (``wakeError(_:cache:)`` tells which).
     static func awakePage(_ key: String, page: any BrowserTab, cache: TabContentCache,
                           within: Duration) async -> (any BrowserTab)? {
         if page is DeferredBrowserTab {
@@ -48,20 +49,21 @@ extension AppBrowserPage {
         guard page is HibernatedBrowserTab else { return page }
         // Restarts the tab's hidden clock: it does not go back to sleep while the agent works.
         cache.hibernation?.noteAgentUse(key)
-        _ = cache.hibernation?.wake(key)
+        // An agent's wake is admitted as Chrome admits a background tab load (`WakeAdmission`): it may wait for a slot or be deferred.
+        if case .deferred(_)? = cache.hibernation?.wake(key, by: .automation) { return nil }
         guard let live = await installedLivePage(key, cache: cache, method: "browser.wake", owner: "browser.page.wake", within: within) else { return nil }
         cache.hibernation?.noteAgentUse(key)
         return live
     }
 
-    /// Tab `key`'s live page once the cache installed one, nil after `within`.
+    /// Tab `key`'s live page once the cache installed one, nil after `within` or once its queued wake is deferred.
     private static func installedLivePage(_ key: String, cache: TabContentCache, method: String, owner: String,
                                           within: Duration) async -> (any BrowserTab)? {
         let installed = try? await ControlDeadline.shared.run(method: method, deadline: .now + within) { @MainActor in
             // Every restore and start installs a page (`pageInstalls`), which wakes this wait.
             await ControlConditionWait(on: cache.mainWork, owner: owner).until {
                 _ = cache.pageInstalls.revision
-                return isLive(cache.existingBrowser(key)?.tab)
+                return isLive(cache.existingBrowser(key)?.tab) || cache.hibernation?.admission.deferral(of: key) != nil
             }
         }
         guard installed == true, let live = cache.existingBrowser(key)?.tab, isLive(live) else { return nil }
@@ -75,5 +77,12 @@ extension AppBrowserPage {
 
     static var wakeFailed: ControlError {
         ControlError(code: "unavailable", message: BrowserPageStrings.wakeFailed)
+    }
+
+    /// Why tab `key`'s page did not wake: `deferred` with the ``WakeAdmission/Deferral`` when the admission
+    /// held its wake back (memory pressure, low free memory), else ``wakeFailed``.
+    static func wakeError(_ key: String, cache: TabContentCache) -> ControlError {
+        guard let deferral = cache.hibernation?.admission.deferral(of: key) else { return wakeFailed }
+        return ControlError(code: "deferred", message: BrowserPageStrings.wakeDeferred, data: ["reason": .string(deferral.rawValue)])
     }
 }

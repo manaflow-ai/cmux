@@ -64,7 +64,8 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
                 // rebuilt (it may hold a filled password); wait for the new one.
                 marking?.agentWillDrive(targetID: key)
             case is HibernatedBrowserTab:
-                _ = cache.hibernation?.wake(key)
+                // An agent's wake waits for a slot or is deferred under memory pressure (`WakeAdmission`).
+                if case .deferred(_)? = cache.hibernation?.wake(key, by: .automation) { return nil }
             case is DeferredBrowserTab:
                 cache.startDeferred(key, url: nil)
             case nil:

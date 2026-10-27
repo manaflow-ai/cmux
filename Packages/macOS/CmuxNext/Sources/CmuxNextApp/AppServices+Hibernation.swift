@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeatures
 package import CmuxNextHibernation
+import CmuxNextHostPressure
 import CmuxNextInput
 import CmuxNextMemory
 import CmuxNextResources
@@ -39,6 +40,7 @@ extension AppServices {
         hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
         hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
         hibernation.ranksUrgentDiscards = features.isEnabled(.memoryUrgentDiscardRanking)
+        hibernation.admission = WakeAdmission(isEnabled: features.isEnabled(.memoryWakeAdmission), freeBytes: { HostSampler().freePhysicalBytes() })
         hibernation.snapshots.keepsCompressed = features.isEnabled(.compressedSnapshots)
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)
