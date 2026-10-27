@@ -177,12 +177,12 @@ enum MarkdownLong {
         if openBottom {
             if content.hasSuffix("\n") { trail = "\n"; content = content.dropLast() }
         } else {
-            var k = 0
+            var newlines = ""
             while let last = content.last, last == "\n" || last == " " || last == "\t" || last == "\r" {
-                if last == "\n" { k += 1 }
+                if last == "\n" { newlines.append("\n") }
                 content = content.dropLast()
             }
-            trail = String(repeating: "\n", count: k)
+            trail = newlines
         }
         var parseText = String(content)
         switch carry {
@@ -210,7 +210,7 @@ enum MarkdownLong {
             dy -= head.frame.height
             dr -= cut
             var tnode = t
-            tnode.children.removeFirst()
+            tnode.children = Array(t.children.dropFirst()) // its first child is `head`
             tnode.range = NSRange(location: t.range.location + cut, length: max(0, t.range.length - cut))
             ax[0] = tnode
             if !regions.isEmpty { regions[0].range.location += cut; regions[0].range.length -= cut }
@@ -263,7 +263,7 @@ enum MarkdownLong {
             }
             regions.update(at: ri) { $0.frame.size.height = bottom - $0.frame.minY }
         }
-        let display = String(repeating: "\n", count: lead) + plain + trail
+        let display = String(repeating: "\n", count: max(0, lead)) + plain + trail
         var h = Hasher(); h.combine(src); h.combine(column); h.combine(carry); h.combine(openBottom)
         let out = MarkdownLayout(size: CGSize(width: md.size.width, height: bottom + padY), frags: frags, boxes: boxes, regions: regions,
                                  plain: display, source: src, ax: ax, identity: h.finalize())

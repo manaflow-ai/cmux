@@ -343,7 +343,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                     activeStyleID = 0
                     appendCursor(row: nil, column: paintedEnd, to: &bytes)
                     appendVTPrintable(
-                        String(repeating: " ", count: span.column - paintedEnd),
+                        String(repeating: " ", count: max(0, span.column - paintedEnd)),
                         to: &bytes
                     )
                     paintedEnd = span.column
@@ -362,7 +362,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 }
                 appendCursor(row: nil, column: paintedEnd, to: &bytes)
                 appendVTPrintable(
-                    String(repeating: " ", count: frame.columns - paintedEnd),
+                    String(repeating: " ", count: max(0, frame.columns - paintedEnd)),
                     to: &bytes
                 )
             }

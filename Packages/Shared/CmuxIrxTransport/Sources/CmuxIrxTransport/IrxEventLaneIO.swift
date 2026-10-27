@@ -93,7 +93,7 @@ struct IrxEventFrameAligner: Sendable {
             guard reader.skip(length) else { break }
             consumed += Self.headerByteCount + length
         }
-        guard consumed > 0 else { return nil }
+        guard consumed > 0, consumed <= buffer.count else { return nil }
         let complete = Data(buffer.prefix(consumed))
         buffer.removeFirst(consumed)
         return complete

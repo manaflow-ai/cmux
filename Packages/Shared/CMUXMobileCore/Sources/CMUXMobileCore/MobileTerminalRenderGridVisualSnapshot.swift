@@ -99,7 +99,7 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
         frame: MobileTerminalRenderGridFrame,
         styles: [Int: MobileTerminalRenderGridFrame.Style]
     ) -> [[MobileTerminalRenderGridVisualSpan]] {
-        var rows = Array(repeating: [MobileTerminalRenderGridVisualSpan](), count: frame.rows)
+        var rows = Array(repeating: [MobileTerminalRenderGridVisualSpan](), count: max(0, frame.rows))
         for span in frame.rowSpans {
             // A span outside the grid is skipped.
             rows.modify(checked: span.row) { row in
@@ -138,7 +138,7 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
                 appendCanonicalSpan(MobileTerminalRenderGridVisualSpan(
                     column: paintedEnd,
                     cellWidth: span.column - paintedEnd,
-                    text: String(repeating: " ", count: span.column - paintedEnd),
+                    text: String(repeating: " ", count: max(0, span.column - paintedEnd)),
                     style: defaultStyle
                 ), to: &result)
             }
@@ -149,7 +149,7 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
             appendCanonicalSpan(MobileTerminalRenderGridVisualSpan(
                 column: paintedEnd,
                 cellWidth: columns - paintedEnd,
-                text: String(repeating: " ", count: columns - paintedEnd),
+                text: String(repeating: " ", count: max(0, columns - paintedEnd)),
                 style: defaultStyle
             ), to: &result)
         }
@@ -211,7 +211,8 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
     private static func normalizedStylesByID(
         _ styles: [MobileTerminalRenderGridFrame.Style]
     ) -> [Int: MobileTerminalRenderGridFrame.Style] {
-        Dictionary(uniqueKeysWithValues: styles.map { ($0.id, normalizedStyle($0)) })
+        // A frame may repeat a style id; the last one wins, as in the replay's style map.
+        Dictionary(styles.map { ($0.id, normalizedStyle($0)) }, uniquingKeysWith: { _, last in last })
     }
 
     private static func normalizedStyle(

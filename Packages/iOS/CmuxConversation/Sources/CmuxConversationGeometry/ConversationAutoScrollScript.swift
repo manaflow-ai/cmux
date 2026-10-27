@@ -122,7 +122,7 @@ public struct ConversationAutoScrollScript: Equatable, Sendable {
             }
         }
         guard !steps.isEmpty else { return nil }
-        self.steps = Array(repeating: steps, count: repeats).flatMap { $0 }
+        self.steps = Array(repeating: steps, count: max(1, repeats)).flatMap { $0 }
     }
 }
 

@@ -156,7 +156,7 @@ enum HomeMarkdown {
                 }
                 if ch == "`" {
                     let ticks = run(c, i, "`")
-                    if let close = find(c, from: i + ticks, String(repeating: "`", count: ticks)) {
+                    if let close = find(c, from: i + ticks, String(c.slice(i, i + ticks))) {
                         var code = String(c.slice(i + ticks, close))
                         if code.count > 2, code.first == " ", code.last == " " { code = String(code.dropFirst().dropLast()) }
                         flush()
@@ -167,7 +167,7 @@ enum HomeMarkdown {
                         out.append(whole?.label ?? code, add("code", to: styles), link: link ?? whole?.link)
                         i = close + ticks; continue
                     }
-                    plain += String(repeating: "`", count: ticks); i += ticks; continue
+                    plain += String(c.slice(i, i + ticks)); i += ticks; continue
                 }
                 if ch == "[", link == nil, let (label, url, end) = linkAt(c, i) {
                     flush()
@@ -189,7 +189,7 @@ enum HomeMarkdown {
                         parse(Array(c.slice(i + width, close)), into: &out, styles: add(style, to: styles), link: link)
                         i = close + width; continue
                     }
-                    plain += String(repeating: String(ch), count: n); i += n; continue
+                    plain += String(c.slice(i, i + n)); i += n; continue
                 }
                 plain.append(ch); i += 1
             }

@@ -294,8 +294,9 @@ struct HomeLiveBook {
 
     static func capped(_ text: String) -> String {
         let units = text.utf16
-        guard units.count > stepCap else { return text }
-        var start = units.index(units.endIndex, offsetBy: -stepCap)
+        guard units.count > stepCap,
+              var start = units.index(units.endIndex, offsetBy: -stepCap, limitedBy: units.startIndex)
+        else { return text }
         if UTF16.isTrailSurrogate(units[start]) { start = units.index(after: start) }
         return "…" + String(text[start...])
     }

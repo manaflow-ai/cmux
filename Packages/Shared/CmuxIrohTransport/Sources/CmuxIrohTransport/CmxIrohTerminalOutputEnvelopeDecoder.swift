@@ -20,6 +20,10 @@ public struct CmxIrohTerminalOutputEnvelopeDecoder: Sendable {
                 let envelope = try codec.decodePrefix(buffer)
                 let frameByteCount = CmxIrohTerminalOutputEnvelopeCodec.headerByteCount
                     + envelope.payload.count
+                // decodePrefix read the whole frame from `buffer`.
+                guard frameByteCount <= buffer.count else {
+                    throw CmxIrohTerminalOutputEnvelopeCodec.DecodeError.incompleteFrame
+                }
                 buffer.removeFirst(frameByteCount)
                 envelopes.append(envelope)
             } catch CmxIrohTerminalOutputEnvelopeCodec.DecodeError.incompleteFrame {

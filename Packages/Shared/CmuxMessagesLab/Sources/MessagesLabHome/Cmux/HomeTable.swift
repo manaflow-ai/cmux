@@ -125,7 +125,7 @@ struct HomeTableSplitter {
     }
 
     static func fit(_ cells: [String], _ count: Int) -> [String] {
-        cells.count >= count ? Array(cells.prefix(count)) : cells + Array(repeating: "", count: count - cells.count)
+        cells.count >= count ? Array(cells.prefix(max(0, count))) : cells + Array(repeating: "", count: max(0, count - cells.count))
     }
 }
 

@@ -122,11 +122,15 @@ compared, never in crash-safety-baseline.json, and never read by the CI compare 
                       `uniqueKeysWithValues:` (a duplicate key), `removeFirst()` / `removeLast()` and their
                       `(n)` forms (an empty or short collection) with no guard, `Array/ContiguousArray/String/
                       Data(repeating:count:)` and `repeatElement(_:count:)` (a negative count) unless the count
-                      is literal arithmetic without a minus (`64 * 1024`), a `.count`, `max(0, n)` or `max(n, 0)`, and
+                      is literal arithmetic without a minus (`64 * 1024`), a `.count`, `max(0, n)` or `max(n, 0)`
+                      (any non-negative literal), `K - x.count % K` (base64 padding, also `(...) % 4`), an
+                      imported C constant (`Int(clamping: INET6_ADDRSTRLEN)`), a ternary of two of these, or one name validated before the call on its line or one of the
+                      3 lines above (`guard n >= 0`, `n > 0 ?`, `let n = max(1, capacity)`), and
                       `index(_:offsetBy:)` / `formIndex(_:offsetBy:)` without `limitedBy:` (past the end). A
                       removal is guarded when its receiver's `isEmpty`, `count`, `first`, `last`, `hasPrefix`,
-                      `hasSuffix` or `starts` is read on the same line before it or on one of the 3 lines above
-                      (`guard !queue.isEmpty`, `while let x = queue.first`, `if s.hasPrefix("-") { s.removeFirst() }`);
+                      `hasSuffix` or `starts` is read on the same line before it, on one of the 3 lines above
+                      (`guard !queue.isEmpty`, `while let x = queue.first`, `if s.hasPrefix("-") { s.removeFirst() }`)
+                      or in a `guard ... else { ... }` that ends on the line above it (a long else block);
                       `popFirst()` / `popLast()` never count
   The ratchet classes index_subscript and int_conversion are also report classes: by default over INDEX_MODULES
   (the CI rows, counted and waived together), with --all-modules over every module of every package.
@@ -408,8 +412,82 @@ REPEAT_INIT = re.compile(r"(?:(?<![\w.])(?:Array|ContiguousArray|String|Data)\s*
 REPEAT_ELEMENT = re.compile(r"(?<![\w.])repeatElement\s*\(")
 OFFSET_CALL = re.compile(r"(?<![\w])(?:index|formIndex)\s*\(")
 RECEIVER = re.compile(r"((?:[A-Za-z_]\w*\??\.)*[A-Za-z_]\w*)\??\.\s*$")
-SAFE_COUNT = re.compile(r"(?:(?=[^-]*\d)[\d_\s*+<()]+|(?:[A-Za-z_]\w*(?:\(\))?\??\.)+count"
-                        r"|max\(\s*0\s*,.*\)|max\(.*,\s*0\s*\))")
+# Count forms that are never negative (see safe_count): literal arithmetic without a minus (`64 * 1024`, `1 << 20`),
+# a collection's count, an imported C constant (`NI_MAXHOST`, `Int(clamping: INET6_ADDRSTRLEN)`, a buffer size the
+# SDK fixes), and K minus a count modulo K, which is 1...K (base64 padding: `4 - value.count % 4`).
+LITERAL_COUNT = re.compile(r"(?=[^-]*\d)[\d_\s*+<()]+|0x[\da-fA-F_]+")
+COUNT_READ = re.compile(r"(?:[A-Za-z_]\w*(?:\(\))?\??\.)+count")
+C_CONSTANT = re.compile(r"(?:Int(?:32)?\(\s*(?:clamping:|truncatingIfNeeded:)?\s*)?[A-Z][A-Z0-9]*_[A-Z0-9_]+\s*\)?")
+PADDING_COUNT = re.compile(r"(?P<K>\d+)\s*-\s*(?:[A-Za-z_]\w*(?:\(\))?\??\.)+count\s*%\s*(?P=K)")
+COUNT_BINARY = ("+", "*", "/", "%")
+COUNT_CALL = re.compile(r"(min|max)\s*\((.*)\)")
+
+
+def top_level_split(text, separators):
+    """TEXT split at the SEPARATORS (single characters) outside parentheses, brackets and braces.
+    Returns (parts, the separators found)."""
+    parts, found, depth, current = [], [], 0, []
+    for ch in text:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if depth == 0 and ch in separators:
+            parts.append("".join(current))
+            found.append(ch)
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current))
+    return parts, found
+
+
+def wrapped(text):
+    """Whether TEXT is one parenthesized group: its first "(" closes at its last character."""
+    if not text.startswith("("):
+        return False
+    depth = 0
+    for pos, ch in enumerate(text):
+        depth += (ch in "([{") - (ch in ")]}")
+        if depth == 0:
+            return pos == len(text) - 1
+    return False
+
+
+def safe_count(count, known=lambda name: False):
+    """Whether a `(repeating:count:)` COUNT is never negative by its form: a form of LITERAL_COUNT, COUNT_READ,
+    C_CONSTANT or PADDING_COUNT; a name KNOWN accepts (validated before the call, count_validated); a sum,
+    product, quotient or remainder of safe counts (no minus); `min` of safe counts; `max` with one safe count
+    (`max(0, n)`); a ternary whose two results are safe (`ipv6 ? 16 : 4`), in parentheses or not."""
+    count = count.strip()
+    if not count:
+        return False
+    if any(form.fullmatch(count) for form in (LITERAL_COUNT, COUNT_READ, C_CONSTANT, PADDING_COUNT)):
+        return True
+    name = COUNT_NAME.fullmatch(count)
+    if name:
+        return known(name.group(1))
+    if wrapped(count):
+        return safe_count(count[1:-1], known)
+    question, _ = top_level_split(count, "?")
+    if len(question) == 2:
+        results, _ = top_level_split(question[1], ":")
+        return len(results) == 2 and all(safe_count(part, known) for part in results)
+    if top_level_split(count, "-")[1]:
+        return False
+    operands, _ = top_level_split(count, "".join(COUNT_BINARY))
+    if len(operands) > 1:
+        return all(safe_count(part, known) for part in operands)
+    call = COUNT_CALL.fullmatch(count)
+    if call:
+        arguments = top_level_arguments(call.group(2))
+        test = all if call.group(1) == "min" else any
+        return bool(arguments) and test(safe_count(part, known) for part in arguments)
+    return False
+
+
+# A count that is one name (`n`, `self.n`, `Self.n`, `Sizes.n`): safe when it is validated, see count_validated.
+COUNT_NAME = re.compile(r"(?:(?:self|Self|[A-Z]\w*)\.)?([A-Za-z_]\w*)")
 DECLARED_FUNC = re.compile(r"\bfunc\s+$")
 # A line without one of these words starts no trap_api call (skips swift_code on most lines).
 TRAP_HINT = re.compile(r"uniqueKeysWithValues|remove(?:First|Last)|repeatElement|[iI]ndex\s*\("
@@ -417,6 +495,36 @@ TRAP_HINT = re.compile(r"uniqueKeysWithValues|remove(?:First|Last)|repeatElement
 # How many lines above a removal may hold its guard, and how many lines a call's arguments may continue on.
 GUARD_LINES = 3
 CALL_LINES = 3
+# How far up a `guard ... else { ... }` that ends on the line above a call may start (its else block's length).
+GUARD_BLOCK_LINES = 12
+GUARD_WORD = re.compile(r"(?<![\w.])guard\b")
+
+
+def guard_window(lines, index):
+    """The code of the lines that may guard a call on LINES[INDEX]: the GUARD_LINES lines above it and, when a
+    `guard ... else { ... }` ends on the code line above (`}` alone), that statement's first lines too (GUARD_LINES
+    from its `guard`), so a guard whose else block runs several lines still counts:
+    `guard let next = queue.first else {\n    idle()\n    return\n}\nqueue.removeFirst()`."""
+    window = [swift_code(lines[i]) for i in range(max(0, index - GUARD_LINES), index)]
+    # The code line above, past blank and comment lines.
+    end = next((i for i in range(index - 1, max(-1, index - 1 - GUARD_LINES), -1) if swift_code(lines[i]).strip()),
+               None)
+    if end is None or swift_code(lines[end]).strip() != "}":
+        return window
+    depth = 0
+    for i in range(end, max(-1, end - GUARD_BLOCK_LINES), -1):
+        code = swift_code(lines[i])
+        depth += code.count("}") - code.count("{")
+        if depth > 0:
+            continue
+        # LINES[i] opens the else block; its guard starts on it or up to GUARD_LINES lines above (a wrapped
+        # condition list).
+        start = next((j for j in range(i, max(-1, i - 1 - GUARD_LINES), -1) if GUARD_WORD.search(swift_code(lines[j]))),
+                     None)
+        if start is not None:
+            window += [swift_code(lines[j]) for j in range(start, i + 1)]
+        break
+    return window
 
 
 def call_arguments(lines, index, code, start):
@@ -465,8 +573,8 @@ def labeled(arguments, label):
 
 def removal_guarded(lines, index, code, start):
     """Whether the removal at CODE[start] reads its receiver's isEmpty, count, first, last, hasPrefix, hasSuffix
-    or starts before it on its line or on one of the GUARD_LINES lines above. An implicit-self removal looks for a
-    bare `isEmpty`."""
+    or starts before it on its line or in guard_window, or its `(n)` is bounded by the receiver's count
+    (`q.count`, `q.count / 4`, `min(q.count, <safe count>)`). An implicit-self removal looks for a bare `isEmpty`."""
     before = code[:start]
     receiver = None
     if before.rstrip().endswith("."):
@@ -477,8 +585,109 @@ def removal_guarded(lines, index, code, start):
         before = before[:found.start()]
     name = r"(?:self\.)?" + re.escape(receiver) + r"\??\s*\." if receiver else r"(?:self\.)?"
     guard = re.compile(r"(?<![\w.])" + name + r"\s*(?:isEmpty|count|first|last|hasPrefix|hasSuffix|starts)\b")
-    window = [before] + [swift_code(lines[i]) for i in range(max(0, index - GUARD_LINES), index)]
-    return any(guard.search(text) for text in window)
+    window = [before] + guard_window(lines, index)
+    if any(guard.search(text) for text in window):
+        return True
+    # `(n)` bounded by the receiver's own count: `q.removeFirst(q.count / 4)`, `q.removeLast(min(q.count, n))`.
+    paren = code.find("(", start)
+    argument = call_arguments(lines, index, code, paren + 1).strip() if paren >= 0 else ""
+    own = r"(?:self\.)?" + re.escape(receiver) + r"\??\s*\.\s*count" if receiver else r"count"
+    bounded = re.compile(own + r"(?:\s*/\s*[1-9]\d*)?")
+    if bounded.fullmatch(argument):
+        return True
+    call = COUNT_CALL.fullmatch(argument)
+    if call and call.group(1) == "min":
+        parts = top_level_arguments(call.group(2))
+        return (any(bounded.fullmatch(part) for part in parts)
+                and all(bounded.fullmatch(part) or safe_count(part) for part in parts))
+    return False
+
+
+# A type constant: `static let NAME = ...` (also `static let a = 64, b = a * 4`).
+STATIC_LET = re.compile(r"\bstatic\s+let\s+")
+# id(lines) -> (lines, the names LINES declares as non-negative type constants): one scan per file and report run.
+STATIC_CONSTANTS = {}
+
+
+def literal_constants(lines):
+    """The names LINES declares only as `static let` constants whose every value is a safe count of literals and
+    of such constants (`static let capacity = 1300`, `static let hashSize = hashWords * 4`)."""
+    cached = STATIC_CONSTANTS.get(id(lines))
+    if cached is not None and cached[0] is lines:
+        return cached[1]
+    if len(STATIC_CONSTANTS) > 256:
+        STATIC_CONSTANTS.clear()
+    values = {}
+    for line in lines:
+        if "static" not in line:
+            continue
+        code = swift_code(line).rstrip()
+        found = STATIC_LET.search(code)
+        if not found:
+            continue
+        for item in top_level_split(code[found.end():], ",;")[0]:
+            bound = LET_ITEM.fullmatch(item.strip())
+            if bound:
+                values.setdefault(bound.group(1), []).append(bound.group(2))
+    names = set()
+    for _ in range(4):  # constants built from constants, a few levels deep
+        grown = {name for name, items in values.items()
+                 if all(safe_count(value, names.__contains__) for value in items)}
+        if grown == names:
+            break
+        names = grown
+    STATIC_CONSTANTS[id(lines)] = (lines, names)
+    return names
+
+
+# How far up a `let NAME = <safe count>` may bind a count's name (a `let` is never reassigned), and how many such
+# bindings one count may follow (`let cols = max(1, t.columns)`, then `let cells = cols * 4`).
+LET_LINES = 20
+LET_DEPTH = 2
+
+
+def count_validated(lines, index, code, start, name, depth=0):
+    """Whether NAME, a name in a `(repeating:count:)` count, is shown non-negative before the call at CODE[start]:
+    on its line, on one of the GUARD_LINES lines above or in a guard that ends on the line above (guard_window)
+    compared with a non-negative literal (`n >= 0`, `n > 0`, `0 < n`, `guard n >= 1`); bound by a `let` on one of
+    the LET_LINES lines above to a safe count (`let cols = max(1, t.columns)`, `let n = rows.count + 1`), or so
+    compared in a `guard` of those lines; or a type constant of its file (literal_constants)."""
+    if name in literal_constants(lines):
+        return True
+    word = r"(?<![\w.])(?:(?:self|Self)\.)?" + re.escape(name) + r"(?![\w(])"
+    check = re.compile(word + r"\s*>=?\s*\d|(?<![\w.])\d[\d_]*\s*<=?\s*" + word + r"(?!\s*\.)")
+    if any(check.search(text) for text in [code[:start]] + guard_window(lines, index)):
+        return True
+    # A `guard` of the LET_LINES lines above holds for the rest of its scope: `guard keyLength >= 1 else { throw }`.
+    if any(GUARD_WORD.search(text) and check.search(text)
+           for text in (swift_code(lines[i]) for i in range(max(0, index - LET_LINES), index))):
+        return True
+    # An assignment of a `max` with a non-negative literal just before the call: `self.width = max(0, width)`.
+    clamp = re.compile(word + r"\s*=\s*max\(\s*(?:\d[\d_]*\s*,|.*,\s*\d[\d_]*\s*\))")
+    if any(clamp.search(text) for text in [code[:start]] + guard_window(lines, index)):
+        return True
+    if depth >= LET_DEPTH:
+        return False
+    for above in range(index - 1, max(-1, index - 1 - LET_LINES), -1):
+        value = let_value(swift_code(lines[above]).rstrip(), name)
+        if value is not None:
+            return safe_count(value, lambda inner: count_validated(lines, above, "", 0, inner, depth + 1))
+    return False
+
+
+LET_ITEM = re.compile(r"([A-Za-z_]\w*)\s*(?::\s*Int\s*)?=\s*(.+)")
+
+
+def let_value(code, name):
+    """The value CODE's `let` binds NAME to (`let n = 4`, `let w = max(0, a), h = max(0, b)`), or None."""
+    found = re.search(r"\blet\s+", code)
+    if not found:
+        return None
+    for item in top_level_split(code[found.end():], ",;")[0]:
+        bound = LET_ITEM.fullmatch(item.strip())
+        if bound and bound.group(1) == name:
+            return bound.group(2)
+    return None
 
 
 def trap_api_hits(lines, index, code=None):
@@ -496,11 +705,13 @@ def trap_api_hits(lines, index, code=None):
     for match in REPEAT_INIT.finditer(code):
         arguments = call_arguments(lines, index, code, match.end())
         count = labeled(arguments, "count")
-        if labeled(arguments, "repeating") is not None and count is not None and not SAFE_COUNT.fullmatch(count):
+        if (labeled(arguments, "repeating") is not None and count is not None
+                and not safe_count(count, lambda name: count_validated(lines, index, code, match.start(), name))):
             hits += 1
     for match in REPEAT_ELEMENT.finditer(code):
         count = labeled(call_arguments(lines, index, code, match.end()), "count")
-        if count is not None and not SAFE_COUNT.fullmatch(count):
+        if count is not None and not safe_count(
+                count, lambda name: count_validated(lines, index, code, match.start(), name)):
             hits += 1
     for match in OFFSET_CALL.finditer(code):
         if DECLARED_FUNC.search(code[:match.start()]):

@@ -483,6 +483,81 @@ out="$(report trap_api)" || fail "--report trap_api failed: $out"
 printf 'guard !other.isEmpty else { return }\nlet b = queue.removeFirst()\n' > "$app/Sources/M/A.swift"
 out="$(report trap_api)" || fail "--report trap_api failed: $out"
 [[ "$(hits trap_api M <<<"$out")" == 1 ]] || fail "another collection's guard exempted a removal: $out"
+# 21b. (p10-stability-098) validated counts and longer guards: a count shown non-negative (a literal comparison, a
+#      guard above in scope, a `let` of a safe count, a `max` assignment, a type constant, a C constant, base64
+#      padding, a ternary of literals, sums and products of those) and a removal behind a guard whose else block
+#      runs several lines, or bounded by its receiver's count, do not count; the same shapes with a value that may
+#      be negative still do.
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+enum Sizes {
+    static let words = 8
+    static let bytes = words * 4
+}
+func a(n: Int, keyLength: Int, side: Int, value: String, t: T, ipv6: Bool) {
+    guard keyLength >= 1, keyLength <= 1024 else {
+        return
+    }
+    let one = 1
+    let two = 2
+    let three = 3
+    var key = [UInt8](repeating: 0, count: keyLength)
+    let b = n > 0 ? Array(repeating: 0, count: n) : []
+    let cols = max(1, t.columns)
+    let c = [CGFloat](repeating: 16, count: cols)
+    let d = [UInt8](repeating: 0, count: Sizes.bytes)
+    let e = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
+    let f = String(repeating: "=", count: (4 - value.count % 4) % 4)
+    let g = [UInt8](repeating: 0, count: ipv6 ? 16 : 4)
+    let h = [UInt8](repeating: 0, count: cols * cols * 4)
+    let w = max(0, side), hh = max(0, t.height)
+    let i = [UInt32](repeating: 0, count: w * hh)
+}
+func next() -> Int? {
+    guard let first = items.first else {
+        idle()
+        return nil
+    }
+    // the guard above holds here
+    items.removeFirst()
+    transcript.removeFirst(transcript.count / 4)
+    scalars.removeLast(min(scalars.count, 64))
+    return first
+}
+SWIFT
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api <<<"$out")" == 0 ]] || fail "a validated count or a longer guard counted as trap_api: $out"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+enum Sizes {
+    static let words = other - 1
+}
+func a(n: Int, side: Int, value: String, t: T, ipv6: Bool) {
+    if n > 0 {
+        a()
+        b()
+        c()
+    }
+    let a = Array(repeating: 0, count: n)
+    let cols = t.columns - 1
+    let c = [CGFloat](repeating: 16, count: cols)
+    let d = [UInt8](repeating: 0, count: Sizes.words)
+    let f = String(repeating: "=", count: 4 - remainder)
+    let g = [UInt8](repeating: 0, count: ipv6 ? n : 4)
+    let w = max(0, side), hh = t.height
+    let i = [UInt32](repeating: 0, count: w * hh)
+}
+func next() -> Int? {
+    guard let first = other.first else {
+        idle()
+        return nil
+    }
+    items.removeFirst()
+    transcript.removeFirst(other.count / 4)
+    scalars.removeLast(min(scalars.count, n))
+    return first
+}
+SWIFT
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api M <<<"$out")" == 9 ]] || fail "an unvalidated count or an unguarded removal was missed (want 9): $out"
 g reset -q
 reset
 

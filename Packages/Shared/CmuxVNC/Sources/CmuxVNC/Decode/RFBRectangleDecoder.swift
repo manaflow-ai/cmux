@@ -181,7 +181,7 @@ final class RFBRectangleDecoder {
         let colours = try await reader.bytes(w * h * 4)
         let maskStride = (w + 7) / 8
         let mask = try await reader.bytes(maskStride * h)
-        var pixels = [UInt32](repeating: 0, count: w * h)
+        var pixels = [UInt32](repeating: 0, count: colours.count / 4) // w * h
         for row in 0 ..< h {
             for col in 0 ..< w where mask[row * maskStride + col / 8] & (0x80 >> UInt8(col % 8)) != 0 {
                 let index = (row * w + col) * 4
