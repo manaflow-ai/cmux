@@ -217,13 +217,9 @@ export const intervalCleanup = {
         for (let parent = write.parent; parent && parent !== effect; parent = parent.parent) {
           if (functions.has(parent.type)) nestedFunction = true;
         }
-        if (nestedFunction) {
-          let starts = false;
-          walk(write.right, (child) => {
-            if (child.type === "CallExpression" && isTimer(child.callee, "setInterval")) starts = true;
-          });
-          if (starts) return true;
-        }
+        // A handle write inside any nested callback can occur after teardown
+        // and cannot be proven to belong to a currently-live lifetime.
+        if (nestedFunction) return true;
         let statement = write;
         while (statement.parent && statement.parent.type !== "BlockStatement") statement = statement.parent;
         const block = statement.parent;
