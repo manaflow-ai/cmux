@@ -27,8 +27,19 @@ Usage:
   cargo clippy --workspace --lib --bins --locked --message-format=json -- $(rust_panic_ratchet.py --flags) > clippy.jsonl
   # 2. compare (laptop OK, read-only):
   rust_panic_ratchet.py --clippy-json clippy.jsonl [--update-baseline] [--report md|json]
+  # 3. merge the Linux run with the macOS fleet run (scripts/cmux-next/rust-panic-macos.sh):
+  rust_panic_ratchet.py --clippy-json linux=linux.jsonl --clippy-json macos=macos.jsonl --report md
 Exit 1 when a crate gained a DENY_LINTS hit (a new crate: any), or an allow lacks a reason.
 TRACKED_LINTS increases print a warning annotation and pass.
+
+Several --clippy-json runs (each [LABEL=]PATH; the label defaults to the file
+name without its extension) are merged into one set of hits: a hit is one
+lint at one workspace-relative file:line:column, so a line both runs see
+counts once, and a `#[cfg(target_os = ...)]` line only one run compiles is
+added. The report then lists the hits only one run saw (the macOS-only
+hits). The CI-read baseline stays the Linux run's, the one CI repeats, so a
+merged run never writes it (--update-baseline and --init-baseline take one
+run).
 
 Report-only lints (REPORT_LINTS, lab only; plans/cmux-next/chrome-parity/p10-stability.md
 task 114): CI uses --flags and never sees them. The lab run adds them with --report-flags and
@@ -124,19 +135,39 @@ def package_name(package_id):
     return None
 
 
-def read_clippy(path, lints=None, skip_generated=False):
-    """Return (checked crate set, {crate: {lint: count}}, {crate: {file: count}}, finished, hits).
+def workspace_path(file_name):
+    """A span's file as a cmux-tui workspace-relative path, so runs on two hosts name a file alike.
 
-    Only `lints` (default LINTS) are counted, so a lab run with --report-flags gives the CI
-    compare the same counts as a run with --flags. `skip_generated` drops hits in files clippy
-    names by an absolute path (build-script output such as bindgen's OUT_DIR/bindings.rs)."""
+    clippy prints workspace members relative to the workspace root; an absolute
+    path (a checkout at another place) keeps its part from crates/ or bindings/.
+    """
+    path = file_name.replace("\\", "/")
+    if path.startswith("/"):
+        for top in ("/cmux-tui/crates/", "/cmux-tui/bindings/"):
+            at = path.find(top)
+            if at >= 0:
+                return path[at + len("/cmux-tui/"):]
+    return path
+
+
+class ClippyRun:
+    """One clippy --message-format=json run: the crates it checked, whether it finished, its hits."""
+
+    def __init__(self, label):
+        self.label = label
+        self.checked = set()
+        self.finished = None
+        # (workspace file, line, column, lint) -> crate, in first-seen order.
+        self.hits = {}
+
+
+def read_run(path, label=None, lints=None, skip_generated=False):
+    """Read one run. Only `lints` (default LINTS) are kept, so a lab run with --report-flags gives the
+    CI compare the same counts as a run with --flags. `skip_generated` drops hits in files clippy
+    names by an absolute path outside the workspace (build-script output such as bindgen's
+    OUT_DIR/bindings.rs)."""
     lints = set(LINTS if lints is None else lints)
-    checked = set()
-    finished = None
-    seen = set()
-    hits = collections.defaultdict(list)
-    counts = collections.defaultdict(collections.Counter)
-    files = collections.defaultdict(collections.Counter)
+    run = ClippyRun(label or os.path.splitext(os.path.basename(path))[0])
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
             line = line.strip()
@@ -148,13 +179,13 @@ def read_clippy(path, lints=None, skip_generated=False):
                 continue
             reason = item.get("reason")
             if reason == "build-finished":
-                finished = bool(item.get("success"))
+                run.finished = bool(item.get("success"))
                 continue
             if reason == "compiler-artifact":
                 name = package_name(item.get("package_id", ""))
                 if name and name not in FROZEN_FIXTURES and any(k in ("lib", "rlib", "bin", "cdylib", "staticlib", "proc-macro", "dylib")
                                 for k in item.get("target", {}).get("kind", [])):
-                    checked.add(name)
+                    run.checked.add(name)
                 continue
             if reason != "compiler-message":
                 continue
@@ -171,21 +202,59 @@ def read_clippy(path, lints=None, skip_generated=False):
             if span is None:
                 continue
             file_name = span.get("file_name", "")
-            if skip_generated and os.path.isabs(file_name):
+            if skip_generated and workspace_path(file_name).startswith("/"):
                 continue
             crate = crate_of(file_name) or package_name(item.get("package_id", ""))
             if crate is None:
                 continue  # vendor/ or registry code: third-party
             if crate in FROZEN_FIXTURES:
                 continue
-            key = (file_name, span.get("line_start"), span.get("column_start"), lint)
-            if key in seen:
-                continue  # the same source line seen through a lib and a bin target
-            seen.add(key)
-            counts[crate][lint] += 1
-            hits[(crate, lint)].append(f"{file_name}:{span.get('line_start')}:{span.get('column_start')}")
-            files[crate][file_name.split("cmux-tui/", 1)[-1]] += 1
-    return checked, counts, files, finished, hits
+            # The same source line seen through a lib and a bin target counts once.
+            run.hits.setdefault((workspace_path(file_name), span.get("line_start"), span.get("column_start"), lint), crate)
+    return run
+
+
+def merge_runs(runs):
+    """Return (checked, {crate: {lint: count}}, {crate: {file: count}}, finished, {(crate, lint): [loc]}, only).
+
+    `only` maps a run's label to {crate: [(loc, lint)]}: the hits no other run saw.
+    With one run it is empty.
+    """
+    checked = set()
+    merged = {}
+    seen_by = collections.defaultdict(set)
+    for run in runs:
+        checked |= run.checked
+        for key, crate in run.hits.items():
+            merged.setdefault(key, crate)
+            seen_by[key].add(run.label)
+    counts = collections.defaultdict(collections.Counter)
+    files = collections.defaultdict(collections.Counter)
+    hits = collections.defaultdict(list)
+    only = {run.label: collections.defaultdict(list) for run in runs} if len(runs) > 1 else {}
+    for key, crate in merged.items():
+        file_name, line, column, lint = key
+        loc = f"{file_name}:{line}:{column}"
+        counts[crate][lint] += 1
+        hits[(crate, lint)].append(loc)
+        files[crate][file_name] += 1
+        if only and len(seen_by[key]) == 1:
+            only[next(iter(seen_by[key]))][crate].append((loc, lint))
+    finished = all(run.finished is True for run in runs) if runs else None
+    return checked, counts, files, finished, hits, only
+
+
+def read_clippy(path, lints=None, skip_generated=False):
+    """One run: (checked crate set, {crate: {lint: count}}, {crate: {file: count}}, finished, hits)."""
+    return merge_runs([read_run(path, lints=lints, skip_generated=skip_generated)])[:5]
+
+
+def parse_run_arg(value):
+    """`LABEL=PATH` or `PATH` (the label is then the file name without its extension)."""
+    label, sep, path = value.partition("=")
+    if sep and re.fullmatch(r"[A-Za-z0-9_.-]+", label) and not os.path.exists(value):
+        return label, path
+    return None, value
 
 
 def allow_without_reason(root):
@@ -278,24 +347,44 @@ def is_deny(lints):
     return all(lints.get(lint, 0) == 0 for lint in DENY_LINTS)
 
 
-def report(checked, counts, files, fmt):
+SHORT = {"unwrap_used": "unwrap", "expect_used": "expect", "panic": "panic", "unreachable": "unreach",
+         "todo": "todo", "unimplemented": "unimpl", "indexing_slicing": "index", "string_slice": "strslice",
+         "panic_in_result_fn": "panic_in_result", "arithmetic_side_effects": "arith",
+         "cast_possible_truncation": "cast_trunc"}
+
+
+def report(checked, counts, files, fmt, only=None):
+    only = only or {}
     rows = []
     for crate in sorted(checked | set(counts)):
         c = counts.get(crate, {})
         top = ", ".join(f"{f} {n}" for f, n in files.get(crate, collections.Counter()).most_common(3))
         rows.append((crate, c, is_deny(c), top))
     if fmt == "json":
-        print(json.dumps({crate: {"counts": dict(c), "deny": deny, "top": top} for crate, c, deny, top in rows}, indent=1))
+        out = {}
+        for crate, c, deny, top in rows:
+            out[crate] = {"counts": dict(c), "deny": deny, "top": top}
+            if only:
+                out[crate]["only_in"] = {label: [{"loc": loc, "lint": lint} for loc, lint in sorted(by_crate.get(crate, []))]
+                                         for label, by_crate in only.items()}
+        print(json.dumps(out, indent=1))
         return
-    short = {"unwrap_used": "unwrap", "expect_used": "expect", "panic": "panic", "unreachable": "unreach",
-             "todo": "todo", "unimplemented": "unimpl", "indexing_slicing": "index", "string_slice": "strslice",
-             "panic_in_result_fn": "panic_in_result", "arithmetic_side_effects": "arith",
-             "cast_possible_truncation": "cast_trunc"}
-    print("| crate | " + " | ".join(short[l] for l in LINTS) + " | deny | top files |")
+    print("| crate | " + " | ".join(SHORT[l] for l in LINTS) + " | deny | top files |")
     print("|" + " --- |" * (len(LINTS) + 3))
     rows.sort(key=lambda r: -sum(r[1].get(l, 0) for l in DENY_LINTS))
     for crate, c, deny, top in rows:
         print(f"| {crate} | " + " | ".join(str(c.get(l, 0)) for l in LINTS) + f" | {'yes' if deny else 'no'} | {top} |")
+    for label, by_crate in only.items():
+        total = sum(len(v) for v in by_crate.values())
+        print(f"\n### Hits only the {label} run saw ({total})\n")
+        if not total:
+            print("none")
+            continue
+        print("| crate | lint | location |")
+        print("| --- | --- | --- |")
+        for crate in sorted(by_crate):
+            for loc, lint in sorted(by_crate[crate]):
+                print(f"| {crate} | {SHORT[lint]} | {loc} |")
 
 
 def load_report_baseline():
@@ -320,12 +409,19 @@ def write_report_baseline(rows):
         handle.write("\n")
 
 
-def tracked_report(args):
-    checked, counts, files, finished, hits = read_clippy(args.clippy_json, REPORT_LINTS, skip_generated=True)
-    if not checked or finished is not True:
-        print("rust-panic-ratchet: the clippy run did not finish successfully (no build-finished success line);"
-              " counts from a partial build prove nothing", file=sys.stderr)
-        return 2
+def tracked_report(args, parser):
+    if len(args.clippy_json) > 1 and args.update_report_baseline:
+        parser.error("--update-report-baseline takes one --clippy-json run: the report baseline is one Linux run")
+    runs = []
+    for value in args.clippy_json:
+        label, path = parse_run_arg(value)
+        runs.append(read_run(path, label, lints=REPORT_LINTS, skip_generated=True))
+    for run in runs:
+        if not run.checked or run.finished is not True:
+            print(f"rust-panic-ratchet: the {run.label} clippy run did not finish successfully (no build-finished"
+                  " success line); counts from a partial build prove nothing", file=sys.stderr)
+            return 2
+    checked, counts, files, _, hits, _only = merge_runs(runs)
     invariants = invariant_allows(args.repo)
     rows = {}
     for crate in checked | set(counts):
@@ -366,7 +462,8 @@ def tracked_report(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--flags", action="store_true", help="print the clippy lint flags and exit")
-    parser.add_argument("--clippy-json", help="cargo clippy --message-format=json output")
+    parser.add_argument("--clippy-json", action="append", metavar="[LABEL=]PATH",
+                        help="cargo clippy --message-format=json output; repeat to merge runs (Linux and macOS)")
     parser.add_argument("--repo", default=REPO)
     parser.add_argument("--update-baseline", action="store_true", help="lower the baseline to the counts seen")
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
@@ -390,14 +487,30 @@ def main():
     if args.update_report_baseline and not args.tracked_report:
         parser.error("--update-report-baseline needs --tracked-report")
     if args.tracked_report:
-        return tracked_report(args)
-    checked, counts, files, finished, hits = read_clippy(args.clippy_json)
-    if not checked or finished is not True:
-        print("rust-panic-ratchet: the clippy run did not finish successfully (no build-finished success line);"
-              " counts from a partial build prove nothing", file=sys.stderr)
-        return 2
+        return tracked_report(args, parser)
+    runs = []
+    for value in args.clippy_json:
+        label, path = parse_run_arg(value)
+        run = read_run(path, label)
+        if any(other.label == run.label for other in runs):
+            parser.error(f"two --clippy-json runs are labelled {run.label!r}; name them LABEL=PATH")
+        runs.append(run)
+    if len(runs) > 1 and (args.update_baseline or args.init_baseline):
+        parser.error("--update-baseline and --init-baseline take one --clippy-json run: the CI-read baseline is the"
+                     " Linux run CI repeats, and a merged run would add hits CI never sees")
+    for run in runs:
+        if not run.checked or run.finished is not True:
+            print(f"rust-panic-ratchet: the {run.label} clippy run did not finish successfully (no build-finished"
+                  " success line); counts from a partial build prove nothing", file=sys.stderr)
+            return 2
+    checked, counts, files, _, hits, only = merge_runs(runs)
+    if only:
+        sizes = ", ".join(f"{run.label} {len(run.hits)}" for run in runs)
+        alone = ", ".join(f"{label}-only {sum(len(v) for v in by.values())}" for label, by in only.items())
+        print(f"rust-panic-ratchet: merged {len(runs)} runs by file:line:column (hits: {sizes});"
+              f" {sum(sum(c.values()) for c in counts.values())} distinct, {alone}", file=sys.stderr)
     if args.report:
-        report(checked, counts, files, args.report)
+        report(checked, counts, files, args.report, only)
     baseline = load_baseline()
     if args.init_baseline:
         write_baseline({crate: counts.get(crate, collections.Counter()) for crate in checked})
@@ -446,7 +559,8 @@ def main():
     print(f"rust-panic-ratchet: {len(checked)} crates checked, {len(deny)} at deny", file=sys.stderr)
     if lowered and not args.update_baseline:
         print("::warning title=rust panic ratchet::counts went down in " + ", ".join(sorted(lowered))
-              + "; lower scripts/cmux-next/rust-panic-baseline.json with --update-baseline in this commit,"
+              + "; lower scripts/cmux-next/rust-panic-baseline.json with --update-baseline"
+              + (" on the Linux run alone" if len(runs) > 1 else "") + " in this commit,"
               " or a later change can add hits up to the old count", file=sys.stderr)
     for line in warnings:
         print(f"::warning title=rust panic ratchet (tracked lint)::{line}", file=sys.stderr)

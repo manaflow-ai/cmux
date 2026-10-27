@@ -8,7 +8,7 @@
  ],
  "platform": "linux-x86_64",
  "totals": {
-  "undocumented_unsafe_blocks": 507,
+  "undocumented_unsafe_blocks": 509,
   "large_futures": 78,
   "await_holding_invalid_type": 0,
   "invariant_allows": 0
@@ -63,6 +63,12 @@
    "invariant_allows": 0
   },
   "cmux-app-manifest": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-blocking": {
    "undocumented_unsafe_blocks": 0,
    "large_futures": 0,
    "await_holding_invalid_type": 0,
@@ -158,6 +164,12 @@
    "await_holding_invalid_type": 0,
    "invariant_allows": 0
   },
+  "cmux-hang-watch": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
   "cmux-history": {
    "undocumented_unsafe_blocks": 0,
    "large_futures": 0,
@@ -172,6 +184,12 @@
   },
   "cmux-host": {
    "undocumented_unsafe_blocks": 3,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-ipc": {
+   "undocumented_unsafe_blocks": 0,
    "large_futures": 0,
    "await_holding_invalid_type": 0,
    "invariant_allows": 0
@@ -195,6 +213,18 @@
    "invariant_allows": 0
   },
   "cmux-local-auth": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-lock-rank": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-memory": {
    "undocumented_unsafe_blocks": 0,
    "large_futures": 0,
    "await_holding_invalid_type": 0,
@@ -249,7 +279,7 @@
    "invariant_allows": 0
   },
   "cmux-pty": {
-   "undocumented_unsafe_blocks": 31,
+   "undocumented_unsafe_blocks": 23,
    "large_futures": 0,
    "await_holding_invalid_type": 0,
    "invariant_allows": 0
@@ -369,7 +399,7 @@
    "invariant_allows": 0
   },
   "cmux-tui": {
-   "undocumented_unsafe_blocks": 80,
+   "undocumented_unsafe_blocks": 78,
    "large_futures": 5,
    "await_holding_invalid_type": 0,
    "invariant_allows": 0
@@ -417,7 +447,7 @@
    "invariant_allows": 0
   },
   "cmux-tui-platform": {
-   "undocumented_unsafe_blocks": 10,
+   "undocumented_unsafe_blocks": 9,
    "large_futures": 0,
    "await_holding_invalid_type": 0,
    "invariant_allows": 0
@@ -435,6 +465,12 @@
    "invariant_allows": 0
   },
   "cmux-unix-socket": {
+   "undocumented_unsafe_blocks": 0,
+   "large_futures": 0,
+   "await_holding_invalid_type": 0,
+   "invariant_allows": 0
+  },
+  "cmux-wake": {
    "undocumented_unsafe_blocks": 0,
    "large_futures": 0,
    "await_holding_invalid_type": 0,
@@ -459,7 +495,7 @@
    "invariant_allows": 0
   },
   "ghostty-vt": {
-   "undocumented_unsafe_blocks": 186,
+   "undocumented_unsafe_blocks": 199,
    "large_futures": 0,
    "await_holding_invalid_type": 0,
    "invariant_allows": 0

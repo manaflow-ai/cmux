@@ -21,6 +21,7 @@ import json
 import os
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -184,6 +185,22 @@ class ReportTierTest(unittest.TestCase):
         self.assertIn("did not finish", err)
         self.assertFalse(self.report_baseline.exists())
 
+    def test_tracked_report_merges_runs_but_writes_its_baseline_from_one(self):
+        linux = self.write_jsonl("linux.jsonl", self.lab_items())
+        # The macOS checkout names a file by an absolute path: the same line counts once.
+        macos = self.write_jsonl("macos.jsonl", [
+            message("alpha", "undocumented_unsafe_blocks", "/Users/m/src/cmux-tui/crates/alpha/src/lib.rs", 20),
+            message("alpha", "undocumented_unsafe_blocks", "crates/alpha/src/lib.rs", 40),
+        ] + self.ci_items())
+        code, out, _ = self.run_main("--clippy-json", f"linux={linux}", "--clippy-json", f"macos={macos}",
+                                     "--tracked-report", "json")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["alpha"]["counts"]["undocumented_unsafe_blocks"], 3)
+        with self.assertRaises(SystemExit):
+            self.run_main("--clippy-json", f"linux={linux}", "--clippy-json", f"macos={macos}",
+                          "--tracked-report", "md", "--update-report-baseline")
+        self.assertFalse(self.report_baseline.exists())
+
     def test_update_report_baseline_needs_tracked_report(self):
         lab = self.write_jsonl("lab.jsonl", self.lab_items())
         with self.assertRaises(SystemExit):
@@ -192,11 +209,19 @@ class ReportTierTest(unittest.TestCase):
     def test_lab_clippy_conf_is_not_the_workspace_one(self):
         repo = SCRIPTS.parents[1]
         conf = repo / "cmux-tui" / "lab" / "clippy" / "clippy.toml"
-        text = conf.read_text()
-        self.assertIn("cmux_tui_core::lock_rank::RankedGuard", text)
-        self.assertIn("future-size-threshold", text)
-        for name in ("clippy.toml", ".clippy.toml"):
-            self.assertFalse((repo / "cmux-tui" / name).exists(), f"cmux-tui/{name} would reach the CI clippy run")
+        lab = tomllib.loads(conf.read_text())
+        self.assertEqual([entry["path"] for entry in lab["await-holding-invalid-types"]],
+                         ["cmux_tui_core::lock_rank::RankedGuard"])
+        self.assertEqual(lab["future-size-threshold"], 16384)
+        self.assertFalse((repo / "cmux-tui" / ".clippy.toml").exists())
+        workspace_conf = repo / "cmux-tui" / "clippy.toml"
+        workspace = tomllib.loads(workspace_conf.read_text()) if workspace_conf.exists() else {}
+        # The lab keys never reach the `clippy -D warnings` CI run.
+        self.assertNotIn("await-holding-invalid-types", workspace)
+        self.assertNotIn("future-size-threshold", workspace)
+        # CLIPPY_CONF_DIR replaces the workspace file: the lab run keeps every workspace setting.
+        for key, value in workspace.items():
+            self.assertEqual(lab.get(key), value, f"lab/clippy/clippy.toml must repeat cmux-tui/clippy.toml's {key}")
 
 
 if __name__ == "__main__":

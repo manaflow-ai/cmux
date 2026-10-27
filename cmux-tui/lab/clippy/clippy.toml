@@ -4,8 +4,10 @@
 #   cd cmux-tui && CLIPPY_CONF_DIR=lab/clippy cargo clippy --workspace --lib --bins --locked \
 #     --message-format=json -- $(python3 ../scripts/cmux-next/rust_panic_ratchet.py --report-flags) > lab.jsonl
 #   python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json lab.jsonl --tracked-report md
-# The workspace has no clippy.toml: one there would apply to the `clippy -D warnings` CI run and turn
-# it red. A lint moves to the workspace only in a commit that brings every hit of it to 0.
+# CLIPPY_CONF_DIR replaces cmux-tui/clippy.toml (clippy reads one file), so this file repeats its
+# tables below unchanged; test_rust_panic_ratchet_report.py checks they match. The two lab keys stay
+# out of cmux-tui/clippy.toml: there they would reach the `clippy -D warnings` CI run. A lint moves
+# to the workspace file only in a commit that brings every hit of it to 0.
 
 # await_holding_invalid_type. A std MutexGuard is already await_holding_lock; a RankedGuard wraps one,
 # so clippy does not see the lock inside it.
@@ -16,3 +18,25 @@ await-holding-invalid-types = [
 # large_futures: a future at or above this many bytes is moved by value through every wrapper and
 # await, and a few nested ones overflow a 2 MiB tokio worker stack. Box::pin it at the call site.
 future-size-threshold = 16384
+
+# --- Repeated from cmux-tui/clippy.toml (keep equal). ---
+disallowed-methods = [
+    { path = "std::thread::spawn", reason = "use cmux_threads::spawn(name, qos, f)" },
+    { path = "std::thread::Builder::spawn", reason = "use cmux_threads::spawn(name, qos, f)" },
+    { path = "std::thread::Builder::spawn_scoped", reason = "use cmux_threads::spawn or a cmux_threads::work lane" },
+    { path = "std::thread::Builder::spawn_unchecked", reason = "use cmux_threads::spawn(name, qos, f)" },
+    { path = "std::thread::scope", reason = "use cmux_threads::spawn or a cmux_threads::work lane" },
+    { path = "std::thread::sleep", reason = "wait on an event, channel or injected clock; else cmux_threads::checked::sync::sleep" },
+]
+
+# A std lock or condition variable waits untimed: a request or echo thread that
+# waits 2 ms or more on one records nothing (p02-threads.md, 3D, task 227;
+# Chromium base/synchronization/lock_impl.h tracks its contended path). Every
+# package sets clippy::disallowed_types to allow; a module opts in with
+# `#![cfg_attr(not(test), deny(clippy::disallowed_types))]` once its sites use
+# cmux_threads::sync (cmux-tui-core's server and mux modules do).
+disallowed-types = [
+    { path = "std::sync::Mutex", reason = "use cmux_threads::sync::Mutex (same API, waits timed)" },
+    { path = "std::sync::RwLock", reason = "use cmux_threads::sync::RwLock (same API, waits timed)" },
+    { path = "std::sync::Condvar", reason = "use cmux_threads::sync::Condvar (same API, waits timed)" },
+]
