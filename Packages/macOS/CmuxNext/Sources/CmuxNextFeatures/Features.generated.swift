@@ -2266,6 +2266,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// With the Chromium host, the warm start keeps no spare Chromium window, so nothing warms a renderer for the first new tab; the bench arm that measures whether the host meets the new tab target without the spare window.
+    public static let chromiumHostNoSpareWindow = Feature(
+        index: 126,
+        name: "chromiumHostNoSpareWindow",
+        owner: "PL-cef-layer",
+        description: "With the Chromium host, the warm start keeps no spare Chromium window, so nothing warms a renderer for the first new tab; the bench arm that measures whether the host meets the new tab target without the spare window.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["new-browser-tab"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// After a Chromium Host crash within the restart budget (Chrome's GPU rule), a new host starts at once and every Chromium tab of every window and profile comes back with its history from its daemon record; hidden tabs when shown, form results not resent.
     public static let chromiumHostRestoreTabs = Feature(
         index: 127,
@@ -2469,6 +2486,7 @@ nonisolated extension Feature {
         .cefHelperHost,
         .cefLayerHostingEveryPage,
         .chromiumHostIdleExit,
+        .chromiumHostNoSpareWindow,
         .chromiumHostRestoreTabs,
         .chromiumHostTabs,
         .perfLabCanary,
