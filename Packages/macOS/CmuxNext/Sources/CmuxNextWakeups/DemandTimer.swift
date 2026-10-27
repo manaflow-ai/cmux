@@ -40,6 +40,8 @@ public final class DemandTimer: Sendable {
     private let energy: EnergyPolicySource?
     /// The main thread's deadline queue (`MainWorkScheduler.wakeUps`); nil sleeps every deadline.
     private let wakeUps: MainWakeUpQueue?
+    /// What the queue records for a fire of this timer's entries (``MainWakeUpQueue/LedgerReason``).
+    private let queueLedgerReason: MainWakeUpQueue.LedgerReason
     private let state = Mutex<State>(State())
 
     /// The one pending deadline: a task asleep on the clock, or an entry in the main queue.
@@ -76,14 +78,19 @@ public final class DemandTimer: Sendable {
     ///     `MainWorkScheduler` pass `mainWork.wakeUps`; nil sleeps every deadline on `clock`. Its
     ///     deadlines are uptime, which does not count system sleep: a deadline that must (an expiry
     ///     measured in wall time) uses a nonisolated action, which sleeps on `clock`.
+    ///   - queueLedgerReason: What a fire of a queue entry records for `owner`: `deadline` (the default), or
+    ///     `deadline` only for a wake that ran no other entry (``MainWakeUpQueue/LedgerReason/deadlineWhenAlone``).
+    ///     A sleep always records `deadline`: it wakes a pool thread of its own.
     public init(owner: String, policy: DelayPolicy = .flexibleNoSooner, clock: any Clock<Duration> = ContinuousClock(),
-                ledger: WakeupLedger = .shared, energy: EnergyPolicySource? = nil, wakeUps: MainWakeUpQueue? = nil) {
+                ledger: WakeupLedger = .shared, energy: EnergyPolicySource? = nil, wakeUps: MainWakeUpQueue? = nil,
+                queueLedgerReason: MainWakeUpQueue.LedgerReason = .deadline) {
         self.owner = owner
         self.policy = policy
         self.clock = clock
         self.ledger = ledger
         self.energy = energy
         self.wakeUps = wakeUps
+        self.queueLedgerReason = queueLedgerReason
     }
 
     /// A timer on the app's scheduler: its Energy Saver policy and its main-thread deadline queue. Its
@@ -174,18 +181,18 @@ public final class DemandTimer: Sendable {
     }
 
     /// Replaces the pending deadline with an entry in `queue`, which records its wake and this owner's
-    /// `deadline`. `action` runs only while the entry holds the timer's generation, so a reset or
-    /// cancel that lands after the queue popped the entry still wins.
+    /// `deadline` (as ``queueLedgerReason`` says). `action` runs only while the entry holds the timer's
+    /// generation, so a reset or cancel that lands after the queue popped the entry still wins.
     private func enqueue(on queue: MainWakeUpQueue, after delay: Duration, tolerance: Duration?,
                          _ action: @escaping @MainActor @Sendable () -> Void) {
         let (sum, overflow) = queue.now.addingReportingOverflow(delay.nanosecondCount)
         let deadline = overflow ? UInt64.max : sum
         let window = mainWindow(for: delay, tolerance: tolerance, alignment: queue.alignment)
-        let owner = owner
+        let owner = owner, reason = queueLedgerReason
         let dropped = state.withLock { state -> Pending? in
             let old = state.supersede()
             let generation = state.generation
-            let token = queue.insert(owner: owner, at: deadline, window: window) { [weak self] in
+            let token = queue.insert(owner: owner, at: deadline, window: window, ledgerReason: reason) { [weak self] in
                 guard let self, self.take(generation) else { return }
                 action()
             }

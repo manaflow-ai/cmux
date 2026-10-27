@@ -5,10 +5,11 @@ import Testing
 
 /// p14-energy-065: the busy watchdog's window ends on the main thread's deadline queue, never sooner than the
 /// window and at most its 10 s leeway after it, so the end rides another main wake when there is one (Chromium's
-/// `subtle::DelayPolicy::kFlexibleNoSooner`, base/task/delay_policy.h). Only a wake before the window's nominal end
-/// keeps the watch going, so alone the end fires once, at most 20 s after the wake that opened the window. Shares
-/// are judged over the real elapsed time. The queue runs on a fake timer and uptime the test drives; the close
-/// runs inline.
+/// `subtle::DelayPolicy::kFlexibleNoSooner`, base/task/delay_policy.h); an end that rode records no ledger wake.
+/// A wake during the window, also after its nominal end, keeps the watch going; the fire's own wake does not, so
+/// alone the end fires once, at most 20 s after the wake that opened the window. Shares are judged over the real
+/// elapsed time. The close runs in the fire; only a busy window's stack sample hops off the main thread. The
+/// queue runs on a fake timer and uptime the test drives; the hop runs inline and is counted.
 @MainActor
 @Suite("BusyWatchdog wake queue")
 struct BusyWatchdogWakeQueueTests {
@@ -21,17 +22,22 @@ struct BusyWatchdogWakeQueueTests {
         let uptime = BusyWindowUptime()
         let ledger = WakeupLedger(uptime: { 0 })
         let log = HangLog()
+        let hops = BusyWindowHops()
         let queue: MainWakeUpQueue
         let watchdog: BusyWatchdog
 
         /// - Parameter threshold: The main-thread and process thresholds; below zero every window is busy.
         init(threshold: Double = 100) {
-            let timer = timer, uptime = uptime
+            let timer = timer, uptime = uptime, hops = hops
             queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: ledger, uptime: { uptime.now }) { _ in timer }
             let configuration = BusyWatchdog.Configuration(mainThreadThreshold: threshold, processThreshold: threshold,
                                                            helperThreshold: 100, logBusy: false)
             watchdog = BusyWatchdog(configuration: configuration, log: log, ledger: ledger, activity: ExpectedActivity(),
-                                    clock: ContinuousClock(), wakeUps: queue, uptime: { uptime.now }, offMain: { $0() })
+                                    clock: ContinuousClock(), wakeUps: queue, uptime: { uptime.now },
+                                    offMain: { work in
+                                        hops.count.add(1, ordering: .relaxed)
+                                        work()
+                                    })
         }
 
         /// The main run loop wakes at `nanos` for something else.
@@ -100,9 +106,30 @@ struct BusyWatchdogWakeQueueTests {
         #expect(rig.timer.armedDate == 12 * Self.second, "no wake of its own at 10 s")
         rig.fire(at: 12 * Self.second)
         #expect(other.ran)
-        #expect(rig.windowEnds == 1)
+        #expect(rig.windowEnds == 0, "the end rode test.other's wake: no wake of its own in the ledger")
         #expect(rig.queue.coalescedFires == 1)
         #expect(rig.queue.count == 0)
+    }
+
+    @Test("A wake after the nominal end, before the end fires, opens the next window")
+    func aWakeBetweenTheNominalEndAndTheFireKeepsWatching() {
+        let rig = Rig()
+        rig.wake(at: 0)
+        rig.wake(at: 15 * Self.second)
+        rig.fire(at: 21 * Self.second)
+        #expect(rig.windowEnds == 1)
+        #expect(rig.queue.count == 1, "the wake at 15 s keeps the watch going")
+        #expect(rig.timer.armedDate == 31 * Self.second)
+    }
+
+    @Test("A quiet window closes in the fire with no hop off the main thread")
+    func aQuietWindowEndHopsNowhere() {
+        let rig = Rig()
+        rig.wake(at: 0)
+        rig.fire(at: 20 * Self.second)
+        #expect(rig.hops.count.load(ordering: .relaxed) == 0)
+        #expect(rig.queue.count == 0)
+        #expect(rig.log.records().isEmpty)
     }
 
     @Test("A busy window's record spans the real elapsed time, not the configured window")
@@ -113,6 +140,7 @@ struct BusyWatchdogWakeQueueTests {
         let record = try #require(rig.log.records().first { $0.kind == .busy })
         #expect(record.duration == .seconds(15))
         #expect(record.startUptimeNanos == 2 * Self.second)
+        #expect(rig.hops.count.load(ordering: .relaxed) == 1, "only the stack sample hops off the main thread")
     }
 }
 
@@ -154,6 +182,11 @@ private final class BusyWindowTimer: MainWakeUpTimer, Sendable {
     func fired() {
         state.withLock { $0.armedDate = nil }
     }
+}
+
+/// The busy-window stack samples handed off the main thread.
+private final class BusyWindowHops: Sendable {
+    let count = Atomic<Int>(0)
 }
 
 /// The test's uptime, shared by the queue and the watchdog.

@@ -154,6 +154,24 @@ struct MainWakeUpQueueTests {
         #expect(rig.fires == 1)
     }
 
+    @Test("A deadlineWhenAlone entry records its deadline only in a wake that ran no other entry")
+    func anEntryThatRodeAnotherWakeRecordsNoDeadline() {
+        let rig = WakeUpQueueRig()
+        rig.queue.insert(owner: "rider", at: 100 * Self.ms, window: .own(tolerance: .milliseconds(400), delay: .milliseconds(100)),
+                         ledgerReason: .deadlineWhenAlone) {}
+        rig.queue.insert(owner: "other", at: 200 * Self.ms, window: .window(delay: .milliseconds(200))) {}
+        rig.fire()
+        #expect(rig.queue.count == 0, "the rider ran in the other owner's wake")
+        #expect(rig.deadlines(of: "rider") == 0)
+        #expect(rig.deadlines(of: "other") == 1)
+
+        rig.queue.insert(owner: "rider", at: 600 * Self.ms, window: .own(tolerance: .milliseconds(400), delay: .milliseconds(100)),
+                         ledgerReason: .deadlineWhenAlone) {}
+        rig.fire()
+        #expect(rig.deadlines(of: "rider") == 1, "alone, its wake is its own")
+        #expect(rig.fires == 2)
+    }
+
     @Test("A fire that runs more than one entry counts as one coalesced fire; a fire of one entry does not")
     func coalescedFiresCountWakesThatRanSeveralEntries() {
         let rig = WakeUpQueueRig()

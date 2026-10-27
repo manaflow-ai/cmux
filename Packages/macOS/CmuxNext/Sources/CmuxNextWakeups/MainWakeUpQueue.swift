@@ -31,9 +31,10 @@ import Foundation
 /// when the fire date changes, earlier or later (`ScheduleDelayedWorkImpl` skips only an equal date); an
 /// insert behind the top costs nothing. A fire runs due entries (``fire()`` says which) on the main actor
 /// in latest-time order, with one ledger record per owner that ran (reason `deadline`, or the entry's own
-/// ``LedgerReason``) and one `MainWakeUpQueue` `fire` record per wake. A fire that stops at ``fireBudget``
-/// goes on in the next run-loop pass as the same wake: that continuation adds no `fire` record and no
-/// second record for an owner that already ran. No Task and no pool thread take part.
+/// ``LedgerReason``: none, or `deadline` only for a wake that ran that entry alone) and one
+/// `MainWakeUpQueue` `fire` record per wake. A fire that stops at ``fireBudget`` goes on in the next
+/// run-loop pass as the same wake: that continuation adds no `fire` record and no second record for an
+/// owner that already ran. No Task and no pool thread take part.
 public final class MainWakeUpQueue: Sendable {
     /// Names one pending entry for ``cancel(_:)``.
     public struct Token: Hashable, Sendable {
@@ -60,6 +61,10 @@ public final class MainWakeUpQueue: Sendable {
         /// pump tells a delayed task from a kept deadline or a nested fire, as Chrome's
         /// `MessagePumpCFRunLoopBase` tells its wakes apart, base/message_loop/message_pump_apple.mm).
         case recordedByAction
+        /// One `deadline` record only when the wake ran no other entry: an entry that rode another
+        /// owner's wake did not cause it (a flexible deadline that exists to ride, like the busy
+        /// watchdog's window end).
+        case deadlineWhenAlone
     }
 
     /// One entry's work and what its fire records.
@@ -74,6 +79,9 @@ public final class MainWakeUpQueue: Sendable {
         var owners = Set<String>()
         /// Entries run in this wake.
         var ran = 0
+        /// The owner of a ``LedgerReason/deadlineWhenAlone`` entry that ran: recorded when the wake ends
+        /// having run only that entry.
+        var alone: String?
     }
 
     private struct State {
@@ -300,8 +308,13 @@ public final class MainWakeUpQueue: Sendable {
         var wake = resumed ?? Wake()
         var stoppedAtBudget = false
         while let entry = popDue(at: now) {
-            if entry.payload.reason == .deadline, wake.owners.insert(entry.owner).inserted {
-                ledger.record(entry.owner, reason: "deadline")
+            switch entry.payload.reason {
+            case .deadline:
+                if wake.owners.insert(entry.owner).inserted { ledger.record(entry.owner, reason: "deadline") }
+            case .deadlineWhenAlone:
+                wake.alone = entry.owner
+            case .recordedByAction:
+                break
             }
             wake.ran += 1
             entry.payload.action()
@@ -310,17 +323,19 @@ public final class MainWakeUpQueue: Sendable {
                 break
             }
         }
-        state.withLock { state in
+        let continues = state.withLock { state -> Bool in
             guard stoppedAtBudget, Self.dueHeap(state, at: now) != nil, let timer = state.timer else {
                 if wake.ran > 1 { state.coalescedFires &+= 1 }
                 rearm(&state)
-                return
+                return false
             }
             let continueAt = uptime()
             timer.arm(at: continueAt, tolerance: 0, now: continueAt)
             state.armed = (continueAt, continueAt)
             state.continuation = wake
+            return true
         }
+        if !continues, wake.ran == 1, let owner = wake.alone { ledger.record(owner, reason: "deadline") }
     }
 
     /// The heap whose top runs next.
