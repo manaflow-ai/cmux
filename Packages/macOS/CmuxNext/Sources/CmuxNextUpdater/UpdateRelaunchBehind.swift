@@ -10,27 +10,27 @@ public import Foundation
 /// its own), and this helper opens the bundle in the background (`open -g`, LaunchServices'
 /// don't-switch launch), so the app never comes forward.
 @MainActor public final class UpdateRelaunchBehind {
-    /// The helper. fd 3 is the read end of a pipe whose write end only the app holds: EOF means
-    /// the app ended, a line means the quit was refused (the helper ends, opening nothing). The
-    /// installer job is looked up first, while the app still runs: Sparkle's installer is then
-    /// waiting for the app's exit, so the lookup cannot miss an installer that is replacing the
-    /// bundle. Once the app ended, the helper waits for that installer's exit (`caffeinate -w`,
-    /// the kernel's exit event; no polling), then `open -g` starts the bundle: the installed
-    /// build, or the previous one Sparkle put back when the install failed.
+    /// The helper. It first looks up Sparkle's installer job and prints its pid (or nothing) on
+    /// stdout: the app quits only once it read a pid, so the installer is known before the app
+    /// ends (it waits for that exit to install). fd 3 is the read end of a pipe whose write end
+    /// only the app holds: EOF means the app ended, a line means the app did not quit (the helper
+    /// ends, opening nothing). Once the app ended, the helper waits for the installer's exit
+    /// (`caffeinate -w`, the kernel's exit event; no polling), then `open -g` starts the bundle
+    /// (the installed build, or the previous one Sparkle put back when the install failed) with
+    /// ``reopenArgument``, so either build starts behind.
     public nonisolated static let script = #"""
-    job() {
-      p=$(/bin/launchctl list "$1" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*"PID" = \([0-9][0-9]*\);$/\1/p')
-      [ -n "$p" ] || p=$(/bin/launchctl print "system/$1" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p')
-      echo "$p"
-    }
-    installer=$(job "$1")
+    installer=$(/bin/launchctl list "$1" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*"PID" = \([0-9][0-9]*\);$/\1/p')
+    [ -n "$installer" ] || installer=$(/bin/launchctl print "system/$1" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p')
+    echo "$installer"
+    exec 1>/dev/null
     IFS= read -r refused <&3
     [ -n "$refused" ] && exit 0
-    [ -n "$installer" ] || installer=$(job "$1")
-    [ -n "$installer" ] && /usr/bin/caffeinate -w "$installer"
-    [ -f "$0/Contents/Info.plist" ] || exit 1
-    exec /usr/bin/open -g "$0"
+    /usr/bin/caffeinate -w "$installer" || exit 1
+    exec /usr/bin/open -g "$0" --args "$2"
     """#
+
+    /// How long the app waits for the helper's installer lookup before it gives up and stays.
+    public nonisolated static let lookupTimeoutMilliseconds: Int32 = 5_000
 
     /// The helper's whole environment. `open` hands its environment to the app it launches, so the
     /// helper never inherits this process's (a launch-time `CMUX_NEXT_NO_ACTIVATE`, a test socket,
@@ -45,9 +45,9 @@ public import Foundation
         "\(bundleIdentifier)-sparkle-updater"
     }
 
-    /// The helper's argv: `sh -c SCRIPT APP JOB`.
+    /// The helper's argv: `sh -c SCRIPT APP JOB REOPEN_ARGUMENT`.
     public nonisolated static func arguments(app: URL, installerJob: String) -> [String] {
-        ["/bin/sh", "-c", script, app.path, installerJob]
+        ["/bin/sh", "-c", script, app.path, installerJob, UpdateRelaunchFocus.reopenArgument]
     }
 
     private let arguments: [String]
@@ -59,21 +59,53 @@ public import Foundation
         arguments = Self.arguments(app: app, installerJob: Self.installerJobLabel(bundleIdentifier: bundleIdentifier))
     }
 
-    /// Starts the helper, then runs `willQuit` (the relaunch hooks) and quits; Sparkle's installer
-    /// is waiting for this exit. `declined` runs instead when the helper cannot start (nothing ran,
-    /// the app keeps running), or later from ``quitRefused()``: the update is staged again.
+    /// Starts the helper and, once it found Sparkle's installer, runs `willQuit` (the relaunch
+    /// hooks) and quits; the installer is waiting for this exit. `declined` runs instead when the
+    /// helper cannot start or finds no installer (nothing ran, the app keeps running), or later
+    /// from ``quitRefused()``: the update is staged again.
     public func start(willQuit: @escaping @MainActor () -> Void, declined: @escaping @MainActor () -> Void) {
         let arguments = arguments
-        // task-owner: one spawn (off main: posix_spawn is a fork and exec), then the quit; ends there.
+        // task-owner: one spawn and its lookup answer (off main: a fork and exec, then a bounded
+        // read), then the quit; ends there.
         Task { @MainActor in
-            guard let helper = await Task.detached(priority: .userInitiated, operation: { Self.spawn(arguments) }).value else {
+            let started = await Task.detached(priority: .userInitiated) { () -> (pid: pid_t, writeEnd: Int32, installer: Int32?)? in
+                guard let helper = Self.spawn(arguments) else { return nil }
+                let installer = Self.readInstaller(helper.stdout, timeoutMilliseconds: Self.lookupTimeoutMilliseconds)
+                close(helper.stdout)
+                return (helper.pid, helper.writeEnd, installer)
+            }.value
+            guard let started else { return declined() }
+            guard started.installer != nil else {
+                Self.refuse(started.writeEnd)
+                Task.detached(priority: .utility) { _ = waitpid(started.pid, nil, 0) }
                 return declined()
             }
-            self.helper = helper
+            self.helper = (started.pid, started.writeEnd)
             self.declined = declined
             willQuit()
             NSApplication.terminateFromRunLoop()
         }
+    }
+
+    /// The installer pid the helper printed, nil when it found none or did not answer in time.
+    nonisolated static func readInstaller(_ fd: Int32, timeoutMilliseconds: Int32) -> Int32? {
+        var line = [UInt8]()
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(Int(timeoutMilliseconds)))
+        while !line.contains(0x0A) {
+            let left = ContinuousClock.now.duration(to: deadline)
+            guard left > .zero else { return nil }
+            var entry = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&entry, 1, Int32(left.components.seconds * 1_000 + left.components.attoseconds / 1_000_000_000_000_000))
+            if ready < 0, errno == EINTR { continue }
+            guard ready > 0 else { return nil }
+            var buffer = [UInt8](repeating: 0, count: 64)
+            let count = read(fd, &buffer, buffer.count)
+            if count < 0, errno == EINTR { continue }
+            guard count > 0 else { break }
+            line += buffer[0..<count]
+        }
+        let text = String(decoding: line.prefix { $0 != 0x0A }, as: UTF8.self)
+        return Int32(text).flatMap { $0 > 0 ? $0 : nil }
     }
 
     /// The quit was refused (the user kept the app at a quit dialog): the helper is told to stop,
@@ -96,29 +128,42 @@ public import Foundation
         close(writeEnd)
     }
 
-    /// Spawns the helper with the pipe's read end as its fd 3; returns its pid and the write end
-    /// (close-on-exec, no SIGPIPE), or nil when the helper could not start.
-    nonisolated static func spawn(_ arguments: [String]) -> (pid: pid_t, writeEnd: Int32)? {
-        var ends: [Int32] = [-1, -1]
+    /// Spawns the helper with the quit pipe's read end as its fd 3 and a second pipe as its
+    /// stdout; returns its pid, the quit pipe's write end (close-on-exec, no SIGPIPE) and the
+    /// stdout pipe's read end, or nil when the helper could not start.
+    nonisolated static func spawn(_ arguments: [String]) -> (pid: pid_t, writeEnd: Int32, stdout: Int32)? {
+        var ends: [Int32] = [-1, -1], out: [Int32] = [-1, -1]
         guard pipe(&ends) == 0 else { return nil }
+        guard pipe(&out) == 0 else {
+            close(ends[0])
+            close(ends[1])
+            return nil
+        }
         let (readEnd, writeEnd) = (ends[0], ends[1])
-        _ = fcntl(readEnd, F_SETFD, FD_CLOEXEC)
-        _ = fcntl(writeEnd, F_SETFD, FD_CLOEXEC)
+        for fd in ends + out { _ = fcntl(fd, F_SETFD, FD_CLOEXEC) }
         _ = fcntl(writeEnd, F_SETNOSIGPIPE, 1)
-        defer { close(readEnd) }
+        defer {
+            close(readEnd)
+            close(out[1])
+        }
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
         defer { posix_spawn_file_actions_destroy(&actions) }
-        for target: Int32 in 0...2 {
-            posix_spawn_file_actions_addopen(&actions, target, "/dev/null", target == 0 ? O_RDONLY : O_WRONLY, 0)
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0)
+        // dup2 onto another descriptor clears close-on-exec (dup2(3, 3) would not), so both
+        // sources sit above the targets first.
+        let source = fcntl(readEnd, F_DUPFD_CLOEXEC, 10), outSource = fcntl(out[1], F_DUPFD_CLOEXEC, 10)
+        defer {
+            if source >= 0 { close(source) }
+            if outSource >= 0 { close(outSource) }
         }
-        // dup2 onto another descriptor clears close-on-exec on fd 3 (dup2(3, 3) would not).
-        let source = fcntl(readEnd, F_DUPFD_CLOEXEC, 10)
-        guard source >= 0 else {
+        guard source >= 0, outSource >= 0 else {
             close(writeEnd)
+            close(out[0])
             return nil
         }
-        defer { close(source) }
+        posix_spawn_file_actions_adddup2(&actions, outSource, 1)
         posix_spawn_file_actions_adddup2(&actions, source, 3)
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
@@ -138,9 +183,10 @@ public import Foundation
         }
         guard status == 0 else {
             close(writeEnd)
+            close(out[0])
             return nil
         }
-        return (child, writeEnd)
+        return (child, writeEnd, out[0])
     }
 }
 

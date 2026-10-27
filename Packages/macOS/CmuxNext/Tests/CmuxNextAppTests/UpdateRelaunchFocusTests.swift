@@ -150,18 +150,21 @@ import Testing
         let label = UpdateRelaunchBehind.installerJobLabel(bundleIdentifier: "com.cmuxterm.app.next")
         #expect(label == "com.cmuxterm.app.next-sparkle-updater")
         let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: label)
-        #expect(arguments == ["/bin/sh", "-c", UpdateRelaunchBehind.script, app.path, label])
+        #expect(arguments == ["/bin/sh", "-c", UpdateRelaunchBehind.script, app.path, label, UpdateRelaunchFocus.reopenArgument])
+        #expect(UpdateRelaunchBehind.script.contains(#"exec /usr/bin/open -g "$0" --args "$2""#))
         #expect(UpdateRelaunchBehind.environment == ["PATH=/usr/bin:/bin:/usr/sbin:/sbin"], "open passes its environment to the new build")
     }
 
-    /// The helper itself, with stand-ins: a refused quit opens nothing; the app's end (EOF) waits
-    /// for the installer job, then opens the bundle. `open` is not run: the bundle path does not
-    /// exist, so the script stops at its last check (exit 1) instead.
-    @Test func helperStopsOnARefusedQuitAndOtherwiseRunsToTheOpen() throws {
+    /// The helper itself, with stand-ins. With no installer job it answers no pid (the app then
+    /// stays); a refused quit ends it opening nothing; the app's end (EOF) with no installer to wait
+    /// on ends it before `open` (exit 1).
+    @Test func helperAnswersTheLookupAndStopsOnARefusedQuit() throws {
         let missing = "/nonexistent/cmux \(UUID().uuidString).app"
         let arguments = UpdateRelaunchBehind.arguments(app: URL(fileURLWithPath: missing), installerJob: "com.cmuxterm.test.no-such-job")
         for refused in [true, false] {
             let helper = try #require(UpdateRelaunchBehind.spawn(arguments))
+            #expect(UpdateRelaunchBehind.readInstaller(helper.stdout, timeoutMilliseconds: 10_000) == nil, "no such job: no pid")
+            close(helper.stdout)
             if refused {
                 UpdateRelaunchBehind.refuse(helper.writeEnd)
             } else {
@@ -174,5 +177,30 @@ import Testing
             let code = (status >> 8) & 0xff
             #expect(code == (refused ? 0 : 1), "refused=\(refused) exit=\(code)")
         }
+    }
+
+    @Test func readInstallerTakesOnePidLine() throws {
+        for (written, expected) in [("4242\n", Int32(4242)), ("\n", nil), ("x\n", nil)] as [(String, Int32?)] {
+            var ends: [Int32] = [-1, -1]
+            try #require(pipe(&ends) == 0)
+            let bytes = Array(written.utf8)
+            _ = bytes.withUnsafeBufferPointer { write(ends[1], $0.baseAddress, $0.count) }
+            close(ends[1])
+            #expect(UpdateRelaunchBehind.readInstaller(ends[0], timeoutMilliseconds: 1_000) == expected)
+            close(ends[0])
+        }
+    }
+
+    /// A background reopen stays behind whatever build starts (a failed install puts the previous
+    /// one back) and however long the quit took; an ordinary launch ignores a stale record.
+    @Test func aBackgroundReopenStaysBehindForAnyBuildAndAge() {
+        let defaults = Self.defaults()
+        let record = UpdateRelaunchFocus(targetBuild: "200", recordedAt: Self.start, frontmostPID: 7045, frontmostBundleID: "x")
+        UpdateRelaunchFocus.write(record, defaults: defaults)
+        #expect(UpdateRelaunchFocus.consume(defaults: defaults, build: "100", now: Self.start.addingTimeInterval(600), reopenedBehind: true) == record)
+        let none = UpdateRelaunchFocus.consume(defaults: defaults, build: "100", now: Self.start, reopenedBehind: true)
+        #expect(none != nil && none?.frontmostPID == nil, "no record: still behind, with no app to hand back to")
+        UpdateRelaunchFocus.write(record, defaults: defaults)
+        #expect(UpdateRelaunchFocus.consume(defaults: defaults, build: "100", now: Self.start.addingTimeInterval(600)) == nil)
     }
 }
