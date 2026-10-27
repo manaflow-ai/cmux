@@ -9744,7 +9744,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                let newlyCreatedId = context.tabManager.tabs.first(where: { !beforeIds.contains($0.id) })?.id {
                 context.tabManager.reorderWorkspace(
                     tabId: newlyCreatedId,
-                    toIndex: context.tabManager.tabs.count - 1
+                    toIndex: context.tabManager.tabs.count - 1,
+                    origin: .automatic
                 )
             }
             if let context,

@@ -1898,6 +1898,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var taskStatusInferredAtOverride: String? = nil
     /// `true` when the workspace opted out of the status feature (None); absent for the default (feature engaged), so old manifests decode unchanged.
     var taskStatusHidden: Bool? = nil
+    /// 0-based position in the window's session priority rank; absent in manifests written before the rank, so old manifests decode unchanged.
+    var sessionPriorityIndex: Int? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
     var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
