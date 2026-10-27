@@ -6214,7 +6214,7 @@ jobs:
       # Never fails the job (later jobs need it); report-nightly-failure reads feed_check.
       - name: Read the live nightly-next feed back
         id: feedcheck
-        if: always() && steps.upload_next_appcasts.outcome == 'success'
+        if: always() && steps.recheck.outputs.already_published != 'true' && steps.upload_next_appcasts.outcome == 'success'
         continue-on-error: true
         env:
           DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
