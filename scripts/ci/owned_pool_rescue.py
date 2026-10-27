@@ -268,10 +268,10 @@ never retried.
 The cmux-bot installation's 5000 requests an hour are shared with other
 jobs and ran dry overnight on 2026-10-27 (48 refusals in five windows), so
 GitHub.request() makes every repeated GET conditional (If-None-Match; a 304
-costs nothing, and a queued run's jobs listing rarely changes between looks),
-serves a read another watch made within SHARED_READ_SECONDS from that
-answer, and paces the reads by GET /rate_limit (free): below BUDGET_FLOOR
-left, a watch looks every IDLE_POLL_SECONDS and the sweeper skips its
+costs nothing, and a queued run's jobs listing rarely changes between looks;
+every read still asks GitHub, so no decision uses a stored answer), and paces
+the reads by GET /rate_limit (free) and each answer's rate-limit headers:
+below BUDGET_FLOOR left, a watch looks every IDLE_POLL_SECONDS and the sweeper skips its
 side-lane failure listing; below BUDGET_RESERVE it waits for the reset
 instead of spending refusals. With BOT_APP_ID and BOT_APP_KEY the script
 mints a new installation token before the old one's hour is up (the 5-hour
@@ -995,7 +995,6 @@ def rate_limit_wait(code: int, headers: Mapping[str, str], body: str, now: float
 BUDGET_FLOOR = 1000
 BUDGET_RESERVE = 100
 BUDGET_READ_SECONDS = 30
-SHARED_READ_SECONDS = 10
 # An installation token lasts 60 minutes; a new one is minted after this many seconds.
 TOKEN_REFRESH_SECONDS = 45 * 60
 BOT_PERMISSIONS = {"actions": "write", "checks": "read", "contents": "read", "issues": "write",
@@ -1070,7 +1069,7 @@ class GitHub:
         self._lock = threading.Lock()
         # GET answers by (token, path): (ETag, body, monotonic time read or confirmed).
         self._cache: dict[tuple[str, str], tuple[str, bytes, float]] = {}
-        # Requests by (kind, "charged" | "not modified" | "shared"), for the budget lines.
+        # Requests by (kind, "charged" | "not modified"), for the budget lines.
         self.counts: dict[tuple[str, str], int] = {}
         self.started = time.monotonic()
         self._budget: tuple[float, int | None, float | None] = (-1e9, None, None)
@@ -1084,15 +1083,15 @@ class GitHub:
             self.counts[key] = self.counts.get(key, 0) + 1
 
     def usage(self) -> str:
-        """`N charged (P/h), M not modified, K shared` since the client started, and the costliest kinds."""
+        """`N charged (P/h), M not modified` since the client started, and the costliest kinds."""
         with self._lock:
             counts = dict(self.counts)
         total = {outcome: sum(n for (_, seen), n in counts.items() if seen == outcome)
-                 for outcome in ("charged", "not modified", "shared")}
+                 for outcome in ("charged", "not modified")}
         hours = max((time.monotonic() - self.started) / 3600, 1 / 60)
         kinds = sorted(((n, kind) for (kind, seen), n in counts.items() if seen == "charged"), reverse=True)[:4]
         return (f"REST {total['charged']} charged ({total['charged'] / hours:.0f}/h), "
-                f"{total['not modified']} not modified, {total['shared']} shared"
+                f"{total['not modified']} not modified (304)"
                 + ("; " + ", ".join(f"{kind} {n}" for n, kind in kinds) if kinds else ""))
 
     def budget_left(self) -> tuple[int | None, float | None]:
@@ -1116,6 +1115,17 @@ class GitHub:
             self._budget = (time.monotonic(), remaining, reset)
         return remaining, reset
 
+    def _note_budget(self, seen: Mapping[str, str]) -> None:
+        """Every answered request's own rate-limit headers keep budget_left() current between its reads."""
+        try:
+            remaining, reset = int(seen.get("X-RateLimit-Remaining") or ""), float(seen.get("X-RateLimit-Reset") or "")
+        except ValueError:
+            return
+        if (seen.get("X-RateLimit-Resource") or "core") != "core":
+            return
+        with self._lock:
+            self._budget = (self._budget[0], remaining, reset)
+
     def pace(self, interval: float) -> float:
         """How long to wait before the next non-urgent read: `interval`, IDLE_POLL_SECONDS below
         BUDGET_FLOOR, or until the reset below BUDGET_RESERVE (refused reads would only add waits)."""
@@ -1126,12 +1136,15 @@ class GitHub:
             return max(interval, reset - time.time() + 5)
         return max(interval, IDLE_POLL_SECONDS)
 
-    def _fresh_token(self, force: bool = False) -> None:
-        """Swap in a new installation token when the current one is TOKEN_REFRESH_SECONDS old."""
-        if self.mint is None or not force and time.monotonic() - self._minted_at < TOKEN_REFRESH_SECONDS:
+    def _fresh_token(self, stale: str | None = None) -> None:
+        """Swap in a new installation token when the current one is TOKEN_REFRESH_SECONDS old, or when
+        it is still `stale` (the Authorization a request was refused with: concurrent 401s mint once)."""
+        if self.mint is None or stale is None and time.monotonic() - self._minted_at < TOKEN_REFRESH_SECONDS:
             return
         with self._lock:
-            if not force and time.monotonic() - self._minted_at < TOKEN_REFRESH_SECONDS:
+            if stale is not None and self.headers["Authorization"] != stale:
+                return  # another thread already minted
+            if stale is None and time.monotonic() - self._minted_at < TOKEN_REFRESH_SECONDS:
                 return
             try:
                 token = self.mint()
@@ -1188,21 +1201,19 @@ class GitHub:
         return True
 
     def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None,
-                before_retry: Callable[[], None] | None = None) -> Any:
+                before_retry: Callable[[], None] | None = None, refreshed: bool = False) -> Any:
         self._fresh_token()
         headers = self.read_headers if method == "GET" and not own_token else self.headers
+        with self._lock:
+            # One token for the whole request, read under the lock _fresh_token() swaps it under.
+            sent = dict(headers)
+            cached = self._cache.get((sent["Authorization"], path)) if method == "GET" else None
+        key = (sent["Authorization"], path)
         data = json.dumps(body).encode() if body is not None else None
-        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers, data=data)
-        key = (headers["Authorization"], path)
-        cached = None
-        if method == "GET":
-            with self._lock:
-                cached = self._cache.get(key)
-            if cached is not None and time.monotonic() - cached[2] < SHARED_READ_SECONDS:
-                self._count(path, "shared")
-                return json.loads(cached[1]) if cached[1] else None
-            if cached is not None:
-                request.add_header("If-None-Match", cached[0])
+        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=sent, data=data)
+        if cached is not None:
+            # Always asked again (never served from memory): a 304 says the answer is still current.
+            request.add_header("If-None-Match", cached[0])
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 body = response.read()
@@ -1210,8 +1221,8 @@ class GitHub:
                 self.remaining = seen.get("X-RateLimit-Remaining") or self.remaining
                 self.limit = seen.get("X-RateLimit-Limit") or self.limit
                 etag = seen.get("ETag") if method == "GET" else None
+                self._note_budget(seen)
             self._limits.tries = 0
-            self._limits.refreshed = False
             self._count(path, "charged")
             if etag:
                 with self._lock:
@@ -1222,31 +1233,32 @@ class GitHub:
         except urllib.error.HTTPError as error:
             if error.code == 304 and cached is not None:
                 # Not modified: GitHub does not count it against the budget.
-                with self._lock:
-                    self._cache[key] = (cached[0], cached[1], time.monotonic())
+                self._limits.tries = 0
                 self._count(path, "not modified")
                 return json.loads(cached[1]) if cached[1] else None
-            if error.code == 401 and self.mint is not None and not getattr(self._limits, "refreshed", False):
-                # The token expired before its refresh (a 401 is not charged): mint one and send again.
-                self._limits.refreshed = True
-                self._fresh_token(force=True)
+            if error.code == 401 and self.mint is not None and not refreshed:
+                # The token expired before its refresh (a 401 is not charged): mint one, unless another
+                # thread already replaced the token this request carried, and send it again once.
+                self._fresh_token(stale=sent["Authorization"])
                 return self.request(method, path, own_token=own_token,
-                                    body=json.loads(data) if data is not None else None, before_retry=before_retry)
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry,
+                                    refreshed=True)
             if headers is self.headers and error.code in (403, 429) and self._wait_for_rate_limit(method, path, error):
                 # The same request again, after the wait (a refused request did nothing on GitHub's side),
                 # unless what it acts on changed meanwhile (before_retry raises).
                 if before_retry is not None:
                     before_retry()
                 return self.request(method, path, own_token=own_token,
-                                    body=json.loads(data) if data is not None else None, before_retry=before_retry)
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry,
+                                    refreshed=refreshed)
             if error.code not in (401, 403, 429) or headers is self.headers:
                 raise
             if error.code in (403, 429):
                 # The installation lacks this read's permission, or its budget is spent: this one
                 # read goes on GITHUB_TOKEN (which waits through a rate limit).
-                return self.request(method, path, own_token=True)
+                return self.request(method, path, own_token=True, refreshed=refreshed)
             self.read_headers = self.headers
-            return self.request(method, path)
+            return self.request(method, path, refreshed=refreshed)
         return json.loads(body) if body else None
 
     remaining = ""  # the token's requests left this hour, from the last response

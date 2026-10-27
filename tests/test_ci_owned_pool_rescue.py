@@ -3307,9 +3307,6 @@ class OpenHeadNeverCancelled(unittest.TestCase):
                 self.assertNotIn(rescue.OPEN_HEAD_RULE, result)
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
 
 class Budget(unittest.TestCase):
     """The cmux-bot pool's budget: conditional and shared reads, the floor, the token's refresh."""
@@ -3347,7 +3344,7 @@ class Budget(unittest.TestCase):
         with patch, unittest.mock.patch.object(rescue.time, "monotonic", lambda: clock[0]):
             api = rescue.GitHub("bot", "o/r", read_token="bot")
             first = api.jobs(7, 1)
-            clock[0] += rescue.SHARED_READ_SECONDS + 1
+            clock[0] += 30
             second = api.jobs(7, 1)
         self.assertEqual(first, second)
         self.assertEqual(len(seen), 2)
@@ -3356,17 +3353,46 @@ class Budget(unittest.TestCase):
                                       ("/actions/runs/{n}/attempts/{n}/jobs", "not modified"): 1})
         self.assertIn("1 charged", api.usage())
 
-    def test_watches_reading_the_same_path_within_seconds_share_one_request(self):
-        seen, patch = self.serve(lambda request: (200, {"ETag": '"x"'}, b'{"status": "queued"}'))
-        clock = [100.0]
-        with patch, unittest.mock.patch.object(rescue.time, "monotonic", lambda: clock[0]):
+    def test_every_read_asks_github_even_right_after_another_watch_read_it(self):
+        # A cancel or re-run decision never rests on a stored answer: the second read is conditional.
+        seen, patch = self.serve(lambda request: (304, {}, b"") if request.get_header("If-none-match")
+                                 else (200, {"ETag": '"x"'}, b'{"status": "queued"}'))
+        with patch:
             api = rescue.GitHub("bot", "o/r")
-            api.run(9)
-            clock[0] += rescue.SHARED_READ_SECONDS - 1
-            api.run(9)
-            api.run(10)  # another path is its own read
-        self.assertEqual([url.rsplit("/", 1)[-1] for _, url, _ in seen], ["9", "10"])
-        self.assertEqual(api.counts[("/actions/runs/{n}", "shared")], 1)
+            self.assertEqual(api.run(9), api.run(9))
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(api.counts[("/actions/runs/{n}", "not modified")], 1)
+
+    def test_each_answer_keeps_the_budget_current_between_rate_limit_reads(self):
+        now = 1_000_000.0
+        reads = []
+
+        def answers(request):
+            reads.append(request.full_url)
+            if request.full_url.endswith("/rate_limit"):
+                return 200, {}, json.dumps({"resources": {"core": {"remaining": 4000, "reset": now + 600}}}).encode()
+            return 200, {"X-RateLimit-Remaining": "50", "X-RateLimit-Reset": str(now + 300)}, b"{}"
+        seen, patch = self.serve(answers)
+        with patch, unittest.mock.patch.object(rescue.time, "time", lambda: now):
+            api = rescue.GitHub("bot", "o/r")
+            self.assertEqual(api.pace(20), 20)
+            api.run(1)
+            self.assertEqual(api.pace(20), 305)
+        self.assertEqual(sum(url.endswith("/rate_limit") for url in reads), 1)
+
+    def test_concurrent_401s_mint_one_token(self):
+        def answers(request):
+            return (401, {}, b"") if request.get_header("Authorization") == "Bearer old" else (200, {}, b"{}")
+        seen, patch = self.serve(answers)
+        minted = []
+        with patch, unittest.mock.patch("sys.stdout", io.StringIO()):
+            api = rescue.GitHub("old", "o/r", read_token="old")
+            api.mint = lambda: minted.append(1) or f"new{len(minted)}"
+            api._fresh_token(stale="Bearer old")  # a second thread's refusal, already handled
+            api._fresh_token(stale="Bearer old")
+            api.run(1)
+        self.assertEqual(minted, [1])
+        self.assertEqual([headers["Authorization"] for _, _, headers in seen], ["Bearer new1"])
 
     def test_writes_are_never_cached(self):
         seen, patch = self.serve(lambda request: (200, {"ETag": '"x"'}, b""))
@@ -3488,3 +3514,7 @@ class Budget(unittest.TestCase):
         self.assertEqual({key.removeprefix("permission-").replace("-", "_"): value
                           for key, value in mint["with"].items() if key.startswith("permission-")},
                          rescue.BOT_PERMISSIONS)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
