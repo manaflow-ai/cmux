@@ -657,6 +657,29 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A workspace hidden longer than a grace leaves its window in the background, the oldest first, one per turn, and joins it again when shown. Off, hidden workspaces stay in their window, so a switch back moves no view into it. The arm measured against hiding only.
+    public static let hiddenWorkspaceDetachAfterGrace = Feature(
+        index: 37,
+        name: "hiddenWorkspaceDetachAfterGrace",
+        owner: "PL-switch",
+        description: "A workspace hidden longer than a grace leaves its window in the background, the oldest first, one per turn, and joins it again when shown. Off, hidden workspaces stay in their window, so a switch back moves no view into it. The arm measured against hiding only.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [
+            FeatureParamSpec(
+                name: "grace",
+                description: "How long a workspace stays hidden in its window before it leaves it.",
+                value: .duration(default: 30.0, min: 5.0, max: 900.0)
+            ),
+        ],
+        stories: ["switch", "activation-stress", "memory-hidden"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A hidden browser tab whose renderer used more than 5 percent of one core over at least the last minute says Using high energy in its hover card, with Discard. Read at natural wakes only; tabs that show are never flagged.
     public static let highEnergyTabs = Feature(
         index: 38,
@@ -2337,6 +2360,7 @@ nonisolated extension Feature {
         .frozenGrowthDiscard,
         .hangReportsSchema3,
         .hiddenPollPause,
+        .hiddenWorkspaceDetachAfterGrace,
         .highEnergyTabs,
         .hostPressure,
         .intentPrewarmHover,
@@ -2473,6 +2497,7 @@ nonisolated extension Feature {
         .frozenGrowthDiscard,
         .hangReportsSchema3,
         .hiddenPollPause,
+        .hiddenWorkspaceDetachAfterGrace,
         .highEnergyTabs,
         .hostPressure,
         .intentPrewarmHover,
