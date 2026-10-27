@@ -3415,8 +3415,10 @@
 		F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
 		48BB4C84DF82F8FDDBFD0C01 /* SessionPriorityApplyGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 997811133DB429EB772A115D /* SessionPriorityApplyGate.swift */; };
 		8EF2DB6119B4A8F7CB3B19EC /* SessionPriorityApplyGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCC95F4E736921F1DA99616C /* SessionPriorityApplyGateTests.swift */; };
+		3513B8D83323FEF169B913DC /* SessionPriorityApplyQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3D4620DB63F777E2173A2F /* SessionPriorityApplyQueueTests.swift */; };
 		0510771EF0EB98CC80BF25BC /* SessionPriorityApplyResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4771F77C844041A9C1808708 /* SessionPriorityApplyResult.swift */; };
 		BDDEFC5012E6EAD98F03CECA /* SessionPriorityCoordinatorHook.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4C19C5E4F260F5C986D0DA /* SessionPriorityCoordinatorHook.swift */; };
+		6B7833C5E362302C3AA139AE /* SessionPriorityCoordinatorStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23BC6905A7EB08C9BE1CD11C /* SessionPriorityCoordinatorStateTests.swift */; };
 		384AA91C89A2BE1F51D482AA /* SessionPriorityLaunchArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAC6C7EBF5727968DBE6E90 /* SessionPriorityLaunchArguments.swift */; };
 		2DD3A40C594858A2BAD2A30A /* SessionPriorityLaunchArgumentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB20059DEDD28EDF2C3893CC /* SessionPriorityLaunchArgumentsTests.swift */; };
 		5EAD543B5642B0EB5DCDD953 /* SessionPriorityManualSignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B22E52E4A7E43ADA6F2F1A /* SessionPriorityManualSignals.swift */; };
@@ -8148,8 +8150,10 @@
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
 		997811133DB429EB772A115D /* SessionPriorityApplyGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityApplyGate.swift; sourceTree = "<group>"; };
 		FCC95F4E736921F1DA99616C /* SessionPriorityApplyGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityApplyGateTests.swift"; sourceTree = "<group>"; };
+		3F3D4620DB63F777E2173A2F /* SessionPriorityApplyQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityApplyQueueTests.swift"; sourceTree = "<group>"; };
 		4771F77C844041A9C1808708 /* SessionPriorityApplyResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityApplyResult.swift; sourceTree = "<group>"; };
 		4C4C19C5E4F260F5C986D0DA /* SessionPriorityCoordinatorHook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityCoordinatorHook.swift; sourceTree = "<group>"; };
+		23BC6905A7EB08C9BE1CD11C /* SessionPriorityCoordinatorStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityCoordinatorStateTests.swift"; sourceTree = "<group>"; };
 		1FAC6C7EBF5727968DBE6E90 /* SessionPriorityLaunchArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityLaunchArguments.swift; sourceTree = "<group>"; };
 		AB20059DEDD28EDF2C3893CC /* SessionPriorityLaunchArgumentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityLaunchArgumentsTests.swift"; sourceTree = "<group>"; };
 		03B22E52E4A7E43ADA6F2F1A /* SessionPriorityManualSignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPriorityManualSignals.swift; sourceTree = "<group>"; };
@@ -14494,6 +14498,8 @@
 				A9E300CA745156AD76CEF14B /* SessionPriorityPaneDecisionTests.swift */,
 				D6CADB82C5A33C4808950352 /* SessionPriorityPlanTests.swift */,
 				A3D24471F05A404F47D7E64E /* SessionPriorityStatusRowTests.swift */,
+				3F3D4620DB63F777E2173A2F /* SessionPriorityApplyQueueTests.swift */,
+				23BC6905A7EB08C9BE1CD11C /* SessionPriorityCoordinatorStateTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -19583,6 +19589,8 @@
 				F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */,
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				8EF2DB6119B4A8F7CB3B19EC /* SessionPriorityApplyGateTests.swift in Sources */,
+				3513B8D83323FEF169B913DC /* SessionPriorityApplyQueueTests.swift in Sources */,
+				6B7833C5E362302C3AA139AE /* SessionPriorityCoordinatorStateTests.swift in Sources */,
 				2DD3A40C594858A2BAD2A30A /* SessionPriorityLaunchArgumentsTests.swift in Sources */,
 				84636BC419A0EA97E74FDEB8 /* SessionPriorityManualSignalsTests.swift in Sources */,
 				496EFB2472D7B295B0FD9206 /* SessionPriorityPaneDecisionTests.swift in Sources */,
