@@ -61,6 +61,11 @@ enum WatchdogReporting {
             collector?.noteThreadHang(durationNanos: Self.nanos(hang.overrun), addresses: hang.addresses,
                                       thread: HangSample.WatchedThread(name: hang.name, kind: hang.kindName))
         }
+        // The Chromium Host's UI hangs of 250 ms and up (feature chromiumHostHangBanner, p01-process-084): opt-in hang
+        // reports only, tagged chromium-host.ui; the host keeps its own dump of one that reaches 10 s.
+        services.chromiumRuntime.source.onHostHang = { hang in
+            if hang.isFirstReport { collector?.noteHostHang(durationNanos: Self.nanos(hang.duration)) }
+        }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
         let lagSpikes = LagSpikeReporter(reporter: reporter)

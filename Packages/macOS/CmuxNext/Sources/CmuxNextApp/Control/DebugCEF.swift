@@ -68,6 +68,8 @@ enum DebugCEF {
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
+        // Host mode with feature chromiumHostHangBanner (p01-process-084): the busy banner's deadline and the host's hangs.
+        object["host_hang"] = services.cache.cef.hostHangCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats
         object["swipe"] = .object([

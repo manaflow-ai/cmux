@@ -630,6 +630,10 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   Mach doorbell cmux rings when it is parked; one batch at a time waits for the UI thread, so it never grows: a full
   ring makes cmux keep the rest in its writer's backlog, where keys and clicks always wait and only moves and wheel
   ticks are bounded; a reader that ends without Stop (a broken ring, a failed kqueue) ends the host),
+  `com.cmuxterm.chromium-host.hang-watcher` (utility; in the host process: the UI thread's hang watcher,
+  host_hang_watcher.h, p01-process-084; parks with no deadline while no run loop turn is open, sleeps until an open
+  turn is 10 s old, then writes one dump without crashing and parks until the next turn; the UI thread wakes it only
+  from a park, at most once per park),
   `com.cmuxterm.app.next.cef-children` (user-initiated; it must add NOTE_EXIT on a new helper before Chromium
   reaps it), `com.cmuxterm.import-history-sync` (utility; a watcher),
   `com.cmuxterm.chromium-runtime.download` (OperationQueue, utility, serial; the runtime download's URLSession

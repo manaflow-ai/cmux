@@ -541,6 +541,80 @@ void TestEnergySaver() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
 }
 
+// The host watch (task p01-process-084): a host whose HELLO lists kHangWatchHelloName has the
+// seqs cmux_remote_shim_order_input gives counted against its kOpInputDispatched. The callback
+// hears the first waiting seq, a dispatch that leaves later ones waiting, the dispatch that
+// settles them, and each kOpHostHang; a detach settles what waited. A host without the name
+// counts nothing, and a malformed ack ends the host.
+struct WatchEvent {
+  int32_t event;
+  int64_t a;
+  int64_t b;
+  bool operator==(const WatchEvent& other) const { return event == other.event && a == other.a && b == other.b; }
+};
+std::vector<WatchEvent> watch_events;
+void OnHostWatch(void*, int32_t event, int64_t a, int64_t b) {
+  watch_events.push_back({event, a, b});
+}
+
+void TestHostWatch() {
+  namespace hang = cmux_host::hang;
+  cmux_remote_shim_set_host_watch(nullptr, &OnHostWatch);
+  watch_events.clear();
+
+  Host watched;
+  CHECK(AttachNew(&watched) == 1);
+  SayHello(&watched, {hang::kHangWatchHelloName});
+  uint32_t ctl = 0;
+  const uint32_t first = cmux_remote_shim_order_input(&ctl);
+  const uint32_t second = cmux_remote_shim_order_input(&ctl);
+  const uint32_t third = cmux_remote_shim_order_input(&ctl);
+  CHECK(first != 0 && second != 0 && third != 0);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_OUTSTANDING, 0, 0}}));
+  watch_events.clear();
+  watched.Send(hang::DispatchedMessage(second));
+  CHECK(PumpUntil([] { return !watch_events.empty(); }));
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_PROGRESS, 0, 0}}));
+  watch_events.clear();
+  watched.Send(hang::HangMessage({300'000'000, hang::kHangDumped}));
+  watched.Send(hang::DispatchedMessage(third));
+  CHECK(PumpUntil([] { return watch_events.size() == 2; }));
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_HANG, 300'000'000, hang::kHangDumped},
+                                                  {CMUX_REMOTE_HOST_INPUT_SETTLED, 0, 0}}));
+  watch_events.clear();
+  // Waiting input goes with the host.
+  CHECK(cmux_remote_shim_order_input(&ctl) != 0);
+  CHECK(watch_events.size() == 1 && watch_events[0].event == CMUX_REMOTE_HOST_INPUT_OUTSTANDING);
+  watch_events.clear();
+  cmux_remote_shim_detach();
+  ::close(watched.fd);
+  CHECK(watch_events == std::vector<WatchEvent>({{CMUX_REMOTE_HOST_INPUT_SETTLED, 0, 0}}));
+  watch_events.clear();
+
+  // A host that does not ack its dispatch: nothing is counted (no busy banner for it).
+  Host plain;
+  CHECK(AttachNew(&plain) == 1);
+  SayHello(&plain, {});
+  CHECK(cmux_remote_shim_order_input(&ctl) != 0);
+  CHECK(watch_events.empty());
+  cmux_remote_shim_detach();
+  ::close(plain.fd);
+  CHECK(watch_events.empty());
+
+  // A malformed ack (seq 0) is a bad message: the host is ended.
+  Host bad;
+  CHECK(AttachNew(&bad) == 1);
+  SayHello(&bad, {hang::kHangWatchHelloName});
+  seen.ended = -1;
+  Message zero = hang::DispatchedMessage(1);
+  zero.fields[0].integer = 0;
+  bad.Send(zero);
+  CHECK(PumpUntil([] { return seen.ended == CMUX_REMOTE_END_MALFORMED; }));
+  ::close(bad.fd);
+  cmux_remote_shim_set_host_watch(nullptr, nullptr);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+}
+
 // The fence rights cmux_remote_shim_page_resize sent (cmux_remote_shim_set_fence_sender): there
 // is no Mach off macOS, so the fenced path is driven through this one.
 struct FenceSend {
@@ -1078,6 +1152,7 @@ int main() {
 
   TestOrderingThroughTheRuntime();
   TestEnergySaver();
+  TestHostWatch();
 
   // View tokens: cmux passes the page view's token where the ABI takes a parent NSView*, and it
   // travels as is (never a pointer the client reads); NULL is 0.

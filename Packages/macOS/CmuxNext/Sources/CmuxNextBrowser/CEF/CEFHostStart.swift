@@ -52,6 +52,12 @@ final class CEFHostStart {
     private(set) var acksWheels = false
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
+    /// The host's UI-thread watch: the busy banner and its hang reports (feature `chromiumHostHangBanner`,
+    /// `CEFRuntime.watchHostHangs(reports:)`, task p01-process-084); nil without it. One for every host:
+    /// each attached host that acks its input dispatch reports to it.
+    var hangMonitor: ChromiumHostHangMonitor?
+    /// The attached host reports to ``hangMonitor``: it acks its dispatch and the remote shim has the host watch.
+    private(set) var watchesHangs = false
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
@@ -88,6 +94,8 @@ final class CEFHostStart {
         let outcome = await task.value
         guard case .success(let host) = outcome else { return outcome }
         (remote, mapsClientIDs, acksWheels, hostGone) = (host.remote, host.mapsClientIDs, host.acksWheels, false)
+        // A host that acks its dispatch counts waiting input for the busy banner; one that does not never shows it.
+        if let hangMonitor, host.watchesHangs { watchesHangs = host.remote.watchHost(hangMonitor) }
         // Once per attach, before initialize: a preinit op, which the remote shim replays to every later host.
         if startsAttach, drawsSuggestions { host.shim.suggestions.setEvents(1) }
         return outcome
@@ -100,6 +108,16 @@ final class CEFHostStart {
         remote?.detach()
         files?.hostEnded()
         (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
+        watchesHangs = false
+    }
+
+    /// The supervisor can end a running host so a new one starts (the busy banner's Reload Chromium).
+    var canReloadHost: Bool { supervisor is any ChromiumHostReloading }
+
+    /// Ends the running host at once (a hung UI thread reads no quit): its end shows each page's crash
+    /// state and the next start attaches a new host. Nothing when the supervisor cannot.
+    func reloadHost() {
+        (supervisor as? any ChromiumHostReloading)?.reloadHost()
     }
 
     /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;
@@ -146,7 +164,8 @@ final class CEFHostStart {
             return .success(CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",
                                             locale: locale, loadDuration: elapsed.now - started,
                                             mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName),
-                                            acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName)))
+                                            acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName),
+                                            watchesHangs: hostExports.contains(CEFAttachedHost.hangWatchHelloName)))
         } catch {
             // The shim holds the host's wire from the attach on.
             remote.detach()
@@ -172,11 +191,16 @@ nonisolated struct CEFAttachedHost: Sendable {
     /// The host sends WHEEL_ACK for each trackpad wheel of a gesture (its HELLO lists
     /// ``wheelAcksHelloName``: its fork reports Chromium's gesture acks; HOST/src/host_wheel_ack.h).
     var acksWheels = false
+    /// The host acks the input its UI thread dispatched and reports its UI hangs (its HELLO lists
+    /// ``hangWatchHelloName``; HOST/src/host_hang_watcher.h): the busy banner counts on it.
+    var watchesHangs = false
 
     /// `cmux_host::mint::kClientIdsHelloName` (HOST/src/chromium_host_mint.h).
     static let clientIDsHelloName = "cmux_host_client_ids"
     /// `cmux_host::kWheelAcksHelloName` (HOST/src/host_wheel_ack.h).
     static let wheelAcksHelloName = "cmux_host_wheel_acks"
+    /// `cmux_host::hang::kHangWatchHelloName` (HOST/src/host_hang_watcher.h).
+    static let hangWatchHelloName = "cmux_host_hang_watch"
 }
 
 /// What `CEFRuntime` initializes Chromium with: the in-process library or the attached host.

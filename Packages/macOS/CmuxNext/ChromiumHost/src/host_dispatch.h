@@ -80,6 +80,9 @@
 //   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
 //              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
 //              kWheelAcksHelloName when the fork has the handler
+//   kOpHostHang, kOpInputDispatched  the UI thread's hangs and the input it
+//              dispatched (host_hang_watcher.h); the HELLO lists
+//              kHangWatchHelloName when the host sends them
 //
 // Everything here runs on the host's main thread (Chromium's UI thread), so
 // it holds no lock (p01-process section 4, rule 1).
@@ -315,6 +318,11 @@ class HostContext {
   // kEnergySaverHelloName); nullptr takes kOpEnergySaver and changes nothing.
   void SetEnergySaver(EnergySaverFn energy_saver) { energy_saver_ = energy_saver; }
 
+  // The host watches its UI thread's turns and acks the input it dispatches
+  // (host_hang_watcher.h, browser_host_main.mm, before Attach): the HELLO
+  // lists kHangWatchHelloName, so cmux arms its busy deadline on the acks.
+  void SetHangWatch(bool watching) { hang_watch_ = watching; }
+
   // What the shown page count holds (browser_host_main.mm, before Attach):
   // the count goes to it after each kOpBrowserSetPageVisibility, at each
   // browser's close and once initialize returned; nullptr holds nothing.
@@ -468,6 +476,7 @@ class HostContext {
   SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;
   WheelAcks wheel_acks_;
   EnergySaverFn energy_saver_ = nullptr;
+  bool hang_watch_ = false;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).

@@ -107,6 +107,20 @@ CMUX_REMOTE_EXPORT void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_
 // "One ordered input stream"). With no host attached it returns 0 and `ctl_seq` 0: the writer
 // writes nothing for that frame. Both seqs start again with the next host.
 CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq);
+// What the host watch callback hears (task p01-process-084; host_hang_watcher.h).
+typedef enum {
+  CMUX_REMOTE_HOST_INPUT_OUTSTANDING = 0,  // input the host has not dispatched yet: the first seq waits
+  CMUX_REMOTE_HOST_INPUT_PROGRESS = 1,     // the host dispatched input; later input still waits
+  CMUX_REMOTE_HOST_INPUT_SETTLED = 2,      // the host dispatched every seq written (or went away)
+  CMUX_REMOTE_HOST_HANG = 3,               // a UI-thread hang of the host: `a` its length in ns, `b` its
+                                           // kOpHostHang flags (1 still running, 2 dumped)
+} cmux_remote_host_watch_event;
+// Main thread, in the order the host's frames came, and from inside cmux_remote_shim_order_input
+// (OUTSTANDING) and cmux_remote_shim_detach (SETTLED). `a` and `b` are 0 but for a hang.
+typedef void (*cmux_remote_host_watch_fn)(void* ctx, int32_t event, int64_t a, int64_t b);
+// Main thread. The host watch's changes go to `watch(ctx, ...)` from now on; NULL drops them. Input
+// is counted only on a host whose HELLO listed kHangWatchHelloName (it acks dispatched input).
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_host_watch(void* ctx, cmux_remote_host_watch_fn watch);
 // Main thread. Takes `port`, a send right to the attached host's resize fence inbox (the
 // bootstrap name cmux passed as --resize-fence, looked up off the main thread after the HELLO;
 // ChromiumHost/src/host_resize.h, task 052): 1 when kept until the host detaches, 0 (the right

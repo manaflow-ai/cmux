@@ -14,6 +14,7 @@
 #include "chromium_host_mint.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_hang_watcher.h"
 
 namespace cmux_host {
 
@@ -134,6 +135,8 @@ void HostContext::Attach() {
   // Not an export: the host acks every wheel of a gesture (OnWheelAck), so cmux asks the page nothing.
   if (set_wheel_ack_handler_) exports.push_back(kWheelAcksHelloName);
   if (energy_saver_) exports.push_back(kEnergySaverHelloName);
+  // Not an export: the host acks dispatched input and reports its UI hangs (host_hang_watcher.h).
+  if (hang_watch_) exports.push_back(hang::kHangWatchHelloName);
   TlvWriter hello;
   hello.Str(kWireID);
   hello.StrList(exports.data(), static_cast<int>(exports.size()));

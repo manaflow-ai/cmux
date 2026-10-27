@@ -69,6 +69,7 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.chromium-host.control", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.chromium-host.exit", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.chromium-host.input", qos: .userInteractive),
+        ThreadDeclaration("com.cmuxterm.chromium-host.hang-watcher", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.cef-children", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.import-history-sync", qos: .utility),
         ThreadDeclaration("com.cmuxterm.chromium-runtime.download", match: .operationQueue, qos: .utility),
