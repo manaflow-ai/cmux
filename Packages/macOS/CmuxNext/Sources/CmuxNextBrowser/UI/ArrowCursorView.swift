@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextDesign
 
 /// A toolbar row that shows the arrow over its whole frame and the I-beam
 /// over the omnibar's text area (`OmnibarPointer`).
@@ -9,7 +10,7 @@ import CmuxNextCompat
 /// (`WindowKeyFamily`), so the toolbar's rects did nothing and the arrow
 /// stayed over the omnibar until a click made the parent key (Lawrence
 /// 2026-10-13). The row also sets the cursor itself on every pointer move
-/// over it, with a tracking area that works in any window state, and again
+/// over it, with a tracking area that works in any window of the active app, and again
 /// after the app handled a move while a child window has the key
 /// (`pointerDidMove`). The rects stay for the key window; subviews with
 /// their own rects (the editing omnibar text) take precedence inside it.
@@ -44,7 +45,7 @@ public class ArrowCursorView: NSView {
         // past the end of the text in a window that was not key).
         guard cursorArea == nil else { return }
         cursorTracker.row = self
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect],
                                   owner: cursorTracker)
         addTrackingArea(area)
         cursorArea = area
@@ -90,6 +91,7 @@ public class ArrowCursorView: NSView {
         for entry in rows {
             guard let row = entry.row, let window = row.window, window !== key, window.isVisible else { continue }
             let point = window.convertPoint(fromScreen: location)
+            // visibility-walk-allow: hit test of the pointer: the row AppKit shows under it sets the cursor, once per move while a child window has the key
             guard row.visibleRect.contains(row.convert(point, from: nil)), !row.isHiddenOrHasHiddenAncestor else { continue }
             // Nothing to set: the row's tracking area already set this cursor, and no other
             // handling of the move replaced it.
@@ -143,6 +145,7 @@ extension ArrowCursorView {
         for entry in rows {
             guard let row = entry.row, let window = row.window, window !== key, window.isVisible else { continue }
             let point = window.convertPoint(fromScreen: location)
+            // visibility-walk-allow: hit test of the pointer: the row AppKit shows under it sets the cursor again, after a pass while a child window has the key
             guard row.visibleRect.contains(row.convert(point, from: nil)), !row.isHiddenOrHasHiddenAncestor else { continue }
             guard NSCursor.current !== (row.trackedCursor ?? OmnibarPointer.cursor(.toolbar)).cursor else { return }
             guard isTopWindow(window, at: location) else { return }
@@ -173,6 +176,7 @@ private final class RowCursorTracker: NSResponder {
 
     override func mouseEntered(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
     // input-coalesce: native (only the cursor, which must follow every move as AppKit's own cursor rects do)
+    // local-monitor-allow: a cursor set from a coalesced move would show the wrong cursor until the frame
     override func mouseMoved(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {}
 }

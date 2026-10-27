@@ -15,7 +15,6 @@ extension SidebarListViewComponents {
         var slotDwell: CFTimeInterval = 0
         var springTarget: WorkspaceID?
         var springGroupTarget: GroupID?
-        var springTask: Task<Void, Never>?
         /// Collapsed groups the spring-load opened: they close again when the drag leaves or ends, except the one
         /// the drop goes into (a drag never changes a group's fold for good, Leo 2026-10-20).
         var springOpened: [GroupID] = []
@@ -107,7 +106,7 @@ extension SidebarListViewComponents {
     /// Ends an external drag: the groups its spring-load opened close again, but for the one `drop` goes into.
     private func endExternalDrag(dropping drop: SidebarTabDrop?) {
         guard let external else { return }
-        external.springTask?.cancel()
+        springLoad?.cancel()
         self.external = nil
         autoscroll.stop()
         let kept = drop.flatMap { Self.dropGroup(of: $0, in: model.sections) }
@@ -141,31 +140,28 @@ extension SidebarListViewComponents {
             }
         }
     }
-    /// Spring loading: hovering a row for `springLoadDelay` selects
-    /// it so the user can keep dragging into that workspace's panes.
+    /// Spring loading: hovering a row for `springLoadDelay` selects it so the person can keep dragging into that
+    /// workspace's panes; a collapsed group opens. The hover is the list's `springLoad` deadline, scheduled when the
+    /// tab reaches a row and cancelled when it leaves the row or the drag ends: a `base::OneShotTimer` on the UI
+    /// thread's task runner (base/timer/timer.h).
     func updateSpringLoad(_ external: ExternalDrag) {
         let target: WorkspaceID? = if case let .intoWorkspace(id)? = external.proposal { id } else { nil }
         let groupTarget: GroupID? = if case let .intoGroup(id)? = external.proposal { id } else { nil }
         guard target != external.springTarget || groupTarget != external.springGroupTarget else { return }
-        external.springTask?.cancel()
+        springLoad?.cancel()
         external.springTarget = target
         external.springGroupTarget = groupTarget
         guard target != nil || groupTarget != nil else { return }
-        let clock = springLoadClock
-        let delay = springLoadDelay
-        external.springTask = Task { [weak self] in
-            // wakeup-allow: deadline of the spring-load hover on a row, cancelled when the tab leaves it;
-            // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
-            do { try await clock.sleep(for: delay, tolerance: WakeLeeway.window(delay: delay).tolerance) } catch { return }
-            guard let self, self.external === external,
+        springLoad?.schedule(after: springLoadDelay) { [weak self, weak external] in
+            guard let self, let external, self.external === external,
                   external.springTarget == target, external.springGroupTarget == groupTarget else { return }
-            if let target, self.model.activeWorkspaceID != target {
-                self.model.click(target)
-            } else if let groupTarget, self.model.group(groupTarget)?.isCollapsed == true {
+            if let target, model.activeWorkspaceID != target {
+                model.click(target)
+            } else if let groupTarget, model.group(groupTarget)?.isCollapsed == true {
                 external.springOpened.append(groupTarget)
-                self.model.send(.toggleCollapse(.group(groupTarget)))
+                model.send(.toggleCollapse(.group(groupTarget)))
             }
-            self.reload(animated: true)
+            reload(animated: true)
         }
     }
 }

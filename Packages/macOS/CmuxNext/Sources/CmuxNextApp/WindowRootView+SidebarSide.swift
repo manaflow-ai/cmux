@@ -10,8 +10,10 @@ import Observation
 extension WindowRootView {
     /// Swaps the pins to `sidebarSide` without animating. The layout may
     /// only move (same size), which runs no layout pass of its own, so it
-    /// is laid out here: pane rings and overlay rects follow, and strips
-    /// under the traffic lights re-check themselves (`syncOverlay`).
+    /// is marked here and lays out in the window's next pass, before the
+    /// frame: pane rings and overlay rects follow, and strips under the
+    /// traffic lights re-check themselves (`syncOverlay`). Nothing in this
+    /// turn reads the new frames.
     func applySidebarSide() {
         for (side, constraints) in sidePins where side != sidebarSide { NSLayoutConstraint.deactivate(constraints) }
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
@@ -19,9 +21,7 @@ extension WindowRootView {
         sidebar.side = sidebarSide
         // The right sidebar's inset moves to the other edge with it.
         applyMainPane()
-        layoutSubtreeIfNeeded()
-        content?.needsLayout = true
-        content?.layoutSubtreeIfNeeded()
+        content?.needsLayout = true // invalidate: the sidebar changed sides; the content lays out at its new place.
     }
 
     /// Follows the placement settings from `DesignSettings` (init reads the

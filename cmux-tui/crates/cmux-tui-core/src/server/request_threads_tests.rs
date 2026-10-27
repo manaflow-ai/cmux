@@ -10,6 +10,7 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use cmux_threads::work::Lane;
 use cmux_threads::{BlockingKind, ThreadQos};
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket};
@@ -82,12 +83,12 @@ fn a_request_thread_disallows_blocking_and_records_the_site() {
     assert!(cmux_threads::snapshot().iter().all(|row| row.name != NAME), "the row leaves");
 }
 
-/// A connection's queued requests run on `mux-control-dispatch`, a
-/// UserInitiated request thread that disallows blocking: the registry read
-/// `list-workspaces` makes there is a recorded `sqlite` site in server.rs
-/// (`list_workspaces_reply`).
+/// A connection's queued requests run on the sequenced pool's
+/// `mux-seq-control` workers, UserInitiated request threads that disallow
+/// blocking: the registry read `list-workspaces` makes there is a recorded
+/// `sqlite` site in server.rs (`list_workspaces_reply`).
 #[test]
-fn the_connection_dispatcher_is_a_request_thread_that_records_its_blocking() {
+fn the_control_sequence_runs_on_request_threads_that_record_their_blocking() {
     let mux =
         crate::Mux::new_for_test("request-threads-dispatch", crate::SurfaceOptions::default());
     let outbound = Arc::new(BoundedOutbound::default());
@@ -98,23 +99,66 @@ fn the_connection_dispatcher_is_a_request_thread_that_records_its_blocking() {
     let before = site_count("src/server.rs", BlockingKind::Sqlite);
     let mut list = Some(Request { id: Some(json!(1)), cmd: Command::ListWorkspaces });
     assert_eq!(scheduler.dispatch(mux, client, &mut list, 0, writer), Some(true));
-    // The dispatcher stays up until the scheduler finishes.
-    assert_declared("mux-control-dispatch", ThreadQos::UserInitiated);
+    // The pool's workers stay up with the mux.
+    assert_declared("mux-seq-control", ThreadQos::UserInitiated);
     scheduler.finish_and_wait();
-    let reply: Value = serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap();
-    assert_eq!(reply["ok"], true, "{reply}");
+    // The detector's mode is process-wide: a parallel test that sets panic
+    // mode (`on_request_thread`) makes the read panic after it records its
+    // site, and then no reply comes. A reply that comes answers the read.
+    if let Some(line) = outbound.try_pop() {
+        let reply: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(reply["ok"], true, "{reply}");
+    }
     assert!(
         site_count("src/server.rs", BlockingKind::Sqlite) > before,
-        "list-workspaces on mux-control-dispatch records no sqlite site"
+        "list-workspaces on mux-seq-control records no sqlite site"
     );
 }
 
-/// A clear-history request runs on its own `mux-surface-control` worker at
-/// UserInitiated. Its path makes no checked blocking call (its waits are
-/// unchecked `Condvar` waits), so the test holds the terminal lock the worker
-/// takes to see its row while it lives.
+/// The line of a pool worker's wait for its next task in sequenced_pool.rs.
+fn idle_worker_wait_line() -> u32 {
+    let source = include_str!("sequenced_pool.rs");
+    let start = source.find("fn run_worker(").expect("run_worker");
+    let wait = start + source[start..].find(".wait(").expect("run_worker waits");
+    u32::try_from(source[..wait].lines().count()).expect("line")
+}
+
+/// A control worker waits for its next task while idle (Chromium's
+/// `WaitableEvent::declare_only_used_while_idle`; the connection holds no
+/// thread of its own since p05-ipc-073): on a request thread, a wait far
+/// over the 2 ms lock-wait budget records no site.
 #[test]
-fn a_clear_history_worker_is_a_user_initiated_request_thread() {
+fn an_idle_control_worker_waiting_for_its_next_task_records_no_site() {
+    const IDLE: Duration = Duration::from_millis(20);
+    let mux = crate::Mux::new_for_test("request-threads-idle", crate::SurfaceOptions::default());
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound, control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let mut list = Some(Request { id: Some(json!(1)), cmd: Command::ListWorkspaces });
+    assert_eq!(scheduler.dispatch(mux.clone(), client, &mut list, 0, writer), Some(true));
+    scheduler.finish_and_wait();
+    assert_declared("mux-seq-control", ThreadQos::UserInitiated);
+    let waiting_since = Instant::now();
+    std::thread::sleep(IDLE);
+    assert!(waiting_since.elapsed() >= IDLE);
+    let file = file!().replace("request_threads_tests.rs", "sequenced_pool.rs");
+    let line = idle_worker_wait_line();
+    assert_eq!(
+        cmux_threads::blocking::snapshot().site(&file, line).copied(),
+        None,
+        "{file}:{line}"
+    );
+    mux.shutdown();
+}
+
+/// A clear-history request runs as a `Mux::work` item on the system lane, not
+/// on a thread of its own (p02-threads 230): a person's request at
+/// UserBlocking, on a UserInitiated foreground worker. The test holds the
+/// terminal lock the item takes, to see it running.
+#[test]
+fn a_clear_history_request_is_a_work_item_not_a_thread() {
     let mux = crate::Mux::new_for_test("request-threads-clear", crate::SurfaceOptions::default());
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     let outbound = Arc::new(BoundedOutbound::default());
@@ -128,7 +172,16 @@ fn a_clear_history_worker_is_a_user_initiated_request_thread() {
     });
     let held = surface.with_terminal(|_| {
         assert_eq!(scheduler.dispatch(mux.clone(), client, &mut clear, 0, writer), Some(true));
-        assert_declared("mux-surface-control", ThreadQos::UserInitiated);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while mux.work.stats()[Lane::System as usize].running == 0 {
+            assert!(Instant::now() < deadline, "the clear-history item never started");
+            std::thread::yield_now();
+        }
+        assert_declared("mux-sys-fg", ThreadQos::UserInitiated);
+        assert!(
+            cmux_threads::snapshot().iter().all(|row| row.name != "mux-surface-control"),
+            "a clear-history request started its own thread"
+        );
     });
     assert!(held.is_some(), "a PTY surface");
     scheduler.finish_and_wait();

@@ -420,7 +420,11 @@ public struct DaemonLauncher: Sendable {
 
     /// Endpoint provider for `DaemonConnection`: every (re)connect re-runs
     /// `ensure`, which restarts a crashed daemon.
-    public var endpointProvider: DaemonConnection.EndpointProvider {
+    public var endpointProvider: DaemonConnection.EndpointProvider { spawnObservingEndpointProvider(onSpawned: nil) }
+
+    /// ``endpointProvider`` that also calls `onSpawned` after each `ensure` that started a daemon (status
+    /// `started`, never a running owner or a remembered socket): the launch's `daemon.spawned` milestone.
+    public func spawnObservingEndpointProvider(onSpawned: (@Sendable () -> Void)?) -> DaemonConnection.EndpointProvider {
         let remembered = rememberedSocket
         let handoff = handoff
         let clock = clock
@@ -438,7 +442,9 @@ public struct DaemonLauncher: Sendable {
                     return DaemonEndpoint(socketPath: path, wireStats: wireStats)
                 }
             }
-            var endpoint = try await ensureRecordingOutcome().endpoint
+            let ensured = try await ensureRecordingOutcome()
+            if ensured.status == "started" { onSpawned?() }
+            var endpoint = ensured.endpoint
             endpoint.wireStats = wireStats
             return endpoint
         }

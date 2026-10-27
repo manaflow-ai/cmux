@@ -61,6 +61,8 @@ extension DebugMouse {
                 return .object(["error": .string("could not synthesize the move")])
             }
             pageView.mouseMoved(with: event)
+            // The synthesized pointer is there too, so hover (the page's tooltip) sees it over the page.
+            LayoutRootView.setDebugPointer(base, in: window)
             return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                             "view": .string("ChromiumHostPageView"), "delivered": .number(1)])
         }
@@ -77,6 +79,65 @@ extension DebugMouse {
         target.mouseMoved(with: event)
         return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                         "view": .string(String(describing: type(of: target))), "delivered": .number(1)])
+    }
+
+    /// AppKit's button numbers of the page buttons past left and right (`debug.mouse` page `click` with `button`).
+    static let pageButtons: [String: Int64] = ["middle": 2, "back": 3, "forward": 4]
+
+    /// The host-mode page view of `params`' pane (default: the focused pane) when it takes the page's pointer,
+    /// and the point `x`,`y` (top-left points in the page, default its center) in its window's top-left points.
+    private static func hostPage(_ params: [String: JSONValue], services: AppServices)
+        -> (windowID: String, window: NSWindow, page: ChromiumHostPageView, point: NSPoint, topLeft: NSPoint)? {
+        let windowID = params["window"]?.stringValue
+        guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
+              let window = controller.window, let pane = params["pane"]?.stringValue ?? controller.focus.state.pane,
+              let paneController = controller.content?.paneController(key: pane),
+              case .browser(let entry)? = paneController.currentContent,
+              let page = ChromiumHostPageView.first(in: entry.tab.contentView), page.takesPagePointer else { return nil }
+        let size = page.bounds.size
+        let point = NSPoint(x: params["x"]?.doubleValue ?? size.width / 2, y: params["y"]?.doubleValue ?? size.height / 2)
+        let base = page.convert(NSPoint(x: point.x, y: size.height - point.y), to: nil)
+        return (controller.state.id, window, page, point, NSPoint(x: base.x, y: baseLocation(.zero, in: window).y - base.y))
+    }
+
+    /// `debug.mouse {"target": "page", "button": "middle" | "back" | "forward"}` (host mode): a press and release of
+    /// that button on the page view at `x`,`y` (top-left points in the page) or its center, through the view's own
+    /// `otherMouseDown`/`otherMouseUp` (chromium-host-bench.py's button rows: a back or forward press must never
+    /// reach the page as a left click). An error with `reason` `not_host_mode` for a page view that takes no pointer.
+    static func buttonPage(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        let name = params["button"]?.stringValue ?? ""
+        guard let number = pageButtons[name] else { return .object(["error": .string("no such page button: " + name)]) }
+        guard let target = hostPage(params, services: services) else {
+            return .object(["error": .string("no host-mode page view that takes the pointer"), "reason": .string("not_host_mode")])
+        }
+        func event(_ type: NSEvent.EventType) -> NSEvent? {
+            guard let made = mouse(type, at: target.topLeft, in: target.window, flags: [], clicks: 1),
+                  let cg = made.cgEvent?.copy() else { return nil }
+            cg.setIntegerValueField(.mouseEventButtonNumber, value: number)
+            return keepingWindowPoint(cg, made.locationInWindow)
+        }
+        guard let down = event(.otherMouseDown), let up = event(.otherMouseUp) else {
+            return .object(["error": .string("could not synthesize the " + name + " click")])
+        }
+        target.page.otherMouseDown(with: down)
+        target.page.otherMouseUp(with: up)
+        return .object(["window": .string(target.windowID), "x": .number(target.point.x), "y": .number(target.point.y),
+                        "button_number": .number(Double(number)), "delivered": .number(2)])
+    }
+
+    /// `debug.mouse {"action": "pinch" | "smart_magnify", "target": "page"}` (host mode): the kGesture frames a
+    /// trackpad pinch by `scale` (default 1.5) or a two-finger double tap sends from the page view, at `x`,`y`
+    /// (top-left points in the page) or its center (``ChromiumHostPageView/debugGesture(pinchScale:at:)``: AppKit
+    /// makes no magnify event). `frames`: how many went to the host. An error with `reason` `not_host_mode` for a
+    /// page view that takes no pointer.
+    static func gesturePage(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        guard let target = hostPage(params, services: services) else {
+            return .object(["error": .string("no host-mode page view that takes the pointer"), "reason": .string("not_host_mode")])
+        }
+        let scale = params["action"]?.stringValue == "pinch" ? CGFloat(params["scale"]?.doubleValue ?? 1.5) : nil
+        let frames = target.page.debugGesture(pinchScale: scale, at: target.point)
+        return .object(["window": .string(target.windowID), "x": .number(target.point.x), "y": .number(target.point.y),
+                        "frames": .number(Double(frames))])
     }
 
     /// `debug.mouse {"action": "scroll", "target": "page"}`: one scroll event over a Chromium page, at `x`,`y`

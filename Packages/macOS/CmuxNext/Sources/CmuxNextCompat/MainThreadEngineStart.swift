@@ -1,3 +1,7 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+
 /// Main-thread time spent in a declared engine start step: Chromium's
 /// `CefInitialize` and its first browser window (`CEFRuntime`,
 /// `CEFPaneHost`). Chromium requires both on the main thread, and each holds
@@ -27,7 +31,7 @@ public final class MainThreadEngineStart: Sendable {
         var activeSince: ContinuousClock.Instant?
         var depth = 0
         var nextWaiter = 0
-        var waiters: [Int: CheckedContinuation<Void, Never>] = [:]
+        var waiters: [Int: OnceContinuation<Void, OnceContinuationError>] = [:]
     }
 
     private let state = Mutex(State())
@@ -72,21 +76,22 @@ public final class MainThreadEngineStart: Sendable {
         let bound = Task { [weak self] in
             // wakeup-allow: deadline bound of a wait for a step's end, cancelled when the step ends
             do { try await Task.sleep(until: limit, tolerance: tolerance, clock: .continuous) } catch { return }
-            self?.state.withLock { $0.waiters.removeValue(forKey: id) }?.resume()
+            self?.state.withLock { $0.waiters.removeValue(forKey: id) }?.resume(returning: ())
         }
         defer { bound.cancel() }
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // A dropped waiter returns as the step's end does: the deadline is checked again.
+            _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 let resumeNow = state.withLock { state -> Bool in
                     // A bound that fired before this waiter was stored found nothing to resume.
                     guard state.activeSince != nil, !Task.isCancelled, ContinuousClock.now < limit else { return true }
                     state.waiters[id] = continuation
                     return false
                 }
-                if resumeNow { continuation.resume() }
+                if resumeNow { continuation.resume(returning: ()) }
             }
         } onCancel: {
-            state.withLock { $0.waiters.removeValue(forKey: id) }?.resume()
+            state.withLock { $0.waiters.removeValue(forKey: id) }?.resume(returning: ())
         }
     }
 
@@ -111,7 +116,7 @@ public final class MainThreadEngineStart: Sendable {
     }
 
     private func end() {
-        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Void, OnceContinuationError>] in
             state.depth -= 1
             guard state.depth == 0, let since = state.activeSince else { return [] }
             state.finished += .now - since
@@ -119,6 +124,6 @@ public final class MainThreadEngineStart: Sendable {
             defer { state.waiters.removeAll() }
             return Array(state.waiters.values)
         }
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 }

@@ -21,6 +21,11 @@ extension MainFrameBudget {
         var parkedSince: UInt64?
         /// The nested run loops it waits in now.
         var parks = 0
+        /// An idle task's idle deadline (``MainFrameBudget/noteIdleTask(postedFrom:deadlineNanos:)``; 0: none).
+        var idleDeadlineNanos: UInt64 = 0
+        /// When its hang scope ends (``MainTaskBoard/hangScopeEnd(_:startNanos:idleDeadlineNanos:)``), on its own time as
+        /// ``ownNanos(at:)``: its nested tasks and loops move it out, so a nested task's hang is not this one's too.
+        var hangAtNanos: UInt64 { MainTaskBoard.hangScopeEnd(workClass, startNanos: start, idleDeadlineNanos: idleDeadlineNanos) &+ childNanos &+ parkedNanos }
 
         /// Its own time until `now`: less its nested tasks and the nested loops it waited in.
         func ownNanos(at now: UInt64) -> UInt64 {
@@ -46,6 +51,15 @@ extension MainFrameBudget {
     /// out, so a held task is recorded once, with its wait and node state, when it runs.
     public func noteRanNothing() {
         if !open.isEmpty { open[open.count - 1].ranNothing = true }
+    }
+
+    /// The running task is an idle task (``IdleScheduler``) posted at `site` whose idle period ends at `deadlineNanos`: the
+    /// board names its site, and its hang scope runs one frame past that deadline instead of past its start.
+    func noteIdleTask(postedFrom site: MainPostSite, deadlineNanos: UInt64) {
+        board.notePostedFrom(site)
+        guard !open.isEmpty else { return }
+        open[open.count - 1].idleDeadlineNanos = deadlineNanos
+        board.extendHangScope(to: open[open.count - 1].hangAtNanos)
     }
 
     /// Now on the budget's clock: the enqueue time of a post it will run.

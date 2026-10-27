@@ -61,7 +61,7 @@ struct OpenWithCacheTests {
         let queries = Self.queries(system)
         let apps = WorkspaceFileApps(queries: queries)
         _ = await apps.openWithList(forFileNamed: "notes.txt", isDirectory: false)
-        let menu = FileExplorerOpenWithMenu(registry: ActionRegistry.standard(), appIcon: { app, item in apps.showIcon(of: app, in: item) })
+        let menu = FileExplorerOpenWithMenu(registry: ActionRegistry.standard(), mainWork: MainWorkScheduler(budget: MainFrameBudget()), appIcon: { app, item in apps.showIcon(of: app, in: item) })
         let row = FileExplorerRow(url: URL(fileURLWithPath: "/tmp/readme.txt"), name: "readme.txt", depth: 0, isFolder: false, isExpanded: false)
         #if DEBUG || CMUX_BLOCKING_CHECKS
         let table = BlockingViolationTable(mode: .record, poolMode: .record)

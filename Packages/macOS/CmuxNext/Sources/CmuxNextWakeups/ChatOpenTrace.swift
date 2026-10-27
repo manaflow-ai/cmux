@@ -3,6 +3,9 @@ public import AppKit
 import CmuxNextTrace
 #endif
 public import CmuxNextSignposts
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One stage of an agent chat open, from the action to the chat's content on screen, in either engine: a
 /// ``ChatOpenStages`` instant in every build, and a mark of `debug.chat_open_trace` (``ChatOpenTrace``) in DEBUG
@@ -201,7 +204,7 @@ public final class ChatOpenTrace {
     private var surface: (() -> Surface)?
     private var engine: (() -> String)?
     private var sampler: FrameClient?
-    private var waiter: CheckedContinuation<Void, Never>?
+    private var waiter: OnceContinuation<Void, OnceContinuationError>?
 
     /// Arms a trace; false while one runs. A launch trace has no action: its origin is the arming.
     public func begin(launch: Bool = false) -> Bool {
@@ -300,7 +303,8 @@ public final class ChatOpenTrace {
         if chatShown { return true }
         let deadline = DemandTimer(owner: "chatOpenTrace.wait")
         deadline.scheduleOnMain(after: timeout) { [weak self] in self?.resume() }
-        await withCheckedContinuation { waiter = $0 }
+        // A second wait replaces the first, whose waiter then ends abandoned: it reads chatShown at once.
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in waiter = continuation }
         deadline.cancel()
         return chatShown
     }
@@ -308,8 +312,8 @@ public final class ChatOpenTrace {
     /// Lets `duration` of frames be sampled before the caller finishes the trace.
     public func settle(for duration: Duration) async {
         let timer = DemandTimer(owner: "chatOpenTrace.settle")
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            timer.scheduleOnMain(after: duration) { done.resume() }
+        try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
+            timer.scheduleOnMain(after: duration) { done.resume(returning: ()) }
         }
         withExtendedLifetime(timer) {}
     }
@@ -357,7 +361,7 @@ public final class ChatOpenTrace {
     private func resume() {
         let waiting = waiter
         waiter = nil
-        waiting?.resume()
+        waiting?.resume(returning: ())
     }
 
     static func now() -> TimeInterval { ProcessInfo.processInfo.systemUptime }

@@ -45,6 +45,7 @@ final class BrowserSectionOverlayView: NSView {
         needsDisplay = true
     }
 
+    // local-monitor-allow: one rect update and needsDisplay, which AppKit draws once in the next frame; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         selection.drag(to: convert(event.locationInWindow, from: nil))
         needsDisplay = true

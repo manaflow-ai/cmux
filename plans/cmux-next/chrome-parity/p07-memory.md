@@ -466,8 +466,10 @@ at the end; the hour-0 baseline (075) gives every "today" value.
   target after F2 and the shared pin: whole tree <= 250 MB, app <= 120 MB (today 793 / 361).
 - **DC8 heavy session.** perf-stress-session.py 60 ws STRESS and budgets-heavy 150 ws, 35 min idle,
   all discard toggles on: cmux-owned footprint (shells and agent harnesses excluded) <= 600 MB (today
-  3,538 MB whole tree). Threads <= 300: daemon share from task 095 together with PL-daemon; app share
-  from task 078.
+  3,538 MB whole tree). Threads <= 300, each share with its owner (bench_memory.py prints them as
+  "threads by owner (DC8)"): daemon, terminal hosts and holders from task 095 with PL-daemon; the app
+  (Ghostty's renderer and IO thread per surface included) from task 078, PL-memory; Chromium helpers
+  PL-cefhost; acpmux PL-acpmux; WebKit processes PL-webui.
 - **DC9 renderer limit.** `bench_renderer_sharing.py --tabs 100 --sites 20` (hibernation off):
   renderers <= max(SubsystemBudget.chromiumRendererLimit, distinct site locks), reported next to the
   site-lock count; <= 2 same-site main frames per renderer below the limit. `--engine webkit` gives the
@@ -1381,6 +1383,17 @@ All IDs below are `p07-memory-NNN`.
 - Acceptance: bench reports threads per hidden terminal before and after; a GPU-released surface's
   renderer thread has 0 wakeups while idle once its compression timer is armed.
 - Test: fleet exclusive bench_memory --workspaces 60.
+- Status: bench side in. Every sample counts threads per process kind and owner; each --workspaces count
+  gives app threads per added terminal; `--hidden-workspaces N --gpu-release off|on` gives app threads per
+  hidden terminal after --settle and after the grace, and how many hidden renderer and IO threads woke in
+  `--thread-window` idle seconds (a thread whose CPU time grew woke). A hidden terminal is told apart from
+  a shown one by thread identity: its threads are the ones new since the phase's base read, a handle
+  counting as the same thread only under the same name (a thread handle is a pthread address that a
+  later thread can reuse). `--gpu-release` sets the debug tunable `memory.discard.terminalGPURelease` in
+  a tunables file named by `CMUX_NEXT_DEBUG_TUNABLES_FILE`, so the run needs a bench build of a .dev or
+  .debug bundle. Swift: a parked terminal no longer takes scale and display calls on a backing change
+  (they wake its renderer thread); it applies them when shown. Open: the fleet run, which needs the 036a
+  pin for the "on" half.
 
 ### 079 Widen the static queues
 - Files: scripts/cmux-next/memory-queues.sh, plans/cmux-next/memory-DESIGN.md.
@@ -1425,6 +1438,9 @@ All IDs below are `p07-memory-NNN`.
 - Change: launch frames and images dropped after LaunchSettle; GlassBackdropImages and ReleaseMediaStore
   register; image-storage-limit from kittyImageBytesPerSurface, lowered at warning.
 - Acceptance: 0 images after LaunchSettle; MQ-CAPS 0 in GhosttyRuntime+ImageStorage.swift; bytes reported.
+  The Ghostty image budget is not a consumer, so "bytes reported" does not apply to it: libghostty reports
+  no image bytes, and the budget is a cap Ghostty enforces, not a store cmux releases. It follows the
+  coordinator's level (`GhosttyImageStorageBudget`) and rises only after `limitRiseDelay` at normal.
 - Test: fleet swift test 'TerminalLaunchFrames|GlassBackdrop|ReleaseMedia'.
 
 ### 084 cmux page browser tabs discardable
@@ -1518,11 +1534,33 @@ All IDs below are `p07-memory-NNN`.
 - Test: fleet cargo test -p cmux-holder; holder_terminals on macOS 26 and 27.
 
 ### 095 Daemon threads per terminal
-- Files: cmux-tui-core/src/surface/spawn.rs, surface.rs, mux/terminal_work.rs.
-- Change: PTY reads on the kqueue TerminalWorkPool; one EVFILT_PROC watcher for child waits; the host
-  thread joins the pool. Check the threading and PL-daemon queues first.
-- Acceptance: 50 terminals add <= 2 threads; idle_wakeups green; output order unchanged.
-- Test: fleet cargo test -p cmux-tui-core surface; perf-10x-idle.sh counts=100 thread column.
+- Files: cmux-tui-core/src/surface/spawn.rs, surface.rs, surface/local_reader.rs, surface/local_output.rs,
+  mux/terminal_work.rs, mux/terminal_work/read_loop.rs, read_poller.rs.
+- Change: daemon-local PTY reads on the owner's one read loop (kqueue/epoll, TerminalWorkPool); registry
+  publication (directory, progress, exit) on the pool. Narrowed: the child wait (`-wait`) is p02-threads-237's
+  reaper, and the hosted reader (`-host`, `-host-frames`) is 095b.
+- Acceptance: 50 daemon-local terminals add <= 2 threads at idle, plus the 50 `-wait` threads p02-threads-237
+  owns until it lands; no read worker slot is lost to a panicking or blocked source; idle_wakeups green;
+  output order unchanged.
+- Test: fleet cargo test -p cmux-tui-core surface read_loop; perf-10x-idle.sh counts=100 thread column.
+- Status: reader in. Daemon-local PTYs read on the owner's one read loop (`mux/terminal_work/read_loop.rs`:
+  `mux-terminal-io` on kqueue/epoll, `mux-terminal-read` workers, one run per terminal at once): no
+  `surface-<id>-reader`, and the loop adds 2 threads at idle. Each terminal still has its `surface-<id>-wait`
+  thread until p02-threads-237's `mux-reaper` lands, so today 50 terminals add 2 + 50 threads
+  (`surface::tests::read_loop::fifty_idle_local_terminals_add_only_the_loop_threads` asserts exactly that
+  bound). Registry publication (directory, progress, the exit) runs on the terminal work pool, and a query
+  response write that can wait runs in `read_loop::will_block`, which frees the worker's slot (Chrome's
+  `ScopedBlockingCall` WILL_BLOCK), so a blocked or panicking terminal never stops the others. Holder
+  terminals' readers are p01-process-120.
+
+### 095b Hosted terminals on the read loop
+- Files: cmux-tui-core/src/surface.rs, surface/hosted_reader.rs, surface/hosted_reader/reconnect.rs,
+  mux/terminal_work/read_loop.rs.
+- Change: the reconnect of an adopted or opt-out host becomes a pool work item; the host socket then reads as a
+  ReadSource on the owner's read loop, so `surface-<id>-host` and `-host-frames` go.
+- Acceptance: 50 adopted hosted terminals add <= 2 threads at idle; reconnect and resync keep output order.
+- Test: cargo test -p cmux-tui-core surface::tests::hosted read_loop.
+- Depends on: 095, p01-process-138.
 
 ### 096 Sliced release of parked workspaces and warm set
 - Files: Windows/WindowController+Parking.swift, AppServices+Hibernation.swift, TabContentCache.swift, tests.

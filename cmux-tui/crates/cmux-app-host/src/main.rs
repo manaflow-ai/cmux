@@ -2,6 +2,8 @@
 //! channel. `--profile script` runs a script session (the script limits);
 //! `--sandbox-self-test <path>` exists for the integration tests.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 use cmux_app_host::host_loop::{self, exit};
 use cmux_app_host::{Limits, sandbox};
 

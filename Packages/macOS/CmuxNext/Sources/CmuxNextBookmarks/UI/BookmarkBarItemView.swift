@@ -13,7 +13,8 @@ final class BookmarkBarItemView: NSView {
     /// any other reason paint at once.
     private var fadesNextFill = false
     private var tracking: NSTrackingArea?
-    var onClick: ((BookmarkBarItemView, NSEvent) -> Void)?
+    /// A click (its release), or nil for an accessibility press, which opens with no modifiers.
+    var onClick: ((BookmarkBarItemView, NSEvent?) -> Void)?
     var onDragStart: ((BookmarkBarItemView, NSEvent) -> Void)?
     var onContextMenu: ((BookmarkBarItemView) -> NSMenu?)?
     private var downEvent: NSEvent?
@@ -67,7 +68,7 @@ final class BookmarkBarItemView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }
@@ -88,6 +89,7 @@ final class BookmarkBarItemView: NSView {
         needsDisplay = true
     }
 
+    // local-monitor-allow: a 4 pt threshold test, then the drag start, which needs this press's event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         guard let down = downEvent else { return }
         let distance = hypot(event.locationInWindow.x - down.locationInWindow.x, event.locationInWindow.y - down.locationInWindow.y)
@@ -113,9 +115,10 @@ final class BookmarkBarItemView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? { onContextMenu?(self) }
 
+    /// VoiceOver's press opens the bookmark as a plain click does, with no modifiers: AppKit's
+    /// current event then is whatever the person did last, not this press.
     override func accessibilityPerformPress() -> Bool {
-        guard let event = NSApp.currentEvent else { return false }
-        onClick?(self, event)
+        onClick?(self, nil)
         return true
     }
 

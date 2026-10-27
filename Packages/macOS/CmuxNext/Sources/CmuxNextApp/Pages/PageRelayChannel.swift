@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextIPC
 import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -23,24 +24,24 @@ import os
 ///
 /// Against a daemon without `origin-claim-v1` there is no relay connection: page calls go on the
 /// main connection as before, with a logged warning that they are not narrowed.
+///
+/// The page host keeps the channels (``WebUIHost/relayChannels``, p13-webui-066), and a channel
+/// holds its daemon connection only while it is used: ``PageRelayIdleClose/delay`` after its last
+/// listener and call end, it closes it, and the next call or listen opens a new one. A frozen page
+/// pauses its listeners (``PageRelayStreams``), so the daemon has no page-relay client for pages
+/// nobody sees.
 @MainActor
 final class PageRelayChannel {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-relay")
-    private struct Key: Hashable {
-        let service: ObjectIdentifier
-        let page: String?
-    }
 
-    private static var channels: [Key: PageRelayChannel] = [:]
-
-    /// The channel of `page` (a page descriptor id) on the local daemon service.
-    static func shared(for service: DaemonService, page: String) -> PageRelayChannel {
+    /// The channel of `page` (a page descriptor id) on `daemon`, kept by `channels` (the app's page
+    /// host's): made once per daemon page id, with its idle close on the deadline `idle` makes.
+    static func of(page: String, daemon: any PageRelayDaemon, in channels: PageRelayChannels, work: BackgroundWork,
+                   idle: () -> any PageRelayIdleDeadline) -> PageRelayChannel {
         let id = relayPageID(page)
-        let key = Key(service: ObjectIdentifier(service), page: id)
-        if let channel = channels[key] { return channel }
-        let channel = PageRelayChannel(service: service, page: id)
-        channels[key] = channel
-        return channel
+        return channels.channel(for: PageRelayChannels.Key(service: ObjectIdentifier(daemon), page: id)) {
+            PageRelayChannel(service: daemon, page: id, work: work, idle: idle())
+        }
     }
 
     /// The daemon page id of a descriptor id (`cmux.history` -> `history`), or nil when it is not
@@ -54,31 +55,46 @@ final class PageRelayChannel {
         return id
     }
 
-    private weak var service: DaemonService?
+    private weak var service: (any PageRelayDaemon)?
     private var relay: DaemonConnection?
     private let identity: PageRelayIdentity
     private var starting: Task<DaemonConnection, any Error>?
     private var warned = false
     /// The event uptime of the last gesture a call spent (``spendGesture(_:)``).
     private var spentGesture: TimeInterval?
-    /// Page streams by id: the daemon event each hears and its delivery.
-    private var listeners: [UInt64: (event: String, deliver: @MainActor (CmuxNextDaemon.JSONValue) -> Void)] = [:]
+    /// Page streams by id: the daemon event each hears, its delivery, and whether its frozen page
+    /// paused it (``pauseListener(_:)``: it hears nothing and does not keep the connection).
+    private var listeners: [UInt64: (event: String, deliver: @MainActor (CmuxNextDaemon.JSONValue) -> Void, paused: Bool)] = [:]
     private var nextListener: UInt64 = 0
     /// Reads the relay connection's events while it lives (``pumpEvents(_:)``).
     private var pump: Task<Void, Never>?
+    /// Closes the relay connection once no listener and no call uses it.
+    private let idle: PageRelayIdleClose
+    /// Runs the idle close's connection close off the main actor.
+    private let work: BackgroundWork
 
     /// The page does not hear `event` on this daemon (no entry, or an older daemon).
     struct NoSuchEvent: Error {}
 
-    init(service: DaemonService, page: String?) {
+    /// - Parameters:
+    ///   - service: The daemon service whose relay connections this channel opens (``DaemonService``).
+    ///   - page: The daemon page id (``relayPageID(_:)``), or nil for a descriptor that names none.
+    ///   - work: Where the idle close's connection close runs.
+    ///   - idle: The one-shot deadline of the idle close (a `MainDeadline` in the app).
+    init(service: any PageRelayDaemon, page: String?, work: BackgroundWork, idle: any PageRelayIdleDeadline) {
         self.service = service
         self.identity = PageRelayIdentity(page: page)
+        self.work = work
+        self.idle = PageRelayIdleClose(deadline: idle)
+        self.idle.onIdle = { [weak self] in self?.closeConnection() }
     }
 
     /// One page call: the v2 op `operation` with `params`, as `page`, or as the user with a token
     /// when `context` was confirmed on a native sheet.
     func send(operation: String, params: [String: CmuxNextDaemon.JSONValue], idempotencyKey: String?,
               context: PageCallContext) async throws -> CmuxNextDaemon.JSONValue {
+        idle.begin()
+        defer { idle.end() }
         guard let service, let main = service.connection else { throw DaemonError.notConnected }
         guard service.supports(DaemonClientRole.originClaimCapability) else {
             if !warned {
@@ -102,17 +118,33 @@ final class PageRelayChannel {
     }
 
     /// Hands every `event` (a daemon subscribe event name, `history-changed`) the page hears to
-    /// `onEvent`, until the returned cancel runs. Throws ``NoSuchEvent`` when the page's entry does
-    /// not name it or the daemon has no page relay.
-    func listen(event: String, onEvent: @escaping @MainActor (CmuxNextDaemon.JSONValue) -> Void) async throws -> () -> Void {
+    /// `onEvent`, until ``stopListener(_:)`` ends the returned listener. Throws ``NoSuchEvent`` when
+    /// the page's entry does not name it or the daemon has no page relay.
+    func listen(event: String, onEvent: @escaping @MainActor (CmuxNextDaemon.JSONValue) -> Void) async throws -> UInt64 {
+        idle.begin()
+        defer { idle.end() }
         guard let service, service.connection != nil else { throw DaemonError.notConnected }
         guard service.supports(DaemonClientRole.originClaimCapability) else { throw NoSuchEvent() }
         _ = try await relayConnection(service)
         guard identity.events.contains(event) else { throw NoSuchEvent() }
         nextListener += 1
         let id = nextListener
-        listeners[id] = (event, onEvent)
-        return { [weak self] in self?.listeners[id] = nil }
+        listeners[id] = (event, onEvent, false)
+        // A live listener uses the connection until it stops or pauses.
+        idle.begin()
+        return id
+    }
+
+    /// The idle close: ends the relay connection and its event reader. Every listener was paused or
+    /// stopped, so no page lost an event; a paused one resyncs on its thaw, and the page's re-read
+    /// opens a connection again (``relayConnection(_:)``) before it reads.
+    private func closeConnection() {
+        pump?.cancel()
+        pump = nil
+        guard let connection = relay else { return }
+        relay = nil
+        // task-owner: one close of the idle relay connection, off main; nothing waits for it
+        work.task(.bestEffort) { @Sendable in await connection.close() }
     }
 
     /// Delivers the relay connection's events to the listeners until the connection ends.
@@ -147,7 +179,9 @@ final class PageRelayChannel {
                             members.removeValue(forKey: "event")
                             payload = .object(members)
                         }
-                        for listener in self.listeners.values where listener.event == name { listener.deliver(payload) }
+                        for listener in self.listeners.values where listener.event == name && !listener.paused {
+                            listener.deliver(payload)
+                        }
                     default:
                         continue
                     }
@@ -156,8 +190,9 @@ final class PageRelayChannel {
         }
     }
 
+    /// Every live listener re-reads; a paused one resyncs on its page's thaw instead.
     private func resync() {
-        for listener in listeners.values { listener.deliver(.object(["resync": .bool(true)])) }
+        for listener in listeners.values where !listener.paused { listener.deliver(.object(["resync": .bool(true)])) }
     }
 
     /// Whether `context` carries a key or pointer event no earlier call spent.
@@ -168,7 +203,7 @@ final class PageRelayChannel {
     }
 
     /// The relay connection; it takes page calls only after its `client-hello` result.
-    private func relayConnection(_ service: DaemonService) async throws -> DaemonConnection {
+    private func relayConnection(_ service: any PageRelayDaemon) async throws -> DaemonConnection {
         if let relay, await relay.isReady { return relay }
         if let starting { return try await starting.value }
         guard let endpoint = service.endpointProvider else { throw DaemonError.notConnected }
@@ -202,5 +237,24 @@ final class PageRelayChannel {
             operation: operation, paramsSha256: try ResourceRelayClient.paramsDigest(params, operation: operation),
             relayConnectionID: relayID)
         return try await ResourceOperationClient(connection: main).read(request, as: V2OriginConfirmation.self).token
+    }
+}
+
+extension PageRelayChannel: PageRelayListeners {
+    func pauseListener(_ id: UInt64) {
+        guard listeners[id]?.paused == false else { return }
+        listeners[id]?.paused = true
+        idle.end()
+    }
+
+    func resumeListener(_ id: UInt64) {
+        guard listeners[id]?.paused == true else { return }
+        listeners[id]?.paused = false
+        idle.begin()
+    }
+
+    func stopListener(_ id: UInt64) {
+        guard let listener = listeners.removeValue(forKey: id) else { return }
+        if !listener.paused { idle.end() }
     }
 }

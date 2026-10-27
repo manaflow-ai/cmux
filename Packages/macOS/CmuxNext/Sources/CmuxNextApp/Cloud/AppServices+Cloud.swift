@@ -46,7 +46,7 @@ extension AppServices {
     var cloud: CloudService {
         if let cloudIfBuilt { return cloudIfBuilt }
         let cloud = CloudService(machines: machines, auth: cloudAuth, mainWork: mainWork, work: work, deadlines: mainDeadlines,
-                                 appEvents: appEvents, workspaceEvents: workspaceEvents)
+                                 appEvents: appEvents, workspaceEvents: workspaceEvents, deviceID: environment.cloudDeviceID)
         cloudIfBuilt = cloud
         cloud.applyPolicy(disabled: cloudPolicyDisabled)
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
@@ -58,7 +58,7 @@ extension AppServices {
     /// (``feedIfBuilt`` stays nil until then) with the `feed.github` setting already applied.
     var feed: FeedService {
         if let feedIfBuilt { return feedIfBuilt }
-        let feed = FeedService(auth: cloudAuth, deadlines: mainDeadlines, energy: mainWork.energy, shown: features.isEnabled(.hiddenPollPause) ? appVisibility.shownWindows : nil, showcase: environment.showcase, acpmuxEnvironment: QuitAgents.environment(self))
+        let feed = FeedService(auth: cloudAuth, deadlines: mainDeadlines, work: work, appEvents: appEvents, workspaceEvents: workspaceEvents, energy: mainWork.energy, shown: features.isEnabled(.hiddenPollPause) ? appVisibility.shownWindows : nil, showcase: environment.showcase, acpmuxEnvironment: QuitAgents.environment(self))
         feedIfBuilt = feed
         if let feedGitHub { feed.configureGitHub(enabled: feedGitHub.enabled, pollIntervalSeconds: feedGitHub.pollIntervalSeconds) }
         return feed

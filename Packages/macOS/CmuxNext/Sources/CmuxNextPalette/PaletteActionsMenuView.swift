@@ -34,6 +34,12 @@ final class PaletteActionsMenuView: NSView {
     private let separator = NSView()
     private var rowViews: [PaletteMenuRow] = []
     private var tracking: NSTrackingArea?
+    /// A press on a row: the selection follows a drag and the release runs the row it ends on.
+    private lazy var press = PalettePress(in: content, rows: { [weak self] in self?.rowViews ?? [] }, select: { [weak self] index in
+        self?.onHover?(index)
+    }, release: { [weak self] index in
+        self?.onRun?(index)
+    })
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -68,6 +74,11 @@ final class PaletteActionsMenuView: NSView {
     }
 
     func update(_ state: PaletteActionsMenuState, alternateID: String?) {
+        // The palette renders the open menu on every model change (a hover in the list, a ranked
+        // result); only a change of what the menu shows rebuilds its rows.
+        let next = Shown(state, alternateID: alternateID)
+        guard next != shown else { return }
+        shown = next
         title.stringValue = state.itemTitle
         filter.stringValue = state.filter.isEmpty ? PaletteStrings.searchActionsPlaceholder : state.filter
         filter.tone = state.filter.isEmpty ? .tertiary : .primary
@@ -76,13 +87,40 @@ final class PaletteActionsMenuView: NSView {
         rowViews = state.visibleCommands.enumerated().map { index, command in
             let keycaps: [String]? = index == 0 && state.filter.isEmpty ? ["↩"] : (command.id == alternateID ? ["⌘", "↩"] : nil)
             let row = PaletteMenuRow(command: command, keycaps: keycaps, isSelected: index == state.selectedIndex)
-            row.onPress = { [weak self] event in self?.track(event) }
             row.onCross = { [weak self] event in self?.hoverMoves.crossed(event) }
             row.onMove = { [weak self] event in self?.hoverMoves.moved(event) }
             content.addSubview(row)
             return row
         }
-        needsLayout = true
+        needsLayout = true // invalidate: new rows (the guard above)
+    }
+
+    /// What the menu shows of its state, as last applied.
+    private var shown: Shown?
+
+    private struct Shown: Equatable {
+        struct Row: Equatable {
+            var id: String
+            var title: String
+            var symbol: String?
+            var isDestructive: Bool
+        }
+
+        var itemID: String
+        var itemTitle: String
+        var filter: String
+        var selectedIndex: Int
+        var rows: [Row]
+        var alternateID: String?
+
+        init(_ state: PaletteActionsMenuState, alternateID: String?) {
+            itemID = state.itemID
+            itemTitle = state.itemTitle
+            filter = state.filter
+            selectedIndex = state.selectedIndex
+            rows = state.visibleCommands.map { Row(id: $0.id, title: $0.title, symbol: $0.symbol, isDestructive: $0.isDestructive) }
+            self.alternateID = alternateID
+        }
     }
 
     override func layout() {
@@ -122,7 +160,7 @@ final class PaletteActionsMenuView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }
@@ -137,16 +175,31 @@ final class PaletteActionsMenuView: NSView {
         onHover?(index)
     }
 
-    /// A press on a row: the selection follows a drag and the release runs the row it ends on.
-    private func track(_ event: NSEvent) {
+    // A press on a row is the menu's own: its selection rebuilds the rows while it is held.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return press.isOnRow(hit) ? self : hit
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard press.index(at: event) != nil else { return super.mouseDown(with: event) }
         hoverMoves.flush() // the frame's pending hover lands before the press
-        PalettePress.track(event, in: content, row: { point in
-            self.rowViews.firstIndex { $0.frame.contains(point) }
-        }, select: { index in
-            self.onHover?(index)
-        }, release: { index in
-            self.onRun?(index)
-        })
+        press.began(event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard press.isPressed else { return super.mouseDragged(with: event) }
+        press.dragged(event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard press.isPressed else { return super.mouseUp(with: event) }
+        press.ended(event)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { press.cancel() }
     }
 
     private func applyColors() {
@@ -157,9 +210,8 @@ final class PaletteActionsMenuView: NSView {
     }
 }
 
-/// One command row in the Actions menu.
+/// One command row in the Actions menu; its panel takes the presses on it (``PalettePress``).
 final class PaletteMenuRow: NSView {
-    var onPress: ((NSEvent) -> Void)?
     /// The pointer entered or left the row: a position like a move, for the menu's frame-aligned hover.
     var onCross: ((NSEvent) -> Void)?
     /// A pointer move over the row, for the menu's frame-aligned hover.
@@ -188,14 +240,10 @@ final class PaletteMenuRow: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
-    override func mouseDown(with event: NSEvent) {
-        onPress?(event)
-    }
-
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect],
                                        owner: self))
     }
 

@@ -1,4 +1,7 @@
+import CmuxNextCompat
 public import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// The Passwords page's saved sign-ins (plans/cmux-next/passwords.md 1.4): the fork's password
 /// core (API 18: `cmux_password_list`, `_remove`, `_exception_remove`, `_set_username`,
@@ -60,7 +63,7 @@ extension CEFEngine {
                                copy: @escaping (UnsafeRawBufferPointer) -> Void) async throws -> Bool {
         let shim = try await coreShim()
         let path = CEFRuntime.shared.profileCachePath(profile)
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<Bool, any Error>) in
             // SAFETY: the box keeps `copy` and calls it only with the reveal callback's live buffer (`finish`).
             let box = unsafe PasswordRevealBox(copy: copy, continuation: continuation)
             // SAFETY: the +1 retain is the reveal's context: the callback takes it back once
@@ -108,9 +111,7 @@ let cefPasswordRevealCallback: CEFShimLibrary.PasswordRevealCallback = { context
     // The shim calls back on the CEF UI thread, which is the main thread. Off it, the password is
     // dropped (never copied to another thread) and the reveal ends as not found.
     guard Thread.isMainThread else {
-        // main-proof: a DispatchQueue.main block runs on the main thread
-        DispatchQueue.main.async { MainActor.assumeIsolated { PasswordRevealBox.take(address)?.finish(nil) } }
-        return
+        return MainRunLoopBlock.perform { PasswordRevealBox.take(address)?.finish(nil) }
     }
     // Integers cross into the main-actor closure (a raw buffer is not Sendable); the closure runs
     // synchronously, while the bytes are still valid.
@@ -131,9 +132,9 @@ let cefPasswordRevealCallback: CEFShimLibrary.PasswordRevealCallback = { context
 @safe
 final class PasswordRevealBox {
     private let copy: (UnsafeRawBufferPointer) -> Void
-    private var continuation: CheckedContinuation<Bool, any Error>?
+    private var continuation: OnceContinuation<Bool, any Error>?
 
-    init(copy: @escaping (UnsafeRawBufferPointer) -> Void, continuation: CheckedContinuation<Bool, any Error>) {
+    init(copy: @escaping (UnsafeRawBufferPointer) -> Void, continuation: OnceContinuation<Bool, any Error>) {
         // SAFETY: the box only keeps the closure; `finish` calls it with a buffer valid for that call.
         unsafe self.copy = copy
         self.continuation = continuation

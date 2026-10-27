@@ -2,6 +2,8 @@
 //! checks and removes cmux-tui's journal hook entries and plugins in each
 //! provider's native config.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(test)]
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
@@ -999,15 +1001,17 @@ impl HermesReapState {
     }
 }
 
+/// The Hermes command's reader and reaper threads serve a helper child,
+/// which runs at `cmux_threads::HELPER_CHILD`.
+const HERMES_HELPER_QOS: cmux_threads::ThreadQos = cmux_threads::HELPER_CHILD;
+
 fn spawn_hermes_reaper(state: Arc<HermesReapState>) -> io::Result<()> {
     let reaper_state = Arc::clone(&state);
     if hermes_reaper_spawn_should_fail() {
         drop(reaper_state);
         return Err(io::Error::other("forced Hermes reaper spawn failure"));
     }
-    std::thread::Builder::new()
-        .name("hermes-command-reaper".into())
-        .spawn(move || reaper_state.reap())
+    cmux_threads::spawn("hermes-command-reaper", HERMES_HELPER_QOS, move || reaper_state.reap())
         .map(|_| ())
 }
 
@@ -1111,10 +1115,9 @@ fn run_hermes_command_with_timeout(
             anyhow::bail!("Hermes stderr pipe is unavailable");
         }
     };
-    let stdout = match std::thread::Builder::new()
-        .name("hermes-command-stdout".into())
-        .spawn(move || read_hermes_output(stdout_pipe, deadline))
-    {
+    let stdout = match cmux_threads::spawn("hermes-command-stdout", HERMES_HELPER_QOS, move || {
+        read_hermes_output(stdout_pipe, deadline)
+    }) {
         Ok(stdout) => stdout,
         Err(error) => {
             #[cfg(unix)]
@@ -1124,10 +1127,9 @@ fn run_hermes_command_with_timeout(
             return Err(error).context("start Hermes stdout reader");
         }
     };
-    let stderr = match std::thread::Builder::new()
-        .name("hermes-command-stderr".into())
-        .spawn(move || read_hermes_output(stderr_pipe, deadline))
-    {
+    let stderr = match cmux_threads::spawn("hermes-command-stderr", HERMES_HELPER_QOS, move || {
+        read_hermes_output(stderr_pipe, deadline)
+    }) {
         Ok(stderr) => stderr,
         Err(error) => {
             #[cfg(unix)]
@@ -2681,7 +2683,7 @@ fn lock_codex_config(lock_path: &Path) -> Option<fs::File> {
             Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
                 // Lock contention, not synchronization: flock has no
                 // wait-with-timeout, so poll at a short interval to a deadline.
-                std::thread::sleep(Duration::from_millis(25));
+                cmux_threads::checked::sync::sleep(Duration::from_millis(25));
             }
             Err(_) => return None,
         }
@@ -2910,7 +2912,7 @@ mod tests {
         );
         let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
         let started = Instant::now();
-        let worker = std::thread::spawn(move || {
+        let worker = cmux_threads::spawn("hermes-test-worker", HERMES_HELPER_QOS, move || {
             FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
             let result = run_hermes_command_with_timeout(
                 Path::new("/bin/sh"),
@@ -2918,7 +2920,8 @@ mod tests {
                 Duration::from_secs(2),
             );
             result_sender.send(result).unwrap();
-        });
+        })
+        .unwrap();
 
         let startup_deadline = Instant::now() + Duration::from_secs(1);
         let pid = loop {
@@ -3359,7 +3362,7 @@ mod tests {
         // thread with a bounded wait so a regression fails fast as a timeout
         // panic instead of hanging the suite.
         let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        cmux_threads::spawn("hooks-test-fifo", cmux_threads::ThreadQos::Utility, move || {
             let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
             let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
             let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
@@ -3368,7 +3371,8 @@ mod tests {
                 run_with_context(&install, &worker_context),
                 run_with_context(&uninstall, &worker_context),
             ));
-        });
+        })
+        .unwrap();
         let (status_result, install_result, uninstall_result) = receiver
             .recv_timeout(Duration::from_secs(60))
             .expect("codex operations must fail closed on a FIFO config instead of blocking");

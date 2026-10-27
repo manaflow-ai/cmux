@@ -198,10 +198,10 @@ impl Hub {
             sessions.insert(id.clone(), session.clone());
             session
         };
-        if let Err(e) = self.store.save(&session.meta()) {
-            self.sessions.lock().unwrap().remove(&id);
-            return Err(RpcError::internal(e.to_string()));
-        }
+        // On the record writer's thread (`meta_writer.rs`): two fsyncs no longer stand between
+        // the request and its reply. It is written well before the reply, which follows the
+        // agent's start; a disk error is logged there instead of failing the create.
+        self.save_meta(&session);
         // The chat's route is bound once the session exists and before its
         // harness starts, so its first spawn already runs on it (route_switch.rs).
         if let Some(route_id) = &route {
@@ -967,12 +967,13 @@ impl Hub {
         wait: bool,
         only: Option<std::collections::BTreeSet<String>>,
     ) {
-        // A probe starts the agent: none while launches are off (cx-9ettq).
-        if crate::launch_policy::agent_launch_disabled() {
+        // A probe starts the agent: only one the launch policy allows (cx-9ettq).
+        if crate::launch_policy::every_launch_denied() {
             tracing::info!("agent launch is disabled; model probes skipped");
             return;
         }
-        let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
+        let policy = crate::launch_policy::LaunchPolicy::current();
+        let picked = |n: &str| policy.allows(n) && only.as_ref().is_none_or(|o| o.contains(n));
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
             let known = self.known_models.lock().unwrap();
@@ -1039,7 +1040,7 @@ impl Hub {
         profile: &HarnessProfile,
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
+        let tap: crate::agent::Tap = Arc::new(|_, _, _| Some(crate::agent::WriteTicket::done()));
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await

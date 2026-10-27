@@ -14,7 +14,7 @@ final class SuggestionRowView: NSView {
     /// for the whole card with feature `pointerFrameHover` (Chromium's rAF-aligned moves,
     /// main_thread_event_queue.cc; boundary events from those moves, boundary_event_dispatcher.cc).
     /// A press flushes it first; the card flushes it when the pointer leaves the card.
-    weak var hoverMoves: PointerFrameHover?
+    weak var frameInputHover: PointerFrameHover?
     var isHighlighted = false {
         didSet {
             guard oldValue != isHighlighted else { return }
@@ -22,8 +22,14 @@ final class SuggestionRowView: NSView {
             updateFill()
         }
     }
-    var leadingIconCenter: CGFloat = 16 { didSet { needsLayout = true } }
-    var textLeading: CGFloat = 33 { didSet { needsLayout = true } }
+    var leadingIconCenter: CGFloat = 16 { didSet { if leadingIconCenter != oldValue { needsLayout = true } } }
+    var textLeading: CGFloat = 33 { didSet { if textLeading != oldValue { needsLayout = true } } }
+    /// The highlight's corner, concentric with the card's (`OmnibarStyle.rowCornerRadius`, which follows
+    /// the look live), set at each placement like the card's: a new radius reshapes the layer, no layout.
+    var cornerRadius: CGFloat = 0 { didSet { if cornerRadius != oldValue { layer?.cornerRadius = cornerRadius } } }
+    /// The label height the last layout framed: new text of the same height needs no layout, the
+    /// label repaints itself.
+    private var laidOutLabelHeight: CGFloat?
 
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
@@ -85,6 +91,7 @@ final class SuggestionRowView: NSView {
             iconKind = nil
             if let page, let source = faviconSource {
                 // task-owner: this row; cancelled when the row shows another page.
+                // main-hop-allow: the source is the tab's main-actor async favicon fetch (the request runs in the page's network stack); this task only starts it and shows the icon
                 faviconTask = Task { [weak self] in
                     let image = await source(page)
                     guard !Task.isCancelled, let self, self.faviconURL == page, let image else { return }
@@ -101,7 +108,8 @@ final class SuggestionRowView: NSView {
         title = suggestion.title
         detail = suggestion.detail
         applyColors()
-        needsLayout = true
+        // A typed character changes the text, not the frames: the label keeps its width and line.
+        if label.intrinsicContentSize.height != laidOutLabelHeight { needsLayout = true }
     }
 
     @available(*, unavailable)
@@ -127,10 +135,10 @@ final class SuggestionRowView: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = OmnibarStyle.rowCornerRadius
         let side: CGFloat = 16
         icon.frame = NSRect(x: (leadingIconCenter - side / 2).rounded(), y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
         let height = label.intrinsicContentSize.height
+        laidOutLabelHeight = height
         label.frame = NSRect(
             x: textLeading,
             y: ((bounds.height - height) / 2).rounded(),
@@ -142,7 +150,7 @@ final class SuggestionRowView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }
@@ -150,13 +158,14 @@ final class SuggestionRowView: NSView {
     // Crossing into or out of a row is a position like a move: the card's consumer coalesces it with the
     // moves around it, so a sweep across the rows reports at most twice a frame. A press is discrete: the
     // pending move lands first (`ShouldFlushQueue`).
-    override func mouseEntered(with event: NSEvent) { hoverMoves?.crossed(event) }
-    override func mouseMoved(with event: NSEvent) { hoverMoves?.moved(event) }
-    override func mouseExited(with event: NSEvent) { hoverMoves?.crossed(event) }
+    override func mouseEntered(with event: NSEvent) { frameInputHover?.crossed(event) }
+    override func mouseMoved(with event: NSEvent) { frameInputHover?.moved(event) }
+    override func mouseExited(with event: NSEvent) { frameInputHover?.crossed(event) }
     override func mouseUp(with event: NSEvent) { onClick?(event.modifierFlags) }
-    override func mouseDown(with event: NSEvent) { hoverMoves?.flush() }
+    override func mouseDown(with event: NSEvent) { frameInputHover?.flush() }
     override func accessibilityPerformPress() -> Bool { onClick?([]); return true }
 
+    // visibility-walk-allow: a row exists only in the open suggestion card, which shows while the bar edits; nothing hidden to defer
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

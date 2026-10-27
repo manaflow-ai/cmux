@@ -10,7 +10,8 @@ final class MainDeadlineRig {
     private let timer: HandFiredWakeUpTimer
     private let uptime: RigUptime
     private let queue: MainWakeUpQueue
-    private let work: MainWorkScheduler
+    /// The rig's scheduler: its posted work runs at ``frame()``.
+    let work: MainWorkScheduler
     private let budgetClock: RigUptime
     private let keeper: FrameClient
     private var frames: Double = 0
@@ -42,6 +43,13 @@ final class MainDeadlineRig {
     func fireAndRun() {
         if let date = timer.armedDate { uptime.now = max(uptime.now, date) }
         timer.armedDate = nil
+        queue.fire()
+        frame()
+    }
+
+    /// Fires the queue at the current uptime, as a wake that came before the armed date, and runs the posted actions
+    /// in one frame: only what is due by now runs, and the wake stays armed for the rest.
+    func fireAtNow() {
         queue.fire()
         frame()
     }

@@ -486,6 +486,12 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `cause` on each `subscribe` event line (cmux-tui/spec/events.md, "Event cause"): what set
     /// the event off, so the app schedules a person's changes first (``DaemonEvent/cause(wire:recorded:)``).
     case eventCause = "event-cause-v1"
+    /// `energy.set` and `energy.status`: the app's Energy Saver override (`EnergySetRequest.capability`;
+    /// cmux-tui-core server/energy_op.rs).
+    case energy = "energy-v1"
+    /// `energy.set {offForNow}`: "Turn Off for Now", kept by the daemon's own reading
+    /// (`EnergySetRequest.ruleCapability`; cmux-tui-core server/energy_rule.rs).
+    case energyRule = "energy-v2"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -534,10 +540,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .eventCause, .energy,
+             .energyRule:
             return .optional
-        case .eventCause:
-            return .unservedByBundledDaemon
         }
     }
 

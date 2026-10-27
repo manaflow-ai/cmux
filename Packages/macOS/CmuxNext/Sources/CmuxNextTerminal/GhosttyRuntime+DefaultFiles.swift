@@ -17,10 +17,12 @@ extension GhosttyRuntime {
         applicationSupportDirectory: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) {
-        ghostty_config_load_default_files(config)
+        // SAFETY: the caller passes a live config.
+        unsafe ghostty_config_load_default_files(config)
         if let directory = applicationSupportDirectory,
            let path = classicConfigPath(applicationSupportDirectory: directory, bundleIdentifier: bundleIdentifier) {
-            ghostty_config_load_file(config, path)
+            // SAFETY: the caller's live config; Swift passes a NUL-terminated copy of `path`.
+            unsafe ghostty_config_load_file(config, path)
         }
     }
 
@@ -45,12 +47,17 @@ extension GhosttyRuntime {
     /// `font-size` after the default files with `applicationSupportDirectory`, for tests.
     static func defaultFilesFontSize(applicationSupportDirectory: URL, bundleIdentifier: String? = nil) -> Float? {
         _ = shared // runs ghostty_init, which config_new needs
-        guard let config = ghostty_config_new() else { return nil }
-        defer { ghostty_config_free(config) }
-        loadDefaultFiles(into: config, applicationSupportDirectory: applicationSupportDirectory,
-                         bundleIdentifier: bundleIdentifier)
-        ghostty_config_finalize(config)
+        // SAFETY: a new config this function owns and frees once (defer), after its last use.
+        guard let config = unsafe ghostty_config_new() else { return nil }
+        // SAFETY: as above.
+        defer { unsafe ghostty_config_free(config) }
+        // SAFETY: as above.
+        unsafe loadDefaultFiles(into: config, applicationSupportDirectory: applicationSupportDirectory,
+                                bundleIdentifier: bundleIdentifier)
+        // SAFETY: as above.
+        unsafe ghostty_config_finalize(config)
         var size: Float = 0
-        return configGet(config, &size, key: "font-size") ? size : nil
+        // SAFETY: as above; font-size is a C float.
+        return unsafe configGet(config, &size, key: "font-size") ? size : nil
     }
 }

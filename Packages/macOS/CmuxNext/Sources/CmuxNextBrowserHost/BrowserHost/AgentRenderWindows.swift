@@ -121,6 +121,7 @@ package final class AgentRenderPanel: NSPanel {
         // presents on unhide).
         chrome.isHidden = false
         if let webView { makeFirstResponder(webView) }
+        // sync-layout: the parked page takes the viewport now; the agent's next call reads or captures it at that size.
         content.layoutSubtreeIfNeeded()
     }
 

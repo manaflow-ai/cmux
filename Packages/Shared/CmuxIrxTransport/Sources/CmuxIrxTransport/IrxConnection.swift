@@ -207,7 +207,7 @@ public actor IrxConnection {
     private var probeTask: Task<Bool, Never>?
     private var probeID: UUID?
     private var probeLane: IrxLaneStream?
-    private var closureWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var closureWaiters: [UUID: OnceContinuation<Void, OnceContinuationError>] = [:]
     private var cancelledClosureWaiters = Set<UUID>()
     private var closureWatcher: Task<Void, Never>?
 
@@ -285,9 +285,9 @@ public actor IrxConnection {
         if isClosed || cancelledClosureWaiters.remove(observationID) != nil {
             return
         }
-        await withCheckedContinuation { continuation in
+        try? await withOnceContinuation { continuation in
             if isClosed || cancelledClosureWaiters.remove(observationID) != nil {
-                continuation.resume()
+                continuation.resume(returning: ())
             } else {
                 closureWaiters[observationID] = continuation
             }
@@ -298,7 +298,7 @@ public actor IrxConnection {
     /// connection itself.
     public func cancelClosureObservation(observationID: UUID) {
         if let continuation = closureWaiters.removeValue(forKey: observationID) {
-            continuation.resume()
+            continuation.resume(returning: ())
         } else {
             cancelledClosureWaiters.insert(observationID)
         }
@@ -313,7 +313,7 @@ public actor IrxConnection {
         closureWaiters.removeAll(keepingCapacity: false)
         cancelledClosureWaiters.removeAll(keepingCapacity: false)
         for continuation in waiters.values {
-            continuation.resume()
+            continuation.resume(returning: ())
         }
         closureWatcher = nil
     }

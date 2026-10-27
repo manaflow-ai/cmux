@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextHibernation
 import CmuxNextWakeups
@@ -48,7 +49,7 @@ extension AgentPageHibernation {
         if let again = releaseOverLimit(live, at: current) { next = min(next ?? again, again) }
         deadlineDelay = next
         if let next {
-            deadline.scheduleOnMain(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
+            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
         } else {
             deadline.cancel()
         }
@@ -107,6 +108,7 @@ extension AgentPageHibernation {
     }
 
     private static func isOnScreen(_ view: AgentPaneView) -> Bool {
+        // visibility-walk-allow: the last check before a page is let go must see what still draws; a pane parks a hidden page in its window (isHidden), so the view tree says it, as a hit test reads it
         view.window != nil && !view.isHiddenOrHasHiddenAncestor
     }
 
@@ -115,7 +117,7 @@ extension AgentPageHibernation {
     static func frame(_ view: AgentPaneView) async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)? {
         let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
         let frame = try? await ControlDeadline.shared.run(method: "hibernation.agentSnapshot", deadline: .now + .seconds(2)) { @MainActor in
-            await view.pageImage().flatMap { image in image.cgImage(forProposedRect: nil, context: nil, hints: nil).map { ($0, image.size, appearance) } }
+            await view.pageImage().flatMap { image in image.bestCGImage.map { ($0, image.size, appearance) } }
         }
         return frame.flatMap { $0 }
     }

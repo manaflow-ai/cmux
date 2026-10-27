@@ -267,9 +267,12 @@ impl Hub {
             Err(done) => return done,
         };
         // Debug builds only: a test stops the daemon between a queued prompt's `dequeued` and
-        // its turn (`durable_agents.rs`). Release builds have no seam.
+        // its turn (`durable_agents.rs`), once that record is written: the log writer
+        // (`store/log_writer.rs`) is drained first, so the stop lands after the record, as the
+        // test means. Release builds have no seam.
         #[cfg(debug_assertions)]
         if waiting && std::env::var_os("ACPMUX_TEST_EXIT_AFTER_DEQUEUE").is_some() {
+            let _ = self.store.flush();
             // crash-allow: debug-build test seam; the test asks for this stop, like a crash
             std::process::exit(0);
         }
@@ -1178,8 +1181,20 @@ impl Hub {
                     host_seq: None,
                 }),
                 remote: None,
+                update_line: Default::default(),
+                summary: Default::default(),
             });
-            self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // After the last write of its record (`meta_writer.rs`), off the executor: the
+            // delete removes the session's folder.
+            let (store, id) = (self.store.clone(), session.id.clone());
+            let forget = self.meta_writer.forget_handle();
+            tokio::task::spawn_blocking(move || {
+                forget.forget(&id);
+                store.delete(&id)
+            })
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| RpcError::internal(e.to_string()))?;
             // The files dropped into the chat go with it (`file_uploads.rs`), unless the chat
             // itself comes back under this id.
             if !replaced {

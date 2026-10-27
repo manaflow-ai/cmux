@@ -33,13 +33,13 @@ struct AgentPageHibernationLifecycleTests {
         private let uptime: LifecycleRigUptime
 
         init(wake: AgentPaneWakeState? = nil) {
-            tabs = AgentTabStore(build: nil, registry: ActionRegistry(), webUI: .agentTabsTestHost(), input: InputEventTap(),
+            tabs = AgentTabStore(build: nil, registry: ActionRegistry(), work: BackgroundWork(label: "test.agent-pane"), webUI: .agentTabsTestHost(), input: InputEventTap(),
                                  environment: AgentPageAppTestRoot.environment, showcase: true)
             tabs.localHost = AgentPageHibernationLifecycleTests.thisMac
             turns.localHost = AgentPageHibernationLifecycleTests.thisMac
             turns.watching = true
             let tree = DaemonStore()
-            hibernation = AgentPageHibernation(tabs: { [tabs] in tabs })
+            hibernation = AgentPageHibernation(tabs: { [tabs] in tabs }, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
             let uptime = LifecycleRigUptime()
             self.uptime = uptime
             let queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }),
@@ -67,7 +67,7 @@ struct AgentPageHibernationLifecycleTests {
         /// A New Tab page of this Mac (no chat yet).
         func newTab(_ key: String) throws -> AgentPaneView {
             records[key] = AgentSessionRef(host: AgentPageHibernationLifecycleTests.thisMac, hostName: "This Mac", session: nil, harness: nil)
-            tabs.newTabPages[key] = (AgentPaneNewTab(kind: .agent), NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }))
+            tabs.newTabPages[key] = (AgentPaneNewTab(kind: .agent), NewTabPageHandler(open: { _, _ in }, jump: { _, _, _ in }, editShortcut: { _ in }))
             let view = try #require(tabs.view(for: key), "no page for \(key)")
             #expect(view.model.newTab != nil)
             return view

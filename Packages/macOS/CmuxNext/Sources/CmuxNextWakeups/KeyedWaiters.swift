@@ -1,3 +1,7 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+
 /// One-shot waits filed under the key whose change can satisfy them (plans/cmux-next/chrome-parity/
 /// p06-scheduler.md, section C): the engine under the store's waits (`StoreWaiters`, task 027) and a
 /// page's waits (`PageWaiters`, task 028).
@@ -28,7 +32,7 @@
     private var nextSerial: UInt64 = 0
     private var hasEnded = false
     /// ``untilPending(_:)`` calls waiting for a count.
-    private var pendingWatchers: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var pendingWatchers: [(count: Int, continuation: OnceContinuation<Void, OnceContinuationError>)] = []
     /// Waiter conditions read since creation, at registration and at settle (tests: a change of
     /// another key reads none).
     public private(set) var evaluations = 0
@@ -83,9 +87,13 @@
         nextSerial &+= 1
         let serial = nextSerial
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Value?, Never>) in
+            // A waiter dropped unresumed (abandoned) returns nil, as a timeout does.
+            try? await withOnceContinuation { (continuation: OnceContinuation<Value?, OnceContinuationError>) in
                 // Cancelled between the check above and here: the handler's hop finds nothing to drop.
-                guard !Task.isCancelled else { return continuation.resume(returning: nil) }
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
                 // Strong: the queue keeps the waiters until the deadline resumes this wait, whoever drops the owner.
                 let ticket = deadlines.schedule(owner: deadlineOwner, after: timeout) { self.abandon(slot, serial) }
                 let waiter = Waiter(
@@ -108,7 +116,7 @@
     /// Returns once at least `count` waiters are waiting (tests: a wait started in a task has filed itself).
     public func untilPending(_ count: Int) async {
         guard pendingCount < count else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             pendingWatchers.append((count, continuation))
         }
     }
@@ -119,7 +127,7 @@
         guard !pendingWatchers.isEmpty else { return }
         let ready = pendingWatchers.filter { $0.count <= pendingCount }
         pendingWatchers.removeAll { $0.count <= pendingCount }
-        for watcher in ready { watcher.continuation.resume() }
+        for watcher in ready { watcher.continuation.resume(returning: ()) }
     }
 
     private func abandon(_ slot: Slot, _ serial: UInt64) {

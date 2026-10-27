@@ -205,13 +205,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                             crate::config::home().join("bundles").join(format!("{peer}-{file}"))
                         }
                     };
-                    std::fs::create_dir_all(local.parent().unwrap())?;
+                    if let Some(parent) = local.parent() {
+                        tokio::fs::create_dir_all(parent).await?;
+                    }
                     let argv = crate::cli::hosts::scp_fetch_argv(
                         &url,
                         &remote_path,
                         &local.to_string_lossy(),
                     )?;
-                    let status = std::process::Command::new("scp").args(argv).status()?;
+                    let status = tokio::process::Command::new("scp").args(argv).status().await?;
                     if status.success() {
                         out["remotePath"] = json!(remote_path);
                         out["path"] = json!(local);
@@ -346,6 +348,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
                     }
+                    for line in crate::daemon_status::memory_lines(&v["memory"]) {
+                        println!("memory:   {line}");
+                    }
                     for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
                         println!(
                             "peer:     {} {} ({} sessions) {}",
@@ -375,7 +380,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Config => {
             let path = Config::path();
             if json_out {
-                let (written, config) = match std::fs::read_to_string(&path) {
+                let (written, config) = match tokio::fs::read_to_string(&path).await {
                     Ok(s) => (true, serde_json::from_str::<Value>(&s).unwrap_or(Value::String(s))),
                     Err(_) => (false, serde_json::to_value(Config::load()?)?),
                 };
@@ -385,7 +390,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 return Ok(());
             }
             println!("# {}", path.display());
-            match std::fs::read_to_string(&path) {
+            match tokio::fs::read_to_string(&path).await {
                 Ok(s) => println!("{s}"),
                 Err(_) => {
                     let cfg = Config::load()?;

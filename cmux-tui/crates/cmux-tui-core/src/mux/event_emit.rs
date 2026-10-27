@@ -8,6 +8,15 @@ impl Mux {
         self.subscribers.subscribe()
     }
 
+    /// A subscription that receives only events of `kinds` (a page relay's
+    /// interest set): the bus never queues the others for it.
+    pub(crate) fn subscribe_kinds(
+        &self,
+        kinds: crate::event_bus::MuxEventKinds,
+    ) -> MuxEventReceiver {
+        self.subscribers.subscribe_kinds(kinds)
+    }
+
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_config_reload()
     }

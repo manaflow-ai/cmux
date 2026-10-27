@@ -246,10 +246,10 @@ public final class FindPillView: NSView {
     ///   - canStep: The chevrons work; nil keeps them enabled exactly when `text` is not empty and
     ///     something matched.
     public func showCount(_ text: String, noMatches: Bool, canStep: Bool? = nil) {
-        if countLabel.stringValue != text {
-            countLabel.stringValue = text
-            superview?.needsLayout = true // hosts frame the pill to its fitting width
-        }
+        // The label's new intrinsic width reaches the pill and a host that pins it through the
+        // constraints; a host that frames the pill to its fitting width is told by its owner
+        // (TerminalFindBarView), never by the pill.
+        if countLabel.stringValue != text { countLabel.stringValue = text }
         showsNoMatches = noMatches
         let enabled = canStep ?? (!text.isEmpty && !noMatches)
         for button in stepButtons where button.isEnabled != enabled { button.isEnabled = enabled }
@@ -286,6 +286,7 @@ public final class FindPillView: NSView {
 
     // MARK: Theme
 
+    // visibility-walk-allow: color stores (tints, text and layer colors, the buttons' inks) for a few controls; the pill lives only while its find is open, so a deferral costs more
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -358,6 +359,8 @@ extension FindPillView: NSTextFieldDelegate {
     }
 
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        handleFieldCommand(selector, shift: NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
+        // The key the field editor is handling is the one the window's tap dispatched last.
+        let key = (window as? InputTapHosting)?.inputTap?.lastDispatched
+        return handleFieldCommand(selector, shift: key?.modifierFlags.contains(.shift) == true)
     }
 }

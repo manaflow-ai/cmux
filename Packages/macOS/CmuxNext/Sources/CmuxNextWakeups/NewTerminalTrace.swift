@@ -2,6 +2,9 @@ public import Foundation
 import CmuxNextCompat
 import CmuxNextSignposts
 import CmuxNextTrace
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A new terminal's stages, from the New Terminal Tab action to its first visible prompt (cx-6so.58).
 ///
@@ -119,7 +122,7 @@ extension NewTerminalTrace {
         var current: Record?
         var watch = Watch()
         var finished: [Record] = []
-        var waiter: CheckedContinuation<Void, Never>?
+        var waiter: OnceContinuation<Void, OnceContinuationError>?
         var expired = false
     }
 
@@ -143,7 +146,7 @@ extension NewTerminalTrace {
     /// Disarms the trace and keeps its record; nil when none ran.
     public func finish(timedOut: Bool) -> Record? {
         armed.store(false, ordering: .relaxed)
-        let (record, waiter) = state.withLock { state -> (Record?, CheckedContinuation<Void, Never>?) in
+        let (record, waiter) = state.withLock { state -> (Record?, OnceContinuation<Void, OnceContinuationError>?) in
             guard var record = state.current else { return (nil, nil) }
             record.timedOut = timedOut
             state.current = nil
@@ -153,7 +156,7 @@ extension NewTerminalTrace {
             defer { state.waiter = nil }
             return (record, state.waiter)
         }
-        waiter?.resume()
+        waiter?.resume(returning: ())
         return record
     }
 
@@ -274,7 +277,7 @@ extension NewTerminalTrace {
     /// first after the prompt's parse `prompt_contents`, which ends ``waitForPrompt(timeout:)``.
     public func contents(layer: ObjectIdentifier) {
         let now = Self.now()
-        let waiter = state.withLock { state -> CheckedContinuation<Void, Never>? in
+        let waiter = state.withLock { state -> OnceContinuation<Void, OnceContinuationError>? in
             guard var record = state.current, state.watch.layer == layer else { return nil }
             if record.marks[Mark.firstParsed.rawValue] != nil { record.set(.firstContents, now) }
             var prompted = false
@@ -287,7 +290,7 @@ extension NewTerminalTrace {
             defer { state.waiter = nil }
             return state.waiter
         }
-        waiter?.resume()
+        waiter?.resume(returning: ())
     }
 
     /// Returns once the trace marked `prompt_contents` (true), or after `timeout` (false).
@@ -298,7 +301,7 @@ extension NewTerminalTrace {
             expire()
         }
         defer { deadline.cancel() }
-        await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+        try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
             let resumeNow = state.withLock { state -> Bool in
                 guard !state.expired, let record = state.current, record.marks[Mark.promptContents.rawValue] == nil else {
                     return true
@@ -306,18 +309,18 @@ extension NewTerminalTrace {
                 state.waiter = waiter
                 return false
             }
-            if resumeNow { waiter.resume() }
+            if resumeNow { waiter.resume(returning: ()) }
         }
         return state.withLock { $0.current?.marks[Mark.promptContents.rawValue] != nil }
     }
 
     private func expire() {
-        let waiter = state.withLock { state -> CheckedContinuation<Void, Never>? in
+        let waiter = state.withLock { state -> OnceContinuation<Void, OnceContinuationError>? in
             state.expired = true
             defer { state.waiter = nil }
             return state.waiter
         }
-        waiter?.resume()
+        waiter?.resume(returning: ())
     }
 
     /// Runs `body` on the running trace's record and watch (nothing when none runs).

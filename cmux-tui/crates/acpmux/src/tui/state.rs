@@ -164,4 +164,7 @@ pub enum AppMsg {
     Info(String),
     Error(String),
     Created(String),
+    /// The process's memory pressure reached warning or worse (`tui_memory`):
+    /// lossless caches empty.
+    MemoryPressure,
 }

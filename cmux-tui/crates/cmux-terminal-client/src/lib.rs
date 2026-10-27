@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::future::Future;
@@ -42,6 +44,9 @@ use tokio::runtime::Runtime;
 use url::Url;
 use zeroize::Zeroizing;
 
+/// Teardown moved off the caller's thread so AppKit never waits on it; no
+/// one waits for it to finish.
+const TEARDOWN_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Utility;
 const CONNECTION_TIMEOUT_ERROR: &str = "terminal connection timed out";
 const INVALID_OPENED: &str = "terminal service returned an invalid Opened acknowledgement";
 /// Service rejection code a daemon returns for unknown open metadata.
@@ -1728,7 +1733,7 @@ pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTermin
     client.raw_output.set_callback(None, std::ptr::null_mut());
     // Connection teardown may wait on the carrier. Transfer ownership to a
     // background thread so the C call is nonblocking for AppKit.
-    let _ = std::thread::Builder::new().name("cmux-terminal-disconnect".into()).spawn(move || {
+    let _ = cmux_threads::spawn("cmux-terminal-disconnect", TEARDOWN_QOS, move || {
         let terminal = client.terminal.lock().unwrap().take();
         client.runtime.block_on(async {
             if let Some(terminal) = terminal {
@@ -2638,7 +2643,7 @@ pub unsafe extern "C" fn cmux_wireguard_net_free(net: *mut CmuxWireGuardNet) {
     let net = unsafe { Box::from_raw(net) };
     // The driver task lives on this runtime; drop it off the caller's thread so
     // an AppKit or UIKit caller never blocks on socket teardown.
-    let _ = std::thread::Builder::new().name("cmux-wireguard-free".into()).spawn(move || drop(net));
+    let _ = cmux_threads::spawn("cmux-wireguard-free", TEARDOWN_QOS, move || drop(net));
 }
 
 /// Installs the raw output callback, or clears it with NULL.

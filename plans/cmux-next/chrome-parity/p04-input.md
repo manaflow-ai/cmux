@@ -1306,6 +1306,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Change: the reader posts input frames with the fork's cmux_post_user_input_task (BrowserTaskTraits kUserInput),
   falling back to CefPostTask(TID_UI), chosen once at start with dlsym; t0 becomes the CEF event timestamp.
 - Acceptance: t0 used as the event time (diff); fallback chosen once, not per event.
+- Hand-off: InputTasks is the host's one input queue; HostInput's Post is `input_tasks.Post` once p01-process-042 starts the reader (042 drops its per-post PostInputTask). A refused task (UI thread shut down) is dropped: the BatchGate stays shut until HostInput::Stop, and nothing is posted to the other queue. Test: chromium_host_input_ring_test TestHostInputThroughInputTasks.
 - Test phase: GUI chromium-host-bench.py hop_us and key-to-paint before/after.
 - Size M. Depends: 063.
 

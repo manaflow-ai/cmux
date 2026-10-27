@@ -36,12 +36,31 @@ struct SidebarBitmapKey: Hashable, Sendable { // cmux: Sendable (Swift 6)
 /// Bitmaps of one sidebar, least recently used out first, with a byte budget. Main thread
 /// only (the render queue hands its results to the main thread).
 @MainActor // cmux: Swift 6 (main thread only, as above)
-final class SidebarBitmapCache {
+final class SidebarBitmapCache { // memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
     private var map: [SidebarBitmapKey: (image: CGImage, bytes: Int, used: UInt64)] = [:]
     private var clock: UInt64 = 0
     private(set) var bytes = 0
-    let budget: Int
-    init(budget: Int = 40 << 20) { self.budget = budget }
+    /// cmux: MessagesLab's 40 MB until the host sizes the cache (`setBudget(bytes:)`, p07-memory-081).
+    static let defaultBudget = 40 << 20
+    private(set) var budget: Int
+    init(budget: Int = SidebarBitmapCache.defaultBudget) { self.budget = budget }
+    /// cmux: the host's cap (p07-memory-081). Lowering it frees nothing: the next insert trims to it.
+    func setBudget(bytes: Int) { budget = max(0, bytes) }
+    /// cmux: frees the least recently used bitmaps until at most `fraction` of the bytes held now remain (0 frees
+    /// every one), off main (p07-memory-081). A row on screen keeps the bitmap its layer shows; the next pass draws
+    /// what is missing.
+    func trim(toFraction fraction: Double) {
+        guard !fraction.isNaN else { return }
+        let target = CrashGuard.int(Double(bytes) * min(max(fraction, 0), 1), in: 0...max(bytes, 0))
+        guard bytes > target else { return }
+        var dropped: [CGImage] = []
+        for (key, v) in map.sorted(by: { $0.value.used < $1.value.used }) where bytes > target {
+            map[key] = nil
+            bytes -= v.bytes
+            dropped.append(v.image)
+        }
+        SidebarDraw.release(dropped)
+    }
 
     func image(_ k: SidebarBitmapKey) -> CGImage? {
         guard var e = map[k] else { return nil }
@@ -128,8 +147,9 @@ enum SidebarDraw {
     // the UI font, or Helvetica at that size when Core Text returns none; held for the process.
     static func uiFont(_ type: CTFontUIFontType, _ size: CGFloat) -> CTFont {
         held(HeldFont(face: .ui(type.rawValue), size: size)) {
+            // SAFETY: CTFontCreateWithName's matrix pointer is nil (the identity matrix); Core Text reads nothing through it.
             // crash-allow: made once under the fonts lock and held for the process (cx-qpqs)
-            CTFontCreateUIFontForLanguage(type, size, nil) ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)
+            unsafe CTFontCreateUIFontForLanguage(type, size, nil) ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)
         }
     }
 
@@ -152,8 +172,9 @@ enum SidebarDraw {
     // emoji avatar fonts held per exact size, like the monogram fonts (avatar diameters are a few
     // fixed sizes, so the store stays small).
     static func emojiFont(_ size: CGFloat) -> CTFont {
+        // SAFETY: the matrix pointer is nil (the identity matrix); Core Text reads nothing through it.
         // crash-allow: made once under the fonts lock and held for the process (cx-qpqs)
-        held(HeldFont(face: .emoji, size: size)) { CTFontCreateWithName("AppleColorEmoji" as CFString, size, nil) }
+        held(HeldFont(face: .emoji, size: size)) { unsafe CTFontCreateWithName("AppleColorEmoji" as CFString, size, nil) }
     }
     static func monogramFont(_ size: CGFloat) -> CTFont {
         uiFont(.emphasizedSystem, (size * 2).rounded() / 2)
@@ -163,7 +184,9 @@ enum SidebarDraw {
     static func bitmap(size: CGSize, ctx: SidebarRenderContext, _ draw: (CGContext) -> Void) -> CGImage? { // nil when the bitmap cannot be allocated
         let w = max(1, CrashGuard.int((size.width * ctx.scale).rounded(.up))), h = max(1, CrashGuard.int((size.height * ctx.scale).rounded(.up))) // no trap on NaN
         // no force unwraps; an allocation that fails draws nothing (logged once).
-        guard let g = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: ctx.space,
+        // SAFETY: the data pointer is nil, so Core Graphics allocates the pixels, owns them and frees them with the
+        // context; no memory of the caller is read or written.
+        guard let g = unsafe CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: ctx.space,
                                 bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else {
             return SidebarBitmapFailure.checked(nil, size: size)
         }
@@ -179,7 +202,10 @@ enum SidebarDraw {
             NSAttributedString.Key(kCTFontAttributeName as String): font,
             NSAttributedString.Key(kCTForegroundColorAttributeName as String): color]))
     }
-    static func width(_ l: CTLine) -> CGFloat { CGFloat(CTLineGetTypographicBounds(l, nil, nil, nil)) }
+    static func width(_ l: CTLine) -> CGFloat {
+        // SAFETY: the three out-pointers are nil, which Core Text documents as "not wanted"; nothing is written.
+        CGFloat(unsafe CTLineGetTypographicBounds(l, nil, nil, nil))
+    }
     static func truncated(_ l: CTLine, _ w: CGFloat, _ font: CTFont, _ color: CGColor) -> CTLine {
         guard width(l) > w else { return l }
         return CTLineCreateTruncatedLine(l, Double(max(1, w)), .end, line("…", font, color)) ?? l
@@ -223,7 +249,8 @@ enum SidebarDraw {
             g.saveGState()
             g.addEllipse(in: r); g.clip()
             // an optional gradient draws nothing when it fails (SidebarCrashSafe).
-            let grad = CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])
+            // SAFETY: Core Graphics reads one location per color, 2, the locations array's count, during the call only.
+            let grad = unsafe CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])
             g.drawLinearGradient(grad, start: CGPoint(x: r.midX, y: r.minY), end: CGPoint(x: r.midX, y: r.maxY), options: [])
             g.restoreGState()
             let font = monogramFont((r.width * 0.42).rounded()) // held, no force unwrap (cx-qpqs)
@@ -493,7 +520,8 @@ enum SidebarDraw {
         return bitmap(size: CGSize(width: bw2 + 1, height: bh + 5), ctx: ctx) { g in
             let br = CGRect(x: 1, y: 0, width: bw2, height: bh)
             g.setFillColor(p.bubble)
-            g.addPath(CGPath(roundedRect: br, cornerWidth: min(10, bh / 2), cornerHeight: min(10, bh / 2), transform: nil)); g.fillPath()
+            // SAFETY: the transform pointer is nil, so Core Graphics reads no memory through it.
+            g.addPath(unsafe CGPath(roundedRect: br, cornerWidth: min(10, bh / 2), cornerHeight: min(10, bh / 2), transform: nil)); g.fillPath()
             // The tail at the lower left, toward the avatar (as an incoming bubble's; to verify).
             g.addPath(tailPath(bubbleBottomLeft: CGPoint(x: br.minX, y: br.maxY))); g.fillPath()
             for (i, l) in lines.enumerated() { draw(l, x: br.minX + 8, baseline: 13 + CGFloat(i) * 13 - 1, g) }

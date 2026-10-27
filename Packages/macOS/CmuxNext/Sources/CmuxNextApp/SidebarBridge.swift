@@ -8,6 +8,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextFeatures
+import CmuxNextLaunch
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -69,7 +70,10 @@ final class SidebarBridge {
         let frames = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: services.mainWork), causes = services.mainWork.causes
         rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) },
                                  observations: services.mainWork.observationOwner("SidebarRows"))
-        container = SidebarContainerView(model: model, mainWork: services.mainWork, newRows: PendingWorkspaceRows.shared.newRows)
+        container = SidebarContainerView(model: model, deadlines: services.mainDeadlines, appEvents: services.appEvents,
+                                         newRows: PendingWorkspaceRows.shared.newRows)
+        // Only the rows the clip shows get views until startup completes (p08-startup-064); the counts go to `debug.startup` and the bench.
+        container.sidebarView.followLaunch(services.launchStartup) { [values = services.launchValues] in values.recordSidebarLaunchRows(built: $0.built, visible: $0.visible) }
         // The resize edge moves the width once per frame (feature `pointerFrameDrags`).
         container.resizeFrameInput = services.dragFrameInput
         model.onIntent = { [weak self] intent in self?.handle(intent) }

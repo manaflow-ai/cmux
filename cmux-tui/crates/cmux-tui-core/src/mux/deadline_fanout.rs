@@ -3,8 +3,9 @@
 //! unscheduled results in input order. Cell pixel and kitty budget updates use
 //! it so one slow surface cannot stall the rest.
 
+use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Most jobs admitted at once (queued plus running), and most worker threads.
@@ -18,7 +19,6 @@ pub(super) struct DeadlineFanoutState {
     jobs: VecDeque<DeadlineFanoutJob>,
     worker_count: usize,
     pub(super) admitted_jobs: usize,
-    next_worker: u64,
     shutdown: bool,
 }
 
@@ -59,12 +59,11 @@ impl DeadlineFanoutPool {
         if state.jobs.len() + 1 > available_workers
             && state.worker_count < CELL_PIXEL_FANOUT_MAX_WORKERS
         {
-            let worker_index = state.next_worker;
-            state.next_worker = state.next_worker.wrapping_add(1);
             state.worker_count += 1;
             let inner = self.inner.clone();
+            // The pool's workers share one name; server.threads counts them.
             if std::thread::Builder::new()
-                .name(format!("mux-deadline-{worker_index}"))
+                .name("mux-deadline".into())
                 .spawn(move || deadline_fanout_worker(inner))
                 .is_err()
             {

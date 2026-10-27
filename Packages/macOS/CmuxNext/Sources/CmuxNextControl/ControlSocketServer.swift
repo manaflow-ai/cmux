@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import Darwin
 import CmuxNextWakeups
 import CmuxNextCompat
+public import CmuxNextTrace
 
 /// The app control socket: a Unix stream socket speaking the old app's
 /// line protocol (one v2 JSON request per line, one JSON response line per
@@ -21,6 +22,10 @@ import CmuxNextCompat
 /// from a process running one of `trustedExecutables`, the bundled cmux
 /// binary that hosts every terminal), and `automation` admits the same user.
 /// The socket file is always 0600.
+///
+/// Hang watch: the accept queue is one hang-watched lane, each accept pass and each socket-path watch job (a
+/// restore binds on disk) one scope of ``acceptHangDeadline``, and each connection's queue is a lane of its own (``ControlConnection``), as
+/// Chrome watches each task of its IO thread (base/threading/hang_watcher.h, `ThreadType::kIOThread`).
 public final class ControlSocketServer: Sendable {
     public struct Configuration: Sendable {
         public var path: String
@@ -92,6 +97,12 @@ public final class ControlSocketServer: Sendable {
     public let configuration: Configuration
     public let router: ControlRouter
     private let acceptQueue = DispatchQueue(label: "com.cmuxterm.next.control.accept", qos: .utility)
+    /// The hang watch the accept lane and each connection's lane register on; nil watches nothing.
+    private let hangs: (any HangWatchScoping)?
+    /// The accept queue's lane: each accept pass is one scope.
+    private let acceptWatched: HangWatchedLane?
+    /// One accept pass's budget (a jank past it, a hang dump 2 s later): every call in it is non-blocking.
+    static let acceptHangDeadline: Duration = .seconds(1)
     private let state = Mutex(ServerState())
 
     struct ServerState {
@@ -117,21 +128,26 @@ public final class ControlSocketServer: Sendable {
     /// Puts the socket file back when something deletes it (``ControlSocketPathWatch``).
     private let pathWatch = Mutex<[ControlSocketPathWatch]>([])
 
-    public convenience init(configuration: Configuration, router: ControlRouter) {
+    /// - Parameter hangs: Watches each accept pass and each connection's jobs; nil (the default) watches nothing.
+    ///   The app passes `TraceRuntime.shared.hangWatch`, which its hang monitor reads.
+    public convenience init(configuration: Configuration, router: ControlRouter, hangs: (any HangWatchScoping)? = nil) {
         // SAFETY: with a nil address and length, accept(2) writes nothing back.
-        self.init(configuration: configuration, router: router, accept: { unsafe accept($0, nil, nil) })
+        self.init(configuration: configuration, router: router, accept: { unsafe accept($0, nil, nil) }, hangs: hangs)
     }
 
     init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall,
-         bind: @escaping BindCall = { $1.bind($0) }) {
+         bind: @escaping BindCall = { $1.bind($0) }, hangs: (any HangWatchScoping)? = nil) {
         self.configuration = configuration
         self.router = router
         self.acceptCall = accept
         self.bindCall = bind
+        self.hangs = hangs
+        acceptWatched = hangs.map { HangWatchedLane("control.accept", deadline: Self.acceptHangDeadline, on: $0) }
     }
 
     deinit {
         stop()
+        acceptWatched?.unregister()
     }
 
     public var isRunning: Bool { state.withLock { $0.listener != nil } }
@@ -195,10 +211,11 @@ public final class ControlSocketServer: Sendable {
         }
         router.setTransportInfo(socketPath: path, accessMode: configuration.accessMode.rawValue)
         source.resume()
-        var watches = [ControlSocketPathWatch(path: path, queue: acceptQueue) { [weak self] in self?.restoreSocket() ?? true }]
+        var watches = [ControlSocketPathWatch(path: path, queue: acceptQueue, lane: acceptWatched) { [weak self] in self?.restoreSocket() ?? true }]
         if let link = configuration.compatibilityLink {
             // The link yields to another app's live socket at its path: no /tmp watch for it.
-            watches.append(ControlSocketPathWatch(path: link, queue: acceptQueue, yieldsToHeldPath: true) { Self.makeLink(link, to: path) })
+            let linkWatch = ControlSocketPathWatch(path: link, queue: acceptQueue, lane: acceptWatched, yieldsToHeldPath: true) { Self.makeLink(link, to: path) }
+            watches.append(linkWatch)
         }
         pathWatch.withLock { $0 = watches }
         watches.forEach { $0.start() }
@@ -214,7 +231,7 @@ public final class ControlSocketServer: Sendable {
     /// The accept source of a listening descriptor, not yet resumed; its cancel closes the descriptor.
     private func acceptSource(_ descriptor: Int32) -> any DispatchSourceRead {
         let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: acceptQueue)
-        source.setEventHandler { [weak self] in self?.acceptPending(listener: descriptor) }
+        source.setEventHandler { [weak self] in self?.watchedAccept(listener: descriptor) }
         source.setCancelHandler { close(descriptor) }
         return source
     }
@@ -311,6 +328,12 @@ public final class ControlSocketServer: Sendable {
         }
     }
 
+    /// One accept pass, in one scope of the accept lane.
+    private func watchedAccept(listener: Int32) {
+        guard let acceptWatched else { return acceptPending(listener: listener) }
+        acceptWatched.run { acceptPending(listener: listener) }
+    }
+
     /// Accepts every waiting connection. The listener is non-blocking and
     /// its read source level-triggered, so each exit path either drained
     /// the backlog (EAGAIN: wait for readiness) or stops the source: a
@@ -349,7 +372,7 @@ public final class ControlSocketServer: Sendable {
                 defer { state.nextConnection += 1 }
                 return ControlConnectionID(rawValue: state.nextConnection)
             }
-            let connection = ControlConnection(id: id, descriptor: client, limits: limits, onClosed: { [weak self] in
+            let connection = ControlConnection(id: id, descriptor: client, limits: limits, hangs: hangs, onClosed: { [weak self] in
                 _ = self?.state.withLock { $0.connections.removeValue(forKey: id) }
                 // A request still waiting for this client (a confirmation sheet) ends now.
                 ControlConnectionClosures.shared.closed(id)
