@@ -44,6 +44,8 @@ pub(super) fn start_worker(
     filter: Arc<Mutex<Option<RequestFilter>>>,
     cors: Arc<Mutex<Cors>>,
 ) -> Result<mpsc::Sender<PausedRequest>, DriverError> {
+    // unbounded-allow: one item per request Chrome paused; Chrome holds each until this worker
+    // answers it, so the page's open requests bound it
     let (tx, rx) = mpsc::channel::<PausedRequest>();
     std::thread::Builder::new()
         .name("cmux-browser-host-cdp-requests".into())

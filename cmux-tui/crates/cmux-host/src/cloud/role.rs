@@ -247,6 +247,7 @@ impl Role for CloudRole {
         let (ours, theirs) = UnixStream::pair().map_err(|e| RoleError(e.to_string()))?;
         let paths = self.paths.clone();
         let heartbeat_env = std::env::var(HEARTBEAT_ENV).ok();
+        // unbounded-allow: never sent on: the worker's drop of the sender is the signal
         let (done_tx, done) = std::sync::mpsc::channel::<()>();
         let github_stop = Arc::new(Stop::default());
         let worker_stop = Arc::clone(&github_stop);

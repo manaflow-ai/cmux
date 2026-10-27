@@ -57,6 +57,8 @@ pub(super) fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
     let n = tunable("MUX2_PARSE_WORKERS", cores.saturating_sub(1).min(8));
     (0..n)
         .map(|i| {
+            // unbounded-allow: one job per terminal per read batch; the loop waits for the batch's
+            // inflight count to reach zero before the next
             let (tx, rx) = std::sync::mpsc::channel::<ParseJob>();
             // Output parsing the person waits for: UserInitiated, not the
             // closed user-interactive list (threading-model.md).

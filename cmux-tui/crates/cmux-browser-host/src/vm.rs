@@ -87,6 +87,8 @@ pub struct VmSession {
 
 impl VmSession {
     pub fn spawn(config: VmConfig, host: Arc<dyn VmHost>) -> io::Result<VmSession> {
+        // unbounded-allow: evals wait for their answer; events come from the CDP event thread,
+        // which must never wait (see cdp/dispatch.rs)
         let (tx, rx) = mpsc::channel();
         let loop_tx = tx.clone();
         std::thread::Builder::new()
@@ -102,6 +104,7 @@ impl VmSession {
 
     /// `eval` with runtime options (`{"maxOutput": n}`, 0 for no limit).
     pub fn eval_with(&self, code: &str, timeout: Duration, options: &Value) -> EvalOutcome {
+        // unbounded-allow: one message, the eval's answer
         let (reply, wait) = mpsc::channel();
         let input =
             Input::Eval { code: code.to_owned(), options: options.to_string(), timeout, reply };

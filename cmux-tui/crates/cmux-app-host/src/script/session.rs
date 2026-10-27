@@ -323,6 +323,7 @@ impl Session {
             router,
             log,
         });
+        // unbounded-allow: one message, the runtime's ready or failure
         let (ready_tx, ready_rx) = mpsc::channel();
         let reader_shared = shared.clone();
         let spawned = cmux_threads::spawn("cmux-script-host", SCRIPT_THREAD_QOS, move || {
@@ -392,6 +393,7 @@ impl Session {
             return Err(ScriptError::new(codes::BUSY, "another cell of this session is running"));
         };
         let cb = self.next_cb.fetch_add(1, Ordering::Relaxed);
+        // unbounded-allow: one message, this cell's answer
         let (tx, rx) = mpsc::channel();
         {
             let mut waiters = lock(&self.shared.waiters);

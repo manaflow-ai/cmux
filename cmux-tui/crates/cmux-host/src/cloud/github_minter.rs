@@ -92,6 +92,8 @@ impl<H: Http + Send + 'static> Minter<H> {
     /// journal lines (repo, permissions and outcome; never a token). Once
     /// `stop` is set no token is handed out.
     pub fn spawn(now: fn() -> u64, log: fn(&str), stop: Arc<Stop>) -> io::Result<Minter<H>> {
+        // unbounded-allow: asks are capped at MAX_PENDING (`ask` answers busy past it); one Bound
+        // per bind
         let (tx, rx) = mpsc::channel();
         let pending = Arc::new(AtomicUsize::new(0));
         let (counter, stopping) = (Arc::clone(&pending), Arc::clone(&stop));

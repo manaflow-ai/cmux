@@ -149,6 +149,8 @@ impl SimNet {
         if inner.endpoints.contains_key(&addr) {
             return Err(io::Error::new(io::ErrorKind::AddrInUse, format!("{addr} is bound")));
         }
+        // unbounded-allow: test network only (`testing`): a test sends a bounded number of
+        // datagrams
         let (sender, receiver) = mpsc::unbounded_channel();
         inner.generation += 1;
         let generation = inner.generation;
@@ -236,6 +238,7 @@ impl SimNet {
 /// due time. The destination is looked up at delivery, so a datagram in
 /// flight to a socket that has gone is dropped, as UDP would.
 fn spawn_delay_line(net: SimNet, to: SocketAddr) -> mpsc::UnboundedSender<(Instant, Delivery)> {
+    // unbounded-allow: test network only (`testing`): a test sends a bounded number of datagrams
     let (sender, mut receiver) = mpsc::unbounded_channel::<(Instant, Delivery)>();
     tokio::spawn(async move {
         while let Some((at, delivery)) = receiver.recv().await {

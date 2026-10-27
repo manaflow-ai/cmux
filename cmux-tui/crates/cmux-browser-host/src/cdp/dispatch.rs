@@ -18,6 +18,8 @@ pub(super) enum Dispatch {
 
 /// Starts the event thread for `sink`.
 pub(super) fn start(sink: EventSink) -> Result<mpsc::Sender<Dispatch>, DriverError> {
+    // unbounded-allow: fed by the CDP reader thread, which must never wait: the sink may wait on a
+    // CDP reply that only that thread reads
     let (tx, rx) = mpsc::channel::<Dispatch>();
     std::thread::Builder::new()
         .name("cmux-browser-host-cdp-events".into())

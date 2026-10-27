@@ -71,6 +71,8 @@ pub struct Supervisor {
 
 impl Supervisor {
     pub fn start(paths: RolePaths) -> std::io::Result<Supervisor> {
+        // unbounded-allow: one Apply per role set change and one StopAll, Health or Exit per
+        // caller, who waits for its answer
         let (tx, rx) = mpsc::channel();
         let loop_tx = tx.clone();
         let thread =
@@ -88,6 +90,7 @@ impl Supervisor {
     /// Stops every role by `deadline` (SIGTERM, SIGKILL after each role's
     /// grace). Returns the roles still running at the deadline.
     pub fn stop_all(&self, deadline: Instant) -> Vec<String> {
+        // unbounded-allow: one message, the answer
         let (done, wait) = mpsc::channel();
         if self.tx.send(Msg::StopAll { deadline, done }).is_err() {
             return Vec::new();
@@ -97,6 +100,7 @@ impl Supervisor {
     }
 
     pub fn health(&self) -> Vec<RoleHealth> {
+        // unbounded-allow: one message, the answer
         let (reply, wait) = mpsc::channel();
         if self.tx.send(Msg::Health(reply)).is_err() {
             return Vec::new();

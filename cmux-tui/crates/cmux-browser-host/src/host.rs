@@ -371,6 +371,7 @@ impl Host {
         let vm = VmSession::spawn(config, gate.clone())
             .map_err(|e| DriverError::closed(format!("could not start the session: {e}")))?;
         // Forward masked driver events into the VM from one thread per session.
+        // unbounded-allow: fed by the CDP event thread, which must never wait (see cdp/dispatch.rs)
         let (tx, rx) = std::sync::mpsc::channel::<DriverEvent>();
         let events_vm = vm.events();
         std::thread::Builder::new()
