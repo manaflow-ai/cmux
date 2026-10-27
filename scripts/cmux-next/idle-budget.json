@@ -142,7 +142,8 @@
     {"owner": "ErrorJournalService.harvest", "period_s": 300, "why": "harvests crash and error reports written by other processes; task 064 moves it to NSBackgroundActivityScheduler"},
     {"owner": "GitHubFeedSource.refresh", "period_s": 120, "why": "GitHub has no push for the feed; task 066 stops it while no feed surface shows"},
     {"owner": "DeviceHubSocket.ping", "period_s": 30, "why": "PROTOCOL.md keepalive of the device hub; task 066 sends it only after silence"},
-    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"}
+    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"},
+    {"owner": "MemoryGuard.sample", "period_s": 300, "why": "the headless owner samples its own memory every 5 minutes (tui-tester-rollout.md #9; the same 300 s wake it had with thread::sleep); a stop ends the wait at once (p10-stability-113)"}
   ],
   "assertions_allowed_when": ["sessions.keepAwake", "phone.keepAwake"]
 }

@@ -161,7 +161,7 @@ where
                 {
                     (watch.alert)(memory, crossed);
                 }
-                // wakeup-allow: interval the sample period; a stop request unparks it at once.
+                // wakeup-allow: periodic MemoryGuard.sample (every 300 s; a stop request unparks it at once)
                 if stop.wait_timeout(watch.interval) {
                     return;
                 }
