@@ -236,7 +236,7 @@ of these owners (9.6). The list now:
 
 | Owner | Period | Why it stays |
 | --- | --- | --- |
-| `ErrorJournalService.harvest` | 300 s | It collects the crash and error reports that other processes write; p14-energy-066a moves it to `NSBackgroundActivityScheduler` |
+| `ErrorJournalService.harvest` | 300 s | It collects the crash and error reports that other processes write; `NSBackgroundActivityScheduler` runs it (tolerance 120 s), and a run reads the logs only when a watched log folder changed (p14-energy-066a, landed) |
 | `GitHubFeedSource.refresh` | 120 s | GitHub has no push for the feed; p14-energy-032 (landed) stops it while no cmux window shows, 066b moves it to `NSBackgroundActivityScheduler` |
 | `DeviceHubSocket.ping` | 30 s | The device hub keepalive (PROTOCOL.md); p14-energy-066c sends it only after silence |
 | `ControlEventBus.heartbeat` | 15 s | The `events.stream` `include_heartbeats` keepalive, only while a client asks for it and stays connected |

@@ -1,38 +1,72 @@
 import CmuxNextCompat
 import CmuxNextErrorJournal
+import CmuxNextFiles
 import CmuxNextHomeEngine
 import CmuxNextWakeups
 import Foundation
 
 /// Owns this build's ``ErrorJournal`` and the places it harvests: the app's own unified log
 /// (page console errors included), the Chief's acpmux `daemon.log`, `host.log` and
-/// `client.log`, the app's own acpmux log, and cmux crash reports. Harvests every
-/// ``harvestInterval`` (times the Energy Saver's ``EnergyPolicy/pollStretch``) and before every
-/// `errors.list`.
+/// `client.log`, the app's own acpmux log, and cmux crash reports. Harvests once at ``start()``,
+/// then on the system's background activity scheduler when a watched log changed, and before
+/// every `errors.list`.
 ///
 /// The journal lives in `~/Library/Application Support/<bundle id>/errors`, one per build.
 @MainActor
 final class ErrorJournalService {
+    /// One watched folder and the names of the items in it that matter; nil names: any item.
+    nonisolated struct Watch: Sendable, Equatable {
+        let folder: URL
+        let names: Set<String>?
+
+        /// Whether `change` touches an item that matters.
+        func matters(_ change: FolderChange) -> Bool {
+            guard case .items(let items) = change, let names else { return true }
+            return !names.isDisjoint(with: items)
+        }
+    }
+
     let journal: ErrorJournal
     let sources: [any ErrorHarvestSource]
-    /// The clock the periodic harvest sleeps on; tests pass a `ManualClock`.
-    private let clock: any Clock<Duration>
-    private let ledger: WakeupLedger
-    /// The app's Energy Saver policy, read at each booking.
+    /// The folders whose changes make the next scheduled run harvest.
+    let watched: [Watch]
+    /// The app's Energy Saver policy: its poll stretch multiplies the cadence, and its pause holds it.
     private let energy: EnergyPolicySource
-    /// The cadence between ``start()`` and ``stop()``.
-    private var cadence: HarvestCadence?
+    private let activities: any BackgroundActivityScheduling
+    private let folders: any FolderWatching
+    private let activityID: String
+    private var harvester: Harvester?
+    private var activity: (any BackgroundActivityRun)?
+    /// The poll stretch ``activity`` was scheduled with; nil while no activity is scheduled.
+    private var scheduledStretch: Int?
+    private var energyObservation: MainActorEnergyObservation?
+    /// The harvest that ``start()`` runs at once.
+    private(set) var launchHarvest: Task<Void, Never>?
+    /// One task for each of ``watched``, iterating that folder's changes off the main thread.
+    private(set) var watches: [Task<Void, Never>] = []
 
-    /// How often the journal reads its sources while the app runs.
+    /// The time between two scheduled runs (times the saver's ``EnergyPolicy/pollStretch``).
     nonisolated static let harvestInterval: Duration = .seconds(300)
+    /// How far the system can move a run from its due time (times the saver's stretch).
+    nonisolated static let harvestTolerance: Duration = .seconds(120)
+    /// The FSEvents latency of the folder watches, ``harvestInterval``: however often a folder's logs are
+    /// written, its watch wakes at most once in each interval, and the first change after a quiet interval
+    /// comes at once (`kFSEventStreamCreateFlagNoDefer`).
+    nonisolated static let watchLatency: CFTimeInterval = 300
+    /// The ``WakeupLedger`` owner of each run (idle-budget.json `allowed_periodic`).
+    nonisolated static let owner = "ErrorJournalService.harvest"
 
-    init(journal: ErrorJournal, sources: [any ErrorHarvestSource], energy: EnergyPolicySource,
-         clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared) {
+    init(journal: ErrorJournal, sources: [any ErrorHarvestSource], watched: [Watch], energy: EnergyPolicySource,
+         activities: any BackgroundActivityScheduling = SystemBackgroundActivityScheduler(),
+         folders: any FolderWatching = FolderWatcher(latency: ErrorJournalService.watchLatency),
+         activityID: String = "com.cmuxterm.app.error-journal.harvest") {
         self.journal = journal
         self.sources = sources
+        self.watched = watched
         self.energy = energy
-        self.clock = clock
-        self.ledger = ledger
+        self.activities = activities
+        self.folders = folders
+        self.activityID = activityID
     }
 
     /// The journal folder of a build.
@@ -47,68 +81,112 @@ final class ErrorJournalService {
         let chief = ChiefHome.resolve(tag: environment.tag)
         // A Chief on the app's own acpmux has no daemon log of its own: the app's below is its.
         let chiefAcpmuxLog = chief.usesAppAcpmux ? nil : chief.acpmuxHome.appendingPathComponent("daemon.log")
-        var sources: [any ErrorHarvestSource] = [
-            OSLogErrorSource(),
+        let crashReports = CrashReportErrorSource()
+        var logs = [
             LogFileErrorSource(url: chief.root.appendingPathComponent("host.log"), source: "chief"),
             LogFileErrorSource(url: chief.root.appendingPathComponent("client.log"), source: "chief"),
-            CrashReportErrorSource(),
         ]
-        if let chiefAcpmuxLog { sources.insert(LogFileErrorSource(url: chiefAcpmuxLog, source: "acpmux"), at: 1) }
+        if let chiefAcpmuxLog { logs.insert(LogFileErrorSource(url: chiefAcpmuxLog, source: "acpmux"), at: 0) }
         // The app's own acpmux, in this build's home (BuildIdentity: NIGHTLY's ~/.acpmux, any other build's
         // ~/.acpmux/builds/<key>, as AcpmuxEnvironment starts it), when it is not the Chief's.
         let appAcpmux = environment.build.acpmuxHome(userHome: FileManager().homeDirectoryForCurrentUser).appendingPathComponent("daemon.log")
         if appAcpmux.standardizedFileURL != chiefAcpmuxLog?.standardizedFileURL {
-            sources.append(LogFileErrorSource(url: appAcpmux, source: "acpmux-app"))
+            logs.append(LogFileErrorSource(url: appAcpmux, source: "acpmux-app"))
         }
-        return ErrorJournalService(journal: ErrorJournal(directory: directory(bundleID: environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app")),
-                                   sources: sources, energy: energy)
+        var sources: [any ErrorHarvestSource] = [OSLogErrorSource()]
+        sources.append(contentsOf: logs.map { $0 as any ErrorHarvestSource })
+        sources.append(crashReports)
+        let bundleID = environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+        return ErrorJournalService(journal: ErrorJournal(directory: directory(bundleID: bundleID)), sources: sources,
+                                   watched: folderWatches(logs: logs.map(\.url), reports: crashReports.directory), energy: energy,
+                                   activityID: "\(bundleID).error-journal.harvest")
     }
 
-    /// Starts the periodic harvest; the first one runs at once.
+    /// One watch for each folder of `logs` (their names in it), and one for the crash `reports` folder (any item).
+    nonisolated static func folderWatches(logs: [URL], reports: URL) -> [Watch] {
+        var names: [URL: Set<String>] = [:]
+        for log in logs { names[log.deletingLastPathComponent().standardizedFileURL, default: []].insert(log.lastPathComponent) }
+        let folders = names.sorted { $0.key.path < $1.key.path }.map { Watch(folder: $0.key, names: $0.value) }
+        return folders + [Watch(folder: reports.standardizedFileURL, names: nil)]
+    }
+
+    /// Harvests at once, then lets the system's background activity scheduler harvest about every
+    /// ``harvestInterval`` (within ``harvestTolerance``, both times the saver's stretch) while Energy
+    /// Saver does not pause keepalives and polls.
     ///
-    /// The cadence never wakes the main thread, as Chromium's `RepeatingTimer` on a ThreadPool sequenced task runner
-    /// (base/timer/timer.h): each harvest runs off main, then a ``DemandTimer`` with no main wake-up queue sleeps
-    /// ``harvestInterval`` (times the saver's stretch) on its clock, with ``WakeLeeway``'s tolerance, and starts the
-    /// next. The next one is planned only when one ends, so two never overlap. Owner `ErrorJournalService.harvest` of
-    /// idle-budget.json `allowed_periodic`.
+    /// Nothing of it runs on the main thread: the scheduler runs each harvest on its own background
+    /// queue (``BackgroundActivity``), and a run reads the sources only when a watched folder changed
+    /// since the last harvest began (FSEvents, ``watchLatency``); otherwise it ends at once. One
+    /// harvest runs at a time. The main actor only follows the energy policy: a change of stretch or
+    /// pause invalidates the activity and schedules a new one. The unified log has no change signal:
+    /// its entries come in with the next harvest a log change starts, or with `errors.list`.
     func start() {
-        guard cadence == nil else { return }
-        // timer-class-allow: off-main: each fire starts the next harvest on the cooperative pool and never wakes the main thread
-        let cadence = HarvestCadence(timer: DemandTimer(owner: "ErrorJournalService.harvest", clock: clock, ledger: ledger), energy: energy)
-        self.cadence = cadence
-        let journal = journal, sources = sources
-        // task-owner: the first harvest of this start; the next ones start from the cadence's timer, stop() ends them
-        Task.detached(priority: .utility) { await Self.harvest(journal, sources, cadence: cadence) }
+        guard harvester == nil else { return }
+        let harvester = Harvester()
+        self.harvester = harvester
+        watches = watched.map { Self.watch($0, on: folders, marking: harvester) }
+        energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.follow(policy) }
+        follow(energy.policy)
+        launchHarvest = Self.harvestNow(journal, sources, on: harvester)
     }
 
-    /// Stops harvesting and writes what is pending. A harvest in flight ends and plans no next one.
+    /// Stops harvesting and writes what is pending. A harvest that has started finishes.
     func stop() async {
-        cadence?.stopped.store(true, ordering: .relaxed)
-        cadence?.timer.cancel()
-        cadence = nil
+        activity?.invalidate()
+        activity = nil
+        scheduledStretch = nil
+        energyObservation?.cancel()
+        energyObservation = nil
+        for watch in watches { watch.cancel() }
+        watches = []
+        harvester = nil
         await journal.flush()
     }
 
-    /// One harvest off the main thread, then the next one ``harvestInterval`` times the saver's stretch
-    /// later unless ``stop()`` came.
-    @concurrent private nonisolated static func harvest(_ journal: ErrorJournal, _ sources: [any ErrorHarvestSource],
-                                                        cadence: HarvestCadence) async {
-        guard !cadence.stopped.load(ordering: .relaxed) else { return }
-        _ = await journal.harvest(sources)
-        guard !cadence.stopped.load(ordering: .relaxed) else { return }
-        cadence.timer.schedule(after: harvestInterval * cadence.energy.policy.pollStretch) { await harvest(journal, sources, cadence: cadence) }
+    /// Schedules the activity for `policy`'s stretch, or none while it pauses keepalives and polls.
+    private func follow(_ policy: EnergyPolicy) {
+        let stretch = policy.pausesKeepalives ? nil : policy.pollStretch
+        guard let harvester, stretch != scheduledStretch else { return }
+        activity?.invalidate()
+        activity = nil
+        scheduledStretch = stretch
+        guard let stretch else { return }
+        let journal = journal, sources = sources
+        let spec = BackgroundActivity(identifier: activityID, owner: Self.owner, interval: Self.harvestInterval * stretch,
+                                      tolerance: Self.harvestTolerance * stretch)
+        activity = activities.schedule(spec) { await harvester.harvest(journal, sources) }
+    }
+
+    /// A task off the main thread that marks `harvester` changed after each change of an item of `watch`
+    /// that matters, until it is cancelled or the changes end.
+    private nonisolated static func watch(_ watch: Watch, on folders: any FolderWatching,
+                                          marking harvester: Harvester) -> Task<Void, Never> {
+        // task-owner: the watch of one folder; stop() cancels it
+        Task(priority: .utility) {
+            for await change in folders.changes(in: watch.folder) where watch.matters(change) {
+                harvester.changed.store(true, ordering: .releasing)
+            }
+        }
+    }
+
+    /// The harvest of ``start()``, in a task off the main thread.
+    private nonisolated static func harvestNow(_ journal: ErrorJournal, _ sources: [any ErrorHarvestSource],
+                                               on harvester: Harvester) -> Task<Void, Never> {
+        // task-owner: one harvest; ErrorJournalServiceTests await it, nothing cancels it
+        Task(priority: .utility) { await harvester.harvest(journal, sources) }
     }
 }
 
-/// One start's cadence: its timer, the policy that stretches it, and whether ``ErrorJournalService/stop()``
-/// ended it.
-private nonisolated final class HarvestCadence: Sendable {
-    let timer: DemandTimer
-    let energy: EnergyPolicySource
-    let stopped = Atomic<Bool>(false)
+/// Whether a watched folder changed since the last harvest began (true at first), and whether one runs.
+private nonisolated final class Harvester: Sendable {
+    let changed = Atomic<Bool>(true)
+    private let running = Atomic<Bool>(false)
 
-    init(timer: DemandTimer, energy: EnergyPolicySource) {
-        self.timer = timer
-        self.energy = energy
+    /// Reads `sources` into `journal` off the main thread when a watched folder changed and no harvest runs.
+    @concurrent func harvest(_ journal: ErrorJournal, _ sources: [any ErrorHarvestSource]) async {
+        guard changed.load(ordering: .acquiring), !running.exchange(true, ordering: .acquiring) else { return }
+        changed.store(false, ordering: .relaxed)
+        await journal.harvest(sources)
+        running.store(false, ordering: .releasing)
     }
 }

@@ -139,7 +139,7 @@
     {"browser": "cmux-terminal", "row": "idle-wakeups-home", "max": 1.0}
   ],
   "allowed_periodic": [
-    {"owner": "ErrorJournalService.harvest", "period_s": 300, "why": "harvests crash and error reports written by other processes; task 064 moves it to NSBackgroundActivityScheduler"},
+    {"owner": "ErrorJournalService.harvest", "period_s": 300, "why": "harvests crash and error reports written by other processes; NSBackgroundActivityScheduler runs it (tolerance 120 s), and a run reads the logs only when a watched log folder changed (p14-energy-066a)"},
     {"owner": "GitHubFeedSource.refresh", "period_s": 120, "why": "GitHub has no push for the feed; task 066 stops it while no feed surface shows"},
     {"owner": "DeviceHubSocket.ping", "period_s": 30, "why": "PROTOCOL.md keepalive of the device hub; task 066 sends it only after silence"},
     {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"}
