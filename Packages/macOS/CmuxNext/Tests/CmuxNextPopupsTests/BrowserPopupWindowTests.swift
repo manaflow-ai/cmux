@@ -352,6 +352,32 @@ import CmuxNextWakeups
         #expect(window.isToolbarShown)
     }
 
+    /// The window's own full-screen notices reach it through its one ``WindowEvents`` (p06-scheduler-336): one
+    /// subscription per notice on the window's shared observer, which the close ends. (The toolbar they toggle is
+    /// fullscreenHidesTheLocationBar's.)
+    @Test func theWindowFollowsItsFullScreenNoticesThroughItsWindowEvents() {
+        let (popups, tab, window, _) = open("https://example.com")
+        let events = WindowEvents.of(window)
+        #expect(events.subscriberCount(NSWindow.didEnterFullScreenNotification) == 1)
+        #expect(events.subscriberCount(NSWindow.didExitFullScreenNotification) == 1)
+        #expect(popups.handle(tab, .close))
+        #expect(!events.isObserving(NSWindow.didEnterFullScreenNotification), "the closed popup still observes its window")
+        #expect(!events.isObserving(NSWindow.didExitFullScreenNotification))
+    }
+
+    /// The page's title changes are its program's: they reach the window title as one posted visible task, not in
+    /// the page's own turn, and a burst before it runs applies its last title (p06-scheduler-336).
+    @Test func aBurstOfTitleChangesAppliesItsLastTitleInOnePostedTask() async throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let before = window.title
+        tab.simulate(.titleChanged("Loading"))
+        tab.simulate(.titleChanged("Sign in - Example"))
+        #expect(window.title == before, "the page's change applied in its own turn")
+        try await waitUntil { window.title == "Sign in - Example" }
+        #expect(window.title == "Sign in - Example")
+    }
+
     @Test func escapeStopsALoadAndNeverClosesThePopup() {
         let (popups, tab, window, _) = open("https://example.com")
         defer { popups.closeAll() }

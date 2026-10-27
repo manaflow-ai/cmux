@@ -1,7 +1,7 @@
 //! Input precedence on a connection's surface scheduler (p04-input-085): a
 //! person's input runs before other surfaces' queued requests, one surface's
 //! requests keep their order, and a long read runs on the mux's work lane
-//! instead of the dispatcher or a thread of its own.
+//! instead of the connection's control sequence or a thread of its own.
 
 use super::*;
 use crate::panic_free::RecoverPoison;
@@ -22,10 +22,11 @@ fn queued(admission: &Arc<ServerSurfaceOperationAdmission>, line: Value) -> Pend
         frame_call: None,
         retained_bytes: 0,
         _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+        stream_barrier: None,
     }
 }
 
-/// The ids in the order the dispatcher takes them, with no worker running.
+/// The ids in the order the control sequence takes them, with no worker running.
 fn drain_order(lines: Vec<Value>) -> Vec<u64> {
     let admission = Arc::new(ServerSurfaceOperationAdmission::default());
     let mut state = ConnectionSurfaceState::default();
@@ -139,16 +140,16 @@ fn hold_terminal(surface: &Arc<crate::Surface>) -> (mpsc::Sender<()>, JoinHandle
     (release_tx, handle)
 }
 
-/// Waits until the dispatcher has taken every queued request.
-fn until_dispatcher_took_all(scheduler: &ConnectionSurfaceScheduler) {
+/// Waits until the control sequence has taken every queued request.
+fn until_control_took_all(scheduler: &ConnectionSurfaceScheduler) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !scheduler.state.lock().recover_poison().requests.is_empty() {
-        assert!(Instant::now() < deadline, "the dispatcher never took the long read");
+        assert!(Instant::now() < deadline, "the control sequence never took the long read");
         std::thread::sleep(Duration::from_millis(1));
     }
 }
 
-/// Surface A's long read `read` is in flight (taken by the dispatcher while
+/// Surface A's long read `read` is in flight (taken by the control sequence while
 /// A's terminal lock is held) when a Send for A and a Send for B arrive: B's
 /// Send answers first, then the read, then A's Send.
 fn another_surfaces_send_answers_first(read: impl FnOnce(SurfaceId) -> Value) {
@@ -174,7 +175,7 @@ fn another_surfaces_send_answers_first(read: impl FnOnce(SurfaceId) -> Value) {
 
     let (release, holder) = hold_terminal(&a);
     dispatch(read(a.id));
-    until_dispatcher_took_all(&scheduler);
+    until_control_took_all(&scheduler);
     dispatch(json!({"id": 2, "cmd": "send", "surface": a.id, "text": "same"}));
     dispatch(json!({"id": 3, "cmd": "send", "surface": b.id, "text": "other"}));
     let first = pop_json(&outbound);
@@ -224,6 +225,7 @@ fn long_reads_run_as_work_lane_items_without_request_threads() {
         mux.work.stats().into_iter().find(|lane| lane.lane == Lane::Cpu).unwrap().posted
     };
     let before = posted(&mux);
+    let workers_before = mux.sequenced_pool.workers_started();
 
     // Reads of every surface interleave: one surface's reads keep their order,
     // reads of different surfaces may run at once.
@@ -237,7 +239,7 @@ fn long_reads_run_as_work_lane_items_without_request_threads() {
     }
     let replies = (0..READS).map(|_| pop_json(&outbound)).collect::<Vec<_>>();
     let posted = posted(&mux) - before;
-    let threads = scheduler.threads_started.load(Ordering::Relaxed);
+    let workers = mux.sequenced_pool.workers_started() - workers_before;
     let drained = scheduler.close_and_wait(Duration::from_secs(2));
     for surface in &surfaces {
         mux.close_surface(surface.id).unwrap();
@@ -256,6 +258,6 @@ fn long_reads_run_as_work_lane_items_without_request_threads() {
         assert_eq!(ids, expected, "one surface's reads answered out of order");
     }
     assert_eq!(posted, READS, "{posted} Cpu-lane items for {READS} long reads");
-    assert_eq!(threads, 1, "{threads} request threads (only the dispatcher may start)");
+    assert!(workers < READS, "{workers} pool workers started for {READS} long reads");
     assert!(drained);
 }
