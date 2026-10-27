@@ -32,8 +32,11 @@ impl Brain {
                 self.outbox_timer = None;
                 return;
             };
+            // A browser card is not a turn of talk: the owner's agent
+            // budget ignores it, so it is not paced either.
             let (is_message, not_before, attempted, previews_until) = (
-                matches!(entry.op, Op::MessageSend { .. }),
+                matches!(entry.op, Op::MessageSend { .. })
+                    && !super::browser_card::is_card_key(&entry.idempotency_key),
                 entry.not_before,
                 entry.attempted,
                 entry.previews_until,
@@ -120,7 +123,8 @@ impl Brain {
                 Err(OpError::Rejected(reason))
                     if (self.state.outbox[0].plain_text.is_some()
                         || !self.state.outbox[0].cards.is_empty())
-                        && has_cards(&op) =>
+                        && has_cards(&op)
+                        && refuses_parts(&reason) =>
                 {
                     // The owner refused the link cards (an older or stricter
                     // owner): the reply goes as its original text, unchanged,
@@ -221,6 +225,14 @@ impl Brain {
             self.save();
         }
     }
+}
+
+/// Whether the owner refused a send for its parts (cards it cannot take),
+/// not for its thread or its pace: only then does the text go instead.
+fn refuses_parts(reason: &str) -> bool {
+    ["invalid_parts", "unknown_attachment", "attachment_mismatch"]
+        .iter()
+        .any(|code| reason.contains(code))
 }
 
 /// Whether `op` sends link cards (a reply the preview thread filled).

@@ -42,6 +42,7 @@ pub mod reaction_wake;
 mod recover;
 mod replies;
 mod reply_ledger;
+pub(crate) use browser_card::is_card_key;
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
 mod side;

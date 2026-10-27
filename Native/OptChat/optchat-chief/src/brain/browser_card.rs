@@ -130,6 +130,87 @@ fn browser_verb_line(verb: &str, url: Option<&str>) -> String {
     }
 }
 
+/// Queues `state`'s card as it is now: its first post (or a change to the
+/// queued one), else an edit once the owner gave its id; a change while the
+/// first post is in flight waits as `unsent`. Nothing is flushed here.
+fn queue_card(state: &mut crate::state::HostState) {
+    let Some(card) = state.browser_card.as_mut().filter(|c| !c.refused) else {
+        return;
+    };
+    let parts = vec![Part::Card(card.card.clone())];
+    let conversation = card.conversation.clone();
+    let outbox = &mut state.outbox;
+    match card.message_id.clone() {
+        Some(message_id) => {
+            outbox.retain(|e| {
+                e.attempted
+                    || !matches!(&e.op, Op::MessageEdit { message_id: id, .. } if *id == message_id)
+            });
+            outbox.push(edit_entry(card));
+        }
+        None => {
+            if let Some(queued) = outbox.iter_mut().find(|e| e.idempotency_key == card.key) {
+                if queued.attempted {
+                    card.unsent = true;
+                    return;
+                }
+                if let Op::MessageSend { parts: sent, .. } = &mut queued.op {
+                    *sent = parts;
+                }
+                queued.plain_text = Some(card.card.text());
+            } else {
+                let mut entry = super::op_entry(
+                    conversation,
+                    &card.key,
+                    Op::MessageSend {
+                        client_msg_id: card.key.clone(),
+                        parts,
+                        reply_to: None,
+                        answers: Vec::new(),
+                        answers_pending: Vec::new(),
+                        thread_root: None,
+                    },
+                );
+                if let (
+                    Some((root, parent)),
+                    Op::MessageSend {
+                        reply_to,
+                        thread_root,
+                        ..
+                    },
+                ) = (&card.thread, &mut entry.op)
+                {
+                    *reply_to = Some(PartRef {
+                        message_id: parent.clone(),
+                        part_index: 0,
+                    });
+                    *thread_root = Some(root.clone());
+                }
+                entry.plain_text = Some(card.card.text());
+                outbox.push(entry);
+            }
+        }
+    }
+}
+
+
+/// A restart found the pending turn cut off: its card stops being live.
+pub(super) fn end_on_recover(state: &mut crate::state::HostState) {
+    if let Some(card) = state.browser_card.as_mut()
+        && let Card::Browser { live, .. } = &mut card.card
+        && *live
+    {
+        *live = false;
+        queue_card(state);
+    }
+}
+
+/// Whether `key` is a browser card's (`{turn}:browser`, its edits and its
+/// text): an aside, never the turn's reply.
+pub(crate) fn is_card_key(key: &str) -> bool {
+    key.ends_with(":browser") || key.contains(":browser:")
+}
+
 /// The edit that shows `card` as it is now (its message id known).
 fn edit_entry(card: &mut BrowserCard) -> crate::state::OutboxEntry {
     card.edits += 1;
@@ -202,6 +283,7 @@ impl Brain {
         for step in steps.iter_mut() {
             let browsing = browser_step(step);
             if self.browser_cards_refused
+                || self.state.browser_card.as_ref().is_some_and(|c| c.refused)
                 || (browsing.is_none()
                     && self.state.browser_card.as_ref().is_none_or(|c| c.turn != turn))
             {
@@ -310,9 +392,9 @@ impl Brain {
         if let Some(at) = self.state.browser_cards_ending.iter().position(|c| c.key == key) {
             let mut old = self.state.browser_cards_ending.remove(at);
             old.message_id = Some(message_id.to_owned());
+            // Called from inside the outbox loop: queued, sent by that loop.
             self.state.outbox.push(edit_entry(&mut old));
             self.save();
-            self.flush_outbox();
             return;
         }
         let Some(card) = self.state.browser_card.as_mut() else {
@@ -330,69 +412,15 @@ impl Brain {
         }
         card.message_id = Some(message_id.to_owned());
         if std::mem::take(&mut card.unsent) {
-            self.show_browser_card();
+            // Called from inside the outbox loop: queued, sent by that loop.
+            queue_card(&mut self.state);
+            self.save();
         }
     }
 
     /// Posts the card, or edits it in: a change replaces a queued one.
     fn show_browser_card(&mut self) {
-        let Some(card) = self.state.browser_card.as_mut().filter(|c| !c.refused) else {
-            return;
-        };
-        let parts = vec![Part::Card(card.card.clone())];
-        let conversation = card.conversation.clone();
-        let outbox = &mut self.state.outbox;
-        match card.message_id.clone() {
-            Some(message_id) => {
-                outbox.retain(|e| {
-                    e.attempted
-                        || !matches!(&e.op, Op::MessageEdit { message_id: id, .. } if *id == message_id)
-                });
-                outbox.push(edit_entry(card));
-            }
-            None => {
-                if let Some(queued) = outbox.iter_mut().find(|e| e.idempotency_key == card.key) {
-                    if queued.attempted {
-                        card.unsent = true;
-                        return;
-                    }
-                    if let Op::MessageSend { parts: sent, .. } = &mut queued.op {
-                        *sent = parts;
-                    }
-                    queued.plain_text = Some(card.card.text());
-                } else {
-                    let mut entry = super::op_entry(
-                        conversation,
-                        &card.key,
-                        Op::MessageSend {
-                            client_msg_id: card.key.clone(),
-                            parts,
-                            reply_to: None,
-                            answers: Vec::new(),
-                            answers_pending: Vec::new(),
-                            thread_root: None,
-                        },
-                    );
-                    if let (
-                        Some((root, parent)),
-                        Op::MessageSend {
-                            reply_to,
-                            thread_root,
-                            ..
-                        },
-                    ) = (&card.thread, &mut entry.op)
-                    {
-                        *reply_to = Some(PartRef {
-                            message_id: parent.clone(),
-                            part_index: 0,
-                        });
-                        *thread_root = Some(root.clone());
-                    }
-                    entry.plain_text = Some(card.card.text());
-                    outbox.push(entry);
-                }
-            }
-        }
+        queue_card(&mut self.state);
         self.save();
         self.flush_outbox();
     }

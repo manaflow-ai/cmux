@@ -300,3 +300,49 @@ fn an_owner_that_refuses_the_browser_card_gets_its_text_once() {
     );
     assert!(browser_ops[1].ends_with(":browser:text"), "{browser_ops:?}");
 }
+
+#[test]
+fn a_browsing_turns_reply_stays_right_under_its_message() {
+    let mut h = Harness::new(browsing());
+    h.connect();
+    h.say("user_local", "reply to Jun Beom on LinkedIn");
+    h.settle_posts();
+    let reply = ops(&h)
+        .into_iter()
+        .find_map(|(key, op)| match op {
+            Op::MessageSend {
+                parts,
+                thread_root,
+                reply_to,
+                answers,
+                ..
+            } if !key.contains(":browser")
+                && matches!(parts.first(), Some(Part::Text { text, .. }) if text == "Sent.") =>
+            {
+                Some((thread_root, reply_to, answers))
+            }
+            _ => None,
+        })
+        .expect("the turn's reply");
+    assert_eq!(reply.0, None, "no thread: the card is an aside: {reply:?}");
+    assert_eq!(reply.1, None, "{reply:?}");
+    assert!(!reply.2.is_empty(), "the reply answers the person's message");
+}
+
+#[test]
+fn a_thread_refusal_is_not_a_card_refusal() {
+    let mut h = Harness::new(replying("Done.\n[next: Show me the draft]"));
+    h.owner
+        .lock()
+        .unwrap()
+        .rejects
+        .push_back(Some("agent_budget".into()));
+    h.connect();
+    h.say("user_local", "draft it");
+    h.settle_posts();
+    assert!(
+        !ops(&h).iter().any(|(key, _)| key.ends_with(":text")),
+        "no text fallback for a refusal that is not about the parts: {:?}",
+        ops(&h)
+    );
+}
