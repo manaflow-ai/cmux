@@ -1,6 +1,9 @@
 //! Journal maintenance: hook delivery dispatch, internal diagnostics, reconnect checkpoints, journal checkpoints and segments, the commit-armed maintenance worker, and their test hooks.
 
+use std::cell::Cell;
+
 use super::*;
+use crate::wake::{Policy, Ticks};
 
 /// How long after the first commit it has not seen a maintenance pass runs.
 const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
@@ -88,45 +91,81 @@ struct MaintenanceSchedule {
     interval: Duration,
     /// The registry commit count when the last pass started.
     seen_commits: u64,
-    due: Option<Instant>,
+    /// When the armed pass fires: a one-shot durability deadline on the
+    /// whole-second grid with 10% leeway ([`crate::wake::deadline`]), so it
+    /// shares a wake with the durability deadlines near it.
+    due: Option<Ticks>,
     stopped: bool,
 }
 
 impl MaintenanceSchedule {
     /// One pass an interval after start: a legacy registry's auto-vacuum
     /// migration and ledgers an earlier build grew wait for no commit.
-    fn new(interval: Duration, now: Instant) -> Self {
-        Self { interval, seen_commits: 0, due: Some(now + interval), stopped: false }
+    fn new(interval: Duration, now: Ticks) -> Self {
+        let mut schedule = Self { interval, seen_commits: 0, due: None, stopped: false };
+        schedule.arm(now);
+        schedule
     }
 
-    /// The registry reached `commits`. Arms a pass one interval out unless
-    /// one is armed or no pass is owed. Returns whether it armed one.
-    fn note_commits(&mut self, commits: u64, now: Instant) -> bool {
+    fn arm(&mut self, now: Ticks) {
+        self.due = Some(crate::wake::deadline(now, self.interval, Policy::FlexibleNoSooner).fire);
+    }
+
+    /// The registry reached `commits` through a commit that is not a pass's
+    /// own. Arms a pass one interval out unless one is armed or no pass is
+    /// owed. Returns whether it armed one.
+    fn note_commits(&mut self, commits: u64, now: Ticks) -> bool {
         if self.stopped || self.due.is_some() || commits <= self.seen_commits {
             return false;
         }
-        self.due = Some(now + self.interval);
+        self.arm(now);
         true
     }
 
     /// Takes the armed pass when it is due at `now`; it covers every commit
     /// up to `commits`.
-    fn take_due(&mut self, now: Instant, commits: u64) -> bool {
+    fn take_due(&mut self, now: Ticks, commits: u64) -> bool {
         if self.due.is_none_or(|due| due > now) {
             return false;
         }
+        self.take(commits);
+        true
+    }
+
+    fn take(&mut self, commits: u64) {
         self.due = None;
         self.seen_commits = self.seen_commits.max(commits);
-        true
     }
 
     /// The pass ended with the registry at `commits`: its own commits
     /// (checkpoint, seal, vacuum) owe no pass of their own.
-    fn pass_finished(&mut self, pass: MaintenancePass, now: Instant, commits: u64) {
+    fn pass_finished(&mut self, pass: MaintenancePass, now: Ticks, commits: u64) {
         self.seen_commits = self.seen_commits.max(commits);
         if pass == MaintenancePass::WorkLeft && self.due.is_none() {
-            self.due = Some(now + self.interval);
+            self.arm(now);
         }
+    }
+}
+
+thread_local! {
+    /// Set while this thread runs a maintenance pass: the registry commits
+    /// it makes (ledger bound, checkpoint, seal, vacuum) are the pass's own.
+    static RUNNING_PASS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Marks the current thread as running a maintenance pass until dropped.
+struct RunningPass;
+
+impl RunningPass {
+    fn enter() -> Self {
+        RUNNING_PASS.with(|running| running.set(true));
+        Self
+    }
+}
+
+impl Drop for RunningPass {
+    fn drop(&mut self) {
+        RUNNING_PASS.with(|running| running.set(false));
     }
 }
 
@@ -140,6 +179,11 @@ struct JournalMaintenanceControl {
 
 impl JournalMaintenanceControl {
     fn note_commits(&self, commits: u64) {
+        // A pass's own commits arm no pass. Checked before `noted_commits`,
+        // so a commit another thread makes during the pass is still noted.
+        if RUNNING_PASS.with(Cell::get) {
+            return;
+        }
         if self.noted_commits.fetch_max(commits, Ordering::AcqRel) >= commits {
             return;
         }
@@ -147,10 +191,33 @@ impl JournalMaintenanceControl {
             .schedule
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .note_commits(commits, Instant::now());
+            .note_commits(commits, Ticks::now());
         if armed {
             self.changed.notify_all();
         }
+    }
+
+    /// Runs the pass the schedule handed out and reports its end, so the
+    /// schedule re-arms only for work the pass left.
+    fn run_pass(
+        &self,
+        mux: &Mux,
+        ledgers: &mut ledger_maintenance::LedgerMaintenance,
+    ) -> MaintenancePass {
+        let pass = {
+            let _upkeep = mux.request_qos().enter_upkeep_pass();
+            let _running = RunningPass::enter();
+            mux.run_journal_maintenance(ledgers)
+        };
+        let commits = mux.registry_connection.durability_counts().0;
+        self.schedule.lock().unwrap_or_else(PoisonError::into_inner).pass_finished(
+            pass,
+            Ticks::now(),
+            commits,
+        );
+        // The pass saw these commits: a reply that adds none takes no lock.
+        self.noted_commits.fetch_max(commits, Ordering::AcqRel);
+        pass
     }
 }
 
@@ -170,7 +237,7 @@ impl JournalMaintenance {
         let control = Arc::new(JournalMaintenanceControl {
             schedule: Mutex::new(MaintenanceSchedule::new(
                 journal_maintenance_interval(),
-                Instant::now(),
+                Ticks::now(),
             )),
             changed: Condvar::new(),
             noted_commits: AtomicU64::new(0),
@@ -210,7 +277,7 @@ fn run_journal_maintenance_worker(control: &JournalMaintenanceControl, weak_mux:
         if schedule.stopped {
             return;
         }
-        let now = Instant::now();
+        let now = Ticks::now();
         let Some(due) = schedule.due else {
             // Untimed: the next commit or the stop notifies.
             drop(cmux_threads::checked::sync::wait(&control.changed, schedule));
@@ -219,23 +286,18 @@ fn run_journal_maintenance_worker(control: &JournalMaintenanceControl, weak_mux:
         if due > now {
             // wakeup-allow: deadline the one armed pass, set by a commit or by the work a pass
             // left; with nothing armed the wait above is untimed
-            drop(cmux_threads::checked::sync::wait_timeout(&control.changed, schedule, due - now));
+            drop(cmux_threads::checked::sync::wait_timeout(
+                &control.changed,
+                schedule,
+                due.since(now),
+            ));
             continue;
         }
         let Some(mux) = weak_mux.upgrade() else { return };
         schedule.take_due(now, mux.registry_connection.durability_counts().0);
         drop(schedule);
-        let pass = {
-            let _pass = mux.request_qos().enter_upkeep_pass();
-            mux.run_journal_maintenance(&mut ledgers)
-        };
-        let commits = mux.registry_connection.durability_counts().0;
+        control.run_pass(&mux, &mut ledgers);
         drop(mux);
-        control.schedule.lock().unwrap_or_else(PoisonError::into_inner).pass_finished(
-            pass,
-            Instant::now(),
-            commits,
-        );
     }
 }
 
@@ -260,6 +322,17 @@ impl Mux {
         if let Some(maintenance) = self.journal_maintenance.get() {
             maintenance.stop();
         }
+    }
+
+    /// Takes the next pass now and runs it as the worker runs a due one;
+    /// returns it with the deadline the schedule holds afterwards.
+    #[cfg(test)]
+    fn run_journal_maintenance_pass_for_test(&self) -> (MaintenancePass, Option<Ticks>) {
+        let control = &self.journal_maintenance.get().expect("a persistent session").control;
+        let commits = self.registry_connection.durability_counts().0;
+        control.schedule.lock().unwrap_or_else(PoisonError::into_inner).take(commits);
+        let pass = control.run_pass(self, &mut ledger_maintenance::LedgerMaintenance::default());
+        (pass, control.schedule.lock().unwrap_or_else(PoisonError::into_inner).due)
     }
 
     /// The registry committed: arm a maintenance pass if one is owed.
@@ -824,95 +897,4 @@ mod maintenance_steps_tests {
 }
 
 #[cfg(test)]
-mod maintenance_schedule_tests {
-    use super::*;
-
-    const INTERVAL: Duration = Duration::from_secs(30);
-
-    /// The start pass, taken with nothing committed: what an idle daemon
-    /// leaves armed afterwards.
-    fn after_start_pass(start: Instant) -> MaintenanceSchedule {
-        let mut schedule = MaintenanceSchedule::new(INTERVAL, start);
-        assert_eq!(schedule.due, Some(start + INTERVAL));
-        assert!(schedule.take_due(start + INTERVAL, 0));
-        schedule.pass_finished(MaintenancePass::Done, start + INTERVAL, 0);
-        schedule
-    }
-
-    #[test]
-    fn an_idle_daemon_arms_no_pass_after_the_start_pass() {
-        let start = Instant::now();
-        let mut schedule = after_start_pass(start);
-        assert_eq!(schedule.due, None);
-        assert!(!schedule.take_due(start + INTERVAL * 100, 0));
-        // A reply that committed nothing arms nothing.
-        assert!(!schedule.note_commits(0, start + INTERVAL * 2));
-        assert_eq!(schedule.due, None);
-    }
-
-    #[test]
-    fn a_commit_arms_one_pass_an_interval_later() {
-        let start = Instant::now();
-        let mut schedule = after_start_pass(start);
-        let commit = start + INTERVAL * 3;
-        assert!(schedule.note_commits(4, commit));
-        assert_eq!(schedule.due, Some(commit + INTERVAL));
-        // Later commits join the armed pass instead of moving it.
-        assert!(!schedule.note_commits(9, commit + Duration::from_secs(5)));
-        assert_eq!(schedule.due, Some(commit + INTERVAL));
-        assert!(!schedule.take_due(commit + INTERVAL - Duration::from_millis(1), 9));
-        assert!(schedule.take_due(commit + INTERVAL, 9));
-        schedule.pass_finished(MaintenancePass::Done, commit + INTERVAL, 9);
-        // The pass saw commit 9: noting it again arms nothing.
-        assert!(!schedule.note_commits(9, commit + INTERVAL * 2));
-        assert_eq!(schedule.due, None);
-        assert!(schedule.note_commits(10, commit + INTERVAL * 2));
-    }
-
-    #[test]
-    fn work_left_rearms_without_a_commit() {
-        let start = Instant::now();
-        let mut schedule = MaintenanceSchedule::new(INTERVAL, start);
-        assert!(schedule.take_due(start + INTERVAL, 0));
-        schedule.pass_finished(MaintenancePass::WorkLeft, start + INTERVAL, 0);
-        assert_eq!(schedule.due, Some(start + INTERVAL * 2));
-        assert!(schedule.take_due(start + INTERVAL * 2, 0));
-        schedule.pass_finished(MaintenancePass::Done, start + INTERVAL * 2, 0);
-        assert_eq!(schedule.due, None);
-    }
-
-    #[test]
-    fn a_commit_during_a_pass_keeps_its_own_deadline() {
-        let start = Instant::now();
-        let mut schedule = after_start_pass(start);
-        let commit = start + INTERVAL * 2;
-        assert!(schedule.note_commits(3, commit));
-        assert!(schedule.take_due(commit + INTERVAL, 3));
-        // Committed while the pass ran, after it read the count.
-        let during = commit + INTERVAL + Duration::from_secs(1);
-        assert!(schedule.note_commits(5, during));
-        schedule.pass_finished(MaintenancePass::WorkLeft, commit + INTERVAL * 2, 5);
-        assert_eq!(schedule.due, Some(during + INTERVAL));
-    }
-
-    #[test]
-    fn the_passs_own_commits_arm_no_pass() {
-        let start = Instant::now();
-        let mut schedule = after_start_pass(start);
-        assert!(schedule.note_commits(2, start + INTERVAL * 2));
-        assert!(schedule.take_due(start + INTERVAL * 3, 2));
-        // The pass checkpointed, sealed and vacuumed: three commits.
-        schedule.pass_finished(MaintenancePass::Done, start + INTERVAL * 3, 5);
-        assert!(!schedule.note_commits(5, start + INTERVAL * 3));
-        assert_eq!(schedule.due, None);
-    }
-
-    #[test]
-    fn a_stopped_schedule_arms_nothing() {
-        let start = Instant::now();
-        let mut schedule = after_start_pass(start);
-        schedule.stopped = true;
-        assert!(!schedule.note_commits(7, start + INTERVAL * 2));
-        assert_eq!(schedule.due, None);
-    }
-}
+mod schedule_tests;
