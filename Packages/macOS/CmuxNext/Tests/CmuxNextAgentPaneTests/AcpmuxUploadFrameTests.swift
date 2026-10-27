@@ -93,7 +93,10 @@ struct AcpmuxUploadFrameTests {
             let id = lastID.withLock { $0 }
             var result: [String: Any] = begin ? ["uploadId": "u", "offset": 0] : ["offset": 2]
             if begin, let ownerToken { result["ownerToken"] = ownerToken }
-            let resultText = String(decoding: try! JSONSerialization.data(withJSONObject: result), as: UTF8.self)
+            guard let data = try? JSONSerialization.data(withJSONObject: result) else {
+                Issue.record("Invalid fake upload reply"); return
+            }
+            let resultText = String(decoding: data, as: UTF8.self)
             incoming.withLock { $0 }?(#"{"id":\#(id),"result":\#(resultText)}"#)
         }
         func cancel(code: Int, reason: String) {}
