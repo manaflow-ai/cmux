@@ -3731,17 +3731,30 @@ export function VirtualTranscript({
     const node = ref.current;
     const followIntent = (next: boolean) => followRef.current(next);
     let dragging = false;
+    let pointerY: number | undefined;
+    let touchY: number | undefined;
     const reader = (event?: Event) => {
-      if (event?.type === "pointerdown") dragging = true;
-      readerAt.current = performance.now();
-      followTrace.input();
-      // Release the follow intent synchronously when a reader starts moving up. The browser can
-      // deliver the wheel before its scroll event; a streamed snapshot in that gap must not pin
-      // the view back to the bottom. Capture the event so nested rows cannot commit first.
+      const pointer = event?.type === "pointermove" ? (event as PointerEvent) : undefined;
+      const touch = event?.type === "touchmove" ? (event as TouchEvent).touches[0] : undefined;
       const movingUp =
         event !== undefined &&
         ((event.type === "wheel" && (event as WheelEvent).deltaY < 0) ||
-          (event.type === "keydown" && ["ArrowUp", "PageUp", "Home"].includes((event as KeyboardEvent).key)));
+          (event.type === "keydown" && ["ArrowUp", "PageUp", "Home"].includes((event as KeyboardEvent).key)) ||
+          (pointer !== undefined &&
+            pointerY !== undefined &&
+            (pointer.pointerType === "touch" ? pointer.clientY > pointerY : pointer.clientY < pointerY)) ||
+          (touch !== undefined && touchY !== undefined && touch.clientY > touchY));
+      if (event?.type === "pointerdown") {
+        dragging = true;
+        pointerY = (event as PointerEvent).clientY;
+      } else if (pointer) pointerY = pointer.clientY;
+      if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
+      else if (touch) touchY = touch.clientY;
+      readerAt.current = performance.now();
+      followTrace.input();
+      // Release the follow intent synchronously when a reader starts moving up. The browser can
+      // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
+      // the view back to the bottom. Capture the event so nested rows cannot commit first.
       if (movingUp) followIntent(false);
       if (jumpTarget.current !== undefined) {
         stopJump();
