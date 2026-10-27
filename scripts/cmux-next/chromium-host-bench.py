@@ -109,12 +109,15 @@ Per mode:
            with a second display (cmux20-bench has an external one), frames until both are the new display's after
            the window moves there and back, counted from the move (pass: rate within 2 frames, scale within 1, the
            1x to 2x move reported as `scale_up`) (chromium_host_display.py).
-  tcc      opt-in (`--modes inproc,tcc`; it runs before helper and closes its host after): a host page
-           asks for camera, mic, location, Local Network, Screen Recording and Bluetooth, and each row passes when
-           macOS charges the request to cmux, not to the host or a helper; the keychain row passes when the host
-           read "Chromium Safe Storage" with no prompt (chromium_host_tcc.py has the evidence and the rules). It
-           launches cmux as its own responsible process (BenchApp own_responsibility) and, when the item is not
-           another app's (or with --keychain-reset), with Chromium's real keychain (CMUX_NEXT_BENCH_REAL_KEYCHAIN=1).
+  tcc      opt-in (`--modes tcc`; it runs before helper and closes its tab after): a page in a Chromium tab of
+           cmux's host mode (debug.cef backend "host", else a mode error) asks for camera, mic, location, Local
+           Network, Screen Recording and Bluetooth, its site permissions answered with browser.prompt.allow, and each
+           row passes when macOS charges the host's request to cmux, not to the host or a helper; the keychain row
+           passes when hosts make and read "Chromium Safe Storage", and read the item cmux's in-process engine made,
+           with no prompt (chromium_host_tcc.py has the evidence and the rules). It launches cmux as its own
+           responsible process (BenchApp own_responsibility) and, when the item is not another app's (or with
+           --keychain-reset), first a seed launch with Chromium in process, both with Chromium's real keychain
+           (CMUX_NEXT_BENCH_REAL_KEYCHAIN=1).
 
   swipe    `--modes swipe` (task 234), on an input host (real HID events): a two-finger trackpad swipe
            (pointer-probe.swift swipe, through NSApp's event dispatch like a hand's) over a Chromium tab of the app's
@@ -695,12 +698,14 @@ def main():
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
-    tcc_keychain = None
+    tcc_keychain = tcc_seed = None
     if "tcc" in opts.modes.split(","):
         import chromium_host_tcc
         tcc_keychain = chromium_host_tcc.keychain_plan(opts.keychain_service, opts.keychain_reset)
         if tcc_keychain["real_keychain"]:
             env["CMUX_NEXT_BENCH_REAL_KEYCHAIN"] = "1"
+        # Before the measured launch: cmux's in-process engine makes the item the host then reads (the upgrade case).
+        tcc_seed = seed_tcc_keychain(tcc_keychain)
     # tccd charges a privacy request to its process's responsible process: for the tcc rows that must be cmux, as
     # when a person opens it, not this script's ssh or runner.
     app = BenchApp(opts.app, out=opts.out, env=env, build_config=opts.build_config, perf_session=opts.session,
@@ -742,7 +747,7 @@ def main():
             inproc_tab = run_inproc(rpc, url)
             ok = ok and inproc_tab is not None
         if "tcc" in modes:
-            ok = run_tcc(rpc, app.process.pid if app.process else None, tcc_keychain) and ok
+            ok = run_tcc(rpc, app.process.pid if app.process else None, tcc_keychain, tcc_seed) and ok
         if "helper" in modes:
             ok = run_helper(rpc, url, inproc_tab) and ok
         if opts.baseline and inproc_tab:
@@ -1181,35 +1186,112 @@ def run_host_probe(rpc, url, record=True):
                  record=record)
 
 
-def run_tcc(rpc, app_pid, keychain_plan):
-    """TCC attribution rows on a host page of its own pane (chromium_host_tcc.py); False on a mode error or when the
-    page never showed."""
+def tcc_open_page(rpc, url, holder):
+    """Opens the TCC probe in a focused Chromium tab and keeps its tab id in `holder`: {"tab"} or {"error"}."""
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"},
+                 timeout=120)
+    ready = "document.title.startsWith('tcc ') && location.pathname === '/tcc.html'"
+    found = wait(lambda: (lambda value, tab: tab if value is True and tab else None)(*page_eval_reply(rpc, ready)), 60, 0.5)
+    if not found:
+        return {"error": f"the probe never loaded: {json.dumps(opened)[:200]}"}
+    holder["tab"] = found
+    return {"tab": found}
+
+
+def tcc_allow(rpc, holder):
+    """Answers the TCC tab's prompt bar question with Allow (browser.prompt.allow); False when it had none (the
+    action is unavailable without one)."""
+    reply = rpc("action.run", {"action": "browser.prompt.allow", "target": f"tab:{holder.get('tab')}", "origin": "script"})
+    return not (isinstance(reply, dict) and "error" in reply)
+
+
+def tcc_restart_host(rpc, holder):
+    """Ends the Chromium host (SIGKILL) and reloads the TCC tab, which starts a new host (CEFTab.reload ->
+    CEFRuntime.reloadAfterHostRestart): {"old_pid", "new_pid", "error"}."""
+    old = chromium_host_pid()
+    if old is None:
+        return {"old_pid": None, "new_pid": None, "error": "no Chromium host runs"}
+    try:
+        os.kill(old, signal.SIGKILL)
+    except OSError as error:
+        return {"old_pid": old, "new_pid": None, "error": f"SIGKILL to the host: {error}"}
+    if not wait(lambda: chromium_host_pid() != old, 15, 0.25):
+        return {"old_pid": old, "new_pid": None, "error": f"the host (pid {old}) still runs 15 s after SIGKILL"}
+    reload = rpc("action.run", {"action": "browserReload", "target": f"tab:{holder.get('tab')}", "origin": "script"})
+    new = wait(lambda: (lambda pid: pid if pid and pid != old else None)(chromium_host_pid()), 60, 0.25)
+    return {"old_pid": old, "new_pid": new,
+            "error": None if new else f"no new Chromium host 60 s after the tab's Reload: {json.dumps(reload)[:200]}"}
+
+
+def seed_tcc_keychain(keychain_plan):
+    """The tcc mode's seed launch, before the measured one: cmux with Chromium in process and the real keychain opens
+    the probe, so cmux's in-process engine makes "Chromium Safe Storage" and stores the probe's cookie with its key,
+    then quits (Chromium's shutdown commits the cookie). The keychain row's cross_identity step has the host read that
+    item. Returns {"created", "cookie", "backend"} or {"error"}."""
+    import chromium_host_tcc as tcc
+    if not keychain_plan.get("real_keychain"):
+        return {"error": keychain_plan.get("reason") or "the run keeps Chromium's mock keychain"}
+    if tcc.keychain_item(opts.keychain_service) is not False:
+        return {"error": f"the {opts.keychain_service!r} item exists before the seed launch"}
+    out = os.path.join(opts.out, "tcc-seed")
+    os.makedirs(out, exist_ok=True)
+    tunables = os.path.join(out, "debug-tunables.json")
+    json.dump({"version": 1, "values": {**TUNABLES["values"], "browserHost.helper": False}}, open(tunables, "w"))
+    pages = tcc.Pages()
+    url, _ = pages.start()
+    seed = BenchApp(opts.app, out=out, env={"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables, "CMUX_NEXT_BENCH_REAL_KEYCHAIN": "1"},
+                    build_config=opts.build_config, perf_session=opts.session)
+    try:
+        seed.launch()
+        backend = (seed.rpc("debug.cef") or {}).get("backend")
+        if backend != "inProcess":
+            return {"error": f"the seed launch's Chromium does not run in process (debug.cef backend {backend!r})"}
+        holder = {}
+        opened = tcc_open_page(seed.rpc, url, holder)
+        if opened.get("error"):
+            return {"error": f"seed launch: {opened['error']}"}
+        load = (tcc.page_state(page_eval(seed.rpc, "document.title", holder["tab"])) or {}).get("_load") or {}
+        made = wait(lambda: (tcc.keychain_info(opts.keychain_service) or {}).get("created"), 30, 0.5)
+        if not made:
+            return {"error": "cmux's in-process engine made no item with a creation date in 30 s"}
+        return {"created": made, "cookie": load.get("t"), "backend": backend}
+    except LaunchError as error:
+        return {"error": f"seed launch: {error.reason}"}
+    finally:
+        seed.stop()
+        pages.stop()
+
+
+def run_tcc(rpc, app_pid, keychain_plan, seed):
+    """TCC attribution rows on the probe in a Chromium tab of the measured launch, whose Chromium must run in the
+    host (chromium_host_tcc.py); False on a mode error or when the page never showed."""
     import chromium_host_tcc as tcc
     pages, log = tcc.Pages(), tcc.LogStream()
     url, lan = pages.start()
     log.start()
+    holder = {}
     try:
-        # The keychain row needs the host's first start: a host an earlier mode started has read its key already.
-        rpc("debug.chromium_host", {"op": "close"})
-        rpc("action.run", {"action": "splitRight", "focus": True, "origin": "script"}, timeout=60)
+        seams = tcc.Seams(log=log, host_pid=chromium_host_pid, lan_hits=lambda: pages.lan_hits)
         rows = tcc.TccRows(
             tcc.Bundle.read(opts.app),
-            open_host=lambda page: rpc("debug.chromium_host", {"op": "open", "url": page, "focus": True}) or {},
-            title=lambda: (rpc("debug.chromium_host") or {}).get("title"),
-            press=lambda key: rpc("debug.key", {"key": key}),
-            allow=lambda: rpc("action.run", {"action": "browser.prompt.allow", "origin": "script"}),
-            seams=tcc.Seams(log=log), keychain_service=opts.keychain_service, app_pid=app_pid,
-            keychain_plan=keychain_plan)
+            open_host=lambda page: tcc_open_page(rpc, page, holder),
+            title=lambda: page_eval(rpc, "document.title", holder.get("tab")),
+            press=lambda key: rpc("debug.key", {"target": "page", "key": key}),
+            allow=lambda: tcc_allow(rpc, holder),
+            restart_host=lambda: tcc_restart_host(rpc, holder),
+            backend=lambda: (rpc("debug.cef") or {}).get("backend"),
+            seams=seams, keychain_service=opts.keychain_service, app_pid=app_pid, keychain_plan=keychain_plan, seed=seed)
         result = rows.run(url)
     finally:
-        # The helper rows start their own host: its start, pixels and lifetime rows measure a fresh one.
-        rpc("debug.chromium_host", {"op": "close"})
+        # Later modes measure their own pages: the probe's tab and its camera or location use end here.
+        if holder.get("tab"):
+            rpc("action.run", {"action": "closeTab", "target": f"tab:{holder['tab']}", "origin": "script"})
         log.stop()
         pages.stop()
     result.update({"lan_address": lan, "lan_hits": pages.lan_hits, "log_error": log.error, "keychain_plan": keychain_plan})
     RESULT["modes"]["tcc"] = result
     tcc.print_rows(result, lambda line: print(line, flush=True))
-    return not result.get("error")
+    return not result.get("error") and not result.get("mode_errors")
 
 
 def run_helper(rpc, url, inproc_tab):
