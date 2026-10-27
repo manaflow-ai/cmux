@@ -21,6 +21,10 @@ then tiers, then Pinpoint). One tick:
 2. for each running bisect: stops it when its group is no longer bisecting (catapult cancels a Pinpoint job whose
    alert was triaged away), else reads the answers to its outstanding actions, steps the core until it waits and
    persists the job state:
+   - a Build or Run of a Change whose commit lacks a capability the story needs (`lacks`, capabilities.py, task
+     211) is answered at once: the Change is not-measurable, nothing is built or run for it, and the result names
+     each limit (`range limited by capability X since <sha>`). A story job the controller reports not_measurable
+     (the build refused at run time) skips its Change the same way.
    - Build(change): the build ledger (builds.py, task 009) answers it. Until it does, the Build is published as
      `PinpointWork(build_only=True)`, so the scheduler requests (sha, config) once. Only a `failed` ledger record
      makes the commit unbuildable; a build with no record stays outstanding and is reported after BUILD_WAIT,
@@ -88,6 +92,7 @@ ingest = _load_sibling("perf_lab_ingest", "ingest.py")
 alerts = _load_sibling("perf_lab_alerts", "alerts.py")
 sheriff = _load_sibling("perf_lab_sheriff", "sheriff.py")
 scheduler = _load_sibling("perf_lab_scheduler", "scheduler.py")
+capabilities = _load_sibling("perf_lab_capabilities", "capabilities.py")
 
 CHECKPOINT_SCHEMA = "cmux-perf-pinpoint-exec/v2"
 JOB_KIND = "bisect"
@@ -233,6 +238,8 @@ def record(state, event: Mapping) -> None:
             state.record_build(change_of(event["change"]), bool(event["ok"]))
         elif event["t"] == "attempt":
             state.record_attempt(attempt_of(event["attempt"]))
+        elif event["t"] == "unmeasurable":
+            state.record_unmeasurable(change_of(event["change"]))
         else:
             raise ExecError(f"journal event kind {event['t']!r} is not a result")
     except pinpoint.PinpointError as error:
@@ -284,12 +291,16 @@ class Executor:
     first_parent(good, bad): the first-parent commits after good up to bad, oldest first (None: unknown now).
     commit_positions: ingest.CommitPositions for the story jobs' commits (labd's GitCommitPositions).
     repeat_seconds(story): one repeat's wall time, or None (UNKNOWN_RUN_SECONDS per job).
+    lacks(story, sha): the story's needs that commit lacks (capabilities.StoryNeeds, task 211); a Change that lacks
+    one is not-measurable before anything is built or run for it.
     One store.Store connection, owned by the opening thread; every write is the store's BEGIN IMMEDIATE."""
 
     def __init__(self, db_path: Path | str, state_dir: Path | str, *, controller: Controller, ledger: Ledger,
                  first_parent: FirstParent, commit_positions: Callable[[str], object],
                  repeat_seconds: Callable[[str], float | None] = lambda story: None,
+                 lacks: Callable[[str, str], Sequence[str]] = lambda story, sha: (),
                  clock: Callable[[], datetime] = store.utc_now) -> None:
+        self._lacks_needs = lacks
         self._controller = controller
         self._ledger = ledger
         self._first_parent = first_parent
@@ -371,6 +382,9 @@ class Executor:
 
     def _ledger_get(self, sha: str, config: str):
         return _seam(f"build ledger {sha[:12]} ({config})", self._ledger.get, sha, config)
+
+    def _lacks(self, story: str, sha: str) -> tuple[str, ...]:
+        return tuple(_seam(f"capabilities of {sha[:12]} for {story}", self._lacks_needs, story, sha))
 
     def _start(self, group: sqlite3.Row) -> int | str:
         """The new bisect's job id, or why the group cannot start yet."""
@@ -498,20 +512,28 @@ class Executor:
                 seen = len(checkpoint.events)
                 for action in actions:
                     if not isinstance(action, pinpoint.Done):
-                        self._add_action(checkpoint, action, config)
+                        self._add_action(checkpoint, action, config, job.story)
                 for event in checkpoint.events[seen:]:
                     record(state, event)
                 self._save(checkpoint)
         if state.result is not None:
-            self._finish(row, state.result)
+            self._finish(row, state.result, job, checkpoint)
             report.finished.append(row["id"])
             return None
         self._prepare(row, job, checkpoint)
         return checkpoint
 
-    def _add_action(self, checkpoint: Checkpoint, action, config: str) -> None:
-        """A new action; a Build the ledger already answers is recorded at once, so the next step sees it."""
+    def _add_action(self, checkpoint: Checkpoint, action, config: str, story: str) -> None:
+        """A new action; a Build the ledger already answers, or a Change that lacks a capability the story needs,
+        is recorded at once, so the next step sees it and nothing is built or run for it."""
         seq = len(checkpoint.actions)
+        lacked = self._lacks(story, action.change.sha)
+        if lacked:
+            change = change_doc(action.change)
+            checkpoint.actions.append({"seq": seq, "type": "build" if isinstance(action, pinpoint.Build) else "run",
+                                       "change": change, "status": DONE, "tries": 0, "missing": list(lacked)})
+            checkpoint.events.append({"t": "unmeasurable", "change": change, "missing": list(lacked)})
+            return
         if isinstance(action, pinpoint.Build):
             entry = {"seq": seq, "type": "build", "change": change_doc(action.change), "status": QUEUED,
                      "tries": 0, "queued_at": self._now()}
@@ -719,17 +741,29 @@ class Executor:
         self._write(write)
         report.cancelled.append(row["id"])
 
-    def _finish(self, row: sqlite3.Row, result) -> None:
+    def _range_limits(self, job, checkpoint: Checkpoint) -> list[str]:
+        """`range limited by capability X since <sha>` for each need a Change of the job lacked (task 211)."""
+        lacked = {need for event in checkpoint.events if event["t"] == "unmeasurable" for need in event["missing"]}
+        if not lacked:
+            return []
+        shas = [commit.sha for commit in job.range()]
+        return capabilities.range_limits(shas, lacked, lambda sha: self._lacks(job.story, sha))
+
+    def _finish(self, row: sqlite3.Row, result, job, checkpoint: Checkpoint) -> None:
         """Stores the result; a group still bisecting moves to culprit (unverified) or back to triaged."""
         culprit = max(result.culprits, default=None,
                       key=lambda c: abs((c.comparison.mean_change or 0.0) - (c.comparison.mean_parent or 0.0)))
+        limits = self._range_limits(job, checkpoint)
+        document = json.loads(result.to_json())
+        document["range_limits"] = limits
+        limited = "".join(f"; {line}" for line in limits)
 
         def write() -> None:
             current = self._db.execute("SELECT state FROM jobs WHERE id = ?", (row["id"],)).fetchone()
             if current["state"] != "running":
                 return
             self._db.execute("UPDATE jobs SET state = 'done', result_json = ?, updated_at = ? WHERE id = ?",
-                             (result.to_json(), self._now(), row["id"]))
+                             (json.dumps(document, sort_keys=True), self._now(), row["id"]))
             group = self._db.execute("SELECT state FROM alert_groups WHERE id = ?", (row["alert_group_id"],)).fetchone()
             if group["state"] != "bisecting":
                 return  # a sheriff moved it after this tick read it; the job's result stays for the record
@@ -738,13 +772,13 @@ class Executor:
                 reason = (f"bisect job {row['id']}: culprit {culprit.change.sha[:12]} "
                           f"({len(culprit.commits)} commit{'s' if len(culprit.commits) != 1 else ''}, "
                           f"{culprit.comparison.verdict} p={culprit.comparison.p_value:.4g})"
-                          + (f", {others} more" if others else "") + "; unverified until verify.py")
+                          + (f", {others} more" if others else "") + "; unverified until verify.py" + limited)
                 self._sheriff.apply_state(row["alert_group_id"], "culprit", reason=reason,
                                           culprit_sha=culprit.change.sha)
             else:
                 skipped = f", {len(result.skipped)} commits skipped" if result.skipped else ""
                 self._sheriff.apply_state(row["alert_group_id"], "triaged",
-                                          reason=f"bisect job {row['id']}: {result.outcome}, no culprit{skipped}")
+                                          reason=f"bisect job {row['id']}: {result.outcome}, no culprit{skipped}{limited}")
 
         try:
             self._write(write)

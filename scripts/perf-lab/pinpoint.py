@@ -336,6 +336,17 @@ class JobState:
             return
         self._attempts[change][attempt.index] = attempt
 
+    def record_unmeasurable(self, change: Change) -> None:
+        """The Change lacks a capability the story needs, known before it is built or run (capabilities.py,
+        task 211): it is skipped as NOT_MEASURABLE, and a build it never needed is not counted."""
+        if change in self._skipped:
+            return
+        if change not in self._build or change not in self.changes:
+            raise PinpointError(f"{change.label()}: not a Change of the range")
+        if self._build[change] in (_NEEDED, _REQUESTED):
+            self._builds -= 1
+        self._skip(change, NOT_MEASURABLE)
+
     def attempts(self, change: Change) -> tuple[Attempt, ...]:
         return tuple(a for _, a in sorted(self._attempts.get(change, {}).items()))
 

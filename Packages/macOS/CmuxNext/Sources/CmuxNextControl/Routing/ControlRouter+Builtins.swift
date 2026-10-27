@@ -96,7 +96,7 @@ extension ControlRouter {
                 try ControlCallerLocation.annotate(&members, params: call.params, topology: call.snapshot.topology)
                 return .object(members)
             },
-        ] + diagnosticMethods()
+        ] + diagnosticMethods() + capabilitiesMethods()
     }
 
     static let stopped = ControlError(code: "unavailable", message: ControlStrings.text("control.error.routerStopped", "the control router stopped"))
