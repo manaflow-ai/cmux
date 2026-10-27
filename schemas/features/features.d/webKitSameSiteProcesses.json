@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "webKitSameSiteProcesses",
+  "owner": "PL-memory",
+  "description": "Once the live WebKit browser tab processes reach the Chromium renderer limit (physical memory / 3 / 85 MB), a new WebKit tab whose first URL is of the same site (scheme and eTLD+1) as a live process's tabs joins that process, as Chrome reuses a same-site renderer above its limit; sites never mix.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["renderer-sharing"],
+  "sticky": false,
+  "runtimeMutable": false
+}

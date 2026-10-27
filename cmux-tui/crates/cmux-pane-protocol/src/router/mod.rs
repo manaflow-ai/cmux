@@ -187,8 +187,8 @@ pub fn canonical_roots(roots: &[String]) -> Result<Vec<String>, ErrorBody> {
             if !path.is_absolute() {
                 return Err(bad());
             }
-            let canonical = std::fs::canonicalize(path).map_err(|_| bad())?;
-            if !canonical.is_dir() {
+            let canonical = cmux_blocking::fs::canonicalize(path).map_err(|_| bad())?;
+            if !cmux_blocking::fs::metadata(&canonical).is_ok_and(|metadata| metadata.is_dir()) {
                 return Err(bad());
             }
             canonical.into_os_string().into_string().map_err(|_| bad())
