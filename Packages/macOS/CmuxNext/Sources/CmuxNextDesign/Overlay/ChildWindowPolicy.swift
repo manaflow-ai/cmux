@@ -1,5 +1,6 @@
 public import AppKit
 import os
+import class CmuxSafeConcurrency.Invariant
 
 /// The child windows a main window may have: its overlay host panel and the
 /// Chromium page windows. Every app overlay draws on the host
@@ -14,6 +15,8 @@ import os
 /// The main window's `addChildWindow` override calls `check(_:parent:)`.
 /// DEBUG and test builds record every violation (`violations`) and, when
 /// `isStrict` (tests, `CMUX_NEXT_STRICT_CHILD_WINDOWS=1`), stop at it.
+/// Every build reports the launch's first violation with its stack
+/// (`Invariant.dumpWithoutCrashing`).
 @MainActor
 public struct ChildWindowPolicy {
     public init() {}
@@ -52,6 +55,7 @@ public struct ChildWindowPolicy {
         logger.fault("child window \(name, privacy: .public) is not on the overlay host; it can fall below a Chromium page")
         if isStrict { assertionFailure("child window \(name) is not on the overlay host") }
         #endif
+        Invariant.dumpWithoutCrashing("child-window-off-overlay-host")
         return false
     }
 }

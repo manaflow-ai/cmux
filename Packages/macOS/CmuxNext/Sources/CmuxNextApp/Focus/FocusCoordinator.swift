@@ -5,6 +5,7 @@ import CmuxNextFocus
 import CmuxNextFocusUI
 import CmuxNextSignposts
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.Invariant
 
 /// Applies reducer effects to the real world (AppKit, WebKit, CEF, layout,
 /// registry context). `FocusEffectApplier` in the app; a recorder in tests.
@@ -122,6 +123,7 @@ final class FocusCoordinator {
                     // The ABI refused the event: a wire mismatch between the app
                     // and the linked FFI. Keep the state rather than lose focus.
                     assertionFailure("focus machine refused \(event)")
+                    Invariant.dumpWithoutCrashing("focus-machine-refused-event")
                     continue
                 }
                 let effects = result.effects

@@ -1,3 +1,5 @@
+import class CmuxSafeConcurrency.Invariant
+
 /// The app's startup phases (plans/cmux-next/chrome-parity/p06-scheduler.md, section A,
 /// "Startup phases"): what may run on the main thread while the first window is still coming.
 ///
@@ -228,9 +230,11 @@ public final class StartupPhase {
         onHeldAwait(HeldAwait(work: workClass, owner: owner, phase: phase, file: "\(file)", line: line))
     }
 
-    /// The default held-await report: an assertion in Debug builds, nothing in Release.
+    /// The default held-await report: an assertion in Debug builds, one non-fatal report per launch in
+    /// Release (`Invariant.dumpWithoutCrashing`).
     public nonisolated static func assertNotHeld(_ wait: HeldAwait) {
         assertionFailure("startup: \(wait)")
+        Invariant.dumpWithoutCrashing("startup-await-on-held-work")
     }
 
     /// The reveal deadline's arm: reveals only a launch still launching.

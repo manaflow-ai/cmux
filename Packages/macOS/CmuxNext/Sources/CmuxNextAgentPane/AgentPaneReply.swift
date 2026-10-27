@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.Invariant
 public import Foundation
 
 /// The page's reply envelope: `{ok: true, value}` or
@@ -40,6 +41,7 @@ public nonisolated enum AgentPaneReply {
               let object = try? JSONSerialization.blockingJSONObject(with: data),
               let dictionary = object as? [String: Any] else {
             assertionFailure("Agent pane bridge value must be JSON-compatible")
+            Invariant.dumpWithoutCrashing("agent-pane-reply-not-json")
             return [:]
         }
         return dictionary

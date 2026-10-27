@@ -1,3 +1,5 @@
+import class CmuxSafeConcurrency.Invariant
+
 extension TaskLocal {
     /// Binds this task local to `value` for `body`, inside a Swift task: the current one, else a
     /// main-actor task that starts synchronously and finishes before this returns (`body` never
@@ -91,6 +93,7 @@ private final class ImmediateRun<T> {
             // The task starts at once from the main thread; should it ever not, the binding below
             // is the crash this file exists to prevent.
             assertionFailure("the main-actor task did not start synchronously")
+            Invariant.dumpWithoutCrashing("task-local-main-actor-task-started-late")
             let value = body()
             state = .done(value)
             return value

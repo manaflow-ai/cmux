@@ -1,4 +1,5 @@
 internal import CmuxNextCompat
+internal import class CmuxSafeConcurrency.Invariant
 internal import class CmuxSafeConcurrency.OnceContinuation
 internal import enum CmuxSafeConcurrency.OnceContinuationError
 internal import func CmuxSafeConcurrency.withOnceContinuation
@@ -186,6 +187,8 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
         private enum Take: Sendable {
             case now(Item?)
             case parked
+            /// Another next() already waits: this one returns nil (a Sink has one consumer).
+            case secondConsumer
         }
 
         private struct State: Sendable {
@@ -302,14 +305,20 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
                         if Task.isCancelled || state.phase == .finished || state.phase == .cancelled {
                             return .now(nil)
                         }
-                        guard state.waiter == nil else {
-                            assertionFailure("StreamDemux.Sink has one consumer; a second next() returns nil")
-                            return .now(nil)
-                        }
+                        guard state.waiter == nil else { return .secondConsumer }
                         state.waiter = continuation
                         return .parked
                     }
-                    if case .now(let item) = take { continuation.resume(returning: item) }
+                    switch take {
+                    case .now(let item):
+                        continuation.resume(returning: item)
+                    case .parked:
+                        break
+                    case .secondConsumer:
+                        assertionFailure("StreamDemux.Sink has one consumer; a second next() returns nil")
+                        Invariant.dumpWithoutCrashing("stream-demux-second-consumer")
+                        continuation.resume(returning: nil)
+                    }
                 }
             } onCancel: {
                 let waiter = state.withLock { $0.takeWaiter() }

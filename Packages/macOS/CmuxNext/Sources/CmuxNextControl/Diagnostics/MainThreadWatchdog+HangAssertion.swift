@@ -1,3 +1,5 @@
+import class CmuxSafeConcurrency.Invariant
+
 extension MainThreadWatchdog {
     /// A stall past `assertNanos` fails the debug assertion only when the
     /// main thread was busy: it used CPU for at least half the threshold.
@@ -11,5 +13,12 @@ extension MainThreadWatchdog {
         guard elapsedNanos >= assertNanos else { return false }
         guard let mainThreadCPUNanos else { return true }
         return mainThreadCPUNanos >= assertNanos / 2
+    }
+
+    /// Fails the assertion for a busy stall past `threshold`: stops a debug build; a release build that was
+    /// given a threshold reports the first one of the launch with the crash keys (`Invariant.dumpWithoutCrashing`).
+    static func failHangAssertion(threshold: Duration?) {
+        assertionFailure("main thread hang: busy over \(threshold ?? .zero); see debug.hangs and the crash report")
+        Invariant.dumpWithoutCrashing("main-thread-hang-past-assert-threshold")
     }
 }

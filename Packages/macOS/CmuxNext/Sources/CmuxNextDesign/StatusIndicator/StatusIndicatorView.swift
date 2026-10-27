@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import class CmuxSafeConcurrency.Invariant
 public import CmuxNextDesignTokens
 public import CmuxNextWakeups
 
@@ -189,6 +190,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
             try visibilityNode.attach(to: parent)
         } catch {
             assertionFailure("StatusIndicatorView: \(parent.name) cannot hold the indicator's node (\(error))")
+            Invariant.dumpWithoutCrashing("status-indicator-attach-refused")
         }
     }
 }

@@ -66,14 +66,16 @@ struct AppCrashReporting: Sendable {
     ///     app-hang tracker runs (``WatchdogHangSinks/hangTracking``). Nil (tests, no watchdog) keeps the tracker.
     ///   - forwardersAfterStartup: The launch's scheduler with feature `crashForwardersAfterStartup`: the
     ///     forwarders run in its afterStartup lane post (``CrashForwarders/post(on:)``). Nil: they start now.
+    ///   - crashKeys: The app's crash keys: each invariant report and `Invariant.dumpWithoutCrashing` event carries
+    ///     them as they were at the call (p09-observability-130).
     init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
          afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil),
-         hangSinks: WatchdogHangSinks? = nil, forwardersAfterStartup: StartupScheduler? = nil) {
+         hangSinks: WatchdogHangSinks? = nil, forwardersAfterStartup: StartupScheduler? = nil, crashKeys: CrashKeySlots? = nil) {
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID, hangTracking: hangSinks?.hangTracking ?? .sentry)
         let bundleVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
         guard environment.marksRun else {
             // No Sentry in this process: the running build still decides when a notFatalUntil site traps.
-            InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
+            InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion, crashKeys: crashKeys)
             forwarders = nil
             return
         }
@@ -83,7 +85,7 @@ struct AppCrashReporting: Sendable {
         let sends = reporter.start(profile: afterStartup.profile)
         DebugTimings.markLaunch("crash.sentry_started")
         // After the start, so the invariant sink sends only when Sentry runs (p10-stability-099).
-        InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
+        InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion, crashKeys: crashKeys)
         if let features { reporter.setFeatures(features) }
         afterStartup.schedule { [reporter = self.reporter] in reporter.resumeAfterStartup() }
         let stateDirectory = AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)

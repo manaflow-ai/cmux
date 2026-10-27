@@ -83,6 +83,22 @@ private final class Counter: Sendable {
         #expect(log.recorded.count == 1)
     }
 
+    /// p09-observability-130: a dump has no condition, reports its site once per launch, and never traps, even
+    /// with a running build far past every notFatalUntil build.
+    @Test func dumpWithoutCrashingReportsEachSiteOnceAndNeverTraps() {
+        let invariant = Invariant(capacity: 8)
+        let log = EventLog()
+        invariant.install(build: UInt64.max, sink: log)
+        var first: [Bool] = []
+        for _ in 0 ..< 4 {
+            first.append(Invariant.dumpWithoutCrashing("dumped", in: invariant))
+        }
+        Invariant.dumpWithoutCrashing("dumped-elsewhere", in: invariant)
+        #expect(first == [true, false, false, false])
+        #expect(log.recorded.map(\.kind) == [.dumpWithoutCrashing, .dumpWithoutCrashing])
+        #expect(log.recorded.map(\.id.description) == ["dumped", "dumped-elsewhere"])
+    }
+
     @Test func theSinkTakesTheEventInTheFailingCall() {
         let invariant = Invariant(capacity: 8)
         let log = EventLog()

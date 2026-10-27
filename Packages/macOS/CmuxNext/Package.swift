@@ -1572,10 +1572,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: daemonSwiftSettings
         ),
         // The freeze gate for this process's environment writes (libghostty
-        // keeps a copy of environ from ghostty_init). No dependencies.
+        // keeps a copy of environ from ghostty_init). No app-layer dependencies.
         .target(
             name: "CmuxNextProcessEnvironment",
-            dependencies: ["CmuxNextCompat"],
+            // CmuxSafeConcurrency: Invariant.dumpWithoutCrashing for a Release write after freeze (p09-observability-130).
+            dependencies: ["CmuxNextCompat", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
         // Opt-in hang reports from NIGHTLY (plans/cmux-next/hang-reports-DESIGN.md):
@@ -1617,6 +1618,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // InvariantSinkTests binds the blocking detector's scoped table.
                 "CmuxNextCompat",
                 "CmuxNextTrace",
+                // DumpWithoutCrashingTests sets crash keys (CrashKeySlots) around a dump.
+                "CmuxNextWakeups",
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
                 // CrashReporterOptionsTests checks the options against CLISentryRuntimePolicy.
@@ -1858,7 +1861,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextActions",
             // Wakeups: the main-thread task board, where an action run is published as a span so the
             // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor).
-            dependencies: ["CmuxNextCompat", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
+            // CmuxSafeConcurrency: Invariant.dumpWithoutCrashing at a Release invariant site (p09-observability-130).
+            dependencies: ["CmuxNextCompat", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics",
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),

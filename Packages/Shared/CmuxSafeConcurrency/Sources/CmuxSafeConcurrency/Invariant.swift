@@ -1,7 +1,8 @@
 internal import CmuxSafeConcurrencyAtomics
 
 /// One failed ``Invariant/notFatalUntil(_:_:build:in:fileID:line:)`` or
-/// ``Invariant/dumpWillBeCheck(_:_:in:fileID:line:)``: the first failure of its site in this launch.
+/// ``Invariant/dumpWillBeCheck(_:_:in:fileID:line:)``, or one ``Invariant/dumpWithoutCrashing(_:in:fileID:line:)``:
+/// the first of its site in this launch.
 public struct InvariantEvent: Sendable {
     /// Which call failed.
     public enum Kind: Sendable, Equatable {
@@ -9,6 +10,9 @@ public struct InvariantEvent: Sendable {
         case notFatalUntil(build: UInt64)
         /// ``Invariant/dumpWillBeCheck(_:_:in:fileID:line:)``: it never traps.
         case dumpWillBeCheck
+        /// ``Invariant/dumpWithoutCrashing(_:in:fileID:line:)``: a Release build reached a site its Debug build
+        /// stops at; it never traps.
+        case dumpWithoutCrashing
     }
 
     public let kind: Kind
@@ -50,6 +54,10 @@ public protocol InvariantEventSink: Sendable {
 ///   where the caller has a real way to recover.
 /// - ``dumpWillBeCheck(_:_:in:fileID:line:)``, Chrome's `DUMP_WILL_BE_CHECK`: reports and goes on in every
 ///   build. Rare; each site needs a `swift.dump_will_be_check` allowlist entry that names the code that recovers.
+///
+/// Beside them, ``dumpWithoutCrashing(_:in:fileID:line:)`` (Chrome's `base::debug::DumpWithoutCrashing`) takes no
+/// condition: it sits next to an `assertionFailure` that stops a Debug build, so the Release build reports the
+/// same failure once per launch instead of going on silently (p09-observability-130).
 ///
 /// Input from outside the process (a file, a peer frame, a decoded message) never goes here: it gets a typed
 /// error at its boundary.
@@ -150,6 +158,26 @@ public final class Invariant: @unchecked Sendable { // crash-allow: every word o
                                        fileID: StaticString = #fileID, line: UInt = #line) -> Bool {
         if condition() { return false }
         return invariant.failed(.dumpWillBeCheck, id, fileID: fileID, line: line)
+    }
+
+    /// Reports the site's first call of the launch to the installed sink and returns; never traps. Chrome's
+    /// `base::debug::DumpWithoutCrashing` (base/debug/dump_without_crashing.cc), which also reports a location at
+    /// most once per period: call it where a Release build reaches a state its Debug build stops at, next to that
+    /// `assertionFailure`, so the Release failure is a report with the stack and the crash keys, not silence.
+    ///
+    /// ```swift
+    /// guard let result = machine.send(event, into: &state) else {
+    ///     assertionFailure("focus machine refused \(event)")
+    ///     Invariant.dumpWithoutCrashing("focus-machine-refused")
+    ///     return
+    /// }
+    /// ```
+    ///
+    /// - Returns: Whether this call was its site's first of the launch (the one that reported).
+    @inlinable @discardableResult
+    public static func dumpWithoutCrashing(_ id: StaticString, in invariant: Invariant = .process,
+                                           fileID: StaticString = #fileID, line: UInt = #line) -> Bool {
+        invariant.failed(.dumpWithoutCrashing, id, fileID: fileID, line: line)
     }
 
     /// Whether a ``notFatalUntil(_:_:build:in:fileID:line:)`` failure traps: only once the running build is known

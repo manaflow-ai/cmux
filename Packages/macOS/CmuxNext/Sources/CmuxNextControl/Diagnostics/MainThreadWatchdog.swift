@@ -468,7 +468,7 @@ public final class MainThreadWatchdog: Sendable {
            Self.hangFailsAssertion(elapsedNanos: elapsed, mainThreadCPUNanos: mainThreadCPU(sinceBeat: beat),
                                    assertNanos: hangAssertNanos) {
             state.assertedBeat = beat
-            assertionFailure("main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
+            Self.failHangAssertion(threshold: configuration.hangAssertThreshold)
         }
     }
 

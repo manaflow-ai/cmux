@@ -1,4 +1,5 @@
 import Atomics
+import class CmuxSafeConcurrency.Invariant
 
 /// The resolved value of every feature: Chromium's `base::FeatureList`
 /// (base/feature_list.cc), built once by the composition root and immutable
@@ -199,11 +200,13 @@ extension FeatureList {
         public func install(_ list: FeatureList) -> [Feature] {
             guard list.registry.features == defaults.registry.features else {
                 assertionFailure("the installed FeatureList has another registry")
+                Invariant.dumpWithoutCrashing("feature-list-other-registry")
                 return []
             }
             let winner = installed.storeIfNilThenLoad(list)
             guard winner === list else {
                 assertionFailure("a FeatureList is installed twice")
+                Invariant.dumpWithoutCrashing("feature-list-installed-twice")
                 return []
             }
             // Pairs with the fence in isEnabled(_:): every flag a reader set

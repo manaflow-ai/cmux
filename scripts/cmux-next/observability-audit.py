@@ -18,7 +18,7 @@ Subcommands (each prints JSON with --json, task lines with --tasks, else a summa
   histograms  MQ12 histogram catalog ids with no record site.
   threads     MQ13 unnamed Rust threads.
   tasks       MQ14 untraced detached tasks.
-  asserts     MQ16 silent Release invariants (assertionFailure with no dumpWithoutCrashing next to it).
+  asserts     MQ16 silent Release invariants (assertionFailure outside #if DEBUG with no dumpWithoutCrashing next to it).
   all         every queue above.
 
 Each queue is `{queue, title, hits: [{file, line, symbol}], count}`; `counts` holds the done-check keys. The script
@@ -333,6 +333,27 @@ def near(lines: List[str], line: int, pattern: re.Pattern, before: int = 1, afte
     lo = max(0, line - 1 - before)
     hi = min(len(lines), line + after)
     return any(pattern.search(text) for text in lines[lo:hi])
+
+
+DEBUG_IF = re.compile(r"^\s*#if\s+DEBUG\s*$")
+ANY_IF = re.compile(r"^\s*#if\b")
+ELSE_BRANCH = re.compile(r"^\s*#(?:else|elseif)\b")
+END_IF = re.compile(r"^\s*#endif\b")
+
+
+def debug_only(lines: List[str], line: int) -> bool:
+    """Whether line `line` (1-based) is inside an `#if DEBUG` branch: code a Release build does not compile."""
+    stack: List[bool] = []
+    for text in lines[: max(0, line - 1)]:
+        if DEBUG_IF.match(text):
+            stack.append(True)
+        elif ANY_IF.match(text):
+            stack.append(False)
+        elif ELSE_BRANCH.match(text) and stack:
+            stack[-1] = False
+        elif END_IF.match(text) and stack:
+            stack.pop()
+    return any(stack)
 
 
 def marked(lines: List[str], line: int, on_line: re.Pattern, in_comment_above: Optional[re.Pattern] = None) -> bool:
@@ -988,6 +1009,7 @@ class Audit:
             Hit(m.file, m.line, m.text.strip()[:120])
             for m in self.rg.lines(Q.MQ16, [SOURCES])
             if not is_comment(m.text)
+            and not debug_only(self.files.lines(m.file), m.line)
             and not near(self.files.lines(m.file), m.line, DUMP_WITHOUT_CRASHING, before=3, after=3)
         ]
         q = Queue("MQ16", "dumpWithoutCrashing next to the Release invariant", hits, "1 task", "silent_release_invariants")
@@ -1563,7 +1585,10 @@ def self_test() -> int:
     expect("MQ16", len(lines_of(Q.MQ16, 'assertionFailure("x")\nassert(x)\n')), 1)
     expect("MQ16 done", near(['assertionFailure("x")', "Diagnostics.dumpWithoutCrashing(site: \"x\")"], 1,
                              DUMP_WITHOUT_CRASHING, before=3, after=3), True)
-    hits = [Hit(f"{SOURCES}/{pkg}/F{i}.swift", 1, "x") for pkg, n in (("A", 10), ("B", 10), ("C", 3)) for i in range(n)]
+    debug_fixture = ["#if DEBUG", "a()", "#if os(macOS)", "b()", "#endif", "c()", "#else", "d()", "#endif", "e()"]
+    expect("MQ16 debug only", [debug_only(debug_fixture, n) for n in (2, 4, 6, 8, 10)], [True, True, True, False, False])
+    expect("MQ16 other if", debug_only(["#if os(macOS)", "a()", "#endif"], 2), False)
+    hits =[Hit(f"{SOURCES}/{pkg}/F{i}.swift", 1, "x") for pkg, n in (("A", 10), ("B", 10), ("C", 3)) for i in range(n)]
     batches = by_package_files(hits, 15)
     expect("package batches", [len({h.file for h in b}) for b in batches], [10, 13])
     expect("big package split", [len(b) for b in by_package_files([Hit(f"{SOURCES}/A/F{i}.swift", 1, "x") for i in range(20)], 15)],
