@@ -75,11 +75,16 @@ class Pick(unittest.TestCase):
             out = os.path.join(tmp, "out")
 
             def broken(token, repo):
-                raise RuntimeError("403")
+                raise RuntimeError("body with a token-like value")
 
             env = {"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "DEDICATED_LABEL": LABEL,
                    "GITHUB_RUN_ATTEMPT": "2", "GITHUB_OUTPUT": out}
-            self.assertEqual(picker.main(env, read_runners=broken), 0)
+            import contextlib
+            import io
+            printed = io.StringIO()
+            with contextlib.redirect_stdout(printed):
+                self.assertEqual(picker.main(env, read_runners=broken), 0)
+            self.assertNotIn("token-like", printed.getvalue())
             self.assertEqual(Path(out).read_text(), "dedicated=\nattempt=2\n")
             Path(out).write_text("")
             self.assertEqual(picker.main(env, read_runners=lambda token, repo: [runner()]), 0)

@@ -82,7 +82,8 @@ def main(env: Mapping[str, str] = os.environ,
             # The dedicated mini is a repository runner, so the repository's list is enough.
             return list(pool.GitHub(token, repo)._runner_pages(f"/repos/{repo}/actions/runners"))
         except Exception as error:  # noqa: BLE001 - never fail the job; Blacksmith takes it
-            print(f"::warning title=iOS archive runner::could not list runners ({str(error)[:200]})")
+            # The error's type only: its text could carry a response body into this log.
+            print(f"::warning title=iOS archive runner::could not list runners ({type(error).__name__})")
             return None
 
     dedicated, why = pick(label, read, sleep=sleep, clock=clock)

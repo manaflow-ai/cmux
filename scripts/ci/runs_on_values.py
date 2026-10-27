@@ -56,7 +56,11 @@ HOST_NAME = re.compile(r"cmux\d+s?(?:-perf)?|cmuxs-mac-mini-\d+|cmux-austin-mini
 # The variables runner_label_policy.py lets hold a runner's own name label (nightly_runner_reason()).
 RUNNER_NAME_VARIABLES = ("CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_TRUSTED_RUNNER", "CI_NIGHTLY_TRUSTED_RUNNER")
 VARIABLE = re.compile(r"\bvars\.([A-Za-z0-9_]+)\b")
-PICK = re.compile(r"\bneeds\.[\w-]+\.outputs\.[\w-]+\b")
+# A positive test of a picker's output, as one whole `&&` term: the output itself, or the output compared with
+# `==` / `!=` to a literal or to format(...) (`needs.p.outputs.trusted != 'false'`,
+# `needs.p.outputs.attempt == format('{0}', github.run_attempt)`). A negation (`!needs...`), an `||` group or an
+# output mentioned anywhere else is no pick.
+PICK = re.compile(r"needs\.[\w-]+\.outputs\.[\w-]+(?:\s*(?:==|!=)\s*(?:'[^']*'|format\([^|&]*\)))?")
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 
 
@@ -145,7 +149,7 @@ def unguarded(expression: str, values: Mapping[str, str], falls_through: bool = 
     for index, alternative in enumerate(alternatives):
         tail = falls_through or any(unconditional(later) for later in alternatives[index + 1:])
         terms = conjuncts(alternative)
-        guarded = picked or any(PICK.search(term) for term in terms[:-1])
+        guarded = picked or any(PICK.fullmatch(term) for term in terms[:-1])
         value = terms[-1]
         if len(split_top(value, "||")) > 1:
             found += unguarded(value, values, tail, guarded)
@@ -212,12 +216,13 @@ RUNS_ON_VARIABLES_ENV = "CMUX_CI_RUNS_ON_VARIABLES"
 def parse_values(raw: str) -> dict[str, str]:
     """NAME=value per line, as the workflow passes them; a repeated name is an error (a value spanning lines)."""
     values: dict[str, str] = {}
-    for line in raw.splitlines():
+    for number, line in enumerate(raw.splitlines(), 1):
         if not line.strip():
             continue
         name, separator, value = line.strip().partition("=")
-        if not separator or not name:
-            raise ValueError(f"{RUNS_ON_VARIABLES_ENV} line {line.strip()!r} is not NAME=value")
+        if not separator or not name or not re.fullmatch(r"[A-Za-z0-9_]+", name):
+            # The line's text is not printed: only runner labels belong in this public log.
+            raise ValueError(f"{RUNS_ON_VARIABLES_ENV} line {number} is not NAME=value")
         if name in values:
             raise ValueError(f"{RUNS_ON_VARIABLES_ENV} repeats {name}: a variable's value spans lines")
         values[name] = value
