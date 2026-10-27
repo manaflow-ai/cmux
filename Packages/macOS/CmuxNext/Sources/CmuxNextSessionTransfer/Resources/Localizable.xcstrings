@@ -2243,6 +2243,270 @@
           }
         }
       }
+    },
+    "sessionMove.handoff.running": {
+      "comment": "Why a terminal picked in the Move Sessions dialog did not move: asked again right before the move, its build reported a program running in it (so ending it would lose work). Shown after “Couldn’t move “title”: ”. %@ is the program's name (vim, ssh).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It started running %@ after you picked it, so it stayed in the other build."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach der Auswahl wurde darin %@ gestartet, daher bleibt es im anderen Build."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il a lancé %@ après votre sélection, il reste donc dans l’autre build."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدأ تشغيل %@ فيها بعد اختيارها، لذا بقيت في الإصدار الآخر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empezó a ejecutar %@ después de que lo eligieras, así que se quedó en la otra compilación."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你選取後它開始執行 %@，因此留在另一個版本中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你选择后它开始运行 %@，因此留在另一个版本中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 뒤 %@ 실행을 시작해 다른 빌드에 남았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した後に %@ の実行が始まったため、元のビルドに残りました。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nakon odabira pokrenuo je %@, pa je ostao u drugoj verziji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den begyndte at køre %@, efter du valgte den, så den blev i det andet build."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ha iniziato a eseguire %@ dopo che l’hai scelto, quindi è rimasto nell’altra build."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាបានចាប់ផ្ដើមដំណើរការ %@ បន្ទាប់ពីអ្នកជ្រើសរើស ដូច្នេះវានៅក្នុង build ផ្សេងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den begynte å kjøre %@ etter at du valgte den, så den ble i det andre bygget."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po wybraniu zaczął uruchamiać %@, więc został w drugiej kompilacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Começou a executar %@ depois que você o escolheu, então ficou na outra compilação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "После выбора в нём запустился %@, поэтому он остался в другой сборке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มรัน %@ หลังจากที่คุณเลือก จึงยังอยู่ในบิลด์อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siz seçtikten sonra %@ çalıştırmaya başladı, bu yüzden diğer derlemede kaldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Після вибору в ньому запустився %@, тому він залишився в іншій збірці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nó bắt đầu chạy %@ sau khi bạn chọn, nên vẫn ở bản build kia."
+          }
+        }
+      }
+    },
+    "sessionMove.handoff.unknownActivity": {
+      "comment": "Why a terminal picked in the Move Sessions dialog did not move: asked again right before the move, its build no longer reported whether a program runs in it (or the terminal was gone). Shown after “Couldn’t move “title”: ”.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other build could no longer tell whether a program is running in it, so it stayed there."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der andere Build konnte nicht mehr feststellen, ob darin ein Programm läuft, daher bleibt es dort."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’autre build ne pouvait plus dire si un programme s’y exécute, il y est donc resté."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد الإصدار الآخر قادرًا على معرفة ما إذا كان برنامج يعمل فيها، لذا بقيت هناك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La otra compilación ya no podía saber si se está ejecutando un programa en él, así que se quedó allí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個版本已無法判斷其中是否有程式在執行，因此留在那裡。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个版本已无法判断其中是否有程序在运行，因此留在那里。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 빌드가 더 이상 프로그램 실행 여부를 확인할 수 없어 그곳에 남았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のビルドがプログラムの実行状況を確認できなくなったため、そこに残りました。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Druga verzija više nije mogla utvrditi radi li u njemu program, pa je ostao tamo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det andet build kunne ikke længere se, om et program kører i den, så den blev der."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’altra build non riusciva più a capire se vi è in esecuzione un programma, quindi è rimasto lì."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "build ផ្សេងទៀតមិនអាចប្រាប់បានទៀតទេថាមានកម្មវិធីកំពុងដំណើរការក្នុងវាឬអត់ ដូច្នេះវានៅទីនោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det andre bygget kunne ikke lenger se om et program kjører i den, så den ble der."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Druga kompilacja nie mogła już ustalić, czy działa w nim program, więc został tam."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A outra compilação não conseguia mais dizer se há um programa em execução nele, então ficou lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Другая сборка больше не могла определить, выполняется ли в нём программа, поэтому он остался там."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์อื่นไม่สามารถบอกได้อีกต่อไปว่ามีโปรแกรมทำงานอยู่หรือไม่ จึงยังอยู่ที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer derleme artık içinde bir programın çalışıp çalışmadığını anlayamadı, bu yüzden orada kaldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інша збірка більше не могла визначити, чи виконується в ньому програма, тому він залишився там."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản build kia không còn xác định được có chương trình nào đang chạy trong đó hay không, nên nó vẫn ở đó."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

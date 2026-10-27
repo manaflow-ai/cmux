@@ -638,6 +638,7 @@ class OwnedMarkerRunTests(unittest.TestCase):
             "ci.yml dispatch": self.run_of(event="workflow_dispatch"),
             "a dispatch workflow as a pull request": self.run_of(path=".github/workflows/iroh-release-gate.yml"),
             "the bot's third attempt": self.run_of(run_attempt=3, triggering_actor={"login": "github-actions[bot]"}),
+            "the cmux-bot App's third attempt": self.run_of(run_attempt=3, triggering_actor={"login": "cmux-bot[bot]"}),
             "fork": self.run_of(head_repository={"id": 2}),
             "other workflow": self.run_of(event="workflow_dispatch", path=".github/workflows/nightly.yml"),
         }.items():

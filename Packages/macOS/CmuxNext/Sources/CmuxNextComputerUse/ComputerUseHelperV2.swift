@@ -55,6 +55,8 @@ public final class ComputerUseHelperV2 {
     /// Logs the helper's control lines after `ready` (``logControlLines(_:pid:)``).
     private var controlLog: Task<Void, Never>?
     private var generation = 0
+    /// Only explicit setup clicks; never persisted across app launches.
+    private var pendingPermissions: Set<String> = []
 
     /// This app's signing team. Ad-hoc development builds have no team and
     /// retain the same-executable-path peer rule.
@@ -211,6 +213,11 @@ public final class ComputerUseHelperV2 {
             await stop()
             return unavailable("cannot write \(endpointPath)")
         }
+        let permissions = pendingPermissions
+        pendingPermissions.removeAll()
+        for permission in permissions {
+            await sendPermission(permission)
+        }
         helperV2Logger.notice("cmux Computer Use helper v2 started pid=\(spawned.pid, privacy: .public)")
         // An acpmux daemon that already runs (it outlives the app) is registered now.
         if let acpmux { await registerAcpmuxDaemon(acpmuxSocket: acpmux.socketPath) }
@@ -226,9 +233,27 @@ public final class ComputerUseHelperV2 {
                               "start_sec": Int(stamp.startSeconds), "start_usec": Int(stamp.startMicroseconds)]))
     }
 
+    /// A person's permission button in Computer Use setup. Startup and agent
+    /// tool calls never use this private host channel to request grants.
+    public func requestPermission(screenRecording: Bool) async {
+        let permission = screenRecording ? "screen_recording" : "accessibility"
+        switch state {
+        case .off: pendingPermissions.insert(permission)
+        case .running: await sendPermission(permission)
+        case .unavailable: break
+        }
+    }
+
+    private func sendPermission(_ permission: String) async {
+        guard case .running = state, let child else { return }
+        await child.send(Self.line(["type": "request_permission",
+                                   "permission": permission]))
+    }
+
     /// Stops the helper: close its stdin (it exits on EOF), then SIGTERM this
     /// exact pid if it is still alive after `exitGrace`.
     func stop() async {
+        pendingPermissions.removeAll()
         unlink(endpointPath)
         guard let child else {
             state = .off
@@ -248,6 +273,7 @@ public final class ComputerUseHelperV2 {
     /// App quit: close the helper's stdin now (it exits on EOF; the kernel
     /// closes the pipe anyway if this app dies).
     func terminateForQuit() {
+        pendingPermissions.removeAll()
         generation &+= 1
         unlink(endpointPath)
         controlLog?.cancel()
@@ -258,6 +284,7 @@ public final class ComputerUseHelperV2 {
     }
 
     private func unavailable(_ reason: String) {
+        pendingPermissions.removeAll()
         helperV2Logger.error("cmux Computer Use helper v2 unavailable: \(reason, privacy: .public)")
         state = .unavailable(reason)
     }

@@ -455,6 +455,35 @@ def summary_whats_new_digest(args, lines):
     return document
 
 
+REPO = "manaflow-ai/cmux"
+# The generic entry, all but its docs link (the span's commits). `check` knows it by every field,
+# so a real highlight that happens to share its id is never taken for it.
+GENERIC_ENTRY = {"id": "fixes-and-improvements", "category": "improved", "title": {"en": "Fixes and improvements"},
+                 "summary": {"en": "This build brings fixes and improvements. The link lists every change in it."},
+                 "platforms": ["macos"], "audience": "all"}
+
+
+def generic_whats_new_digest(args):
+    """The digest of a build with nothing user-facing to say: one "Fixes and improvements" entry
+    whose link lists the span's commits. claude-sr2, 2026-10-27: a build with no What's New entry
+    publishes with this instead of failing publish-nightly (9 of 79 attempts threw away a notarized
+    build); `check` warns about it."""
+    link = (f"https://github.com/{REPO}/compare/{args.since}...{args.head}" if args.since
+            else f"https://github.com/{REPO}/commits/{args.head}")
+    return {"schemaVersion": 1, "version": args.short, "channel": "nightly", "date": args.date,
+            "headline": {"en": "Fixes and improvements"}, "entries": [{**GENERIC_ENTRY, "docs": link}]}
+
+
+def is_generic(entries):
+    """Whether `entries` is exactly the generic entry generic_whats_new_digest writes."""
+    if len(entries) != 1:
+        return False
+    entry = dict(entries[0])
+    docs = entry.pop("docs", "")
+    return entry == GENERIC_ENTRY and isinstance(docs, str) and (
+        docs.startswith(f"https://github.com/{REPO}/compare/") or docs.startswith(f"https://github.com/{REPO}/commits/"))
+
+
 def write_community_summary(digest, args):
     """notes/community-<build>.md: a short Discord/X summary a human posts (K2); the
     release-notes artifact keeps it and the R2 upload publishes it with the notes."""
@@ -552,9 +581,15 @@ def build(args):
     digest = whats_new_digest(args, again)
     if digest is None:
         digest = summary_whats_new_digest(args, notes["summary"])
+    generic = digest is None and not highlights
+    if generic:
+        # Nothing user-facing in the span. A span whose highlight files all failed validation
+        # keeps no digest, so `check` still fails it.
+        digest = generic_whats_new_digest(args)
     if digest is not None:
         notes["whatsNew"] = digest
-        write_community_summary(digest, args)
+        if not generic:
+            write_community_summary(digest, args)
     # When the build was made, to the second: the Updated card names the build by it ("Nightly · Oct 26,
     # 7:38 PM" in the person's time zone; Leo 2026-10-26: "it just says updated to nightly").
     notes["builtAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -685,9 +720,11 @@ def verify(args):
 
 
 def check(args):
-    """The release gate (2026-10-20, Lawrence: "the change log needs to be better at all times";
-    a vague "What's new in this build" card must fail the release, not ship): the build's notes
-    carry at least one What's New entry, and the whole digest validates."""
+    """The release gate (2026-10-20, Lawrence: "the change log needs to be better at all times"):
+    the whole digest validates, so a malformed entry fails the release. A build with nothing
+    user-facing carries the generic "Fixes and improvements" entry (generic_whats_new_digest) and
+    passes with a warning (claude-sr2, 2026-10-27). Notes with no entry at all, which `build` now
+    leaves only when every highlight file failed validation, still fail."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
     import validate
 
@@ -695,14 +732,24 @@ def check(args):
     digest = notes.get("whatsNew") or {}
     entries = digest.get("entries") or []
     if not entries:
-        print(f"{args.notes}: no What's New entries for {notes.get('shortVersion')}: the update card would say only "
-              "\"What's new in this build\". Land a user-facing commit (feat/fix with a plain-English subject) or "
-              "add release-notes/next/highlights/<name>.md (see release-notes/next/WRITING.md).", file=sys.stderr)
+        print(f"{args.notes}: no What's New entries for {notes.get('shortVersion')}: its highlight files did not "
+              "validate (the build log names each dropped one). Fix them (see release-notes/next/WRITING.md).",
+              file=sys.stderr)
         return 1
     problems = validate.validate_document(f"{digest.get('version')}.json", digest)
     if problems:
         print("\n".join(problems), file=sys.stderr)
         return 1
+    if is_generic(entries):
+        message = (f"No What's New entries for {notes.get('shortVersion')}: publishing the generic \"Fixes and "
+                   f"improvements\" entry ({entries[0]['docs']}). Land a user-facing commit or add "
+                   "release-notes/next/highlights/<name>.md (see release-notes/next/WRITING.md).")
+        print(f"::warning title=Generic What's New entry::{message}")
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as out:
+                out.write(f"### Generic What's New entry\n\n{message}\n")
+        return 0
     print(f"ok: {len(entries)} What's New entries: " + "; ".join(e["title"]["en"] for e in entries[:3]))
     return 0
 

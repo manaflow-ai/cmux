@@ -157,10 +157,16 @@ pub(super) fn mark_forwarded(
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
     }
-    if control_of(origin, auth, params) == crate::hub::Control::Web {
+    let control = control_of(origin, auth, params);
+    if control == crate::hub::Control::Web {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "web"}));
     } else if origin == super::Origin::LocalApp {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "app"}));
+    } else if !crate::hub::vm_boundary::owner(auth, control, params) {
+        // A paired machine's request, or one a peer forwarded for one: never the
+        // owner's at the peer's VM boundary (`hub/vm_boundary.rs`).
+        let via = crate::hub::vm_boundary::VIA_DEVICE;
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": via}));
     }
 }
 
@@ -426,6 +432,7 @@ async fn check_inner(
             | method::MUX_FILE_PUT_CHUNK
             | method::MUX_FILE_PUT_FINISH
             | method::MUX_FILE_PUT_CANCEL
+            | method::MUX_FILE_PUT_STATUS
     ) && control_of(origin, auth, params) == crate::hub::Control::Web
     {
         return Err(RpcError::invalid_params(

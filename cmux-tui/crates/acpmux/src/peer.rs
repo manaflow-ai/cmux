@@ -92,8 +92,14 @@ pub struct Peer {
     person_instance: StdMutex<Option<String>>,
     /// Whether the peer advertised the folder-trust gate in initialize.
     trust_gate: AtomicBool,
+    /// This caller's own opt-out for its remote chains there (`PeerConfig`
+    /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
+    /// says `vmBoundary: true`.
+    vm_boundary: AtomicBool,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
+    /// It lists `filePutChunks` (`hub/file_uploads.rs`).
+    file_put_chunks: AtomicBool,
     /// Whether the peer serves `_acpmux/media_open` and `_acpmux/media_range` (`hub/media_read.rs`).
     media_read: AtomicBool,
     /// Bumped each time a connection to the peer ends (and at `stop`): what the peer kept for
@@ -105,6 +111,8 @@ pub struct Peer {
     send_attach: AtomicBool,
     /// The peer lists `promptUploads` (`prompt_uploads.rs`).
     prompt_uploads: AtomicBool,
+    /// The peer lists `uploadResume` (`hub/file_uploads.rs`).
+    upload_resume: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -165,12 +173,15 @@ impl Peer {
             served_as: StdMutex::new(None),
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
+            vm_boundary: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
+            file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
             send_attach: AtomicBool::new(false),
             prompt_uploads: AtomicBool::new(false),
+            upload_resume: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -407,6 +418,16 @@ impl Peer {
         self.person_instance.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease.
+    pub fn set_vm_boundary(&self, on: bool) {
+        self.vm_boundary.store(on, Ordering::SeqCst);
+    }
+
+    /// Whether this caller opts its remote chains on the peer out of the sandbox.
+    pub fn vm_boundary(&self) -> bool {
+        self.vm_boundary.load(Ordering::SeqCst)
+    }
+
     pub fn supports_trust_gate(&self) -> bool {
         self.trust_gate.load(Ordering::SeqCst)
     }
@@ -414,6 +435,11 @@ impl Peer {
     /// Whether the peer said at its last handshake that it takes `_acpmux/file_put`.
     pub fn supports_file_put(&self) -> bool {
         self.file_put.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer takes uploads in chunks (`file_put_begin`/`_chunk`/`_finish`/`_cancel`).
+    pub fn supports_file_put_chunks(&self) -> bool {
+        self.file_put_chunks.load(Ordering::SeqCst)
     }
 
     /// Whether the peer said at its last handshake that it serves the media reader.
@@ -444,6 +470,12 @@ impl Peer {
     /// Whether the peer said at its last handshake that it reads uploaded files a message names.
     pub fn supports_prompt_uploads(&self) -> bool {
         self.prompt_uploads.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it answers upload status and checks a
+    /// finish's `sha256` (`hub/file_uploads.rs`).
+    pub fn supports_upload_resume(&self) -> bool {
+        self.upload_resume.load(Ordering::SeqCst)
     }
 
     pub fn summary(&self) -> Value {
@@ -755,11 +787,15 @@ impl Peer {
                     .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(feature)))
             };
             me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
+            let chunks = lists(crate::hub::file_uploads::CHUNKS_FEATURE);
+            me.file_put_chunks.store(chunks, Ordering::SeqCst);
             me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
             me.subagent_transcript
                 .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
             me.send_attach.store(lists(crate::attach::FEATURE), Ordering::SeqCst);
             me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
+            let resume = lists(crate::hub::file_uploads::RESUME_FEATURE);
+            me.upload_resume.store(resume, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             me.with_link(|l| l.ready(crate::store::now_ms()));

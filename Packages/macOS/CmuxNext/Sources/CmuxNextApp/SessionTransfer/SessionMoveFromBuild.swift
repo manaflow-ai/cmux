@@ -51,7 +51,7 @@ struct SessionMoveFromBuild {
         var outcome = SessionMoveOutcome()
         for pull in pulls {
             do {
-                outcome.record(try await transfer.pull(source: pull.source, ids: pull.ids), titles: selection.titles(in: pull.source))
+                outcome.record(try await transfer.pull(source: pull.source, ids: pull.ids, idleTerminalsOnly: true), titles: selection.titles(in: pull.source))
             } catch {
                 outcome.record(failure: SessionTransferService.message(for: error), from: pull.heading)
             }

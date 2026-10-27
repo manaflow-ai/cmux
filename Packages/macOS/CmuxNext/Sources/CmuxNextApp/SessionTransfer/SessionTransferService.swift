@@ -29,8 +29,12 @@ final class SessionTransferService {
     /// shell in the same folder and ends the source's process; a chat's moves the chat
     /// itself (``moveChat(_:interrupt:cwd:)``), refused while it runs a turn unless `interrupt`, and
     /// into folder `cwd` here when given (a chat whose folder is not on this machine).
-    /// One item's failure never stops the others; each is reported.
-    func pull(source: String, ids: Set<String> = [], interrupt: Bool = false, cwd: String? = nil) async throws -> TransferJSONValue {
+    /// One item's failure never stops the others; each is reported. With `idleTerminalsOnly`
+    /// (the palette's picker, which offers only idle terminals), each terminal is asked again
+    /// right before its move and stays when it is no longer idle at its shell
+    /// (``Failure/terminalBusy(_:)``): the picker's answer may be minutes old.
+    func pull(source: String, ids: Set<String> = [], interrupt: Bool = false, cwd: String? = nil,
+              idleTerminalsOnly: Bool = false) async throws -> TransferJSONValue {
         let peers = try await discover(only: source)
         let selected = peers.flatMap { peer -> [(SessionTransferPeer, SessionTransferItem)] in
             guard source == peer.path || source == peer.tag else { return [] }
@@ -43,7 +47,7 @@ final class SessionTransferService {
             // A pull past its deadline (the control router cancels it) moves nothing more.
             try Task.checkCancellation()
             do {
-                try await move(item, from: peer, interrupt: interrupt, cwd: cwd)
+                try await move(item, from: peer, interrupt: interrupt, cwd: cwd, idleTerminalsOnly: idleTerminalsOnly)
                 moved.append(item.json)
             } catch {
                 var entry: [String: TransferJSONValue] = ["surface": .string(item.id), "source": .string(peer.path), "error": .string(Self.message(for: error))]
@@ -55,10 +59,23 @@ final class SessionTransferService {
         return ["moved": .array(moved), "failed": .array(failed)]
     }
 
-    func complete(surfaces: [String]) async throws {
+    /// Closes `surfaces` and ends their terminals. With `idleOnly` (a taker that offered only
+    /// idle terminals), first asks each its foreground program and closes none when one is no
+    /// longer idle at its shell (``Failure/terminalBusy(_:)``, the control code ``busyCode``).
+    func complete(surfaces: [String], idleOnly: Bool = false) async throws {
         guard let services, let connection = services.daemon.connection else { throw Failure.unavailable }
         let ids = surfaces.compactMap { UInt64($0).map(SurfaceID.init(rawValue:)) }
         guard ids.count == surfaces.count else { throw Failure.invalidSurfaces }
+        if idleOnly {
+            let programs = await foregroundPrograms(surfaces)
+            for surface in surfaces {
+                // Missing: no answer, which is not idle. `.some(nil)`: its shell only.
+                guard let program = programs[surface] else { throw Failure.terminalBusy(SessionMoveSelection.becameUnknown) }
+                if let program {
+                    throw Failure.terminalBusy(program.isEmpty ? SessionMoveSelection.becameUnknown : SessionMoveSelection.becameBusy(program))
+                }
+            }
+        }
         try await connection.closeTabs(ids, endTerminals: true)
     }
 
@@ -138,11 +155,33 @@ final class SessionTransferService {
         return (info.st_mode & S_IFMT) == S_IFSOCK && info.st_uid == getuid()
     }
 
-    private func move(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool, cwd: String?) async throws {
+    private func move(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool, cwd: String?,
+                      idleTerminalsOnly: Bool) async throws {
         if item.kind == .chat { return try await moveChat(item, from: peer, interrupt: interrupt, cwd: cwd) }
-        _ = try await create(item)
-        try await completeOnPeer(item: item, peer: peer)
+        if item.kind == .terminal, idleTerminalsOnly {
+            // Moving ends the terminal there, so ask its build now, not what discovery saw:
+            // a terminal idle when picked may run `vim` with unsaved work by now.
+            let list = try? await ControlPeerClient.request(path: peer.path, method: "session.transfer.list", timeout: .seconds(5))
+            if let refusal = SessionMoveSelection.handoffRefusal(surface: item.sourceSurface, list: list) {
+                throw Failure.terminalBusy(refusal)
+            }
+        }
+        let created = try await create(item)
+        guard item.kind == .terminal, idleTerminalsOnly else { return try await completeOnPeer(item: item, peer: peer) }
+        do {
+            // The source checks again as it closes (`idle_only`): the terminal may have started a
+            // program while the shell here opened. Refused, the new shell here closes again.
+            try await completeOnPeer(item: item, peer: peer, idleOnly: true)
+        } catch ControlPeerClient.Failure.peer(let control) where control.code == Self.busyCode {
+            if let connection = services?.daemon.connection {
+                _ = try? await connection.closeWorkspace(WorkspaceKey(rawValue: created), endTerminals: true)
+            }
+            throw Failure.terminalBusy(control.message)
+        }
     }
+
+    /// The `session.transfer.complete` error code for an `idle_only` terminal that is not idle.
+    nonisolated static let busyCode = "terminal_busy"
 
     /// Opens records read from classic's files (scripts/cmux-next/classic-to-next.py):
     /// `agent` {harness, session, cwd?, name?} becomes an agent chat resumed by its
@@ -237,10 +276,11 @@ final class SessionTransferService {
         return listed.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens.first?.layout.paneIDs.first
     }
 
-    func completeOnPeer(item: SessionTransferItem, peer: SessionTransferPeer) async throws {
+    func completeOnPeer(item: SessionTransferItem, peer: SessionTransferPeer, idleOnly: Bool = false) async throws {
         do {
-            _ = try await ControlPeerClient.request(path: peer.path, method: "session.transfer.complete",
-                                                    params: ["surfaces": .array([.string(item.sourceSurface)])])
+            var params: [String: TransferJSONValue] = ["surfaces": .array([.string(item.sourceSurface)])]
+            if idleOnly { params["idle_only"] = .bool(true) }
+            _ = try await ControlPeerClient.request(path: peer.path, method: "session.transfer.complete", params: params)
         } catch let error as ControlPeerClient.Failure where Self.isMissingTransferMethod(error) {
             // Classic builds expose the normal v2 close method instead of the
             // additive transfer acknowledgement method.
@@ -296,6 +336,8 @@ final class SessionTransferService {
                    bundle: .module)
         case Failure.chatNotMoved(let reason):
             String(localized: "sessionTransfer.error.chatNotMoved", defaultValue: "The agent chat did not move: \(reason)", bundle: .module)
+        case Failure.terminalBusy(let reason):
+            reason
         case Failure.invalidSurfaces:
             String(localized: "sessionTransfer.error.invalidSurfaces", defaultValue: "The source build returned invalid session identifiers.", bundle: .module)
         case let failure as ControlPeerClient.Failure:
@@ -315,5 +357,8 @@ final class SessionTransferService {
         case chatInChats
         /// The source build's acpmux does not answer.
         case sourceAgentsStopped
+        /// A terminal picked while idle runs a program now, or its build can no longer tell
+        /// (the reason, `SessionMoveSelection.handoffRefusal`); it stays in the source build.
+        case terminalBusy(String)
     }
 }
