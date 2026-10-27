@@ -22,6 +22,7 @@ public final class HomeNativeTranscriptView: NSView {
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
     var starterSent = false
+    var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
     /// This conversation's part of the store: chained refusal and
     /// unanswered callbacks, attachment bytes, Cancel Upload.

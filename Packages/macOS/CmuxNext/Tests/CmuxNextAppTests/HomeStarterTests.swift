@@ -68,6 +68,17 @@ import Testing
         button.performClick(nil)
         #expect(view.transcript.draftText == "Keep this draft")
         view.showDraft("")
+        let preparer = HeldStarterAttachment()
+        view.attachmentPreparer = preparer
+        view.attach([.data(Data("draft".utf8), typeIdentifier: "public.plain-text")])
+        button.performClick(nil)
+        #expect(view.transcript.draftText.isEmpty)
+        for await _ in preparer.begun.stream { break }
+        button.performClick(nil)
+        #expect(!view.starterSent)
+        preparer.release?.resume()
+        await view.attachmentsReady()
+        #expect(view.firstRun.starters.isEnabled)
         view.isSendEnabled = false
         button.performClick(nil)
         #expect(view.transcript.draftText.isEmpty)
@@ -83,6 +94,18 @@ import Testing
         } while ContinuousClock.now < deadline
         #expect(sent.count == 1)
         #expect(sent.first?.parts == [.text(HomeStarterStrings.setup)])
+    }
+}
+
+@MainActor private final class HeldStarterAttachment: HomeAttachmentPreparing {
+    let begun = AsyncStream<Void>.makeStream()
+    var release: CheckedContinuation<Void, Never>?
+    func prepareAttachment(fileURL: URL, keepLocation: Bool) async throws -> LocalAttachment {
+        throw HomeAttachmentError.empty(name: "draft")
+    }
+    func prepareAttachment(data: Data, typeIdentifier: String, keepLocation: Bool) async throws -> LocalAttachment {
+        await withCheckedContinuation { release = $0; begun.continuation.yield(()) }
+        throw HomeAttachmentError.empty(name: "draft")
     }
 }
 
