@@ -7,7 +7,7 @@ public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextTrace
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 import os
 
 // The launch snapshot (`launch-snapshot-v1`, plans/cmux-next/cmux-tui-contract.md):
@@ -15,19 +15,20 @@ import os
 // and the first connect begun in `main` with the remembered daemon socket.
 extension DaemonService {
     /// Reads this process's Team ID, then begins the local daemon's first connect attempt with it
-    /// (`prestart`).
+    /// (`prestart`). `featureHello`: the app's daemon features for every hello.
     /// Blocks on Security and the install key file: the app runs it on its system lane from `main`.
     public nonisolated static func launchStart(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
                                                resolvedTerminalEnvironment: (@Sendable () async -> [String: String])?,
                                                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                                resolvesShellIntegration: Bool, echoesPlacementShift: Bool,
-                                               wireStats: DaemonWireStats?, hangWatch: (any HangWatchScoping)?) -> DaemonLaunchStart {
+                                               wireStats: DaemonWireStats?, hangWatch: (any HangWatchScoping)?,
+                                               featureHello: DaemonFeatureHello? = nil) -> DaemonLaunchStart {
         let team = CodeSigningTeam.current()
         return DaemonLaunchStart(team: team, prestart: prestart(
             work: work, team: team, launch: launch, terminalEnvironment: terminalEnvironment,
             resolvedTerminalEnvironment: resolvedTerminalEnvironment, terminalEnvironmentProvider: terminalEnvironmentProvider,
             resolvesShellIntegration: resolvesShellIntegration, echoesPlacementShift: echoesPlacementShift,
-            wireStats: wireStats, hangWatch: hangWatch))
+            wireStats: wireStats, hangWatch: hangWatch, featureHello: featureHello))
     }
 
     /// Begins the local daemon's first connect attempt off the main thread,
@@ -44,7 +45,8 @@ extension DaemonService {
                                      resolvesShellIntegration: Bool = false,
                                      echoesPlacementShift: Bool = false,
                                      wireStats: DaemonWireStats? = nil,
-                                     hangWatch: (any HangWatchScoping)? = nil) -> DaemonPrestart? {
+                                     hangWatch: (any HangWatchScoping)? = nil,
+                                     featureHello: DaemonFeatureHello? = nil) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(work: work, build: launch.build, team: team,
                                                 terminalEnvironment: terminalEnvironment,
                                                 resolvedTerminalEnvironment: resolvedTerminalEnvironment,
@@ -53,7 +55,7 @@ extension DaemonService {
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift,
-            hangWatch: hangWatch), marks: launchConnectMarks())
+            hangWatch: hangWatch, featureHello: featureHello), marks: launchConnectMarks())
     }
 
     /// The launch's connect milestones, sent to the launch timings at the time each happened.
@@ -96,16 +98,18 @@ extension DaemonService {
     }
 
     /// The local daemon's connection configuration, for the first connect
-    /// begun in `main` (`prestart`) and for the connections after it.
+    /// begun in `main` (`prestart`) and for the connections after it. `featureHello`: the app's daemon features,
+    /// sent in every hello (the daemon outlives the app, p12-perf-process-150).
     nonisolated static func localConfiguration(terminalEnvironment: (@Sendable () async -> [String: String])?,
                                                resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
                                                echoesPlacementShift: Bool, retryWake: RetryWake? = nil,
-                                               hangWatch: (any HangWatchScoping)? = nil) -> DaemonConnection.Configuration {
+                                               hangWatch: (any HangWatchScoping)? = nil,
+                                               featureHello: DaemonFeatureHello? = nil) -> DaemonConnection.Configuration {
         // sessionEvents: the state resources (closed history, workspace status,
         // tab records) come only through session.events (nxdog50).
         var configuration = DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
                                                            resolvesShellIntegration: resolvesShellIntegration, sessionEvents: true,
-                                                           clientHello: ClientHelloIdentity(installKey: installKey))
+                                                           clientHello: ClientHelloIdentity(installKey: installKey, features: featureHello))
         // A stopped or wedged owner keeps its socket open: only the heartbeat
         // shows it not connected (cx-jniyz.4).
         configuration.localHeartbeat = true
@@ -131,7 +135,10 @@ extension DaemonService {
         }
     }
 
+    /// Runs at the first connection and when startup gives up: the moment the app's daemon features take
+    /// their session values (``DaemonFeatureHello/settle()``, the attached connection's answer or none).
     func resumeConnectionWaiters() {
+        featureHello?.settle()
         let waiters = connectionWaiters
         connectionWaiters.removeAll()
         for waiter in waiters { waiter.resume(returning: ()) }

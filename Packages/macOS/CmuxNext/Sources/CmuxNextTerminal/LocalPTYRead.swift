@@ -62,7 +62,7 @@ nonisolated extension LocalPTYTerminalIO {
                 window?.producedPastWindow(count)
                 full = false
             }
-            if case .terminated = continuation.yield(.output(Data(buffer[0..<count]))) {
+            if case .terminated = continuation.yield(.output(Data(buffer.prefix(count)))) {
                 // No one takes the stream any more: nothing to bound, so the PTY keeps draining.
                 if full { _ = window?.releasePause() }
                 return .more

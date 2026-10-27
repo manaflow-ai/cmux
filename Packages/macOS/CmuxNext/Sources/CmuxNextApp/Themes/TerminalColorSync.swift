@@ -79,7 +79,8 @@ extension AppServices {
                      resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                      resolvesShellIntegration: environment.resolvesShellIntegration, prestart: landed.prestart,
-                     launchSnapshot: landed.launchSnapshot)
+                     launchSnapshot: landed.launchSnapshot,
+                     featureHello: environment.daemonFeatureHello)
         daemon.launchSnapshot.endExpectedTake()  // a start that failed before its take holds no window
     }
 }

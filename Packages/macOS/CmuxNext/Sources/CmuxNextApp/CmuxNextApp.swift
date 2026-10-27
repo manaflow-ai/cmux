@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
+import CmuxNextHomeEngine
 import CmuxNextInput
 import CmuxNextIPC
 import CmuxNextLaunch
@@ -83,8 +84,10 @@ public struct CmuxNextApp {
         TypingLatencyProbe.shared.startFlows(launchEnvironment: ProcessInfo.processInfo.environment)
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
-        environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
+        let homeCaches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        environment.homeCachesDirectory = homeCaches
+        // The Home list's caches of this build's Chief owner, read on the files lane while AppKit starts (p08-startup-076).
+        environment.homeListRead = HomeListLaunchRead.start(owner: ChiefHome.resolve(tag: environment.tag).session, caches: homeCaches, on: work)
         // The app's acpmux, resolved once on the system lane: its signature check reads this app's signing team
         // (SigningTeamInstall) and hashes the binary. Main-thread users take the landed answer (QuitAgents.environment).
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
@@ -126,6 +129,11 @@ public struct CmuxNextApp {
                                                              in: ledgerThenSettings)
         // The saved sidebars, before the settings read: the launch window's first frame draws them (p08-startup-075).
         environment.sidebarSnapshot = environment.sidebarSnapshotFile?.startLaunchRead(in: ledgerThenSettings)
+        // This Mac's install id, after the feature choices (the launch's features do not wait for it) and after the run marker
+        // and saved sidebars, before the settings read: the windows built when that lands find it read (p08-startup-076).
+        let cloudPaths = CloudPaths.standard(bundleID: Bundle.main.bundleIdentifier)
+        let deviceID = LaunchRead(in: ledgerThenSettings, dropped: .failure(.notReadYet)) { cloudPaths.deviceIDResult() }
+        environment.cloudDeviceID = CloudDeviceIDSource(paths: cloudPaths) { deviceID.value }
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
@@ -152,6 +160,9 @@ public struct CmuxNextApp {
         BackdropVideoPlayers.shared.lanes = work
         // The launch's feature values, once, before the first feature read (the daemon connect's).
         let features = AppServices.launchFeatures(environment)
+        // What every hello tells the local daemon, which outlives this app (p12-perf-process-150).
+        environment.daemonFeatureHello = DaemonFeatureHello(hash: features.daemonValuesHash, values: Dictionary(
+            features.daemonValues.map { ($0.name, $0.isEnabled) }, uniquingKeysWith: { _, last in last }))
         // `debug.daemon.wire`'s counters, each schema method timed; nil in a release build unless the
         // person opted in to field data.
         let wireStats = DaemonWireStats.forBuild(fieldData: features.isEnabled(.ipcMethodLatencyFieldData),
@@ -165,12 +176,14 @@ public struct CmuxNextApp {
         let resolvedTerminalEnvironment = environment.resolvedTerminalEnvironment()
         let terminalEnvironmentProvider = environment.terminalEnvironmentProvider()
         let resolvesShellIntegration = environment.resolvesShellIntegration, echoesPlacementShift = SidebarMirror.isLinked
+        let featureHello = environment.daemonFeatureHello
         let daemonStart = LaunchRead<DaemonLaunchStart>(on: work, mayBlock: .system) {
             let start = DaemonService.launchStart(work: work, launch: launch, terminalEnvironment: terminalEnvironment,
                                                   resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                   terminalEnvironmentProvider: terminalEnvironmentProvider,
                                                   resolvesShellIntegration: resolvesShellIntegration,
-                                                  echoesPlacementShift: echoesPlacementShift, wireStats: wireStats, hangWatch: hangWatch)
+                                                  echoesPlacementShift: echoesPlacementShift, wireStats: wireStats, hangWatch: hangWatch,
+                                                  featureHello: featureHello)
             guard let names = start.snapshotNames else { return start }
             let read = LaunchRead(on: work, dropped: LaunchSnapshot.Found.missing) {
                 LaunchSnapshot.find(session: names.session, stateDirectory: names.stateDirectory)
