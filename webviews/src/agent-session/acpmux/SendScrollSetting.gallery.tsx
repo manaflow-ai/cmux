@@ -68,7 +68,7 @@ function ComposerHint({ checked }: { checked: boolean }) {
       <div style={{ flex: 1 }}>
         <ContextMenu items={menu} className="acpmux-composer-box">
           <span style={{ display: "block" }}>
-            <span id="send-scroll-composer-label" style={{ display: "block", fontSize: 13 }}>
+            <span id="send-scroll-composer-label" style={{ display: "block", fontSize: "var(--text-body)" }}>
               Composer send behavior
             </span>
             <small style={{ color: "var(--agent-muted)" }}>

@@ -2133,9 +2133,16 @@ export function VirtualTranscript({
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
   const followingRef = useRef(true);
+  // The parent's listener, read through a ref: `follow` and the scroll handler then touch only refs
+  // and setters, so the effects and callbacks that call them keep their dependency lists, as they
+  // had before the listener came (#25690).
+  const onFollowingChangeRef = useRef(onFollowingChange);
+  useLayoutEffect(() => {
+    onFollowingChangeRef.current = onFollowingChange;
+  });
   const follow = (next: boolean) => {
     followingRef.current = next;
-    onFollowingChange?.(next);
+    onFollowingChangeRef.current?.(next);
     setFollowing(next);
   };
   const transcriptMounted = useRef(true);
@@ -2154,7 +2161,7 @@ export function VirtualTranscript({
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
     followingRef.current = atLatest;
-    onFollowingChange?.(atLatest);
+    onFollowingChangeRef.current?.(atLatest);
     scrollRef.current = { top, delta: top - scrollRef.current.top };
     scrollPacer.current!.enqueue({ top, atLatest });
   };
