@@ -1,33 +1,168 @@
-$ bash -c 'umask 022; cd cmux-tui && rc=0; { cargo test --locked -p cmux-tui --test idle_wakeups --no-run && timeout -k 30 600 cargo test --locked -p cmux-tui --test idle_wakeups; } || rc=$?; { cargo test --locked -p acpmux --test daemon_idle --no-run && timeout -k 30 600 cargo test --locked -p acpmux --test daemon_idle; } || rc=$?; exit $rc'
-   Compiling cmux-tui v1.0.0 (/work/cmux/cmux-tui/crates/cmux-tui)
-    Finished `test` profile [optimized + debuginfo] target(s) in 1m 43s
-  Executable tests/idle_wakeups.rs (/work/tmp/cargo/target/debug/deps/idle_wakeups-403b34695df82888)
-    Finished `test` profile [optimized + debuginfo] target(s) in 0.31s
-     Running tests/idle_wakeups.rs (/work/tmp/cargo/target/debug/deps/idle_wakeups-403b34695df82888)
+$ bash -c 'umask 022; if [ "$(git rev-parse HEAD)" != e497ef7edb1da55a0827057e88b667d4f787ca92 ] || ! git diff --quiet e497ef7edb1da55a0827057e88b667d4f787ca92; then echo "energy-test-phase: not at e497ef7edb1da55a0827057e88b667d4f787ca92"; exit 65; fi; cd cmux-tui || exit 66; rc=0; if timeout -k 30 1800 cargo test --locked -p cmux-tui --test idle_wakeups --no-run; then timeout -k 30 600 cargo test --locked -p cmux-tui --test idle_wakeups; t=$?; echo "energy-test-phase: test idle_wakeups exit $t"; else t=$?; echo "energy-test-phase: build idle_wakeups exit $t"; fi; [ "$t" = 0 ] || rc=$t; if timeout -k 30 1800 cargo test --locked -p acpmux --test daemon_idle --no-run; then timeout -k 30 600 cargo test --locked -p acpmux --test daemon_idle; t=$?; echo "energy-test-phase: test daemon_idle exit $t"; else t=$?; echo "energy-test-phase: build daemon_idle exit $t"; fi; [ "$t" = 0 ] || rc=$t; exit $rc'
+   Compiling cmux-tui-platform v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui-platform)
+   Compiling cmux-tui-source-watch v0.0.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui)
+   Compiling cmux-lock-rank v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-lock-rank)
+   Compiling cmux-transport v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-transport)
+   Compiling acpmux v1.0.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/acpmux)
+   Compiling cmux-tui v1.0.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui)
+   Compiling cmux-trace v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-trace)
+   Compiling cmux-kitty-media v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-kitty-media)
+   Compiling cmux-ipc v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-ipc)
+   Compiling cmux-unix-socket v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-unix-socket)
+   Compiling cmux-threads v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-threads)
+   Compiling ghostty-vt-sys v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/ghostty-vt-sys)
+   Compiling cmux-agent-pane-policy v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-agent-pane-policy)
+   Compiling cmux-cloud-wire v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-cloud-wire)
+   Compiling cmux-terminal-sizing v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-terminal-sizing)
+   Compiling cmux-api-compat v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-api-compat)
+   Compiling cmux-feed-core v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-feed-core)
+   Compiling cmux-layout-reducer v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-layout-reducer)
+   Compiling cmux-terminal-iface v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-terminal-iface)
+   Compiling cmux-conversation v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-conversation)
+   Compiling cmux-remote-protocol v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-remote-protocol)
+   Compiling cmux-chat-index v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-chat-index)
+   Compiling cmux-tui-machine-agent-protocol v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui-machine-agent-protocol)
+   Compiling cmux-tui-machine-protocol v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui-machine-protocol)
+   Compiling crossterm v0.29.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/vendor/crossterm)
+   Compiling cmux-link v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-link)
+   Compiling cmux-config v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-config)
+   Compiling cmux-local-auth v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-local-auth)
+   Compiling cmux-server-core v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-server-core)
+   Compiling cmux-tui-cdp v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui-cdp)
+   Compiling cmux-history v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-history)
+   Compiling cmux-app-manifest v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-app-manifest)
+   Compiling cmux-build-identity v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-build-identity)
+   Compiling cmux-panic-log v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-panic-log)
+   Compiling cmux-hang-watch v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-hang-watch)
+   Compiling cmux-flow-trace v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-flow-trace)
+   Compiling cmux-process v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-process)
+   Compiling cmux-memory v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-memory)
+   Compiling cmux-wake v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-wake)
+   Compiling cmux-tui-image-paste v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui-image-paste)
+   Compiling cmux-app-host v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-app-host)
+   Compiling ratatui-crossterm v0.1.2
+   Compiling terminput-crossterm v0.4.7 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/vendor/terminput-crossterm)
+   Compiling cmux-tui-remote-access v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui-remote-access)
+   Compiling ratatui v0.30.2
+   Compiling cmux-pty v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-pty)
+   Compiling cmux-git v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-git)
+   Compiling cmux-blocking v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-blocking)
+   Compiling cmux-wg v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-wg)
+   Compiling cmux-coderouter v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-coderouter)
+   Compiling cmux-server v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-server)
+   Compiling cmux-worktree-care v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-worktree-care)
+   Compiling cmux-holder v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-holder)
+   Compiling cmux-features v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-features)
+   Compiling cmux-tui-util v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui-util)
+   Compiling cmux-tui-hooks v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui-hooks)
+   Compiling cmux-host v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-host)
+   Compiling cmux-tui-cloud-conversations v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui-cloud-conversations)
+   Compiling ghostty-vt v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/ghostty-vt)
+   Compiling cmux-tui-core v1.0.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui-core)
+   Compiling cmux-remote v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-remote)
+    Finished `test` profile [optimized + debuginfo] target(s) in 2m 47s
+  Executable tests/idle_wakeups.rs (/work/tmp/cargo/p14-energy-131/debug/deps/idle_wakeups-0b94c938cf8a9dba)
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.57s
+     Running tests/idle_wakeups.rs (/work/tmp/cargo/p14-energy-131/debug/deps/idle_wakeups-0b94c938cf8a9dba)
 
 running 8 tests
 test cmux_next_idle_verdict_ignores_a_one_off_burst_but_not_a_periodic_wake ... ok
-test cmux_next_daemon_idle_twenty_terminals ... ok
+idle daemon: cpu 0.0 ms, 1 context switches, 0 wakeups | cpu 0.0 ms, 2 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle holder 669886: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
 test cmux_next_daemon_idle_holder_mode ... ok
-test cmux_next_daemon_idle_has_no_periodic_wakeups ... ok
+idle daemon: cpu 0.0 ms, 2 context switches, 0 wakeups | cpu 0.0 ms, 1 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 669890: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle daemon: cpu 0.0 ms, 1 context switches, 0 wakeups | cpu 0.0 ms, 1 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 669885: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle daemon: cpu 0.0 ms, 2 context switches, 0 wakeups | cpu 0.0 ms, 1 context switches, 0 wakeups | cpu 20.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670082: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle daemon: cpu 0.0 ms, 1 context switches, 0 wakeups | cpu 0.0 ms, 1 context switches, 0 wakeups | cpu 10.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 669889: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
 test cmux_next_daemon_idle_unprovided_browser_tab ... ok
 test cmux_next_daemon_idle_with_hook_plugin ... ok
+test cmux_next_daemon_idle_has_no_periodic_wakeups ... ok
 test cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder ... ok
+idle daemon: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 1 context switches, 0 wakeups | cpu 0.0 ms, 1 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 669888: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671461: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670462: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 672034: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671843: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671963: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670297: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671127: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670128: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671764: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670387: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671200: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671569: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671678: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671329: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 672137: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 672086: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670530: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670605: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670986: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle daemon: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 1 context switches, 0 wakeups | cpu 0.0 ms, 1 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 672035: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671971: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670949: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670463: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670527: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671186: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670386: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671692: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671411: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 672087: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671898: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670127: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671312: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 669883: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671630: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671774: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671109: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670293: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 671515: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+idle terminal host 670601: cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups | cpu 0.0 ms, 0 context switches, 0 wakeups (3 windows of 10s)
+test cmux_next_daemon_idle_twenty_terminals ... ok
 test cmux_next_daemon_idle_all_app_streams ... ok
 
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 36.41s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 58.30s
 
-   Compiling acpmux v1.0.0 (/work/cmux/cmux-tui/crates/acpmux)
-    Finished `test` profile [optimized + debuginfo] target(s) in 48.02s
-  Executable tests/daemon_idle.rs (/work/tmp/cargo/target/debug/deps/daemon_idle-9a1b2c3d4e5f6a7b)
-    Finished `test` profile [optimized + debuginfo] target(s) in 0.29s
-     Running tests/daemon_idle.rs (/work/tmp/cargo/target/debug/deps/daemon_idle-9a1b2c3d4e5f6a7b)
+energy-test-phase: test idle_wakeups exit 0
+   Compiling acpmux v1.0.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/acpmux)
+   Compiling cmux-threads v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-threads)
+   Compiling cmux-agent-pane-policy v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-agent-pane-policy)
+   Compiling cmux-chat-index v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-chat-index)
+   Compiling cmux-link v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-link)
+   Compiling cmux-panic-log v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-panic-log)
+   Compiling crossterm v0.29.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/vendor/crossterm)
+   Compiling cmux-config v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-config)
+   Compiling cmux-local-auth v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-local-auth)
+   Compiling cmux-server-core v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-server-core)
+   Compiling ratatui-crossterm v0.1.2
+   Compiling cmux-process v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-process)
+   Compiling cmux-blocking v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-blocking)
+   Compiling cmux-wake v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-wake)
+   Compiling cmux-memory v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-memory)
+   Compiling ratatui v0.30.2
+   Compiling cmux-coderouter v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-coderouter)
+   Compiling cmux-pty v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-pty)
+   Compiling cmux-git v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-git)
+   Compiling cmux-tui-platform v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-tui-platform)
+   Compiling cmux-worktree-care v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-worktree-care)
+   Compiling cmux-features v0.1.0 (/Users/lawrence/fun/cmux/.claude/worktrees/wf_50108dc8-097-534/cmux-tui/crates/cmux-features)
+    Finished `test` profile [optimized + debuginfo] target(s) in 52.50s
+  Executable tests/daemon_idle.rs (/work/tmp/cargo/p14-energy-131/debug/deps/daemon_idle-b462b89273578902)
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.28s
+     Running tests/daemon_idle.rs (/work/tmp/cargo/p14-energy-131/debug/deps/daemon_idle-b462b89273578902)
 
 running 4 tests
 test acpmux_daemon_idle_has_no_periodic_wakeups ... ok
+test acpmux_daemon_idle_with_its_maintenance_jobs_registered ... ok
 test acpmux_daemon_idle_with_a_watched_transcript ... ok
 test acpmux_daemon_idle_with_a_pending_wait ... ok
-test acpmux_daemon_idle_with_its_maintenance_jobs_registered ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.87s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 37.54s
 
+energy-test-phase: test daemon_idle exit 0
