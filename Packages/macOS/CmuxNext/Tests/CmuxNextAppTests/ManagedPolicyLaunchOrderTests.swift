@@ -26,15 +26,24 @@ import Testing
         var settingsFile: URL { url.appending(path: "cmux-next.json") }
     }
 
-    /// A settings controller made as `AppDelegate` makes it: on the launch read whose managed layer forces `forced`,
-    /// with a reader that has no policy, so a step that read the preferences again (instead of the prefetched
-    /// values) would see none. Not started: its first load has not run.
-    static func launchSettings(_ folder: Folder, registry: ActionRegistry, forced: [String: JSONValue]) async -> SettingsController {
+    /// A settings controller made as `AppDelegate` makes it: on the launch read whose managed layer forces `forced`.
+    /// Its own reader (`later`, what a reload reads) has no policy by default, so a step that read the preferences
+    /// again (instead of the prefetched values) would see none. Not started: its first load has not run.
+    static func launchSettings(_ folder: Folder, registry: ActionRegistry, forced: [String: JSONValue],
+                               later: ManagedPreferences = ManagedPreferences()) async -> SettingsController {
         let pending = SettingsController.startLaunchRead(on: BackgroundWork(label: "test.managed-launch"), prepareFileURL: { folder.settingsFile },
                                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences(forced: forced)))
         let launch = await pending.read.finished()
         return SettingsController(registry: registry, design: DesignSettings(), fileURL: folder.settingsFile,
-                                  managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [], launch: launch)
+                                  managedReader: FixedManagedPreferenceReader(later), managedWatchFiles: [], launch: launch)
+    }
+
+    /// Runs the main run loop until a task posted now in the policy observation's class (`automation`, one FIFO)
+    /// has run, so a flush the last load posted has run too.
+    static func drainPolicyFlushes(_ services: AppServices) -> Bool {
+        var drained = false
+        services.mainWork.post(.automation, owner: "test.afterPolicyFlush") { drained = true }
+        return runMainLoop(until: { drained })
     }
 
     static func blocklist(_ filters: String...) -> JSONValue { .array(filters.map(JSONValue.string)) }
@@ -58,9 +67,38 @@ import Testing
 
         settings.start()
         defer { settings.stop() }
+        // In start()'s turn: the launch read's load alone. The watcher's reload, which reads this fixture's empty
+        // reader, has not run; the next test covers it.
         #expect(settings.loadCount == 1)
-        runMainLoopPass(for: 0.1)
+        #expect(settings.managedPolicyInEffect == ["URLBlocklist": Self.blocklist("blocked.example")],
+                "the first load hands on another policy than the launch read's")
         #expect(webKit.urlFilter.blocks(blocked), "the first load cleared the filter")
+        withExtendedLifetime(followers) {}
+    }
+
+    /// A reload after the launch reads the managed preferences again and the WebKit filter follows what it reads:
+    /// the same policy keeps the filter, a removed one clears it. The drain waits for the observation's flush, so
+    /// the kept case is not a flush that has not run yet.
+    @Test(arguments: [true, false]) func theReloadAfterTheLaunchKeepsOrRemovesTheFilter(policyStays: Bool) async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let folder = try Folder()
+        let forced: [String: JSONValue] = ["URLBlocklist": Self.blocklist("blocked.example")]
+        let settings = await Self.launchSettings(folder, registry: services.registry, forced: forced,
+                                                 later: ManagedPreferences(forced: policyStays ? forced : [:]))
+        let webKit = services.cache.webKit
+        let followers = BrowserManagedPolicyPreference.follow(settings, webKit: webKit, chromium: services.cache.chromium,
+                                                              on: services.mainWork)
+        let blocked = try #require(URL(string: "https://blocked.example/front"))
+        #expect(webKit.urlFilter.blocks(blocked))
+
+        settings.start()
+        defer { settings.stop() }
+        await settings.waitForLoad(atLeast: 2)  // the watcher's initial reload, which reads `later`
+        #expect(Self.drainPolicyFlushes(services), "the main-thread scheduler never ran the posted task")
+        #expect(settings.managedPolicyInEffect == (policyStays ? forced : [:]))
+        #expect(webKit.urlFilter.blocks(blocked) == policyStays,
+                policyStays ? "the reload cleared the filter it still reads" : "the filter outlived the removed policy")
         withExtendedLifetime(followers) {}
     }
 
