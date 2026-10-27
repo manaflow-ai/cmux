@@ -6881,7 +6881,10 @@ function AcpmuxPane() {
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
     if (snapshot.summary) enabledCmuxActions.add("status");
-    if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
+    if (forkable && forkSeq !== undefined) {
+      enabledCmuxActions.add("fork");
+      if (localCwd !== undefined && !quick) enabledCmuxActions.add("side");
+    }
     if (continueAvailable) enabledCmuxActions.add("continue");
     // A side session asks nothing aside: its composer answers in it.
     if (opensSideSessions && snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
@@ -9484,6 +9487,11 @@ function AcpmuxPane() {
                 // so sending it again can't start a second one.
                 started.then((side) => postNative("chat.sideChat", { sessionId: side }).catch(fail), fail);
                 return started;
+              }
+              if (command.action === "side") {
+                if (!forkable || forkSeq === undefined || args?.trim()) return false;
+                ignoreFailure(callNative("chat.side", { throughSeq: forkSeq }));
+                return true;
               }
               if (command.action === "fork") {
                 if (!forkable || forkSeq === undefined || args?.trim()) return false;
