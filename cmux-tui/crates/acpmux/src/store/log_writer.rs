@@ -14,8 +14,12 @@
 //! log (`settle`) first waits for that session's queued lines, so readers see every append made
 //! before the read. `progress` tells an agent host's reader what is on disk, so a host entry is
 //! acknowledged only once its record is written (`agent_host` keeps it until then).
+//!
+//! The thread is hang-watched (`daemon/hang_watch.rs`): each session's write is one item of
+//! [`WRITE_ITEM`], never the wait for the next one.
 
 use super::{OPEN_LOGS, open_private_append};
+use crate::daemon::hang_watch::{SyncThread, WRITE_ITEM};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
@@ -105,7 +109,7 @@ impl LogWriter {
         });
         let worker = shared.clone();
         let thread = std::thread::Builder::new()
-            .name("acpmux-log-writer".into())
+            .name(THREAD.into())
             .spawn(move || run(&worker))
             .map_err(|e| {
                 tracing::error!(
@@ -221,7 +225,11 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// The writer thread's name, also its name in a hang record.
+const THREAD: &str = "acpmux-log-writer";
+
 fn run(shared: &Shared) {
+    let watched = SyncThread::register(THREAD, WRITE_ITEM);
     let mut state = lock(&shared.state);
     loop {
         let Some(id) = state.order.pop_front() else {
@@ -234,7 +242,10 @@ fn run(shared: &Shared) {
         let Some(q) = state.queued.remove(&id) else { continue };
         state.writing = Some(id.clone());
         drop(state);
-        let result = lock(&shared.files).write(&id, &q.lines);
+        let result = {
+            let _item = watched.item();
+            lock(&shared.files).write(&id, &q.lines)
+        };
         state = lock(&shared.state);
         state.writing = None;
         if let Some(progress) = state.progress.get(&id) {

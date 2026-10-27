@@ -99,7 +99,8 @@ impl Hub {
     async fn verify_launchers(&self) {
         let mut probe = self.config.read().await.clone();
         let before = probe.harnesses.clone();
-        let Ok(probe) = crate::daemon::spawn_blocking(move || {
+        // `<launcher> --version` children: a WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
+        let Ok(probe) = tokio::task::spawn_blocking(move || {
             crate::config::verify_launchers(&mut probe);
             probe
         })

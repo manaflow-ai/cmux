@@ -155,7 +155,7 @@ pub(crate) fn run_host_parser(
     let flush_pending_responses = || {
         let responses = std::mem::take(&mut *pending_responses.lock().recover_poison());
         if !responses.is_empty() {
-            let mut writer = parser_host.writer.lock().recover_poison();
+            let mut writer = parser_host.pty_writer();
             let _ = writer.write_all(&responses);
             let _ = writer.flush();
         }

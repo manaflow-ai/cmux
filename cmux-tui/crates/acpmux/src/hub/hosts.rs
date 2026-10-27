@@ -908,14 +908,15 @@ fn response_result(msg: &Value) -> Result<Value, RpcError> {
     }
 }
 
-/// `agent_host::terminate_unadoptable` off the async runtime.
+/// `agent_host::terminate_unadoptable` off the async runtime: signal graces and `ps`, a
+/// WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
 pub(super) async fn end_host_blocking(
     dir: std::path::PathBuf,
     session_id: String,
     nonce: Option<String>,
     host_pid: Option<u32>,
 ) -> bool {
-    crate::daemon::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         agent_host::terminate_unadoptable(&dir, &session_id, nonce.as_deref(), host_pid)
             .unwrap_or(false)
     })

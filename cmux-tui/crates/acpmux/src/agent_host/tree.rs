@@ -13,6 +13,7 @@ pub struct Started {
 
 /// Every process, from `ps`; empty when `ps` fails.
 fn process_table() -> Vec<Started> {
+    crate::daemon::hang_watch::will_block();
     let Ok(out) =
         std::process::Command::new("ps").args(["-axww", "-o", "pid=,ppid=,lstart="]).output()
     else {

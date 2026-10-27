@@ -7,7 +7,8 @@
 //!   [`BLOCKING_ITEM`], Chrome's default `WatchHangsInScope` deadline for a task. Work that runs
 //!   long by design (a child process, a bulk load at startup, a tree walk or a worktree change)
 //!   stays on `tokio::task::spawn_blocking`, unwatched, as Chrome's `ScopedBlockingCall`
-//!   `WILL_BLOCK` stops watching a wait.
+//!   `WILL_BLOCK` stops watching a wait. A wait for a child process inside watched work calls
+//!   [`will_block`] first, at the call that waits.
 //! - **Sync threads.** A daemon thread that runs one item at a time (a writer, a file watcher)
 //!   registers once ([`SyncThread::register`]) and opens one scope per item, never around its
 //!   wait for the next one ([`SyncThread::item`]).
@@ -57,6 +58,14 @@ pub fn blocking_item<R>(deadline: Duration, work: impl FnOnce() -> R) -> R {
     let registration = cmux_hang_watch::register_thread(ThreadKind::Pool, BLOCKING_THREAD);
     let _scope = registration.watch(deadline);
     work()
+}
+
+/// Before a wait on a child process (or a signal's grace): the wait is the child's time, not the
+/// daemon's, so the calling thread's open scopes stop blaming it until the outermost one closes
+/// (Chrome's `ScopedBlockingCall` `WILL_BLOCK`, base/threading/scoped_blocking_call.h). A no-op on a
+/// thread with no open scope.
+pub fn will_block() {
+    cmux_hang_watch::invalidate_active();
 }
 
 /// A daemon thread that runs one item at a time, registered with the process's hang watch for as

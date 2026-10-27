@@ -1,9 +1,12 @@
 //! The daemon's hang-watch registrations (p09-observability-074): a sync thread registers once and
 //! is blamed for an item past its deadline, never for its wait; a blocking-pool item is watched
 //! under its own registration on a thread nobody registered, and under the thread's own on one
-//! that is registered.
+//! that is registered. A wait for a child process inside an item is the child's, never a hang.
 //!
 //! The process watch is per process, so this file holds one test.
+
+// Unix only until the Windows port runs the daemon.
+#![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -28,6 +31,18 @@ impl HangSink for Recorded {
         let _ = self.0.lock().unwrap().send(hang.clone());
         Ok(())
     }
+}
+
+/// A proxy launcher that answers `--version` after [`SLOW`].
+fn slow_launcher() -> String {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("acpmux-hang-launcher-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("sr-slow");
+    let script = format!("#!/bin/sh\nsleep {}\necho 'sr 1.0'\n", SLOW.as_secs_f64());
+    std::fs::write(&path, script).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path.to_string_lossy().into_owned()
 }
 
 fn registered() -> u64 {
@@ -89,6 +104,25 @@ fn hang_watch_sync_threads_and_blocking_items_blame_slow_items_only() {
     worker.join().unwrap();
     assert_eq!(registered(), 0, "the sync thread's slot outlived it");
     none_left(&hangs, "an item was reported twice");
+
+    // A blocking item that waits past its deadline for a child process: a proxy launcher whose
+    // `--version` is slow (`verify_launchers`).
+    let launcher = slow_launcher();
+    std::thread::spawn(move || {
+        blocking_item(DEADLINE, || {
+            let mut cfg: acpmux::config::Config =
+                serde_json::from_value(serde_json::json!({"harnesses": {
+                    "claude-sr": {"argv": [launcher, "claude", "proxy"], "kind": "claude-stdio"},
+                }}))
+                .unwrap();
+            acpmux::config::verify_launchers_with(&mut cfg, None);
+            assert!(!cfg.unavailable.contains_key("claude-sr"), "{:?}", cfg.unavailable);
+        });
+    })
+    .join()
+    .unwrap();
+    std::thread::sleep(SLOW);
+    none_left(&hangs, "a blocking item was blamed for its child process's wait");
 
     // Blocking-pool items: watched under their own registration, freed with the item.
     let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(1).build().unwrap();

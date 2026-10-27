@@ -122,6 +122,7 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
         .stderr(std::process::Stdio::piped());
     scrub_nested_claude_env(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", argv[0]))?;
+    crate::daemon::hang_watch::will_block();
     // Woken by the child's exit (SIGCHLD), not a polling tick.
     use wait_timeout::ChildExt;
     match child.wait_timeout(std::time::Duration::from_secs(20)) {

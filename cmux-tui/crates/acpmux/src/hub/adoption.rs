@@ -346,6 +346,7 @@ fn home_swap(recorded: &Path, home: &Path) -> Option<PathBuf> {
 /// normalized, and its path below the repository root. `None` outside a git
 /// checkout or without a remote.
 fn repo_identity(dir: &Path) -> Option<(String, PathBuf)> {
+    crate::daemon::hang_watch::will_block();
     let git = |args: &[&str]| -> Option<String> {
         let out = std::process::Command::new("git")
             .arg("-C")

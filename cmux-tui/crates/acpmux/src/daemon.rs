@@ -546,8 +546,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             usize::MAX
         }
     };
-    // After the agents: their model streams go through the router.
-    let _ = hang_watch::spawn_blocking(move || release_router(kept == 0)).await;
+    // After the agents: their model streams go through the router. Waits for the router's exit:
+    // a WILL_BLOCK item, unwatched.
+    let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;
     let _ = std::fs::remove_file(home().join("daemon.pid"));
     for file in [local_app_file, peer_file].into_iter().flatten() {
         let _ = std::fs::remove_file(file);

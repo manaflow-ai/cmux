@@ -175,6 +175,8 @@ pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, S
         cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
     }
     let mut child = cmd.spawn().map_err(|e| format!("cannot run the secret store: {e}"))?;
+    // The store may ask the person to unlock it.
+    crate::daemon::hang_watch::will_block();
     match child.wait_timeout(std::time::Duration::from_secs(30)) {
         Ok(Some(status)) if status.success() => {}
         Ok(Some(_)) => {

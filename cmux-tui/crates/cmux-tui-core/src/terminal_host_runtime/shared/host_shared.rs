@@ -128,7 +128,8 @@ pub(crate) enum HostLoop {
     Pty,
     /// `terminal-host-parser`: one parser command.
     Parser,
-    /// `terminal-host-client-input`: one client frame, its PTY write included.
+    /// `terminal-host-client-input`: one client frame. A PTY write in it is the program's wait
+    /// ([`HostShared::pty_writer`]).
     ClientInput,
 }
 
@@ -189,6 +190,15 @@ impl InputWrite {
 }
 
 impl HostShared {
+    /// The PTY writer, for a write to the program's input. The write, and the wait for the lock
+    /// another thread's write holds, last until the program reads its input: the program's time,
+    /// not the host's. So it stops blaming the calling thread's hang-watch scope (Chrome's
+    /// `ScopedBlockingCall` `WILL_BLOCK`, base/threading/scoped_blocking_call.h).
+    pub(crate) fn pty_writer(&self) -> std::sync::MutexGuard<'_, Box<dyn Write + Send>> {
+        cmux_hang_watch::invalidate_active();
+        self.writer.lock().recover_poison()
+    }
+
     pub(crate) fn mark_launch_owner_stream_ready(&self) {
         let _gate = self.launch_owner_stream_gate.0.lock().recover_poison();
         if !self.launch_owner_stream_ready.swap(true, Ordering::AcqRel) {
@@ -411,7 +421,7 @@ impl HostShared {
                     observed_progress = progress;
                 }
                 ParserClearHistoryResult::EncodedFallback(encoded) => {
-                    let mut writer = self.writer.lock().recover_poison();
+                    let mut writer = self.pty_writer();
                     let master = self.master.lock().recover_poison();
                     return write_clear_history_fallback(
                         master.as_ref(),
@@ -477,7 +487,7 @@ impl HostShared {
                 cmux_trace::terminal_hash(self.terminal_id.as_bytes()),
                 payload.len()
             );
-            let mut writer = self.writer.lock().recover_poison();
+            let mut writer = self.pty_writer();
             // Receipted input certifies delivery, so none of it is dropped. The master is
             // held only to read the queue, never across a write that can block.
             let admitted = request_id != 0 || {

@@ -99,8 +99,9 @@ impl Hub {
         // A gone recorded folder may be remapped: git runs to compare repositories.
         let cwd_map = adopt.as_ref().map(|a| a.cwd_map.clone()).unwrap_or_default();
         let fam = family.clone();
+        // The remap's git children make it a WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
         let (cwd, adopted_cwd, git) =
-            crate::daemon::spawn_blocking(move || start_folder(cwd, recorded, &fam, &cwd_map))
+            tokio::task::spawn_blocking(move || start_folder(cwd, recorded, &fam, &cwd_map))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))??;
         // A folder profile runs only in chats whose folder is inside its folder (H4).

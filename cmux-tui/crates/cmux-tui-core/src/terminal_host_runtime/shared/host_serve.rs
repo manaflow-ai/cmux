@@ -494,7 +494,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                         break;
                     }
                     let bracketed = command_host.term.lock().recover_poison().mode(2004, false);
-                    let mut writer = command_host.writer.lock().recover_poison();
+                    let mut writer = command_host.pty_writer();
                     if bracketed {
                         let _ = writer.write_all(b"\x1b[200~");
                     }
