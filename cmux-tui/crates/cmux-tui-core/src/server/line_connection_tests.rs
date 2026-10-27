@@ -77,13 +77,15 @@ fn connect_with(
         let mux = served_mux;
         let stream: Box<dyn transport::Stream> = Box::new(server);
         let render = Arc::new(RenderService::new());
+        let peer = origin_gate::AcceptedPeer::resolve(&mux, &*stream);
         match lane {
             Some(mut lane) => {
-                serve_connection(mux, stream, render, None, transport, &*admission, &mut lane)
+                serve_connection(mux, stream, peer, render, None, transport, &*admission, &mut lane)
             }
             None => serve_connection(
                 mux,
                 stream,
+                peer,
                 render,
                 None,
                 transport,
@@ -479,7 +481,8 @@ fn line_connection_a_stalled_write_is_one_line_out_hang_and_idle_wakes_nothing()
         let mut lane = RequestFrames::default();
         let stream: Box<dyn transport::Stream> = Box::new(stream);
         let transport = ClientTransport::Unix;
-        serve_connection(served_mux, stream, render, None, transport, &LinesOnly, &mut lane)
+        let peer = origin_gate::AcceptedPeer::resolve(&served_mux, &*stream);
+        serve_connection(served_mux, stream, peer, render, None, transport, &LinesOnly, &mut lane)
     });
     let read_half = socket.try_clone().unwrap();
     read_half.set_read_timeout(Some(Duration::from_secs(10))).unwrap();

@@ -43,9 +43,11 @@ impl Client {
         let server = listener.accept().unwrap();
         let server_mux = mux.clone();
         let handler = std::thread::spawn(move || {
+            let peer = origin_gate::AcceptedPeer::resolve(&server_mux, &*server);
             serve_line_connection(
                 server_mux,
                 server,
+                peer,
                 Arc::new(RenderService::new()),
                 None,
                 kind,

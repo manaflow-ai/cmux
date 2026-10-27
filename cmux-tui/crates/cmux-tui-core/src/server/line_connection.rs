@@ -45,12 +45,14 @@ fn line_limits() -> ReaderLimits {
 pub(super) fn handle_connection_with_permit(
     mux: Arc<Mux>,
     stream: Box<dyn transport::Stream>,
+    peer: origin_gate::AcceptedPeer,
     render_service: Arc<RenderService>,
     connection_permit: Option<ConnectionPermit>,
 ) {
     serve_line_connection(
         mux,
         stream,
+        peer,
         render_service,
         connection_permit,
         ClientTransport::Unix,
@@ -64,15 +66,22 @@ pub(super) fn handle_connection_with_permit(
 pub(super) const CONNECTION_READER_QOS: cmux_threads::ThreadQos =
     crate::thread_qos::ThreadType::UnclassifiedClient.qos();
 
-/// Starts connection reader thread `name` at [`CONNECTION_READER_QOS`] with
-/// blocking disallowed (each blocking request site is recorded, MQ-13).
-pub(super) fn spawn_connection_reader(
+/// Starts connection reader thread `name` at [`CONNECTION_READER_QOS`]. It
+/// runs `setup` first, which may block: the connection's own setup before
+/// its first message (the peer's identity, [`origin_gate::AcceptedPeer`]),
+/// as a terminal-host reader registers its descriptor before it serves
+/// (`echo_thread::spawn_host_stream_reader`). Then it disallows blocking and
+/// serves with `setup`'s value (each blocking request site is recorded, and
+/// a panic in Debug, MQ-13).
+pub(super) fn spawn_connection_reader<S: 'static>(
     name: &str,
-    serve: impl FnOnce() + Send + 'static,
+    setup: impl FnOnce() -> S + Send + 'static,
+    serve: impl FnOnce(S) + Send + 'static,
 ) -> std::io::Result<JoinHandle<()>> {
     cmux_threads::spawn(name, CONNECTION_READER_QOS, move || {
+        let accepted = setup();
         cmux_threads::disallow_blocking();
-        serve();
+        serve(accepted);
     })
 }
 
@@ -82,6 +91,7 @@ pub(super) fn spawn_connection_reader(
 pub(super) fn serve_line_connection(
     mux: Arc<Mux>,
     stream: Box<dyn transport::Stream>,
+    peer: origin_gate::AcceptedPeer,
     render_service: Arc<RenderService>,
     connection_permit: Option<ConnectionPermit>,
     transport: ClientTransport,
@@ -90,6 +100,7 @@ pub(super) fn serve_line_connection(
     let _ = serve_connection(
         mux,
         stream,
+        peer,
         render_service,
         connection_permit,
         transport,
@@ -182,6 +193,7 @@ pub(super) enum ConnectionEnd {
 pub(super) fn serve_connection(
     mux: Arc<Mux>,
     stream: Box<dyn transport::Stream>,
+    peer: origin_gate::AcceptedPeer,
     render_service: Arc<RenderService>,
     connection_permit: Option<ConnectionPermit>,
     transport: ClientTransport,
@@ -226,15 +238,12 @@ pub(super) fn serve_connection(
         writer.close();
         return ConnectionEnd::Dropped;
     };
-    let peer_key = stream.peer_process_key();
-    let peer_token = stream.peer_token();
-    let peer_uid = stream.peer_uid();
     let client = mux.control_clients.register(transport, writer.clone());
     // The connection's stream 0, open until the connection ends
     // (`server-stats` `ipc`).
     let ipc = mux.ipc_stats().clone();
     let _stream = ipc.stream_opened();
-    origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token, peer_uid);
+    origin_gate::set_peer_identity_at_accept(&mux, client, peer);
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation
         // limits): nothing is read or dispatched.

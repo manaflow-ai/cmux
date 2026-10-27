@@ -154,9 +154,11 @@ fn a_panic_on_the_connections_reader_closes_the_connection() {
         let mux = mux.clone();
         cmux_threads::spawn("panic-mode-reader-test", cmux_threads::ThreadQos::Default, move || {
             let stream: Box<dyn transport::Stream> = Box::new(server);
+            let peer = origin_gate::AcceptedPeer::resolve(&mux, &*stream);
             super::serve_connection(
                 mux,
                 stream,
+                peer,
                 Arc::new(RenderService::new()),
                 None,
                 ClientTransport::Unix,
