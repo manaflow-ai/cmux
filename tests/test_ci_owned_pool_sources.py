@@ -39,6 +39,7 @@ carry a cmux-next.yml, so no single file tells them apart.)
 
 from __future__ import annotations
 
+import functools
 import os
 import shutil
 import subprocess
@@ -71,10 +72,13 @@ def event_describes_tree() -> bool:
 
 
 def nearest_branch() -> str | None:
-    """The branch whose fresh tip changes the fewest workflow and CI script paths against HEAD; None when neither fetches."""
+    """The branch whose fresh tip changes the fewest workflow and CI script paths against HEAD; None when neither fetches.
+
+    Compares trees only, so it needs no blobs.
+    """
     changed = {}
-    for name, ref in BRANCHES.items():
-        fresh = fetch(ref)
+    for name in BRANCHES:
+        fresh = fetch_tip(name)
         if fresh is None:
             continue
         diff = git("diff", "--no-renames", "--name-only", fresh, "HEAD", "--", sources.WORKFLOWS_DIR, "scripts/ci")
@@ -83,6 +87,7 @@ def nearest_branch() -> str | None:
     return min(changed, key=changed.get) if changed else None
 
 
+@functools.cache
 def branch() -> str | None:
     """main or feat-cmux-next: the branch this tree is (or is going into), or None when it cannot be told."""
     named = os.environ.get("CMUX_OWNED_POOL_BRANCH")
@@ -121,23 +126,31 @@ def has_ref(ref: str) -> bool:
 PRIVATE_REFS = "refs/cmux-owned-pool-sources/"
 
 
-def fetch(ref: str) -> str | None:
-    """origin's current tip of the branch ref names, as a private ref; None when it cannot be fetched.
+@functools.cache
+def fetch_tip(name: str) -> str | None:
+    """origin's current tip of branch name, as a private ref; None when it cannot be fetched. Once per run.
 
-    Under Actions: the tip with no blobs, then the blobs of the files the detector reads, in two
-    requests. Off CI: a plain fetch of that one branch (no --depth, which would make a full clone
-    shallow, and no --filter, which would make it a partial clone).
+    Under Actions the tip comes with no blobs (fetch() adds the ones the test reads). Off CI it is a
+    plain fetch of that one branch: no --depth, which would make a full clone shallow, and no
+    --filter, which would make it a partial clone.
     """
-    name = next((name for name, known in BRANCHES.items() if known == ref), None)
-    if name is None:
-        return None
     private = PRIVATE_REFS + name
     git("update-ref", "-d", private)
     if ON_CI:
         git("fetch", "--no-tags", "--depth=1", "--filter=blob:none", "origin", f"+refs/heads/{name}:{private}")
     else:
         git("fetch", "--no-tags", "origin", f"+refs/heads/{name}:{private}")
-    if not has_ref(private):
+    return private if has_ref(private) else None
+
+
+@functools.cache
+def fetch(ref: str) -> str | None:
+    """fetch_tip() of the branch ref names, with the blobs of the files the detector reads; None when either fails."""
+    name = next((name for name, known in BRANCHES.items() if known == ref), None)
+    if name is None:
+        return None
+    private = fetch_tip(name)
+    if private is None:
         return None
     if ON_CI:
         # A tip whose files cannot all be read is no tip: a missing blob would read as a missing file.
