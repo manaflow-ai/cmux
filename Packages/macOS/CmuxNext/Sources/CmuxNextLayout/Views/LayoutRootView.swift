@@ -214,7 +214,7 @@ public final class LayoutRootView: NSView {
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
         sync(snapshot())
         observe()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         ScreenContentView.registerMotionSampler()
         #endif
     }
