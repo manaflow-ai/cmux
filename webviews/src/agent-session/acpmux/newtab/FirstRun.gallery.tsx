@@ -29,9 +29,9 @@ export default componentEntry<ComponentProps<typeof NewTabScreen>>({
   load: () => import("./NewTabScreen").then((module) => module.NewTabScreen),
   styles: () => Promise.all([import("../styles.css"), import("./screen.css")]),
   variants: {
-    cards: {
-      note: "Recommended for the existing Cards layout: Browse and No project are direct actions, above the composer.",
-      props: { ...props, template: "cards" },
+    "project-card": {
+      note: "Recommended for the existing project-card layout: Browse and No project are direct actions, above the composer.",
+      props: { ...props, template: "default" },
     },
     minimal: {
       note: "The default minimal layout keeps its existing folder control beside the composer.",
