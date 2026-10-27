@@ -270,7 +270,19 @@ export function shellCommands(line: string): ShellCommand[] {
  * overwritten by a write whose contents were not safely recorded, so callers must forget it.
  */
 export type RecordedMessageBodyChange = { path: string; text?: string } | { reset: true };
-const MESSAGE_PATH_MUTATORS = new Set(["cp", "install", "mv", "rm", "sed", "tee", "truncate"]);
+const MESSAGE_PATH_MUTATORS = new Set([
+  "cd",
+  "cp",
+  "env",
+  "install",
+  "mv",
+  "popd",
+  "pushd",
+  "rm",
+  "sed",
+  "tee",
+  "truncate",
+]);
 
 export function recordedMessageBodyChanges(line: string): RecordedMessageBodyChange[] {
   const commands = shellCommands(line);

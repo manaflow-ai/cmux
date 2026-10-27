@@ -275,6 +275,7 @@ describe("acpmuxSend", () => {
     expect(recordedMessageBodyChanges("cat >> /tmp/message <<'EOF'\nappend\nEOF")).toEqual([{ reset: true }]);
     expect(recordedMessageBodyChanges("cat <> /tmp/message <<'EOF'\nread-write\nEOF")).toEqual([{ reset: true }]);
     expect(recordedMessageBodyChanges("cat > \"$MESSAGE\" <<'EOF'\ndynamic\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cd /tmp")).toEqual([{ reset: true }]);
   });
 });
 
