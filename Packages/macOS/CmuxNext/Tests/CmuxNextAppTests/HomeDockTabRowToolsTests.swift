@@ -115,6 +115,14 @@ import Testing
         #expect(runs.compactMap { $0.target.map { SidebarTransientItem.chiefSubagentSession(LayoutItemID($0.id)) } }
             == ["id-optchat-sub-6b68ac4a-a2", "id-optchat-sub-6b68ac4a-a3"])
         #expect(runs.allSatisfy { $0.arguments.isEmpty })
+        var beside: [String] = [], workspaces: [String] = []
+        chief.bind(into: registry, host: .init(conversation: { "chief" }, chiefHost: { "chief-host" },
+            tab: { _, _ in "tab-in-another-workspace" }, reveal: { _ in Issue.record("must not reveal another workspace"); return true },
+            openWorkspace: { session, _ in workspaces.append(session); throw CancellationError() },
+            openBeside: { session, host in #expect(host == "chief-host"); beside.append(session); return true }))
+        for run in runs { #expect(registry.perform(run.id, invocation: .init(target: run.target, origin: .user))) }
+        #expect(beside == ["id-optchat-sub-6b68ac4a-a2", "id-optchat-sub-6b68ac4a-a3"])
+        #expect(workspaces.isEmpty)
     }
 
     /// Open Chief Subagent run with no subagent row (its shortcut, `cmux action run` without

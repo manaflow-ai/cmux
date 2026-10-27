@@ -225,7 +225,7 @@ const scrollPanel = async (ctx: PlayContext) => {
   const more = () => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__finished");
   if (more() && more()!.getAttribute("aria-expanded") !== "true") {
     await ctx.click({ selector: ".acpmux-running-tray__finished" });
-    await ctx.waitFor(() => more()?.getAttribute("aria-expanded") === "true");
+    await ctx.waitFor(() => ctx.document.querySelector("aside.acpmux-artifact .acpmux-summary-agent"));
   }
   await ctx.scroll({ selector: ".acpmux-running-tray__list" }, "bottom");
   headInView(ctx);
@@ -327,7 +327,7 @@ export default agentPaneEntry({
       snapshot: panel(3, 1),
     },
     "panel-118": {
-      note: 'The same panel with 118 agents, every ended one opened and the list scrolled to its end (Leo: the collapse at the top "disappears for some reason ... sometimes"): the header stays pinned on top and View all at the foot; only the list scrolls.',
+      note: "The same panel with 118 agents: View all opens the full list beside the transcript while the tray stays bounded.",
       play: scrollPanel,
       snapshot: panel(116),
     },
