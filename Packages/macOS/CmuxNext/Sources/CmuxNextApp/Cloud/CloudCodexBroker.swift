@@ -51,6 +51,7 @@ public enum CloudCodexBrokerError: Error, LocalizedError, Sendable, Equatable {
     case invalidReply
     case accountChanged
     case expiredAccess
+    case targetOffline
     case remoteDeliveryFailed
     case cancelled
 
@@ -65,6 +66,7 @@ public enum CloudCodexBrokerError: Error, LocalizedError, Sendable, Equatable {
         case .loginRequired: "Sign in to Codex to continue."
         case .invalidReply, .accountChanged: "Codex sign-in could not be completed."
         case .expiredAccess: "Codex returned an expired access token."
+        case .targetOffline: "This VM is offline or paused; resume it before delivering Codex access."
         case .remoteDeliveryFailed: "The Codex access token could not be delivered to this VM."
         case .cancelled: "Codex sign-in was cancelled."
         }
@@ -88,6 +90,8 @@ public struct CloudCodexBrokerTarget: Sendable {
     }
 
     public let machineID: String
+    /// A non-waking machine status check. Renewal must not resume a paused VM.
+    public let isLive: @Sendable () async throws -> Bool
     public let capability: @Sendable () async throws -> Capability
     public let makeDirectory: @Sendable (String) async throws -> Void
     public let readFile: @Sendable (String) async throws -> Data?
@@ -101,8 +105,10 @@ public struct CloudCodexBrokerTarget: Sendable {
                 readFile: @escaping @Sendable (String) async throws -> Data?,
                 writeFile: @escaping @Sendable (String, Data, Int) async throws -> Void,
                 commitFiles: @escaping @Sendable (String, String, String, String) async throws -> Void,
-                removeFile: @escaping @Sendable (String) async throws -> Void) {
+                removeFile: @escaping @Sendable (String) async throws -> Void,
+                isLive: @escaping @Sendable () async throws -> Bool = { true }) {
         self.machineID = machineID
+        self.isLive = isLive
         self.capability = capability
         self.makeDirectory = makeDirectory
         self.readFile = readFile
@@ -117,22 +123,36 @@ public struct CloudCodexBrokerTarget: Sendable {
         #"as_u() { if [ "$(id -un)" = "$u" ]; then "$@"; else root runuser -u "$u" -- "$@"; fi; }"#,
         #"u=cmux; id -u "$u" >/dev/null 2>&1 || u=root"#,
         #"h=$(getent passwd "$u" | cut -d: -f6)"#,
-        #"b="$h/.cmux/bin/cmux-tui"#,
+        #"b="$h/.cmux/bin/cmux-tui""#,
         #"[ -x "$b" ] || { echo "cmux: this machine has no cmux-tui" >&2; exit 82; }"#,
         #"as_u env HOME="$h" "$b" acp --json status"#,
     ].joined(separator: "; ")
 
     /// The default probe is deliberately read-only: the running bridge reports
     /// its capability and the guest marker proves that this is an owner VM.
-    public init(api: CloudAPIClient, machineID: String) {
+    public init(api: CloudAPIClient, machineID: String, scope: CloudCodexBrokerScope) {
+        let api = api.pinningTeam(scope.teamID)
         self.init(machineID: machineID, capability: {
             let marker = try await api.readFile(machineID, path: "/etc/cmux/vm-kind")
             let owner = String(decoding: marker.data ?? Data(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "owner"
-            let sharedTeamDirectory = (try? await api.statFile(machineID, path: "/srv/team")) != nil
+            let sharedTeamDirectory: Bool
+            do {
+                _ = try await api.statFile(machineID, path: "/srv/team")
+                sharedTeamDirectory = true
+            } catch let error as CloudAPIError {
+                switch error {
+                case .http(let status, let code, _, _, _)
+                    where status == 404 && code == "vm_file_not_found":
+                    break
+                default:
+                    throw error
+                }
+                sharedTeamDirectory = false
+            }
             guard owner, !sharedTeamDirectory else { return Capability(ownerVM: false, protocolVersion: 0, codexExternalAccessToken: false) }
             let result = try await api.exec(machineID, command: Self.statusCommand, timeoutMs: 8_000)
             guard result.exitCode == 0,
-                  let line = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n").last,
+                  let line = result.stdout.split(separator: "\n").last,
                   let data = line.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let capabilities = object["capabilities"] as? [String],
@@ -153,6 +173,8 @@ public struct CloudCodexBrokerTarget: Sendable {
             guard result.exitCode == 0 else { throw CloudCodexBrokerError.remoteDeliveryFailed }
         }, removeFile: { path in
             try await api.removeFile(machineID, path: path)
+        }, isLive: {
+            (try await api.machine(machineID)).status.isLive
         })
     }
 }
@@ -176,7 +198,9 @@ public actor CloudCodexBroker {
     private var previousModeByMachine: [String: Data?] = [:]
     private var loadedPreviousMode: Set<String> = []
     private var targets: [String: CloudCodexBrokerTarget] = [:]
+    private var targetGenerations: [String: Int] = [:]
     private var refreshTask: Task<Void, Never>?
+    private var refreshInFlight: Task<CloudCodexAccessGrant, Error>?
 
     public init(scope: CloudCodexBrokerScope,
                 currentScope: @escaping @Sendable () async -> CloudCodexBrokerScope?,
@@ -198,10 +222,10 @@ public actor CloudCodexBroker {
     /// cmux and then calls `waitForLogin` without opening a VM terminal.
     public func login(target: CloudCodexBrokerTarget, confirmed: Bool) async throws -> CloudCodexLoginPrompt {
         try await validate(target: target, confirmed: confirmed)
-        let response = try await request(method: "login", params: [:])
-        guard let urlString = response["verificationUrl"] as? String,
+        let response = try await request(method: "login")
+        guard let urlString = response.verificationURL,
               let url = URL(string: urlString), url.scheme == "https",
-              let code = response["userCode"] as? String, !code.isEmpty, code.utf8.count < 64 else {
+              let code = response.userCode, !code.isEmpty, code.utf8.count < 64 else {
             throw CloudCodexBrokerError.invalidReply
         }
         return CloudCodexLoginPrompt(verificationURL: url, userCode: code)
@@ -235,37 +259,59 @@ public actor CloudCodexBroker {
                          forceRefresh: Bool = false) async throws -> CloudCodexAccessGrant {
         try await validate(target: target, confirmed: confirmed)
         targets[target.machineID] = target
+        targetGenerations[target.machineID, default: 0] += 1
         if !forceRefresh, let cached, cached.expiresAt > Date().addingTimeInterval(120) {
             try await deliver(cached, target: target)
             return cached
         }
-        let grant = try await refreshAccess()
+        let grant = try await refreshAccess(schedule: true)
         try await deliver(grant, target: target)
         return grant
     }
 
-    private func refreshAccess() async throws -> CloudCodexAccessGrant {
-        let params: [String: Any] = [
-            "force": true,
-            "previousAccountId": cached?.chatgptAccountID as Any,
-        ]
-        let response = try await request(method: "access", params: params)
-        guard let token = response["accessToken"] as? String, !token.isEmpty,
-              let account = response["chatgptAccountId"] as? String, !account.isEmpty,
-              let expiry = response["expiresAt"] as? NSNumber else { throw CloudCodexBrokerError.invalidReply }
+    private func refreshAccess(schedule: Bool) async throws -> CloudCodexAccessGrant {
+        if let refreshInFlight { return try await refreshInFlight.value }
+        let task = Task { [weak self] () throws -> CloudCodexAccessGrant in
+            guard let self else { throw CloudCodexBrokerError.brokerUnavailable }
+            return try await self.performRefresh()
+        }
+        refreshInFlight = task
+        defer { refreshInFlight = nil }
+        let grant = try await task.value
+        if schedule { scheduleRefresh(grant: grant) }
+        return grant
+    }
+
+    private func performRefresh() async throws -> CloudCodexAccessGrant {
+        let response = try await request(method: "access", force: true, previousAccountID: cached?.chatgptAccountID)
+        guard let token = response.accessToken, !token.isEmpty,
+              let account = response.chatgptAccountID, !account.isEmpty,
+              let expiry = response.expiresAt else { throw CloudCodexBrokerError.invalidReply }
         let grant = CloudCodexAccessGrant(accessToken: token, chatgptAccountID: account,
-                                          expiresAt: Date(timeIntervalSince1970: expiry.doubleValue))
+                                          expiresAt: Date(timeIntervalSince1970: expiry))
         guard grant.expiresAt > Date().addingTimeInterval(60) else { throw CloudCodexBrokerError.expiredAccess }
         cached = grant
-        scheduleRefresh(grant: grant)
         return grant
     }
 
     /// Revocation removes the delivered access file and own marker. The local
     /// refresh holder is signed out only when the caller explicitly requests it.
     public func revoke(target: CloudCodexBrokerTarget, signOut: Bool = false) async throws {
-        try await validate(target: target, confirmed: true)
+        try await validate(target: target, confirmed: true, requireLive: false)
         targets.removeValue(forKey: target.machineID)
+        targetGenerations[target.machineID, default: 0] += 1
+        // A paused VM must not be woken merely to revoke. Its bridge will reject
+        // the old file on its next start; a live VM is erased immediately below.
+        guard (try? await target.isLive()) == true else {
+            loadedPreviousMode.remove(target.machineID)
+            previousModeByMachine.removeValue(forKey: target.machineID)
+            if targets.isEmpty {
+                cached = nil
+                refreshTask?.cancel()
+                refreshTask = nil
+            }
+            return
+        }
         try? await target.removeFile(Self.accessPath)
         try? await target.removeFile(Self.modePath)
         if let previous = previousModeByMachine.removeValue(forKey: target.machineID) ?? nil {
@@ -276,13 +322,15 @@ public actor CloudCodexBroker {
             cached = nil
             refreshTask?.cancel()
             refreshTask = nil
-            if signOut { _ = try? await request(method: "logout", params: [:]) }
+            if signOut { _ = try? await request(method: "logout") }
         }
     }
 
-    private func validate(target: CloudCodexBrokerTarget, confirmed: Bool) async throws {
+    private func validate(target: CloudCodexBrokerTarget, confirmed: Bool, requireLive: Bool = true) async throws {
         guard confirmed else { throw CloudCodexBrokerError.consentRequired }
         guard await currentScope() == scope else { throw CloudCodexBrokerError.scopeChanged }
+        guard requireLive else { return }
+        guard try await target.isLive() else { throw CloudCodexBrokerError.targetOffline }
         let capability = try await target.capability()
         guard capability.ownerVM else { throw CloudCodexBrokerError.sharedMachine }
         guard capability.protocolVersion == Self.protocolVersion, capability.codexExternalAccessToken else {
@@ -290,15 +338,15 @@ public actor CloudCodexBroker {
         }
     }
 
-    private func request(method: String, params: [String: Any]) async throws -> [String: Any] {
+    private func request(method: String, force: Bool? = nil, previousAccountID: String? = nil) async throws -> BrokerResult {
         if session == nil {
             session = try CodexBrokerSession(executable: executable, executablePrefix: executablePrefix, codexExecutable: codexExecutable, home: home)
         }
         guard let session else { throw CloudCodexBrokerError.brokerUnavailable }
         do {
             // concurrency-allow: the private broker request is off the UI actor and has a bounded cancellation race.
-            return try await withThrowingTaskGroup(of: [String: Any].self) { group in
-                group.addTask { try await session.request(method: method, params: params) }
+            return try await withThrowingTaskGroup(of: BrokerResult.self) { group in
+                group.addTask { try await session.request(method: method, force: force, previousAccountID: previousAccountID) }
                 group.addTask {
                     // wakeup-allow: hard bound for one private broker request
                     try await Task.sleep(for: .seconds(15))
@@ -322,6 +370,8 @@ public actor CloudCodexBroker {
     }
 
     private func deliver(_ grant: CloudCodexAccessGrant, target: CloudCodexBrokerTarget) async throws {
+        guard targets[target.machineID] != nil else { throw CloudCodexBrokerError.cancelled }
+        let generation = targetGenerations[target.machineID, default: 0]
         let object: [String: Any] = [
             "schema": 1,
             "bridge": "codex-external-access-v1",
@@ -337,6 +387,8 @@ public actor CloudCodexBroker {
         let stageMode = "/home/cmux/.config/cmux/agent-auth/.codex-\(suffix)"
         do {
             try await ensureScope()
+            guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation,
+                  try await target.isLive() else { throw CloudCodexBrokerError.targetOffline }
             if !loadedPreviousMode.contains(target.machineID) {
                 previousModeByMachine[target.machineID] = try await target.readFile(Self.modePath)
                 loadedPreviousMode.insert(target.machineID)
@@ -347,11 +399,15 @@ public actor CloudCodexBroker {
             try await target.makeDirectory("/home/cmux/.config/cmux/codex-broker")
             try await target.makeDirectory("/home/cmux/.config/cmux/agent-auth")
             try await ensureScope()
+            guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
             try await target.writeFile(stageAccess, data, 0o600)
             try await ensureScope()
+            guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
             try await target.writeFile(stageMode, Data("own\n".utf8), 0o600)
             try await ensureScope()
+            guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
             try await target.commitFiles(stageAccess, Self.accessPath, stageMode, Self.modePath)
+            guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
         } catch let error as CloudCodexBrokerError {
             try? await target.removeFile(stageAccess)
             try? await target.removeFile(stageMode)
@@ -378,10 +434,12 @@ public actor CloudCodexBroker {
                 // wakeup-allow: one renewal wakeup before the short-lived grant expires
                 try await Task.sleep(for: .seconds(wait))
                 guard let self, await self.currentScope() == expectedScope else { return }
-                let refreshed = try await self.refreshAccess()
+                let refreshed = try await self.refreshAccess(schedule: false)
                 let targets = await self.targetList()
                 for target in targets {
-                    try await self.deliver(refreshed, target: target)
+                    do { try await self.deliver(refreshed, target: target) }
+                    catch CloudCodexBrokerError.targetOffline { continue }
+                    catch CloudCodexBrokerError.remoteDeliveryFailed { continue }
                 }
             } catch { /* cancellation, logout, or a stopped VM ends renewal */ }
         }
@@ -414,6 +472,35 @@ public actor CloudCodexBrokerRegistry {
     }
 }
 
+private struct BrokerRequest: Encodable, Sendable {
+    let id: Int
+    let method: String
+    let force: Bool?
+    let previousAccountId: String?
+}
+
+private struct BrokerResult: Decodable, Sendable {
+    let accessToken: String?
+    let chatgptAccountID: String?
+    let expiresAt: Double?
+    let verificationURL: String?
+    let userCode: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken
+        case chatgptAccountID = "chatgptAccountId"
+        case expiresAt
+        case verificationURL = "verificationUrl"
+        case userCode
+    }
+}
+
+private struct BrokerReply: Decodable, Sendable {
+    let id: Int
+    let result: BrokerResult?
+    let error: String?
+}
+
 private actor CodexBrokerSession {
     enum Error: Swift.Error { case invalidReply, accountChanged, notAuthenticated, timedOut }
 
@@ -424,7 +511,7 @@ private actor CodexBrokerSession {
     private var readTask: Task<Void, Never>?
     private var buffer = Data()
     private var nextID = 0
-    private var pending: [Int: CheckedContinuation<[String: Any], Swift.Error>] = [:]
+    private var pending: [Int: CheckedContinuation<BrokerResult, Swift.Error>] = [:]
 
     init(executable: URL, executablePrefix: [String], codexExecutable: URL, home: URL) throws {
         try FileManager.checked.createDirectory(at: home, withIntermediateDirectories: true)
@@ -465,12 +552,13 @@ private actor CodexBrokerSession {
         if process.isRunning { process.terminate() }
     }
 
-    func request(method: String, params: [String: Any]) async throws -> [String: Any] {
+    func request(method: String, force: Bool? = nil, previousAccountID: String? = nil) async throws -> BrokerResult {
         nextID += 1
         let id = nextID
-        var object: [String: Any] = ["id": id, "method": method]
-        for (key, value) in params { object[key] = value }
-        guard let data = try? JSONSerialization.data(withJSONObject: object) else { throw Error.invalidReply }
+        let object = BrokerRequest(id: id, method: method, force: force, previousAccountId: previousAccountID)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(object) else { throw Error.invalidReply }
         var line = data
         line.append(0x0A)
         return try await withTaskCancellationHandler {
@@ -500,14 +588,13 @@ private actor CodexBrokerSession {
         while let newline = buffer.firstIndex(of: 0x0A) {
             let line = buffer.prefix(upTo: newline)
             buffer.removeSubrange(...newline)
-            guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
-                  let id = object["id"] as? Int,
-                  let continuation = pending.removeValue(forKey: id) else { continue }
-            if let error = object["error"] as? String {
+            guard let reply = try? JSONDecoder().decode(BrokerReply.self, from: line),
+                  let continuation = pending.removeValue(forKey: reply.id) else { continue }
+            if let error = reply.error {
                 if error == "codex_auth_account_changed" { continuation.resume(throwing: Error.accountChanged) }
                 else if error == "codex_auth_unavailable" { continuation.resume(throwing: Error.notAuthenticated) }
                 else { continuation.resume(throwing: Error.invalidReply) }
-            } else if let result = object["result"] as? [String: Any] {
+            } else if let result = reply.result {
                 continuation.resume(returning: result)
             } else {
                 continuation.resume(throwing: Error.invalidReply)
