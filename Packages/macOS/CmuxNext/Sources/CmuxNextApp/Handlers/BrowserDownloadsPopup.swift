@@ -157,6 +157,7 @@ final class BrowserDownloadsPopup {
         guard popup.isShown, let content else { return }
         // The button left the screen (another tab, the tab closed): the popup goes with it.
         guard let anchor, let window = anchor.window, !anchor.isHiddenOrHasHiddenAncestor else { return close() }
+        // sync-layout: the hosting view takes the new rows in its layout; its fitting size sizes the popup below.
         content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
@@ -444,7 +445,7 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .assumeInside], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect, .assumeInside], owner: self)
         addTrackingArea(area)
         tracking = area
     }

@@ -55,6 +55,30 @@
         "settled"
       ],
       "note": "the fixture's linked worktree on cmux/feature (base main recorded as git.worktree.create records it) has one commit adding feature.txt, which lands in the main checkout as an uncommitted file"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "git.worktree.apply",
+        "params": {
+          "path": "$CASE_ROOT/repos/oracle-feature"
+        },
+        "idempotencyKey": "git-worktree-apply-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

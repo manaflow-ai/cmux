@@ -62,7 +62,7 @@ overrides and safe mode, is section 3.9 of `plans/cmux-next/chrome-parity/p12-pe
 | `stories` | yes (may be `[]`) | Lab stories that bench both arms. A perfPath feature needs at least one. Once `scripts/perf-lab/stories.d/` exists, each must have a file there. |
 | `sticky` | yes | A remote off stays off in safe mode, even when the remote document is dropped. |
 | `runtimeMutable` | yes | The feature can change while the process runs. `true` needs `teardownTest`, a test that exists. Swift: `Target.Suite/testName`, a method of the type or extension `Suite` in `Packages/macOS/**/Tests/<Target>/`, named `test*` (XCTest) or marked `@Test`. Rust: `crate::module::test`, a `#[test]` or `#[tokio::test]` fn directly in that module of the crate (inline `mod` blocks, `module.rs` or `module/mod.rs`; `crate::file::test` for `tests/file.rs`). |
-| `replaces` | no | Tunable keys and env switches this feature took over. Each key belongs to one feature. |
+| `replaces` | no | Tunable keys and env switches this feature took over. Each key belongs to one feature. On DEV and NIGHTLY the App reads each replaced Bool tunable from the build's `debug-tunables.json` at launch and gives it to the feature as its local override (step 3; `Feature.replaces`). |
 
 ## Generated interface
 

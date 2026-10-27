@@ -14,6 +14,7 @@ import Testing
 @MainActor struct EmptyTerminalPreviewTests {
     @Test func aTerminalWithNoOutputYetHasNoPreview() async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         // The runner's window may report itself occluded: draw anyway, as automation launches do.
         let drew = WindowDrawPolicy.drawsWhenOccluded
         WindowDrawPolicy.drawsWhenOccluded = true

@@ -1,5 +1,6 @@
 // Chat-load benchmark, page stage (perf100). The shipped agent pane bundle
-// (scripts/cmux-next/build-agent-pane-web.sh --out DIR), served over loopback, in headless
+// (scripts/cmux-next/build-agent-pane-web.sh --out DIR --pages-out PAGES), served over loopback
+// with the pages' shared chunks it imports (PAGES/_shared at /_shared/, shared-origin.mjs), in headless
 // Chromium or WebKit, opens each fixture chat (fixture.ts) from a real acpmux daemon
 // (daemon_bench.py --keep-pidfile), and the mock chat of the in-page mock daemon.
 //
@@ -16,14 +17,19 @@
 //   dom_nodes        DOM nodes once interactive;
 //   daemon_cpu_ms    the acpmux daemon's CPU time during the open (from /proc).
 // Then (--scroll) it scrolls to the first message and reports the time and bytes it took.
+// With PERF_RESULT_DIR set it also writes every run's numbers as result-v1 (story
+// webviews-chat-load, or webviews-chat-load-webkit; metrics web.chat_load.*, chatLoadPerfSeries in ../bench-perf-series.mjs).
 //
-//   node browser_bench.mjs --pane DIR --fixture FIXTURE_JSON --endpoint ws://127.0.0.1:P --token T
-//        --daemon-pid PID --out OUT_JSON [--engine chromium|webkit] [--repeat 3] [--scroll]
+//   node browser_bench.mjs --pane DIR --shared PAGES/_shared --fixture FIXTURE_JSON --endpoint ws://127.0.0.1:P
+//        --token T --daemon-pid PID --out OUT_JSON [--engine chromium|webkit] [--repeat 3] [--scroll]
 //        [--mock-turns 100,1000,10000] [--port 4319]
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import pw from "playwright";
+import { builtPageBody, builtPageFile } from "../../pages/shared-origin.mjs";
+import { recordPerfResults } from "../../perf-result.mjs";
+import { chatLoadPerfSeries } from "../bench-perf-series.mjs";
 
 const arg = (name, fallback) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -31,6 +37,7 @@ const arg = (name, fallback) => {
 };
 const has = (name) => process.argv.includes(`--${name}`);
 const paneDir = arg("pane");
+const sharedDir = arg("shared");
 const fixture = arg("fixture") ? JSON.parse(fs.readFileSync(arg("fixture"), "utf8")) : { sessions: [] };
 const endpoint = arg("endpoint");
 const token = arg("token");
@@ -42,16 +49,18 @@ const port = Number(arg("port", "4319"));
 const mockTurns = (arg("mock-turns", "") || "").split(",").filter(Boolean).map(Number);
 const onlySessions = arg("sessions") ? new Set(arg("sessions").split(",").map(Number)) : undefined;
 
+/// How long settle() waits for a page to draw and go quiet before it reports the run timed out.
+const SETTLE_TIMEOUT_MS = 120_000;
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json" };
+if (!paneDir || !sharedDir) throw new Error("--pane DIR and --shared PAGES/_shared are required");
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url, "http://x");
-  const file = path.join(paneDir, decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname));
-  if (!file.startsWith(paneDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+  const file = builtPageFile(new URL(req.url, "http://x").pathname, { page: paneDir, shared: sharedDir });
+  if (!file) {
     res.writeHead(404).end();
     return;
   }
   res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream" });
-  fs.createReadStream(file).pipe(res);
+  res.end(builtPageBody(file));
 });
 await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${port}`;
@@ -249,7 +258,7 @@ async function coldOpen(config, label) {
   await page.addInitScript(shim, config);
   const cpu0 = daemonCpu();
   await page.goto(`${origin}/index.html`);
-  const s = await settle(page, 120_000);
+  const s = await settle(page, SETTLE_TIMEOUT_MS);
   const probe = await page.evaluate(() => ({
     bytesIn: window.__chatLoad.bytesIn,
     requests: window.__chatLoad.requests,
@@ -292,7 +301,7 @@ async function profile(s, what, ms) {
   await page.addInitScript(shim, { endpoint, token, sessionId: s.id, marker: s.lastMarker });
   if (what === "open") await cdp.send("Profiler.start");
   await page.goto(`${origin}/index.html`);
-  await settle(page, 120_000);
+  await settle(page, SETTLE_TIMEOUT_MS);
   if (what === "scroll") {
     await cdp.send("Profiler.start");
     await scrollToFirst(page, "Turn 0: why does step 0", ms);
@@ -386,7 +395,7 @@ if (has("switch") && fixture.sessions.length > 1) {
         },
         { id: s.id, marker: s.lastMarker },
       );
-      const st = await settle(page, 120_000);
+      const st = await settle(page, SETTLE_TIMEOUT_MS);
       const after = await metrics(page, cdp);
       const probe = await page.evaluate(() => ({
         bytesIn: window.__chatLoad.bytesIn,
@@ -395,6 +404,7 @@ if (has("switch") && fixture.sessions.length > 1) {
       runs.push({
         first_paint_ms: st.firstPaint === undefined ? null : Math.round(st.firstPaint - t),
         interactive_ms: st.interactive === undefined ? null : Math.round(st.interactive - t),
+        timed_out: !!st.timedOut,
         bytes_in: probe.bytesIn,
         requests: probe.requests,
         daemon_cpu_ms: Math.round(daemonCpu() - cpu0),
@@ -448,7 +458,7 @@ for (const turns of mockTurns) {
       const seeded = await window.cmuxAcpmuxDebug.loadSeed(count);
       return { called, seed_ms: seeded.seed_ms };
     }, turns);
-    const s = await settle(page, 120_000);
+    const s = await settle(page, SETTLE_TIMEOUT_MS);
     const after = await metrics(page, cdp);
     const start = t.called + t.seed_ms;
     const row = {
@@ -469,6 +479,12 @@ for (const turns of mockTurns) {
   console.log(JSON.stringify({ mock: turns, median: summarize(runs), scroll }));
 }
 
+// The report and the cleanup first, so a refused result-v1 write still leaves the run's JSON.
 fs.writeFileSync(out, JSON.stringify(results, null, 1));
 await browser.close();
 server.close();
+recordPerfResults({
+  story: engine === "webkit" ? "webviews-chat-load-webkit" : "webviews-chat-load",
+  engine,
+  series: chatLoadPerfSeries(results, SETTLE_TIMEOUT_MS),
+});

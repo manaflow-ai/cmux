@@ -33,13 +33,7 @@ extension CEFRuntime {
         let key = storage.contextKey(for: profile, machineKey: nil, offTheRecord: false)
         let proxy = profileProxies[profile]
         let stored: CEFShimAnswer<Int32> = if changed {
-            sendAsync { shim in
-                key.withCString { path in
-                    (proxy?.chromiumServer ?? "").withCString { server in
-                        (proxy?.chromiumBypassList ?? "").withCString { bypass in shim.setContextProxyServer(path, server, bypass) }
-                    }
-                }
-            }
+            sendAsync { shim in shim.setContextProxyServer(key, proxy?.chromiumServer ?? "", proxy?.chromiumBypassList ?? "") }
         } else {
             .now(1)
         }

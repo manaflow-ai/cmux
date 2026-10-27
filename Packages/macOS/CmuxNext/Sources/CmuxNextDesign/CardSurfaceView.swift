@@ -109,18 +109,24 @@ public final class CardSurfaceView: NSView {
         rimView = rim
     }
 
+    // visibility-walk-allow: one invalidation; AppKit draws only views on screen, so a hidden card pays nothing until it shows
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        // invalidate: the appearance changed; the veil, rim and hairline resolve again.
         needsDisplay = true
     }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // A card leaving its window draws nothing.
+        guard window != nil else { return }
+        // invalidate: another window can bring another scale (the hairline) and theme scope (the veil).
         needsDisplay = true
     }
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        // invalidate: the scale changed; the hairline is one device pixel.
         needsDisplay = true
     }
 }

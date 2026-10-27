@@ -2,15 +2,26 @@ import CmuxNextDesign
 import SwiftUI
 
 /// A slider for quick moves plus an exact field (type any value, Return
-/// applies it; the store clamps it to the range).
+/// applies it; the store clamps it to the range). The field's text starts as
+/// the value where the view is made, not on appear: the Debug Settings page
+/// tab appears again on each show (`VisibilityGatedHostingView`).
 struct DebugNumberField: View {
     var title: String?
     @Binding var value: Double
     let range: ClosedRange<Double>
     let step: Double
     let unit: TunableUnit
-    @State private var text = ""
+    @State private var text: String
     @FocusState private var editing: Bool
+
+    init(title: String? = nil, value: Binding<Double>, range: ClosedRange<Double>, step: Double, unit: TunableUnit) {
+        self.title = title
+        _value = value
+        self.range = range
+        self.step = step
+        self.unit = unit
+        _text = State(initialValue: TunableExport.format(Self.display(value.wrappedValue, unit: unit)))
+    }
 
     var body: some View {
         HStack(spacing: Metrics.space4) {
@@ -32,12 +43,15 @@ struct DebugNumberField: View {
             Text(unitSuffix).font(SettingsStyle.caption).foregroundStyle(SettingsStyle.tertiary)
                 .frame(minWidth: Metrics.space6, alignment: .leading)
         }
-        .onAppear { text = TunableExport.format(display(value)) }
         .onChange(of: value) { if !editing { text = TunableExport.format(display(value)) } }
     }
 
     /// Fractions show as percentages; everything else as stored.
-    private func display(_ number: Double) -> Double { unit == .fraction ? (number * 1000).rounded() / 10 : number }
+    private func display(_ number: Double) -> Double { Self.display(number, unit: unit) }
+
+    private static func display(_ number: Double, unit: TunableUnit) -> Double {
+        unit == .fraction ? (number * 1000).rounded() / 10 : number
+    }
 
     private var unitSuffix: String {
         switch unit {

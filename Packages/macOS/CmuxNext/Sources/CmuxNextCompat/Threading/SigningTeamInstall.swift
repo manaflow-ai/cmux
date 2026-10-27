@@ -31,11 +31,14 @@ public nonisolated final class SigningTeamInstall: Sendable {
     /// Reads the running code's team from its signature through the checked Security seams.
     public static func readRunningCode() -> String? {
         var code: SecCode?
-        guard blockingSecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        // SAFETY: SecCodeCopySelf writes one retained SecCode reference into `code`, a local optional.
+        guard unsafe blockingSecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
         var staticCode: SecStaticCode?
-        guard blockingSecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        // SAFETY: SecCodeCopyStaticCode writes one retained SecStaticCode reference into `staticCode`, a local optional.
+        guard unsafe blockingSecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
         var info: CFDictionary?
-        guard blockingSecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
+        // SAFETY: SecCodeCopySigningInformation writes one retained CFDictionary reference into `info`, a local optional.
+        guard unsafe blockingSecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
                 == errSecSuccess, let info = info as? [String: Any] else { return nil }
         let team = info[kSecCodeInfoTeamIdentifier as String] as? String
         return team?.isEmpty == false ? team : nil

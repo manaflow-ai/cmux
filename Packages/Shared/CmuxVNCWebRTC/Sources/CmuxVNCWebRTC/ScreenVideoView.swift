@@ -143,18 +143,16 @@ private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sen
             onSize?(pixels)
         }
         if !(format.map { CMVideoFormatDescriptionMatchesImageBuffer($0, imageBuffer: pixelBuffer) } ?? false) {
-            format = nil
-            CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: pixelBuffer, formatDescriptionOut: &format)
+            format = try? CMVideoFormatDescription(imageBuffer: pixelBuffer)
         }
         guard let format else { return }
-        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()), decodeTimeStamp: .invalid)
-        var sample: CMSampleBuffer?
-        guard CMSampleBufferCreateReadyWithImageBuffer(allocator: nil, imageBuffer: pixelBuffer, formatDescription: format,
-                                                       sampleTiming: &timing, sampleBufferOut: &sample) == noErr, let sample else { return }
-        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true), CFArrayGetCount(attachments) > 0 {
-            let dictionary = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
-            CFDictionarySetValue(dictionary, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
-                                 Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
+        let timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()), decodeTimeStamp: .invalid)
+        guard let sample = try? CMSampleBuffer(imageBuffer: pixelBuffer, formatDescription: format, sampleTiming: timing) else { return }
+        // The one sample's attachments dictionary (a CFMutableDictionary the array owns): bridged,
+        // not cast from a raw pointer.
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true) as? [NSMutableDictionary],
+           let first = attachments.first {
+            first[kCMSampleAttachmentKey_DisplayImmediately as NSString] = NSNumber(value: true)
         }
         if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sample)
@@ -173,27 +171,44 @@ private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sen
                 kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
             ]
             pool = nil
-            CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &pool)
+            // SAFETY: stores at most one +1 pool in `pool` (this object's field, touched only on
+            // the decode thread); the Swift import takes ownership of it.
+            _ = unsafe CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &pool)
         }
         guard let pool else { return nil }
         var out: CVPixelBuffer?
-        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out) == kCVReturnSuccess, let out else { return nil }
+        // SAFETY: stores at most one +1 pixel buffer in the local `out`, live for this call.
+        guard unsafe CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out) == kCVReturnSuccess, let out else { return nil }
+        // The pool makes width x height NV12 buffers (attributes above), so plane 0 has `height`
+        // rows of >= width bytes and plane 1 has (height + 1) / 2 rows of >= 2 * ((width + 1) / 2)
+        // bytes. libwebrtc's I420 buffer of the same size has `height` rows of strideY >= width Y
+        // bytes and (height + 1) / 2 rows of strideU / strideV >= (width + 1) / 2 chroma bytes.
+        // The planes are locked until the defer and `i420` lives to the end of this function.
+        guard CVPixelBufferGetWidth(out) == width, CVPixelBufferGetHeight(out) == height else { return nil }
         CVPixelBufferLockBaseAddress(out, [])
         defer { CVPixelBufferUnlockBaseAddress(out, []) }
-        if let y = CVPixelBufferGetBaseAddressOfPlane(out, 0) {
+        // SAFETY: plane 0 of the locked buffer (sizes above).
+        if let y = unsafe CVPixelBufferGetBaseAddressOfPlane(out, 0) {
             let stride = CVPixelBufferGetBytesPerRowOfPlane(out, 0)
             for row in 0 ..< height {
-                memcpy(y + row * stride, i420.dataY + row * Int(i420.strideY), width)
+                // SAFETY: copies `width` bytes of Y row `row`, inside both planes (sizes above).
+                unsafe (y + row * stride).copyMemory(from: i420.dataY + row * Int(i420.strideY), byteCount: width)
             }
         }
-        if let uv = CVPixelBufferGetBaseAddressOfPlane(out, 1)?.assumingMemoryBound(to: UInt8.self) {
+        // SAFETY: plane 1 of the locked buffer (sizes above); the bytes are bound as UInt8 by CoreVideo.
+        if let uv = unsafe CVPixelBufferGetBaseAddressOfPlane(out, 1)?.assumingMemoryBound(to: UInt8.self) {
             let stride = CVPixelBufferGetBytesPerRowOfPlane(out, 1)
             for row in 0 ..< (height + 1) / 2 {
-                let u = i420.dataU + row * Int(i420.strideU), v = i420.dataV + row * Int(i420.strideV)
-                let line = uv + row * stride
+                // SAFETY: the starts of chroma row `row` of the I420 U and V planes (sizes above).
+                let u = unsafe i420.dataU + row * Int(i420.strideU), v = unsafe i420.dataV + row * Int(i420.strideV)
+                // SAFETY: the start of interleaved chroma row `row` of plane 1 (sizes above).
+                let line = unsafe uv + row * stride
                 for column in 0 ..< (width + 1) / 2 {
-                    line[2 * column] = u[column]
-                    line[2 * column + 1] = v[column]
+                    // SAFETY: column < (width + 1) / 2: inside the U row, the V row and the
+                    // 2 * ((width + 1) / 2) bytes of the interleaved row (sizes above).
+                    unsafe line[2 * column] = u[column]
+                    // SAFETY: as above.
+                    unsafe line[2 * column + 1] = v[column]
                 }
             }
         }

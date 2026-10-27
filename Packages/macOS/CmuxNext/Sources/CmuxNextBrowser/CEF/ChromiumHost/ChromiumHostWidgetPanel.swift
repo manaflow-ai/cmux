@@ -44,6 +44,6 @@ final class ChromiumHostWidgetPanel: NSPanel {
 final class ChromiumHostWidgetWindowDelegate: NSObject, NSWindowDelegate {
     func windowDidMove(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
-        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        window.updateBrowserPageGeometry()
     }
 }

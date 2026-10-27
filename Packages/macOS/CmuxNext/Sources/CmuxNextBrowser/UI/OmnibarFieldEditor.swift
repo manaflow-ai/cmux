@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 
 /// What the omnibar's field editor reports. Every user change becomes one
 /// `OmnibarInput`; the state machine decides what it means.
@@ -31,6 +32,8 @@ final class OmnibarFieldEditor: NSTextView {
     private var isChangingText = false
     private var isPasting = false
     private var kind: OmnibarState.EditKind = .insert
+    /// The key down this editor is handling: the field's `doCommandBy` reads Return's modifiers from it.
+    private(set) var handlingKeyDown: NSEvent?
 
     convenience init() {
         self.init(frame: .zero)
@@ -124,7 +127,15 @@ final class OmnibarFieldEditor: NSTextView {
            sink?.fieldEditorKey(.deleteSuggestion) == true {
             return
         }
-        super.keyDown(with: event)
+        handling(event) { super.keyDown(with: event) }
+    }
+
+    /// Runs `body` (AppKit's key handling) with `event` as ``handlingKeyDown``.
+    func handling(_ event: NSEvent, _ body: () -> Void) {
+        let outer = handlingKeyDown
+        handlingKeyDown = event
+        defer { handlingKeyDown = outer }
+        body()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -134,7 +145,8 @@ final class OmnibarFieldEditor: NSTextView {
         // Tracks the click or drag until mouse-up.
         super.mouseDown(with: event)
         probe?("editor.tracked")
-        if event.omnibarDragged(to: NSApp.currentEvent) { sink?.fieldEditorMouseDragged() }
+        // The release the tracking loop took is newer than the dispatched press.
+        if event.omnibarDragged(to: (window as? InputTapHosting)?.inputTap?.trackedEvent()) { sink?.fieldEditorMouseDragged() }
         sink?.fieldEditorMouseUp()
     }
 

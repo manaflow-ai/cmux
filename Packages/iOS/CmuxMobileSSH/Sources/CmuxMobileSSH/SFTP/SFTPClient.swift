@@ -1,3 +1,5 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Foundation
 
 /// SFTP v3 client (draft-ietf-secsh-filexfer-02, what OpenSSH `sftp-server`
@@ -15,7 +17,7 @@ public actor SFTPClient {
 
     private enum Slot {
         case waiting
-        case awaiting(CheckedContinuation<SFTPResponse, any Error>)
+        case awaiting(OnceContinuation<SFTPResponse, any Error>)
         case done(Result<SFTPResponse, any Error>)
         /// The caller gave up on this reply; drop it on arrival.
         case discarded
@@ -25,7 +27,7 @@ public actor SFTPClient {
     private var framer = SFTPFramer()
     private var slots: [UInt32: Slot] = [:]
     private var nextID: UInt32 = 0
-    private var version: CheckedContinuation<UInt32, any Error>?
+    private var version: OnceContinuation<UInt32, any Error>?
     private var lost = false
     private var reader: Task<Void, Never>?
 
@@ -55,7 +57,7 @@ public actor SFTPClient {
         body.uint32(3)
         let packet = body.packet(type: .initialize)
         // Register for VERSION before writing so a fast reply is never missed.
-        let versionReply: UInt32 = try await withCheckedThrowingContinuation { continuation in
+        let versionReply: UInt32 = try await withOnceThrowingContinuation { (continuation: OnceContinuation<UInt32, any Error>) in
             version = continuation
             Task { await self.writeHandshake(packet) }
         }
@@ -365,7 +367,7 @@ public actor SFTPClient {
             slots[id] = nil
             return try result.get()
         case .waiting:
-            return try await withCheckedThrowingContinuation { continuation in
+            return try await withOnceThrowingContinuation { (continuation: OnceContinuation<SFTPResponse, any Error>) in
                 slots[id] = .awaiting(continuation)
             }
         case .awaiting, .discarded, nil:

@@ -123,7 +123,7 @@ struct FirstValueWaitTests {
 
     @Test func aCreationWaitYieldsToPendingInputThenResumesOnceWhenItSettles() async throws {
         let rig = WatchRig()
-        let creations = CloudCreations()
+        let creations = CloudCreations(work: BackgroundWork(label: "test.first-value-wait"), mainWork: rig.work)
         let creation = creations.begin(window: nil)
         let answers = Answers()
         let task = await Self.settle(creation, in: creations, rig: rig, into: answers)
@@ -150,7 +150,7 @@ struct FirstValueWaitTests {
 
     @Test func aCreationWaitResumesNilAtItsLimitAndOnlyOnce() async {
         let rig = WatchRig()
-        let creations = CloudCreations()
+        let creations = CloudCreations(work: BackgroundWork(label: "test.first-value-wait"), mainWork: rig.work)
         let creation = creations.begin(window: nil)
         let answers = Answers()
         let task = await Self.settle(creation, in: creations, rig: rig, into: answers)
@@ -168,7 +168,7 @@ struct FirstValueWaitTests {
 
     @Test func aCreationAlreadySettledAnswersAtOnce() async {
         let rig = WatchRig()
-        let creations = CloudCreations()
+        let creations = CloudCreations(work: BackgroundWork(label: "test.first-value-wait"), mainWork: rig.work)
         let creation = creations.begin(window: nil)
         creations.remove(creation)
         let state = await CloudHandlers.settledCreation(creation, in: creations, within: .seconds(30),

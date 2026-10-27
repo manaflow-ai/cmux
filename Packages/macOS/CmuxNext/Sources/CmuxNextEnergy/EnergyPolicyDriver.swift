@@ -76,11 +76,14 @@ public final class EnergyPolicyDriver {
     private func publish() {
         guard let inputs else { return }
         guard resolver.isEnabled else {
-            source.update(EnergyPolicy(suspended: inputs.suspended, onBattery: inputs.onBattery, lowPowerFallback: inputs.lowPowerMode))
+            source.update(EnergyPolicy(suspended: inputs.suspended, screensAsleep: inputs.screensAsleep, networkResumes: inputs.networkResumes,
+                                       onBattery: inputs.onBattery, lowPowerFallback: inputs.lowPowerMode))
             return
         }
         guard let setting else { return }
         let reason = resolver.update(setting: setting, inputs: inputs)
-        source.update(EnergyPolicy(saverReason: reason, suspended: inputs.suspended, onBattery: inputs.onBattery))
+        source.update(EnergyPolicy(saverReason: reason, suspended: inputs.suspended, screensAsleep: inputs.screensAsleep,
+                                   networkResumes: inputs.networkResumes, onBattery: inputs.onBattery,
+                                   offForNow: resolver.isOffForSession))
     }
 }

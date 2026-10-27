@@ -332,7 +332,7 @@ public final class DisplayClock {
         for scheduler in display.subscribers {
             guard let rate = scheduler.linkRate else { continue }
             if all.map({ rate.hertz > $0.hertz }) ?? true { all = rate }
-            let visible = scheduler.hostWindow.map { isVisible($0) } ?? true
+            let visible = scheduler.isSeen(by: isVisible)
             if visible, seen.map({ rate.hertz > $0.hertz }) ?? true { seen = rate }
         }
         return seen ?? all ?? .motion
@@ -382,7 +382,7 @@ public final class DisplayClock {
                   scheduler.takesTick(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)
             else { return nil }
             return (scheduler, scheduler.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval,
-                                                    targetTimestamp: targetTimestamp, offLink: pace == .stallRate))
+                                                    targetTimestamp: targetTimestamp, offLink: pace != .link, seen: pace != .hidden))
         }
         func subscribed(_ scheduler: FrameScheduler) -> Bool { display.subscribers.contains { $0 === scheduler } }
         for (scheduler, tick) in ticking where scheduler.holdsBudget && subscribed(scheduler) {
@@ -399,27 +399,24 @@ public final class DisplayClock {
         }
     }
 
-    /// What paces a scheduler's ticks.
-    private enum Pace {
-        /// Every frame of the display's link.
-        case link
-        /// The stall deadline: the link stopped, or nobody can see the scheduler's window.
-        case stallRate
-    }
+    /// What paces a scheduler's ticks: every frame of the display's `link`; the `stall` deadline (no link
+    /// frame came in time) of a window someone sees, or of a window-less scheduler; the stall rate of a
+    /// `hidden` window, one nobody can see.
+    private enum Pace { case link, stall, hidden }
 
     /// Whether `scheduler` ticks in this frame, and at what pace (nil: not this frame). A window nobody
     /// can see ticks at the stall rate, not the display's (R6: hidden and occluded cost nothing); the
     /// app and budgeted schedulers always tick.
     private func pace(_ scheduler: FrameScheduler, hiddenUntil: CFTimeInterval?) -> Pace? {
-        guard let hiddenUntil else { return .stallRate }
-        guard let window = scheduler.hostWindow, !isVisible(window) else { return .link }
+        guard let hiddenUntil else { return scheduler.isSeen(by: isVisible) ? .stall : .hidden }
+        guard !scheduler.isSeen(by: isVisible) else { return .link }
         let due = scheduler.lastTickTimestamp.map { $0 <= hiddenUntil + Self.stallSlack } ?? true
-        return due ? .stallRate : nil
+        return due ? .hidden : nil
     }
 
     /// Every subscriber of `display` is a window nobody can see.
     private func allHidden(_ display: Display) -> Bool {
-        !display.subscribers.isEmpty && display.subscribers.allSatisfy { $0.hostWindow.map { !isVisible($0) } ?? false }
+        !display.subscribers.isEmpty && display.subscribers.allSatisfy { !$0.isSeen(by: isVisible) }
     }
 
     private func record(_ id: CGDirectDisplayID) -> Display {

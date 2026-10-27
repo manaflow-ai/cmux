@@ -19,8 +19,9 @@ nonisolated enum CEFFocusSource: Int32, Sendable {
 /// C entry for `CefFocusHandler::OnSetFocus` (main thread, CEF's UI
 /// thread). Returns 1 when the page may take focus.
 let cefFocusRequestCallback: CEFShimLibrary.FocusRequestFn = { context, browser, source in
-    guard let context, Thread.isMainThread else { return 0 }
-    let address = UInt(bitPattern: context)
+    // SAFETY: only the context's address is read; CEFRuntime.from turns it back into the runtime.
+    let address = unsafe UInt(bitPattern: context)
+    guard address != 0, Thread.isMainThread else { return 0 }
     return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
         CEFRuntime.from(address)?.focusRequested(browser: browser, source: source) == true ? 1 : 0
     }
@@ -37,7 +38,9 @@ extension CEFRuntime {
     /// as Chrome focuses only a window's active tab.
     func installFocusRequestPolicy(_ shim: CEFShimLibrary) {
         guard hostStart == nil else { return }
-        shim.setFocusRequestHandler(cefFocusRequestCallback)
+        // SAFETY: the handler is a C function of `cmux_shim_focus_request_fn`; its context is the runtime
+        // `initialize` is given, which lives for the process once started.
+        unsafe shim.setFocusRequestHandler(cefFocusRequestCallback)
     }
 
     /// Chromium asks to focus a page (in process only). Unknown browsers (a popup not adopted

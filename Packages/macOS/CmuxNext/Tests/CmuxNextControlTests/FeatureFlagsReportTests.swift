@@ -36,6 +36,7 @@ struct FeatureFlagsReportTests {
         let report = FeatureFlagsReport(features: Self.list(.nightly)).json
         #expect(report["channel"] == .string("nightly"))
         #expect(report["unknown_names"] == .array([.string("noSuchThing")]))
+        #expect(report["features_hash"] == .string(Self.list(.nightly).fieldState.hash))
         let rows = try #require(report["features"]?.arrayValue)
         #expect(rows.map { $0["name"]?.stringValue } == ["perfThing", "killThing", "labsThing"])
         #expect(rows.map { $0["source"]?.stringValue } == ["remote", "policy", "env"])
@@ -74,6 +75,40 @@ struct FeatureFlagsReportTests {
         #expect(labs["next_local"] == .object(["perfThing": .bool(false)]))
         #expect(labs["features"] == report.json["features"])
         #expect(report.json["next_local"] == nil)
+    }
+
+    /// A live Debug toggle (p12-perf-process-101) shows as the feature's value, source `local`, while it answers a
+    /// value; unset (nil), the launch's resolution shows.
+    @Test func aLiveToggleReportsWhatTheAppRunsWith() throws {
+        func report(_ toggle: Bool?) -> FeatureFlagsReport {
+            FeatureFlagsReport(features: Self.list(.dev), liveLocal: ["perfThing": { toggle }])
+        }
+        func row(_ toggle: Bool?) throws -> JSONValue { try #require(report(toggle).json["features"]?.arrayValue?.first) }
+        #expect(try row(nil)["source"] == .string("remote"))
+        #expect(try row(nil)["state"] == .string("on"))
+        #expect(report(false).resolution(of: Self.registry.features[0]) == Feature.Resolution(isEnabled: false, source: .local))
+        #expect(try row(false)["state"] == .string("off"))
+        #expect(try row(false)["source"] == .string("local"))
+        #expect(try row(true)["state"] == .string("on"))
+        #expect(report(true).entries.map { $0.resolution.source } == [.local, .policy, .environment])
+    }
+
+    /// Hang reports and Sentry read ``FeatureFlagsReport/fieldState`` (p12-perf-process-151): a live toggle that
+    /// flips a feature changes the hash and names the feature as a `local` override, the same hash
+    /// `features_hash` reports; a toggle that answers the launch's value keeps the hash.
+    @Test func aLiveToggleChangesTheFieldStateThatHangReportsAndSentryName() throws {
+        let launch = FeatureFlagsReport(features: Self.list(.nightly)).fieldState
+        #expect(launch == Self.list(.nightly).fieldState)
+        let flipped = FeatureFlagsReport(features: Self.list(.nightly), liveLocal: ["perfThing": { false }])
+        let state = flipped.fieldState
+        #expect(state.hash != launch.hash)
+        #expect(flipped.json["features_hash"] == .string(state.hash))
+        #expect(launch.nonDefault.contains(FeatureFieldState.Entry(name: "perfThing", isEnabled: true, source: .remote)))
+        #expect(state.nonDefault.contains(FeatureFieldState.Entry(name: "perfThing", isEnabled: false, source: .local)))
+        #expect(!state.nonDefault.contains { $0.name == "perfThing" && $0.source == .remote })
+        let same = FeatureFlagsReport(features: Self.list(.nightly), liveLocal: ["perfThing": { true }]).fieldState
+        #expect(same.hash == launch.hash)
+        #expect(same.nonDefault.contains(FeatureFieldState.Entry(name: "perfThing", isEnabled: true, source: .local)))
     }
 
     @Test func localTogglesApplyOnlyOnDevAndNightly() {

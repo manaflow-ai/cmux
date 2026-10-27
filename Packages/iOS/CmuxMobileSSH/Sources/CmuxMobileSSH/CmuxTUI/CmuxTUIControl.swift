@@ -1,3 +1,5 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Foundation
 
 /// One cmux-tui control connection carried over an SSH exec channel running
@@ -32,7 +34,7 @@ public actor CmuxTUIControl {
     private let outbound: AsyncStream<Data>.Continuation
     private var serverInfo: CmuxTUIServerInfo?
     private var nextRequest = 0
-    private var pending: [String: CheckedContinuation<Data, any Error>] = [:]
+    private var pending: [String: OnceContinuation<Data, any Error>] = [:]
     private var attachments: [Int: AsyncStream<CmuxTUIAttachEvent>.Continuation] = [:]
     private var browserAttachments: [Int: AsyncStream<CmuxTUIBrowserEvent>.Continuation] = [:]
     private var subscription: AsyncStream<CmuxTUIControlEvent>.Continuation?
@@ -454,7 +456,7 @@ public actor CmuxTUIControl {
         object["id"] = .string(id)
         let line = try object.cmuxTUILine()
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Data, any Error>) in
                 // Registered and enqueued synchronously, so writes keep call order.
                 pending[id] = continuation
                 outbound.yield(line)

@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextActions
 import CmuxNextNowPlaying
 import UniformTypeIdentifiers
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// cmux's own music player (cx-imt2i): Play Music… picks songs or folders (or plays its `url`, an
 /// http(s) stream, else its `path`, a file or a folder) on the Now Playing card and the media keys;
@@ -18,18 +21,23 @@ enum MusicHandlers {
             guard let services, let registry else { return }
             let anchor = services.windows.active?.window
             let given = [invocation["url"], invocation["path"]].lazy.compactMap { $0?.stringValue.flatMap(url(for:)) }.first
-            registry.track(Task { @MainActor in
+            let work = services.work, priority = invocation.completionPriority
+            // The pick (a sheet), then the folder walk on the files lane; the play or the refusal is one task on main.
+            registry.trackWork(owner: "MusicHandlers.play", on: services.mainWork) { () -> [URL]? in
                 var urls = given.map { [$0] }
                 if urls == nil { urls = await choose(anchor: anchor) }
                 guard let urls else { return nil }
-                let tracks = await Task.detached { MusicPlayer.tracks(from: urls) }.value
+                return try await work.run(priority, mayBlock: .files) { MusicPlayer.tracks(from: urls) }
+            } then: { [weak services, weak registry] result in
+                // A cancelled pick plays nothing and is not a failure.
+                guard case .success(let picked) = result, let tracks = picked else { return nil }
                 guard !tracks.isEmpty else {
-                    registry.refuse(MusicStrings.noSongs)
+                    registry?.refuse(MusicStrings.noSongs)
                     return ActionWorkFailure(MusicStrings.noSongs)
                 }
-                services.cache.pageRequests.music.play(tracks)
+                services?.cache.pageRequests.music.play(tracks)
                 return nil
-            })
+            }
         })
         registry.bind("music.stop", unavailable: preview, invoke: { [weak services, weak registry] _ in
             guard let music = services?.cache.pageRequests.music, music.nowPlaying != nil else {
@@ -57,13 +65,14 @@ enum MusicHandlers {
         panel.allowedContentTypes = [.audio]
         panel.message = MusicStrings.chooseMessage
         panel.prompt = MusicStrings.choosePrompt
-        let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+        // A panel that drops its reply was cancelled.
+        let response = (try? await withOnceContinuation { (continuation: OnceContinuation<NSApplication.ModalResponse, OnceContinuationError>) in
             if let anchor {
                 panel.beginSheetModal(for: anchor) { continuation.resume(returning: $0) }
             } else {
                 panel.begin { continuation.resume(returning: $0) }
             }
-        }
+        }) ?? .cancel
         return response == .OK && !panel.urls.isEmpty ? panel.urls : nil
     }
 }

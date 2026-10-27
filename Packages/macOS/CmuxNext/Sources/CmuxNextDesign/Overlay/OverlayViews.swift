@@ -82,7 +82,7 @@ final class OverlayScrimView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the appearance changed; the colors resolve again.
     }
 
     @available(*, unavailable)

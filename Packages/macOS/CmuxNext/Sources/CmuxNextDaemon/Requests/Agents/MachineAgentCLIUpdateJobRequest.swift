@@ -24,4 +24,9 @@ public nonisolated struct MachineAgentCLIUpdateJobRequest: TerminalSpawningReque
         self.cli = cli.rawValue
         self.idempotencyKey = idempotencyKey
     }
+
+    enum CodingKeys: String, CodingKey {
+        case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id", cli
+        case idempotencyKey = "idempotency_key"
+    }
 }

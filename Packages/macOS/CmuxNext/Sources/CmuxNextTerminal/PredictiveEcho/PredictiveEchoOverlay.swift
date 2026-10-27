@@ -11,13 +11,18 @@ import CmuxNextCopyMode
 /// no mouse events. It changes in the turn that changed the predictions, with no animation.
 final class PredictiveEchoOverlay: NSView {
     /// How the cells draw: the terminal's font and colors, and where its cells are in the view.
-    struct Style {
+    struct Style: Equatable {
         /// Ghostty's terminal face (`ghostty_surface_quicklook_font`).
         var font: CTFont
         var foreground: NSColor
         var background: NSColor
         var cursor: NSColor
         var cells: CopyModeCursorFrame
+
+        static func == (lhs: Style, rhs: Style) -> Bool {
+            CFEqual(lhs.font, rhs.font) && lhs.foreground == rhs.foreground && lhs.background == rhs.background
+                && lhs.cursor == rhs.cursor && lhs.cells == rhs.cells
+        }
     }
 
     /// The terminal colors a ``Style`` draws with.
@@ -72,9 +77,11 @@ final class PredictiveEchoOverlay: NSView {
             isHidden = true
             return
         }
+        // The slot shows the predictions again on each echo and frame; the same cells paint nothing.
+        let changed = isHidden || cells != self.cells || cursor != self.cursor || style != self.style
         (self.cells, self.cursor, self.style) = (cells, cursor, style)
-        frame = area
-        needsDisplay = true
+        if frame != area { frame = area }
+        if changed { needsDisplay = true } // invalidate: other cells, cursor or style (`changed`)
         isHidden = false
     }
 

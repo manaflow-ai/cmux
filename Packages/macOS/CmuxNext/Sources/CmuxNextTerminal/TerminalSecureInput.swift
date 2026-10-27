@@ -43,6 +43,9 @@ public final class TerminalSecureInput {
     /// Whether any terminal holds secure input.
     var isEnabled: Bool { !enabledViews.isEmpty }
 
+    /// Whether the surface view `view` holds secure input.
+    func holds(_ view: ObjectIdentifier) -> Bool { enabledViews.contains(view) }
+
     /// Applies Ghostty's request for the surface view `view`: on, off, or a toggle of that view's request.
     func apply(_ mode: ghostty_action_secure_input_e, for view: ObjectIdentifier) {
         let wasEnabled = isEnabled
@@ -71,4 +74,10 @@ public final class TerminalSecureInput {
         system.disable()
         trace.setKeyTimingSuppressed(false, by: .terminalSecureInput)
     }
+}
+
+extension TerminalSession {
+    /// Whether this terminal holds secure keyboard entry now (a password prompt, the toggle keybind): what it
+    /// shows must not reach a saved picture (`WindowPictureStore`).
+    public var holdsSecureInput: Bool { surfaceView.secureInput.holds(ObjectIdentifier(surfaceView)) }
 }

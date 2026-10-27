@@ -19,7 +19,7 @@ extension TerminalSurfaceView {
             model.title = title
         case .pwd(let pwd):
             model.workingDirectory = pwd.isEmpty ? nil : pwd
-            bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
+            bridgeObject.linkFilter.setWorkingDirectory(model.workingDirectory)
         case .ringBell:
             model.bellCount += 1
             if let delegate = session.delegate {

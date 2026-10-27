@@ -45,8 +45,8 @@ public struct CookieDomainFilter: Sendable, Equatable {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !text.isEmpty else { return nil }
         if text.contains("://"), let host = URL(string: text)?.host() { text = host }
-        if let slash = text.firstIndex(of: "/") { text = String(text[..<slash]) }
-        if let colon = text.firstIndex(of: ":") { text = String(text[..<colon]) }
+        if let slash = text.firstIndex(of: "/") { text = String(text.prefix(upTo: slash)) }
+        if let colon = text.firstIndex(of: ":") { text = String(text.prefix(upTo: colon)) }
         while text.hasPrefix(".") { text.removeFirst() }
         if text.hasPrefix("*.") { text.removeFirst(2) }
         return text.isEmpty ? nil : text

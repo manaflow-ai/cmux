@@ -11,9 +11,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+mod log_writer;
+pub use log_writer::Progress;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -447,7 +450,9 @@ impl SessionMeta {
             },
             _ => return,
         };
-        let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let real = |path: &Path| {
+            cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+        };
         let default = dirs::home_dir().map(|home| real(&home.join(default)));
         if default.is_some_and(|default| default == real(dir)) {
             env.remove(var);
@@ -569,6 +574,11 @@ pub trait Store: Send + Sync {
     }
     /// Close the session's log until it is next written (a closed session's).
     fn close_log(&self, _id: &str) {}
+    /// What of session `id`'s log is on disk, as it changes; None for a store whose `append`
+    /// writes before it returns. An agent host entry is acknowledged only once it is covered.
+    fn progress(&self, _id: &str) -> Option<tokio::sync::watch::Receiver<Progress>> {
+        None
+    }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -600,41 +610,46 @@ pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
 
 // ---------------------------------------------------------------- memory
 
+/// A session's record and its log. The record is written on the record writer's thread
+/// (`hub/meta_writer.rs`), so a session's first records can be logged before its first save
+/// lands: the log is kept either way, as a file store's is.
+#[derive(Default)]
+struct MemorySession {
+    meta: Option<SessionMeta>,
+    events: Vec<EventRecord>,
+}
+
 #[derive(Default)]
 pub struct MemoryStore {
-    inner: Mutex<HashMap<String, (SessionMeta, Vec<EventRecord>)>>,
+    inner: Mutex<HashMap<String, MemorySession>>,
 }
 
 impl Store for MemoryStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        Ok(self.inner.lock_or_recover().values().map(|(m, _)| m.clone()).collect())
+        Ok(self.inner.lock_or_recover().values().filter_map(|s| s.meta.clone()).collect())
     }
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        Ok(self.inner.lock_or_recover().get(id).map(|(m, _)| m.clone()))
+        Ok(self.inner.lock_or_recover().get(id).and_then(|s| s.meta.clone()))
     }
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        let mut g = self.inner.lock_or_recover();
-        g.entry(meta.id.clone())
-            .and_modify(|(m, _)| *m = meta.clone())
-            .or_insert_with(|| (meta.clone(), Vec::new()));
+        self.inner.lock_or_recover().entry(meta.id.clone()).or_default().meta = Some(meta.clone());
         Ok(())
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut g = self.inner.lock_or_recover();
-        if let Some((_, events)) = g.get_mut(id) {
-            events.push(record.clone());
-            // Bound memory: keep the newest 20k events.
-            if events.len() > 20_000 {
-                let drop = events.len() - 20_000;
-                events.drain(..drop);
-            }
+        let events = &mut g.entry(id.to_owned()).or_default().events;
+        events.push(record.clone());
+        // Bound memory: keep the newest 20k events.
+        if events.len() > 20_000 {
+            let drop = events.len() - 20_000;
+            events.drain(..drop);
         }
         Ok(())
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let g = self.inner.lock_or_recover();
         Ok(g.get(id)
-            .map(|(_, ev)| ev.iter().filter(|e| e.seq > after).take(limit).cloned().collect())
+            .map(|s| s.events.iter().filter(|e| e.seq > after).take(limit).cloned().collect())
             .unwrap_or_default())
     }
     fn delete(&self, id: &str) -> Result<()> {
@@ -643,79 +658,67 @@ impl Store for MemoryStore {
     }
 }
 
+#[cfg(test)]
+mod memory_tests {
+    use super::*;
+
+    #[test]
+    fn a_memory_log_keeps_records_appended_before_the_first_save() {
+        let store = MemoryStore::default();
+        let record = |seq| EventRecord {
+            seq,
+            at: 0,
+            dir: "mux".into(),
+            kind: "created".into(),
+            msg: Value::Null,
+            host_seq: None,
+        };
+        store.append("s1", &record(1)).unwrap();
+        assert!(store.list().unwrap().is_empty(), "a log alone is not a session record");
+        let meta: SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": META_SCHEMA, "id": "s1", "name": "n", "harness": "fake",
+            "cwd": "/", "status": "idle", "createdAt": 0, "updatedAt": 0,
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+        store.append("s1", &record(2)).unwrap();
+        let seqs: Vec<u64> = store.events("s1", 0, 10).unwrap().iter().map(|e| e.seq).collect();
+        assert_eq!(seqs, [1, 2]);
+        assert_eq!(store.load("s1").unwrap().map(|m| m.id), Some("s1".to_owned()));
+    }
+}
+
 // ----------------------------------------------------------------- local
 
 pub struct LocalStore {
     root: PathBuf,
-    segment_bytes: u64,
-    writers: Mutex<Writers>,
+    /// Writes the event logs on its own thread (`store/log_writer.rs`).
+    log: log_writer::LogWriter,
 }
 
-/// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
-/// is closed for a new one. A daemon held one descriptor per session it wrote
-/// since it started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of
-/// its 256, every agent start failing with "Too many open files").
-#[derive(Default)]
-struct Writers {
-    open: HashMap<String, SegmentWriter>,
-    /// Counts appends; a writer's `used` is the count at its last one.
-    clock: u64,
-}
-
+/// The logs held open, at most [`OPEN_LOGS`]: the least recently written one is closed for a
+/// new one (`store/log_writer.rs`). A daemon held one descriptor per session it wrote since it
+/// started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of its 256, every agent start
+/// failing with "Too many open files").
 const OPEN_LOGS: usize = 64;
-
-struct SegmentWriter {
-    index: u32,
-    file: File,
-    written: u64,
-    used: u64,
-}
-
-impl SegmentWriter {
-    /// Closes the log, durable first as `flush` would have made it. Called under the
-    /// writers' lock, so the cache never holds more than [`OPEN_LOGS`] and a session's
-    /// records stay in order. A failed sync is logged: its records were written (an append is
-    /// never synced on its own), so only a machine crash before the kernel writes them back
-    /// loses them, as it would any append since the last `flush`.
-    fn close(self, id: &str) {
-        if let Err(e) = self.file.sync_data() {
-            tracing::warn!(session = %id, "sync event log on close: {e}");
-        }
-    }
-}
 
 impl LocalStore {
     pub fn new(root: PathBuf, segment_bytes: u64) -> Result<Self> {
         crate::config::private_state_dir(&root)
             .with_context(|| format!("create private store {}", root.display()))?;
-        Ok(Self {
-            root,
-            segment_bytes: segment_bytes.max(64 * 1024),
-            writers: Mutex::new(Writers::default()),
-        })
+        let log = log_writer::LogWriter::start(root.clone(), segment_bytes.max(64 * 1024));
+        Ok(Self { root, log })
     }
 
     fn dir(&self, id: &str) -> PathBuf {
         self.root.join(id)
     }
 
+    /// The session's segments, oldest first, once every line queued for it is written: each
+    /// read of a log lists them first, so it sees every append made before it.
     fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
-        let dir = self.dir(id).join("events");
-        let mut out = Vec::new();
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            return Ok(out);
-        };
-        for entry in rd {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if let Some(stem) = name.strip_suffix(".ndjson")
-                && let Ok(idx) = stem.parse::<u32>()
-            {
-                out.push((idx, entry.path()));
-            }
-        }
-        out.sort();
-        Ok(out)
+        self.log.settle(id);
+        segments_in(&self.dir(id).join("events"))
     }
 
     /// Whether the session's log holds a record: a segment with a byte in it (no line
@@ -724,27 +727,32 @@ impl LocalStore {
     fn has_records(&self, id: &str) -> Result<bool> {
         for (_, path) in self.segments(id)? {
             // An unreadable segment counts as a log: the session is listed as before.
-            match std::fs::symlink_metadata(&path) {
+            match cmux_blocking::fs::symlink_metadata(&path) {
                 Ok(meta) if meta.len() == 0 => {}
                 _ => return Ok(true),
             }
         }
         Ok(false)
     }
+}
 
-    fn open_writer(&self, id: &str) -> Result<SegmentWriter> {
-        let dir = self.dir(id).join("events");
-        crate::config::private_state_dir(&self.dir(id))?;
-        crate::config::private_state_dir(&dir)?;
-        let segs = self.segments(id)?;
-        let (index, path) = match segs.last() {
-            Some((i, p)) => (*i, p.clone()),
-            None => (1, dir.join("000001.ndjson")),
-        };
-        let file = open_private_append(&path)?;
-        let written = file.metadata().map(|m| m.len()).unwrap_or(0);
-        Ok(SegmentWriter { index, file, written, used: 0 })
+/// The segments in a log's `events` folder, by index, oldest first.
+fn segments_in(dir: &Path) -> Result<Vec<(u32, PathBuf)>> {
+    let mut out = Vec::new();
+    let Ok(rd) = cmux_blocking::fs::read_dir(dir) else {
+        return Ok(out);
+    };
+    for entry in rd {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if let Some(stem) = name.strip_suffix(".ndjson")
+            && let Ok(idx) = stem.parse::<u32>()
+        {
+            out.push((idx, entry.path()));
+        }
     }
+    out.sort();
+    Ok(out)
 }
 
 /// A session record's status alone, read without the rest of the record.
@@ -933,7 +941,7 @@ impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let mut out = Vec::new();
         let mut skipped = 0usize;
-        let Ok(rd) = std::fs::read_dir(&self.root) else {
+        let Ok(rd) = cmux_blocking::fs::read_dir(&self.root) else {
             return Ok(out);
         };
         for entry in rd {
@@ -948,7 +956,7 @@ impl Store for LocalStore {
             let session = entry.path();
             crate::config::private_state_dir(&session)?;
             let events = session.join("events");
-            match std::fs::symlink_metadata(&events) {
+            match cmux_blocking::fs::symlink_metadata(&events) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
                 Ok(_) => crate::config::private_state_dir(&events)?,
@@ -984,7 +992,7 @@ impl Store for LocalStore {
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
         let path = self.dir(id).join("session.json");
-        if !path.exists() {
+        if !cmux_blocking::fs::exists(&path).unwrap_or(false) {
             return Ok(None);
         }
         let mut text = String::new();
@@ -999,45 +1007,15 @@ impl Store for LocalStore {
     }
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
-        // One lock hold from the eviction to the write: the least recently written log is
-        // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
-        // append comes between (a session's records stay in order). Its sync runs under the lock,
-        // once per eviction: only while more than `OPEN_LOGS` sessions are written.
-        let mut writers = self.writers.lock_or_recover();
-        if !writers.open.contains_key(id)
-            && writers.open.len() >= OPEN_LOGS
-            && let Some(oldest) =
-                writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
-            && let Some(w) = writers.open.remove(&oldest)
-        {
-            w.close(&oldest);
-        }
-        if !writers.open.contains_key(id) {
-            let writer = self.open_writer(id)?;
-            writers.open.insert(id.to_owned(), writer);
-        }
-        writers.clock += 1;
-        let clock = writers.clock;
-        let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
-        if full && let Some(old) = writers.open.remove(id) {
-            // The full segment closes before the next one opens (rare: once per segment).
-            let index = old.index + 1;
-            old.close(id);
-            let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
-            let file = open_private_append(&path)?;
-            writers
-                .open
-                .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
-        }
-        let Some(w) = writers.open.get_mut(id) else {
-            anyhow::bail!("no segment writer for session {id}");
-        };
-        w.used = clock;
-        let mut line = serde_json::to_string(record)?;
-        line.push('\n');
-        w.file.write_all(line.as_bytes())?;
-        w.written += line.len() as u64;
-        Ok(())
+        // Serialized here, written on the log writer's thread (`store/log_writer.rs`). The hub
+        // appends a session's records under its append lock, so they queue in seq order.
+        let mut line = serde_json::to_vec(record)?;
+        line.push(b'\n');
+        self.log.append(id, line, record.seq)
+    }
+
+    fn progress(&self, id: &str) -> Option<tokio::sync::watch::Receiver<Progress>> {
+        Some(self.log.progress(id))
     }
 
     /// Reads only past `after`: a segment whose successor starts at or before `after + 1`
@@ -1187,10 +1165,7 @@ impl Store for LocalStore {
     }
 
     fn flush(&self) -> Result<()> {
-        for w in self.writers.lock_or_recover().open.values() {
-            w.file.sync_data()?;
-        }
-        Ok(())
+        self.log.flush()
     }
 
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
@@ -1203,26 +1178,23 @@ impl Store for LocalStore {
     }
 
     fn close_log(&self, id: &str) {
-        let mut writers = self.writers.lock_or_recover();
-        if let Some(w) = writers.open.remove(id) {
-            w.close(id);
-        }
+        self.log.close_log(id);
     }
 
     fn delete(&self, id: &str) -> Result<()> {
-        self.writers.lock_or_recover().open.remove(id);
+        self.log.forget(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
         for _ in 0..5 {
-            if !dir.exists() {
+            if !cmux_blocking::fs::exists(&dir).unwrap_or(false) {
                 return Ok(());
             }
-            match std::fs::remove_dir_all(&dir) {
+            match cmux_blocking::fs::remove_dir_all(&dir) {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     last = Some(e);
-                    std::thread::sleep(std::time::Duration::from_millis(40));
+                    cmux_blocking::thread::sleep(std::time::Duration::from_millis(40));
                 }
             }
         }
@@ -1255,12 +1227,19 @@ impl Store for LocalStore {
 fn open_private_append(path: &Path) -> Result<File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let file = cmux_blocking::scoped_blocking_call(
+        "fs::open_with",
+        cmux_blocking::BlockingKind::Fs,
+        || {
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(path)
+        },
+    )?;
     if file.metadata()?.permissions().mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }

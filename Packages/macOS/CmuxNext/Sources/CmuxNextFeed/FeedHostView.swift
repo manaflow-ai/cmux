@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 public import CmuxNextWakeups
 import SwiftUI
 
@@ -7,7 +7,7 @@ import SwiftUI
 /// with a model over its feed sources; demos use `MockFeedSource`. Resolves
 /// the panel colors in this view's theme scope and again on every theme or
 /// appearance change.
-public final class FeedHostView: NSView {
+public final class FeedHostView: NSView, VisibilityGatedContent {
     /// Localized title used by the native Inbox page tab.
     public static var paneTitle: String {
         String(localized: "feed.inboxTitle", defaultValue: "Inbox", bundle: .module)
@@ -27,6 +27,11 @@ public final class FeedHostView: NSView {
 
     /// Where this host is shown (``Surface``).
     let surface: Surface
+    private var gate: VisibilityGatedHostingView?
+
+    /// Its SwiftUI leaves the hierarchy while its tab is hidden (``VisibilityGatedHostingView``). Only a page
+    /// tab's node drives it; the panel and the sidebar section never follow one.
+    public var visibilityGate: VisibilityGatedHostingView? { gate }
 
     /// - Parameters:
     ///   - model: The feed.
@@ -44,7 +49,9 @@ public final class FeedHostView: NSView {
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride, mainWork: mainWork,
                             onReportsReply: onReportsReply)
-        embed(NSHostingView(rootView: root))
+        let gate = VisibilityGatedHostingView(owner: "FeedHostView") { root }
+        embed(gate)
+        self.gate = gate
     }
 
     @available(*, unavailable)
@@ -65,7 +72,7 @@ public final class FeedHostView: NSView {
             let next = queue[index]
             index += 1
             if let basket = next as? ReportsBasketView { return basket }
-            queue.append(contentsOf: next.subviews)
+            queue.append(contentsOf: next.subviewsIncludingGated)
         }
         return nil
     }

@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextSettings
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A small transient surface of the page with no room in it shows past the window's edge
 /// (cx-6k6cg, ``WebPopupHost``): `cmux.app.popup.show`, `update` and `hide` from the page; the
@@ -43,7 +46,7 @@ extension PageWebView {
         // The menu is up until it closes: the page's `popup` keep reason.
         keepReasons.begin(.popup)
         defer { keepReasons.end(.popup) }
-        let picked: String? = await withCheckedContinuation { continuation in
+        let picked: String? = try? await withOnceContinuation { (continuation: OnceContinuation<String?, OnceContinuationError>) in
             menu.present(in: focusView, zoom: CGFloat(pageZoom)) { continuation.resume(returning: $0) }
         }
         return .object(["picked": picked.map(JSONValue.string) ?? .null])

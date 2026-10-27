@@ -21,9 +21,9 @@ nonisolated enum ChromiumHostEditCommand: String, CaseIterable, Sendable {
     /// which the shim runs through the fork's `cmux_browser_center_selection` (task p01-process-242).
     case centerSelection = "CenterSelection"
 
-    /// The first fork API with `cmux_browser_center_selection`: the one after embedder visibility
-    /// (``CEFLayerHosting/embedderVisibilityForkAPI``), which the fork task p01-process-242 sets with its pin.
-    static let centerSelectionForkAPI: Int32 = 35
+    /// The first fork API with `cmux_browser_center_selection`: max + 1 of the numbers the app claims
+    /// (38 is ``CEFForkFeatures/surfaceCopyForkAPI``), which the fork task p01-process-242 sets with its pin.
+    static let centerSelectionForkAPI: Int32 = 39
 
     /// Whether a page on fork API `forkAPI` runs the command: all of them, and center selection from
     /// ``centerSelectionForkAPI`` (below it the shim has no fork call to run it with).
@@ -82,7 +82,7 @@ extension ChromiumHostEditCommand {
     }
 }
 
-/// The Edit menu, Services, Start Speaking and Look Up of a hosted page (task 047), as Chrome's
+/// The Edit menu, Services, Start Speaking and selection Look Up of a hosted page (task 047), as Chrome's
 /// `RenderWidgetHostViewCocoa` has them (content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm).
 /// Edit commands go to ``editCommandRoute`` (the session's ordered stream, the host's
 /// `cmux_shim_browser_edit_command` post, or a hosted widget's kEdit frames). Everything that
@@ -147,14 +147,10 @@ extension ChromiumHostPageView {
 
     // MARK: Look Up
 
-    /// Look Up (a force click, a three-finger tap): the definition of the page's selection, at its
-    /// first line. Chrome asks its renderer for the word under the pointer
-    /// (`LookUpDictionaryOverlayAtPoint`); cmux has only the pushed selection and asks nothing.
-    public override func quickLook(with event: NSEvent) {
-        if !showDefinitionForSelection() { super.quickLook(with: event) }
-    }
-
-    /// Shows the dictionary panel for the page's selection; false without one.
+    /// Look Up of the page's selection, at its first line: what a force click or three-finger tap
+    /// shows when the pane has no word lookup (``quickLook(with:)`` in ChromiumHostPageView+LookUp.swift
+    /// asks the renderer for the word under the pointer, as Chrome does). Shows the dictionary panel
+    /// for the pushed selection; false without one.
     @discardableResult
     func showDefinitionForSelection() -> Bool {
         guard let text = selectedPageText else { return false }

@@ -17,7 +17,7 @@ extension CEFRuntime {
         guard let shim, canImportPasswords else { throw BrowserTabError.closed }
         // The shim copies every row before it returns: the passwords are zeroed then, not when the store replies.
         let reply = try await profileWrite(profile, label: "password import", timeout: Self.passwordImportTimeout) { path, id in
-            let started = shim.importPasswords(path, id, UnsafeRawPointer(rows.rows), Int32(rows.count))
+            let started = shim.importPasswords(path, id, rows)
             rows.copied()
             return started
         }

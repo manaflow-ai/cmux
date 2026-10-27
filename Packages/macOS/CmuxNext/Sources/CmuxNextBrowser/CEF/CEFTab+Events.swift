@@ -1,5 +1,8 @@
 public import AppKit
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 extension CEFTab {
     /// Translates shim events into `BrowserNavigationEvent`s.
@@ -105,8 +108,8 @@ extension CEFTab {
             loadFavicon(faviconURL)
         case .progress(_, let value): machine.apply(.progress(value))
         case .fullscreen(_, let entering): machine.apply(.contentFullscreenChanged(entering))
-        case .findResult(_, let count, let active, let isFinal):
-            findRequests.result(count: count, active: active, isFinal: isFinal)
+        case .findResult(_, let findID, let count, let active, let isFinal):
+            findRequests.result(findID: findID, count: count, active: active, isFinal: isFinal)?.run()
         case .closeRequested: emit(.close)
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
@@ -119,7 +122,7 @@ extension CEFTab {
             }
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
-        case .renderTerminated(_, let status, let code, _):
+        case .renderTerminated(_, let status, let code, _, _):
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
         case .renderResponsive: machine.apply(.unresponsiveChanged(false))
@@ -237,11 +240,26 @@ extension CEFTab {
     // MARK: Find
 
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
+        await find(text, direction: direction, caseSensitive: caseSensitive, deliveringTo: nil)
+    }
+
+    /// ``BrowserFindUpdating``: Chromium's FIND_RESULT events of this search go to `update` too.
+    public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool,
+                     update: @escaping (BrowserFindResult) -> Void) async -> BrowserFindResult {
+        await find(text, direction: direction, caseSensitive: caseSensitive, deliveringTo: update)
+    }
+
+    /// One `find` op (in host mode it goes over the wire): a new find id, whose FIND_RESULT
+    /// events answer the request (``CEFFindRequests``).
+    private func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool,
+                      deliveringTo update: ((BrowserFindResult) -> Void)?) async -> BrowserFindResult {
         guard let browserID, !text.isEmpty, let shim = runtime.shim else { return .none }
-        return await withCheckedContinuation { continuation in
-            let findID = findRequests.begin(continuation)
+        // A request dropped unanswered (abandoned: the tab went away) found nothing.
+        let result = try? await withOnceContinuation { (continuation: OnceContinuation<BrowserFindResult, OnceContinuationError>) in
+            let findID = findRequests.begin(answer: { continuation.resume(returning: $0) }, update: update)
             shim.find(browserID, findID, text, direction == .forward ? 1 : 0, caseSensitive ? 1 : 0, 1)
         }
+        return result ?? BrowserFindResult.none
     }
 
     public func clearFind() {
@@ -253,7 +271,7 @@ extension CEFTab {
 
     func refreshExtensionActions() {
         guard let browserID, let shim = runtime.shim, runtime.forkAPIVersion >= 1 else { return }
-        let json = shim.takeString(shim.extActions(browserID, CEFExtensionAction.iconPixels)) ?? "[]"
+        let json = shim.extActions(browserID, CEFExtensionAction.iconPixels) ?? "[]"
         let actions = CEFExtensionAction.decodeList(json)
         if actions != extensionActions { extensionActions = actions }
     }
@@ -299,3 +317,5 @@ extension CEFTab {
         capturesTitleBeforeCommit = false
     }
 }
+
+extension CEFTab: BrowserFindUpdating {}

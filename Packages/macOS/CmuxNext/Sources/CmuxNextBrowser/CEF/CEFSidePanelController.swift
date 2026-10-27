@@ -34,7 +34,7 @@ final class CEFSidePanelController {
     func refresh() {
         guard let tab else { return }
         guard let browserID = tab.browserID, let shim = tab.runtime.shim, tab.runtime.forkAPIVersion >= 13,
-              let state = shim.takeString(shim.sidePanelState(browserID)).flatMap(CEFSidePanelState.init(json:)) else {
+              let state = shim.sidePanelState(browserID).flatMap(CEFSidePanelState.init(json:)) else {
             if let browserID = tab.browserID { tab.runtime.widgetHost?.place(.sidePanel, owner: browserID, in: nil) }
             widgetContainer?.removeFromSuperview()
             widgetContainer = nil

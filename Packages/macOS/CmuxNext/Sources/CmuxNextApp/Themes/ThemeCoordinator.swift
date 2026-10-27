@@ -7,6 +7,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Observation
 
 /// Room, workspace and terminal themes (plans/cmux-next/data-model.md 6).
@@ -24,7 +25,7 @@ final class ThemeCoordinator {
     let resolver = ThemeResolver()
     let terminalThemes: TerminalThemeStore
     /// Every Ghostty theme, for pickers and validation.
-    let catalog = ThemeCatalog()
+    let catalog: ThemeCatalog
     unowned let services: AppServices
     /// A theme shown live while a picker highlights it, not saved.
     private(set) var preview: ThemePreview?
@@ -35,7 +36,11 @@ final class ThemeCoordinator {
     /// Which room, workspace or terminal a theme action acts on, resolved
     /// like its handler (`ThemeHandlers`), for picker previews.
     var previewTarget: (@MainActor (ActionID, ActionTargetRef?) -> ThemePreview.Target?)?
-    private var observation: Task<Void, Never>?
+    /// Follows the theme fields and the stores (`start`).
+    private var observation: ServiceObservation<[String?]>?
+    /// Waits for the home daemon's first tree, once, to prune closed terminals' themes.
+    private var pruneWatch: ServiceObservation<Bool>?
+    private var prunedTerminalThemes = false
     /// Each workspace's own background (`ThemeCoordinator+Backgrounds`).
     let workspaceBackgrounds: WorkspaceBackgroundStore
     /// Each workspace's own glass tint over art, as text ("0.6").
@@ -48,7 +53,7 @@ final class ThemeCoordinator {
     /// A workspace tint the picker's slider shows without saving it; nil follows the work's.
     var opacityPreview: (workspace: String, value: Double?)?
     /// Shows a Shuffle Daily workspace's next work when the day turns.
-    var dayObservers: [any NSObjectProtocol] = []
+    var dayObservers: [EventSubscription] = []
     /// The scopes whose theme this coordinator set.
     private let themed = NSHashTable<ThemeScope>.weakObjects()
     /// The applies each live terminal took: an apply reaches the shown ones, the parked catch up.
@@ -59,6 +64,7 @@ final class ThemeCoordinator {
          appearanceScopes: WorkspaceBackgroundStore? = nil) {
         self.services = services
         self.terminalThemes = terminalThemes
+        catalog = ThemeCatalog(work: services.work, mainWork: services.mainWork)
         self.workspaceBackgrounds = workspaceBackgrounds
             ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID)
         self.workspaceOpacities = workspaceOpacities
@@ -75,46 +81,47 @@ final class ThemeCoordinator {
 
     /// `appearance.appTheme` as last read; nil follows the terminal theme.
     private var chromeTheme: String?
-    private var chromeObservation: Task<Void, Never>?
-    private var accentObservation: Task<Void, Never>?
-    private var artAccentObservation: Task<Void, Never>?
-    private var machineColorsObservation: Task<Void, Never>?
+    /// The followers of the app theme, the accent, Art Color and the machine colors (`followChromeTheme`).
+    private var chromeFollowers: [AnyObject] = []
 
     /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
     /// resolved like the other theme levels (the variant for the system appearance, the user's
     /// explicit config colors over it). `followTerminal` leaves each scope on its own theme.
+    /// Each follower applies the current value now and a change as one `visible` task (a person's
+    /// in the input-response pass).
     func followChromeTheme(_ settings: SettingsController) {
-        let store = services.themeStore
+        let store = services.themeStore, mainWork = services.mainWork
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
         store.setAccent(settings.applied.accent)
         store.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
-        artAccentObservation = Task { [weak self] in
-            for await follows in ObservationStream({ AccentSetting.followsArt(settings.applied.root) }) {
-                guard store.setAccentFollowsArt(follows) else { continue }
-                self?.applyChromeTheme()
-            }
+        let artAccent = ServiceObservation(.visible, owner: "ThemeCoordinator.artAccent", on: mainWork) {
+            AccentSetting.followsArt(settings.applied.root)
+        } apply: { [weak self] follows in
+            guard store.setAccentFollowsArt(follows) else { return }
+            self?.applyChromeTheme()
         }
         // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
-        accentObservation = Task { [weak self] in
-            for await accent in ObservationStream({ settings.applied.accent }) {
-                guard let self, store.setAccent(accent) else { continue }
-                self.applyChromeTheme()
-            }
+        let accent = ServiceObservation(.visible, owner: "ThemeCoordinator.accent", on: mainWork) {
+            settings.applied.accent
+        } apply: { [weak self] accent in
+            guard let self, store.setAccent(accent) else { return }
+            applyChromeTheme()
         }
-        chromeObservation = Task { [weak self] in
-            for await theme in ObservationStream({ settings.applied.chromeTheme }) {
-                guard let self, theme != self.chromeTheme else { continue }
-                self.chromeTheme = theme
-                self.applyChromeTheme()
-            }
+        let chrome = ServiceObservation(.visible, owner: "ThemeCoordinator.appTheme", on: mainWork) {
+            settings.applied.chromeTheme
+        } apply: { [weak self] theme in
+            guard let self, theme != chromeTheme else { return }
+            chromeTheme = theme
+            applyChromeTheme()
         }
         // `appearance.machineColors`: every machine mark reads the store's picks (MachineColor).
         store.setMachineColors(settings.applied.machineColors)
-        machineColorsObservation = Task {
-            for await colors in ObservationStream({ settings.applied.machineColors }) { store.setMachineColors(colors) }
-        }
+        let machineColors = ServiceObservation(.visible, owner: "ThemeCoordinator.machineColors", on: mainWork) {
+            settings.applied.machineColors
+        } apply: { colors in store.setMachineColors(colors) }
+        chromeFollowers = [artAccent, accent, chrome, machineColors]
     }
 
     private func applyChromeTheme() {
@@ -161,32 +168,37 @@ final class ThemeCoordinator {
         let terminalThemes = terminalThemes
         let local = services.machines.local
         let workspaceBackgrounds = self.workspaceBackgrounds, workspaceOpacities = self.workspaceOpacities
-        Task { await workspaceBackgrounds.load() }
-        Task { await workspaceOpacities.load() }
-        let appearanceScopes = self.appearanceScopes
-        Task { await appearanceScopes.load() }
+        let appearanceScopes = self.appearanceScopes, work = services.work, mainWork = services.mainWork
+        // Each file is read on the files lane; its entries land as one `visible` task (Chrome's PostTaskAndReply).
+        for file in [workspaceBackgrounds, workspaceOpacities, appearanceScopes] { file.load(on: work, replyingOn: mainWork) }
         dayObservers = observeDayChanges()
-        Task { [weak self] in
-            await terminalThemes.load()
-            // Once per launch, after the home daemon's first tree: drop the
-            // themes of its terminals that closed while the app was away.
-            for await loaded in ObservationStream({ local.store.isLoaded }) where loaded {
-                self?.pruneTerminalThemes()
-                return
-            }
+        terminalThemes.load(on: work, replyingOn: mainWork) { [weak self] in self?.pruneAfterFirstTree(of: local.store) }
+        // The theme fields and the stores; the current values apply now, a change as one `visible` task.
+        observation = ServiceObservation(.visible, owner: "ThemeCoordinator.themes", on: mainWork) { () -> [String?] in
+            store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
+                + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
+                   String(describing: workspaceBackgrounds.backgrounds), String(describing: workspaceOpacities.backgrounds),
+                   String(describing: appearanceScopes.backgrounds),
+                   String(store.identity?.supports(DaemonCapability.personalTerminals.rawValue) ?? false)]
+        } apply: { [weak self] _ in
+            self?.migrateTerminalThemes()
+            self?.apply()
         }
-        observation = Task { [weak self] in
-            for await _ in ObservationStream({ () -> [String?] in
-                store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
-                    + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
-                       String(describing: workspaceBackgrounds.backgrounds), String(describing: workspaceOpacities.backgrounds),
-                       String(describing: appearanceScopes.backgrounds),
-                       String(store.identity?.supports(DaemonCapability.personalTerminals.rawValue) ?? false)]
-            }) {
-                self?.migrateTerminalThemes()
-                self?.apply()
-            }
+    }
+
+    /// Once per launch, after the home daemon's first tree: drops the themes of its terminals that
+    /// closed while the app was away. `background`: nobody waits on it.
+    private func pruneAfterFirstTree(of home: DaemonStore) {
+        let watch = ServiceObservation(.background, owner: "ThemeCoordinator.pruneTerminalThemes", on: services.mainWork) {
+            home.isLoaded
+        } apply: { [weak self] loaded in
+            guard loaded, let self, !prunedTerminalThemes else { return }
+            prunedTerminalThemes = true
+            pruneWatch = nil
+            pruneTerminalThemes()
         }
+        // Already loaded: the watch's first apply pruned, and the watch is released here.
+        if !prunedTerminalThemes { pruneWatch = watch }
     }
 
     // MARK: Mounts

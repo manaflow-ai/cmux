@@ -25,7 +25,8 @@ final class BrowserImportOfferService {
     private(set) var state: BrowserImportOfferState
     /// Browsers cmux can import from, most used first; nil until found.
     private(set) var browsers: [InstalledImportBrowser]?
-    private var finding: Task<Void, Never>?
+    /// The one Launch Services lookup runs on the system lane.
+    private var finding = false
     private var waiting: [@MainActor ([InstalledImportBrowser]) -> Void] = []
     /// One card per launch: a second tab never shows it.
     private(set) var shownThisLaunch = false
@@ -133,18 +134,18 @@ final class BrowserImportOfferService {
     func findBrowsers(then done: (@MainActor ([InstalledImportBrowser]) -> Void)? = nil) {
         if let browsers { done?(browsers); return }
         if let done { waiting.append(done) }
-        guard finding == nil else { return }
-        // task-owner: one Launch Services lookup per launch; ends after it
-        finding = Task { [weak self] in
-            guard let locate = self?.locate, let queries = self?.services?.workspaceQueries else { return }
-            // The apps and their icons, from Launch Services on the system lane.
-            let installed = WorkspaceQuery<[InstalledImportBrowser]>(id: "browserImport.installedBrowsers", refreshes: false) { system in
-                locate(system).map { InstalledImportBrowser(browser: $0.browser, icon: system.fileIcon(atPath: $0.app.path)) }
-            }
-            let found = (try? await queries.value(installed, priority: .bestEffort)) ?? []
+        guard !finding, let queries = services?.workspaceQueries else { return }
+        finding = true
+        let locate = locate
+        // The apps and their icons, from Launch Services on the system lane; the answer comes back as one
+        // `visible` task (the card shows them), Chrome's PostTaskAndReply (base/task/thread_pool.h).
+        let installed = WorkspaceQuery<[InstalledImportBrowser]>(id: "browserImport.installedBrowsers", refreshes: false) { system in
+            locate(system).map { InstalledImportBrowser(browser: $0.browser, icon: system.fileIcon(atPath: $0.app.path)) }
+        }
+        queries.value(installed, priority: .bestEffort) { [weak self] found in
             guard let self else { return }
             browsers = found
-            finding = nil
+            finding = false
             let callbacks = waiting
             waiting = []
             for callback in callbacks { callback(found) }

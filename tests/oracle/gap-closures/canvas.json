@@ -1,0 +1,22 @@
+{
+  "family": "canvas",
+  "task": "p15-oracle-083",
+  "fixture": "scripts/cmux-next/oracle/action_fixtures/canvas.py",
+  "gap": "needs context the sweep does not set up: canvasLayout",
+  "closed": {
+    "canvasAlignBottom": "canvasLayout (canvas.py): B's bottom edge is above D's, so B moves down",
+    "canvasAlignLeft": "canvasLayout (canvas.py): D's left edge is right of B's, so D moves left",
+    "canvasAlignRight": "canvasLayout (canvas.py): B's right edge is left of D's, so B moves right",
+    "canvasAlignTop": "canvasLayout (canvas.py): C's top edge is below B's, so C moves up",
+    "canvasDistributeHorizontally": "canvasLayout (canvas.py): B and C share a left edge, so one of them moves right",
+    "canvasDistributeVertically": "canvasLayout (canvas.py): B and D share a top edge, so one of them moves down",
+    "canvasEqualizeHeights": "canvasLayout (canvas.py): B is shorter than the focused D, so B gets D's height",
+    "canvasEqualizeWidths": "canvasLayout (canvas.py): B is narrower than the focused D, so B gets D's width",
+    "canvasOverview": "canvasLayout (canvas.py): the canvas has panes to fit in its viewport",
+    "canvasTidy": "canvasLayout (canvas.py): tidy packs the seeded panes into rows",
+    "canvasZoomIn": "canvasLayout (canvas.py): a fresh canvas is at zoom 1, below the zoom limit",
+    "canvasZoomOut": "canvasLayout (canvas.py): a fresh canvas is at zoom 1, above the zoom limit",
+    "canvasZoomReset": "canvasLayout (canvas.py), then canvasZoomIn (canvas.py PREPARE): Actual Size has a zoom to reset"
+  },
+  "reasoned": {}
+}

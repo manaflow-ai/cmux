@@ -101,7 +101,7 @@ enum DebugShowcase {
     /// Claims showcase workspace `name` in window `windowID` when it exists already; true when it must be created.
     private static func needsWorkspace(_ name: String, services: AppServices, windowID: String) -> Bool {
         if let existing = services.showcase.workspaces[name], services.machines.workspace(id: existing) != nil {
-            if let controller = services.windows.controller(for: windowID) {
+            if let controller = services.windows.controllerBuildingIfWaiting(for: windowID) {
                 services.windows.claim(workspaceID: existing, in: controller.state, select: false)
             }
             return false
@@ -109,7 +109,7 @@ enum DebugShowcase {
         if let existing = services.daemon.store.workspaces.first(where: { $0.displayName == name }) {
             let id = existing.id
             services.showcase.workspaces[name] = id
-            if let controller = services.windows.controller(for: windowID) {
+            if let controller = services.windows.controllerBuildingIfWaiting(for: windowID) {
                 services.windows.claim(workspaceID: id, in: controller.state, select: false)
             }
             return false
@@ -122,7 +122,7 @@ enum DebugShowcase {
     private static func claimCreated(_ id: String, name: String, services: AppServices, windowID: String) {
         services.windows.claimNew(workspaceID: id, window: windowID)
         services.showcase.workspaces[name] = id
-        if let controller = services.windows.controller(for: windowID) {
+        if let controller = services.windows.controllerBuildingIfWaiting(for: windowID) {
             services.windows.claim(workspaceID: id, in: controller.state, select: false)
         }
         let seededIDs = Array(services.showcase.workspaces.values)

@@ -53,6 +53,7 @@ pub(super) fn split_tab(
 /// split of a pane's only tab leaves in that pane. A terminal takes the
 /// `new-tab` spawn fields; a browser tab takes a frontend browser record.
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 pub(crate) struct SplitRespawnRequest {
     kind: String,
     #[serde(default)]

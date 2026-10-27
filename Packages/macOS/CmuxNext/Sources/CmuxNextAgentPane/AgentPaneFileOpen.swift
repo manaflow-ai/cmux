@@ -18,12 +18,10 @@ public nonisolated enum AgentPaneFileTarget: String, Equatable, Sendable {
 public nonisolated enum AgentPaneFileOpen {
     /// The file at `path`, or nil unless `path` is absolute and names an
     /// existing regular file (after links), not a folder or a package.
-    public static func resolve(_ path: String, fileManager: FileManager = .default) -> URL? {
+    public static func resolve(_ path: String) -> URL? {
         guard path.hasPrefix("/"), !path.contains("\u{0}") else { return nil }
         let url = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue,
-              let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isPackageKey]),
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isPackageKey]),
               values.isRegularFile == true, values.isPackage != true else { return nil }
         return url
     }

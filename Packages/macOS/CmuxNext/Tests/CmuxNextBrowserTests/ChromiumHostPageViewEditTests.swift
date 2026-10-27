@@ -113,7 +113,7 @@ import Testing
         #expect(sent == [.copy])
     }
 
-    /// Jump to Selection needs the fork's center selection call (API 35, task p01-process-242);
+    /// Jump to Selection needs the fork's center selection call (task p01-process-242);
     /// every other command runs on any fork.
     @Test func centerSelectionRunsFromItsForkAPI() {
         let below = ChromiumHostEditCommand.centerSelectionForkAPI - 1

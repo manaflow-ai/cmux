@@ -21,7 +21,8 @@ nonisolated final class ChromiumHostMachDoorbell: ChromiumHostInputDoorbell {
     /// The doorbell the host checked in under `name`, or nil when it has
     /// none. One synchronous message to launchd: never on the main thread.
     static func lookUp(name: String) -> ChromiumHostMachDoorbell? {
-        let port = cmux_input_ring_doorbell_look_up(name)
+        // SAFETY: the lookup reads the NUL-terminated copy of `name` Swift makes for the call.
+        let port = unsafe cmux_input_ring_doorbell_look_up(name)
         return port == 0 ? nil : ChromiumHostMachDoorbell(port: port)
     }
 

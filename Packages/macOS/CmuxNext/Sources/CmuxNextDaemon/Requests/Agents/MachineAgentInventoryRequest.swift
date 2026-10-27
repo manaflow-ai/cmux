@@ -28,4 +28,8 @@ public nonisolated struct MachineAgentInventoryRequest: DaemonRequest {
     public init(expectedMachineID: ResourceID) {
         self.expectedMachineID = expectedMachineID
     }
+
+    enum CodingKeys: String, CodingKey {
+        case expectedMachineID = "expected_machine_id"
+    }
 }

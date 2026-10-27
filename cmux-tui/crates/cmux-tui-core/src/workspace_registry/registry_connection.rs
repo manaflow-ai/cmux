@@ -30,6 +30,12 @@
 //! A first acquisition admits by class (`server::priority_gate`) inside the
 //! `LockHolder`'s try and wait: a frontend request goes before waiting
 //! automation; a re-entry never waits.
+//!
+//! The lock does not donate priority (parking_lot), so it boosts its owner
+//! (`cmux_threads::OwnerBoost`, Chromium's priority-inheritance locks in
+//! base/synchronization/lock_impl_posix.cc): a waiter of a higher QoS than
+//! the owner (a request thread behind a Utility journal writer) raises the
+//! owner to its QoS until the owner's last hold ends.
 
 use std::cell::Cell;
 use std::panic::Location;
@@ -40,6 +46,8 @@ use parking_lot::{
     ArcReentrantMutexGuard, RawMutex, RawThreadId, ReentrantMutex, ReentrantMutexGuard,
 };
 use rusqlite::Connection;
+
+use cmux_threads::{OwnerBoost, OwnerHold};
 
 use crate::lock_rank::{HeldRank, LockRank, RankWait};
 use crate::request_path::BlockingKind;
@@ -52,6 +60,9 @@ const CONNECTION_LOCK_NAME: &str = "registry.connection";
 /// held while any hold of this thread lives; only the first acquisition on a
 /// thread is checked (a re-entry cannot deadlock).
 pub(crate) struct RegistryConnectionGuard<'a> {
+    /// Dropped before the lock: the last hold ends the owner's boost while
+    /// this thread still owns it.
+    _boost: OwnerHold<&'a OwnerBoost>,
     /// The lock; dropping it unlocks (or leaves a re-entry), then wakes the
     /// gate's waiters.
     guard: Gated<ReentrantMutexGuard<'a, Connection>, &'a PriorityGate>,
@@ -72,6 +83,8 @@ impl std::ops::Deref for RegistryConnectionGuard<'_> {
 /// registry, so the holder can still call `&mut WorkspaceRegistry` methods
 /// (they re-enter the lock on the same thread).
 pub(crate) struct RegistryConnectionPin {
+    /// Dropped before the lock (see `RegistryConnectionGuard`).
+    _boost: OwnerHold<Arc<OwnerBoost>>,
     _guard: Gated<ArcReentrantMutexGuard<RawMutex, RawThreadId, Connection>, Arc<PriorityGate>>,
     _rank: HeldRank,
     _request_path: RequestPathHold,
@@ -144,6 +157,8 @@ pub(crate) struct RegistryConnection {
     /// Admission by class of first acquisitions (`server::priority_gate`);
     /// shared with pins, which outlive no borrow of this.
     gate: Arc<PriorityGate>,
+    /// Raises the owner to its highest waiter's QoS; shared with pins.
+    boost: Arc<OwnerBoost>,
     /// Which thread commits durable writes (`server-stats` `write_path`).
     write_path_stats: crate::diagnostics::WritePathStats,
     /// The journal writer, once it runs (see `registry_intent`).
@@ -250,6 +265,7 @@ impl RegistryConnection {
             connection: Arc::new(ReentrantMutex::new(connection)),
             holder: cmux_threads::LockHolder::default(),
             gate: Arc::new(PriorityGate::new()),
+            boost: Arc::new(OwnerBoost::new()),
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
@@ -297,6 +313,7 @@ impl RegistryConnection {
             Gated::new(guard, &*self.gate, ticket)
         };
         RegistryConnectionGuard {
+            _boost: OwnerBoost::hold(&*self.boost),
             guard,
             _rank: wait.held(),
             _request_path: RequestPathHold::held(timed),
@@ -321,6 +338,7 @@ impl RegistryConnection {
             Gated::new(guard, Arc::clone(&self.gate), ticket)
         };
         RegistryConnectionPin {
+            _boost: OwnerBoost::hold(Arc::clone(&self.boost)),
             _guard: guard,
             _rank: wait.held(),
             _request_path: RequestPathHold::held(timed),
@@ -329,7 +347,8 @@ impl RegistryConnection {
 
     /// A first acquisition: the holder record (lock-wait attribution and
     /// the blocking check) around the class admission, so a caller the gate
-    /// keeps waiting is a contended wait at `site` like one on the lock.
+    /// keeps waiting is a contended wait at `site` like one on the lock. A
+    /// contended wait boosts the owner for as long as it lasts.
     fn admit<G>(
         &self,
         site: &'static Location<'static>,
@@ -341,7 +360,10 @@ impl RegistryConnection {
             CONNECTION_LOCK_NAME,
             site,
             || admission.try_admit(&try_lock),
-            || admission.admit(&try_lock, lock),
+            || {
+                let _waiting = self.boost.wait();
+                admission.admit(&try_lock, lock)
+            },
         )
     }
 
@@ -386,6 +408,12 @@ impl RegistryConnection {
         self.gate.wakeups()
     }
 
+    /// Owner boosts started and refused.
+    #[cfg(test)]
+    pub(crate) fn owner_boosts(&self) -> cmux_threads::BoostCounts {
+        self.boost.counts()
+    }
+
     /// The threads waiting for the connection lock now.
     #[cfg(test)]
     pub(crate) fn lock_waiting(&self) -> u32 {
@@ -422,7 +450,10 @@ impl RegistryConnection {
             CONNECTION_LOCK_NAME,
             Location::caller(),
             || self.connection.try_lock(),
-            || self.connection.try_lock_until(deadline),
+            || {
+                let _waiting = self.boost.wait();
+                self.connection.try_lock_until(deadline)
+            },
         )?;
         // The journal writer, a program-class thread: it waits on the lock
         // itself, and its hold is recorded and its release wakes the gate.
@@ -432,6 +463,7 @@ impl RegistryConnection {
             Gated::new(guard, &*self.gate, self.gate.ticket(waited_from.elapsed()))
         };
         Some(RegistryConnectionGuard {
+            _boost: OwnerBoost::hold(&*self.boost),
             guard,
             _rank: wait.held(),
             _request_path: RequestPathHold::NONE,
@@ -448,6 +480,7 @@ impl RegistryConnection {
             Gated::new(guard, &*self.gate, self.gate.ticket(Duration::ZERO))
         };
         Some(RegistryConnectionGuard {
+            _boost: OwnerBoost::hold(&*self.boost),
             guard,
             _rank: record_rank(),
             _request_path: RequestPathHold::NONE,
@@ -463,3 +496,7 @@ fn record_rank() -> HeldRank {
 #[cfg(test)]
 #[path = "registry_connection_blocking_tests.rs"]
 mod blocking_tests;
+
+#[cfg(test)]
+#[path = "registry_connection_tests.rs"]
+mod tests;

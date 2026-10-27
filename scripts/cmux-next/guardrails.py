@@ -65,7 +65,8 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
-  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings and safety-todo cases
+  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings, safety-todo,
+                                                     # raw-continuation, trap-api and decode-trap cases
 """
 from __future__ import annotations
 
@@ -100,6 +101,13 @@ code_of, escaped, enclosing_openers = swift_scope.code_of, swift_scope.escaped, 
 COMMENT_LINE, ATTRIBUTE, ATTRIBUTE_LINE = swift_scope.COMMENT_LINE, swift_scope.ATTRIBUTE, swift_scope.ATTRIBUTE_LINE
 
 SOURCES = "Packages/macOS/CmuxNext/Sources/"
+# The linked packages (p02-threads-130): CmuxNext's Package.swift links Shared, macOS and iOS packages by path, and
+# their code runs in the app, so the blocking rules and task-priority read their Sources too (LINKED_RULE_SCOPE).
+# LINKED_SOURCES is a rule scope entry that matches no path prefix: in_rule_scope() matches it to a file under the
+# Sources of a package in the closure load_linked_packages() read. Chrome's blocking rules hold in every component
+# the browser links, not only //chrome (base/threading/thread_restrictions.h).
+LINKED_SOURCES = "<linked package Sources>"
+LINKED_RULE_SCOPE = (SOURCES, LINKED_SOURCES)
 # The rules read Swift only: the string catalogs under Sources are MBs of JSON per localization push.
 SWIFT_SOURCES = f":(glob){SOURCES}**/*.swift"
 TESTS = "Packages/macOS/CmuxNext/Tests/"
@@ -1892,7 +1900,8 @@ RULES = (
          "OperationQueue: `let queue = OperationQueue()`, set `queue.name` and `queue.qualityOfService`, and pass "
          "`queue` as a URLSession's `delegateQueue:`",
          "// qos-allow: <why: a frame waits for it (userInteractive), it inherits on purpose, or nothing ever waits for it (background)>",
-         matcher_rule(Matcher(TASK_CALL, re.compile(r"//\s*" + re.escape(QOS_ALLOW) + r"\s*\S"), unstated_priority))),
+         matcher_rule(Matcher(TASK_CALL, re.compile(r"//\s*" + re.escape(QOS_ALLOW) + r"\s*\S"), unstated_priority)),
+         scope=LINKED_RULE_SCOPE),
     Rule("appkit-index", "A raw AppKit row or column index read (`.clickedRow`, `.clickedColumn`, `.selectedColumn`, "
          "`item(atRow:`, `selectedRow(inColumn:`)",
          "they are -1 when a click lands off the rows or nothing is selected, and past the end after a reload; "
@@ -1949,6 +1958,35 @@ RULES = (
          scope=(APP,),
          net=True),
 )
+
+
+# ---------------------------------------------------------------- sync-layout (p03-rendering-066, PL-guardrails)
+# A forced layout or display pass, or a CATransaction flush, does on the caller's turn what the frame does once
+# per display refresh (plans/cmux-next/chrome-parity/p03-rendering.md R4, DC11). Blink names the reason of every
+# forced lifecycle update (`Document::UpdateStyleAndLayout(DocumentUpdateReason)`,
+# third_party/blink/renderer/core/dom/document.cc); here the reason is the `// sync-layout: <why>` comment, on the
+# hit's line or the line directly above it, the same pattern, window and raw line text (comments and strings too,
+# as its `rg -n` reads them) as render-done-checks.py's MQ-sync-layout queue and DC11, so a push that passes this
+# rule never grows that queue. Added lines only, base debt per file as the other line rules; a fault in the rule
+# turns off only it (check()'s fail open per rule).
+# The block owns its lines from here to `RULES += SYNC_LAYOUT_RULES`.
+SYNC_LAYOUT = re.compile(r"layoutSubtreeIfNeeded|displayIfNeeded|\.display\(\)|CATransaction\.flush")
+SYNC_LAYOUT_ALLOW = re.compile(r"//\s*sync-layout:\s*\S")
+SYNC_LAYOUT_RULES = (
+    Rule("sync-layout", "A forced synchronous layout, display or flush (`layoutSubtreeIfNeeded`, `displayIfNeeded`, "
+         "`.display()`, `CATransaction.flush`) without a reason",
+         "it runs layout, drawing or a commit on the caller's turn instead of once in the next frame: a forced pass "
+         "per change or per animation frame is a main-thread stall and a dropped frame (CLAUDE.md: one frame per "
+         "display refresh; p03-rendering.md R4, DC11)",
+         "set `needsLayout` / `needsDisplay` (behind a changed value) and let the frame lay out and draw; read "
+         "geometry from the model, not from a fresh layout; when the next statement truly needs the laid-out "
+         "result (a measured size before a window opens, a snapshot), say why on the line or the line directly "
+         "above",
+         "// sync-layout: <why this turn needs the layout now>",
+         matcher_rule(Matcher(SYNC_LAYOUT, SYNC_LAYOUT_ALLOW, code=lambda text: text, window=ratchet.allow_lines))),
+)
+RULES += SYNC_LAYOUT_RULES
+# ---------------------------------------------------------------- end of sync-layout (p03-rendering-066)
 
 
 # ---------------------------------------------------------------- input-monitor (p04-input, PL-typing)
@@ -2653,6 +2691,167 @@ RULES += MAIN_CLASS_RULES
 # ---------------------------------------------------------------- end of main-thread classes (p06-scheduler)
 
 
+# ---------------------------------------------------------------- raw-continuation (p10-stability-083, 089)
+# A raw `with(Checked|Unsafe)(Throwing)?Continuation` traps on a second resume and leaks its task when the producer
+# drops it; CmuxSafeConcurrency's OnceContinuation resumes exactly once (a second resume is a no-op and a fault, a
+# drop throws `.abandoned`, cancellation only with `.cancellable`), as Chromium's base::OnceCallback runs once and
+# is safe to destroy unrun. The class and its scope are crash_ratchet.py's report-only `raw_continuation` (one
+# definition; `--report raw_continuation` prints the queue Q06 that tasks 084-089 emptied). The class is banned
+# (089), as crash_ratchet.py bans a class at zero: every raw continuation in a file the push changes is refused,
+# old lines and moved ones too, not only the lines it adds. Local only, like every guardrail. The block owns its
+# lines from here to `RULES += RAW_CONTINUATION_RULES`.
+RAW_CONTINUATION = Matcher(ratchet.REPORT_SWIFT["raw_continuation"], allow_marker("raw-continuation"),
+                           code=ratchet_code)
+
+
+def raw_continuation(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Every raw continuation left in a package Sources file the push changed (added or removed a line in),
+    outside the package that implements OnceContinuation. Unchanged context files are not judged."""
+    hits = []
+    for change in changes:
+        if (not change.path.endswith(".swift") or "/Sources/" not in change.path or change.is_deleted
+                or ratchet.report_owned("raw_continuation", change.path) or not (change.added or change.removed)):
+            continue
+        lines = change.head_lines
+        hits += [Added(change.path, index + 1, line) for index, line in enumerate(lines)
+                 if RAW_CONTINUATION.pattern.search(RAW_CONTINUATION.code(line))
+                 and not escaped_in(lines, index, RAW_CONTINUATION)]
+    return hits
+
+
+RAW_CONTINUATION_RULES = (
+    Rule("raw-continuation", "A raw continuation (`withCheckedContinuation`, `withCheckedThrowingContinuation`, "
+         "`withUnsafeContinuation`, `withUnsafeThrowingContinuation`) in a package Sources file the push changes "
+         "(banned: old lines count too)",
+         "a second resume stops the process and a dropped continuation hangs its task for ever; the twelve private "
+         "resume-once helpers each fixed one site (p10-stability.md, CONTINUATIONS)",
+         "CmuxSafeConcurrency's `withOnceContinuation { once in ... }` (or `withOnceThrowingContinuation`, or "
+         "`withOnceContinuation(failingWith:)` for a typed error): resume exactly once, a drop throws "
+         "`OnceContinuationError.abandoned`; pass `cancellation: .cancellable` (throwing or typed form only; "
+         "the throwing form throws CancellationError) only where the producer's work is cancelled too",
+         "// raw-continuation-allow: <why OnceContinuation cannot serve this site>",
+         raw_continuation,
+         scope=("Packages/",)),
+)
+RULES += RAW_CONTINUATION_RULES
+# ---------------------------------------------------------------- end of raw-continuation (p10-stability-083, 089)
+
+
+# ---------------------------------------------------------------- trap-api (p10-stability-092, 097, 098)
+# A standard-library call that traps on a bad argument: `uniqueKeysWithValues:` (a repeated key), an unguarded
+# `removeFirst()` / `removeLast()` (an empty collection), `(repeating:count:)` with a count that may be negative,
+# `index(_:offsetBy:)` without `limitedBy:` (past the end). The class and its guard exemptions are crash_ratchet.py's
+# report-only `trap_api` (one definition; `--report trap_api` prints queue Q09). Chromium's base containers check the
+# same arguments and report instead of trapping where input reaches them (base/containers/checked_iterators.h,
+# base/numerics/checked_math.h); here the caller proves the argument. The Shared and iOS packages are at zero, so
+# the class is banned there as crash_ratchet.py bans a class at zero: every hit in a file the push changes is
+# refused, old lines and moved ones too. Elsewhere (CmuxNext, whose queue 097 and later waves empty) a push may not
+# add one: per changed file, a hit at head pairs with a hit of the same text at base (resolve()), and only an extra
+# one is refused. Local only, like every guardrail. The block owns its lines from here to `RULES += TRAP_API_RULES`.
+TRAP_API_BANNED = ("Packages/Shared/", "Packages/iOS/")
+TRAP_API_ALLOW = allow_marker("trap-api")
+
+
+def trap_api_lines(path: str, lines: list[str]) -> list[Added]:
+    """Every line of LINES (a package Sources file at PATH) that starts a trap_api call without a reviewed escape,
+    once per call."""
+    return [Added(path, index + 1, lines[index]) for index in range(len(lines))
+            for _ in range(ratchet.trap_api_hits(lines, index)) if not any(TRAP_API_ALLOW.search(lines[j]) for j in escape_window(lines, index))]
+
+
+def trap_api(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """The trap_api calls of the package Sources files the push changed (added or removed a line in): all of them in
+    a banned package, the ones the file did not have at base elsewhere. Unchanged context files are not judged."""
+    banned, counted = [], []
+    for change in changes:
+        if (not change.path.endswith(".swift") or "/Sources/" not in change.path or change.is_deleted
+                or not (change.added or change.removed)):
+            continue
+        head = trap_api_lines(change.path, change.head_lines)
+        if change.path.startswith(TRAP_API_BANNED):
+            banned += head
+        else:
+            counted.append((head, trap_api_lines(change.path, change.base_lines)))
+    return banned + resolve(counted)
+
+
+TRAP_API_RULES = (
+    Rule("trap-api", "A standard-library call that traps on a bad argument (`uniqueKeysWithValues:`, an unguarded "
+         "`removeFirst()` / `removeLast()`, `(repeating:count:)` with a count that may be negative, "
+         "`index(_:offsetBy:)` without `limitedBy:`): any in a Shared or iOS package Sources file the push changes "
+         "(banned: old lines count too), a new one in other package Sources",
+         "a duplicate key, an empty queue, a negative count or an offset past the end stops the process; where input "
+         "reaches the call, a peer or a file can crash the app (p10-stability.md, SWIFT TRAPS)",
+         "`Dictionary(_:uniquingKeysWith:)` with the rule for a repeated key; `popFirst()` / `popLast()`, "
+         "`guard let x = q.first else { ... }` before `q.removeFirst()`, or `removeSubrange(..<n)`; a count that is "
+         "never negative (`max(0, n)`, a `.count`, a literal, a name validated above, `guard n >= 0`); "
+         "`index(_:offsetBy:limitedBy:)` with the nil case handled. "
+         "`crash_ratchet.py --report trap_api` lists what it counts",
+         "// trap-api-allow: <why the argument is valid here>",
+         trap_api,
+         scope=("Packages/",)),
+)
+RULES += TRAP_API_RULES
+# ---------------------------------------------------------------- end of trap-api (p10-stability-092, 097, 098)
+
+
+# ---------------------------------------------------------------- decode-trap (p10-stability-093)
+# Outside input never traps (p10-stability.md, section D): a file in decode-paths.json reads a peer's, a device's or
+# a file's bytes, and holds no index subscript and no trapping integer conversion, by the crash ratchet's own
+# definitions (crash_ratchet.py's index_subscript and int_conversion: one definition). Unlike a count ratchet this
+# is a ban: a push that touches a listed file is refused for every unescaped hit in the whole file, so a listed
+# file stays at zero. An operand that is not input (a C constant, a bound the code set itself) carries
+# `// decode-trap-allow: <why>`. Like Chromium's checks.md, input gets validation that returns an error, and only an
+# internal invariant keeps a check. Local only, like every guardrail. The block owns its lines from here to
+# `RULES += DECODE_TRAP_RULES`.
+DECODE_PATHS = HERE / "decode-paths.json"
+DECODE_TRAP_ESCAPE = allow_marker("decode-trap")
+
+
+@functools.lru_cache(maxsize=1)
+def decode_paths() -> tuple[str, ...]:
+    """The listed decode files (repo-relative)."""
+    return tuple(entry["path"] for entry in json.loads(DECODE_PATHS.read_text())["files"])
+
+
+def decode_trap_hits(lines: list[str]) -> list[tuple[int, int]]:
+    """[(0-based line, hits)] of LINES (one decode file): index subscripts and trapping integer conversions outside
+    comments, string contents and lines escaped with `// decode-trap-allow:` (on the line or the comment block above).
+    A subscript on a name the file declares only as a dictionary cannot trap and does not count."""
+    dictionaries = ratchet.file_dictionaries(lines, frozenset(), frozenset())
+    found = []
+    for index, line in enumerate(lines):
+        code = ratchet_code(line)
+        hits = ratchet.index_hits(code, dictionaries) + ratchet.int_conversion_hits(code) if code.strip() else 0
+        if hits and not any(DECODE_TRAP_ESCAPE.search(lines[j]) for j in escape_window(lines, index)):
+            found.append((index, hits))
+    return found
+
+
+def decode_trap(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Every unescaped hit in each listed decode file the push changes and keeps."""
+    listed = set(decode_paths())
+    return [Added(c.path, index + 1, c.head_lines[index])
+            for c in changes if c.path in listed and not c.is_deleted and c.head_lines != [""]
+            for index, _ in decode_trap_hits(c.head_lines)]
+
+
+DECODE_TRAP_RULES = (
+    Rule("decode-trap", "An index subscript (`bytes[i]`, `buffer[a..<b]`) or a trapping integer conversion (`Int(x)`, "
+         "`UInt8(x)`) in a decode file (scripts/cmux-next/decode-paths.json)",
+         "the file reads bytes a peer, a device or a file chose: an index or a value they push out of range ends the "
+         "app instead of the connection (p10-stability.md, section D: outside input never traps)",
+         "read fields from the front of what is left (`prefix`, `dropFirst`, `popFirst`, a reader that throws), "
+         "widen with `truncatingIfNeeded:` from a narrower unsigned type, convert with `Int(exactly:)` and turn nil "
+         "into the file's typed error (RFBError.protocolViolation, SurfaceSourceWireError, ...); never clamp input",
+         "// decode-trap-allow: <why the operand is not input: a C constant, a bound this code set>",
+         decode_trap,
+         scope=("Packages/",)),
+)
+RULES += DECODE_TRAP_RULES
+# ---------------------------------------------------------------- end of decode-trap (p10-stability-093)
+
+
 # ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
 # Nothing polls (plans/cmux-next/chrome-parity/p14-energy.md, section C) in the code outside CmuxNext Sources: the
 # Shared packages and CmuxUpdater the app links, the cmux-tui crates' src, webviews/src and the CEF shim's C++/ObjC.
@@ -3023,8 +3222,10 @@ RULES += (
 THREADING_DOC = "plans/cmux-next/threading-model.md"
 THREADING_DOC_SECTION = "## Registered threads and queues"
 PACKAGE_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
-# The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose.
-BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift")
+# The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose, as does
+# CmuxThreading, the leaf that gives the linked Shared/iOS packages their `blockingCall` seam and Mutex.
+THREADING_LEAF = "Packages/Shared/CmuxThreading/"
+BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift", THREADING_LEAF)
 BLOCKING_ALLOW = re.compile(r"//\s*blocking-allow:\s*\S")
 FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDirectory|removeItem|contentsOfDirectory|"
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
@@ -3652,8 +3853,18 @@ def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[
     """Added raw blocking primitives that main-blocking does not report (off the main thread, or in a closure)."""
     def judge(version: Version, index: int, code: str) -> bool:
         return (blocking_match(RAW_SCAN, code) and not ALWAYS_SCAN.search(code)
-                and not (index < len(version.lines) and runs_on_main(version, index)))
+                and not (index < len(version.lines) and runs_on_main(version, index))
+                and not linked_seam_marked(version, index, code))
     return changed_debt(outside_seams(changes), judge)
+
+
+def linked_seam_marked(version: Version, index: int, code: str) -> bool:
+    """Whether every raw primitive in CODE, line INDEX of a linked package's file, runs in a CmuxThreading
+    `blockingCall(.kind) { ... }` closure: below the app that seam marks it (CmuxNextCompat's named seams are out of
+    reach there). The app's own files keep their named seams."""
+    if index >= len(version.lines) or linked_package(version.path) is None:
+        return False
+    return all(in_seam_scope(version, index, match.start()) for match in RAW_SCAN.pattern.finditer(code))
 
 
 # raw-blocking-ext: the blocking primitives RAW_BLOCKING does not name (Chromium marks the same classes with a
@@ -4156,10 +4367,120 @@ def blocking_once(changes: list[FileChange], moved: collections.Counter) -> list
     return changed_debt(outside_seams(changes), judge)
 
 
+class LinkedPackage(NamedTuple):
+    """A package CmuxNext's app code links: its Package.swift TEXT and the TARGETS of it that code reaches."""
+    text: str
+    targets: frozenset[str]
+
+
+def linked_closure(manifest: str, read: Callable[[list[str]], dict[str, str]]) -> dict[str, LinkedPackage]:
+    """{package folder: LinkedPackage} of every package under Packages/ whose code runs in the app: the library
+    targets that CmuxNext's MANIFEST's `.target`s reach through `.product(name:package:)` (a `.package(path:)`
+    resolved against the folder of the manifest that names it), transitively, with each reached target's own
+    `.target` dependencies. A `.testTarget`'s products (CmuxFuzzSupport), an `.executableTarget` or `.macro` (a
+    separate process: cmux-vnc-host) and a package no reached target uses are not in it; nor is CmuxNext itself.
+    READ maps Package.swift paths to their texts (a path it leaves out has no manifest: not a package)."""
+    root = PACKAGE_ROOT.rstrip("/")
+    graphs = {root: swift_scope.package_graph(manifest)}
+    texts: dict[str, str] = {}
+    absent: set[str] = set()
+    reached: dict[str, set[str]] = {}
+    # (folder, product or None, target or product name): a product resolves once its package's manifest is read.
+    pending: list[tuple[str, bool, str]] = [(root, False, name) for name in graphs[root].kinds]
+    while pending:
+        wanted = sorted({folder for folder, _, _ in pending if folder not in graphs and folder not in absent})
+        found = read([folder + "/Package.swift" for folder in wanted]) if wanted else {}
+        for folder in wanted:
+            if folder + "/Package.swift" in found:
+                texts[folder] = found[folder + "/Package.swift"]
+                graphs[folder] = swift_scope.package_graph(texts[folder])
+            else:
+                absent.add(folder)
+        following: list[tuple[str, bool, str]] = []
+        for folder, product, name in pending:
+            graph = graphs.get(folder)
+            if graph is None:
+                continue
+            targets = (graph.libraries.get(name, [name] if name in graph.kinds else [])) if product else [name]
+            for target in targets:
+                if graph.kinds.get(target) != "target" or target in reached.setdefault(folder, set()):
+                    continue
+                reached[folder].add(target)
+                for dependency in graph.dependencies.get(target, []):
+                    if dependency.kind == "target" or (dependency.kind == "byName" and dependency.name in graph.kinds):
+                        following.append((folder, False, dependency.name))
+                        continue
+                    path = graph.paths.get((dependency.package or dependency.name).lower())
+                    linked = posixpath.normpath(posixpath.join(folder, path)) if path is not None else ""
+                    if linked.startswith("Packages/") and linked != root:
+                        following.append((linked, True, dependency.name))
+        pending = following
+    return {folder: LinkedPackage(texts[folder], frozenset(names))
+            for folder, names in sorted(reached.items()) if folder != root and names}
+
+
+def linked_targets(packages: dict[str, LinkedPackage]) -> dict[str, list]:
+    """{package folder: its reached targets (swift_scope.Target: name, folder, isolation)} of linked_closure()'s
+    PACKAGES."""
+    return {folder: [t for t in swift_scope.package_targets(package.text) if t.name in package.targets]
+            for folder, package in packages.items()}
+
+
+def load_linked_packages(manifest: str | None, read: Callable[[list[str]], dict[str, str]]) -> None:
+    """Keeps the linked packages of MANIFEST (HEAD's CmuxNext Package.swift; None: none) and their reached targets
+    for in_rule_scope() and linked_main_default(). READ is linked_closure()'s."""
+    BLOCKING_CONTEXT["linked"] = linked_targets(linked_closure(manifest or "", read))
+
+
+def linked_package(path: str) -> str | None:
+    """The folder of the linked package one of whose reached targets holds PATH (a Swift file), None for any other
+    path (and before load_linked_packages())."""
+    if not path.endswith(".swift"):
+        return None
+    for folder, targets in (BLOCKING_CONTEXT.get("linked") or {}).items():
+        if path.startswith(folder + "/") and swift_scope.default_isolation(path[len(folder) + 1:], targets) is not None:
+            return folder
+    return None
+
+
+def linked_main_default(path: str) -> bool:
+    """Whether PATH, a linked package's source file, is main actor by default: its target says
+    `.defaultIsolation(MainActor.self)` (no linked package does today)."""
+    folder = linked_package(path)
+    if folder is None:
+        return False
+    return bool(swift_scope.default_isolation(path[len(folder) + 1:], BLOCKING_CONTEXT["linked"][folder]))
+
+
+def load_push_linked_packages(repo: Path, head: str, manifest: str | None, files: list[FileChange]) -> None:
+    """Reads HEAD's linked packages when the push changes a Swift source file of a package outside CmuxNext (any
+    other push reads no more manifests) and gives each changed file of a linked package its target's default
+    isolation, which is not the main actor's."""
+    if not any(is_package_swift(f.path) and "/Sources/" in f.path and not f.path.startswith(PACKAGE_ROOT)
+               for f in files):
+        return
+
+    def read(paths: list[str]) -> dict[str, str]:
+        found = blobs(repo, [(head, path) for path in paths])
+        return {path: found[(head, path)] for path in paths if (head, path) in found}
+
+    load_linked_packages(manifest, read)
+    for change in files:
+        if linked_package(change.path) is not None:
+            change.head_main = change.base_main = linked_main_default(change.path)
+
+
+def in_rule_scope(path: str, scope: tuple[str, ...]) -> bool:
+    """Whether a rule with SCOPE reads PATH: a path prefix or suffix of SCOPE, or, with LINKED_SOURCES in SCOPE, a
+    linked package's source file."""
+    return (path.startswith(scope) or path.endswith(scope)
+            or (LINKED_SOURCES in scope and linked_package(path) is not None))
+
+
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str, repo: Path | None = None) -> None:
     """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open),
     and, given REPO, names HEAD's tree for pool-blocking's actor index (repo_actor_index reads it on demand)."""
-    for key in ("threading_doc", "manifest", "ui_targets", "actor_tree", "actor_index"):
+    for key in ("threading_doc", "manifest", "ui_targets", "actor_tree", "actor_index", "linked"):
         BLOCKING_CONTEXT.pop(key, None)
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
         if (head, path) in texts:
@@ -4176,7 +4497,7 @@ BLOCKING_RULES = (
          "and apply its result on main; a wait becomes an `await` or a callback. The checked seams "
          "(`FileManager.checked`, `Data(blockingContentsOf:)`, `.blockingWait()`) are for code that runs off main",
          "// blocking-allow: <why this cannot leave the main thread, and its reviewed allowBlocking reason>",
-         blocking_on_main),
+         blocking_on_main, scope=LINKED_RULE_SCOPE),
     Rule("raw-blocking", "A raw blocking primitive (file read/write, `.write(to:)`, `FileManager.default.<disk op>`, "
          "`.wait()`, `.sync {`, `asyncAndWait`, `waitUntilExit()`, `readToEnd()`, `try process.run()`, sync XPC, "
          "`posix_spawn`, `fork()`, pthread and condition-lock waits, Security, AX, `getaddrinfo`, CGWindowList, "
@@ -4190,9 +4511,10 @@ BLOCKING_RULES = (
          "`blockingRead/Recv/Write/Send`, `blockingSecItem*`, `blockingAX*`, `blockingGetaddrinfo`, "
          "`blockingWindowList*`, `workspace.blockingURLForApplication/blockingIcon`, `blockingSMAppService*`, "
          "`blockingAuthorizationCopyRights`; with no seam (sync XPC proxy, AppleScript, condition locks, "
-         "`asyncAndWait`, LSCopy) use the async API",
+         "`asyncAndWait`, LSCopy) use the async API. In a linked Shared/iOS package, wrap it in CmuxThreading's "
+         "`blockingCall(.fileIO | .systemCall | ...) { ... }` and run it through the package's MayBlockRunner",
          "// blocking-allow: <why the seam does not fit>",
-         raw_blocking),
+         raw_blocking, scope=LINKED_RULE_SCOPE),
     Rule("pool-blocking", "A blocking call (raw or seam) on a shared pool thread: in a `Task.detached` or child task "
          "body or an `async let` initializer, a `Task {` in a nonisolated function, an @concurrent function, or a method of an actor that has no "
          "custom executor",
@@ -4200,10 +4522,11 @@ BLOCKING_RULES = (
          "thread stalls every async job queued behind it (Chrome's ThreadPool runs a task without MayBlock() under "
          "ScopedDisallowBlocking, base/task/thread_pool/task_tracker.cc)",
          "run it on a BackgroundWork lane (`work.run(priority, mayBlock: .files|.system) { ... }`, or a "
-         "MayBlockRunner below CmuxNextWakeups); an actor whose methods block gets a serial executor on a named "
+         "MayBlockRunner below CmuxNextWakeups or in a linked Shared/iOS package, CmuxThreading's); an actor whose "
+         "methods block gets a serial executor on a named "
          "queue at its QoS (`nonisolated var unownedExecutor`, the HomeCache pattern; a comment is no executor)",
          "// blocking-allow: <why this blocking call may hold a pool thread>",
-         blocking_on_pool),
+         blocking_on_pool, scope=LINKED_RULE_SCOPE),
     Rule("raw-blocking-ext", "A blocking primitive raw-blocking does not name: a FileManager disk op through a "
          "variable or `FileManager()`, POSIX file calls (`open(..., O_*)`, `stat(path, &st)`, `rename`, `unlink`, "
          "`fsync`, `flock`, `realpath`, ...), `waitpid` without WNOHANG, FileHandle open/write/read/seek/synchronize, "
@@ -4212,15 +4535,16 @@ BLOCKING_RULES = (
          "unseen, and off it nobody knows the thread blocks",
          "from code that runs off the main thread, use `FileManager.checked.<op>` instead of a FileManager variable, "
          "`handle.blockingRead(upToCount:)` / `handle.blockingWrite(contentsOf:)` for a FileHandle, and wrap any "
-         "other call in `blockingCall(.fileIO | .systemCall | .processWait) { ... }` (CmuxNextCompat/Threading)",
+         "other call in `blockingCall(.fileIO | .systemCall | .processWait) { ... }` (CmuxNextCompat/Threading; in a "
+         "linked Shared/iOS package, CmuxThreading's `blockingCall`)",
          "// blocking-allow: <why the seam does not fit>",
-         raw_blocking_ext),
+         raw_blocking_ext, scope=LINKED_RULE_SCOPE),
     Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
          "under NonisolatedNonsendingByDefault a non-@concurrent async function outside an actor runs on its caller's "
          "executor, so a main-actor caller runs the blocking call on main (AsyncProcess.run: 807 ms, 2026-10-24)",
          "mark the function `@concurrent` (or move the work into an actor) so it never runs on the caller's main thread",
          "// blocking-allow: <why every caller is off the main thread>",
-         maybe_blocking_on_main),
+         maybe_blocking_on_main, scope=LINKED_RULE_SCOPE),
     Rule("once-blocking", "A blocking call (raw, seam or raw-blocking-ext) in a static, lazy or global initializer",
          "Swift runs the initializer once, on whichever thread reads the value first, and every other first reader "
          "waits for it: its disk, kernel or process wait lands on an unknown thread, often the main thread "
@@ -4228,14 +4552,14 @@ BLOCKING_RULES = (
          "load the value on a lane at warm-up (`work.run(.userVisible, mayBlock: .files) { ... }`) and inject it "
          "where it is read, or make its accessor `async`; a literal value needs no load",
          "// blocking-allow: <why no reader can be the main thread or wait on it>",
-         blocking_once),
+         blocking_once, scope=LINKED_RULE_SCOPE),
     Rule("thread-doc", "A new thread, queue or blocking allowance that plans/cmux-next/threading-model.md does not list",
          "every thread and queue has an owner, a QoS, a bound and a back-pressure rule written down, and every "
          "main-thread blocking allowance is reviewed (Chrome's ScopedAllowBlocking friend list)",
          "name the thread or queue and add its label to the doc's \"Registered threads and queues\" (and a table row "
          "for a new kind); add a new BlockingAllowance to \"Reviewed blocking allowances\" in the same push",
          "// blocking-allow: <why this thread needs no entry>",
-         undocumented_threads),
+         undocumented_threads, scope=LINKED_RULE_SCOPE),
 )
 RULES += BLOCKING_RULES
 # ---------------------------------------------------------------- end of main-blocking / thread-doc (PL-blocking)
@@ -4562,6 +4886,37 @@ def perf_hot_warnings(changes: dict[str, FileChange], benches: dict) -> list[str
     return out
 
 
+def list_perf_hot(repo: Path, wanted: list[str]) -> int:
+    """Prints each path id of BENCHES (or only WANTED) with the markers this hook's resolver sees in the tracked
+    Swift files of REPO's working tree, and each marker that marks no declaration or names an unknown id. Exit 1
+    when a listed id has no marker that marks a declaration, or a marker marks none."""
+    paths = json.loads((repo / BENCHES).read_text(encoding="utf-8")).get("paths", {})
+    unknown = [pid for pid in wanted if pid not in paths]
+    if unknown:
+        print(f"guardrails: not in {BENCHES}: {', '.join(unknown)}")
+        return 1
+    files = git(repo, "grep", "-I", "-z", "-l", "--no-color", "-F", "perf-hot:", "--", "*.swift", check=False)
+    found: dict[str, list[tuple[str, PerfHotMarker]]] = collections.defaultdict(list)
+    for path in sorted(p for p in files.split("\0") if p):
+        lines = (repo / path).read_text(encoding="utf-8", errors="replace").split("\n")
+        for marker in perf_hot_markers(lines):
+            found[marker.path_id].append((path, marker))
+    failed = False
+    for pid in wanted or list(paths):
+        markers = found.get(pid, [])
+        resolved = [(path, m) for path, m in markers if m.span is not None]
+        print(f"{pid}: {len(resolved)} marker{'s' if len(resolved) != 1 else ''}" + ("" if resolved else " (none)"))
+        for path, marker in markers:
+            target = f"marks `{marker.declaration[:80]}`" if marker.span else "MARKS NO DECLARATION"
+            print(f"  {path}:{marker.line}: {marker.budget}, {target}")
+        failed = failed or not resolved or len(resolved) != len(markers)
+    if not wanted:
+        for pid in sorted(set(found) - set(paths)):
+            sites = ", ".join(f"{path}:{m.line}" for path, m in found[pid])
+            print(f"{pid or '(no path id)'}: not in {BENCHES}: {sites}")
+    return 1 if failed else 0
+
+
 def marker_ids(lines) -> collections.Counter:
     """`// perf-hot:` markers in LINES per path id (the budget when a marker has no id)."""
     found = collections.Counter()
@@ -4735,10 +5090,15 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     for change in files:
         change.memo["wakeup"] = wakeup
     moved = collections.Counter(r.text.strip() for c in swift.values() for r in c.removed if r.text.strip())
+    try:
+        load_push_linked_packages(repo, head, texts.get((head, PACKAGE_MANIFEST)), files)
+    except Exception as error:  # fail open for the linked packages only: the rules still judge CmuxNext's files
+        BLOCKING_CONTEXT.pop("linked", None)
+        warnings.append(("guardrails", check_failure("linked packages", error)))
     found = []
     for rule in RULES:
         # The unchanged context files hold no added or removed line: only their touched context can add debt.
-        scoped = [f for f in files + context_files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)]
+        scoped = [f for f in files + context_files if in_rule_scope(f.path, rule.scope)]
         try:
             hits = rule.find(scoped, moved)
         except Exception as error:  # fail open for this rule only: a bug in one rule must not switch off the rest
@@ -5282,11 +5642,142 @@ SAFETY_TODO_CASES = (
 )
 
 
+SELF_TEST_WAIT = "Packages/Shared/Linked/Sources/Linked/Wait.swift"
+SELF_TEST_OTHER_WAIT = "Packages/Shared/Linked/Sources/Linked/OtherWait.swift"
+SELF_TEST_OLD_WAIT = ("func value() async throws -> Int {\n"
+                      "    await withCheckedContinuation { continuation in\n"
+                      "        continuation.resume(returning: 1)\n    }\n}\n")
+SELF_TEST_ONCE_WAIT = SELF_TEST_OLD_WAIT.replace("await withCheckedContinuation", "try await withOnceContinuation")
+# The base: one file already on OnceContinuation, one with an old raw continuation the push may leave alone.
+SELF_TEST_CONTINUATION_BASE = {SELF_TEST_WAIT: SELF_TEST_ONCE_WAIT, SELF_TEST_OTHER_WAIT: SELF_TEST_OLD_WAIT}
+SELF_TEST_NEW_WAIT = ("func next() async throws -> Int {{\n"
+                      "    try await {call} {{ continuation in\n"
+                      "        continuation.resume(returning: 2)\n    }}\n}}\n")
+SELF_TEST_NOTE = "// notes\n"
+RAW_CONTINUATION_CASES = (
+    *((f"a new {call} in a package's Sources",
+       {"Packages/macOS/CmuxNext/Sources/CmuxNextApp/Next.swift": SELF_TEST_NEW_WAIT.format(call=call)}, True)
+      for call in ("withCheckedContinuation", "withCheckedThrowingContinuation", "withUnsafeContinuation",
+                   "withUnsafeThrowingContinuation")),
+    ("a new raw continuation in a Shared package", {SELF_TEST_WAIT: SELF_TEST_ONCE_WAIT
+                                                     + SELF_TEST_NEW_WAIT.format(call="withCheckedContinuation")},
+     True),
+    ("an old raw continuation in a file the push changes elsewhere (the ban)",
+     {SELF_TEST_OTHER_WAIT: SELF_TEST_NOTE + SELF_TEST_OLD_WAIT}, True),
+    ("an old raw continuation moved to another file (the ban)",
+     {SELF_TEST_OTHER_WAIT: "", "Packages/Shared/Linked/Sources/Linked/Moved.swift": SELF_TEST_OLD_WAIT}, True),
+    ("an old raw continuation in a file the push does not change",
+     {SELF_TEST_WAIT: SELF_TEST_NOTE + SELF_TEST_ONCE_WAIT}, False),
+    ("an old raw continuation replaced by OnceContinuation",
+     {SELF_TEST_OTHER_WAIT: SELF_TEST_ONCE_WAIT}, False),
+    ("a file with its raw continuation deleted", {SELF_TEST_OTHER_WAIT: None}, False),
+    ("a raw continuation inside CmuxSafeConcurrency, which implements OnceContinuation",
+     {"Packages/Shared/CmuxSafeConcurrency/Sources/CmuxSafeConcurrency/Wait.swift":
+      SELF_TEST_NEW_WAIT.format(call="withCheckedContinuation")}, False),
+    ("a raw continuation in a test",
+     {"Packages/Shared/Linked/Tests/LinkedTests/WaitTests.swift":
+      SELF_TEST_NEW_WAIT.format(call="withCheckedContinuation")}, False),
+    ("a raw continuation named only in a comment or a string",
+     {SELF_TEST_WAIT: SELF_TEST_ONCE_WAIT + "// replaces withCheckedContinuation\n"
+                                            "let note = \"withCheckedContinuation\"\n"}, False),
+    ("a reviewed escape",
+     {SELF_TEST_WAIT: SELF_TEST_ONCE_WAIT + SELF_TEST_NEW_WAIT.format(call="withUnsafeContinuation").replace(
+         "    try await", "    // raw-continuation-allow: fixture for the escape\n    try await")}, False),
+    ("an old raw continuation given a reviewed escape",
+     {SELF_TEST_OTHER_WAIT: SELF_TEST_OLD_WAIT.replace(
+         "    await", "    // raw-continuation-allow: fixture for the escape\n    await")}, False),
+)
+
+
+SELF_TEST_SHARED_QUEUE = "Packages/Shared/Linked/Sources/Linked/Queue.swift"
+SELF_TEST_APP_QUEUE = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Queue.swift"
+SELF_TEST_GUARD = "    guard let first = items.first else {\n        idle()\n        return nil\n    }\n"
+SELF_TEST_GUARDED = "func next() -> Int? {\n" + SELF_TEST_GUARD + "    items.removeFirst()\n    return first\n}\n"
+SELF_TEST_UNGUARDED = "func drop() {\n    items.removeFirst()\n}\n"
+SELF_TEST_PAD = "let pad = String(repeating: \" \", count: width - used)\n"
+# The base: a Shared file at zero, a Shared file and an app file with an old unguarded removal each.
+SELF_TEST_TRAP_BASE = {SELF_TEST_SHARED_QUEUE: SELF_TEST_GUARDED,
+                       "Packages/Shared/Linked/Sources/Linked/Old.swift": SELF_TEST_UNGUARDED,
+                       SELF_TEST_APP_QUEUE: SELF_TEST_GUARDED + SELF_TEST_UNGUARDED}
+TRAP_API_CASES = (
+    *((f"a new {name} in a Shared package", {SELF_TEST_SHARED_QUEUE: SELF_TEST_GUARDED + code}, True)
+      for name, code in (
+          ("uniqueKeysWithValues", "let byID = Dictionary(uniqueKeysWithValues: pairs)\n"),
+          ("unguarded removeLast", "func pop() {\n    stack.removeLast()\n}\n"),
+          ("repeating count that may be negative", SELF_TEST_PAD),
+          ("offsetBy without limitedBy", "let i = s.index(s.startIndex, offsetBy: n)\n"))),
+    ("a new trap in an iOS package",
+     {"Packages/iOS/Phone/Sources/Phone/P.swift": "let a = Array(repeating: 0, count: n)\n"}, True),
+    ("an old trap in a Shared file the push changes elsewhere (the ban)",
+     {"Packages/Shared/Linked/Sources/Linked/Old.swift": "// notes\n" + SELF_TEST_UNGUARDED}, True),
+    ("a new trap in an app file", {SELF_TEST_APP_QUEUE: SELF_TEST_GUARDED + SELF_TEST_UNGUARDED + SELF_TEST_PAD}, True),
+    ("an app file's old trap with a change elsewhere in it",
+     {SELF_TEST_APP_QUEUE: "// notes\n" + SELF_TEST_GUARDED + SELF_TEST_UNGUARDED}, False),
+    ("a guard removed above an old app removal",
+     {SELF_TEST_APP_QUEUE: SELF_TEST_GUARDED.replace(SELF_TEST_GUARD, "    let first = 0\n") + SELF_TEST_UNGUARDED},
+     True),
+    ("an old trap in a Shared file the push does not change",
+     {SELF_TEST_SHARED_QUEUE: "// notes\n" + SELF_TEST_GUARDED}, False),
+    ("safe forms in a Shared package",
+     {SELF_TEST_SHARED_QUEUE: SELF_TEST_GUARDED
+      + "let byID = Dictionary(pairs, uniquingKeysWith: { first, _ in first })\n"
+      + "let top = stack.popLast()\n"
+      + "let pad = String(repeating: \" \", count: max(0, width - used))\n"
+      + "func cut(_ n: Int) {\n    guard n >= 0 else { return }\n    let a = Array(repeating: 0, count: n)\n}\n"
+      + "let i = s.index(s.startIndex, offsetBy: n, limitedBy: s.endIndex)\n"
+      + "// Dictionary(uniqueKeysWithValues: pairs)\n"}, False),
+    ("a trap in a test", {"Packages/Shared/Linked/Tests/LinkedTests/QueueTests.swift": SELF_TEST_UNGUARDED}, False),
+    ("a reviewed escape",
+     {SELF_TEST_SHARED_QUEUE: SELF_TEST_GUARDED + SELF_TEST_UNGUARDED.replace(
+         "    items.removeFirst()", "    // trap-api-allow: fixture for the escape\n    items.removeFirst()")}, False),
+)
+
+
+SELF_TEST_DECODE = "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Transport/RFBReader.swift"
+SELF_TEST_DECODE_BASE = {SELF_TEST_DECODE: ("func length(_ bytes: [UInt8]) throws -> Int {\n"
+                                            "    let word = bytes.prefix(4).reduce(UInt32(0)) { $0 << 8 | UInt32(truncatingIfNeeded: $1) }\n"
+                                            "    guard let length = Int(exactly: word) else { throw Failure.tooLong }\n"
+                                            "    return length\n}\n"),
+                         # A listed file that already has a hit (before its wave): any push that touches it fixes it.
+                         "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCEndpoint.swift":
+                             "func port(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"}
+
+
+def _decode_edit(body: str, path: str = SELF_TEST_DECODE) -> dict[str, str]:
+    """The base decode file with BODY added at its end (at PATH)."""
+    return {path: SELF_TEST_DECODE_BASE[SELF_TEST_DECODE] + body}
+
+
+DECODE_TRAP_CASES = (
+    ("an index subscript in a decode file", _decode_edit("func first(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"), True),
+    ("a range subscript in a decode file", _decode_edit("func head(_ b: [UInt8], _ n: Int) -> ArraySlice<UInt8> { b[0..<n] }\n"),
+     True),
+    ("a trapping conversion in a decode file", _decode_edit("func count(_ w: UInt32) -> UInt16 { UInt16(w) }\n"), True),
+    ("an old hit on a line the push did not change, in a decode file it touches",
+     {"Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCEndpoint.swift":
+      "// The port byte.\nfunc port(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"}, True),
+    ("front reads and checked conversions", _decode_edit("func pair(_ b: [UInt8]) -> UInt16? {\n"
+                                                         "    UInt16(exactly: b.dropFirst(1).prefix(2).count)\n}\n"), False),
+    ("a dictionary subscript", _decode_edit("func kind(_ k: String) -> Int? {\n"
+                                            "    let kinds: [String: Int] = [:]\n    return kinds[k]\n}\n"), False),
+    ("an escaped C constant", _decode_edit("// decode-trap-allow: a C macro, not input\n"
+                                           "let maxBytes = Int(CMUX_MAX_BYTES)\n"), False),
+    ("a subscript named only in a comment or a string", _decode_edit("// bytes[i] traps\nlet note = \"bytes[i]\"\n"),
+     False),
+    ("a subscript in a file that is not listed",
+     _decode_edit("func first(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n",
+                  "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/Other.swift"), False),
+)
+
+
 # (rule, base files, cases): each case is one commit over its suite's base.
 SELF_TEST_SUITES = (
     ("input-monitor", SELF_TEST_BASE, SELF_TEST_CASES),
     ("target-settings", SELF_TEST_MANIFEST_BASE, TARGET_SETTINGS_CASES),
     ("safety-todo", SELF_TEST_SAFETY_BASE, SAFETY_TODO_CASES),
+    ("raw-continuation", SELF_TEST_CONTINUATION_BASE, RAW_CONTINUATION_CASES),
+    ("trap-api", SELF_TEST_TRAP_BASE, TRAP_API_CASES),
+    ("decode-trap", SELF_TEST_DECODE_BASE, DECODE_TRAP_CASES),
 )
 
 
@@ -5311,9 +5802,12 @@ def self_test() -> int:
                     return subprocess.run(["git", "-C", str(repo), *args], env=env, text=True, capture_output=True,
                                           check=True).stdout.strip()
 
-                def commit(files: dict[str, str], message: str) -> str:
+                def commit(files: dict[str, str | None], message: str) -> str:
                     for relative, text in files.items():
                         path = repo / relative
+                        if text is None:  # a deleted file
+                            path.unlink()
+                            continue
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_text(text)
                     run("add", "-A")
@@ -5352,11 +5846,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
     parser.add_argument("--self-test", action="store_true",
-                        help="judge the input-monitor, target-settings and safety-todo rules' refuse and escape "
-                             "cases in a scratch repository")
+                        help="judge the input-monitor, target-settings, safety-todo, raw-continuation, trap-api and "
+                             "decode-trap rules' "
+                             "refuse and escape cases in a scratch repository")
+    parser.add_argument("--list-perf-hot", nargs="*", metavar="PATH_ID",
+                        help=f"print the `// perf-hot:` markers per path id of {BENCHES} as this hook resolves them "
+                             "(only the ids given, if any); exit 1 when an id has no marker or a marker marks no "
+                             "declaration")
     args = parser.parse_args(argv)
     if args.self_test:
         return self_test()
+    if args.list_perf_hot is not None:
+        return list_perf_hot(Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip()),
+                             args.list_perf_hot)
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")

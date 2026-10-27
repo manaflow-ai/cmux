@@ -37,17 +37,15 @@ enum TerminalChatHandler {
             }
             pane.selectWhenReported(surface: pending.surface)
             let logger = pane.daemon.logger
-            context.registry.track(Task { @MainActor in
-                do {
-                    _ = try await pending.value()
-                    return nil
-                } catch is CancellationError {
-                    return nil // the person closed the tab first
-                } catch {
-                    logger.error("open-terminal-as-chat failed: \(String(describing: error), privacy: .public)")
-                    return ActionWorkFailure("open terminal as chat", error)
-                }
-            })
+            // The chat's creation is awaited off main; its failure is the run's, told in one task on main.
+            context.registry.trackWork(owner: "TerminalChatHandler.open", on: services.mainWork) {
+                _ = try await pending.value()
+            } then: { result in
+                // A cancellation: the person closed the tab first.
+                guard case .failure(let error) = result, !(error is CancellationError) else { return nil }
+                logger.error("open-terminal-as-chat failed: \(String(describing: error), privacy: .public)")
+                return ActionWorkFailure("open terminal as chat", error)
+            }
         }
     }
 }

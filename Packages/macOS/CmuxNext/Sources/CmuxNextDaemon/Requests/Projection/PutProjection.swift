@@ -23,7 +23,11 @@ public struct PutFrontendProjectionRequest: DaemonRequest {
         self.mutation = mutation
     }
 
-    enum CodingKeys: String, CodingKey { case frontend, scope, subjectKey, schemaVersion, projection, expectedProjectionRevision }
+    enum CodingKeys: String, CodingKey {
+        case frontend, scope, subjectKey = "subject_key", schemaVersion = "schema_version", projection
+        case expectedProjectionRevision = "expected_projection_revision"
+    }
+
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(frontend, forKey: .frontend)

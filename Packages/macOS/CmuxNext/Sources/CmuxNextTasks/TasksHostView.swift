@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import SwiftUI
 
 /// Hosts the Tasks pane in a tab's content area. The App creates it with a
@@ -9,26 +9,32 @@ import SwiftUI
 /// a change switches the layout live. Resolves the
 /// pane colors (chrome tokens and the terminal's ANSI palette) in this
 /// view's theme scope and again on every theme change.
-public final class TasksHostView: NSView {
+public final class TasksHostView: NSView, VisibilityGatedContent {
     public let model: TasksModel
-    private let appearanceState = TasksAppearance()
+    private let appearanceState: TasksAppearance
+    private let gate: VisibilityGatedHostingView
+
+    /// Its SwiftUI leaves the hierarchy while the tab is hidden (``VisibilityGatedHostingView``).
+    public var visibilityGate: VisibilityGatedHostingView? { gate }
 
     /// The pane's tab title (localized).
     public static var paneTitle: String { TasksStrings.title }
 
     public init(model: TasksModel, layout: @escaping @MainActor () -> TasksLayout) {
+        let appearance = TasksAppearance()
         self.model = model
+        appearanceState = appearance
+        gate = VisibilityGatedHostingView(owner: "TasksHostView") { TasksRoot(model: model, appearance: appearance, layout: layout) }
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
-        let hosting = NSHostingView(rootView: TasksRoot(model: model, appearance: appearanceState, layout: layout))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hosting)
+        gate.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(gate)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+            gate.leadingAnchor.constraint(equalTo: leadingAnchor),
+            gate.trailingAnchor.constraint(equalTo: trailingAnchor),
+            gate.topAnchor.constraint(equalTo: topAnchor),
+            gate.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
@@ -90,9 +96,11 @@ struct TasksRoot: View {
     let model: TasksModel
     let appearance: TasksAppearance
     let layout: @MainActor () -> TasksLayout
+    @Environment(\.hostingBodyCounter) private var bodyCounter
 
     var body: some View {
-        TasksView(model: model, layout: layout())
+        bodyCounter?.record()
+        return TasksView(model: model, layout: layout())
             .environment(\.tasksColors, appearance.colors)
     }
 }

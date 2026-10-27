@@ -7,7 +7,8 @@ extension TerminalSession {
     /// own allocations (font atlas, parser state), so this is a lower bound. Nil before attach or after free.
     public var memoryEstimateBytes: UInt64? {
         guard let surface = surfaceView.surface else { return nil }
-        let size = ghostty_surface_size(surface)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        let size = unsafe ghostty_surface_size(surface)
         let cells = UInt64(size.columns) * UInt64(size.rows)
         return Self.drawableBytes(size) + cells * 64
     }
@@ -18,7 +19,8 @@ extension TerminalSession {
     /// (``TerminalFramePurgeability``) and not counted.
     public var pausedNonvolatileIOSurfaceBytes: UInt64 {
         guard surfaceView.pause != nil, surfaceView.gpu.resident, let surface = surfaceView.surface else { return 0 }
-        return Self.drawableBytes(ghostty_surface_size(surface), buffers: Self.swapChainBuffers - 1)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        return Self.drawableBytes(unsafe ghostty_surface_size(surface), buffers: Self.swapChainBuffers - 1)
     }
 
     /// Ghostty's swap chain: three BGRA buffers per surface.

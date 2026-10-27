@@ -23,7 +23,9 @@ extension MainThreadWatchdog {
     /// Reads the main-thread scheduler's board (``MainTaskBoard``): every stall record from now on
     /// names the scheduled task its sample caught (`task_owner`, `task_class`, `task_budget_ms`,
     /// `task_sequence`, and `task_started_ms`: when that task began, relative to the stall's start;
-    /// negative when it began before the stall). With `recordTaskBudgets`, every
+    /// negative when it began before the stall), every hang names it (``Hang/attribution``), and a task
+    /// still running past its class's hang deadline is recorded in ``taskHangs`` with a stack, in
+    /// every launch (``checkHangScope(now:reported:)``). With `recordTaskBudgets`, every
     /// scheduled task that ran past its class's per-frame budget is also recorded in ``overBudget``,
     /// with a stack sampled the moment it crossed the budget: the board wakes this thread at each
     /// task start so it can sample in time (one kqueue user event per task, `MainThreadWatchdogAlarm`).
@@ -36,23 +38,25 @@ extension MainThreadWatchdog {
     @MainActor
     public func attach(board: MainTaskBoard, recordTaskBudgets: Bool) {
         boardSink.withLock { $0 = board }
-        guard recordTaskBudgets else { return }
         // Its own buffer (a stall's sample stays in the stall sampler until the main thread copies
-        // it); only this mode samples tasks, so only this mode allocates it.
+        // it): hang scopes sample with it in every launch, over-budget tasks in this mode.
         if configuration.sampleStacks { taskSampler.withLock { $0 = ThreadStackSampler(thread: mach_thread_self()) } }
+        guard recordTaskBudgets else { return }
         board.setTaskStartHook { [weak self] in self?.wakeForTask() }
         board.setOverBudgetSink { [weak self] task, nanos in self?.recordOverBudget(task, nanos: nanos) }
         taskDiagnostics.store(true, ordering: .releasing)
     }
 
-    /// The stall record fields for `task`.
+    /// The stall record fields for `task` (`task_location` when it names where it was posted).
     static func details(of task: MainTaskBoard.Task) -> [String: JSONValue] {
-        [
+        var details: [String: JSONValue] = [
             "task_owner": .string(task.owner),
             "task_class": .string(task.workClass.description),
             "task_budget_ms": .number(Double(task.budgetNanos) / 1_000_000),
             "task_sequence": JSONValue(Int(clamping: task.sequence)),
         ]
+        if let site = task.postedFrom { details["task_location"] = .string(site.description) }
+        return details
     }
 
     /// Main thread, at the end of an over-budget task: one ``overBudget`` record with the stack

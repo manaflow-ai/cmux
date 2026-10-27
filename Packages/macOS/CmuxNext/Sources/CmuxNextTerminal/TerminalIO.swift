@@ -68,16 +68,28 @@ public nonisolated protocol TerminalIO: Sendable {
     /// restore did not match the owner's check): a daemon IO asks for a full
     /// snapshot. Ordered with `write`.
     func resyncRequested() async
+
+    /// Where the session's input lane drains (``TerminalInputLane``): called once per session. An IO
+    /// whose sends do not block returns its own serial queue and a handler that takes each record
+    /// there, so a key reaches it in one thread hop. The default runs the async calls above in order.
+    func inputDrain() -> TerminalInputDrain
+
+    /// The session took `bytes` of `.output` (its output lane has them). An IO that bounds the bytes
+    /// its `events` hold (``LocalPTYTerminalIO``: it stops reading the PTY at the bound) reads on once
+    /// enough are taken. The default does nothing: the daemon's terminals bound theirs on the daemon.
+    func outputConsumed(_ bytes: Int)
 }
 
 public extension TerminalIO {
-    var answersTerminalQueries: Bool { true }
+    nonisolated var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
     @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool { false }
     func focusGained() async {}
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
+    nonisolated func inputDrain() -> TerminalInputDrain { .awaiting(self) }
+    nonisolated func outputConsumed(_ bytes: Int) {}
 }
 
 /// One event from a ``TerminalIO``.

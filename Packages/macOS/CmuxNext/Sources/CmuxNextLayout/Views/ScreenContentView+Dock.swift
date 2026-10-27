@@ -299,10 +299,7 @@ extension ScreenContentView {
     private func sortByRank(_ view: NSView) {
         let ranks = view.subviews.enumerated().map { rank($1) * 100_000 + $0 }
         guard ranks != ranks.sorted() else { return }
-        let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(view.subviews.map(ObjectIdentifier.init), ranks)))
-        withExtendedLifetime(table) {
-            view.sortSubviews(compareStacking, context: Unmanaged.passUnretained(table).toOpaque())
-        }
+        StackingTable(ranks: Dictionary(zip(view.subviews.map(ObjectIdentifier.init), ranks), uniquingKeysWith: { first, _ in first })).sort(view)
     }
 
     // memory: fixed computed on each read and kept by no one: one rect per laid-out pane.
@@ -338,18 +335,28 @@ extension ScreenContentView {
     }
 }
 
-/// Sort keys for `ensureStacking`, passed through `sortSubviews`' context.
-nonisolated final class StackingTable: Sendable {
+/// Sort keys for `ensureStacking` and the canvas order, lent to `sortSubviews`' comparator for one call.
+nonisolated struct StackingTable {
     let ranks: [ObjectIdentifier: Int]
-    init(ranks: [ObjectIdentifier: Int]) { self.ranks = ranks }
+
+    /// Orders `view`'s subviews by rank. The comparator's context points at a copy of this table that lives
+    /// for the call alone (`sortSubviews` is synchronous), not at an object it would have to keep alive.
+    @MainActor func sort(_ view: NSView) {
+        var table = self
+        // SAFETY: the pointer is valid inside this closure, which `sortSubviews` does not outlive.
+        unsafe withUnsafeMutablePointer(to: &table) { table in
+            // SAFETY: as above; compareStacking only reads through it.
+            unsafe view.sortSubviews(compareStacking, context: UnsafeMutableRawPointer(table))
+        }
+    }
 }
 
-/// `sortSubviews` comparator: reads only the table's immutable ranks.
+/// `sortSubviews` comparator: reads only the ranks of the table ``StackingTable/sort(_:)`` lent it.
 nonisolated func compareStacking(_ a: NSView, _ b: NSView, _ context: UnsafeMutableRawPointer?) -> ComparisonResult {
-    guard let context else { return .orderedSame }
-    let table = Unmanaged<StackingTable>.fromOpaque(context).takeUnretainedValue()
-    let x = table.ranks[ObjectIdentifier(a)] ?? 0
-    let y = table.ranks[ObjectIdentifier(b)] ?? 0
+    // SAFETY: a non-nil context is the StackingTable `sort` lent for the sortSubviews call this runs inside.
+    guard let ranks = unsafe context?.assumingMemoryBound(to: StackingTable.self).pointee.ranks else { return .orderedSame }
+    let x = ranks[ObjectIdentifier(a)] ?? 0
+    let y = ranks[ObjectIdentifier(b)] ?? 0
     return x < y ? .orderedAscending : (x > y ? .orderedDescending : .orderedSame)
 }
 

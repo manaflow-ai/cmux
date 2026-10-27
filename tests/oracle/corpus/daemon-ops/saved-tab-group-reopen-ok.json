@@ -154,6 +154,31 @@
         "settled"
       ],
       "note": "round trip: the live group closes, and its saved record opens it again as a new group in the split's pane"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "saved_tab_group.reopen",
+        "params": {
+          "saved_tab_group": "$step:fx-saved-tab-group#/value/id",
+          "pane_id": "$step:fx-split#/value/pane_id"
+        },
+        "idempotencyKey": "saved-tab-group-reopen-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

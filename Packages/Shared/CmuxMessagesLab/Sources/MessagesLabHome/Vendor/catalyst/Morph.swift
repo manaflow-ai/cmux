@@ -451,7 +451,10 @@ final class MorphBubble {
         defer { src.free(); dst.free() }
         let k = UInt32(clamping: 2 * max(0, r) + 1) // a negative radius does not trap
         for _ in 0..<3 {
-            vImageBoxConvolve_ARGB8888(&src, &dst, nil, 0, 0, k, k, nil, vImage_Flags(kvImageEdgeExtend))
+            // SAFETY: src and dst are vImage buffers of one size and pixel format (dst made from src's width, height
+            // and bits per pixel), owned here until the defer frees each once; the call reads src and writes dst
+            // inside their bounds, with no temporary buffer and no background colour pointer (vImage allocates).
+            unsafe vImageBoxConvolve_ARGB8888(&src, &dst, nil, 0, 0, k, k, nil, vImage_Flags(kvImageEdgeExtend))
             swap(&src, &dst)
         }
         return try? src.createCGImage(format: format)

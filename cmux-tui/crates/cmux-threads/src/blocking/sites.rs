@@ -2,7 +2,7 @@
 //! with their kinds and counts, and an overflow count once it is full.
 
 use std::panic::Location;
-use std::sync::atomic::{AtomicPtr, AtomicU16, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU16, AtomicU64, Ordering};
 
 use super::report::SiteReport;
 use super::{BlockingKind, BlockingKinds, BlockingSite, BlockingSnapshot};
@@ -10,13 +10,15 @@ use super::{BlockingKind, BlockingKinds, BlockingSite, BlockingSnapshot};
 /// Records a violation in `table` and, when a report is open, reports it
 /// once per (site, kind, thread), whether or not the table had room. True
 /// when it is the first violation the table recorded at this site.
+/// `lane_sync` marks a work item's wait for other work.
 pub(super) fn note_violation<const N: usize>(
     table: &SiteTable<N>,
     report: Option<&SiteReport>,
     kind: BlockingKind,
     location: &'static Location<'static>,
+    lane_sync: bool,
 ) -> bool {
-    let recorded = table.record(location, kind);
+    let recorded = table.record(location, kind, lane_sync);
     if let Some(report) = report {
         report.first_sighting(location, kind, super::mode(), recorded == Recorded::Overflow);
     }
@@ -27,6 +29,7 @@ struct SiteSlot {
     location: AtomicPtr<Location<'static>>,
     kinds: AtomicU16,
     count: AtomicU64,
+    lane_sync: AtomicBool,
 }
 
 impl SiteSlot {
@@ -35,6 +38,7 @@ impl SiteSlot {
             location: AtomicPtr::new(std::ptr::null_mut()),
             kinds: AtomicU16::new(0),
             count: AtomicU64::new(0),
+            lane_sync: AtomicBool::new(false),
         }
     }
 }
@@ -52,7 +56,12 @@ impl<const N: usize> SiteTable<N> {
         Self { slots: [const { SiteSlot::new() }; N], overflow: AtomicU64::new(0) }
     }
 
-    fn record(&self, location: &'static Location<'static>, kind: BlockingKind) -> Recorded {
+    fn record(
+        &self,
+        location: &'static Location<'static>,
+        kind: BlockingKind,
+        lane_sync: bool,
+    ) -> Recorded {
         let wanted = std::ptr::from_ref(location).cast_mut();
         let start = site_hash(location) % N;
         for probe in 0..N {
@@ -72,6 +81,9 @@ impl<const N: usize> SiteTable<N> {
             // SAFETY: a non-null slot location is a `&'static Location` stored above.
             if same_site(unsafe { &*current }, location) {
                 slot.kinds.fetch_or(kind.bit(), Ordering::Relaxed);
+                if lane_sync {
+                    slot.lane_sync.store(true, Ordering::Relaxed);
+                }
                 let first_at_site = slot.count.fetch_add(1, Ordering::Relaxed) == 0;
                 return Recorded::Stored { first_at_site };
             }
@@ -97,6 +109,7 @@ impl<const N: usize> SiteTable<N> {
                     column: location.column(),
                     kinds: BlockingKinds(slot.kinds.load(Ordering::Relaxed)),
                     count: slot.count.load(Ordering::Relaxed),
+                    lane_sync: slot.lane_sync.load(Ordering::Relaxed),
                 })
             })
             .collect();
@@ -150,12 +163,12 @@ mod tests {
         let third = here();
         let first_count = Recorded::Stored { first_at_site: true };
         let later_count = Recorded::Stored { first_at_site: false };
-        assert_eq!(table.record(first, BlockingKind::Fs), first_count, "the site's first");
-        assert_eq!(table.record(first, BlockingKind::Sleep), later_count);
-        assert_eq!(table.record(first, BlockingKind::Sleep), later_count);
-        assert_eq!(table.record(second, BlockingKind::Recv), first_count);
-        assert_eq!(table.record(third, BlockingKind::Join), Recorded::Overflow);
-        assert_eq!(table.record(third, BlockingKind::Join), Recorded::Overflow);
+        assert_eq!(table.record(first, BlockingKind::Fs, false), first_count, "the site's first");
+        assert_eq!(table.record(first, BlockingKind::Sleep, false), later_count);
+        assert_eq!(table.record(first, BlockingKind::Sleep, false), later_count);
+        assert_eq!(table.record(second, BlockingKind::Recv, true), first_count);
+        assert_eq!(table.record(third, BlockingKind::Join, false), Recorded::Overflow);
+        assert_eq!(table.record(third, BlockingKind::Join, false), Recorded::Overflow);
         let snapshot = table.snapshot();
         assert_eq!(snapshot.sites.len(), 2);
         assert_eq!(snapshot.overflow, 2);
@@ -166,6 +179,8 @@ mod tests {
             vec![BlockingKind::Fs, BlockingKind::Sleep]
         );
         assert_eq!(snapshot.sites[0], *first_site);
+        assert!(!first_site.lane_sync);
+        assert!(snapshot.site(second.file(), second.line()).expect("second").lane_sync);
     }
 
     /// Every (site, kind, thread) gets one line, the sites past a full table
@@ -177,7 +192,7 @@ mod tests {
         let report = SiteReport::open(&dir).expect("open a report");
         let table = SiteTable::<2>::new();
         let [first, second, third, fourth] = [here(), here(), here(), here()];
-        let note = |kind, location| note_violation(&table, Some(&report), kind, location);
+        let note = |kind, location| note_violation(&table, Some(&report), kind, location, false);
         std::thread::scope(|scope| {
             std::thread::Builder::new()
                 .name("sites-report-a".into())
