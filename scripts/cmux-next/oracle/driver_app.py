@@ -11,8 +11,9 @@ teardown): the bench environment (no activation, the automation socket, a mock a
 no update check), a fixed window frame on the main display, a fresh saved session for the tag, and the tag's
 daemons ended by TagTeardown when the session closes. The app's cmux-next.json is the bench config plus
 `ui.animations.enabled: false` (section 3B: code works with no animation; the motion-on suite is a switch arm)
-and `mcp.enabled: true` (the `mcp` steps). HOME and CMUX_NEXT_ORACLE_ROOT come from normalize.app_environment,
-so the app hashes path text with the prefixes normalize.py rewrites. The build is `--config bench` by default
+and `mcp.enabled: true` (the `mcp` steps), plus `browser.defaultEngine` when the case pins a browser engine or
+the run is an engine arm (oracle.py --engine, the session's `engine`). HOME and CMUX_NEXT_ORACLE_ROOT come from
+normalize.app_environment, so the app hashes path text with the prefixes normalize.py rewrites. The build is `--config bench` by default
 (oracle.py DEFAULT_BUILD): a session refuses an app whose bundle is another config than the run's `--build`, and
 any Release bundle (it has no `debug.oracle.*`). The driver never starts, quits or reads `/Applications/cmux.app`
 or a `com.cmuxterm.app` bundle: bench_launch takes only `cmux DEV <tag>.app`, and the session checks again.
@@ -29,7 +30,7 @@ target.process app is Quit and Keep Sessions, then the same bundle on the same s
 file (bench_launch `quit_keep_sessions`, then a launch that keeps the state). Either step leaves the session dirty,
 so the next case gets a fresh launch. resource.call, the other kill and restart targets, tui.key and advance_clock
 belong to other drivers and fail the case as a Crash that names them. So do the conditions a launch cannot apply
-yet: environment keys other than viewport, fixture.agent none, fixture.clock virtual, a named fixture handle (no seeding reaches the app) and a key aimed at a pane, tab or page.
+yet: environment keys other than viewport and engine, fixture.agent none, fixture.clock virtual, a named fixture handle (no seeding reaches the app) and a key aimed at a pane, tab or page.
 
 Web fixture. A case with `fixture.web` gets its own webfixture.py server (p15-oracle-222) on a loopback port the OS
 picks: every `$WEB` of the case is that origin before the first step, the server stops with the case, and its
@@ -45,7 +46,9 @@ marks that step's checkpoints uncertain (never baselined) and says so in the res
 Facets: `debug.oracle.snapshot` gives the app's facets (a facet with no provider in the build comes back
 not-comparable from the app); the `daemon` facet is read from the tag's own cmux-tui (the `--socket` of its
 `--headless` process, found by TagTeardown's bundle-path match) through the Python SDK, with the snapshot
-schema's capture rules. Every checkpoint of a case is canonicalized together by normalize.py.
+schema's capture rules. Every checkpoint of a case is canonicalized together by normalize.py. An engine arm
+(the session's `engine`) canonicalizes without the tabs' engine (normalize.Context.drop ENGINE_DROP), so no pane
+order or id label depends on it, and gives each checkpoint the engines its raw tabs showed (`engines`).
 
 Chrome reference (chromium/src):
 - ui/base/interaction/interactive_test.h, chrome/test/interaction/README.md (Kombucha): Action, WaitForState and
@@ -112,6 +115,11 @@ DEFAULT_VIEWPORT = (1440, 900)
 # The cmux-next.json of every oracle launch (bench_env.with_config_defaults adds the bench keys under it).
 ORACLE_CONFIG = {"appearance": {"backgroundOpacity": 1}, "ui": {"animations": {"enabled": False}},
                  "mcp": {"enabled": True}}
+# `browser.defaultEngine` values (BrowserDefaultEngine), which are also the case-v1 environment.engine names; `none`
+# (the case needs no engine) leaves the launch's engine as the run set it (oracle.py --engine) or the app default.
+ENGINES = ("webkit", "chromium")
+# The tab field an engine arm leaves out before canonicalization (spec 3F.4: the arms compare without it).
+ENGINE_DROP = "/facets/tabs/panes/*/tabs/*/engine"
 # The user's app (CLAUDE.md: never quit, kill, relaunch, replace or launch it).
 USER_APP = "/Applications/cmux.app"
 USER_BUNDLE_ID = "com.cmuxterm.app"
@@ -176,9 +184,19 @@ class AppGone(Exception):
 
 @dataclass(frozen=True)
 class LaunchSpec:
-    """What one launch fixes for every case it runs: the window frame (x, y, width, height)."""
+    """What one launch fixes for every case it runs: the window frame (x, y, width, height) and the browser engine
+    new tabs and cmux pages use (an ENGINES value; None keeps the app's default)."""
 
     window: Tuple[int, int, int, int]
+    engine: Optional[str] = None
+
+
+def launch_config(spec: LaunchSpec) -> Dict[str, Any]:
+    """The cmux-next.json of a launch: ORACLE_CONFIG, plus browser.defaultEngine when the launch sets one."""
+    config = json.loads(json.dumps(ORACLE_CONFIG))
+    if spec.engine is not None:
+        config["browser"] = {"defaultEngine": spec.engine}
+    return config
 
 
 @dataclass(frozen=True)
@@ -227,18 +245,20 @@ def run_build(kind: str, requested: str) -> str:
     return build
 
 
-def launch_spec(case: Mapping[str, Any]) -> LaunchSpec:
-    """The launch a case needs. The conditions a launch cannot apply yet fail the case, never pass it."""
+def launch_spec(case: Mapping[str, Any], engine: Optional[str] = None) -> LaunchSpec:
+    """The launch a case needs; `engine` is the run's (oracle.py --engine), which a case's own engine overrides.
+    The conditions a launch cannot apply yet fail the case, never pass it."""
     env = case.get("environment") or {}
-    unsupported = sorted(k for k in env if k != "viewport")
+    unsupported = sorted(k for k in env if k not in ("viewport", "engine"))
     if unsupported:
         raise CaseError("Crash", f"driver_app launches with no {', '.join(unsupported)} (environment); only "
-                                 "viewport is applied")
+                                 "viewport and engine are applied")
     check_conditions(case)
     width, height = DEFAULT_VIEWPORT
     if "viewport" in env:
         width, height = int(env["viewport"]["width"]), int(env["viewport"]["height"])
-    return LaunchSpec(window=(*WINDOW_ORIGIN, width, height))
+    pinned = env.get("engine")
+    return LaunchSpec(window=(*WINDOW_ORIGIN, width, height), engine=pinned if pinned in ENGINES else engine)
 
 
 def other_driver(op: str, process: Optional[str] = None) -> str:
@@ -413,14 +433,14 @@ class BenchAppPort:
     def __init__(self, app: str, out: Path, env: Mapping[str, str]):
         from bench_launch import BenchApp  # noqa: E402 - scripts/cmux-next/bench_launch.py
 
-        self._make = lambda window: BenchApp(app, out=str(out), env=dict(env), config=dict(ORACLE_CONFIG),
-                                             window=window, screen="0", log_name="app.log")
+        self._make = lambda spec: BenchApp(app, out=str(out), env=dict(env), config=launch_config(spec),
+                                           window=spec.window, screen="0", log_name="app.log")
         self.bench = None
 
     def launch(self, spec: LaunchSpec) -> None:
         from bench_launch import LaunchError
 
-        self.bench = self._make(spec.window)
+        self.bench = self._make(spec)
         try:
             self.bench.launch(timeout=LAUNCH_S)
         except LaunchError as error:  # a SystemExit: never let it end oracle.py
@@ -1042,7 +1062,8 @@ class CaseRun:
 # The session
 
 
-Canonicalize = Callable[[Sequence[Dict[str, Any]], Any, Sequence[str]], List[Any]]
+# (snapshots, paths, labels, drop): drop is normalize.Context.drop, the pointers the session leaves out.
+Canonicalize = Callable[[Sequence[Dict[str, Any]], Any, Sequence[str], Sequence[str]], List[Any]]
 AppFactory = Callable[[str, Path, Mapping[str, str]], Any]
 
 
@@ -1057,11 +1078,26 @@ def normalize_canonicalizer(schema_path: Optional[str] = None) -> Tuple[Canonica
     except normalize.OracleError as error:
         raise ValueError(f"normalize.py refuses the snapshot schema, so no snapshot can be canonical: {error}") from None
 
-    def canonicalize(snapshots: Sequence[Dict[str, Any]], paths: OraclePaths, labels: Sequence[str]) -> List[Any]:
-        ctx = normalize.Context(root=paths.roots, home=(str(paths.home),), web=paths.web)
+    def canonicalize(snapshots: Sequence[Dict[str, Any]], paths: OraclePaths, labels: Sequence[str],
+                     drop: Sequence[str]) -> List[Any]:
+        ctx = normalize.Context(root=paths.roots, home=(str(paths.home),), web=paths.web, drop=tuple(drop))
         return [r.value for r in normalize.canonicalize_case(list(snapshots), schema, ctx, list(labels))]
 
     return canonicalize, schema.doc
+
+
+def tab_engines(snapshot: Any) -> Dict[str, int]:
+    """How many tabs of the snapshot's tabs facet show each engine (BrowserEngineKind); page tabs show none."""
+    facets = snapshot.get("facets") if isinstance(snapshot, dict) else None
+    tabs = facets.get("tabs") if isinstance(facets, dict) else None
+    panes = tabs.get("panes") if isinstance(tabs, dict) else None
+    counts: Dict[str, int] = {}
+    for pane in panes if isinstance(panes, list) else ():
+        for tab in (pane.get("tabs") if isinstance(pane, dict) else None) or ():
+            kind = tab.get("engine") if isinstance(tab, dict) else None
+            if isinstance(kind, str):
+                counts[kind] = counts.get(kind, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def app_identity(app: str) -> Tuple[str, Optional[str], str, str]:
@@ -1099,6 +1135,9 @@ class AppSession:
             raise ValueError("the app driver needs --binary \"PATH/cmux DEV <tag>.app\" (a --config bench build)")
         if session_ctx.get("switches"):
             raise ValueError("switch arms reach the app in p15-oracle-049; this driver runs the default arms")
+        self.engine = session_ctx.get("engine")
+        if self.engine is not None and self.engine not in ENGINES:
+            raise ValueError(f"engine {self.engine!r}: one of {', '.join(ENGINES)} (browser.defaultEngine)")
         app = os.path.realpath(str(app)).rstrip("/")
         check_not_user_app(app, None)
         tag, bundle, kind, sha = identity(app)
@@ -1168,7 +1207,7 @@ class AppSession:
 
     def run_case(self, case: Dict[str, Any], case_ctx: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            spec = launch_spec(case)
+            spec = launch_spec(case, self.engine)
             self.ensure_launched(spec)
         except CaseError as error:
             refused = {"status": error.status, "message": error.message, "checkpoints": []}
@@ -1193,9 +1232,14 @@ class AppSession:
         if not captures:
             return []
         paths = replace(self.paths, web=tuple(web)) if web else self.paths
+        drop = (ENGINE_DROP,) if self.engine is not None else ()
         values = self.canonicalize([c.snapshot for c in captures], paths,
-                                   [f"{c.step}/{c.checkpoint}" for c in captures])
-        return [{"step": c.step, "checkpoint": c.checkpoint, "snapshot": v} for c, v in zip(captures, values)]
+                                   [f"{c.step}/{c.checkpoint}" for c in captures], drop)
+        rows = [{"step": c.step, "checkpoint": c.checkpoint, "snapshot": v} for c, v in zip(captures, values)]
+        if self.engine is not None:
+            for row, capture in zip(rows, captures):
+                row["engines"] = tab_engines(capture.snapshot)
+        return rows
 
     def close(self) -> None:
         try:

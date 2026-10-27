@@ -9,7 +9,7 @@ import Testing
 /// The CmuxNextSettings sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-338): one case
 /// per migrated owner class. A reload's load lands as one `visible` task on the app's scheduler (its read runs off
 /// main); the Channels fact follows through a `visible` ServiceObservation; the diagnostic toasts take a window's
-/// key notice through the app's one AppEvents observer.
+/// key notice through their presenter (the app's one AppEvents observer).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct SettingsSchedulerSweepTests {
     static func make(_ work: MainWorkScheduler) throws -> (SettingsController, URL) {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-settings-sweep-\(UUID().uuidString)")
@@ -65,16 +65,24 @@ import Testing
 
     // MARK: R-notif (the diagnostic toasts' key notice)
 
-    @Test func theDiagnosticToastsWatchKeyWindowsThroughTheAppsEvents() throws {
+    @Test func theDiagnosticToastsWatchKeyWindowsThroughThePresenter() throws {
         let work = MainWorkScheduler(budget: MainFrameBudget())
         let (settings, home) = try Self.make(work)
         defer { try? FileManager.default.removeItem(at: home) }
-        let center = NotificationCenter()
-        let events = AppEvents(center: center)
-        #expect(!events.isObserving(NSWindow.didBecomeKeyNotification))
-        settings.start(announcingDiagnosticsOn: events)
-        #expect(events.isObserving(NSWindow.didBecomeKeyNotification), "the toasts keep their own key observer")
-        #expect(events.subscriberCount(NSWindow.didBecomeKeyNotification) == 1)
+        // The app's presenter (CmuxNextSettingsWindow) puts this on the app's one AppEvents key observer;
+        // SettingsAppKitSeamTests pins that end to end.
+        let presenter = KeyWindowRecordingPresenter()
+        settings.start(announcingDiagnostics: presenter)
+        #expect(presenter.followers.count == 1, "the toasts do not follow key windows through the presenter")
         settings.stop()
     }
+}
+
+/// Records what the diagnostic toasts ask of the window side; shows no toast (no window).
+@MainActor private final class KeyWindowRecordingPresenter: SettingsDiagnosticPresenting {
+    var followers: [@MainActor () -> Void] = []
+
+    func show(_ toast: CmuxToast, onAction: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? { nil }
+
+    func followKeyWindows(_ windowBecameKey: @escaping @MainActor () -> Void) { followers.append(windowBecameKey) }
 }
