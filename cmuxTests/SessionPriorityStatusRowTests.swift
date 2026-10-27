@@ -65,6 +65,46 @@ struct SessionPriorityStatusRowTests {
     }
 
     @Test
+    func manualAutoAndPlainDifficultyTextsDiffer() {
+        let plain = hard
+        let manual = row(source: .override).value
+        let auto = row(source: .auto).value
+        #expect(manual != auto)
+        #expect(manual != row(source: .default).value)
+        #expect(auto != row(source: .default).value)
+        #expect(manual.contains(plain) && auto.contains(plain))
+    }
+
+    /// Reads the source catalog, so a key missing from it fails here even though the
+    /// lookup falls back to English.
+    @Test
+    func rowStringsHaveKoreanTranslationsInTheCatalog() throws {
+        let catalogURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/Localizable.xcstrings")
+        let root = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: catalogURL)) as? [String: Any]
+        )
+        let strings = try #require(root["strings"] as? [String: Any])
+        let keys = [
+            "tier.urgent", "tier.slow",
+            "difficulty.easy", "difficulty.normal", "difficulty.hard", "difficulty.manual", "difficulty.auto",
+            "state.upToDate", "state.applying", "state.held", "state.notApplied", "state.manual",
+        ].map { "sidebar.sessionPriority.\($0)" }
+        for key in keys {
+            let entry = try #require(strings[key] as? [String: Any], "missing key \(key)")
+            let localizations = try #require(entry["localizations"] as? [String: Any], "no localizations \(key)")
+            let ko = try #require(localizations["ko"] as? [String: Any], "no ko for \(key)")
+            let unit = try #require(ko["stringUnit"] as? [String: Any], "no ko stringUnit for \(key)")
+            let value = try #require(unit["value"] as? String)
+            #expect(!value.isEmpty)
+            if key.hasSuffix("difficulty.manual") || key.hasSuffix("difficulty.auto") {
+                #expect(value.contains("%@"), "\(key) lacks %@")
+            }
+        }
+    }
+
+    @Test
     func effortAndModelSegment() {
         #expect(row(tier: .slow, difficulty: .easy, target: .init(effort: .low, model: "sonnet")).value.hasSuffix("low / sonnet"))
         #expect(row(tier: .slow, difficulty: .easy, target: .init(model: "sonnet")).value.hasSuffix("sonnet"))
