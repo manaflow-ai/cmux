@@ -1467,32 +1467,46 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: no renderer wake for 2 s of blink; one callback per move; block-cell pixels equal Ghostty's own draw.
 - Test phase: zig build test.
 - Size M.
-- Fork state (2026-10-27): ghostty-next branch `cp/p03-rendering-090`, commits 6c4b51d43 and 1d35a0460 (a new IOSurface per cell), on ghostty-next main
-  9ce9b7d08. The gitlink and the GhosttyNextKit pin do not move (task 079 lands it). As built, for 091:
+- Fork state (2026-10-27): ghostty-next branch `cp/p03-rendering-090`, commits 6c4b51d43, 1d35a0460 (a new IOSurface per
+  cell) and 81d9d74e1 (review fixes), on ghostty-next main 9ce9b7d08. The gitlink and the GhosttyNextKit pin do not move
+  (task 079 lands it). As built, for 091:
   - Config: `ghostty_surface_config_s.cursor_external`, `cursor_cb`, `cursor_userdata`, appended after
     `io_write_userdata` (offsets 112, 120, 128; the struct is 136 bytes; Swift zero-inits it). `ghostty_surface_new`
     fails with `cursor_external` and no `cursor_cb`. 082 appends its vsync fields at the same offsets: the 079 pin
     puts one set after the other and fixes both layout checks (`embedded.zig` comptime, `structs.zig` test).
   - `cursor_cb(userdata, const ghostty_cursor_cell_s*)`: `serial`, `surface` (IOSurfaceRef, borrowed for the call,
-    retain to keep; NULL when not visible; Ghostty never draws into it again), `x`, `y`, `width`, `height` (pixels
-    from the top-left of the frame), `column`, `row`, `style` (`GHOSTTY_CURSOR_CELL_BLOCK`, `_BLOCK_HOLLOW`, `_BAR`,
-    `_UNDERLINE`, `_LOCK`), `visible`, `blinking`, `blink_interval_ms` (600). It runs on the GPU completion thread
-    after the frame that leaves the cursor out, once per change of what the cell shows, never on main (a sync draw
-    leaves the cell to the next async frame).
-  - The renderer runs no blink timer with the external cursor (`blinkTimerRuns`, `cursorTimerCallback` disarms).
-    The embedder blinks, starts shown with each new cell and after each key input. Unfocused: `BLOCK_HOLLOW`, not
-    blinking. IME preedit: not visible (the frame draws the preedit).
-  - Off with `custom-shader` or `background-image` set: the frames draw the cursor, the blink timer runs, and
-    `cursor_cb` gets one cell with `visible` false. OpenGL always draws the cursor.
+    retain to keep; NULL when not visible or `unchanged`; Ghostty never draws into it again), `x`, `y`, `width`,
+    `height` (pixels from the top-left of the frame), `column`, `row`, `style` (`GHOSTTY_CURSOR_CELL_BLOCK`,
+    `_BLOCK_HOLLOW`, `_BAR`, `_UNDERLINE`, `_LOCK`), `visible`, `blinking`, `unchanged`, `blink_interval_ms` (600); 48
+    bytes. It runs on the GPU completion thread after the frame that leaves the cursor out, never on main (a sync draw
+    leaves the cell to the next async frame), once per change of what the cell shows (`cursor.cellKey`: the glyphs
+    whose quads cross the cell, from any row, their backgrounds, the colors, style, focus, font). Output elsewhere,
+    also on the cursor's row, sends nothing.
+  - Blink: the renderer runs no blink timer with the external cursor (`blinkTimerRuns`, `cursorTimerCallback`
+    disarms). The embedder blinks and starts shown with every call. Terminal output restarts Ghostty's own blink
+    (`reset_cursor_blink`, at most every 500 ms); the embedder does not see output, so when that leaves the cell
+    alone Ghostty sends the same cell with `unchanged` true and no surface (`cursor.Publisher.restart`): keep the
+    shown surface, restart the blink. Behavior change from Ghostty: none. Unfocused: `BLOCK_HOLLOW`, not blinking.
+    IME preedit: not visible (the frame draws the preedit).
+  - Off, so the frames draw and blink the cursor and `cursor_cb` gets one cell with `visible` false: `custom-shader`
+    or `background-image` set, `cursor-opacity` below 1 (a translucent block would show the frame's glyph and
+    background through), and while a kitty image in front of text or the debug overlay covers the cursor cell
+    (`cursor_covered`, checked each frame update; Ghostty draws those over the cursor). OpenGL always draws the cursor.
   - Cell pixels: `Renderer.drawCursorCell` draws the cell with the frame's pipelines, buffers, atlas and color table
     into an IOSurface of the cell's size (`cursor.cellUniforms` moves the projection and the cell-bg lookup). A block
-    is background, block, then the cursor row's glyphs (cursor text color in the cell), as the frame with the cursor.
+    is background, block, then every glyph that crosses the cell, in the frame's order (`cursor.appendCrossing`), the
+    cell's own text in the cursor text color, as the frame with the cursor. Other styles are the cursor glyph alone,
+    over the frame, which draws them after all text too.
   - Tests (Linux, `zig build test -Dapp-runtime=none`): `cursor external: the cell target shows the frame's pixels of
-    the cell`, `... one publish per move or cell change`, `... the cell rect covers the cursor cells`, `... enabled
-    needs the callback`, `cursor: a blinking cursor blinks only where style hides it`, `renderer thread: the blink
-    timer runs only for a focused cursor the renderer draws`, `ghostty.h cursor cell`, `ghostty.h CursorCellStyle`.
-    Not run: the Metal path and a GPU pixel compare against Ghostty's own frame (fleet, with 091's block-cursor
-    pixel-compare).
+    the cell`, `... one publish per move or cell change`, `... a blink restart republishes the unchanged cell`, `... a
+    glyph crosses the cell only where its quad reaches`, `... the key changes only with what the cell shows`, `... the
+    cell rect covers the cursor cells`, `... enabled needs the callback`, `cursor: a blinking cursor blinks only where
+    style hides it`, `renderer thread: the blink timer runs only for a focused cursor the renderer draws`, `ghostty.h
+    cursor cell`, `ghostty.h CursorCellStyle`. `drawCursorCell` compiles under OpenGL with the path forced on.
+  - Acceptance open: the Metal path has never been compiled (Linux builds OpenGL only, and ghostty-next does not
+    cross-compile to Darwin), and no GPU pixel compare against Ghostty's own frame has run. The 079 pin's
+    GhosttyNextKit build owns the Metal compile; 091's block-cursor pixel compare owns "block cell pixels = Ghostty's
+    own draw". 091 must not ship its layer default-on before both pass.
 
 #### p03-rendering-091 TerminalCursorLayer
 - Files: `.../CmuxNextTerminal/TerminalCursorLayer.swift` (new), `TerminalSurfaceView.swift`, `GhosttyRuntimeCallbacks.swift`.
