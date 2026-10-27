@@ -139,6 +139,7 @@ enum AppActions {
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
         ActionRouting.installSidebarUserIntent(services)
+        CreationInputCoordinator.installPersonIntent(services)
         WindowKeyTable.install(services)
         // One owner per action: a second binding silently replaces the first. The check is a test
         // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.

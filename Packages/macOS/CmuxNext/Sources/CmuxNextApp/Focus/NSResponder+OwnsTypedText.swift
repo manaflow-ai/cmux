@@ -26,3 +26,17 @@ extension NSView {
         window != nil && !isHiddenOrHasHiddenAncestor
     }
 }
+
+extension NSWindow {
+    /// The person is typing in a text input of this window: an input that takes typed text has the keyboard and holds
+    /// their text (a draft, or text an input method is composing). Automation never takes the keyboard or the keys from
+    /// it (CLAUDE.md, "Go past Chrome where cmux is scripted"). An empty input that took the keyboard by itself (Home's
+    /// message box at launch) holds nothing of theirs to lose.
+    @MainActor var personIsTypingInTextInput: Bool {
+        guard let responder = firstResponder, responder.ownsTypedText else { return false }
+        if let client = responder as? any NSTextInputClient, client.hasMarkedText() { return true }
+        if let text = responder as? NSText { return !text.string.isEmpty }
+        if let field = responder as? NSTextField { return !field.stringValue.isEmpty }
+        return false
+    }
+}

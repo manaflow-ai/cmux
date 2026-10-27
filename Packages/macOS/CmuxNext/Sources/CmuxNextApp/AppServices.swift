@@ -949,6 +949,7 @@ final class AppServices {
             linkHints.cancel()
             windowHints.cancel()
             keyRouter.cancelChord()
+            keyRouter.creationInputCoordinator.personActed(in: event.window, event: event) // a click: the person's next intent
         }
         scrollerStyleWatch = SystemScrollers.follow(settingChangesOn: appEvents)
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift

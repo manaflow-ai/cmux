@@ -131,7 +131,12 @@ extension AppActions {
             spawn.inputTimestamp = ActionRegistry.inputTimestamp(of: services.registry.dispatchingInputEvent()) ?? invocation.inputTimestamp
         }
         spawn.followClassicMode(services) // before the key hold below, which waits only for a page
-        let focus = NewWorkspaceFocus(invocation)
+        var focus = NewWorkspaceFocus(invocation)
+        // Automation never competes with the person: a script's, the CLI's, MCP's or the socket's new workspace with
+        // focus does not take the window from a person typing in a text input there; it is listed, not shown.
+        if invocation.origin != .user, focus.shows, services.windows.active?.window?.personIsTypingInTextInput == true {
+            focus = NewWorkspaceFocus(shows: false, activatesApp: false)
+        }
         let show = focus.shows
         // A person's Cmd-N starts where they work: the focused terminal's folder or the focused
         // agent chat's exact folder, unless `window-inherit-working-directory = false`.
@@ -160,10 +165,11 @@ extension AppActions {
             && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
         let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
         spawn.inputToken = keys
-        // A new workspace with a terminal shown in the window the person types in (a script's `newTab` with focus, a
-        // terminal-first Cmd-N): every key from this moment is that terminal's and waits for it, and Home's message box
-        // does not take the keyboard meanwhile (dogfood v2.2.3: the keys went to the Chief as a message).
-        let terminalWindow = show && hasOpenWindow && target == windows.active?.state.id
+        // The person's own new workspace with a terminal (a terminal-first Cmd-N, the menu, the palette) shown in the
+        // window they type in: every key from this moment is that terminal's, it waits for it, and the window's keyboard
+        // stays the terminal's until the person's next intent there (dogfood v2.2.3: the keys went to the Chief as a
+        // message). A script's newTab holds no key of the person's: automation never competes with them.
+        let terminalWindow = invocation.origin == .user && show && hasOpenWindow && target == windows.active?.state.id
             && !WorkspaceCreation.opensPage(spawn, on: daemon ?? services.daemon, tabs: services.agentTabs) ? windows.active : nil
         let terminalKeys = services.keyRouter.creationInputCoordinator.beginWorkspace(in: terminalWindow)
         let keyWindow = terminalWindow?.window

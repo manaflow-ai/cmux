@@ -15,22 +15,89 @@ import CmuxNextTerminal
 /// The same hold covers Ctrl-1…9 onto a terminal tab with no surface yet (hq#1925 item 3; bound
 /// in `CreationInputBuffer.holds`). Any hold ends as soon as focus leaves the content (cx-wb5.78: `earlyTab`).
 ///
-/// A new workspace with a terminal (`newTab` shown in this window, `beginWorkspace`) holds the keys the same way until
-/// the window shows that workspace and its terminal has the keyboard; keys typed for it never go anywhere else (a
-/// failed or never shown workspace drops them). While a creation the person has not moved on from holds a window's
-/// keys, no primary input takes that window's keyboard by itself (``claimsKeyboard(in:generation:)``): dogfood v2.2.3, Home's
-/// Chief message box took the keys typed for a new terminal and sent a shell command to the Chief as a message.
+/// The person's new workspace with a terminal (`newTab` shown in this window, `beginWorkspace`) holds the keys the same
+/// way until the window shows that workspace and its terminal has the keyboard; keys typed for it never go anywhere else
+/// (a failed or never shown workspace drops them). It also claims the window's keyboard (`KeyboardClaim`) until the
+/// person's next intent there: a click, Escape, a focus move, another of their actions; or until the window shows it.
+/// Never by a timeout: after the hold, the keys the person types are still kept from the window. While a claim or a
+/// creation the person has not moved on from holds a window's keys, no primary input takes that window's keyboard by
+/// itself (``claimsKeyboard(in:generation:)``). Dogfood v2.2.3: Home's Chief message box took the keys typed for a new
+/// terminal and sent a shell command to the Chief as a message; terminal input must never reach an agent.
 @MainActor
 final class CreationInputCoordinator {
     weak var router: KeyRouter?
     /// The router's typing keys come here only while some window holds keys (``KeyRouterMode/creationCapture``).
-    private var buffers: [Int: CreationInputBuffer] = [:] { didSet { router?.modes.set(.creationCapture, !buffers.isEmpty) } }
+    private var buffers: [Int: CreationInputBuffer] = [:] { didSet { syncMode() } }
+    /// The person's new terminal's claim on a window's keyboard, by window number (``beginWorkspace(in:)``).
+    private var claims: [Int: KeyboardClaim] = [:] { didSet { syncMode() } }
     /// Set while a captured key runs again, so it is not captured a second time.
     private var replaying = false
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
 
     init(router: KeyRouter) { self.router = router }
+
+    /// A window's keyboard belongs to the person's new terminal, asked for under focus generation `generation`.
+    private final class KeyboardClaim {
+        let generation: UInt64
+        weak var window: NSWindow?
+        /// The workspace the create made (nil until its reply, or when it failed).
+        var workspace: String?
+        /// The timestamp of the person's input that asked for it (a click on a New Workspace button): that input's own
+        /// end does not end the claim it made.
+        let inputTimestamp: TimeInterval?
+
+        init(generation: UInt64, window: NSWindow, inputTimestamp: TimeInterval?) {
+            self.generation = generation
+            self.window = window
+            self.inputTimestamp = inputTimestamp
+        }
+    }
+
+    private func syncMode() { router?.modes.set(.creationCapture, !buffers.isEmpty || !claims.isEmpty) }
+
+    /// The person acted in `window` (`event`: a click, after its dispatch; nil: one of their actions): a claim there ends,
+    /// and the keys go where they put them. The click that asked for the claim does not end it.
+    func personActed(in window: NSWindow?, event: NSEvent? = nil) {
+        guard let window, !claims.isEmpty else { return }
+        let shell = router?.focus(for: window).0?.window ?? window
+        if let event, let made = claims[shell.windowNumber]?.inputTimestamp, made == event.timestamp { return }
+        claims[shell.windowNumber] = nil
+    }
+
+    /// `window`'s claim while it holds: the person made no new intent there (the focus generation is the claim's), and the
+    /// window does not show the claimed workspace yet. A claim that ended is removed here.
+    private func activeClaim(in window: NSWindow) -> KeyboardClaim? {
+        let number = window.windowNumber
+        guard let claim = claims[number] else { return nil }
+        guard claim.window === window, let controller = router?.focus(for: window).0 else {
+            claims[number] = nil
+            return nil
+        }
+        let focus = controller.focus.state
+        if focus.generation != claim.generation || (claim.workspace != nil && claim.workspace == focus.topology.workspace) {
+            claims[number] = nil
+            return nil
+        }
+        return claim
+    }
+
+    /// A key of `window` while its claim holds and no creation hold does (the terminal never showed): Escape ends the
+    /// claim and goes on; every other key without Command (text, Return, Control keys) is kept from the window: the
+    /// terminal it was typed for is not there, and no other input (Home's message box) takes it. Command chords go on
+    /// (an action they run is the person's next intent).
+    private func keepsFromWindow(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard activeClaim(in: window) != nil else { return false }
+        if event.keyCode == ChordTracker.escapeKeyCode {
+            claims[window.windowNumber] = nil
+            // The window's focus applies again, now that no claim refuses its primary input.
+            if let controller = router?.focus(for: window).0, let pane = controller.focus.state.pane {
+                controller.focus.send(.contentPresented(pane: pane))
+            }
+            return false
+        }
+        return !event.modifierFlags.contains(.command)
+    }
 
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
@@ -46,6 +113,8 @@ final class CreationInputCoordinator {
     func beginWorkspace(in controller: WindowController?) -> CreationInputBuffer.Ticket? {
         guard let controller, let window = controller.window, ActionRunScope.viewChangeAllowed() else { return nil }
         let generation = controller.focus.beginIntent()
+        let input = router?.registry.dispatchingInputEvent()
+        claims[window.windowNumber] = KeyboardClaim(generation: generation, window: window, inputTimestamp: input?.timestamp)
         return buffer(in: window).open(generation: generation, newWorkspace: true)
     }
 
@@ -53,6 +122,7 @@ final class CreationInputCoordinator {
     /// holds its keys: the keyboard is that creation's, so a primary input (Home's message box) does not take it by
     /// itself (`NSWindow.pendingCreationOwnsKeyboard`).
     func claimsKeyboard(in window: NSWindow, generation: UInt64) -> Bool {
+        if activeClaim(in: window) != nil { return true }
         guard let buffer = buffers[window.windowNumber], buffer.holdsCreation else { return false }
         return buffer.newestGeneration == generation
     }
@@ -101,6 +171,7 @@ final class CreationInputCoordinator {
     }
 
     private func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String?, in window: NSWindow?) {
+        if let window, let workspace, let claim = claims[window.windowNumber] { claim.workspace = workspace }
         guard let ticket, let window, let buffer = buffers[window.windowNumber] else { return }
         buffer.resolve(ticket, awaitsFocus: landed, workspace: workspace)
         scheduleFlush(in: window)
@@ -127,7 +198,9 @@ final class CreationInputCoordinator {
         let (controller, kind) = router.focus(for: window)
         // A Chromium page window is a child of the shell, whose number keys the buffer.
         let shell = controller?.window ?? window
-        guard let buffer = buffers[shell.windowNumber] else { return false }
+        guard let buffer = buffers[shell.windowNumber] else {
+            return kind == .content && keepsFromWindow(event, in: shell)
+        }
         // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
         let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
         // A close of a pending creation of this hold (the focus it asked for is still on its way):
@@ -226,8 +299,8 @@ final class CreationInputCoordinator {
         // A forced end (its limit, focus left the content) drops the keys of a new workspace the window does not show.
         let unshown = buffer.waitsForWorkspace(other: shown)
         let pending = buffer.take(shown: shown)
-        // That workspace's claim on the keyboard ends here: the window's focus applies again, so the responder matches
-        // the focus model (a primary input refused it meanwhile, `NSWindow.pendingCreationOwnsKeyboard`).
+        // The window's focus applies again, so the responder matches the focus model. The person's claim on the keyboard
+        // stays until their next intent, so a primary input (Home's message box) still does not take it.
         if unshown, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
         for (index, event) in pending.enumerated() {
             replaying = true
@@ -256,5 +329,17 @@ extension CreationInputCoordinator {
         guard let responder = window.firstResponder as? NSView else { return false }
         if responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view) { return true }
         return !(responder is TerminalSurfaceView)
+    }
+}
+
+extension CreationInputCoordinator {
+    /// Each of the person's actions (a key binding, the menu, the palette, a click's action) is their next intent in the
+    /// active window: a claim there ends (``personActed(in:)``). Runs before the action's handler, so a new terminal the
+    /// action asks for claims the keyboard again.
+    static func installPersonIntent(_ services: AppServices) {
+        services.registry.willRunObservers.append { [weak services] _, origin in
+            guard origin == .user, let services else { return }
+            services.keyRouter.creationInputCoordinator.personActed(in: services.windows.active?.window)
+        }
     }
 }
