@@ -43,6 +43,8 @@ public final class TraceRuntime: Sendable {
     let requestedFlags = Atomic<UInt64>(0)
     /// The ``KeyTimingHold`` bits that hold the keystroke-timing gate closed; the gate is open at 0.
     let keyTimingHoldBits = Atomic<UInt64>(0)
+    /// Who hears each change of ``categoryMask`` (``observeCategories(_:)``).
+    let categoryObservers = ObserverSlots<UInt64>(capacity: 4)
     /// The records the `write` methods let through their category gate while no ring is attached, so a
     /// test's runtime with no ring can see the gate.
     let stubRecordCount = Atomic<UInt64>(0)

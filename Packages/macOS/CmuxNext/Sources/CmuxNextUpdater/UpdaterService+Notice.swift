@@ -90,7 +90,7 @@ extension UpdaterService {
         }
         guard expiringCard != shown else { return }
         expiringCard = shown
-        cardTimer.scheduleOnMain(after: after) { [weak self] in
+        cardTimer.schedule(after: after) { [weak self] in
             guard let self, self.card == self.expiringCard else { return }
             self.expiringCard = nil
             self.dismissIndicatorNote()

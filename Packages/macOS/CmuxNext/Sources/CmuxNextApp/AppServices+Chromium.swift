@@ -5,14 +5,17 @@ import CmuxNextCompat
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextFeatures
+import CmuxNextMemory
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextWakeups
 import Observation
 
 // When Chromium is likely (ChromiumWarmup): Chromium tabs and the palette's Chromium
-// entries (while Chromium is the default engine it starts after launch). The "+" engine menu reports from
+// entries (while Chromium is the default engine it starts after startup). The "+" engine menu reports from
 // PaneController.contextMenu(for: .newTabButton), the default-engine action
-// from SettingsHandlers.
+// from SettingsHandlers. Every warm-start step is an idle task of the app's main-thread scheduler
+// (`AppServices.mainDeadlines`, given to ChromiumWarmup at init), posted once startup settled.
 extension AppServices {
     /// The cmux-shipped uBlock Origin's pinned folder (``AgentExtensionAccess/readTrustedBuiltInFolder(resources:)``,
     /// a manifest read and hash), read once on `work`'s files lane: each tab's extension access
@@ -59,9 +62,15 @@ extension AppServices {
         let pagesSpare = features.isEnabled(.pagesSpareWindow)
         // Before the first spare: its placeholder has no renderer where the fork can (p13-webui-019).
         cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let hostNoSpareWindow = features.isEnabled(.chromiumHostNoSpareWindow)  // the bench's no spare window arm (p01-process-086)
+        #else
+        let hostNoSpareWindow = false
+        #endif
         chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium },
                              pagesPending: { [weak cache] in cache?.hasPendingPages == true },
-                             pagesSpare: { pagesSpare && preference.defaultEngine == .chromium })
+                             pagesSpare: { pagesSpare && preference.defaultEngine == .chromium },
+                             placement: .init(backend: chromiumRuntime.source.backend, hostNoSpareWindow: hostNoSpareWindow))
         cache.onPagesSettled = { [weak chromiumWarmup] in chromiumWarmup?.pagesSettled() }
         if pagesSpare {
             // Pages follow the default engine: switched away from Chromium, the untaken pages spare
@@ -138,6 +147,8 @@ extension AppServices {
         chromiumRuntime.source.drawsHostChoosers = features.isEnabled(.chromiumHostChoosers) // p01-process-228
         // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
         chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
+        chromiumRuntime.source.handlesHostLocks = features.isEnabled(.chromiumHostLocks) // pointer and keyboard locks, p01-process-229
+        chromiumRuntime.source.appEvents = appEvents // the app's resign-active ends a page's pointer lock
         // Each entry's page state saved and restored with the history (p01-process-093).
         chromiumRuntime.source.keepsPageStates = features.isEnabled(.chromiumPageStateRestore)
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
@@ -147,7 +158,8 @@ extension AppServices {
                                            chromiumFeatures = features.enabledChromiumFeatures,
                                            disabledChromiumFeatures = features.disabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
                                            attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator,
-                                           everyPage = Self.hostsEveryPage(features)] stores, deadlines, source in
+                                           everyPage = Self.hostsEveryPage(features),
+                                           rendererCaps = Self.sharedRendererMemoryCaps(.forThisMac(gpuResidentAvailable: false))] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
                                                                            isStarting: { launchStartup.map { $0.completion == nil } ?? false })
@@ -158,10 +170,19 @@ extension AppServices {
                                                        prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
+                                          .cappingSharedRendererMemory(rendererCaps)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
+                                                                                  stability: rendererStability,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
                                   stop: { await $0.shutdown() })
+    }
+
+    /// Chromium's shared-renderer memory caps from the app's memory budget (p07-memory 111): Chrome's
+    /// `kProcessPerSiteMainFrameTotalMemoryLimit` and subframe reuse threshold, read by the fork.
+    nonisolated static func sharedRendererMemoryCaps(_ budget: SubsystemBudget) -> CEFSharedRendererMemoryCaps {
+        CEFSharedRendererMemoryCaps(mainFrameBytes: budget.sharedRendererMemoryCapBytes,
+                                    subframeBytes: budget.sharedRendererSubframeMemoryCapBytes)
     }
 
     /// Bench-only feature `cefLayerHostingEveryPage`, the layer hosting benches' on arm: compiled out of shipped builds.
@@ -174,12 +195,14 @@ extension AppServices {
     }
 
     /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine
-    /// built, before CefInitialize can run: the crash log's writer, the run marker's and Sentry's signal handlers (Chromium
-    /// resets them at start), the assistive-client switch of Chromium's accessibility trees; then `routes`.
-    static func chromiumEngineHook(crashRecovery: CrashRecoveryService, reporter: CrashReporter,
+    /// built, before CefInitialize can run: the crash log's writer, the renderer stability events, the run marker's and
+    /// Sentry's signal handlers (Chromium resets them at start), the assistive-client switch of Chromium's accessibility
+    /// trees; then `routes`.
+    static func chromiumEngineHook(crashRecovery: CrashRecoveryService, reporter: CrashReporter, stability: RendererStability,
                                    routes: @escaping (CEFEngine) -> Void) -> (CEFEngine) -> Void {
         { engine in
             crashRecovery.observe(engine.crashLog)
+            engine.rendererStability = stability
             AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: engine, reporter: reporter)
             (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak engine] active in engine?.setAssistiveClientActive(active) }
             routes(engine)

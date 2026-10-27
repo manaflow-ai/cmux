@@ -258,6 +258,12 @@ typedef enum {
   // renderer's crash leaves a sad frame in from it (Chrome's
   // DiscardPageWithCrashedSubframePolicy reads the dead process's frame nodes).
   CMUX_SHIM_SUBFRAME_RENDERER = 64,
+  // Host mode only: one call of the fork's lock handler, pushed by the
+  // Chromium Host while cmux's remote shim has a lock handler
+  // (cmux_shim_set_lock_handler, task p01-process-229): request =
+  // cmux_shim_lock_event_t, a = its detail. The remote shim calls cmux's
+  // lock fn with them; cmux's event fn never sees this kind.
+  CMUX_SHIM_LOCK = 65,
   // Host mode only (task p01-process-093): the Chromium Host's push of one
   // history entry's page state of a tab cmux watches
   // (cmux_shim_tab_page_state_watch), read in the host at idle. request =
@@ -602,8 +608,11 @@ CMUX_SHIM_EXPORT int cmux_shim_desktop_media_answer(int64_t token, int source_ty
                                                     int tab_browser_id, int audio);
 // Pointer lock and keyboard lock: the app decides, hides and frees its own
 // cursor and forwards the raw movement. Escape exits with by_user 1 (Chrome's
-// 1.25 s cooldown for that page). escape_locked is 1 when a keyboard lock
-// also takes Escape (the app still exits on a long Escape, as Chrome does).
+// 1.25 s cooldown for that page). detail: for KEYBOARD_LOCK_REQUESTED 1 when
+// the lock also takes Escape (the app still exits on a held Escape, as Chrome
+// does); for POINTER_LOCK_REQUESTED 1 when the page asked for unadjusted
+// movement (requestPointerLock({unadjustedMovement: true}), the fork's next
+// train; 0 before it); 0 otherwise.
 typedef enum {
   // Answer with cmux_shim_browser_pointer_lock_answer.
   CMUX_SHIM_POINTER_LOCK_REQUESTED = 0,
@@ -614,7 +623,7 @@ typedef enum {
   // The keyboard lock ended: route reserved keys as usual again.
   CMUX_SHIM_KEYBOARD_UNLOCKED = 3,
 } cmux_shim_lock_event_t;
-CMUX_SHIM_EXPORT int cmux_shim_set_lock_handler(void (*fn)(void* context, int event, int browser_id, int escape_locked),
+CMUX_SHIM_EXPORT int cmux_shim_set_lock_handler(void (*fn)(void* context, int event, int browser_id, int detail),
                                                 void* context);
 CMUX_SHIM_EXPORT int cmux_shim_browser_pointer_lock_answer(int browser_id, int allowed);
 CMUX_SHIM_EXPORT int cmux_shim_browser_keyboard_lock_answer(int browser_id, int allowed);
