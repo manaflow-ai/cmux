@@ -498,6 +498,13 @@ class RepoVariableCheckTests(unittest.TestCase):
         return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\nLINUX_RUNNER=ubuntu-24.04\n",
                 "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
 
+    def test_a_trusted_runner_its_readers_reject_is_drift(self) -> None:
+        def env(trusted: str) -> dict[str, str]:
+            return {"CMUX_CI_RUNNER_VARIABLES": f"CI_TRUSTED_RUNNER={trusted}\n", "CI_OWNED_POOL_SLOTS": "",
+                    "CMUX_CI_XCODE_APP_PR": PIN}
+        self.assertTrue(any("CI_TRUSTED_RUNNER" in p for p in check.problems(env("blacksmith-16vcpu-ubuntu-2404"))))
+        self.assertFalse(any("CI_TRUSTED_RUNNER" in p for p in check.problems(env("blacksmith-2vcpu-ubuntu-2404"))))
+
     def test_an_owned_label_is_drift_without_the_record(self) -> None:
         self.assertTrue(check.problems(self.env()))
 
