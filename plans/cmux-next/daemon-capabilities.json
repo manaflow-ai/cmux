@@ -50,6 +50,7 @@
     "dock-columns-v1",
     "edge-docks-v1",
     "end-terminals-keep-layout-v1",
+    "event-cause-v1",
     "feed-local-owner-v1",
     "frontend-browser-activate-v1",
     "frontend-browser-history-v1",
@@ -160,6 +161,6 @@
     "workspace-registry-v1"
   ],
   "unservedByBundledDaemon" : [
-    "event-cause-v1"
+
   ]
 }

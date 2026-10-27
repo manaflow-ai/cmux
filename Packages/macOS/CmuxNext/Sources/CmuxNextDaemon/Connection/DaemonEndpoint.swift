@@ -534,10 +534,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .eventCause:
             return .optional
-        case .eventCause:
-            return .unservedByBundledDaemon
         }
     }
 
