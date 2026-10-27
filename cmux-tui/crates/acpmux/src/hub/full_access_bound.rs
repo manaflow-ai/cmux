@@ -136,8 +136,10 @@ impl StartReports {
     }
 
     /// Whether the harness reported full access for its session `harness_session` (a subagent's
-    /// are not its own, `on_update`); for any session when it is not known.
+    /// are not its own, `on_update`); for any session when it is not known (none, or a blank id).
     pub(crate) fn of(&self, harness_session: Option<&str>) -> bool {
+        // A blank id names no session (review 74): any report counts for it.
+        let harness_session = harness_session.filter(|s| !s.trim().is_empty());
         self.all
             || harness_session
                 .map_or(!self.sessions.is_empty(), |sid| self.sessions.iter().any(|s| s == sid))
