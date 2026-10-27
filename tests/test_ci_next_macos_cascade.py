@@ -301,6 +301,24 @@ class Place(unittest.TestCase):
         self.assertEqual(result.jobs, none_placed(**{SMALL: ("fast-tier",)}))
         self.assertEqual(result.retry_runner, "")
 
+    def test_a_dev_compile_spills_to_hosted_only_as_a_feeds_compile(self):
+        full = {LARGE: 5, SMALL: 10}
+        seen = cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, hosted=0)
+        dev = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
+        self.assertEqual(cascade.place(dev, (), full, {LARGE: 0, SMALL: 0}, seen).jobs,
+                         none_placed(**{HOSTED: ("cmux-scheme-compile",)}))
+        # A PR's scheme compile keeps the owned label, and so does a DEV compile while hosted is full.
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=" cmux-scheme-compile "), (), full, {LARGE: 0, SMALL: 0},
+                                       seen).jobs, none_placed())
+        busy = cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, hosted=cascade.HOSTED_CAPACITY)
+        self.assertEqual(cascade.place(dev, (), full, {LARGE: 0, SMALL: 0}, busy).jobs, none_placed())
+        # A free Blacksmith slot still comes first.
+        self.assertEqual(cascade.place(dev, (), {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}, seen).jobs,
+                         none_placed(**{LARGE: ("cmux-scheme-compile",)}))
+        # A push's Release compile, whose runs-on reads no hosted route, still takes 6 vCPU unread.
+        push = env(CASCADE_RUNS=" release-compile ", FRESH_JOBS="release-compile")
+        self.assertEqual(cascade.place(push, (), None, None).jobs, none_placed(**{SMALL: ("release-compile",)}))
+
     def test_unread_counts_place_nothing(self):
         self.assertEqual(cascade.place(env(), (), None, None).jobs, none_placed())
         result = cascade.place(env(), (), {LARGE: 0, SMALL: 0}, None)
@@ -315,10 +333,12 @@ class Place(unittest.TestCase):
         dev = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
         for live, waiting in ((None, None), ({LARGE: 0, SMALL: 0}, None)):
             with self.subTest(live=live, waiting=waiting):
+                # 2026-10-26 00:30Z: run 40425305537's DEV compile, sent to 6 vCPU this way, queued behind about 75
+                # jobs while hosted macos-26 was free. A DEV compile takes hosted instead.
                 result = cascade.place(dev, (), live, waiting)
-                self.assertEqual(result.jobs, none_placed(**{SMALL: ("cmux-scheme-compile",)}))
+                self.assertEqual(result.jobs, none_placed(**{HOSTED: ("cmux-scheme-compile",)}))
                 self.assertEqual(result.retry_runner, "")
-                self.assertIn("last resort", result.why)
+                self.assertIn(f"take `{HOSTED}`", result.why)
         push = env(CASCADE_RUNS=" fast-tier cmux-scheme-compile release-compile ", FRESH_JOBS="release-compile")
         self.assertEqual(cascade.place(push, (), None, None).jobs, none_placed(**{SMALL: ("release-compile",)}))
         # An idle mini is spent on the run's other jobs first; as many idle minis as jobs, and nothing moves.
@@ -620,15 +640,20 @@ class Stall(unittest.TestCase):
     def test_only_the_hosted_jobs_read_the_hosted_route_and_get_more_time(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         readers = {name for name, job in jobs.items() if "outputs.hosted_runner" in str(job.get("runs-on", ""))}
-        self.assertEqual(readers, {"fast-tier", "swift-canary"})
-        # Their runs-on, and swift-canary's CMUX_NEXT_RUNNER copy of it: no other job reads the hosted label.
-        self.assertEqual(WORKFLOW.read_text(encoding="utf-8").count("needs.macos-placement.outputs.hosted_runner"), 3)
+        self.assertEqual(readers, {"fast-tier", "swift-canary", *cascade.HOSTED_FRESH_JOBS})
+        # Their runs-on, and swift-canary's and the scheme compile's CMUX_NEXT_RUNNER copies: no other job reads
+        # the hosted label.
+        self.assertEqual(WORKFLOW.read_text(encoding="utf-8").count("needs.macos-placement.outputs.hosted_runner"), 5)
         for name in readers:
             with self.subTest(job=name):
                 timeout = jobs[name]["timeout-minutes"]
                 hosted = {"needs": {"macos-placement": {"outputs": {"hosted_jobs": f" {name} "}}}}
-                self.assertEqual(evaluate(timeout, hosted), 45)
-                self.assertEqual(evaluate(timeout, {"needs": {"macos-placement": {"outputs": {"hosted_jobs": ""}}}}), 20)
+                cold, warm = (90, 60) if name in cascade.HOSTED_FRESH_JOBS else (45, 20)
+                self.assertEqual(evaluate(timeout, hosted), cold)
+                self.assertEqual(evaluate(timeout, {"needs": {"macos-placement": {"outputs": {"hosted_jobs": ""}}}}),
+                                 warm)
+                if name in cascade.HOSTED_FRESH_JOBS:
+                    self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], jobs[name]["runs-on"])
 
     def test_the_placement_writes_the_hosted_route(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -695,7 +720,7 @@ class Wiring(unittest.TestCase):
         for name in CASCADED:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
-                spilled = HOSTED if name in cascade.HOSTED_JOBS else SIDE
+                spilled = HOSTED if name in cascade.HOSTED_JOBS + cascade.HOSTED_FRESH_JOBS else SIDE
                 self.assertEqual(evaluate(runs_on, self.context(hosted=f" x {name} ")), spilled)
                 self.assertEqual(evaluate(runs_on, self.context(hosted=f" {name}-x ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, hosted=f" {name} ")), spilled)
