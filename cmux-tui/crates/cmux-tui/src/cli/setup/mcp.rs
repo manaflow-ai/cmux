@@ -475,12 +475,15 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
         .map_err(|error| format!("`{line}`: {error}"))?;
     // Read on its own thread, so a CLI that writes more than the pipe holds
     // never blocks on it.
-    let stderr = child.stderr.take().map(|mut pipe| {
-        std::thread::spawn(move || {
-            let mut text = String::new();
-            let _ = pipe.read_to_string(&mut text);
-            text
-        })
+    let stderr = child.stderr.take().and_then(|mut pipe| {
+        let reader = std::thread::Builder::new().name("setup-cli-err".into());
+        reader
+            .spawn(move || {
+                let mut text = String::new();
+                let _ = pipe.read_to_string(&mut text);
+                text
+            })
+            .ok()
     });
     // wakeup-allow: cli-only `cmux setup mcp`'s one bound on the agent CLI; its exit ends the wait first
     let status = match child.wait_timeout(CLI_TIMEOUT) {

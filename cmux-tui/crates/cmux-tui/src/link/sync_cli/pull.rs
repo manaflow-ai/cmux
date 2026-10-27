@@ -549,7 +549,10 @@ fn ignored(local: &Path, paths: &[(String, bool, Found)]) -> anyhow::Result<BTre
         input.push(0);
     }
     let mut stdin = child.stdin.take().context("no stdin")?;
-    let writer = std::thread::spawn(move || stdin.write_all(&input));
+    let writer = std::thread::Builder::new()
+        .name("link-ignore-in".into())
+        .spawn(move || stdin.write_all(&input))
+        .context("cannot write git check-ignore's input")?;
     let output = child.wait_with_output()?;
     let _ = writer.join();
     // 0: some are ignored; 1: none is.

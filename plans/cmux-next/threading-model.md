@@ -297,6 +297,46 @@ broadcast 8192 with `lagged {dropped}`. Owner PL-acpmux (cmux-4f).
 
 Per-stream lanes (PL-conn, `pl-conn`) are not on feat-cmux-next yet; they get a row here when they land.
 
+### Helper threads
+
+The short-lived helper threads of the shipped crates that were unnamed until p09-observability-117 (queue
+MQ13). Each starts with `std::thread::Builder::new().name(..)`, so a trace and a STRESS decode name it; Linux
+keeps 15 bytes of a thread name, so each name is at most 15 bytes and no other thread name reads the same once
+cut (cmux-trace `tests/thread_names.rs`, which also fails on any unnamed `thread::spawn(` in shipped code).
+QoS is not set (the creator's); a failed start is reported to the caller, never a panic. They move to
+`cmux_threads::spawn` with a QoS, or to `work` items, in tasks 213-218 and 230.
+
+| Thread | Code | Owns | Waits on | Bound |
+|---|---|---|---|---|
+| `git-run-out` | cmux-tui-core `git_ops/user_run.rs` | stdout of a `git.commit` / `git.push` run | the pipe (`read`) | one per run; ends when git and its hooks close the pipe |
+| `git-run-err` | cmux-tui-core `git_ops/user_run.rs` | stderr of the same run, head and tail kept | the pipe (`read`) | as `git-run-out` |
+| `mux-owner-event` | cmux-tui `main.rs` | the local owner's config reload events | its event channel (`recv`) | one per local owner; ends when the loop stops |
+| `rhost-lock-wait` | cmux-tui `remote_host/service.rs` | `cmux host stop`'s wait for the serve lock | the lock file (`flock`) | one per stop, bounded by `STOP_BOUND` |
+| `rhost-ready` | cmux-tui `remote_host/service.rs` | the started serve's ready line | the ready pipe (`read`) | one per start, bounded by `READY_BOUND` |
+| `rhost-accept` | cmux-tui `remote_host/serve.rs` | accepting remote clients on one listener | `accept` | one per listener |
+| `rhost-conn` | cmux-tui `remote_host/serve.rs` | one remote client's handshake and splice | the client socket, the daemon | one per accepted client; pending clients are capped |
+| `rhost-ensure` | cmux-tui `remote_host/serve.rs` | `daemon ensure`'s output | the pipe (`read`), 1 MiB | one per ensure, bounded by `ENSURE_BOUND` |
+| `rhost-splice` | cmux-tui `remote_host/serve.rs` | client-to-daemon bytes of one spliced client | the client socket (`read`) | one per client; ends with either side |
+| `rhost-stdin` | cmux-tui `remote_host/client.rs` | `cmux host dial`'s stdin to the host | stdin (`read`) | one per dial |
+| `rhost-probe` | cmux-tui `remote_host/client.rs` | one host probe | the probe connect and reply bounds | one per candidate host |
+| `link-git-index` | cmux-tui `link/sync_cli/git_back.rs` | the rebuilt index input to `git update-index` | the pipe (`write`) | one per rebuild |
+| `link-ignore-in` | cmux-tui `link/sync_cli/pull.rs` | the paths input to `git check-ignore` | the pipe (`write`) | one per check |
+| `setup-cli-err` | cmux-tui `cli/setup/mcp.rs` | an agent CLI's stderr in `cmux setup mcp` | the pipe (`read`) | one per CLI run, bounded by `CLI_TIMEOUT` |
+| `hook-handoff` | cmux-tui `bin/cmux-tui-hook.rs` | the detached hook child's handoff byte | the pipe (`read`) | one per hook, bounded by the handoff wait |
+| `codex-proxy-out` | cmux-tui `cli/codex_app_server.rs` | `codex app-server proxy`'s output lines | the pipe (`read`) | one per client |
+| `mcp-tool-call` | cmux-tui `cli/mcp.rs` | one proxied MCP tool call | the proxied server | one per call |
+| `acpmux-ts-out` | acpmux `tailnet.rs` | the tailscale CLI's stdout | the pipe (`read`) | one per CLI run, bounded by its timeout |
+| `acpmux-ts-err` | acpmux `tailnet.rs` | the tailscale CLI's stderr, 64 KiB | the pipe (`read`) | as `acpmux-ts-out` |
+| `acpmux-git-in` | acpmux `subsession_worktree.rs` | a worktree git command's stdin | the pipe (`write`) | one per git run |
+| `acpmux-git-out` | acpmux `subsession_worktree.rs` | that git command's stdout | the pipe (`read`) | one per bounded git run |
+| `acpmux-git-err` | acpmux `subsession_worktree.rs` | that git command's stderr | the pipe (`read`) | one per bounded git run |
+| `acpmux-keys` | acpmux `cli/process.rs` | key presses of an interactive CLI view | stdin (`read`) | one per view; ends with the process |
+| `acpmux-tty-read` | acpmux `cli/cli_agent.rs` | a `--tty` CLI agent's terminal output lines | the terminal (`read`) | one per agent run |
+| `acpmux-hostwait` | acpmux `agent_host/wait.rs` | the death watch of one agent host | the host's lock file (`flock`) | one per watched host incarnation |
+| `acpmux-probe-io` | acpmux `harness_health/probe.rs` | a harness probe's stdout or stderr, 64 KiB kept | the pipe (`read`) | two per probe, bounded by its limit |
+| `acpmux-tmp-rm` | acpmux `hub/mod.rs` | removing forgotten sessions' temporary folders | disk | one per sweep |
+| `acpmux-wt-rm` | acpmux `hub/subsessions.rs` | removing a sub-session worktree whose start failed | disk, git | one per failed start |
+
 ## Why the daemon keeps thread-per-connection
 
 The daemon keeps one reader thread per connection and one writer per output stream; it does not move to one

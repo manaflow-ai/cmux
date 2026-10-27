@@ -56,7 +56,8 @@ pub(super) fn run_for(
     .flatten()
     {
         let tx = tx.clone();
-        std::thread::spawn(move || {
+        let reader = std::thread::Builder::new().name("acpmux-probe-io".into());
+        let started = reader.spawn(move || {
             let mut pipe = pipe;
             let mut out = Vec::new();
             // Keep the first 64 KiB, and keep reading so the program never waits on a full pipe.
@@ -64,6 +65,10 @@ pub(super) fn run_for(
             let _ = std::io::copy(&mut pipe, &mut std::io::sink());
             let _ = tx.send(out);
         });
+        if let Err(e) = started {
+            end_group(&mut child);
+            return Err(format!("{program}: output reader did not start: {e}"));
+        }
     }
     drop(tx);
     let started = Instant::now();

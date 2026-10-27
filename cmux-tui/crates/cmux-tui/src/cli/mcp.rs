@@ -562,11 +562,21 @@ impl<B: Backend> Server<B> {
                 if let Some(output) = self.notes.clone()
                     && let Some(job) = self.proxied_job(&params)
                 {
-                    std::thread::spawn(move || {
-                        let response = json!({"jsonrpc": "2.0", "id": id, "result": job.run(None)});
+                    let call = std::thread::Builder::new().name("mcp-tool-call".into());
+                    let call_id = id.clone();
+                    let started = call.spawn(move || {
+                        let response =
+                            json!({"jsonrpc": "2.0", "id": call_id, "result": job.run(None)});
                         let _ = output.send(&response);
                     });
-                    return None;
+                    return match started {
+                        Ok(_) => None,
+                        Err(error) => Some(error_response(
+                            id,
+                            -32603,
+                            &format!("cannot start the call: {error}"),
+                        )),
+                    };
                 }
                 self.call(&params)
             }

@@ -667,20 +667,25 @@ impl Keys {
         if unsafe { libc::tcsetattr(0, libc::TCSANOW, &raw) } != 0 {
             return None;
         }
+        // Restores the terminal when dropped, so a reader that does not start leaves it as it was.
+        let keys = Keys { saved };
         let (tx, rx) = mpsc::channel(16);
         // A thread: a blocking read of stdin that ends with the process.
-        std::thread::spawn(move || {
-            let mut byte = [0u8; 1];
-            let mut stdin = std::io::stdin();
-            while let Ok(1) = stdin.read(&mut byte) {
-                if let Some(key) = Input::of(byte[0])
-                    && tx.blocking_send(key).is_err()
-                {
-                    break;
+        let reader = std::thread::Builder::new().name("acpmux-keys".into());
+        reader
+            .spawn(move || {
+                let mut byte = [0u8; 1];
+                let mut stdin = std::io::stdin();
+                while let Ok(1) = stdin.read(&mut byte) {
+                    if let Some(key) = Input::of(byte[0])
+                        && tx.blocking_send(key).is_err()
+                    {
+                        break;
+                    }
                 }
-            }
-        });
-        Some((Keys { saved }, rx))
+            })
+            .ok()?;
+        Some((keys, rx))
     }
 
     #[cfg(not(unix))]

@@ -1243,7 +1243,10 @@ impl Hub {
             return;
         }
         tracing::info!(count = stale.len(), "removing temporary folders of forgotten sessions");
-        std::thread::spawn(move || crate::agent::session_tmp::remove_all(&stale));
+        let remover = std::thread::Builder::new().name("acpmux-tmp-rm".into());
+        if let Err(error) = remover.spawn(move || crate::agent::session_tmp::remove_all(&stale)) {
+            tracing::warn!(%error, "temporary folder removal did not start");
+        }
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {

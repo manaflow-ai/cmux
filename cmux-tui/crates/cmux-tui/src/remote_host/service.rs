@@ -115,10 +115,10 @@ pub(crate) fn stop_running() {
 fn lock_released_within(bound: Duration) -> bool {
     let Ok(Some(file)) = open_lock(false) else { return true };
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
+    let waiter = std::thread::Builder::new().name("rhost-lock-wait".into()).spawn(move || {
         let _ = tx.send(file.lock().is_ok());
     });
-    rx.recv_timeout(bound).unwrap_or(false)
+    waiter.is_ok() && rx.recv_timeout(bound).unwrap_or(false)
 }
 
 #[cfg(unix)]
@@ -198,11 +198,11 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
 #[cfg(unix)]
 fn wait_ready(reader: std::io::PipeReader, log: &Path) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
+    std::thread::Builder::new().name("rhost-ready".into()).spawn(move || {
         let mut line = String::new();
         let _ = std::io::BufRead::read_line(&mut std::io::BufReader::new(reader), &mut line);
         let _ = tx.send(line);
-    });
+    })?;
     match rx.recv_timeout(READY_BOUND) {
         Ok(line) if line.trim() == "ready" => Ok(()),
         Ok(line) if line.trim() == "disabled" => {

@@ -60,7 +60,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 SIGNPOST_NAME = f"{SOURCES}/CmuxNextSignposts/SignpostName.swift"
@@ -106,7 +106,7 @@ class Q:
     MQ11_VARIANT = r"^\s{4}[A-Z][A-Za-z0-9]*\s*(\{|\(|,)"
     MQ12_CASES = r"case (\w+)"
     MQ12_RECORD = r"record\(\.(\w+)\b"
-    MQ13 = r"std::thread::spawn\(|thread::spawn\("
+    MQ13 = r"\bthread::spawn\("  # `\b`: echo_thread::spawn and cmux_threads::spawn name their thread
     MQ14 = r"\bTask\.detached"  # `\b`: TracedTask.detached, the replacement (task 124), is not a hit
     MQ15 = r"ContinuousClock"
     MQ16 = r"assertionFailure\("
@@ -304,6 +304,38 @@ def text_offset_lines(block: bytes, byte_offset: int) -> int:
 
 def is_comment(text: str) -> bool:
     return bool(COMMENT_LINE.match(text))
+
+
+RUST_TEST_ATTRIBUTE = re.compile(r"^\s*#\[(cfg\(test\)|cfg\(all\(test\b|test\]|tokio::test\b)")
+RUST_TEST_MODULE = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;")
+
+
+def rust_test_lines(lines: List[str]) -> Tuple[Set[int], List[str]]:
+    """The 1-based lines of a Rust file inside `#[cfg(test)]` and `#[test]` items, and the modules it declares
+    test-only (`#[cfg(test)] mod name;`). The cmux-trace `thread_names` test applies the same rule."""
+    inside: Set[int] = set()
+    modules: List[str] = []
+    i = 0
+    while i < len(lines):
+        if not RUST_TEST_ATTRIBUTE.match(lines[i]):
+            i += 1
+            continue
+        depth, opened, j = 0, False, i
+        while j < len(lines):
+            code = re.sub(r'"(?:\\.|[^"\\])*"|\'\\?.\'|//.*', "", lines[j])
+            if not opened and j > i and code.rstrip().endswith(";"):
+                named = RUST_TEST_MODULE.match(code)
+                if named:
+                    modules.append(named.group(1))
+                break
+            depth += code.count("{") - code.count("}")
+            opened = opened or "{" in code
+            if opened and depth <= 0:
+                break
+            j += 1
+        inside.update(range(i + 1, j + 2))
+        i = j + 1
+    return inside, modules
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -957,12 +989,24 @@ class Audit:
     # MQ13 --------------------------------------------------------------------------------------------------
     def mq13(self) -> Queue:
         crates = ("cmux-tui-core", "cmux-tui", "cmux-holder", "acpmux", "cmux-app-host", "cmux-browser-host")
+        roots = [f"{CRATES}/{c}/src" for c in crates]
+        globs = ["!**/tests/**", "!**/*tests*.rs"]
+        # Test code ships nothing: `#[cfg(test)]` items and test-only modules are not hits.
+        test_files: List[str] = []
+        test_dirs: List[str] = []
+        for rel in self.rg.files(r"#\[cfg\((all\()?test\b", roots, globs):
+            path = Path(rel)
+            folder = path.parent if path.stem in ("mod", "lib", "main") else path.parent / path.stem
+            for module in rust_test_lines(self.files.lines(rel))[1]:
+                test_files.append(str(folder / f"{module}.rs"))
+                test_dirs.append(f"{folder / module}/")
         hits = [
             Hit(m.file, m.line, m.text.strip()[:120])
-            for m in self.rg.lines(
-                Q.MQ13, [f"{CRATES}/{c}/src" for c in crates], globs=["!**/tests/**", "!**/*tests*.rs"]
-            )
+            for m in self.rg.lines(Q.MQ13, roots, globs=globs)
             if not is_comment(m.text)
+            and m.file not in test_files
+            and not m.file.startswith(tuple(test_dirs))
+            and m.line not in rust_test_lines(self.files.lines(m.file))[0]
         ]
         q = Queue("MQ13", "Name the Rust thread", hits, "<=40 hits", "unnamed_rust_threads")
         q.batches = by_hits(hits, 40)
@@ -1544,7 +1588,12 @@ def self_test() -> int:
            ["keyFrame", "mainTurn"])
     expect("MQ12 record", [m.group(1) for m in re.finditer(Q.MQ12_RECORD, "metrics.record(.keyFrame(.view), 3); m.record(.mainTurn, d)")],
            ["keyFrame", "mainTurn"])
-    expect("MQ13", len(lines_of(Q.MQ13, "std::thread::spawn(move || {})\nthread::spawn(f)\nthread::Builder::new().spawn(f)\n")), 2)
+    expect("MQ13", len(lines_of(Q.MQ13, "std::thread::spawn(move || {})\nthread::spawn(f)\nthread::Builder::new().spawn(f)\n"
+                                        "echo_thread::spawn(\"mux-line-out\", f)\ncmux_threads::spawn(n, q, f)\n")), 2)
+    expect("MQ13 test code", rust_test_lines(["fn a() { thread::spawn(f); }", "#[cfg(test)]", "mod tests {",
+                                              "    fn t() { let c = '{'; thread::spawn(|| {}); }", "}",
+                                              "#[cfg(all(test, unix))]", "mod test_pty;", "fn b() {}"]),
+           ({2, 3, 4, 5, 6, 7}, ["test_pty"]))
     expect("MQ14", lines_of(Q.MQ14, "Task.detached(priority: .utility) {}\nTask {}\n"
                                     "TracedTask.detached(priority: .utility) {}\n_Concurrency.Task.detached {}\n"),
            ["Task.detached(priority: .utility) {}", "_Concurrency.Task.detached {}"])

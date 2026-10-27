@@ -157,14 +157,17 @@ impl Client {
         let stdin = child.stdin.take().ok_or("codex app-server proxy has no stdin")?;
         let stdout = child.stdout.take().ok_or("codex app-server proxy has no stdout")?;
         let (sender, lines) = channel();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                if sender.send(line).is_err() {
-                    break;
+        let reader = std::thread::Builder::new().name("codex-proxy-out".into());
+        reader
+            .spawn(move || {
+                for line in BufReader::new(stdout).lines() {
+                    let Ok(line) = line else { break };
+                    if sender.send(line).is_err() {
+                        break;
+                    }
                 }
-            }
-        });
+            })
+            .map_err(|error| format!("cannot read codex: {error}"))?;
         let mut client =
             Self { child, stdin, lines, next_id: 1, deadline: Instant::now() + DEADLINE };
         client.request(

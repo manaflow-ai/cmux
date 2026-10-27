@@ -135,8 +135,15 @@ impl UserGit<'_> {
             terminate(&mut child);
             return Err(GitFailure::Unavailable("git started without its output pipes".into()));
         };
-        let stdout = Pipe::read(stdout, MAX_STDOUT_BYTES);
-        let stderr = Pipe::read(stderr, MAX_STDERR_BYTES);
+        let pipes = Pipe::read(stdout, MAX_STDOUT_BYTES, "git-run-out")
+            .and_then(|stdout| Ok((stdout, Pipe::read(stderr, MAX_STDERR_BYTES, "git-run-err")?)));
+        let (stdout, stderr) = match pipes {
+            Ok(pipes) => pipes,
+            Err(error) => {
+                terminate(&mut child);
+                return Err(GitFailure::Unavailable(format!("cannot read git's output: {error}")));
+            }
+        };
         let status = match child.wait_timeout(remaining) {
             Ok(Some(status)) => status,
             Ok(None) => {
@@ -240,12 +247,17 @@ struct Kept {
 }
 
 impl Pipe {
-    fn read(mut reader: impl Read + Send + 'static, limit: usize) -> Self {
+    /// Reads `reader` on thread `name` until it closes.
+    fn read(
+        mut reader: impl Read + Send + 'static,
+        limit: usize,
+        name: &'static str,
+    ) -> std::io::Result<Self> {
         let kept = Arc::new(Mutex::new(Kept::default()));
         let (sender, done) = mpsc::channel();
         let buffer = Arc::clone(&kept);
         let half = limit / 2;
-        thread::spawn(move || {
+        thread::Builder::new().name(name.into()).spawn(move || {
             let mut chunk = [0_u8; 16 * 1024];
             loop {
                 match reader.read(&mut chunk) {
@@ -266,8 +278,8 @@ impl Pipe {
                 }
             }
             let _ = sender.send(());
-        });
-        Self { kept, done }
+        })?;
+        Ok(Self { kept, done })
     }
 
     /// What was kept by the time the pipe closed, or by `grace`.

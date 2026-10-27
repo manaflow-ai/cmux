@@ -126,11 +126,14 @@ pub(crate) fn dial(host: &str, port: u16) -> i32 {
         return 1;
     }
     let Ok(mut tcp_write) = stream.try_clone() else { return 1 };
-    std::thread::spawn(move || {
+    let stdin = std::thread::Builder::new().name("rhost-stdin".into()).spawn(move || {
         let mut stdin = io::stdin().lock();
         let _ = io::copy(&mut stdin, &mut tcp_write);
         let _ = tcp_write.shutdown(Shutdown::Write);
     });
+    if stdin.is_err() {
+        return 1;
+    }
     let mut tcp_read = stream;
     let mut stdout = io::stdout().lock();
     let mut buf = [0u8; 64 * 1024];
@@ -180,7 +183,7 @@ pub(crate) fn probe_all(nodes: Vec<Node>, port: u16) -> Vec<Found> {
     let count = nodes.len();
     for node in nodes {
         let tx = tx.clone();
-        std::thread::spawn(move || {
+        let _ = std::thread::Builder::new().name("rhost-probe".into()).spawn(move || {
             let Some(ip) = node.dial_ip() else { return };
             let addr = SocketAddr::new(ip, port);
             let reply = open(addr, Op::Probe, PROBE_CONNECT_BOUND, PROBE_REPLY_BOUND)

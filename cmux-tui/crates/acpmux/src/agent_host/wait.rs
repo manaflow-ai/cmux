@@ -102,15 +102,19 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
         changed: Condvar::new(),
         ended: tokio::sync::watch::channel(Watch::Waiting).0,
     });
-    map.insert(path.to_owned(), w.clone());
     let (key, watch) = (path.to_owned(), w.clone());
-    std::thread::spawn(move || {
-        let end = take_death_lock(file);
-        watches().lock_or_recover().remove(&key);
-        *watch.state.lock_or_recover() = end;
-        watch.changed.notify_all();
-        watch.ended.send_replace(end);
-    });
+    // The thread removes its entry under the lock `map` holds, so it cannot run before the insert below.
+    let waiter = std::thread::Builder::new().name("acpmux-hostwait".into());
+    waiter
+        .spawn(move || {
+            let end = take_death_lock(file);
+            watches().lock_or_recover().remove(&key);
+            *watch.state.lock_or_recover() = end;
+            watch.changed.notify_all();
+            watch.ended.send_replace(end);
+        })
+        .ok()?;
+    map.insert(path.to_owned(), w.clone());
     Some(w)
 }
 

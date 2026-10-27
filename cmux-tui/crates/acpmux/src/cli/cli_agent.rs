@@ -539,7 +539,9 @@ fn attach_tty(_cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::Fi
 fn read_lines(file: std::fs::File) -> mpsc::UnboundedReceiver<String> {
     use std::io::BufRead;
     let (tx, rx) = mpsc::unbounded_channel();
-    std::thread::spawn(move || {
+    // A reader that does not start drops `tx`: the output reads as ended.
+    let reader = std::thread::Builder::new().name("acpmux-tty-read".into());
+    let started = reader.spawn(move || {
         let mut reader = std::io::BufReader::new(file);
         let mut buf = Vec::new();
         loop {
@@ -556,6 +558,9 @@ fn read_lines(file: std::fs::File) -> mpsc::UnboundedReceiver<String> {
             }
         }
     });
+    if let Err(error) = started {
+        tracing::warn!(%error, "terminal output reader did not start");
+    }
     rx
 }
 

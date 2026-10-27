@@ -107,7 +107,20 @@ fn output_by(
         .stdin
         .take()
         .zip(input)
-        .map(|(mut stdin, input)| std::thread::spawn(move || stdin.write_all(&input)));
+        .map(|(mut stdin, input)| {
+            std::thread::Builder::new()
+                .name("acpmux-git-in".into())
+                .spawn(move || stdin.write_all(&input))
+        })
+        .transpose();
+    let stdin = match stdin {
+        Ok(stdin) => stdin,
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("git input did not start: {e}"));
+        }
+    };
     let Some(by) = by else {
         let out = child.wait_with_output().map_err(|e| format!("git did not run: {e}"));
         if let Some(Err(e)) = stdin.and_then(|w| w.join().ok()) {
@@ -121,13 +134,19 @@ fn output_by(
         (false, child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>)),
     ] {
         let tx = tx.clone();
-        std::thread::spawn(move || {
+        let name = if is_stdout { "acpmux-git-out" } else { "acpmux-git-err" };
+        let reader = std::thread::Builder::new().name(name.into()).spawn(move || {
             let mut got = Vec::new();
             if let Some(mut pipe) = pipe {
                 let _ = pipe.read_to_end(&mut got);
             }
             let _ = tx.send((is_stdout, got));
         });
+        if let Err(e) = reader {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("git output did not start: {e}"));
+        }
     }
     drop(tx);
     let stop = |child: &mut std::process::Child| {

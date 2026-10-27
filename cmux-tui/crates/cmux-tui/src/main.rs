@@ -2786,7 +2786,7 @@ fn start_local_owner_event_loop_with_completion(
     let weak_mux = Arc::downgrade(mux);
     let events = local_owner_reload_events(mux);
     let stop = events.clone();
-    let thread = std::thread::spawn(move || {
+    let thread = std::thread::Builder::new().name("mux-owner-event".into()).spawn(move || {
         while let Ok(event) = events.recv() {
             let mux = weak_mux.upgrade();
             dispatch_local_owner_event(&event, move || {
@@ -2801,7 +2801,10 @@ fn start_local_owner_event_loop_with_completion(
             });
         }
     });
-    LocalOwnerEventLoop { stop: Some(stop), thread: Some(thread) }
+    let thread = thread
+        .inspect_err(|error| eprintln!("cmux-tui: config reload events did not start: {error}"))
+        .ok();
+    LocalOwnerEventLoop { stop: Some(stop), thread }
 }
 
 /// `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1` is how a systemd drop-in turns the

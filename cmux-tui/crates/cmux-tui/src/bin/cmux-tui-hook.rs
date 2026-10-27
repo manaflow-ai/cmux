@@ -759,7 +759,7 @@ mod detach {
         // A reader thread plus a bounded channel wait gives one absolute
         // deadline on every platform (Windows pipe reads have no timeout).
         let (sender, receiver) = mpsc::channel();
-        let reader = std::thread::spawn(move || {
+        let reader = std::thread::Builder::new().name("hook-handoff".into()).spawn(move || {
             let mut byte = [0_u8; 1];
             let outcome = match stdout.read(&mut byte) {
                 Ok(1) => Handoff::Sent,
@@ -767,6 +767,7 @@ mod detach {
             };
             let _ = sender.send(outcome);
         });
+        let reader = reader.context("start the hook handoff reader")?;
         let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
         super::settle_detached_child(child, reader);
         Ok(outcome)

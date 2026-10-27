@@ -439,7 +439,10 @@ fn staged_commit(quarantine: &Path, entries: &[u8]) -> anyhow::Result<Option<Str
         .context("cannot run git")?;
     let mut stdin = child.stdin.take().context("no stdin")?;
     let input = entries.to_vec();
-    let writer = std::thread::spawn(move || stdin.write_all(&input));
+    let writer = std::thread::Builder::new()
+        .name("link-git-index".into())
+        .spawn(move || stdin.write_all(&input))
+        .context("cannot write git's index input")?;
     let built = child.wait().context("cannot run git")?;
     let _ = writer.join();
     if !built.success() {

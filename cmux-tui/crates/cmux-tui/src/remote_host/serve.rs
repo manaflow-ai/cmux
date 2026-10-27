@@ -183,7 +183,8 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     let mut threads = Vec::new();
     for listener in listeners {
         let host = Arc::clone(&host);
-        threads.push(std::thread::spawn(move || accept_loop(&host, &listener)));
+        let accept = std::thread::Builder::new().name("rhost-accept".into());
+        threads.push(accept.spawn(move || accept_loop(&host, &listener))?);
     }
     for thread in threads {
         let _ = thread.join();
@@ -201,11 +202,14 @@ fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
                     continue;
                 };
                 let host = Arc::clone(host);
-                std::thread::spawn(move || {
+                let conn = std::thread::Builder::new().name("rhost-conn".into());
+                if let Err(e) = conn.spawn(move || {
                     if let Err(e) = serve_one(&host, stream, peer, pending) {
                         eprintln!("cmux host: {peer}: {e:#}");
                     }
-                });
+                }) {
+                    eprintln!("cmux host: refused {peer}: {e}");
+                }
             }
             Err(e) => eprintln!("cmux host: accept failed: {e}"),
         }
@@ -378,11 +382,19 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
         let _ = child.wait();
         bail!("`daemon ensure` started without its output pipe");
     };
-    let reader = std::thread::spawn(move || {
+    let reader = std::thread::Builder::new().name("rhost-ensure".into()).spawn(move || {
         let mut buf = Vec::new();
         let _ = (&mut stdout).take(1024 * 1024).read_to_end(&mut buf);
         buf
     });
+    let reader = match reader {
+        Ok(reader) => reader,
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("cannot read `daemon ensure`'s output: {e}");
+        }
+    };
     let status = match child.wait_timeout(ENSURE_BOUND)? {
         Some(status) => status,
         None => {
@@ -439,10 +451,10 @@ fn splice(tcp: TcpStream, daemon: DaemonStream) -> io::Result<()> {
     tcp.set_nodelay(true)?;
     let mut tcp_read = tcp.try_clone()?;
     let mut daemon_write = daemon.try_clone_box()?;
-    let up = std::thread::spawn(move || {
+    let up = std::thread::Builder::new().name("rhost-splice".into()).spawn(move || {
         let _ = io::copy(&mut tcp_read, &mut daemon_write);
         let _ = daemon_write.shutdown(Shutdown::Write);
-    });
+    })?;
     let mut daemon_read = daemon;
     let mut tcp_write = tcp;
     let _ = copy_flush(&mut daemon_read, &mut tcp_write);
