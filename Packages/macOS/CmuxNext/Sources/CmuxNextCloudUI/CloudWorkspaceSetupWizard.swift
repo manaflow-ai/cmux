@@ -60,11 +60,13 @@ public struct CloudWorkspaceSetupWizard {
     /// Presents the starting-point choice; dismissal has no side effects.
     public func choosePlan(availability: CredentialAvailability,
                            scopeIsCurrent: () -> Bool,
+                           supportsRepository: Bool = true,
                            present: (CmuxDialogSpec) async -> CmuxDialogAnswer) async throws -> Plan? {
-        let answer = await present(Self.setupDialogSpec(availability: availability))
+        let answer = await present(Self.setupDialogSpec(availability: availability, supportsRepository: supportsRepository))
         guard scopeIsCurrent(), answer.button == "create", !answer.isDismissal,
               let choice = answer.text(Field.source),
-              let source = Source(rawValue: choice) else { return nil }
+              let source = Source(rawValue: choice),
+              source == .empty || supportsRepository else { return nil }
         do { return try Plan.make(source: source, repositoryText: answer.text(Field.repository) ?? "") }
         catch let error as CloudMachineRepo.Invalid { throw RepositoryFailure(error: error) }
     }
@@ -82,16 +84,16 @@ public struct CloudWorkspaceSetupWizard {
 
     /// The production setup dialog, also used by the native gallery.
     public static func setupDialogSpec(availability: CredentialAvailability = .available,
-                                source: Source = .empty, repository: String = "") -> CmuxDialogSpec {
+                                source: Source = .empty, repository: String = "", supportsRepository: Bool = true) -> CmuxDialogSpec {
         CmuxDialogSpec(
             title: CloudWorkspaceSetupWizardStrings.title,
-            lines: [CloudWorkspaceSetupWizardStrings.setupSummary, CloudWorkspaceSetupWizardStrings.credentialsNote(availability)],
+            lines: [supportsRepository ? CloudWorkspaceSetupWizardStrings.setupSummary : CloudWorkspaceSetupWizardStrings.emptyOnlySummary, CloudWorkspaceSetupWizardStrings.credentialsNote(availability)],
             fields: [
                 .choice(id: Field.source, label: CloudWorkspaceSetupWizardStrings.sourceLabel,
                         options: [
                             CmuxDialogOption(label: CloudWorkspaceSetupWizardStrings.emptyChoice, value: Source.empty.rawValue),
-                            CmuxDialogOption(label: CloudWorkspaceSetupWizardStrings.repositoryChoice, value: Source.repository.rawValue),
-                        ], selected: source.rawValue),
+                            CmuxDialogOption(label: CloudWorkspaceSetupWizardStrings.repositoryChoice, value: Source.repository.rawValue, isEnabled: supportsRepository),
+                        ], selected: supportsRepository ? source.rawValue : Source.empty.rawValue),
                 .text(Field.repository, initial: repository, label: CloudWorkspaceSetupWizardStrings.repositoryLabel,
                       placeholder: CloudWorkspaceSetupWizardStrings.repositoryPlaceholder),
             ],
@@ -100,6 +102,11 @@ public struct CloudWorkspaceSetupWizard {
                 CmuxDialogButton(id: "create", title: CloudWorkspaceSetupWizardStrings.create, role: .default),
             ],
             identifier: "cmux.dialog.cloud.workspaceSetup")
+    }
+
+    /// Reveals a completed clone only while the original workspace is still active.
+    public nonisolated static func shouldRevealProject(originalWorkspace: String?, currentWorkspace: String?, windowIsActive: Bool) -> Bool {
+        originalWorkspace != nil && originalWorkspace == currentWorkspace && windowIsActive
     }
 
     /// Opens the cloned project only after bootstrap succeeds; failures retain their localized cause.
@@ -154,6 +161,7 @@ public struct CloudWorkspaceSetupWizard {
 private enum CloudWorkspaceSetupWizardStrings {
     nonisolated static let title = String(localized: "cloud.workspaceSetup.title", defaultValue: "New Cloud Workspace", table: "Cloud", bundle: .module)
     nonisolated static let setupSummary = String(localized: "cloud.workspaceSetup.summary", defaultValue: "Start a new project on an empty VM, or clone a GitHub repository into ~/work.", table: "Cloud", bundle: .module)
+    nonisolated static let emptyOnlySummary = String(localized: "cloud.workspaceSetup.emptyOnlySummary", defaultValue: "Start a new project on an empty VM. Repository setup is not available with this Cloud connection.", table: "Cloud", bundle: .module)
     nonisolated static let sourceLabel = String(localized: "cloud.workspaceSetup.sourceLabel", defaultValue: "Start with", table: "Cloud", bundle: .module)
     nonisolated static let emptyChoice = String(localized: "cloud.workspaceSetup.emptyChoice", defaultValue: "Empty VM — start a new project", table: "Cloud", bundle: .module)
     nonisolated static let repositoryChoice = String(localized: "cloud.workspaceSetup.repositoryChoice", defaultValue: "From repository", table: "Cloud", bundle: .module)

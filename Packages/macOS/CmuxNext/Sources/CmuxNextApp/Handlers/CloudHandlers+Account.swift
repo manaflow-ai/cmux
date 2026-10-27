@@ -69,7 +69,7 @@ extension CloudHandlers {
             let wizard = CloudWorkspaceSetupWizard()
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
-                present: present) else { return }
+                supportsRepository: cloud.configuration.linkSource == .legacy, present: present) else { return }
             var request = plan.request
             request.script = try await request.loadScript(work: services.work)
             try Task.checkCancellation()
@@ -96,12 +96,20 @@ extension CloudHandlers {
                     try Task.checkCancellation()
                     guard !creation.isTornDown, cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
                     try await wizard.finishBootstrap(completion) { path in
-                        guard let id = await services.windows.createWorkspace(cwd: path, on: session.daemon, into: window?.id) else {
+                        let filing = ActionRunScope.carrying(ActionRunScope(origin: .user, allowsViewChange: false)) {
+                            // task-owner: this awaited filing; cancellation below ends its task
+                            Task { await services.windows.createWorkspace(cwd: path, on: session.daemon, into: window?.id) }
+                        }
+                        let id = await withTaskCancellationHandler { await filing.value } onCancel: { filing.cancel() }
+                        guard let id else {
                             throw ActionFailure(message: CloudStrings.notConnected)
                         }
                         try Task.checkCancellation()
                         guard !creation.isTornDown, cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
-                        show(id, context)
+                        if CloudWorkspaceSetupWizard.shouldRevealProject(originalWorkspace: creation.workspaceID,
+                            currentWorkspace: window?.workspaceID, windowIsActive: services.windows.active?.state.id == window?.id) {
+                            show(id, context)
+                        }
                     }
                     break
                 }

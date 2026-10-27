@@ -57,6 +57,28 @@ struct CloudWorkspaceSetupWizardTests {
     }
 
     @MainActor
+    @Test func unsupportedRouteDisablesRepositoryAndRejectsAStaleRepositoryAnswer() async throws {
+        let spec = CloudWorkspaceSetupWizard.setupDialogSpec(supportsRepository: false)
+        guard case .choice(_, _, let options, let selected) = spec.fields[0] else {
+            Issue.record("Missing source choice")
+            return
+        }
+        #expect(selected == "empty")
+        #expect(options.first { $0.value == "repository" }?.isEnabled == false)
+        let plan = try await CloudWorkspaceSetupWizard().choosePlan(availability: .unsupportedCloudRoute,
+            scopeIsCurrent: { true }, supportsRepository: false,
+            present: { _ in CmuxDialogAnswer(button: "create", role: .default,
+                values: ["source": .text("repository"), "repository": .text("octo/paint")]) })
+        #expect(plan == nil)
+    }
+
+    @Test(arguments: [("original", true, true), ("other", true, false), ("original", false, false)])
+    func completedCloneOnlyRevealsInTheUnchangedActiveWorkspace(current: String, active: Bool, expected: Bool) {
+        #expect(CloudWorkspaceSetupWizard.shouldRevealProject(originalWorkspace: "original",
+            currentWorkspace: current, windowIsActive: active) == expected)
+    }
+
+    @MainActor
     @Test(arguments: ["skip", "cancel", "transfer"])
     func noCredentialMovesWithoutAnExplicitProviderSelection(button: String) async throws {
         var moved: [CloudWorkspaceSetupWizard.Provider] = []
