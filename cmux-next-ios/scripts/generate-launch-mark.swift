@@ -25,7 +25,8 @@ private let canvas = box + 2 * margin
 private let stops: [(CGFloat, CGFloat, CGFloat)] = [(0x06, 0xCD, 0xFE), (0x2A, 0xA0, 0xF9), (0x51, 0x70, 0xF3)]
 private let glowColor: (CGFloat, CGFloat, CGFloat) = (0x2A, 0xA0, 0xF9)
 /// WelcomeMark's shadow at glow 0.3: opacity 0.3 (light) or 0.55 (dark) times
-/// 0.3, radius 4 + 8 * 0.3 pt.
+/// 0.3, radius 4 + 8 * 0.3 pt. A SwiftUI `.shadow(radius: r)` matches
+/// CoreGraphics' `setShadow(blur: 2 * r)`.
 private let glowRadius: CGFloat = 4 + 8 * 0.3
 private let appearances: [(suffix: String, glowOpacity: CGFloat)] = [("", 0.3 * 0.3), ("-dark", 0.55 * 0.3)]
 
@@ -59,12 +60,14 @@ private func render(scale: CGFloat, glowOpacity: CGFloat) -> CGImage {
     ctx.scaleBy(x: scale, y: scale)
     let rect = CGRect(x: margin, y: margin, width: box, height: box)
     let path = chevron(in: rect)
-    let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+    // SwiftUI's LinearGradient blends its stops in linear light; linear
+    // sRGB comes closest to its colors (checked against an ImageRenderer render).
+    let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
                               colors: stops.map { srgb($0) } as CFArray, locations: [0, 0.5, 1])!
 
     // The glow: the chevron's shadow, drawn once under the gradient fill.
     ctx.saveGState()
-    ctx.setShadow(offset: .zero, blur: glowRadius * scale, color: srgb(glowColor, glowOpacity))
+    ctx.setShadow(offset: .zero, blur: 2 * glowRadius * scale, color: srgb(glowColor, glowOpacity))
     ctx.beginTransparencyLayer(auxiliaryInfo: nil)
     ctx.addPath(path)
     ctx.clip()
