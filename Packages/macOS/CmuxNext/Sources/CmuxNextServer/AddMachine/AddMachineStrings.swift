@@ -43,6 +43,7 @@ nonisolated enum AddMachineStrings {
         case .install: s("addMachine.step.install", "Install cmux-tui")
         case .daemon: s("addMachine.step.daemon", "Start the agent daemon")
         case .harness: s("addMachine.step.harness", "Copy agent profiles")
+        case .update: s("addMachine.step.update", "Keep it up to date")
         case .peer: s("addMachine.step.peer", "Add it as a peer here")
         case .peerBack: s("addMachine.step.peerBack", "Add this Mac as its peer")
         case .identity: s("addMachine.step.identity", "Name the machine")

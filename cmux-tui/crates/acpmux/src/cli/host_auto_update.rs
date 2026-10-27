@@ -12,7 +12,7 @@ use super::REMOTE_HOME;
 /// the units are not installed, a timer already there is stopped, and
 /// `host self-update` does nothing. Removing it turns them on again at the
 /// next update.
-pub(super) const NO_AUTO_UPDATE: &str = "no-auto-update";
+pub(crate) const NO_AUTO_UPDATE: &str = "no-auto-update";
 
 /// The oneshot service the timer starts. `KillMode=process`: a daemon the
 /// update had to start detached (a host without `acpmux.service`) outlives
@@ -57,7 +57,7 @@ WantedBy=timers.target
 pub(super) const AUTO_UPDATE_OFF: &str = "ACPMUX_AUTO_UPDATE_OFF=";
 
 /// `out` without its [`AUTO_UPDATE_OFF`] lines, and the reason the last one gave.
-pub(super) fn take_auto_update_off(out: &str) -> (String, Option<String>) {
+pub(crate) fn take_auto_update_off(out: &str) -> (String, Option<String>) {
     let mut off = None;
     let rest: Vec<&str> = out
         .lines()
@@ -102,7 +102,7 @@ esac
 /// instead, and only when the timer is acpmux's (whatever the service is): a
 /// timer someone else wrote keeps running (review of #24232). Nothing here
 /// fails the script it runs in.
-pub(super) fn install_script() -> String {
+pub(crate) fn install_script() -> String {
     format!(
         r#"au_d=$HOME/.config/systemd/user
 au_t=
