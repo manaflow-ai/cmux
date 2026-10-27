@@ -682,6 +682,7 @@ impl Shared {
                     None => self.work[index].idle().wait(state).recover_poison(),
                     Some(due) => {
                         let wait = due.saturating_duration_since(Instant::now());
+                        // wakeup-allow: deadline the earliest delayed task's due time, armed only while one is pending
                         self.work[index].idle().wait_timeout(state, wait).recover_poison().0
                     }
                 };
