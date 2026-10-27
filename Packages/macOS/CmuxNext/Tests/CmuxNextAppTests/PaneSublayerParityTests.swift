@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
 import QuartzCore
+import CmuxNextWakeups
 import Testing
 
 /// Pane chrome on the render server (chrome-parity p03-rendering-029, `motion.renderServer` on): the ring,
@@ -176,7 +177,7 @@ struct PaneSublayerParityTests {
             model.followsDesignMetrics = false
             model.baseStyle.panePadding = 4
             model.baseStyle.paneCornerRadius = 8
-            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { true })
+            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { true }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false

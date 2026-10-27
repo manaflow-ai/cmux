@@ -5,6 +5,7 @@ import Foundation
 import Testing
 import WebKit
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// The Dictation key (Globe-D, the 🎤 key) and Edit ▸ Start Dictation in an agent pane start the pane's
 /// own dictation, the waveform inside the composer, not macOS's black overlay that AppKit placed
@@ -34,7 +35,7 @@ struct AgentPaneDictationKeyTests {
     /// An agent page in a pane's content host, its Start Dictation routes recorded.
     private func page(systemDictation: Bool?) throws -> (AgentPaneView, Routes) {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         host.addSubview(view)
         let routes = Routes()
@@ -46,7 +47,7 @@ struct AgentPaneDictationKeyTests {
 
     /// Start Dictation as AppKit sends it: up the responder chain from the focused web view.
     private func startDictation(from view: AgentPaneView) -> Bool {
-        view.webView.tryToPerform(AgentPaneDictationKey.action, with: nil)
+        view.focusTarget.tryToPerform(AgentPaneDictationKey.action, with: nil)
     }
 
     @Test func theDictationKeyStartsThePanesDictationNotMacOSs() throws {
@@ -84,7 +85,7 @@ struct AgentPaneDictationKeyTests {
         let (view, routes) = try page(systemDictation: nil)
         let window = try window(holding: view)
         defer { view.close(); window.close() }
-        try #require(window.makeFirstResponder(view.webView))
+        try #require(window.makeFirstResponder(view.focusTarget))
         #expect(AgentPaneView.takeStartDictation(in: window, sender: nil),
                 "Start Dictation at NSApplication with the agent page's keyboard went to macOS's dictation overlay")
         #expect(routes.pane == 1, "the Dictation key did not start the pane's dictation")
@@ -117,7 +118,7 @@ struct AgentPaneDictationKeyTests {
         let (view, routes) = try page(systemDictation: true)
         let window = try window(holding: view)
         defer { view.close(); window.close() }
-        try #require(window.makeFirstResponder(view.webView))
+        try #require(window.makeFirstResponder(view.focusTarget))
         #expect(!AgentPaneView.takeStartDictation(in: window, sender: nil),
                 "with agent.systemDictation on, the pane kept the Dictation key from macOS")
         #expect(routes.pane == 0)

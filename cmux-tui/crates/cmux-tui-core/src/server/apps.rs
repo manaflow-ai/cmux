@@ -24,6 +24,7 @@ use std::thread::JoinHandle;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::routes::RouteLine;
 use super::{MessageWriter, Response, send_response};
 use crate::mux::Mux;
 
@@ -236,27 +237,31 @@ fn cancel_request(mux: &Arc<Mux>, client: u64, value: Value, writer: &MessageWri
     reply(writer, request.id, Ok(json!({})))
 }
 
-/// Handles an `apps-*` command or `cancel-request`; `None` when the message
-/// is neither.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"apps-") && !message.contains("\"cancel-request\"") {
-        return None;
-    }
-    let value: Value = serde_json::from_str(message).ok()?;
-    let cmd = value.get("cmd").and_then(Value::as_str)?;
-    if cmd == "cancel-request" {
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[
+            crate::server::routes::RouteName::Prefix("apps-"),
+            crate::server::routes::RouteName::Exact("cancel-request"),
+        ],
+        stage: crate::server::FrameStage::Apps,
+        entry: handle,
+    }];
+
+/// Answers a line whose `cmd` is `cancel-request` or starts with `apps-`
+/// (the route found it by name). The line's one decode is its `Value`: it
+/// gives every reply the `id` as written, a refused one too, and then the
+/// module's typed [`Request`]. `None` only for a line with no `Value` (a
+/// number past `f64`, a lone surrogate); the `Command` parse answers it.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let value: Value = crate::line_parses::parse(message).ok()?;
+    let cmd = value.get("cmd").and_then(Value::as_str);
+    if cmd == Some("cancel-request") {
         return Some(cancel_request(mux, client, value, writer));
     }
-    if !cmd.starts_with("apps-") {
-        return None;
-    }
     let id = value.get("id").cloned();
-    if cmd == "apps-agent-inventory-changed"
+    if cmd == Some("apps-agent-inventory-changed")
         && value.as_object().is_none_or(|fields| {
             fields.keys().any(|key| !matches!(key.as_str(), "id" | "cmd" | "demand_sequence"))
         })

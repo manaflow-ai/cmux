@@ -4,7 +4,7 @@
     "apps": {
       "enum": "Command",
       "envelope": "Request",
-      "enum_handler": "try_handle",
+      "enum_handler": "handle",
       "literals": {
         "cancel-request": {
           "request": "CancelRequest",
@@ -22,42 +22,42 @@
       "literals": {
         "agent-session-attach": {
           "request": "PageParams",
-          "handler": "try_handle",
+          "handler": "handle",
           "variant": "AgentSessionCommand::Attach"
         },
         "agent-session-events": {
           "request": "PageParams",
-          "handler": "try_handle",
+          "handler": "handle",
           "variant": "AgentSessionCommand::Events"
         },
         "agent-session-prompt": {
           "request": "PromptParams",
-          "handler": "try_handle",
+          "handler": "handle",
           "variant": "AgentSessionCommand::Prompt"
         },
         "agent-session-cancel": {
           "request": "SurfaceParams",
-          "handler": "try_handle",
+          "handler": "handle",
           "variant": "AgentSessionCommand::Cancel"
         },
         "agent-session-permission": {
           "request": "PermissionParams",
-          "handler": "try_handle",
+          "handler": "handle",
           "variant": "AgentSessionCommand::Permission"
         },
         "agent-session-detach": {
           "request": "SurfaceParams",
-          "handler": "try_handle",
+          "handler": "handle",
           "variant": "AgentSessionCommand::Detach"
         },
         "agent-session-children": {
           "request": "SurfaceParams",
-          "handler": "try_handle",
+          "handler": "handle",
           "variant": "AgentSessionCommand::Children"
         },
         "agent-session-media": {
           "request": "MediaParams",
-          "handler": "try_handle",
+          "handler": "handle",
           "variant": "AgentSessionCommand::Media"
         },
         "agent-session-start": {
@@ -75,7 +75,7 @@
       "literals": {
         "agent-session-observe": {
           "request": "agent_session_attach::PageParams",
-          "handler": "try_handle"
+          "handler": "handle"
         }
       },
       "authority": "local-admin"
@@ -99,6 +99,10 @@
             "proof": {
               "type": "String",
               "presence": "optional"
+            },
+            "features": {
+              "type": "Option<HelloFeatures>",
+              "presence": "optional"
             }
           },
           "handler": "observe"
@@ -118,7 +122,7 @@
               "presence": "required"
             }
           },
-          "handler": "try_handle"
+          "handler": "handle"
         }
       },
       "authority": "local-admin"

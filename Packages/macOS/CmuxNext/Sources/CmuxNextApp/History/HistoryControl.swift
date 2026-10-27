@@ -19,7 +19,8 @@ enum HistoryControl {
         ] + debugMethods(services: services)
     }
 
-    /// `debug.closed_ids` (DEBUG builds only): every closed group the local
+    /// `debug.closed_ids` (Debug and bench builds; read-only, so the perf
+    /// lab's bench sweep can read it): every closed group the local
     /// daemon records, newest first, as `closed_id`s `history.reopen` takes.
     /// Unlike `history.list` it hides nothing (a blank New Tab page, a chat
     /// with no session yet, a page closed again), so each close the daemon
@@ -29,6 +30,13 @@ enum HistoryControl {
     /// The every-action sweep reads it before and after an input to reopen
     /// exactly the groups that input closed.
     ///
+    /// `debug.closed_forget {ids}` (DEBUG builds only): deletes those
+    /// `debug.closed_ids` entries for good, as History's Remove does, and
+    /// answers `debug.closed_ids` once the daemon deleted them. The oracle's
+    /// reset between cases (scripts/cmux-next/oracle/app_reset.py) forgets
+    /// the closes since its fixture, so the next case's Cmd-Shift-T reopens
+    /// what the fixture holds, not an earlier case's tab.
+    ///
     /// `debug.history_cookie_backups {action: show|hide|delete_all}` (DEBUG
     /// builds only; the router drops `debug.*` in Release): drives the
     /// History page's cookie backups sheet of the active window's selected
@@ -36,7 +44,11 @@ enum HistoryControl {
     /// confirmation, so in a DEV build an agent with the debug socket could
     /// delete backups; a Release build has no such path.
     static func debugMethods(services: AppServices) -> [ControlMethod] {
-        #if DEBUG
+        readOnlyDebugMethods(services: services) + debugOnlyMethods(services: services)
+    }
+
+    static func readOnlyDebugMethods(services: AppServices) -> [ControlMethod] {
+        #if DEBUG || CMUX_BENCH_HOOKS
         return [
             .mainActor("debug.closed_ids") { [weak services] _ in
                 guard let services else { throw ControlError.invalidParams("the app is closing") }
@@ -45,6 +57,33 @@ enum HistoryControl {
                     throw ControlError(code: "unavailable", message: "the local daemon records no closed history")
                 }
                 return .followUp { try await closedIDs(daemon) }
+            },
+        ]
+        #else
+        return []
+        #endif
+    }
+
+    static func debugOnlyMethods(services: AppServices) -> [ControlMethod] {
+        #if DEBUG
+        return [
+            .mainActor("debug.closed_forget") { [weak services] call in
+                guard let services else { throw ControlError.invalidParams("the app is closing") }
+                guard let ids = call.params["ids"]?.arrayValue?.compactMap(\.stringValue) else {
+                    throw ControlError.invalidParams("ids must be a list of debug.closed_ids entries")
+                }
+                let daemon = services.daemon
+                guard daemon.store.servesStateResources, daemon.connection != nil else {
+                    throw ControlError(code: "unavailable", message: "the local daemon records no closed history")
+                }
+                var items: [String] = []
+                for id in ids {
+                    guard let item = DaemonClosedHistory.daemonID(fromHistoryID: id) else {
+                        throw ControlError.invalidParams("\(id) is not a debug.closed_ids entry")
+                    }
+                    items.append(item)
+                }
+                return .followUp { [items] in try await forget(items, services: services, daemon: daemon) }
             },
             .mainActor("debug.history_cookie_backups") { [weak services] call in
                 guard let services else { throw ControlError.invalidParams("the app is closing") }
@@ -67,7 +106,7 @@ enum HistoryControl {
         #endif
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.closed_ids`' answer: the daemon's sync barrier, then the store's closed items
     /// (`session.events`), unfiltered.
     @MainActor
@@ -82,6 +121,21 @@ enum HistoryControl {
             "closed_ids": .array(daemon.store.closedItems.map { .string(DaemonClosedHistory.historyID($0.id)) }),
             "sequence": .number(Double(sequence)),
         ])
+    }
+    #endif
+
+    #if DEBUG
+    /// `debug.closed_forget`'s answer: each closed item deleted on the daemon
+    /// (an item already gone counts as deleted), then `debug.closed_ids`.
+    @MainActor
+    static func forget(_ items: [String], services: AppServices, daemon: DaemonService) async throws -> JSONValue {
+        for item in items {
+            guard let entry = DaemonClosedHistory.entry(item, in: services) else { continue }
+            if let failure = await DaemonClosedHistory.deleteNow(entry, services: services) {
+                throw ControlError(code: "unavailable", message: failure)
+            }
+        }
+        return try await closedIDs(daemon)
     }
     #endif
 
@@ -101,8 +155,7 @@ enum HistoryControl {
         }
         if let model = find() { return model }
         _ = try? await ControlDeadline.shared.run(method: "debug.history_cookie_backups", deadline: .now + .seconds(5)) { @MainActor in
-            for await found in ObservationStream({ find() != nil }) where found { return true }
-            return false
+            await ControlConditionWait(on: services.mainWork, owner: "debug.history_page_model").until { find() != nil }
         }
         return find()
     }

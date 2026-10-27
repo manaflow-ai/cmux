@@ -71,6 +71,8 @@ final class ScreenContentView: NSView {
     /// Each horizontal scroll area keeps its own instance of the same rules
     /// (ScreenContentView+ScrollAreas.swift).
     var areaScrolls: [SplitID: ScrollAreaScroll] = [:]
+    /// Row and scroll area motion containers, and the scrollers the layout gives one now (`+Scrollers`).
+    var scrollerContainers: [NestedScroller: ScrollerPanContainerView] = [:], wantedScrollers: Set<NestedScroller> = []
     /// Row and area offsets a remount gave before their scrolls were built (`restoreScroll`).
     var pendingScroll = LayoutScreenScroll()
     /// A row divider drag's heights, shown until the next layout arrives
@@ -178,7 +180,7 @@ final class ScreenContentView: NSView {
     /// Resized while hidden: reconcile when it shows.
     private(set) var needsReconcileOnShow = false
 
-    override func viewDidUnhide() {
+    override func viewDidUnhide() { // visibility-walk-allow: the screen's own hidden flag (another screen of its workspace shows) has no node; the resize it missed reconciles once on show, as deferUntilVisible would
         super.viewDidUnhide()
         reconcileIfDeferred()
     }
@@ -217,8 +219,10 @@ final class ScreenContentView: NSView {
     }
 
     /// A window resize: frames snap (or, `keepsMotion`, a running spring retargets), and the scroll keeps the
-    /// focused column in place on screen, then fits it (L7).
+    /// focused column in place on screen, then fits it (L7). A render-server camera move comes back first (its
+    /// zoom pivots on the old viewport center); the turn's end hands it over again at the new size.
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
+        takeCanvasCameraBack()
         motionTurn {
             reconcile(animated: keepsMotion)
             return syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
@@ -255,8 +259,9 @@ final class ScreenContentView: NSView {
 
     @discardableResult
     func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false) -> Bool {
-        // A layout change takes the camera from a fling on the render server: the CPU carries it on.
+        // A layout change takes the camera, rows and scroll areas from flings on the render server: the CPU carries them on.
         takeCameraFromServer()
+        takeScrollersFromServer()
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
         // A new structure starts from what shows, render-server springs included (`takeRenderSpringsBack`).
@@ -268,6 +273,7 @@ final class ScreenContentView: NSView {
         reconciledScale = scale
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
+        reconcileScrollerContainers() // before `hostParent` puts a new host in one
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
         let splits = animate && context.animatesPaneLayout
@@ -370,6 +376,7 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
+                followDragInput(view)
                 view.onPointerChange = { [weak self] event in self?.refreshDividerHover(at: event) }
                 // Ranked by `reconcileDock` (`ensureStacking`).
                 dividerParent(for: kind, inContainer: dividersInStripContainer).addSubview(view)

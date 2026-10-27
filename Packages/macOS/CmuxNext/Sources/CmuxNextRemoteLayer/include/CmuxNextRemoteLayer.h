@@ -7,6 +7,8 @@
 #import <QuartzCore/QuartzCore.h>
 #import <mach/mach_types.h>
 
+#import "CmuxNextRemoteAccessibility.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 @interface CALayerHost : CALayer

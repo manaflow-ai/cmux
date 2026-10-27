@@ -23,4 +23,11 @@ import Testing
         let p99 = try #require(report["pass_ms_p99"])
         #expect(p99 != .number(0), "one 1.5 ms pass was recorded")
     }
+
+    /// split-spring --suite=cef-idle reads `early_passes` (p14-energy-018).
+    @Test func thePumpReportHasEarlyPasses() {
+        var stats = CEFPumpStats()
+        stats.earlyPasses = 4
+        #expect(DebugCEF.pumpReport(stats)["early_passes"] == .number(4))
+    }
 }

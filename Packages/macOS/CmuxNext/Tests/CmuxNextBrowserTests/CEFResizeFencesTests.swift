@@ -8,8 +8,7 @@ import Testing
 /// resizes Chromium pages, given to every resized page with a 2-frame deadline, held once by each
 /// window context, and released by the app after the commit on every path (a browser closed in the
 /// transaction, the runtime gone, a transaction that takes no commit handler). With the fence no
-/// main-thread wait reaches the fork; an older fork, or the feature `cefResizeFence` off, keeps the
-/// API 27 deadlines.
+/// main-thread wait reaches the fork; an older fork (API 27 to 31) keeps the API 27 deadlines.
 @MainActor
 @Suite struct CEFResizeFencesTests {
     /// Core Animation without a render server: contexts by view, fences made, held, released, and
@@ -280,7 +279,7 @@ import Testing
         #expect(ca.made.isEmpty)
     }
 
-    /// An older fork (API 27 to 30) has no fence: a resize makes no fence and the deadlines stay.
+    /// An older fork (API 27 to 31) has no fence: a resize makes no fence and the deadlines stay.
     @Test func anOlderForkKeepsTheAPI27Deadlines() {
         let hosting = makeHosting(enabled: true)
         hosting.pageWindowCreated(browser: 5, fork: layerFork.fork)
@@ -309,12 +308,36 @@ import Testing
         #expect(FenceSpy.calls.map(\.fence) == ca.made)
     }
 
-    /// The feature `cefResizeFence` off (the runtime has no fences): a fence fork keeps the API 27
-    /// deadline call and makes no fence.
-    @Test func theFeatureOffKeepsTheDeadlineCallOnAFenceFork() throws {
+    /// The feature `cefResizeFence` off (the runtime has no fences): a fence fork makes no fence and
+    /// gets no deadline call either (from fork API 32 a page window never holds the commit).
+    @Test func theFeatureOffMakesNoFenceOnAFenceFork() throws {
         let fork = try #require(CEFLayerHosting.Fork(shim: try FenceSpy.shim(), apiVersion: CEFLayerHosting.resizeFenceForkAPI, fences: nil))
         #expect(fork.resizeFence == nil)
-        #expect(fork.setResizeSync != nil)
+        #expect(fork.setResizeSync == nil)
+    }
+
+    /// The fence is the Track A call `resizeFence`: with it and embedder visibility the feature
+    /// `cefLayerHosting` hosts a pane's page; without the fence (feature off, older fork) it does not.
+    @Test func theFenceIsTheTrackAResizeFenceCall() throws {
+        let fences = CEFResizeFences(commit: CEFResizeFencesTests.FakeCA().commit)
+        let layerHosting = CEFLayerHosting.Policy(trackA: [])
+        let fenced = try #require(CEFLayerHosting.Fork(shim: try FenceSpy.shim(), apiVersion: CEFLayerHosting.resizeFenceForkAPI,
+                                                       policy: layerHosting, fences: fences))
+        #expect(fenced.trackA == [.resizeFence])
+        let unfenced = try #require(CEFLayerHosting.Fork(shim: try FenceSpy.shim(), apiVersion: CEFLayerHosting.resizeFenceForkAPI,
+                                                         policy: layerHosting, fences: nil))
+        #expect(unfenced.trackA == [])
+        // Feature `cefLayerHosting` off: no Track A calls, the fence still syncs a page in its own window.
+        let off = try #require(CEFLayerHosting.Fork(shim: try FenceSpy.shim(), apiVersion: CEFLayerHosting.resizeFenceForkAPI, fences: fences))
+        #expect(off.trackA == nil)
+        #expect(off.resizeFence != nil)
+        let both = try #require(CEFLayerHosting.Fork(shim: try FenceSpy.shim(), apiVersion: CEFLayerHosting.embedderVisibilityForkAPI,
+                                                     policy: layerHosting, fences: fences))
+        #expect(both.trackA == CEFLayerHosting.TrackA.required)
+        #expect(CEFLayerHosting.hosting(override: false, fork: both, widget: .page) == .hosted)
+        let older = try #require(CEFLayerHosting.Fork(shim: try FenceSpy.shim(), apiVersion: CEFLayerHosting.resizeFenceForkAPI - 1,
+                                                      policy: layerHosting, fences: fences))
+        #expect(older.trackA == [])
     }
 
     @Test func anOlderForkKeepsTheDeadlineCall() throws {
@@ -331,7 +354,6 @@ import Testing
         let fences = CEFResizeFences(commit: CEFResizeFencesTests.FakeCA().commit)
         let fork = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.resizeFenceForkAPI, fences: fences))
         #expect(fork.resizeFence == nil)
-        #expect(fork.setResizeSync != nil)
     }
 }
 

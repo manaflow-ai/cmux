@@ -13,6 +13,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LAB = os.path.dirname(HERE)
@@ -170,6 +171,8 @@ class Signposts(Fixture):
                 case qualified = 6
                 case bound = 7
                 case ring = 8
+                case timer = 9
+                case timerShort = 10
             }
             """)
         self.write("Packages/macOS/CmuxNext/Sources/A/Emit.swift", """
@@ -181,6 +184,8 @@ class Signposts(Fixture):
             Signposter.stall.begin(SignpostName.qualified, taskClass: "a", owner: "b")
             let name: SignpostName = .bound
             trace.asyncBegin(.ring, id: 1)
+            static let timer = SwitchFrameTimer(owner: "debug.x", signpost: SignpostName.timer)
+            let short = SwitchFrameTimer(owner: "y", signpost: .timerShort, trace: runtime)
             switch name {
             case .switched: break
             }
@@ -353,12 +358,22 @@ class CommandLine(Fixture):
         self.write("scripts/cmux-next/a-bench.py", "def pct(v):\n    pass\n")
         self.write(queues.SIGNPOST_NAME, "enum SignpostName {\n    case a = 1\n}\n")
         self.write("schemas/features/features.schema.json", "{}")
-        code, out, _ = self.run_main("--all", "--counts")
+        self.write("run/typecheck-queue.json", '{"tasks": [{"file": "A.swift", "max_ms": 120, "functions": '
+                   '[{"line": 3, "column": 6, "subject": "f()", "declaration": "global function", "ms": 120}]}]}')
+        code, out, _ = self.run_main("--all", "--counts", "--dir", os.path.join(self.root, "run"))
         rows = [line.split("\t") for line in out.splitlines()]
         self.assertEqual([row[0] for row in rows], [queue.mq for queue in queues.QUEUES])
         self.assertEqual(dict((row[0], row[2]) for row in rows)["MQ1"], "1")
         self.assertEqual(dict((row[0], row[2]) for row in rows)["MQ5"], "1")
+        self.assertEqual(dict((row[0], row[2]) for row in rows)["MQ15"], "1")
         self.assertEqual(code, 0)
+
+    def test_mq15_without_a_store_is_an_error_not_an_empty_queue(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop(queues.DB_ENV, None)
+            code, out, err = self.run_main("mq15", "--counts")
+        self.assertEqual((code, out), (1, "MQ15\ttypecheck\terror\n"))
+        self.assertIn("no lab store", err)
 
     def test_a_queue_that_cannot_run_reports_error_and_exits_1(self):
         code, out, err = self.run_main("signposts", "--counts")
@@ -425,10 +440,12 @@ class Checkout(unittest.TestCase):
         for item in items:
             self.assertTrue(os.path.isfile(os.path.join(REPO, item.key)), item.key)
 
-    def test_mq6_includes_motion_pane_hold_content(self):
+    def test_mq6_drops_the_motion_holds_that_became_features(self):
+        """p12-perf-process-102: features paneHoldsContentInMotion and sidebarSlideHoldsContent replace them."""
         with contextlib.redirect_stderr(io.StringIO()):
             listed = {item.key for item in queues.unmigrated_features(REPO)}
-        self.assertIn("motion.pane.holdContent", listed)
+        self.assertNotIn("motion.pane.holdContent", listed)
+        self.assertNotIn("sidebar.slideHoldsContent", listed)
 
     def test_mq1_keeps_only_the_allowlist_out(self):
         with contextlib.redirect_stderr(io.StringIO()):

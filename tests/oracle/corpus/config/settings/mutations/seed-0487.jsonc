@@ -1,0 +1,7 @@
+{
+	"tabs": true,
+	"sidebar": {
+		"showWorkspaceTabs": false,
+		"steppingWraps": "true"
+	},
+}

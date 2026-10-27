@@ -26,19 +26,23 @@ package struct OpenFileLimit {
     /// Reads the soft and hard limit (getrlimit); a test passes its own.
     package var read: () -> (soft: rlim_t, hard: rlim_t)? = {
         var limit = rlimit()
-        return getrlimit(RLIMIT_NOFILE, &limit) == 0 ? (limit.rlim_cur, limit.rlim_max) : nil
+        // SAFETY: getrlimit writes one rlimit into `limit`, a local.
+        return unsafe getrlimit(RLIMIT_NOFILE, &limit) == 0 ? (limit.rlim_cur, limit.rlim_max) : nil
     }
     /// Sets the soft limit under `hard` (setrlimit); true when it took.
     package var write: (_ soft: rlim_t, _ hard: rlim_t) -> Bool = { soft, hard in
         var limit = rlimit(rlim_cur: soft, rlim_max: hard)
-        return setrlimit(RLIMIT_NOFILE, &limit) == 0
+        // SAFETY: setrlimit reads one rlimit from `limit`, a local.
+        return unsafe setrlimit(RLIMIT_NOFILE, &limit) == 0
     }
     /// `kern.maxfilesperproc`: setrlimit refuses a soft limit above it, even under an unlimited
     /// hard limit. `OPEN_MAX` (10240) when it cannot be read.
     package var perProcessCap: () -> rlim_t = {
         var value: Int32 = 0
         var size = MemoryLayout<Int32>.size
-        return sysctlbyname("kern.maxfilesperproc", &value, &size, nil, 0) == 0 && value > 0 ? rlim_t(value) : 10_240
+        // SAFETY: sysctlbyname reads the NUL-terminated name made for the call and writes at most `size` bytes (one
+        // Int32) into `value` and the size it wrote into `size`; both are locals.
+        return unsafe sysctlbyname("kern.maxfilesperproc", &value, &size, nil, 0) == 0 && value > 0 ? rlim_t(value) : 10_240
     }
 
     package init() {}

@@ -4,6 +4,8 @@
 //! no automatic redirects (a redirect could leave the granted host), bounded
 //! bodies and time.
 
+#[cfg(unix)]
+use cmux_threads::ThreadQos;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -132,11 +134,15 @@ impl Fetcher for HttpFetcher {
             message: e.to_string(),
         };
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| failed(&e))?;
-        runtime.block_on(async move {
+        // An app's net.fetch: the app waits on the reply.
+        let runtime = cmux_threads::tokio::builder(
+            "cmux-app-egress",
+            ThreadQos::UserInitiated,
+            cmux_threads::tokio::Flavor::CurrentThread,
+        )
+        .build()
+        .map_err(|e| failed(&e))?;
+        cmux_threads::tokio::block_on(&runtime, async move {
             let client = reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(TIMEOUT)

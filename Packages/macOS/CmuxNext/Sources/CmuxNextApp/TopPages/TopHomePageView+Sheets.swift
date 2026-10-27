@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Observation
 
 /// Home's sheets: invite, message requests, a new Chief and a conversation's group info.
@@ -57,15 +58,17 @@ extension TopHomePageView {
             inviteByEmail: { [weak self] in self?.presentInvite(prefill: "") },
             setChiefReplies: { await actions.setChiefReplies($0, id) }))
         let sheet = HomeGroupInfoSheet(model: model, colors: performWithTheme { HomeGroupInfoColors.resolve() })
-        // task-owner: lives while the sheet shows; event-driven (Observation): members, name and mute as the owner says
-        let watch = Task { [weak sheet] in
-            for await info in ObservationStream({ actions.info(id) }) {
-                guard let info else { sheet?.close(); return }
-                model.update(info: info, addable: actions.addable(to: id))
-            }
+        // Members, name and mute as the owner says, while the sheet shows: a view observation on this page's node (the
+        // sheet hides with its window), re-read on show. The sheet's close ends it.
+        let watch = VisibleObservation(visibility.node, owner: "TopHomePage.groupInfo", on: services.mainWork) {
+            actions.info(id)
+        } apply: { [weak sheet] info in
+            guard let info else { sheet?.close(); return }
+            model.update(info: info, addable: actions.addable(to: id))
         }
         sheet.onClose = { watch.cancel() }
         let panel = NSWindow(contentViewController: sheet)
+        panel.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
         panel.adoptThemeScope(of: self)
         window.beginSheet(panel)
     }
@@ -78,6 +81,7 @@ extension TopHomePageView {
         }
         guard let window else { return }
         let panel = NSWindow(contentViewController: sheet)
+        panel.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
         // The sheet draws in this page's scope (a room's own theme), not the app's: its labels
         // resolved before the sheet had a parent.
         panel.adoptThemeScope(of: self)

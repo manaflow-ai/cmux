@@ -2,6 +2,8 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextHistory
+import CmuxNextInputCore
 @testable import CmuxNextRemoteBrowser
 @testable import CmuxNextRemoteView
 @testable import CmuxNextRemoteViewSessions
@@ -522,6 +524,7 @@ import Testing
         private(set) var visible: [Bool] = []
         func sendKey(_ event: NSEvent) -> UInt32 { 0 }
         func sendPointer(_ event: NSEvent, at point: CGPoint) {}
+        func sendPointerFrame(_ input: PointerCoalescedInput, clickCount: Int, at point: CGPoint) {}
         func history(_ op: RemoteBrowserHistoryOp) {}
         func setVisible(_ visible: Bool) { self.visible.append(visible) }
         func load(_ url: URL) {}

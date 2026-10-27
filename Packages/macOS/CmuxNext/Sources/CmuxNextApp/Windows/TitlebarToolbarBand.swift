@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
+import CmuxNextWakeups
 import Observation
 
 /// The toolbar band in the window's top row, right of the traffic lights
@@ -12,21 +13,26 @@ import Observation
 /// width and is clear, so only the traffic lights show (cx-uxdr, Lawrence
 /// 2026-10-08), until the pointer is over the top-left corner
 /// (`CollapsedBandReveal`, 2026-10-09); `presence` follows the larger of the
-/// two on-screen widths, frame by frame (`WindowRootView.layout`).
-final class TitlebarToolbarBand: NSView {
+/// two shares (`WindowRootView.layout`); with `motion.renderServer` on, the
+/// corner hover's share is 0 or 1 and the render server shows its motion.
+final class TitlebarToolbarBand: NSView, CollapsingBand {
     let sidebarToggle = TitlebarBandButton(symbol: SidebarToggleIcon.currentCollapseSymbol)
     /// How much of the band shows: 1 with the sidebar shown, 0 with it
     /// hidden, in between while the sidebar's width (or the corner hover's
-    /// `CollapsedBandReveal`) animates. The items close up toward the band's
-    /// origin and fade with it. Fully collapsed, the band is clear and 0
+    /// stepped `CollapsedBandReveal`) animates. The items close up toward the band's
+    /// origin and fade with it, unless ``keepsItemsFullSize``. Fully collapsed, the band is clear and 0
     /// wide but never hidden: keyboard and VoiceOver reach its buttons with
     /// no hover, and keyboard focus on one opens the band.
     var presence: CGFloat = 1 {
         didSet {
             guard presence != oldValue else { return }
             alphaValue = presence
-            needsLayout = true
+            needsLayout = true // invalidate: a new presence (the guard above) closes the items up.
         }
+    }
+    /// The items keep their full size while a render-server reveal clips and fades the band.
+    var keepsItemsFullSize = false {
+        didSet { if keepsItemsFullSize != oldValue { needsLayout = true } } // invalidate: the items' widths change
     }
     /// Where the icon choice is read (tests pass their own store).
     var iconStore: TunableStore = .shared {
@@ -34,7 +40,10 @@ final class TitlebarToolbarBand: NSView {
     }
     /// The sidebar state the toggle's glyph shows.
     private(set) var showsSidebarHidden = false
-    private var iconObservation: Task<Void, Never>?
+    /// The window's node and the app's scheduler its observations run on (``follow(on:work:title:shortcut:)``):
+    /// the band's glyph and names are view work, read while the window shows.
+    private var observing: (node: VisibilityNode, work: MainWorkScheduler)?
+    private var iconObservation: VisibleObservation<SidebarToggleIcon>?
     /// Back and Forward through the location trail (R69).
     let backButton = TitlebarBandButton(symbol: "chevron.left")
     let forwardButton = TitlebarBandButton(symbol: "chevron.right")
@@ -62,19 +71,30 @@ final class TitlebarToolbarBand: NSView {
         sidebarToggle.setAccessibilityIdentifier("cmux.titlebar.toggleSidebar")
         backButton.setAccessibilityIdentifier("cmux.titlebar.back")
         forwardButton.setAccessibilityIdentifier("cmux.titlebar.forward")
+    }
+
+    /// Follows the icon choice and the toggle's title and key on `node` (the window's), with `work`.
+    func follow(on node: VisibilityNode, work: MainWorkScheduler, title: @escaping @MainActor () -> String,
+                shortcut: @escaping @MainActor () -> String?) {
+        observing = (node, work)
         followIcon()
+        descriptionObservation = VisibleObservation(node, owner: "TitlebarToolbarBand.toggleDescription", on: work) {
+            (title(), shortcut())
+        } apply: { [weak self] description in
+            self?.describeToggle(title: description.0, shortcut: description.1)
+        }
     }
 
     /// Applies the Debug Settings / Debug menu icon choice live.
     private func followIcon() {
+        guard let observing else { return }
         iconObservation?.cancel()
         let store = iconStore
-        // task-owner: the band (cancelled in deinit and on a store change); event-driven (Observation)
-        iconObservation = Task { [weak self] in
-            for await _ in ObservationStream({ SidebarToggleIcon.tunable.value(in: store) }) {
-                guard let self else { return }
-                showSidebarState(hidden: showsSidebarHidden)
-            }
+        iconObservation = VisibleObservation(observing.node, owner: "TitlebarToolbarBand.icon", on: observing.work) {
+            SidebarToggleIcon.tunable.value(in: store)
+        } apply: { [weak self] _ in
+            guard let self else { return }
+            showSidebarState(hidden: showsSidebarHidden)
         }
     }
 
@@ -126,12 +146,11 @@ final class TitlebarToolbarBand: NSView {
     /// the band reaches 0 width with no jump.
     override func layout() {
         super.layout()
-        let side = TitlebarBandButton.side
-        let width = side * presence
+        let side = TitlebarBandButton.side, share = keepsItemsFullSize ? 1 : presence
         var x: CGFloat = 0
         for (button, gap) in [(sidebarToggle, Metrics.space3), (backButton, Metrics.space1), (forwardButton, 0)] {
-            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: width, height: side)
-            x += (side + gap) * presence
+            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: side * share, height: side)
+            x += (side + gap) * share
         }
     }
 
@@ -142,24 +161,6 @@ final class TitlebarToolbarBand: NSView {
         sidebarToggle.themedToolTipShortcut = shortcut
     }
 
-    private var descriptionObservation: Task<Void, Never>?
-
-    /// Keeps the toggle's title and key current: a rebind (cmux.json,
-    /// Settings) shows at once (R68 follow-up).
-    func followToggleDescription(title: @escaping @MainActor () -> String, shortcut: @escaping @MainActor () -> String?) {
-        descriptionObservation?.cancel()
-        // task-owner: the band (cancelled in deinit); event-driven (Observation)
-        descriptionObservation = Task { [weak self] in
-            for await (title, shortcut) in ObservationStream({ (title(), shortcut()) }) {
-                self?.describeToggle(title: title, shortcut: shortcut)
-            }
-        }
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
-    nonisolated deinit {
-        descriptionObservation?.cancel()
-        iconObservation?.cancel()
-    }
+    /// Keeps the toggle's title and key current: a rebind (cmux.json, Settings) shows at once (R68 follow-up).
+    private var descriptionObservation: VisibleObservation<(String, String?)>?
 }

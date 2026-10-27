@@ -1,0 +1,26 @@
+{
+  "$comment": "p10 Package.swift settings (plans/cmux-next/chrome-parity/p10-stability.md C.5). Add a row {task, package, target, setting, reason} and optionally kind (\"swift\", the default, or \"c\" for cSettings on C targets); package is a closure directory or \"*\", target a target of that kind or \"*\". A \".swiftLanguageMode(.v6)\" row replaces the target's mode. Never edit a closure Package.swift for these settings: commit the row, then scripts/cmux-next/apply-stability-settings.py --commit lands every row in one commit; push it and compile-check it on the fleet (the command it prints).",
+  "rows": [
+    {
+      "task": "p10-stability-039",
+      "package": "Packages/Shared/CmuxMessagesLab",
+      "target": "MessagesLabSidebar",
+      "setting": ".swiftLanguageMode(.v6)",
+      "reason": "Swift 6 language mode for the conversation list: every concurrency diagnostic fixed (main-actor protocols, values across the render threads)."
+    },
+    {
+      "task": "p10-stability-039",
+      "package": "Packages/Shared/CmuxMessagesLab",
+      "target": "MessagesLabSidebarTests",
+      "setting": ".swiftLanguageMode(.v6)",
+      "reason": "Swift 6 language mode for the list's tests (main-actor suites; SidebarConcurrencyTests, SidebarObservationTests)."
+    },
+    {
+      "task": "p10-stability-211",
+      "package": "*",
+      "target": "*",
+      "setting": ".strictMemorySafety()",
+      "reason": "Strict memory safety on for every Swift target of the closure, as a warning (Chromium docs/unsafe_buffers.md order: the check on everywhere, old sites marked; scripts/cmux-next/apply-unsafe-fixits.py applies the compiler's unsafe fix-its with a SAFETY-TODO(p10) mark, the Q04 queue). The error flip is p10-stability-079. Not covered by this row: Packages/Shared/CmuxAgentCursor (CmuxAgentCursor, CmuxAgentCursorTests), vendored verbatim from manaflow-ai/cmux-cua, so the lander skips it; p10-stability-078, which owns its unsafe sites, turns the setting on in cmux-cua's manifest and moves CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py sync), and 079 waits on it."
+    }
+  ]
+}

@@ -1,6 +1,10 @@
 public import CmuxNextSettings
 import Darwin
 import CmuxNextCompat
+import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// An immutable picture of everything read-only control methods answer
 /// from (plans/cmux-next/architecture.md section 5a).
@@ -80,7 +84,7 @@ public final class ControlSnapshotStore: Sendable {
     private struct Waiter {
         let id: UInt64
         let isReady: @Sendable (ControlSnapshot) -> Bool
-        let continuation: CheckedContinuation<ControlSnapshot?, Never>
+        let continuation: OnceContinuation<ControlSnapshot?, OnceContinuationError>
     }
 
     private struct State {
@@ -206,14 +210,16 @@ public final class ControlSnapshotStore: Sendable {
             return (nil, state.nextWaiter)
         }
         if let ready { return ready }
-        let timer = Task { [weak self] in
-            // wakeup-allow: one-shot read-barrier deadline (1 s), cancelled when the store catches up
-            do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
+        // The read-barrier deadline (1 s), cancelled when the store catches up.
+        // timer-class-allow: off main: the barrier's deadline resolves the waiter under the store's lock (flexible, never early)
+        let timer = DemandTimer(owner: "ControlSnapshot.barrier")
+        timer.schedule(after: max(deadline - .now, .zero)) { [weak self] in
             self?.resolve(id, with: nil)
         }
         defer { timer.cancel() }
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A waiter dropped unresumed answers nil, as the deadline does.
+            try? await withOnceContinuation { (continuation: OnceContinuation<ControlSnapshot?, OnceContinuationError>) in
                 // Resume now when already satisfied or cancelled (the
                 // cancellation handler may have run before this waiter existed).
                 let now = state.withLock { state -> ControlSnapshot?? in

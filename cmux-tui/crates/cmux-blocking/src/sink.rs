@@ -11,6 +11,20 @@ use crate::BlockingRecord;
 /// thread, at most once per site per process.
 pub trait RecordSink: Send + Sync {
     fn record(&self, record: &BlockingRecord);
+
+    /// Receives the first slow poll of each spawn site (lab builds only,
+    /// [`crate::poll_watch`]). Called on the worker that polled the task.
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    fn slow_poll(&self, record: &crate::poll_watch::SlowPoll) {
+        let _ = record;
+    }
+
+    /// Receives a poll watch's totals once, when it ends (lab builds only,
+    /// [`crate::poll_watch::PollWatch::finish`]).
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    fn slow_poll_summary(&self, summary: &crate::poll_watch::PollSummary) {
+        let _ = summary;
+    }
 }
 
 /// A sink was installed already; the first one stays.
@@ -25,7 +39,7 @@ impl std::fmt::Display for SinkAlreadyInstalled {
 
 impl std::error::Error for SinkAlreadyInstalled {}
 
-static SINK: OnceLock<Box<dyn RecordSink>> = OnceLock::new();
+pub(crate) static SINK: OnceLock<Box<dyn RecordSink>> = OnceLock::new();
 
 /// Install the process's sink. Call once from the composition root.
 pub fn install_sink(sink: Box<dyn RecordSink>) -> Result<(), SinkAlreadyInstalled> {
@@ -52,14 +66,30 @@ impl JsonlSink {
     }
 }
 
-impl RecordSink for JsonlSink {
-    fn record(&self, record: &BlockingRecord) {
+impl JsonlSink {
+    fn append(&self, record: serde_json::Map<String, serde_json::Value>) {
         let mut line = self.fields.clone();
-        line.extend(record.to_fields());
+        line.extend(record);
         let at_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
         line.insert("at_ms".into(), at_ms.into());
         cmux_panic_log::append(&self.path, &serde_json::Value::Object(line));
+    }
+}
+
+impl RecordSink for JsonlSink {
+    fn record(&self, record: &BlockingRecord) {
+        self.append(record.to_fields());
+    }
+
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    fn slow_poll(&self, record: &crate::poll_watch::SlowPoll) {
+        self.append(record.to_fields());
+    }
+
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    fn slow_poll_summary(&self, summary: &crate::poll_watch::PollSummary) {
+        self.append(summary.to_fields());
     }
 }

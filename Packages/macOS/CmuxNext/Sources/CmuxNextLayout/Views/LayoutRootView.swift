@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextInput
 public import CmuxNextSignposts
+public import CmuxNextWakeups
 import Observation
 
 /// The workspace content area: renders every screen of a `LayoutModel`,
@@ -35,7 +36,10 @@ public final class LayoutRootView: NSView {
     let driver = DisplayLinkDriver()
     /// This window's `motion.frame` and `motion.run` signposts.
     let motionTrace: LayoutMotionTrace
-    private var observationTask: Task<Void, Never>?
+    private var modelWatch: FrameObservation<Snapshot>?
+    /// The attention ring's look (`AttentionHighlightLook`, Debug Settings): one watch for every pane's
+    /// overlay, applied once per frame (made in `init`).
+    private var attentionLookWatch: FrameObservation<AttentionHighlightLook>?
     /// The app's one input tap (nil: nothing routes the app's events to this root; tests call the
     /// routing directly).
     let inputTap: InputEventTap?
@@ -45,8 +49,8 @@ public final class LayoutRootView: NSView {
     /// The pointer-move intercept held while a strip shows away from its laid-out place
     /// (``updatePointerLanding()``).
     private var pointerLanding: InputSubscription?
-    /// Key-window observers of the current window (`observeKeyWindow()`).
-    var keyWindowObservers: [any NSObjectProtocol] = []
+    /// Key-window subscriptions on the current window's ``WindowEvents`` (`observeKeyWindow()`).
+    var keyWindowObservers: [EventSubscription] = []
     private var lastSnapshot: Snapshot?
     /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
     private var appliedReveal: ColumnCenterRequest?
@@ -68,8 +72,10 @@ public final class LayoutRootView: NSView {
     /// only when the pointer enters another pane, so a keyboard move is not undone by a
     /// small pointer twitch inside the pane it left.
     var hoveredPane: PaneID?
-    /// Delivers pointer moves for focus-follows-mouse (owner: self).
-    private var hoverTrackingArea: NSTrackingArea?
+    /// Focus-follows-mouse's hover moves on the window's frames (``mouseMoved(with:)``).
+    private(set) lazy var hoverFocus = PointerFrameHover(owner: "LayoutRootView.focusFollowsMouse", view: self) { [weak self] point in
+        _ = self?.focusPaneForPointerHover(at: point)
+    }
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -157,16 +163,21 @@ public final class LayoutRootView: NSView {
     /// tests inject fixed values.
     /// `input` is the app's one input tap: while the root is live, its scroll, magnify and button
     /// routing is an intercept there. The App passes its tap; nil only where no event dispatches.
+    /// `mainWork` is the app's main-thread scheduler: the Debug Settings looks of the panes' overlays
+    /// and the drop highlight follow through it.
     /// `motionSignposter` takes the window's `motion.frame` and `motion.run` intervals; tests pass one on
     /// their own trace runtime.
+    /// `hiddenWork` is the app's count of work done while off screen (its passes while ``isOffScreen``); nil
+    /// where nobody reads it.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
                 scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
                 rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
-                input: InputEventTap? = nil,
-                motionSignposter: Signposter = .motion) {
+                input: InputEventTap? = nil, mainWork: MainWorkScheduler,
+                motionSignposter: Signposter = .motion, hiddenWork: HiddenLayoutWork? = nil) {
         self.model = model
         inputTap = input
+        self.hiddenWork = hiddenWork
         motionTrace = LayoutMotionTrace(signposter: motionSignposter)
         self.scrollFocusSignals = scrollFocusSignals
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock,
@@ -185,7 +196,7 @@ public final class LayoutRootView: NSView {
             // The render server's springs landed after the CPU's last frame: the run rests here.
             if !self.rendersMotion { self.motionTrace.endRun() }
         }
-        context.renderMotionBegan = { [weak self] in self?.motionTrace.beginRun() }
+        context.renderMotionBegan = { [weak self] in self?.motionTrace.beginRun(on: self?.window.map(FrameScheduler.forWindow)) }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
         // The window adopts the plane exactly while it shows content child windows (`OverlayPlaneHosting`).
         context.childWindowContentShows = { [weak self] in self.map { !$0.overlayPlane.isHome } ?? false }
@@ -199,12 +210,15 @@ public final class LayoutRootView: NSView {
             guard let self, self.highlightStepsOnFrames else { return }
             self.driver.start()
         }
+        followLooks(on: mainWork)
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
+        // Pointer moves for focus-follows-mouse.
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self))
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
         sync(snapshot())
-        observe()
-        #if DEBUG
+        observe(on: mainWork)
+        #if DEBUG || CMUX_BENCH_HOOKS
         ScreenContentView.registerMotionSampler()
         #endif
     }
@@ -214,34 +228,34 @@ public final class LayoutRootView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    /// One watch per root for the panes' attention look, not one per pane: a change reaches every
+    /// overlay in one apply, as Chrome's `Widget::ThemeChanged` reaches its views
+    /// (ui/views/widget/widget.cc). A pane made later reads the look when its overlay is made.
+    private func followLooks(on mainWork: MainWorkScheduler) {
+        highlight.follow(on: mainWork)
+        // node-free: the root has no VisibilityNode; the apply only recolors the panes' rings.
+        attentionLookWatch = FrameObservation(owner: "Layout.attentionLook", delivery: .visible(nil), on: mainWork) {
+            AttentionHighlightLook.tunable.value
+        } onChange: { [weak self] look in
+            guard let self else { return }
+            for host in self.context.hosts.values { host.chrome.setAttentionLook(look) }
+        }
+    }
+
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            observationTask?.cancel()
+            modelWatch?.cancel()
             inputIntercept?.cancel()
             pointerLanding?.cancel()
-            for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
+            for subscription in keyWindowObservers { subscription.cancel() }
             driver.detach()
             motionTrace.endRun()
         }
     }
 
     override public var isFlipped: Bool { true }
-
-    override public func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        hoverTrackingArea = area
-    }
-
-    override public func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        guard event.window === window else { return }
-        focusPaneForPointerHover(at: event.locationInWindow)
-    }
 
     // MARK: Public API
 
@@ -281,7 +295,9 @@ public final class LayoutRootView: NSView {
 
     // MARK: Observation
 
-    private func snapshot() -> Snapshot {
+    private func snapshot() -> Snapshot { Self.snapshot(of: model) }
+
+    private static func snapshot(of model: LayoutModel) -> Snapshot {
         Snapshot(
             screens: model.screens,
             activeScreen: model.activeScreenID,
@@ -299,37 +315,23 @@ public final class LayoutRootView: NSView {
         )
     }
 
-    private func observe() {
+    /// One sync per burst of model changes, before the changes' run loop pass commits its frame (a person's in
+    /// their input's response pass), as Blink runs its lifecycle once per frame (page_animator.cc).
+    private func observe(on mainWork: MainWorkScheduler) {
         let model = model
-        observationTask = Task { [weak self] in
-            for await snapshot in ObservationStream({
-                Snapshot(
-                    screens: model.screens,
-                    activeScreen: model.activeScreenID,
-                    focused: model.focusedPane,
-                    dimsInactive: model.dimsInactivePanes,
-                    style: model.style,
-                    gestureActive: model.isGestureActive,
-                    centerRequest: model.centerRequest,
-                    revealRequest: model.revealRequest,
-                    centerMode: model.centerFocusedColumn,
-                    attention: model.attention,
-                    scrollbar: model.stripScrollbar,
-                    rowOps: model.acceptsRowOps,
-                    canvases: model.canvases
-                )
-            }) {
-                guard let self else { return }
-                if snapshot != self.lastSnapshot { self.sync(snapshot) }
-            }
+        modelWatch = FrameObservation(owner: "Layout.modelSync", delivery: .sameTurn("syncWithModel and the frame driver read the synced screens in the change's turn"),
+                                      on: mainWork) { Self.snapshot(of: model) } onChange: { [weak self] snapshot in
+            guard let self, snapshot != self.lastSnapshot else { return }
+            self.sync(snapshot)
         }
     }
 
-    /// Mirrors the model now instead of on the observation's next turn.
+    /// Mirrors the model now (a pending observed change first) instead of on the observation's apply.
     /// The App calls it after applying a daemon tree, so the frame that
     /// shows a workspace (or a split, close or new tab in it) already has
     /// its panes and tab strips; the observation then finds nothing new.
     public func syncWithModel() {
+        modelWatch?.flushIfDirty()
         let current = snapshot()
         if current != lastSnapshot { sync(current) }
     }
@@ -479,7 +481,7 @@ public final class LayoutRootView: NSView {
         if needsFrames || snapshot.gestureActive { driver.start() }
         // A structural change that starts springs on the CPU: one motion.run until they rest (`advanceFrame`). One
         // the render server took opened it already (`context.renderMotionBegan`).
-        if needsFrames, driver.isAttached { motionTrace.beginRun() }
+        if needsFrames, driver.isAttached { motionTrace.beginRun(on: window.map(FrameScheduler.forWindow)) }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }
@@ -531,6 +533,8 @@ public final class LayoutRootView: NSView {
     private func stepFrame(_ dt: Double) -> Bool {
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
+            // A resampled pan's event that waited for this frame shows now, unresampled.
+            for view in screenViews.values where !view.isHidden { view.presentFramePan(at: nil) }
             for view in screenViews.values where view.hasMotion { view.settleMotion() }
             for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
             applyScreenFrames()
@@ -543,10 +547,9 @@ public final class LayoutRootView: NSView {
         let policy = Motion.panes.policy
         var moving = false, panning = false
         for view in screenViews.values where !view.isHidden {
-            // Pan events that waited in the last frame show first, then the springs step.
-            if view.displayFrameBegan() { panning = true }
+            // Pan events that waited in the last frame show first (resampled at the frame's time), then the springs step.
+            if view.displayFrameBegan(at: driver.frameTime) { panning = true }
             if view.step(dt, policy: policy) { moving = true }
-            if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
         let screenSpring = policy.spring(.screen)
         for id in Array(screenFrames.keys) {
@@ -563,7 +566,7 @@ public final class LayoutRootView: NSView {
         flushOverlaySync()
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan that moves the frames keeps the ticks until its finger lifts
-        // (`ScreenContentView.displayFrameBegan`); a pan on the motion container keeps none.
+        // (`ScreenContentView.displayFrameBegan`); a pan on the motion container keeps them only resampled.
         return moving || panning
     }
 
@@ -572,8 +575,13 @@ public final class LayoutRootView: NSView {
         guard moving != isLayoutInMotion else { return }
         isLayoutInMotion = moving
         for block in layoutMotionObservers.values { block(moving) }
-        // The landing frame synced while still in motion: the window hears the rest now (catchers).
-        if !moving { reportInteractiveRects() }
+        guard !moving else { return }
+        // The landing frame synced while still in motion: the window hears the rest now (catchers), and content
+        // that follows its pane's place in the window hears it once (`PanePlacementFollowing`).
+        reportInteractiveRects()
+        for screen in screenViews.values where !screen.isHidden {
+            for host in screen.displayedHosts { host.settlePlacement() }
+        }
     }
 
     /// `updateVisibility()` calls (`debug.layout_counters` `update_visibility`): a spring wants <= 2 (p03-rendering DC2).
@@ -611,12 +619,17 @@ public final class LayoutRootView: NSView {
     /// Layout passes of every root (`debug.layout_counters`): a window resize lays out the shown
     /// workspace only; a parked one keeps its frame until it shows again.
     public static var layoutPasses: UInt64 = 0
+    /// Whether its workspace is off screen (parked on no screen), set by the workspace's controller: its passes
+    /// then count in ``HiddenLayoutWork/layoutPasses``.
+    public var isOffScreen = false
+    private let hiddenWork: HiddenLayoutWork?
     /// Panes whose chrome (ring, dim, tab emphasis) a sync re-ran, all windows (`debug.layout_counters`).
     public static var paneChromeUpdates: UInt64 = 0
 
     override public func layout() {
         super.layout()
         Self.layoutPasses &+= 1
+        if isOffScreen { hiddenWork?.noteLayoutPass() }
         for (id, view) in screenViews {
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if var frame = screenFrames[id] {
@@ -647,6 +660,7 @@ public final class LayoutRootView: NSView {
     /// what parks it, as leaving did.
     public private(set) var isLive = false
 
+    // visibility-walk-allow: read once per window move, unhide or park to set isLive; per-frame and per-event readers read isLive
     private var isShown: Bool { window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor }
 
     override public func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -656,6 +670,7 @@ public final class LayoutRootView: NSView {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        hoverFocus.frames = (window as? any HoverFrameInputHosting)?.hoverFrameInput
         setLive(isShown)
     }
 
@@ -717,7 +732,7 @@ extension LayoutRootView {
     /// (`ScreenContentView.landStripWhereItShows()`), before a press, a pointer move, a new scroll
     /// gesture or a wheel notch reaches a view. O(screens); nothing when no strip shows moved.
     func landStripsWhereTheyShow() {
-        for view in screenViews.values where view.stripContainer.showsMoved { view.landStripWhereItShows() }
+        for view in screenViews.values where view.showsPanMoved { view.landStripWhereItShows() }
     }
 
     /// Holds a pointer-move intercept exactly while a strip shows moved: a move then lands it before
@@ -725,9 +740,11 @@ extension LayoutRootView {
     /// routes land it in the root's own intercept (``handleMonitored(_:)``). Called when a strip starts
     /// or stops showing moved and when the root goes live, so a strip at rest costs pointer moves nothing.
     func updatePointerLanding() {
-        let moved = isLive && screenViews.values.contains { $0.stripContainer.showsMoved }
-        if moved, pointerLanding == nil {
-            pointerLanding = inputTap?.subscribe(class: .pointerMove, phase: .intercept(order: .layout)) { [weak self] event in
+        let moved = isLive && screenViews.values.contains { $0.showsPanMoved }
+        if moved, pointerLanding == nil, let window {
+            // Scoped to the root's window (a live root leaves its window only through `setLive(false)`,
+            // which cancels this): another window's moves run no closure; its page windows' do, and pass.
+            pointerLanding = inputTap?.subscribe(class: .pointerMove, phase: .intercept(order: .layout), window: .window(window)) { [weak self] event in
                 if let self, event.window === self.window { self.landStripsWhereTheyShow() }
                 return .pass
             }

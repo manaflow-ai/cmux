@@ -32,11 +32,31 @@
 
 #![forbid(unsafe_code)]
 
+// The wrapper modules are the only callers of the blocking std calls the lab's
+// disallowed-methods list (cmux-tui/lab/clippy/clippy.toml) names.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the wrapper that cmux-tui/lab/clippy/clippy.toml names for this std call"
+)]
 pub mod fs;
+#[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+pub mod poll_watch;
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the wrapper that cmux-tui/lab/clippy/clippy.toml names for this std call"
+)]
 pub mod process;
 pub mod runtime;
 mod sink;
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the wrapper that cmux-tui/lab/clippy/clippy.toml names for this std call"
+)]
 pub mod sync;
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the wrapper that cmux-tui/lab/clippy/clippy.toml names for this std call"
+)]
 pub mod thread;
 
 #[cfg(test)]
@@ -298,7 +318,13 @@ fn compensated<R>(f: impl FnOnce() -> R) -> R {
     // core may be on another thread, so this one is a worker again only once
     // it unparks as one.
     let _may_block = RoleScope::enter_then(Role::MayBlock, Role::RuntimeThread);
-    tokio::task::block_in_place(f)
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    let started = Instant::now();
+    let value = tokio::task::block_in_place(f);
+    // The poll watch does not count this time as the poll's.
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    poll_watch::note_compensated(started.elapsed());
+    value
 }
 
 fn on_multi_thread_runtime() -> bool {

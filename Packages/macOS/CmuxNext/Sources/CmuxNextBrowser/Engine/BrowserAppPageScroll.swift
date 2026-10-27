@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 import CmuxNextSignposts
 
 /// The scroll position of a cmux page in a browser tab (`BrowserAppPage`) across a hibernation:
@@ -32,10 +33,17 @@ public final class BrowserAppPageScroll {
     private var generation: UInt64 = 0
     private let afterCommit: AfterCommit
 
-    /// - Parameter afterCommit: When the next layout reached the screen (default: ``CommitBoundary``;
-    ///   tests fire it by hand).
-    public init(afterCommit: @escaping AfterCommit = { body in CommitBoundary().after { _ in body() } }) {
+    /// - Parameter afterCommit: When the next layout reached the screen (default:
+    ///   ``afterNextCommit(_:)``; tests fire it by hand).
+    public init(afterCommit: @escaping AfterCommit = BrowserAppPageScroll.afterNextCommit) {
         self.afterCommit = afterCommit
+    }
+
+    /// Runs `body` after the next Core Animation commit (``CommitBoundary``). A named function, not
+    /// a closure in the default argument: a public default argument may only reference public
+    /// declarations, and this file imports CmuxNextSignposts internally.
+    public static func afterNextCommit(_ body: @escaping @MainActor () -> Void) {
+        CommitBoundary().after { _ in body() }
     }
 
     /// The visible origin of `scroll`; nil without one.
@@ -141,7 +149,7 @@ public final class BrowserAppPageScroll {
             if let scroll = next as? NSScrollView {
                 found.append(scroll)
             } else {
-                queue.append(contentsOf: next.subviews)
+                queue.append(contentsOf: next.subviewsIncludingGated)
             }
         }
         return found

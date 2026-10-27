@@ -25,9 +25,30 @@ import Testing
         rig.drain()
         #expect(rig.log == ["cmux", "pass"])
         #expect(rig.count(MainWakeUpQueue.ledgerOwner, reason: "fire") == 1, "one wake for both")
-        #expect(rig.count("CEFMessagePump", reason: "deadline") == 1)
-        #expect(rig.count("CEFMessagePump", reason: "scheduled") == 1, "only the start's pass; the queue counted the delayed one")
+        #expect(rig.count("DemandTimer", reason: "deadline") == 1)
+        #expect(rig.count(CEFMessagePump.ledgerOwner, reason: "now") == 1, "the start's pass")
+        #expect(rig.count(CEFMessagePump.ledgerOwner, reason: "delayed") == 1, "CEF's 100 ms request")
+        #expect(rig.records(of: CEFMessagePump.ledgerOwner) == 2, "one record per pump wake, no `deadline` beside it")
         #expect(rig.queue.count == 0)
+    }
+
+    /// A Chromium thread's request the gate kept fires at its own deadline, filed as `kept`.
+    @Test func aKeptDeadlineFiresAsKeptOnTheQueue() {
+        let rig = PumpRig()
+        rig.startAndRunFirstPass()
+        rig.pump.request(milliseconds: 10)
+        #expect(!rig.pump.gate.admit(delayMilliseconds: 50, nowNanos: rig.uptime.now), "kept: the armed +10 ms comes first")
+        rig.fire()
+        rig.drain()
+        #expect(rig.count(CEFMessagePump.ledgerOwner, reason: "delayed") == 1, "the +10 ms fire is CEF's own request")
+        #expect(rig.queue.count == 1, "the pass armed the kept deadline")
+        rig.fire()
+        rig.drain()
+        #expect(rig.uptime.now >= 50 * Self.ms)
+        #expect(rig.count(CEFMessagePump.ledgerOwner, reason: "kept") == 1)
+        #expect(rig.count(CEFMessagePump.ledgerOwner, reason: "delayed") == 1)
+        #expect(rig.records(of: CEFMessagePump.ledgerOwner) == 3, "start, +10 ms, +50 ms: one record each")
+        #expect(rig.log == ["pass", "pass"])
     }
 
     @Test func aNestedRunLoopInACEFPassDoesNotHoldACmuxDeadline() {
@@ -129,6 +150,22 @@ import Testing
         }
     }
 
+    /// A fork run time (p14-energy-046) keeps Chromium's leeway on the queue: a flexible 7.9 ms
+    /// request with 8 ms leeway fires in [7.9, 15.9] ms on its own 8 ms grid (not exact, as a
+    /// whole-millisecond request under 36 ms is), a precise one exactly at 7.9 ms.
+    @Test func anAbsoluteRequestKeepsChromiumsLeewayOnTheQueue() {
+        let flexible = PumpRig()
+        flexible.startAndRunFirstPass()
+        flexible.pump.request(runTimeNanos: 7_900_000, leewayNanos: 8_000_000, precise: false)
+        #expect(flexible.timer.armedDate == 8 * Self.ms, "the 8 ms boundary inside [7.9, 15.9] ms")
+        let precise = PumpRig()
+        precise.startAndRunFirstPass()
+        precise.pump.request(runTimeNanos: 7_900_000, leewayNanos: 0, precise: true)
+        let armed = precise.timer.armedDate ?? 0
+        #expect(armed >= 7_899_999 && armed <= 7_900_000, "exact: \(armed) ns")
+        #expect(precise.timer.armedTolerance == 0)
+    }
+
     @Test func energySaverDoesNotMoveACEFRequest() {
         let rig = PumpRig(saver: true)
         rig.startAndRunFirstPass()
@@ -210,6 +247,11 @@ private final class PumpRig {
 
     func count(_ owner: String, reason: String) -> UInt64 {
         ledger.snapshot().first { $0.owner == owner && $0.reason == reason }?.count ?? 0
+    }
+
+    /// Every ledger record of `owner`, whatever its reason.
+    func records(of owner: String) -> UInt64 {
+        ledger.snapshot().filter { $0.owner == owner }.reduce(0) { $0 + $1.count }
     }
 }
 

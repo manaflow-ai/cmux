@@ -4,6 +4,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextWakeups
 
 /// `browser.toolbarPosition` bottom in a pane (user, 2026-10-20: "move my OmniBar tabs to the
 /// bottom side"): the pane hands the setting to its browser, and with the tab bar on the same edge
@@ -28,7 +29,7 @@ import Testing
             window.contentView = pane
             window.orderFrontRegardless()
             page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
-            chrome = BrowserChromeView(tab: page)
+            chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
             pane.show(chrome)
             pane.layoutSubtreeIfNeeded()
         }
@@ -84,6 +85,36 @@ import Testing
         #expect(tab.strip.minY == all.minY, "the strip is the pane's footer")
         #expect(abs(tab.toolbar.minY - tab.strip.maxY) < 0.5, "the toolbar right above the strip")
         #expect(tab.pageArea.minY >= tab.toolbar.maxY)
+    }
+
+    /// Toggle Omnibar with the strip in the band (p03-rendering-111 review): the browser's own
+    /// layout pass, the one inside the hide and show animation, places the strip next to the page.
+    /// No pane layout runs between the toggle and the reads.
+    @Test func theStripInTheBandFollowsATopToolbarHideAndShow() {
+        let tab = Pane(tabBar: .top, toolbar: .top, order: .belowToolbar)
+        defer { tab.tearDown() }
+        #expect(tab.pane.isBandActive)
+        let all = tab.rect(tab.chrome)
+        tab.chrome.toggleOmnibar()
+        #expect(abs(tab.strip.maxY - all.maxY) < 0.5, "the strip takes the hidden toolbar's place")
+        #expect(abs(tab.strip.minY - tab.pageArea.maxY) < 0.5, "no gap and no overlap with the page")
+        tab.chrome.toggleOmnibar()
+        #expect(abs(tab.strip.maxY - tab.toolbar.minY) < 0.5, "back under the toolbar")
+        #expect(abs(tab.strip.minY - tab.pageArea.maxY) < 0.5)
+    }
+
+    /// The same with both at the bottom: page, strip, toolbar.
+    @Test func theStripInTheBandFollowsABottomToolbarHideAndShow() {
+        let tab = Pane(tabBar: .bottom, toolbar: .bottom, order: .aboveToolbar)
+        defer { tab.tearDown() }
+        #expect(tab.pane.isBandActive)
+        let all = tab.rect(tab.chrome)
+        tab.chrome.toggleOmnibar()
+        #expect(abs(tab.strip.minY - all.minY) < 0.5, "the strip takes the hidden toolbar's place")
+        #expect(abs(tab.strip.maxY - tab.pageArea.minY) < 0.5, "no gap and no overlap with the page")
+        tab.chrome.toggleOmnibar()
+        #expect(abs(tab.strip.minY - tab.toolbar.maxY) < 0.5, "back above the toolbar")
+        #expect(abs(tab.strip.maxY - tab.pageArea.minY) < 0.5)
     }
 
     /// A Markdown tab (a page with a native bar): the bar moves under the page.

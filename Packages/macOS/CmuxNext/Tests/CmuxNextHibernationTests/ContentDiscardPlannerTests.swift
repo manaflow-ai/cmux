@@ -21,7 +21,7 @@ import Testing
     @Test func protectedContentNeverGoesForTheTimeoutOrPressureButGoesWhenThePersonAsks() {
         var pinned = page()
         pinned.isPinned = true
-        for reason in [DiscardReason.proactive, .urgent] {
+        for reason in [DiscardReason.proactive, .urgent, .crashedSubframe] {
             let eligibility = planner.eligibility(of: pinned, setting: setting, for: reason)
             #expect(eligibility.result == .protected)
             #expect(eligibility.reason == .pinned)
@@ -78,7 +78,7 @@ import Testing
         for (reason, apply) in facts {
             var candidate = page(kind: .terminalSurface)
             apply(&candidate)
-            for discard in [DiscardReason.proactive, .urgent, .frozenWithGrowingMemory] {
+            for discard in [DiscardReason.proactive, .urgent, .frozenWithGrowingMemory, .crashedSubframe] {
                 let eligibility = planner.eligibility(of: candidate, setting: setting, for: discard)
                 #expect(eligibility.result == .protected, "\(reason) at \(discard)")
                 #expect(eligibility.reason == reason)
@@ -96,6 +96,59 @@ import Testing
         let plan = planner.plan(setting, for: .proactive, threshold: 600, pace: timeoutPace, candidates: [editor, shell, idle])
         #expect(plan.due == ["idle"])
         #expect(plan.exemptions == ["editor": .unsavedEdits, "shell": .runningCommand])
+    }
+
+    /// Chrome's `kDiscardAttempted` (discard_eligibility_policy.cc): content whose discard was tried
+    /// and did not finish is disallowed for every kind and every discard, the person's own too.
+    @Test func aFailedDiscardIsDisallowedForEveryKindAndEveryDiscard() {
+        for kind in ContentKind.allCases {
+            var candidate = page(kind: kind)
+            candidate.discardAttempted = true
+            for reason in DiscardReason.allCases {
+                let eligibility = planner.eligibility(of: candidate, setting: setting, for: reason)
+                #expect(eligibility.result == .disallowed, "\(kind) at \(reason)")
+                #expect(eligibility.reasons == [.discardAttempted], "\(kind) at \(reason)")
+            }
+        }
+    }
+
+    /// After a failed discard the planner keeps that key until it shows, and the next candidate
+    /// takes its slot in the same pass.
+    @Test func aFailedDiscardGivesItsSlotToTheNextCandidateUntilItShows() {
+        let candidates = [page("first", hiddenFor: 9_000), page("second", hiddenFor: 8_000), page("third", hiddenFor: 7_000)]
+        let pace = ContentDiscardPlanner.Pace(perPass: 1, interval: 5, minimumHidden: 0)
+        #expect(planner.plan(setting, for: .urgent, threshold: 600, pace: pace, candidates: candidates).due == ["first"])
+
+        var attempts = ContentDiscardPlanner.AttemptMarkers()
+        attempts.mark("first")
+        func marked() -> [ContentDiscardPlanner.Candidate] {
+            candidates.map { candidate in
+                var candidate = candidate
+                candidate.discardAttempted = attempts.contains(candidate.key)
+                return candidate
+            }
+        }
+        for reason in [DiscardReason.proactive, .urgent] {
+            let plan = planner.plan(setting, for: reason, threshold: 600, pace: pace, candidates: marked())
+            #expect(plan.due == ["second"], "\(reason)")
+            #expect(plan.exemptions == ["first": .discardAttempted], "\(reason)")
+        }
+
+        attempts.clear("first")
+        #expect(!attempts.contains("first"))
+        #expect(planner.plan(setting, for: .urgent, threshold: 600, pace: pace, candidates: marked()).due == ["first"],
+                "once shown, it may go again")
+    }
+
+    /// The marker keeps the content even when nothing else would come due: it is no deadline the
+    /// planner waits for, only the next show ends it.
+    @Test func aFailedDiscardSetsNoDeadline() {
+        var failed = page("failed")
+        failed.discardAttempted = true
+        let plan = planner.plan(setting, for: .proactive, threshold: 600, pace: timeoutPace, candidates: [failed])
+        #expect(plan.due.isEmpty)
+        #expect(plan.nextCheck == nil)
+        #expect(planner.eligibility(of: failed, setting: setting, for: .proactive).endsIn == nil)
     }
 
     @Test func urgentPlansTakeTheLeastValuableOldEnoughContentBeforeItsTimeout() {
@@ -160,6 +213,7 @@ import Testing
         let facts: [(CannotDiscardReason, (inout ContentDiscardPlanner.Candidate) -> Void)] = [
             (.unsupported, { $0.canRestore = false }),
             (.formSubmission, { $0.showsFormSubmission = true }),
+            (.discardAttempted, { $0.discardAttempted = true }),
         ]
         let disallowed = DiscardRule.registered.filter { $0.result == .disallowed }.map(\.reason)
         #expect(Set(disallowed) == Set(facts.map(\.0)), "a disallowed rule has no Hibernate Tab case here")

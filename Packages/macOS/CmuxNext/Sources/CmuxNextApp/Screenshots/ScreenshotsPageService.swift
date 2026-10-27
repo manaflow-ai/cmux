@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextFileGrid
 import CmuxNextFiles
 import CmuxNextScreenshots
@@ -17,6 +18,8 @@ final class ScreenshotsPageService {
     private weak var services: AppServices?
     /// One cache for every Screenshots page (and, later, the Finder pane's grids).
     let thumbnails = ThumbnailCache()
+    /// The thumbnail cache's memory consumer registration (`memoryFileHomeCaches`; nil while off).
+    private var thumbnailsMemory: AsyncMemoryConsumerRegistration?
     private let workspace = AppScreenshotsWorkspace()
     /// Drops, renames and trashes go through the Files pane's operations.
     private let files = FileOperator()
@@ -25,12 +28,18 @@ final class ScreenshotsPageService {
     private var pages: [String: ScreenshotsPageTab] = [:]
     /// The last folders found, and the settings they were found for.
     private var detected: (settings: ScreenshotsSettings, sources: [ScreenshotSource])?
-    private var detection: Task<Void, Never>?
+    /// The detection running; a newer one cancels it, and ``detectionGeneration`` drops its late result.
+    private var detection: Task<Void, any Error>?
+    private var detectionGeneration: UInt64 = 0
     /// The `screenshots.*` settings, followed from the first page on (``followSettings()``).
     private var settingsWatch: FrameObservation<ScreenshotsSettings>?
+    /// The app's main-thread scheduler: each page's model lands its reads on it, and its grid follows the model on it.
+    private let mainWork: MainWorkScheduler
 
     init(services: AppServices) {
         self.services = services
+        mainWork = services.mainWork
+        thumbnailsMemory = AppMemoryConsumers(services: services).registerFileGridThumbnails(thumbnails)
     }
 
     /// Selects the active window's Screenshots tab, else opens one beside the
@@ -52,9 +61,9 @@ final class ScreenshotsPageService {
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> ScreenshotsPageTab {
-        let model = ScreenshotsModel()
+        let model = ScreenshotsModel(mainWork: mainWork)
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, model: model,
-                                      cache: thumbnails, workspace: workspace, files: files)
+                                      cache: thumbnails, workspace: workspace, files: files, mainWork: mainWork)
         page.onClose = { [weak self] in self?.pages.removeValue(forKey: key) }
         pages[key] = page
         followSettings()
@@ -86,15 +95,26 @@ final class ScreenshotsPageService {
     /// Finds the folders for `settings` off the main actor and gives them to every open page.
     /// Pages opened later reuse them until the settings change.
     private func detect(_ settings: ScreenshotsSettings) {
+        guard let services else { return }
         detection?.cancel()
-        let detector = detector
-        // task-owner: `detection`; a newer detection cancels this one
-        detection = Task { [weak self] in
+        detectionGeneration &+= 1
+        let detector = detector, generation = detectionGeneration, mainWork = services.mainWork
+        // task-owner: `detection`; a newer detection cancels this one. R-hop: the folders are found off main; the
+        // pages get them in one visible task (open pages show them).
+        detection = services.work.task(.userVisible) { [weak self] in
             let sources = await Self.detectSources(detector, settings)
-            guard !Task.isCancelled, let self else { return }
-            detected = (settings, sources)
-            for page in pages.values { page.model.setSources(sources) }
+            try Task.checkCancellation()
+            mainWork.postFromAnyThread(.visible, owner: "ScreenshotsPageService.detected") { [weak self] in
+                self?.detected(sources, for: settings, generation: generation)
+            }
         }
+    }
+
+    /// The folders for `settings` were found: every open page shows them, unless a newer detection started.
+    private func detected(_ sources: [ScreenshotSource], for settings: ScreenshotsSettings, generation: UInt64) {
+        guard generation == detectionGeneration else { return }
+        detected = (settings, sources)
+        for page in pages.values { page.model.setSources(sources) }
     }
 
     /// Reads preferences and settings files and checks folders: file system work, off the main actor.

@@ -9,6 +9,7 @@ import CmuxNextMemory
 @testable import CmuxNextTerminal
 import Foundation
 import IOSurface
+import CmuxNextWakeups
 import Testing
 
 /// Critical memory pressure reaches evicted terminals' last frames on two paths in one turn (the
@@ -36,7 +37,7 @@ struct TerminalLastFramesPressureTests {
     }
 
     @Test func criticalPressureDropsTheFramesOnTheReleaseSliceNotInTheEventsTurn() throws {
-        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()), fileInput: NoFileInput())
+        let cache = TabContentCache(daemon: DaemonService(), chromium: ChromiumEngineSlot(CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())), fileInput: NoFileInput(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let kernel = ManualMemoryPressureSource()
         let slices = HeldSlices()
         let pressure = MemoryPressureEvents(source: kernel)

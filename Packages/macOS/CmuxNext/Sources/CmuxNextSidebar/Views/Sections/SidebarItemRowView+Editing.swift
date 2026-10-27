@@ -18,7 +18,12 @@ extension SidebarItemRowView {
             removeButton?.removeFromSuperview()
             removeButton = nil
         }
-        // A new wiggle for the new state: added, or taken off.
+        restartWiggle()
+    }
+
+    /// A new wiggle for the current state and motion settings (edit mode turned on or off, Reduce
+    /// Motion or the sidebar's motion changed): added, or taken off, at the next layout.
+    func restartWiggle() {
         wiggleSize = .zero
         needsLayout = true
     }
@@ -29,7 +34,7 @@ extension SidebarItemRowView {
         badge.alphaValue = isEditing ? 0 : 1
         rowBadge.alphaValue = isEditing ? 0 : 1
         guard isEditing else {
-            layer?.removeAnimation(forKey: Self.wiggleKey)
+            wiggleLoops.detachAll()
             return
         }
         if let removeButton {
@@ -43,12 +48,9 @@ extension SidebarItemRowView {
         guard bounds.size != wiggleSize, let layer else { return }
         wiggleSize = bounds.size
         // Neighbors wiggle out of step: the phase comes from the item's place.
-        let phase = (frame.minX * 0.37 + frame.minY * 0.61).truncatingRemainder(dividingBy: 1)
-        if let wiggle = Motion.sidebar.wiggleAnimation(center: CGPoint(x: bounds.midX, y: bounds.midY), phase: Double(phase)) {
-            layer.add(wiggle, forKey: Self.wiggleKey)
-        } else {
-            layer.removeAnimation(forKey: Self.wiggleKey)
-        }
+        let phase = Double((frame.minX * 0.37 + frame.minY * 0.61).truncatingRemainder(dividingBy: 1))
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        wiggleLoops.attach(layer, key: Self.wiggleKey) { Motion.sidebar.wiggleAnimation(center: center, phase: phase) }
     }
 
     /// Delete or Forward Delete on a focused item in edit mode takes it out, as its ✕ does; Escape ends edit mode.

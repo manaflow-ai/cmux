@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextLayout
 import QuartzCore
+import CmuxNextWakeups
 import Testing
 
 /// The tab-drop highlight on the render server (chrome-parity p03-rendering-032, `motion.renderServer`
@@ -25,7 +26,7 @@ struct DropHighlightRenderMotionTests {
                               backing: .buffered, defer: false)
 
         init(renderServer: Bool) {
-            root = LayoutRootView(model: model, contentProvider: provider, rendersMotionOnServer: { renderServer })
+            root = LayoutRootView(model: model, contentProvider: provider, rendersMotionOnServer: { renderServer }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = false
             window.isReleasedWhenClosed = false
             window.contentView = root

@@ -14,7 +14,6 @@ use super::prepare_sidebar_resource_attach;
 use super::prepare_terminal_resource_attach;
 use super::resource_browser_viewer_release;
 use super::resource_browser_viewer_resize;
-use super::resource_client_cell_pixels_set;
 use super::resource_client_get;
 use super::resource_client_list;
 use super::resource_client_metadata_update;
@@ -25,6 +24,7 @@ use super::resource_terminal_viewer_release;
 use super::resource_terminal_viewer_resize;
 use super::send_resource_response;
 use super::start_browser_resource_attach;
+use super::start_resource_client_cell_pixels_set;
 use super::start_resource_wait;
 use super::start_session_event_stream;
 use super::start_session_journal_stream;
@@ -34,6 +34,7 @@ use crate::panic_free::JsonFields;
 
 use super::MessageWriter;
 use super::OutboundStream;
+use super::RequestSpan;
 use super::ResourceWaitCancel;
 use super::activity;
 use super::chief_control;
@@ -123,12 +124,14 @@ fn handle_resource_session_shutdown(
 }
 
 /// Dispatches one request the origin gate admitted; `request` is the
-/// gate's own parse of the line.
+/// gate's own parse of the line. A git request takes `span` to the work
+/// item that answers it, so its latency ends at its real reply.
 pub(super) fn handle_resource_connection_message(
     mux: &Arc<Mux>,
     client: u64,
     request: crate::resource_router::ParsedResourceRequest,
     writer: &MessageWriter,
+    span: &mut RequestSpan<'_>,
 ) -> bool {
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
@@ -188,7 +191,6 @@ pub(super) fn handle_resource_connection_message(
         | ResourceOperation::ClientMetadataUpdate
         | ResourceOperation::ClientSizingSet
         | ResourceOperation::ClientSizingRelease
-        | ResourceOperation::ClientCellPixelsSet
         | ResourceOperation::TerminalRendererGrantCreate
         | ResourceOperation::TerminalViewerResize
         | ResourceOperation::TerminalViewerRelease
@@ -196,6 +198,9 @@ pub(super) fn handle_resource_connection_message(
         | ResourceOperation::BrowserViewerRelease => {
             let result = handle_resource_connection_control(mux, client, &request);
             send_resource_response(writer, id, operation, result)
+        }
+        ResourceOperation::ClientCellPixelsSet => {
+            start_resource_client_cell_pixels_set(mux, client, &request, id, writer)
         }
         ResourceOperation::ClientDetach => {
             let result = prepare_resource_client_detach(mux, client, &request);
@@ -337,6 +342,21 @@ pub(super) fn handle_resource_connection_message(
         ResourceOperation::OriginConfirmationIssue => {
             origin_gate::handle_issue(mux, client, &request, id, writer)
         }
+        operation if crate::git_ops::handles(operation) => {
+            let (reply_mux, reply_writer, latency) =
+                (mux.clone(), writer.clone(), span.start_async());
+            let reply: crate::git_ops::Reply = Box::new(move |handled| {
+                latency.reply(|| match handled {
+                    Ok(response) => {
+                        activity::note_resource_input(&reply_mux, client, operation, &response);
+                        reply_writer.send_control(&response).is_ok()
+                    }
+                    Err(error) => send_resource_response(&reply_writer, id, operation, Err(error)),
+                });
+            });
+            crate::git_ops::answer(mux, client, request, reply);
+            true
+        }
         _ => {
             debug_assert!(
                 !crate::resource_router::requires_connection_context(request.envelope.operation),
@@ -371,9 +391,6 @@ fn handle_resource_connection_control(
         ResourceOperation::ClientSizingSet => resource_client_sizing_set(mux, client, request),
         ResourceOperation::ClientSizingRelease => {
             resource_client_sizing_release(mux, client, request)
-        }
-        ResourceOperation::ClientCellPixelsSet => {
-            resource_client_cell_pixels_set(mux, client, request)
         }
         ResourceOperation::TerminalViewerResize => {
             resource_terminal_viewer_resize(mux, client, request)
