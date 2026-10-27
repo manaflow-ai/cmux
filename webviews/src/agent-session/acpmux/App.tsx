@@ -302,6 +302,7 @@ import {
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
 import { PreviewCard } from "./conversation/PreviewCard";
+import { installWheelGlide } from "./wheelGlide";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
@@ -2168,6 +2169,7 @@ export function VirtualTranscript({
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
   const jumpTarget = useRef<number | undefined>(undefined);
+  const wheelGlide = useRef<ReturnType<typeof installWheelGlide>>(undefined);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
   /// The scrollbar's lane (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE: always there, its thumb drawn while
@@ -2176,6 +2178,8 @@ export function VirtualTranscript({
   const [lane, setLane] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const stopJump = useCallback(() => {
+    // Find, reveal and an asynchronous send own their new placement, even without a jump in flight.
+    wheelGlide.current?.stop();
     const active = jumpTarget.current !== undefined;
     jumpTarget.current = undefined;
     if (active && ref.current) stopScroll(ref.current);
@@ -3089,6 +3093,7 @@ export function VirtualTranscript({
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
       previousSession.current = sessionId;
+      wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
       // Another chat's count (the subagent view takes none) is not a send in this one.
       seenSends.current = sends;
@@ -3823,7 +3828,10 @@ export function VirtualTranscript({
           )
         : undefined;
     gutterRelease.current = gutter?.release;
+    wheelGlide.current = node ? installWheelGlide(node) : undefined;
     return () => {
+      wheelGlide.current?.remove();
+      wheelGlide.current = undefined;
       stopJump();
       for (const name of inputs) node?.removeEventListener(name, reader, { capture: true });
       node?.removeEventListener("click", holdClicked, { capture: true });
@@ -9865,6 +9873,7 @@ function AcpmuxPane() {
                       files={diffDisplay?.files ?? diffFiles}
                       turn={diffDisplay}
                       initialPath={diffView.path}
+                      root={snapshot.summary?.cwd}
                       onClose={closeDiff}
                       source={changesSource}
                       onOpenFile={openChangedFile}
