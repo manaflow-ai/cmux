@@ -1008,6 +1008,11 @@ class OrphanPlanTests(unittest.TestCase):
         for kwargs in (
             dict(event="workflow_dispatch", branch="feat-cmux-next", name="cmux NEXT DEV daily · sign 1",
                  path=".github/workflows/cmux-next-dev-daily.yml"),
+            # The DEV source build: cmux-next.yml dispatched with dev_daily=true (run 40426912368, the
+            # same sweep, `cmux NEXT DEV Release compile` queued 2h16m).
+            dict(event="workflow_dispatch", branch="feat-cmux-next",
+                 name="cmux NEXT DEV daily · bf4461675b1c6321a8c93ff5310ed46d42a51998",
+                 path=".github/workflows/cmux-next.yml"),
             dict(event="schedule", branch="main", name="cmux NEXT DEV daily dispatch",
                  path=".github/workflows/cmux-next-dev-daily-dispatch.yml"),
             dict(event="push", branch="main", name="Nightly macOS build", path=".github/workflows/nightly.yml"),
@@ -1023,6 +1028,10 @@ class OrphanPlanTests(unittest.TestCase):
                 decisions = orphan_plan(self.orphans(1, **kwargs))
                 self.assertEqual([d.action for d in decisions], ["skip"])
                 self.assertIn("delivery workflow", decisions[0].note)
+        # Any other cmux-next.yml dispatch is still an ordinary orphan.
+        tip_suite = dict(event="workflow_dispatch", branch="feat-cmux-next", path=".github/workflows/cmux-next.yml",
+                         name="cmux-next tip Swift suite · bf4461675b1c6321a8c93ff5310ed46d42a51998")
+        self.assertEqual([d.action for d in orphan_plan(self.orphans(1, **tip_suite))], ["cancel"])
 
     def test_release_merge_queue_and_tag_orphans_are_only_reported(self):
         for kwargs in (

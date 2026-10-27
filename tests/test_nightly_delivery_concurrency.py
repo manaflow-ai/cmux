@@ -14,7 +14,8 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 # run in progress. scripts/ci/delivery_workflows.py declares them once; the
 # queue janitor reads the same list to never cancel one of their runs.
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-from delivery_workflows import DELIVERY_GLOBS, REQUIRED_DELIVERY_WORKFLOWS, is_delivery_workflow  # noqa: E402
+from delivery_workflows import (  # noqa: E402
+    DELIVERY_GLOBS, DELIVERY_RUN_NAME_PREFIXES, REQUIRED_DELIVERY_WORKFLOWS, is_delivery_run, is_delivery_workflow)
 
 # Workflows whose listed jobs take no concurrency group at all, top-level or
 # job-level, not even a non-cancelling one: GitHub keeps one pending run per
@@ -48,6 +49,16 @@ def test_the_declared_list_matches_every_delivery_workflow_path() -> None:
         assert is_delivery_workflow(f".github/workflows/{path.name}"), path
     for name in ("ci.yml", "ci-queue-janitor.yml", "cloud-vm-image-promote.yml"):
         assert not is_delivery_workflow(f".github/workflows/{name}"), name
+
+
+def test_dev_source_runs_are_named_as_the_declared_list_expects() -> None:
+    # The dispatcher names the DEV source build of cmux-next.yml; a renamed title would drop its protection.
+    dispatch = (WORKFLOWS / "cmux-next-dev-daily-dispatch.yml").read_text(encoding="utf-8")
+    assert "const workflow = 'cmux-next.yml';" in dispatch
+    (prefix,) = DELIVERY_RUN_NAME_PREFIXES["cmux-next.yml"]
+    assert f"const devTitle = `{prefix}${{sha}}`;" in dispatch, prefix
+    assert is_delivery_run(".github/workflows/cmux-next.yml", f"{prefix}{'a' * 40}")
+    assert not is_delivery_run(".github/workflows/cmux-next.yml", "cmux-next · " + "a" * 40)
 
 
 def test_delivery_workflows_never_cancel_in_progress_work() -> None:
@@ -85,6 +96,7 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
 if __name__ == "__main__":
     test_required_delivery_workflows_exist()
     test_the_declared_list_matches_every_delivery_workflow_path()
+    test_dev_source_runs_are_named_as_the_declared_list_expects()
     test_delivery_workflows_never_cancel_in_progress_work()
     test_newest_wins_jobs_take_no_concurrency_group()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()

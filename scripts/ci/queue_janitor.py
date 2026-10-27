@@ -194,7 +194,7 @@ import owned_pool_rescue as rescue  # noqa: E402
 import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
-from delivery_workflows import is_delivery_workflow  # noqa: E402
+from delivery_workflows import is_delivery_run  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -2273,7 +2273,7 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
     # holding CI's concurrency group (and every later main run pending).
     if ORPHAN_PROTECTED_WORKFLOW.search(str(run.get("path") or "")):
         return "release/publish workflow"
-    if is_delivery_workflow(run.get("path")):
+    if is_delivery_run(run.get("path"), run.get("name") or run.get("display_title")):
         return "nightly/DEV/promote delivery workflow; needs runner capacity, never a cancel"
     if event == "push" and branch in PROTECTED_PUSH_BRANCHES - {"main"}:
         # Listed since follows_another_copy(): a feat-cmux-next push gates the nightly-next build,

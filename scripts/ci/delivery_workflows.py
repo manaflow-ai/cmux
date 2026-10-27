@@ -26,11 +26,28 @@ DELIVERY_GLOBS = (
 )
 REQUIRED_DELIVERY_WORKFLOWS = ("nightly.yml", "cmux-next-dev-daily.yml")
 
+# Delivery runs of a shared workflow, told apart by run name: the DEV source
+# build is cmux-next.yml dispatched with dev_daily=true, which
+# cmux-next-dev-daily-dispatch.yml names `cmux NEXT DEV daily · <sha>`.
+DELIVERY_RUN_NAME_PREFIXES: dict[str, tuple[str, ...]] = {
+    "cmux-next.yml": ("cmux NEXT DEV daily · ",),
+}
+
+
+def _file_name(path: str | None) -> str:
+    # A reusable call's path can carry `@ref`; the file name is what counts.
+    return PurePosixPath(str(path or "").split("@", 1)[0]).name.lower()
+
 
 def is_delivery_workflow(path: str | None) -> bool:
     """Whether a workflow path (`.github/workflows/x.yml`, or a bare file name) is a delivery workflow."""
-    if not path:
-        return False
-    # A reusable call's path can carry `@ref`; the file name is what counts.
-    name = PurePosixPath(str(path).split("@", 1)[0]).name.lower()
-    return any(fnmatch(name, pattern) for pattern in DELIVERY_GLOBS)
+    name = _file_name(path)
+    return bool(name) and any(fnmatch(name, pattern) for pattern in DELIVERY_GLOBS)
+
+
+def is_delivery_run(path: str | None, run_name: str | None) -> bool:
+    """Whether a run is a nightly, DEV or promote build: a delivery workflow, or a named delivery run of a shared one."""
+    if is_delivery_workflow(path):
+        return True
+    prefixes = DELIVERY_RUN_NAME_PREFIXES.get(_file_name(path), ())
+    return any(str(run_name or "").startswith(prefix) for prefix in prefixes)
