@@ -37,7 +37,7 @@ extension AppServices {
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
         hibernation.discardsAppPages = features.isEnabled(.memoryDiscardPageTabs)
         hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
-        hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
+        hibernation.openerLinks = { [weak self] in self?.scriptOpenerLinks() ?? [:] }
         hibernation.ranksUrgentDiscards = features.isEnabled(.memoryUrgentDiscardRanking)
         hibernation.snapshots.keepsCompressed = features.isEnabled(.compressedSnapshots)
         let agentPages = AgentPageHibernation(services: self)
@@ -106,13 +106,13 @@ extension AppServices {
         if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies() }
     }
 
-    /// Tab `key` and every tab script can reach from it through `window.opener`
-    /// (`BrowserScriptOpeners`: its opener, the tabs it opened, theirs), for a discard of the whole
-    /// group (`FrozenGrowthRule`). Runs only on such a discard.
-    func openerGroup(of key: String) -> Set<String> {
+    /// Each tab script opened with a live `window.opener` and its opener, by key (`BrowserScriptOpeners`): the opener groups'
+    /// links (`FrozenGrowthRule.openerGroups`). Free with no such tab, else one walk of the tabs, at most once per plan.
+    func scriptOpenerLinks() -> [String: String] {
+        let scriptOpeners = cache.pageRequests.scriptOpeners
+        guard !scriptOpeners.isEmpty else { return [:] }
         let keys = Dictionary(cache.browsers.map { (ObjectIdentifier($0.value.tab), $0.key) }) { first, _ in first }
-        let openers = cache.pageRequests.scriptOpeners.openers { keys[ObjectIdentifier($0)] }
-        return FrozenGrowthRule.openerGroup(of: key, openers: openers)
+        return scriptOpeners.openers { keys[ObjectIdentifier($0)] }
     }
 
     /// The parked workspaces of every window: none at critical memory pressure, one teardown per release

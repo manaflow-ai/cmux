@@ -133,8 +133,7 @@ struct BrowserHibernationFrozenGrowthTests {
         let keys = try await rig.pages(["opener", "popup", "outsider"])
         let shown = try await rig.pages(["shown"], hide: false)[0]
         let (opener, popup, outsider) = (keys[0], keys[1], keys[2])
-        let family: Set<String> = [opener, popup, shown]
-        rig.hibernation.openerGroup = { family.contains($0) ? family : [$0] }
+        rig.hibernation.openerLinks = { [popup: opener, shown: opener] }
         try await rig.until("every hidden page freezes with a baseline") {
             keys.allSatisfy { rig.hibernation.frozenGrowth.pages[$0]?.baseline != nil }
         }
@@ -177,9 +176,33 @@ struct BrowserHibernationFrozenGrowthTests {
         defer { for key in keys { cache.release(key) } }
         cache.pageRequests.scriptOpeners.record(child: popup, opener: opener)
         cache.pageRequests.openers.forgetAll()
-        #expect(services.openerGroup(of: keys[1]) == [keys[0], keys[1]])
-        #expect(services.openerGroup(of: keys[0]) == [keys[0], keys[1]])
-        #expect(services.openerGroup(of: keys[2]) == [keys[2]], "a noopener link tab is in the group")
+        #expect(services.scriptOpenerLinks() == [keys[1]: keys[0]], "a noopener link tab is in the group")
+        let groups = FrozenGrowthRule.openerGroups(openers: services.scriptOpenerLinks())
+        #expect(groups[keys[1]] == [keys[0], keys[1]])
+        #expect(groups[keys[0]] == [keys[0], keys[1]])
+        #expect(groups[keys[2]] == nil)
+    }
+
+    /// With `memoryFreezeEligibility` an opener and the pages it opened freeze as a group, and the
+    /// hibernation of one member thaws that page alone: the others stay frozen, as Chrome discards a
+    /// frozen page without unfreezing its browsing instance (freezing_policy.cc).
+    @Test func aMembersHibernationLeavesItsGroupFrozen() async throws {
+        let rig = try Rig(freezeEligibility: true)
+        defer { rig.close() }
+        // Each page links to the first once it exists, so each freezes through a plan that groups it.
+        rig.hibernation.openerLinks = { [weak rig] in
+            guard let keys = rig?.keys, let opener = keys.first else { return [:] }
+            return keys.dropFirst().reduce(into: [:]) { $0[$1] = opener }
+        }
+        let keys = try await rig.pages(["opener", "popup", "sibling"])
+        let (opener, popup, sibling) = (keys[0], keys[1], keys[2])
+        try await rig.until("the group freezes") { keys.allSatisfy { rig.hibernation.frozen.contains($0) } }
+
+        #expect(rig.hibernation.hibernateNow(popup) == nil)
+        #expect(!rig.hibernation.frozen.contains(popup), "the popup stayed frozen for its hibernation")
+        #expect(rig.hibernation.frozen.isSuperset(of: [opener, sibling]), "the popup's hibernation thawed its group")
+        try await rig.until("the popup hibernates") { rig.isHibernated(popup) }
+        #expect(rig.hibernation.frozen.isSuperset(of: [opener, sibling]))
     }
 
     static func until(_ what: String, _ condition: () async -> Bool) async throws {
@@ -206,10 +229,11 @@ struct BrowserHibernationFrozenGrowthTests {
         var recorders: [String: Recorder] = [:]
         var downloading: Set<String> = []
 
-        init() throws {
+        init(freezeEligibility: Bool = false) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines,
+                                             freezeEligibility: freezeEligibility)
             folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cn-frozen-growth-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
             services.cache.hibernation = hibernation

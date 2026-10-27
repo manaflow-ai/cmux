@@ -89,9 +89,15 @@ package final class FreezeEligibility {
         probe.stopsWhenFrozen || (isEnabled && probe.holdsSharedStorage)
     }
 
-    /// Whether page `key` may still freeze: its opener group did not thaw since its plan.
+    /// Whether page `key` may still freeze when its freeze probe answers: its opener group did not thaw
+    /// since its plan, and with the rules on, it did not start to load meanwhile (a meta refresh, a timed
+    /// reload, a script navigation). A page that loads again is watched as a plan watches it: its load
+    /// end plans again (`onLoaded`).
     package func mayFreeze(_ key: String) -> Bool {
-        !held.contains(key)
+        guard !held.contains(key) else { return false }
+        guard isEnabled, isLoading(key) == true else { return true }
+        watchLoad(key)
+        return false
     }
 
     /// Page `key` could not freeze now (its probe kept it, the engine refused, a capture thawed it): it
@@ -144,8 +150,9 @@ package final class FreezeEligibility {
         loads.removeAll()
     }
 
-    /// Watches loading page `key` until its load ends, then plans again (once per load). A plan keeps
-    /// only a page it just read as loading, so the value the observation applies in this turn is true.
+    /// Watches loading page `key` until its load ends, then plans again (once per load). A plan or a
+    /// probe's answer watches only a page it just read as loading, so the value the observation applies
+    /// in this turn is true.
     private func watchLoad(_ key: String) {
         guard loads[key] == nil, let work else { return }
         let isLoading = isLoading

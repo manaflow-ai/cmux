@@ -203,6 +203,30 @@ import Testing
         #expect(FrozenGrowthRule.openerGroup(of: "alone", openers: openers) == ["alone"])
     }
 
+    /// One walk groups every linked page as ``FrozenGrowthRule/openerGroup(of:openers:)`` does page by page.
+    @Test func everyOpenerGroupFromOneWalk() {
+        let openers = ["popup": "opener", "grandchild": "popup", "sibling": "opener", "elsewhere": "other"]
+        let groups = FrozenGrowthRule.openerGroups(openers: openers)
+        #expect(Set(groups.keys) == ["opener", "popup", "grandchild", "sibling", "other", "elsewhere"])
+        for (page, group) in groups { #expect(group == FrozenGrowthRule.openerGroup(of: page, openers: openers)) }
+        #expect(groups["alone"] == nil, "a page with no link is in no group")
+        #expect(FrozenGrowthRule.openerGroups(openers: [String: String]()).isEmpty)
+    }
+
+    /// A plan's groups read the links at the first ask only, once however many pages it asks for.
+    @Test func aPlansGroupsReadTheLinksOnceAndOnlyWhenAsked() {
+        var reads = 0
+        let groups = FrozenGrowthRule.openerGroups(links: {
+            reads += 1
+            return ["popup": "opener"]
+        })
+        #expect(reads == 0, "a plan that asked for no group read the links")
+        #expect(groups("popup") == ["opener", "popup"])
+        #expect(groups("opener") == ["opener", "popup"])
+        #expect(groups("alone") == ["alone"])
+        #expect(reads == 1)
+    }
+
     @Test func eachMemberIsPlannedOnceWhenTwoMembersGrow() {
         var growth = frozen(["a": 100, "b": 100])
         let growing = growth.record(["a": alone("a", 200), "b": alone("b", 200)])

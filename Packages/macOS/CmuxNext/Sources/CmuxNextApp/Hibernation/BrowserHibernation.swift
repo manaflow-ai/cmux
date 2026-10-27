@@ -92,8 +92,8 @@ final class BrowserHibernation {
     var discardsStreamedPages = false
     var frozenGrowth = FrozenGrowthRule()
     let growthDeadline: MainDeadline
-    /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
-    var openerGroup: (String) -> Set<String> = { [$0] }
+    /// Each tab script opened and the tab that opened it (`BrowserScriptOpeners`), by key; injected by the App.
+    var openerLinks: () -> [String: String] = { [:] }
     /// The memory coordinator it registers with, made by `AppServices` (tests pass their own).
     private let memory: any MemoryConsumerRegistry
     /// Its lossy consumer registration while started; the coordinator hands it each level and limit.
@@ -599,10 +599,10 @@ final class BrowserHibernation {
     /// Frozen pages whose memory grew (`FrozenGrowthRule.record`) go with the frozen hidden pages of
     /// their opener group; the lead rule and the person's choices still keep any of them.
     func discardGrowing(_ growing: [String]) {
-        let now = self.now()
-        let members = Set(growing.flatMap { openerGroup($0).union([$0]) })
+        let now = self.now(), groups = FrozenGrowthRule.openerGroups(links: openerLinks)
+        let members = Set(growing.flatMap { groups($0).union([$0]) })
         let hidden = members.reduce(into: [String: HibernationPlanner.Candidate]()) { $0[$1] = hiddenCandidate($1, now: now)?.facts }
-        let plan = frozenGrowth.plan(growing: growing, groups: openerGroup, candidates: hidden, setting: setting)
+        let plan = frozenGrowth.plan(growing: growing, groups: groups, candidates: hidden, setting: setting)
         exemptions.merge(plan.exemptions) { $1 }
         for key in plan.due {
             cache?.trace(key, "discard (\(DiscardReason.frozenWithGrowingMemory.rawValue))")
@@ -628,7 +628,7 @@ final class BrowserHibernation {
         }
         let (planned, read) = saverCPU.pastGrace(candidates, saver: energy.policy.isSaver && measureCPU != nil, now: now)
         if let read { measureCPU?(read.keys, { [weak self] in if self?.saverCPU.land($0, generation: read.generation) == true { self?.replan() } }) }
-        let plan = freezeRules.plan(setting, candidates: planned, frozen: frozen.union(freezeProbing), groups: openerGroup)
+        let plan = freezeRules.plan(setting, candidates: planned, frozen: frozen.union(freezeProbing), groups: FrozenGrowthRule.openerGroups(links: openerLinks))
         for key in plan.due { freeze(key) }
         if let next = [plan.nextCheck, recheck].compactMap(\.self).min() {
             freezeDeadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
@@ -660,7 +660,7 @@ final class BrowserHibernation {
         freezeProbing.remove(key)
         guard let cache, cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
               cache.lifecycle.phase(key) == .mountedHidden, hiddenAt[key] != nil, let page = freezer(tab) else { return }
-        // An agent called it, or it became a neighbor (or was hovered) while the probe ran.
+        // An agent called it, it became a neighbor (or was hovered), its group thawed or it started loading while the probe ran.
         guard mayFreeze(key) else { return }
         let doubted = probeHistory.record(probe, for: key, step: .freeze)
         if probe.audible { audible?.heard(key) }
@@ -672,8 +672,7 @@ final class BrowserHibernation {
         freeze(key, page)
     }
 
-    /// No agent drives the hidden page (`isAgentDriven`), it showed no background activity (its
-    /// updates stay live), it is no neighbor or hovered tab, and its opener group did not thaw meanwhile.
+    /// No agent drives the hidden page, it showed no background activity (its updates stay live), is no neighbor or hovered tab, and `FreezeEligibility` lets it.
     private func mayFreeze(_ key: String) -> Bool {
         !isAgentDriven(key) && !activity.contains(key) && !awakeNeighbors.contains(key) && hoverLeft(key, now: now()) == nil && freezeRules.mayFreeze(key)
     }
@@ -692,9 +691,10 @@ final class BrowserHibernation {
         trackGrowth(key)
     }
 
-    /// Thaws a frozen page (shown, driven by an agent, about to hibernate, or woken early as a neighbor or hovered tab: `prewarm`).
-    func thaw(_ key: String, prewarm: Bool = false) {
-        for member in freezeRules.thaw(key) { thaw(member, prewarm: prewarm) } // its opener group thaws with it
+    /// Thaws a frozen page (shown, driven by an agent, about to hibernate, or woken early as a neighbor or hovered tab: `prewarm`)
+    /// with its opener group, unless `alone`: a hibernation probe, as Chrome discards a page without thawing its group (freezing_policy.cc).
+    func thaw(_ key: String, prewarm: Bool = false, alone: Bool = false) {
+        if !alone { for member in freezeRules.thaw(key) { thaw(member, prewarm: prewarm) } }
         guard frozen.remove(key) != nil else { return }
         untrackGrowth(key)
         if let tab = cache?.browsers[key]?.tab { freezer(tab)?.setFrozen(false) }
@@ -727,8 +727,8 @@ final class BrowserHibernation {
         guard let cache, let entry = cache.browsers[key], let source = entry.tab as? any BrowserHibernationSource,
               let generation = cache.lifecycle.record(key)?.generation, probing.insert(key).inserted else { return }
         let tab = entry.tab
-        // The probe and the history capture run script: a frozen page runs none.
-        thaw(key)
+        // The probe and the history capture run script: a frozen page runs none. Its opener group stays frozen.
+        thaw(key, alone: true)
         // task-owner: one discard probe, bounded by each of its script calls' 2 s deadline
         // main-hop-allow: the probe, picture, view state and beforeunload ask are the page's main-actor async calls, and the discard checks the lifecycle again between them, so a page shown meanwhile is never touched
         Task { @MainActor [weak self] in

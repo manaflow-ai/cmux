@@ -164,6 +164,38 @@ import Testing
         #expect(rules.keptLeft("popup", threshold: 30, now: start) == nil, "showing the page clears its keep")
     }
 
+    /// The page was idle at its plan and started loading before its freeze probe answered (a meta
+    /// refresh, a timed reload): it does not freeze mid-load, and its load end plans again.
+    @Test(.timeLimit(.minutes(1))) func aPageThatStartsLoadingBeforeItsProbeAnswersDoesNotFreeze() async {
+        let load = TestLoad()
+        load.isLoading = false
+        let rules = FreezeEligibility()
+        let work = MainWorkScheduler(budget: MainFrameBudget())
+        await confirmation { loaded in
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                rules.configure(isEnabled: true, work: work, isLoading: { [weak load] _ in load?.isLoading }, onLoaded: {
+                    loaded()
+                    done.resume()
+                })
+                let plan = rules.plan(setting, candidates: [page("refresh")], frozen: [], groups: { [$0] })
+                #expect(plan.due == ["refresh"])
+                load.isLoading = true
+                #expect(!rules.mayFreeze("refresh"), "a page that started loading froze mid-load")
+                load.isLoading = false
+            }
+        }
+        rules.stop()
+    }
+
+    @Test func offALoadingPageMayFreezeAndAThawedGroupMayNot() {
+        #expect(makeRules(enabled: false, loading: ["slow"]).mayFreeze("slow"), "off, the load does not count, as before the rules")
+        let rules = makeRules()
+        _ = rules.plan(setting, candidates: [page("opener"), page("popup")], frozen: [], groups: groups)
+        #expect(rules.mayFreeze("popup"))
+        _ = rules.thaw("opener")
+        #expect(!rules.mayFreeze("popup"))
+    }
+
     /// A page kept for its load is planned again when the load ends: an event, no timer.
     @Test(.timeLimit(.minutes(1))) func theLoadEndPlansAgain() async {
         let load = TestLoad()

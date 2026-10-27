@@ -34,9 +34,12 @@ page whose site may show notifications, that holds a Web Lock or an open Indexed
 a blocking IndexedDB lock; cmux has no engine hook for that yet, so any open connection counts), or that
 still loads. The page's recorder counts the locks this document holds (`BrowserPageBusy`), as Chrome
 counts them per frame; `navigator.locks.query()` would list every page of the origin. A page kept for its
-load is planned again when the load ends (an observation, no timer).
+load, or that starts to load before its freeze probe answers, is planned again when the load ends (an
+observation, no timer).
 
 An opener and the pages it opened freeze only when every one of them is due, and thaw together, as
-Chrome freezes a browsing instance as a whole. cmux's own reasons stay: pinned tabs, Never Hibernate
+Chrome freezes a browsing instance as a whole; the hibernation of one member thaws that page alone, as
+Chrome discards a frozen page without unfreezing its group. The links are read once per plan, only when
+a due page asks for its group. cmux's own reasons stay: pinned tabs, Never Hibernate
 hosts, DevTools, capture, an agent's lease, background activity, playing media, Web Audio, WebRTC and
 open devices.
