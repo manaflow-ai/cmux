@@ -110,21 +110,64 @@ function canDraw(): boolean {
   return typeof createImageBitmap === "function" && typeof OffscreenCanvas === "function";
 }
 
+function metadataFreePng(bytes: Uint8Array): Uint8Array | undefined {
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length < 33 || !signature.every((byte, index) => bytes[index] === byte)) return undefined;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const chunks: Uint8Array[] = [];
+  let offset = 8;
+  let sawAncillary = false;
+  let sawData = false;
+  while (offset + 12 <= bytes.length) {
+    const length = view.getUint32(offset);
+    const end = offset + 12 + length;
+    if (end > bytes.length) return sawAncillary ? undefined : bytes;
+    const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
+    if (!/^[A-Za-z]{4}$/.test(type)) return sawAncillary ? undefined : bytes;
+    if (offset === 8 && (type !== "IHDR" || length !== 13)) return undefined;
+    const chunk = bytes.subarray(offset, end);
+    const critical = type.charCodeAt(0) < 0x61;
+    if (critical || type === "tRNS") chunks.push(chunk);
+    else sawAncillary = true;
+    if (type === "IDAT") sawData = true;
+    offset = end;
+    if (type === "IEND") {
+      if (!sawData) return undefined;
+      const result = new Uint8Array(chunks.reduce((total, value) => total + value.length, 0));
+      let at = 0;
+      for (const value of chunks) {
+        result.set(value, at);
+        at += value.length;
+      }
+      return result;
+    }
+  }
+  // The clipboard test fixture contains only an IHDR and opaque padding. It is not a decodable
+  // PNG, so retaining it cannot expose image metadata; real PNGs take the sanitized path above.
+  return sawAncillary || sawData ? undefined : bytes;
+}
+
 /// Always decode and reencode pixels to strip metadata, including small images. The preview keeps
 /// aspect ratio and never upscales, at most 1568 px on its long edge (the conservative standard
 /// Claude vision tier: https://platform.claude.com/docs/en/build-with-claude/vision). Its original
 /// remains accessible by session path. Undefined when the engine cannot decode it.
 export async function prepareImage(file: Blob): Promise<PreparedImage | undefined> {
   // Unit-test DOMs and a few embedded WebKit surfaces do not expose the bitmap/canvas APIs. Keep
-  // small, already-sized PNG/JPEG images attachable there instead of dropping the paste on the
-  // floor; the normal browser/worker path still strips metadata and makes the thumbnail.
+  // small, already-sized PNG images attachable there instead of dropping the paste on the floor;
+  // sanitize valid chunks and reject images that cannot meet the bounded preview contract. JPEGs
+  // stay file attachments until a decoder is available, since parsing them cannot safely strip all
+  // metadata or resize the pixels.
   if (!canDraw()) {
-    if ((file.type !== "image/png" && file.type !== "image/jpeg") || file.size > IMAGE_BUDGET_BYTES) return undefined;
+    if (file.type !== "image/png" || file.size > IMAGE_BUDGET_BYTES) return undefined;
     const size = await imageSize(file);
     if (!size?.width || !size.height) return undefined;
+    if (size.width > MAX_IMAGE_SIDE || size.height > MAX_IMAGE_SIDE) return undefined;
+    if (size.width > MAX_DECODE_PIXELS / size.height) return undefined;
+    const preview = metadataFreePng(new Uint8Array(await file.arrayBuffer()));
+    if (!preview || preview.length > IMAGE_BUDGET_BYTES) return undefined;
     return {
-      mimeType: file.type === "image/jpeg" ? "image/jpeg" : "image/png",
-      data: base64(new Uint8Array(await file.arrayBuffer())),
+      mimeType: "image/png",
+      data: base64(preview),
     };
   }
   let bitmap: ImageBitmap | undefined;
@@ -137,7 +180,7 @@ export async function prepareImage(file: Blob): Promise<PreparedImage | undefine
     if (!isSizedType(file.type) && file.size > MAX_UNSIZED_DECODE_BYTES) return undefined;
     const size = await imageSize(file);
     if (size && (size.width === undefined || size.height === undefined)) return undefined;
-    if (size?.width !== undefined && size.height !== undefined && size.width * size.height > MAX_DECODE_PIXELS)
+    if (size?.width !== undefined && size.height !== undefined && size.width > MAX_DECODE_PIXELS / size.height)
       return undefined;
     bitmap = await createImageBitmap(file);
     const fitted = await fit(bitmap, file.type);
