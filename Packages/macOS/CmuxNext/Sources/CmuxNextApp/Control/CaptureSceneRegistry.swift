@@ -262,18 +262,23 @@ extension CaptureSceneRegistry {
             controller.state.selection.select(created.key, in: pane.id)
             _ = services.revealTab(created.key, intent: .focus)
             controller.sidebar.restore(width: 300, hidden: false)
-            guard let session = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == created.key })?.agentSession else {
-                return .object(["error": .string("auto-name fixture tab has no mirrored agent session"), "scene": .string(definition.name)])
+            let sessionReady = await autoNameSettled {
+                workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == created.key })?.agentSession?.session == Self.autoNameSession
+            }
+            guard sessionReady.0 != nil,
+                  let session = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == created.key })?.agentSession,
+                  let sessionID = session.session, sessionID == Self.autoNameSession else {
+                return .object(["error": .string("auto-name fixture tab did not mirror its agent session"), "scene": .string(definition.name)])
             }
             let turns = AgentTurnStateStore.shared
             if session.host != turns.localHost, !turns.mirroredHosts.contains(session.host) {
                 turns.mirroredHosts.insert(session.host)
             }
             // The fixture supplies an acpmux summary. Only the production namer may write its title.
-            let summary: [String: Any] = ["sessionId": Self.autoNameSession, "title": Self.generatedAutoName, "titleSource": "generated"]
+            let summary: [String: Any] = ["sessionId": sessionID, "title": Self.generatedAutoName, "titleSource": "generated"]
             let title = AgentTurnStates.title(summary)
             let generatedTitle = AgentTurnStates.title(summary, includingPrompt: false)
-            AgentTurnStateStore.shared.apply(session: Self.autoNameSession, state: nil, lastMessage: nil, muted: false,
+            AgentTurnStateStore.shared.apply(session: sessionID, state: nil, lastMessage: nil, muted: false,
                                               title: title, generatedTitle: generatedTitle, detail: nil, recordsTimeline: false,
                                               source: "capture-scene")
             let expected = WorkspaceAutoNameWiring(services: services).reader.rule.persistedName(
@@ -328,8 +333,12 @@ extension CaptureSceneRegistry {
         let nameMatches = workspace.name == expected
         let sourceAuto = workspace.nameSource == .auto
         let tab = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == tabID })
-        let sessionMatches = tab?.agentSession?.session == Self.autoNameSession
-        let generatedMatches = tab?.agentSession.map { AgentTurnStateStore.shared.generatedTitle(for: $0) == Self.generatedAutoName } ?? false
+        let session = tab?.agentSession
+        let sessionMatches = session?.session == Self.autoNameSession
+        let turns = AgentTurnStateStore.shared
+        let hostKnown = session.map { $0.host == turns.localHost || turns.mirroredHosts.contains($0.host) } ?? false
+        let actualGenerated = session.flatMap { turns.generatedTitle(for: $0) }
+        let generatedMatches = actualGenerated == Self.generatedAutoName
         let view = services.agentTabs.existingView(tabID)
         let painted = view?.model.hasPainted == true
         let inWindow = view?.webView.window != nil
@@ -337,8 +346,8 @@ extension CaptureSceneRegistry {
         let row = services.windows.controller(for: windowID)?.sidebar.model.sections.flatMap(\.workspaces).first { $0.id.rawValue == workspace.id }
         let rowReady = row?.title == expected
         let pending = row?.rowState.isPending == true
-        let ready = nameMatches && sourceAuto && tab != nil && sessionMatches && generatedMatches && painted && inWindow && !loading && rowReady && !pending
-        let summary = "name=\(workspace.name) expected=\(expected) source=\(workspace.nameSource.rawValue) tab=\(tab != nil) session=\(sessionMatches) generated=\(generatedMatches) painted=\(painted) inWindow=\(inWindow) loading=\(loading) row=\(rowReady) pending=\(pending)"
+        let ready = nameMatches && sourceAuto && tab != nil && sessionMatches && hostKnown && generatedMatches && painted && inWindow && !loading && rowReady && !pending
+        let summary = "name=\(workspace.name.prefix(24)) expected=\(expected.prefix(24)) source=\(workspace.nameSource.rawValue) tab=\(tab != nil) session=\(sessionMatches) hostKnown=\(hostKnown) generated=\(generatedMatches) actualGenerated=\((actualGenerated ?? "nil").prefix(24)) painted=\(painted) inWindow=\(inWindow) loading=\(loading) row=\(rowReady) pending=\(pending)"
         return (ready, summary)
     }
 }
