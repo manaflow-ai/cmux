@@ -1040,7 +1040,6 @@ check_no_github_hosted_runners() {
   # Allowed GitHub-hosted forms:
   #   - the fork branch `github.repository_owner != 'manaflow-ai' && '<label>'`
   #     (and `&& matrix.hosted_runner`), which never evaluates in manaflow-ai;
-  #   - fork-only `hosted_runner` matrix values;
   #   - the label list inside the exact CI_TRUSTED_RUNNER selector, where
   #     GitHub-hosted is an operator choice and Blacksmith is the default;
   #   - the exact lines in `exceptions` below, each with the reason it cannot move.
@@ -1151,8 +1150,6 @@ PY
       if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
         content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
       fi
-      # Fork-only matrix rows: read only through the fork branch above.
-      [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
       stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
       printf '%s\n' "$stripped" | grep -Eq "$hosted" || continue
       allowed=0
@@ -1177,6 +1174,12 @@ jobs:
       linux-arm64-runner: ubuntu-24.04-arm
       linux_runner: ubuntu-latest
       LINUX_BUILD_RUNNER: ubuntu-22.04
+  g:
+    strategy:
+      matrix:
+        include:
+          - hosted_runner: ubuntu-latest
+    runs-on: ${{ matrix.hosted_runner }}
   e:
     runs-on: ${{ vars.LINUX_RUNNER ||
       'ubuntu-24.04' }}
@@ -1203,8 +1206,8 @@ jobs:
 YAML
   scan_out="$(hosted_scan "$fixture")"
   rm -rf "$fixture"
-  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 7 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
-    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the seven hosted selections in its fixture and nothing in the clean one:"
+  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 8 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
+    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the eight hosted selections in its fixture and nothing in the clean one:"
     echo "$scan_out"
     exit 1
   fi
