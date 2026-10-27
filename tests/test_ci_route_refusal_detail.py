@@ -5,9 +5,10 @@ On 2026-10-26 (22:47 and 22:54Z) the macOS placement logged only "HTTP Error 403
 Forbidden" for its runner reads, which cannot tell a secondary rate limit from a
 missing permission. pr_runner_pool.GitHub.get_api and next_macos_cascade.Api._get now
 print the status, Retry-After, X-RateLimit-Remaining, X-RateLimit-Resource and the
-start of the body, and retry once after Retry-After (capped: 60 s for the pool, 20 s
-for the cascade, whose reads share a 45 s budget) on a 403 or 429 that carries one.
-Anything else is raised as before, after one attempt.
+start of the body. The pool client retries once after Retry-After on a 403 or 429 that
+carries one only when its caller opts in (retry_cap > 0, the cap): side-lane placement
+does, at 10 s, inside its 2-minute step. Every other caller, the cascade included (its
+reads share a 45 s budget), logs and raises after one attempt, as before.
 """
 from __future__ import annotations
 
@@ -55,8 +56,12 @@ class Ok:
 
 
 def clients():
-    return (("pool", pool, lambda: pool.GitHub("t", "o/r").get_api("/orgs/o/actions/runners?per_page=100"), 60.0),
-            ("cascade", cascade, lambda: cascade.Api.__new__(cascade.Api)._get("/orgs/o/actions/runner-groups?x=1"), 20.0))
+    return (("pool", pool, lambda: pool.GitHub("t", "o/r", retry_cap=60).get_api("/orgs/o/actions/runners?per_page=100"), 60.0),)
+
+
+def no_retry_clients():
+    return (("cascade", cascade, None),
+            ("pool default", pool, lambda: pool.GitHub("t", "o/r").get_api("/orgs/o/x?y=1")))
 
 
 class RefusalDetailTests(unittest.TestCase):
@@ -115,6 +120,30 @@ class RefusalDetailTests(unittest.TestCase):
                                                                   refused(403, "", Retry_After="1")])
                 self.assertIsInstance(result, urllib.error.HTTPError)
                 self.assertEqual((calls, sleeps), (2, [1.0]))
+
+    def test_the_cascade_never_waits_but_says_why(self):
+        for name, module, fn in no_retry_clients():
+            with self.subTest(client=name):
+                body = '{"message": "You have exceeded a secondary rate limit."}'
+                result, calls, sleeps, err = self.call(module, fn, [refused(403, body, Retry_After="7"), Ok()])
+                self.assertIsInstance(result, urllib.error.HTTPError)
+                self.assertEqual((calls, sleeps), (1, []))
+                self.assertIn("Retry-After=7", err)
+                self.assertIn("secondary rate limit", err)
+
+    def test_only_side_lane_placement_opts_in_and_fits_its_step(self):
+        cascade_source = (ROOT / "scripts/ci/next_macos_cascade.py").read_text()
+        self.assertNotIn("retry_cap", cascade_source)
+        self.assertNotIn("time.sleep(wait)", cascade_source)
+        side = (ROOT / "scripts/ci/side_lane_placement.py").read_text()
+        self.assertIn("retry_cap=SIDE_RETRY_CAP_SECONDS", side)
+        self.assertIn("SIDE_RETRY_CAP_SECONDS = 10.0", side)
+        # About three runner reads, each retried at most once, plus the cascade's read budget,
+        # stay inside the placement step's two minutes.
+        self.assertLess(3 * 10.0 + cascade.READ_BUDGET_SECONDS, 120)
+        users = [path.name for path in (ROOT / "scripts").rglob("*.py") if "retry_cap=" in path.read_text(errors="ignore")
+                 and path.name not in ("pr_runner_pool.py",)]
+        self.assertEqual(users, ["side_lane_placement.py"])
 
     def test_other_statuses_are_not_retried(self):
         for name, module, fn, cap in clients():

@@ -479,8 +479,10 @@ MARKER_STEP = "Mark a run on a persistent macOS pool"
 # many are replayed as unknown.
 ROUTE_LOOKUPS = 8
 API = "https://api.github.com"
-# The one retry of a refused read waits at most this long (its Retry-After, capped).
-RETRY_AFTER_CAP_SECONDS = 60.0
+# A refused read is logged with its detail. It is retried once after its Retry-After only when
+# the caller opts in with retry_cap > 0, the most it can wait: callers here run under step
+# timeouts and budgets (`timeout 120`, a 2-minute placement step, the picker's rounds) that an
+# unbounded wait would break, so the default (0) logs and raises after one attempt, as before.
 
 # What a refused GitHub read said: its status, the rate-limit headers and the start of its
 # body ("secondary rate limit", "Resource not accessible by integration", ...). urllib's own
@@ -2127,7 +2129,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class GitHub:
-    def __init__(self, token: str, repo: str) -> None:
+    def __init__(self, token: str, repo: str, *, retry_cap: float = 0.0) -> None:
+        self.retry_cap = retry_cap
         self.repo = repo
         self.headers = {
             "Accept": "application/vnd.github+json",
@@ -2148,7 +2151,7 @@ class GitHub:
                 with urllib.request.urlopen(request, timeout=15) as response:
                     return json.loads(response.read())
             except urllib.error.HTTPError as error:
-                wait = retry_wait(error, RETRY_AFTER_CAP_SECONDS) if attempt == 1 else None
+                wait = retry_wait(error, self.retry_cap) if attempt == 1 and self.retry_cap > 0 else None
                 print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}"
                       + (f"; retrying once in {wait:.0f} s" if wait is not None else ""), file=sys.stderr)
                 if wait is None:

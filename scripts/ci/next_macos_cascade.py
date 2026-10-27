@@ -170,9 +170,8 @@ READ_BUDGET_SECONDS = 45
 QUEUE_SNAPSHOT_MINUTES = 15
 SCALE_SET_GROUP = "Blacksmith scale sets - {label}"
 API = "https://api.github.com"
-# The one retry of a refused read waits at most this long: the reads share READ_BUDGET_SECONDS
-# (45 s), so a longer wait would only spend the budget and drop the answer.
-RETRY_AFTER_CAP_SECONDS = 20.0
+# A refused read is logged with its detail and raised, never retried here: the reads share
+# READ_BUDGET_SECONDS (45 s), which a wait would only spend before the answer is dropped.
 
 # What a refused GitHub read said: its status, the rate-limit headers and the start of its
 # body ("secondary rate limit", "Resource not accessible by integration", ...). urllib's own
@@ -190,15 +189,6 @@ def refusal(error: "urllib.error.HTTPError") -> str:
     return f"HTTP {error.code}" + (f" {shown}" if shown else "") + (f" body: {body}" if body else "")
 
 
-def retry_wait(error: "urllib.error.HTTPError", cap: float) -> float | None:
-    """Seconds to wait before the one retry: a 403 or 429 that carries Retry-After, capped."""
-    if error.code not in (403, 429):
-        return None
-    try:
-        after = float((error.headers or {}).get("Retry-After") or "")
-    except ValueError:
-        return None
-    return max(0.0, min(after, cap))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -503,18 +493,12 @@ class Api:
         request = urllib.request.Request(f"{API}{path}", headers={
             "Accept": "application/vnd.github+json", "Authorization": f"Bearer {self.route_token}",
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-next-macos-cascade"})
-        for attempt in (1, 2):
-            try:
-                with urllib.request.urlopen(request, timeout=15) as response:
-                    return json.load(response)
-            except urllib.error.HTTPError as error:
-                wait = retry_wait(error, RETRY_AFTER_CAP_SECONDS) if attempt == 1 else None
-                print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}"
-                      + (f"; retrying once in {wait:.0f} s" if wait is not None else ""), file=sys.stderr)
-                if wait is None:
-                    raise
-                time.sleep(wait)
-        raise AssertionError("unreachable")
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}", file=sys.stderr)
+            raise
 
     def in_flight(self) -> dict[str, int] | None:
         owner, _, name = self.repository.partition("/")
