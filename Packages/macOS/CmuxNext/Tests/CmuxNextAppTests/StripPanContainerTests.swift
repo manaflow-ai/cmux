@@ -568,3 +568,10 @@ import Testing
         #expect(container.hitTest(NSPoint(x: 400, y: 400)) == nil, "clicks outside every host go to the screen")
     }
 }
+
+extension DividerHandleView {
+    /// The identities of the handle's own tracking areas: init adds one, and a pan or fling keeps it.
+    var trackingAreaIDs: [ObjectIdentifier] {
+        trackingAreas.filter { ($0.owner as? NSView) === self }.map { ObjectIdentifier($0) }
+    }
+}
