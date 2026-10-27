@@ -129,6 +129,22 @@ struct WindowPictureMetaTests {
                 "a page over the workspace is another content area")
     }
 
+    /// What the launch window shows of a picture the rules allowed: its cut over the picture's size in points at its
+    /// own scale, and one mark per cut region.
+    @Test func aShownPictureCarriesItsCutScaleAndMarks() throws {
+        let front = WindowPictureStore.FrontPicture(windowID: Self.meta().window, image: try Self.image(width: 2200, height: 1440),
+                                                    meta: Self.meta())
+        let sidebar = WindowPictureStore.ShownPicture(picture: front, stale: [.sidebar])
+        #expect(sidebar.scale == 2)
+        #expect(sidebar.cut == [Self.sidebarFrame])
+        #expect(sidebar.staleMarks == ["launch_picture_stale.sidebar"])
+        let whole = WindowPictureStore.ShownPicture(picture: front, stale: [])
+        #expect(whole.cut == [] && whole.staleMarks.isEmpty)
+        let both = WindowPictureStore.ShownPicture(picture: front, stale: [.pane, .sidebar])
+        #expect(both.cut == nil)
+        #expect(both.staleMarks == ["launch_picture_stale.pane", "launch_picture_stale.sidebar"])
+    }
+
     // MARK: Never stretched
 
     /// The picture layer shows the image at the picture's own scale, pinned to the top-left: a window taller or

@@ -114,13 +114,12 @@ struct LaunchSnapshotWindow {
             return skip(phase, window)
         }
         // A region whose layout changed since the quit is cut out of the picture: the live window shows there once built.
-        let front = shown.picture, scale = CGFloat(front.meta.scale > 0 ? front.meta.scale : 1)
-        let size = CGSize(width: CGFloat(front.image.width) / scale, height: CGFloat(front.image.height) / scale)
-        guard let cut = front.meta.staleAreas(shown.stale, size: size) else {
+        guard let cut = shown.cut else {
             DebugTimings.markLaunch("launch_picture_mismatch")
             return skip(phase, window)
         }
-        for kind in shown.stale.map(\.rawValue).sorted() { DebugTimings.markLaunch("launch_picture_stale.\(kind)") }
+        for mark in shown.staleMarks { DebugTimings.markLaunch(mark) }
+        let front = shown.picture
         let shell = ShellWindow.main(frame: opening.frame)
         shell.setFrame(opening.frame, display: false)  // contentRect grows by the titlebar: the saved frame exactly
         // Before any view reaches the window, as the controller does: its visibility node, its key family.
@@ -132,7 +131,7 @@ struct LaunchSnapshotWindow {
                                        mainWork: services.mainWork) { [weak state] in
             state.map { String(describing: ($0.workspaceID, $0.page, $0.sidebarHidden)) }
         }
-        phase.show(front.image, scale: scale, cut: cut, in: shell, scope: scope, present: {
+        phase.show(front.image, scale: shown.scale, cut: cut, in: shell, scope: scope, present: {
             guard manager.ordersWindowsIn else { return }
             services.background.windowWillAppear(activates: true)
             WindowActivation.show(shell, .present)

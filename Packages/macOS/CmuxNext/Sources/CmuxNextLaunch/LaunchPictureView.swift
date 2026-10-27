@@ -135,3 +135,17 @@ extension WindowPictureMeta {
         return saved.mismatches(opening)
     }
 }
+
+extension WindowPictureStore.ShownPicture {
+    /// The picture's pixels per point as the quit drew it (``LaunchPictureView/scale``).
+    public var scale: CGFloat { picture.meta.scale > 0 ? CGFloat(picture.meta.scale) : 1 }
+
+    /// The parts of the picture its changed regions cut out (``LaunchPictureView/cut``); nil when nothing of it is
+    /// still right, so the window takes today's path (``WindowPictureMeta/staleAreas(_:size:)``).
+    public var cut: [CGRect]? {
+        picture.meta.staleAreas(stale, size: CGSize(width: CGFloat(picture.image.width) / scale, height: CGFloat(picture.image.height) / scale))
+    }
+
+    /// The launch marks of the cut regions, `launch_picture_stale.<region>`, in a fixed order.
+    public var staleMarks: [String] { stale.map { "launch_picture_stale.\($0.rawValue)" }.sorted() }
+}
