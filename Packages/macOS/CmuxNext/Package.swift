@@ -236,13 +236,25 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   `presented_userdata`. CmuxNextTerminal reads, hides and purges frames through the first two
 ///   (`GhosttyFrameSource`), reads no layer contents, and takes each presented frame as its contents mark
 ///   (`ghosttySurfacePresented`, p03-rendering-081).
+/// - GHOSTTY_EXTERNAL_CURSOR: the external cursor (ghostty-next cp/p03-rendering-090, not in 723c4ab93): the surface
+///   config's `bool cursor_external` (the renderer neither draws nor blinks the cursor), `ghostty_surface_cursor_cb
+///   cursor_cb` and `void *cursor_userdata`. The callback, `void (*)(void *userdata, const ghostty_surface_cursor_s *)`,
+///   runs on the renderer thread once per move or change of the cursor cell, never per blink, and never blocks.
+///   `ghostty_surface_cursor_s` has `double x, y, width, height` (the cell in points, top-left origin, as
+///   `ghostty_surface_grid_metrics`), `ghostty_cursor_style_e style` (`GHOSTTY_CURSOR_STYLE_BLOCK`, `_BLOCK_HOLLOW`,
+///   `_BAR`, `_UNDERLINE`, `_LOCK`), `bool visible`, `bool blinking`, `uint32_t blink_interval_ms` and
+///   `void *surface` (an IOSurfaceRef of the cell as Ghostty draws it, glyph in the cursor-text color; +0, valid for
+///   the call; Ghostty draws no later cursor into a surface someone still holds). `TerminalCursorLayer` shows it
+///   behind feature `terminalCursorLayer` (p03-rendering-091).
 let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasEnergySaver = false
 let ghosttyNextKitHasRendererFrames = false
+let ghosttyNextKitHasExternalCursor = false
 let ghosttyNextKitCapabilities: [SwiftSetting] =
     (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
     + (ghosttyNextKitHasEnergySaver ? [.define("GHOSTTY_ENERGY_SAVER")] : [])
     + (ghosttyNextKitHasRendererFrames ? [.define("GHOSTTY_RENDERER_FRAMES")] : [])
+    + (ghosttyNextKitHasExternalCursor ? [.define("GHOSTTY_EXTERNAL_CURSOR")] : [])
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout

@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "terminalCursorLayer",
+  "owner": "PL-ghostty",
+  "description": "The terminal cursor shows on a layer of its own over the terminal, with the cell Ghostty rendered, and blinks in the render server, so a blinking cursor costs Ghostty no frame and the app no main-thread work; needs a GhosttyNextKit with the external cursor.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["idle-budget", "typing-terminal"],
+  "sticky": false,
+  "runtimeMutable": false
+}

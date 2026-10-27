@@ -118,6 +118,9 @@ public final class TerminalSurfaceView: NSView {
     private(set) var appliedDisplayID: UInt32?
     var trackingArea: NSTrackingArea?
     var cursor: NSCursor = .iBeam
+    /// The terminal cursor on the render server (feature `terminalCursorLayer`, ``TerminalCursorLayer``); nil:
+    /// Ghostty draws and blinks it (the feature off, or a GhosttyNextKit without `GHOSTTY_EXTERNAL_CURSOR`).
+    let cursorLayer: TerminalCursorLayer?
 
     // Keyboard state (see TerminalSurfaceView+Keyboard.swift).
     var markedText = NSMutableAttributedString()
@@ -164,7 +167,7 @@ public final class TerminalSurfaceView: NSView {
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
          echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
-         gpuResidency: (any TerminalGPUResidency)? = nil) {
+         gpuResidency: (any TerminalGPUResidency)? = nil, externalCursor: Bool = false) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
         let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
@@ -175,6 +178,7 @@ public final class TerminalSurfaceView: NSView {
         modifierWatch = modifiers
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
+        cursorLayer = externalCursor && TerminalCursorLayer.isAvailable ? TerminalCursorLayer() : nil
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.target = self
         createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
@@ -226,6 +230,16 @@ public final class TerminalSurfaceView: NSView {
         config.io_mode = mode
         // SAFETY: as above.
         unsafe SurfaceBridge.setCallbacks(in: &config, userdata: userdata)
+        #if GHOSTTY_EXTERNAL_CURSOR
+        if cursorLayer != nil {
+            // Ghostty neither draws nor blinks the cursor; it publishes each cursor cell to the view's cursor layer.
+            config.cursor_external = true
+            // SAFETY: the callback has ghostty_surface_cursor_cb's signature; `userdata` as above.
+            unsafe config.cursor_cb = ghosttySurfaceCursor
+            // SAFETY: as above.
+            unsafe config.cursor_userdata = userdata
+        }
+        #endif
         // SAFETY: as above; `app` is the runtime's live app (never freed).
         guard let surface = unsafe ghostty_surface_new(app, &config) else {
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
@@ -246,6 +260,7 @@ public final class TerminalSurfaceView: NSView {
         lane = unsafe TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
                                          keyFlows: bridgeObject.typingSurface, hangs: hangWatch)
         if let layer {
+            cursorLayer?.install(on: layer)
             echoStage?.attach(to: layer)
             TypingFrameProbe.install(on: layer, gate: contentsGate, keyFlows: bridgeObject.typingSurface)
         }
@@ -274,7 +289,20 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        cursorLayer?.place(in: window)
         syncWindowState()
+    }
+
+    /// The view's own overlays (copy mode's box and badge, predictive echo) stay over the cursor layer, as they
+    /// were over the cursor Ghostty drew.
+    public override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if cursorLayer != nil { subview.layer?.zPosition = TerminalCursorLayer.subviewZPosition }
+    }
+
+    /// Ghostty published the cursor (``ghosttySurfaceCursor(_:_:)``): the cursor layer shows its cell.
+    func cursorDidChange(_ state: TerminalCursorState) {
+        cursorLayer?.show(state, viewHeight: bounds.height)
     }
 
     public override func viewDidHide() {
@@ -313,7 +341,9 @@ public final class TerminalSurfaceView: NSView {
     /// Shown in a window, not hidden or parked (``syncWindowState()``). A layout change of a terminal
     /// that is not shown records its size only (PL-script A3: a hidden workspace's layout sized every
     /// warm terminal's surface and resized its PTY); showing it applies the last size once.
-    private(set) var isShown = false
+    private(set) var isShown = false {
+        didSet { cursorLayer?.setShown(isShown) }
+    }
     /// A forced grid report asked for while the view was not shown (`TerminalSession.init`, a new owner):
     /// it goes when the view is shown.
     private var pendingForcedReport = false
@@ -378,6 +408,7 @@ public final class TerminalSurfaceView: NSView {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
         if resized, isShown { updateSurfaceSize() }
+        cursorLayer?.layout(viewHeight: newSize.height)
         copyMode.syncCursor()
     }
 
@@ -397,6 +428,7 @@ public final class TerminalSurfaceView: NSView {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 layer?.contentsScale = window.backingScaleFactor
+                cursorLayer?.layer.contentsScale = window.backingScaleFactor
                 CATransaction.commit()
             }
             if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
