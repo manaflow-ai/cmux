@@ -1,6 +1,7 @@
 public import CmuxNextWakeups
 import Darwin
 import Foundation
+import os
 
 /// The local Tasks owner (`cmux task serve`) over its Unix socket, JSON
 /// lines (cmux-tasks protocol.rs). Event-driven: dispatch sources wake on
@@ -12,7 +13,9 @@ import Foundation
 /// machine's person. After a disconnect the source waits for the socket's
 /// directory to change (the owner restarted), spaces attempts with
 /// `Backoff`, reconnects and subscribes again; the model then resends the
-/// intents it sent before the disconnect, with their keys.
+/// intents it sent before the disconnect, with their keys. The backoff resets
+/// only when a valid snapshot arrives, so an owner that accepts and then
+/// sends a refused snapshot is retried later and later, not at once.
 ///
 /// What the owner sends reaches the main actor as ``MainWorkClass/automation``
 /// work on the app's ``MainWorkScheduler``: another process's lines, so a
@@ -21,6 +24,7 @@ import Foundation
 /// content/browser/scheduler/browser_task_queues.h).
 @MainActor
 public final class SocketTasksSource: TasksSource {
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "tasks.socket")
     private let path: String
     private var sink: (@MainActor (TasksSourceEvent) -> Void)?
     /// Whether a connection is open (its descriptor belongs to `connection`).
@@ -32,8 +36,8 @@ public final class SocketTasksSource: TasksSource {
     /// Interned once: the connection's queue posts each read's lines under it.
     private let linesOwner: MainTaskOwner
     private let directoryOwner: MainTaskOwner
-    private let retryTimer = DemandTimer(owner: "tasks.reconnect")
-    private var backoff = Backoff(initial: .milliseconds(200), maximum: .seconds(10))
+    private let retryTimer: DemandTimer
+    private var backoff: Backoff
     /// Owns the descriptor: reads, framing, JSON decoding and writes run on
     /// its queue, off the main actor (cx-9c8m).
     private var connection: TasksSocketConnection?
@@ -46,9 +50,16 @@ public final class SocketTasksSource: TasksSource {
     ///   - path: The owner's socket; defaults to the local team's
     ///     (`~/Library/Application Support/cmux/tasks/local/tasks.sock`).
     ///   - mainWork: Where the owner's lines and the socket directory's changes run on main, as automation work.
-    public init(path: String? = nil, mainWork: MainWorkScheduler) {
+    ///   - retryTimer: Spaces reconnect attempts; tests pass a timer on a `ManualClock`.
+    ///   - backoff: The reconnect delays; tests pass one with no jitter.
+    public init(path: String? = nil,
+                mainWork: MainWorkScheduler,
+                retryTimer: DemandTimer = DemandTimer(owner: "tasks.reconnect"),
+                backoff: Backoff = Backoff(initial: .milliseconds(200), maximum: .seconds(10))) {
         self.path = path ?? Self.defaultPath(team: "local")
         self.mainWork = mainWork
+        self.retryTimer = retryTimer
+        self.backoff = backoff
         linesOwner = mainWork.board.owner("tasks.socket.lines")
         directoryOwner = mainWork.board.owner("tasks.socket.directory")
     }
@@ -99,7 +110,6 @@ public final class SocketTasksSource: TasksSource {
             mainWork.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.deliver(batch, generation: generation) }
         }
         self.connection = connection
-        backoff.reset()
         directoryWatch?.cancel()
         directoryWatch = nil
         enqueue(["id": .int(Int(nextID)), "op": .string("task.subscribe")], params: [:])
@@ -144,11 +154,22 @@ public final class SocketTasksSource: TasksSource {
         keysByID.removeAll()
     }
 
-    private func lost() {
+    private func lost(reason: String = TasksStrings.ownerUnreachable) {
         closeConnection()
         guard let sink else { return }
-        sink(.connection(.disconnected(TasksStrings.ownerUnreachable)))
+        sink(.connection(.disconnected(reason)))
         waitForOwner()
+    }
+
+    /// Chromium's `mojo::ReportBadMessage` closes the pipe of a peer that sent
+    /// a bad message; here the connection closes, the mirror keeps its last
+    /// good state, and the backoff keeps growing until a valid snapshot.
+    private func refuse(_ error: TasksSnapshotError) {
+        switch error {
+        case let .duplicateID(entity, id):
+            Self.logger.error("refused a Tasks snapshot: two \(entity, privacy: .public) rows have id \(id, privacy: .private)")
+        }
+        lost(reason: TasksStrings.ownerSentBadSnapshot)
     }
 
     /// Wait for the socket's directory to change, then try again, spaced by
@@ -207,6 +228,7 @@ public final class SocketTasksSource: TasksSource {
     private func dispatch(_ line: TasksWire.Line) {
         switch line {
         case let .snapshot(snapshot):
+            backoff.reset()
             sink?(.snapshot(snapshot))
         case let .event(event):
             sink?(.event(event))
@@ -214,6 +236,8 @@ public final class SocketTasksSource: TasksSource {
             if let key = keysByID.removeValue(forKey: id) {
                 sink?(.settled(key: key, reject: reject))
             }
+        case let .badSnapshot(error):
+            refuse(error)
         case .ignored:
             break
         }

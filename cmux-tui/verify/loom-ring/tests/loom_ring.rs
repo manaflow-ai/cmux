@@ -528,3 +528,75 @@ fn a_reads_bytes_are_marked_until_its_end_is_published() {
     });
     reached.assert_all();
 }
+
+/// A release (`Ring::release_before`, p07-memory-094): `drop_before`
+/// publishes the new `oldest`, then the holder gives the dropped bytes'
+/// pages to the kernel, which may read them as zeros. A holder killed
+/// anywhere in it leaves a segment whose adopter trusts no given-away byte.
+/// Full ring: offsets 10..14; the release drops 10 and 11 (positions 2, 3).
+fn release(segment: &Segment, writer: &dyn KillPoint, cursor: &mut Cursor) {
+    if cursor.drop_before(&segment.words_of(writer), BASE + 2) {
+        for offset in BASE..BASE + 2 {
+            writer.reached();
+            segment.store((offset % CAPACITY as u64) as usize, 0);
+        }
+    }
+}
+
+#[test]
+fn a_holder_killed_anywhere_in_a_release_trusts_no_given_away_byte() {
+    let reached = Reached::new(&["a byte given away"]);
+    explore({
+        let reached = reached.clone();
+        move || {
+            let segment = Arc::new(Segment::new(BASE));
+            let mut cursor = segment.cursor();
+            segment.push(&Alive, &mut cursor, BASE, CAPACITY);
+            let killer = Arc::new(Killer::new());
+            let holder = {
+                let (segment, killer) = (segment.clone(), killer.clone());
+                thread::spawn(move || killer.run(|| release(&segment, &*killer, &mut cursor)))
+            };
+            killer.kill();
+            holder.join().unwrap();
+            if segment.byte(2) == 0 {
+                reached.note("a byte given away");
+            }
+            let cursor = segment.adopt();
+            assert_eq!(cursor.end(), BASE + CAPACITY as u64);
+            for (offset, byte) in segment.kept(&cursor) {
+                assert_eq!(byte, pty_byte(offset), "offset {offset} is trusted with a wrong byte");
+            }
+        }
+    });
+    reached.assert_all();
+}
+
+/// The release fence: a reader that sees a given-away byte, then fences,
+/// sees the `oldest` that dropped it.
+#[test]
+fn a_release_publishes_the_new_oldest_before_a_page_goes() {
+    let reached = Reached::new(&["a byte given away"]);
+    let observed = reached.clone();
+    explore(move || {
+        let segment = Arc::new(Segment::new(BASE));
+        let mut cursor = segment.cursor();
+        segment.push(&Alive, &mut cursor, BASE, CAPACITY);
+        let holder = {
+            let segment = segment.clone();
+            thread::spawn(move || release(&segment, &Alive, &mut cursor))
+        };
+        // Offset 10 is at position 2.
+        let byte = segment.byte(2);
+        fence(Ordering::Acquire);
+        let oldest = segment.oldest.load(Ordering::Acquire);
+        if byte == 0 {
+            observed.note("a byte given away");
+            assert!(oldest >= BASE + 2, "offset {BASE} is still kept after its page went");
+        } else {
+            assert_eq!(byte, pty_byte(BASE));
+        }
+        holder.join().unwrap();
+    });
+    reached.assert_all();
+}

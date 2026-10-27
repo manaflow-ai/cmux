@@ -27,6 +27,7 @@ public final class HomeMessageRequests {
             again = true
             return
         }
+        // main-hop-allow: the list read awaits the Cloud source's own request (off main) and keeps its items on main in each resume; `again` and `answering` are this model's main-actor state
         reading = Task { [weak self] in
             await self?.readLoop()
         }

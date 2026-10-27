@@ -18,6 +18,7 @@ import CmuxNextDesign
     func begin(_ id: TabID) {
         guard let strip, let item = strip.model.tab(id), let cell = strip.cells[id] else { return }
         cancel()
+        strip.scroller.landForInput() // the field opens over the tab where it shows
         strip.hoverCards.dismiss(.action)
         // Follows theme changes while open (ThemedTextField).
         let field = ThemedTextField(string: item.title)

@@ -469,6 +469,10 @@
 .nt-player[data-playing="true"] .nt-player-levels i{height:100%;animation:nt-player-level 1.6s ease-in-out infinite}
 .nt-player[data-playing="true"] .nt-player-levels i:nth-child(2){animation-duration:1.3s}
 .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){animation-duration:1.9s}
+/* Energy Saver and animations off (WebTheme.swift): the levels hold one uneven frame. */
+:root:is([data-cmux-energy="saver"],[data-cmux-motion="off"]) .nt-player[data-playing="true"] .nt-player-levels i{animation:none;transform:scaleY(.55)}
+:root:is([data-cmux-energy="saver"],[data-cmux-motion="off"]) .nt-player[data-playing="true"] .nt-player-levels i:nth-child(2){transform:scaleY(.85)}
+:root:is([data-cmux-energy="saver"],[data-cmux-motion="off"]) .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){transform:scaleY(.4)}
 @keyframes nt-player-level{0%,100%{transform:scaleY(.4)}25%{transform:scaleY(.95)}50%{transform:scaleY(.55)}75%{transform:scaleY(.85)}}
 .nt-player-track{height:3px;border-radius:0;background:color-mix(in srgb,var(--agent-text) 12%,transparent);overflow:hidden}
 .nt-player-played{height:100%;background:var(--agent-soft,var(--acpmux-composer-dim));transition:width 1s linear} /* motion-allow: playback progress */
@@ -1070,7 +1074,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-widget-remove:hover {
   background: var(--agent-text);
 }
-/* The wiggle: small, alternate widgets out of step. Still with Reduce Motion or animations off. */
+/* The wiggle: small, alternate widgets out of step. Still with Reduce Motion or animations off. Edit
+   mode follows the person, so Energy Saver keeps it, as the native edit mode does (p14-energy-027). */
 @media (prefers-reduced-motion: no-preference) {
   .nt-widget-frame:not([data-dragging]) {
     animation: nt-widget-wiggle 0.28s ease-in-out infinite alternate; /* motion-allow: the edit-mode wiggle is a loop, not a transition; still under Reduce Motion and animations off */
@@ -1079,7 +1084,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
     animation-delay: -0.14s;
   }
 }
-:root[data-agent-motion="off"] .nt-widget-frame {
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"]) .nt-widget-frame:not([data-dragging]) {
   animation: none;
 }
 @keyframes nt-widget-wiggle {

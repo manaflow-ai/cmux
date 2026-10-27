@@ -20,6 +20,9 @@
 //! 5. for a PTY read only: give back the room a short read did not use
 //!    (`oldest`), then clear `reading`.
 //!
+//! A release ([`Cursor::drop_before`]) publishes the new `oldest`, then a
+//! SeqCst fence, before the caller gives any page of the dropped bytes away.
+//!
 //! A reader that trusts only `oldest .. end` of a segment whose writer
 //! stopped anywhere in that sequence sees only whole writes and no byte a
 //! later write overwrote; a `reading` that names the segment's own `end`
@@ -169,6 +172,20 @@ impl Cursor {
         // `reading` behind its `end`, which names no loss.
         self.publish_reading(words, None);
         n
+    }
+
+    /// Drop every kept byte before `offset` (at most `end`) from the
+    /// window: publish the new `oldest`, then a SeqCst fence, so a reader of
+    /// this segment never trusts a byte whose page the caller gives away
+    /// after this returns. False when no kept byte is before `offset`.
+    pub(crate) fn drop_before(&mut self, words: &Words<'_>, offset: u64) -> bool {
+        let oldest = offset.min(self.end);
+        if oldest <= self.oldest {
+            return false;
+        }
+        self.publish_oldest(words, oldest);
+        fence(Ordering::SeqCst);
+        true
     }
 
     /// Make every byte before `end` part of the ring: after the data, so a
