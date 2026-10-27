@@ -421,8 +421,12 @@ def no_answer_evidence(app, ls_env, tag, sock, out):
     debug_log = ls_env.get("CMUX_DEBUG_LOG") or f"/tmp/cmux-debug-{tag}.log"
     if os.path.isfile(debug_log):
         with open(debug_log, "rb") as f:  # only its last 256 KiB: the tail is what shows where launch stopped
-            f.seek(max(0, os.fstat(f.fileno()).st_size - (256 << 10)))
-            files.append(save("mac-debug-log-tail.txt", f.read().decode(errors="replace"), 200))
+            start = max(0, os.fstat(f.fileno()).st_size - (256 << 10))
+            f.seek(start)
+            tail = f.read(256 << 10).decode(errors="replace")  # bounded: the live app may still append
+        if start:  # a line cut by the seek could start right after `t=`, out of the redactor's reach
+            tail = tail.partition("\n")[2]
+        files.append(save("mac-debug-log-tail.txt", tail, 200))
     return f"{facts}; {', '.join(files)}"
 
 
