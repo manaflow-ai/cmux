@@ -164,7 +164,9 @@ class OnceBlockingTests(unittest.TestCase):
         if probe.returncode != 0:
             self.skipTest(f"{INVENTORY_REV} is not in this clone")
         out = subprocess.run([sys.executable, "-I", str(SCRIPTS / "threading-inventory.py"), "--repo", str(REPO),
-                              "--rev", INVENTORY_REV, "--rule", "once-blocking", "--jsonl"],
+                              "--rev", INVENTORY_REV, "--rule", "once-blocking", "--jsonl",
+                              # The audit read CmuxNext's Sources; the linked packages' sites are task 146's.
+                              "--paths", "Packages/macOS/CmuxNext/Sources/"],
                              capture_output=True, text=True, check=True).stdout
         import json
         files = {json.loads(line)["path"].rsplit("/", 1)[-1] for line in out.splitlines() if line.strip()}

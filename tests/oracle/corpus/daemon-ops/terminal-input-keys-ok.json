@@ -23,6 +23,9 @@
   "requires": [
     "resource_api"
   ],
+  "switches": [
+    "terminal-holder"
+  ],
   "platforms": [
     "linux",
     "mac"
@@ -60,7 +63,13 @@
         "method": "terminal.input.keys",
         "params": {
           "keys": [
-            "oracle"
+            "e",
+            "x",
+            "i",
+            "t",
+            "space",
+            "7",
+            "enter"
           ]
         },
         "idempotencyKey": "terminal-input-keys-ok.call"
@@ -73,7 +82,53 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the keys type exit 7 into the shell: the terminal's exit record says it exited with code 7"
+    },
+    {
+      "id": "exited",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/exit/outcome",
+        "equals": {
+          "kind": "exit",
+          "code": 7
+        },
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.input.keys",
+        "params": {
+          "keys": [
+            "e",
+            "x",
+            "i",
+            "t",
+            "space",
+            "7",
+            "enter"
+          ]
+        },
+        "idempotencyKey": "terminal-input-keys-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

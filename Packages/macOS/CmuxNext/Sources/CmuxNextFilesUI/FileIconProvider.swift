@@ -1,16 +1,22 @@
 public import AppKit
 public import CmuxNextCompat
 public import CmuxNextFiles
+public import CmuxNextWakeups
+import Observation
 import QuickLookThumbnailing
 import UniformTypeIdentifiers
 
 /// Icons and thumbnails for Files rows and tiles, shared by every Files and
 /// Screenshots pane.
 ///
-/// Type icons are cached per extension (one `NSWorkspace` lookup per type,
+/// Type icons are cached per extension (one Launch Services lookup per type,
 /// not per file), so a 100 000-row list asks the system a handful of times.
 /// Package icons (apps carry their own) are kept per package, least recently
-/// used first, within a count bound. Thumbnails come from `QLThumbnailGenerator`
+/// used first, within a count bound. The icon lookups run on the system lane
+/// (``WorkspaceQueries``), never on the main thread: a row whose icon was not
+/// asked yet shows a placeholder, and ``arrivals`` changes when its icon lands,
+/// so the pane redraws the rows on screen. Only rows on screen ask, so the
+/// visible list is what is fetched. Thumbnails come from `QLThumbnailGenerator`
 /// off the main actor, only for the tiles on screen, and are kept least
 /// recently used first by path, size and modification date, bounded by count
 /// and by pixel bytes (a share of the Mac's image cache budget).
@@ -25,6 +31,7 @@ import UniformTypeIdentifiers
 /// cannot do this: it reports neither its count nor its bytes, and its limit 0
 /// means no limit.
 @MainActor
+@Observable
 public final class FileIconProvider {
     /// Draws the thumbnail of a file at a side in points and a backing scale; nil when it has none.
     public typealias Render = @Sendable (_ url: URL, _ side: CGFloat, _ scale: CGFloat) async -> CGImage?
@@ -41,28 +48,36 @@ public final class FileIconProvider {
     /// The estimated bytes of one system icon as a row draws it (32 points at 2x, 4 bytes a pixel).
     public static let iconBytes = 64 * 64 * 4
 
-    private var typeIcons: [String: NSImage] = [:]
-    private var packageIcons: FileImageStore
-    private var thumbnails: FileImageStore
-    private var pending: [String: Task<FileImage?, Never>] = [:]
+    /// Counts the icons that landed since the provider was made: a view that showed placeholders redraws its rows
+    /// when it changes.
+    public private(set) var arrivals = 0
+    @ObservationIgnored private var typeIcons: [String: NSImage] = [:]
+    @ObservationIgnored private var packageIcons: FileImageStore
+    @ObservationIgnored private var thumbnails: FileImageStore
+    @ObservationIgnored private var pending: [String: Task<FileImage?, Never>] = [:]
+    /// The icons on the system lane, by key.
+    @ObservationIgnored private var asking: Set<String> = []
     private let render: Render
-    private var memoryRegistration: MemoryConsumerRegistration?
+    private let queries: WorkspaceQueries?
+    @ObservationIgnored private var memoryRegistration: MemoryConsumerRegistration?
 
     /// Makes a provider. One per app is enough; panes share it.
     ///
     /// - Parameters:
+    ///   - queries: The app's Launch Services answers, which read the icons; nil (tests) shows placeholders only.
     ///   - thumbnailCount: Thumbnails kept at the full memory limit.
     ///   - thumbnailBytes: Their pixel bytes at the full memory limit (the composition root gives a
     ///     share of the Mac's image cache budget).
     ///   - workingSet: The newest thumbnails and package icons kept at every limit.
     ///   - render: What draws thumbnails (Quick Look; tests pass their own).
-    public init(thumbnailCount: Int = FileIconProvider.defaultThumbnailCount,
+    public init(queries: WorkspaceQueries? = nil, thumbnailCount: Int = FileIconProvider.defaultThumbnailCount,
                 thumbnailBytes: Int = FileIconProvider.defaultThumbnailBytes,
                 workingSet: Int = FileIconProvider.defaultWorkingSet,
                 render: @escaping Render = FileIconProvider.quickLookThumbnail) {
         thumbnails = FileImageStore(maxCount: thumbnailCount, maxBytes: thumbnailBytes, workingSet: workingSet)
         packageIcons = FileImageStore(maxCount: Self.defaultPackageIconCount, maxBytes: .max, workingSet: workingSet)
         self.render = render
+        self.queries = queries
     }
 
     /// Quick Look's best thumbnail of `url`, at most `side` points square at `scale`.
@@ -83,24 +98,25 @@ public final class FileIconProvider {
     /// The pixel bytes the thumbnails may hold now (beyond the working set).
     public var thumbnailByteLimit: Int { thumbnails.byteLimit }
 
-    /// The type icon for `entry` (folder, package, or by extension).
+    /// The type icon for `entry` (folder, package, or by extension), or a placeholder until it lands.
     public func icon(for entry: FileEntry) -> NSImage {
         let key: String
+        let type: UTType
         switch entry.kind {
-        case .folder: key = "/folder"
-        case .symlink: key = "/symlink"
+        case .folder: (key, type) = ("/folder", .folder)
+        case .symlink: (key, type) = ("/symlink", .symbolicLink)
         case .package: return packageIcon(entry)
-        case .file, .other: key = entry.pathExtension
+        case .file, .other: (key, type) = (entry.pathExtension, UTType(filenameExtension: entry.pathExtension) ?? .data)
         }
         if let cached = typeIcons[key] { return cached }
-        let image: NSImage
-        switch entry.kind {
-        case .folder: image = NSWorkspace.shared.icon(for: .folder)
-        case .symlink: image = NSWorkspace.shared.icon(for: .symbolicLink)
-        default: image = NSWorkspace.shared.icon(for: UTType(filenameExtension: key) ?? .data)
-        }
-        typeIcons[key] = image
-        return image
+        ask(WorkspaceQuery<NSImage>.typeIcon(type).unkept, key: key) { [weak self] in self?.typeIcons[key] = $0 }
+        return typeIcons[key] ?? Self.placeholder(folder: entry.kind == .folder)
+    }
+
+    /// The icon of the item at `url`, its own as Finder's Get Info shows it, given to `apply` in this turn when kept,
+    /// else when it lands from the system lane.
+    public func fileIcon(at url: URL, apply: @escaping @MainActor (NSImage) -> Void) {
+        queries?.value(WorkspaceQuery<NSImage>.fileIcon(atPath: url.path, side: 48), priority: .userBlocking, then: apply)
     }
 
     /// The system's localized kind for `entry` ("Folder", "PNG image").
@@ -140,9 +156,29 @@ public final class FileIconProvider {
         // Apps carry their own icons, so packages are looked up per item.
         let key = entry.url.path
         if let cached = packageIcons.image(for: key) { return cached }
-        let image = NSWorkspace.shared.icon(forFile: key)
-        packageIcons.insert(FileImage(image: image, bytes: Self.iconBytes), for: key)
-        return image
+        ask(WorkspaceQuery<NSImage>.fileIcon(atPath: key).unkept, key: "/package" + key) { [weak self] image in
+            self?.packageIcons.insert(FileImage(image: image, bytes: Self.iconBytes), for: key)
+        }
+        return packageIcons.image(for: key) ?? Self.placeholder(folder: false)
+    }
+
+    /// Asks the system lane once per `key`; `keep` puts the answer in this provider's own store when it lands (the
+    /// query is unkept, so the provider is the image's one owner and its memory release frees it), then ``arrivals``
+    /// moves.
+    private func ask(_ query: WorkspaceQuery<NSImage>, key: String, keep: @escaping @MainActor (NSImage) -> Void) {
+        guard let queries else { return }
+        guard asking.insert(key).inserted else { return }
+        queries.value(query, priority: .userVisible) { [weak self] image in
+            guard let self else { return }
+            asking.remove(key)
+            keep(image)
+            arrivals += 1
+        }
+    }
+
+    /// What a row shows until its icon lands: the folder or the document symbol.
+    private static func placeholder(folder: Bool) -> NSImage {
+        NSImage(systemSymbolName: folder ? "folder" : "doc", accessibilityDescription: nil) ?? NSImage()
     }
 
     private static func key(_ entry: FileEntry, _ size: CGFloat) -> String {

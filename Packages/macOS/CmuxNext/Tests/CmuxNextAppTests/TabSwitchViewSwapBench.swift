@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 import WebKit
@@ -13,7 +14,8 @@ import CmuxNextWakeups
 /// window: an internal page (Markdown, a file viewer) parked in the pane, the same page in a
 /// wrapper that is not parkable (what every internal page did before: out of the window and back),
 /// and a WebKit browser tab. Prints `TAB-SWITCH-SWAP <case> p50 <ms> p90 <ms> max <ms>`; the checks
-/// are behavioral (each switch shows the tab), not timing budgets. Opt-in: `CMUX_TAB_SWITCH_BENCH=1`.
+/// are behavioral (each switch shows the tab), not timing budgets. Opt-in: `CMUX_TAB_SWITCH_BENCH=1`. With
+/// CMUX_PERF_RESULT_DIR every timed switch is result-v1 (lab story swift-tab-switch-swap).
 @MainActor @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_TAB_SWITCH_BENCH"] == "1"),
                   .timeLimit(.minutes(2)))
 struct TabSwitchViewSwapBench {
@@ -66,7 +68,7 @@ struct TabSwitchViewSwapBench {
     }
 
     /// Times `rounds` switches to `view` (from `other`): show, then the rest of that turn.
-    private func time(_ label: String, view: NSView, other: NSView, pane: PaneContentView, window: NSWindow) -> [Double] {
+    private func time(_ label: String, view: NSView, other: NSView, pane: PaneContentView, window: NSWindow) throws -> [Double] {
         var samples: [Double] = []
         for round in 0..<(Self.rounds + 2) {
             pane.show(other)
@@ -78,6 +80,7 @@ struct TabSwitchViewSwapBench {
             if round >= 2 { samples.append(elapsed) } // two warm-up rounds
             #expect(view.window === window && !view.isHidden, "\(label): the switch shows the tab")
         }
+        try PerfResultWriter()?.record("swift.tab_switch_swap.\(label).switch", unit: .ms, samples: samples)
         let sorted = samples.sorted()
         let pick = { (q: Double) in sorted[min(sorted.count - 1, Int(Double(sorted.count) * q))] }
         print(String(format: "TAB-SWITCH-SWAP %@ p50 %.2f p90 %.2f max %.2f ms (n=%d)", label, pick(0.5), pick(0.9), sorted.last ?? 0, sorted.count))
@@ -103,10 +106,10 @@ struct TabSwitchViewSwapBench {
         defer { browserTab.close() }
         let browser = BrowserChromeView(tab: browserTab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
 
-        let before = time("page-unparked", view: unparked, other: plain, pane: pane, window: window)
-        let after = time("page-parked", view: parked, other: plain, pane: pane, window: window)
-        _ = time("webkit-browser", view: browser, other: plain, pane: pane, window: window)
-        _ = time("page-parked-from-browser", view: parked, other: browser, pane: pane, window: window)
+        let before = try time("page-unparked", view: unparked, other: plain, pane: pane, window: window)
+        let after = try time("page-parked", view: parked, other: plain, pane: pane, window: window)
+        _ = try time("webkit-browser", view: browser, other: plain, pane: pane, window: window)
+        _ = try time("page-parked-from-browser", view: parked, other: browser, pane: pane, window: window)
         #expect(before.count == Self.rounds && after.count == Self.rounds)
     }
 }

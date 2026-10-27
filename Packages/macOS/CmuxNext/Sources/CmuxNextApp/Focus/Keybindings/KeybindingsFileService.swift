@@ -1,8 +1,12 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import OSLog
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The user's keybindings.json in the binding table (cx-9ce.17): the home
 /// daemon owns the file (`keybindings-v1`, cmux-config); this reads it when
@@ -17,7 +21,8 @@ final class KeybindingsFileService {
     private var listeners: [UUID: @MainActor () -> Void] = [:]
     /// The newest read: reads run one after another, so the last one wins.
     private var reading: Task<Void, Never>?
-    private var observation: Task<Void, Never>?
+    /// Reads again when the home daemon starts or stops serving the file (a restart that still serves it too).
+    private var servesWatch: ServiceObservation<ObservationTrigger<Bool>>?
     /// Entries the catalog refused at the last load.
     private(set) var issues: [KeyBindingIssue] = []
     /// Each loaded entry as the file writes it (command, keys and `when`
@@ -36,13 +41,13 @@ final class KeybindingsFileService {
         services?.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .keybindingsChanged = event { self?.read() }
         }
-        // task-owner: lives as long as the service; event-driven (Observation)
-        observation = Task { [weak self] in
-            // A trigger: a daemon restart that still serves keybindings reads them again.
-            for await _ in ObservationStream({ [weak self] in ObservationTrigger(self?.serves ?? false) }) {
-                guard let self else { return }
-                await read().value
-            }
+        guard let services else { return }
+        // A trigger, applied on every evaluation: a daemon restart that still serves keybindings reads them again.
+        // Reads chain (`read()`), so the newest one wins.
+        servesWatch = ServiceObservation(.background, owner: "KeybindingsFile.serves", on: services.mainWork) { [weak self] in
+            ObservationTrigger(self?.serves ?? false)
+        } apply: { [weak self] _ in
+            self?.read()
         }
     }
 
@@ -74,39 +79,53 @@ final class KeybindingsFileService {
         let client = try client()
         let binding = KeybindingsFileClient.Binding(command: command.rawValue, key: key, when: when)
         try await client.set(binding, args: args, replaces: replaces.map(self.binding), idempotencyKey: Self.key())
-        await read().value
+        await read()?.value
     }
 
     /// Unbinds one table entry.
     func remove(_ entry: KeyBinding) async throws {
         try await client().remove(binding(entry), idempotencyKey: Self.key())
-        await read().value
+        await read()?.value
     }
 
     /// Drops the file's entries and removals of `command`.
     func reset(_ command: ActionID) async throws {
         try await client().reset(command: command.rawValue, idempotencyKey: Self.key())
-        await read().value
+        await read()?.value
     }
 
     // MARK: Reading
 
-    /// Reads the file after any read in flight, and loads it.
+    /// Reads the file after any read in flight, and loads it: the daemon read runs off the main thread, the
+    /// load is one visible-class task on it (the binding table decides the person's next key). Nil once the
+    /// app's services are gone.
     @discardableResult
-    func read() -> Task<Void, Never> {
+    func read() -> Task<Void, Never>? {
+        guard let mainWork = services?.mainWork else { return nil }
         let previous = reading
+        // Whether the home daemon serves the file now: a read asked for after it stopped loads nothing.
+        let connection = serves ? services?.machines.local.connection : nil
+        let logger = self.logger
         // task-owner: one keybindings.get read; chained after the previous one
-        let task = Task { [weak self] in
+        let task = Task { @concurrent [weak self] in
             await previous?.value
-            guard let self else { return }
-            guard serves, let connection = services?.machines.local.connection else {
-                load([])
-                return
+            var entries: [KeybindingsFileClient.Entry] = []
+            if let connection {
+                do {
+                    entries = try await KeybindingsFileClient(connection: connection).get().entries
+                } catch {
+                    logger.error("keybindings.get: \(String(describing: error), privacy: .public)")
+                    return
+                }
             }
-            do {
-                load(try await KeybindingsFileClient(connection: connection).get().entries)
-            } catch {
-                logger.error("keybindings.get: \(String(describing: error), privacy: .public)")
+            guard let service = self else { return }
+            let loaded = entries
+            // A job the scheduler dropped loaded nothing; the read ends all the same.
+            _ = try? await withOnceContinuation { (loadedIn: OnceContinuation<Void, OnceContinuationError>) in
+                mainWork.postFromAnyThread(.visible, owner: "KeybindingsFile.load") {
+                    service.load(loaded)
+                    loadedIn.resume(returning: ())
+                }
             }
         }
         reading = task

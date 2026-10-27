@@ -112,7 +112,7 @@ impl Mux {
     /// and each client with a peer record.
     fn close_every_remote_client(self: &Arc<Self>) {
         let mut clients: Vec<u64> = {
-            // Safety: this list only closes streams; a stale id closes
+            // Poison recovery: this list only closes streams; a stale id closes
             // nothing.
             let state = self.control_clients.state.lock().unwrap_or_else(PoisonError::into_inner);
             state

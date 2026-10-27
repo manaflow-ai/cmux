@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 public import CmuxNextWakeups
 import SwiftUI
 
@@ -7,7 +7,7 @@ import SwiftUI
 /// with a model over its feed sources; demos use `MockFeedSource`. Resolves
 /// the panel colors in this view's theme scope and again on every theme or
 /// appearance change.
-public final class FeedHostView: NSView {
+public final class FeedHostView: NSView, VisibilityGatedContent {
     /// Localized title used by the native Inbox page tab.
     public static var paneTitle: String {
         String(localized: "feed.inboxTitle", defaultValue: "Inbox", bundle: .module)
@@ -27,6 +27,17 @@ public final class FeedHostView: NSView {
 
     /// Where this host is shown (``Surface``).
     let surface: Surface
+    private var gate: VisibilityGatedHostingView?
+    /// The view's place in the visibility tree (a page tab, the panel or a sidebar section): a theme change while
+    /// it is hidden resolves the colors once, on show.
+    private let visibility = ViewVisibility("feed")
+    private var visibilityNode: VisibilityNode { visibility.node }
+    /// How many times the colors were resolved (tests: a hidden feed resolves none until it shows).
+    private(set) var colorResolves = 0
+
+    /// Its SwiftUI leaves the hierarchy while its tab is hidden (``VisibilityGatedHostingView``). Only a page
+    /// tab's node drives it; the panel and the sidebar section never follow one.
+    public var visibilityGate: VisibilityGatedHostingView? { gate }
 
     /// - Parameters:
     ///   - model: The feed.
@@ -41,9 +52,12 @@ public final class FeedHostView: NSView {
         self.surface = surface
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride, mainWork: mainWork,
                             onReportsReply: onReportsReply)
-        embed(NSHostingView(rootView: root))
+        let gate = VisibilityGatedHostingView(owner: "FeedHostView") { root }
+        embed(gate)
+        self.gate = gate
     }
 
     @available(*, unavailable)
@@ -64,7 +78,7 @@ public final class FeedHostView: NSView {
             let next = queue[index]
             index += 1
             if let basket = next as? ReportsBasketView { return basket }
-            queue.append(contentsOf: next.subviews)
+            queue.append(contentsOf: next.subviewsIncludingGated)
         }
         return nil
     }
@@ -77,15 +91,31 @@ public final class FeedHostView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        visibility.place(in: window)
         resolveColors()
     }
 
+    // R-hide: hiding forwards to the node.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
+    }
+
+    // R-appear: the colors feed the SwiftUI feed, so a hidden feed resolves them on show.
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        resolveColors()
+        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.resolveColors() }
     }
 
+    private static let appearanceKey = "FeedHostView.appearance"
+
     private func resolveColors() {
+        colorResolves += 1
         let colors = performWithTheme {
             let background: NSColor = switch surface {
             case .panel: Palette.contentBackground

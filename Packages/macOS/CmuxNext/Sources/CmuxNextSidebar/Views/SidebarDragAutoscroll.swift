@@ -9,7 +9,8 @@ import CmuxNextWakeups
 final class SidebarDragAutoscroll {
     unowned let list: SidebarListView
     /// Frames from the window's FrameScheduler, active only in an edge zone.
-    lazy var client = FrameClient(owner: "Sidebar.autoscroll", view: list) { [weak self] tick in
+    // input-driven: active only while a drag's pointer sits in an edge zone (`update(windowPoint:)`); motion rate.
+    lazy var client = FrameClient(owner: "Sidebar.autoscroll", rate: .motion, view: list) { [weak self] tick in
         self?.tick(tick) ?? false
     }
 

@@ -38,19 +38,25 @@
       "args": {
         "method": "tab_group.remove_tabs",
         "params": {
-          "tabs": []
+          "tabs": [
+            "tab_00000000000000000000000000000000"
+          ]
         },
         "idempotencyKey": "tab-group-remove-tabs-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found",
+        "errorDetails": {
+          "scope": "tab",
+          "selector": "tab_00000000000000000000000000000000"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "tabs breaks its catalog type (value has too few items); the daemon's catalog check refuses it"
+      "note": "a well-formed tab id that names no tab (tabs.rs resolve_tabs): no tab leaves its group"
     }
   ],
   "invariants": [

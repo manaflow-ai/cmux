@@ -27,6 +27,7 @@ extension PaneHostView {
         announceRest()
         frame = move.to
         alphaValue = move.toAlpha
+        // sync-layout: the content lays out once, at rest, before the overlay plane's sync places the chrome from it.
         if laysOut { layoutSubtreeIfNeeded() }
     }
 

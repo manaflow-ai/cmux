@@ -5,15 +5,15 @@ public import CmuxNextDesign
 public import CmuxNextWakeups
 
 /// The Chromium host app prototype as `debug.chromium_host` drives it
-/// (Debug and bench builds, `browserHost.helper` on): one
+/// (Debug and bench builds, the feature `cefHelperHost` on): one
 /// ``ChromiumHostSession`` shown over a pane's content view.
 /// plans/cmux-next/cef-helper-app-DESIGN.md.
 ///
-/// The host lives no longer than its pane and the tunable: the session
+/// The host lives no longer than its pane and its switch: the session
 /// closes (`quit`, then SIGKILL at the quit limit) when the page view leaves
-/// its window (the pane closed or moved out of every window) and when
-/// `browserHost.helper` goes off. A later `open` starts a new host. With an
-/// idle deadline (`chromiumHostIdleExit`), `detach` makes the page hidden
+/// its window (the pane closed or moved out of every window) and when the
+/// switch goes off (its Debug Settings override `browserHost.helper` turned
+/// off). A later `open` starts a new host. With an idle deadline (`chromiumHostIdleExit`), `detach` makes the page hidden
 /// instead: out of every window but still owned, its host quits at the
 /// deadline, and the next `open` starts a new one. (A parked workspace stays
 /// in its window, so its page stays live.) The stand-in of a restarted host is
@@ -37,33 +37,43 @@ public final class ChromiumHostPrototype {
     /// The session has an idle deadline: a detached page waits for it instead of closing.
     private var sessionHasIdleExit = false
 
-    /// The Debug Settings `browserHost.helper` is read from (off by default: every Chromium
-    /// tab runs in process; only `debug.chromium_host` uses the host, and only with it on).
-    private let tunables: TunableStore
+    /// Whether the host is on: `cefHelperHost` with its Debug Settings override, read with
+    /// Observation tracking (off by default: every Chromium tab runs in process; only
+    /// `debug.chromium_host` uses the host, and only with it on).
+    private let isOn: @MainActor () -> Bool
     private let mainWork: MainWorkScheduler
-    /// Follows `browserHost.helper` once a host started (``watchTunable()``).
-    private var tunableWatch: FrameObservation<Bool>?
+    /// Follows ``isOn`` once a host started (``watchSwitch()``).
+    private var switchWatch: FrameObservation<Bool>?
 
     /// - Parameters:
     ///   - makeConfiguration: the host app of this build, or nil when it has none.
-    ///   - tunables: Debug Settings: the app's store, passed by the composition root (tests pass one of their own).
-    ///   - mainWork: The app's one main-thread scheduler: a tunable change closes the host on it.
+    ///   - isOn: The host's switch, from the composition root (`ChromiumHostSwitch`; tests pass their own).
+    ///   - mainWork: The app's one main-thread scheduler: the switch going off closes the host on it.
     ///   - deadlines: The app's deadline scheduler: the idle deadline waits on it.
     ///   - idleExitAfter: How long a host runs with its page in no window before it quits
     ///     (`chromiumHostIdleExit`, resolved by the composition root); nil keeps it running.
-    public convenience init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore,
-                            mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler, idleExitAfter: Duration? = nil) {
+    ///   - inputPresented: Takes the host's presentation report of each input (the app's input latency tracker,
+    ///     task p04-input-066).
+    ///   - reportsInputPresented: Takes whether the current host sends those reports (the tracker's
+    ///     `pagesReportPresentation`).
+    public convenience init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, isOn: @escaping @MainActor () -> Bool,
+                            mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler, idleExitAfter: Duration? = nil,
+                            inputPresented: @escaping ChromiumHostSession.InputPresented = { _, _ in },
+                            reportsInputPresented: @escaping ChromiumHostSession.ReportsInputPresented = { _ in }) {
         // No picture source: the stand-in is the page background (see the type's comment).
-        self.init(makeConfiguration: makeConfiguration, tunables: tunables, mainWork: mainWork, deadlines: deadlines,
-                  idleExitAfter: idleExitAfter) { ChromiumHostSession(configuration: $0, idleExit: $1) }
+        self.init(makeConfiguration: makeConfiguration, isOn: isOn, mainWork: mainWork, deadlines: deadlines,
+                  idleExitAfter: idleExitAfter) {
+            ChromiumHostSession(configuration: $0, idleExit: $1, inputPresented: inputPresented,
+                                reportsInputPresented: reportsInputPresented)
+        }
     }
 
-    init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore, mainWork: MainWorkScheduler,
+    init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, isOn: @escaping @MainActor () -> Bool, mainWork: MainWorkScheduler,
          deadlines: MainDeadlineScheduler, idleExitAfter: Duration? = nil,
          makeSession: @escaping @MainActor (ChromiumHostConfiguration, ChromiumHostIdleExit?) -> ChromiumHostSession) {
         self.makeConfiguration = makeConfiguration
         self.makeSession = makeSession
-        self.tunables = tunables
+        self.isOn = isOn
         self.mainWork = mainWork
         self.deadlines = deadlines
         self.idleExitAfter = idleExitAfter
@@ -118,7 +128,7 @@ public final class ChromiumHostPrototype {
     /// first responder of `window` when `focus`. A page whose host quit at its idle
     /// deadline starts a new one.
     public func open(_ url: String, over container: NSView, focus: Bool, idleExit: Duration? = nil) -> [String: Any] {
-        guard BrowserHostTunables.helper.value(in: tunables) else { return ["error": "browserHost.helper is off"] }
+        guard isOn() else { return ["error": "cefHelperHost is off"] }
         guard !url.isEmpty else { return ["error": "pass url"] }
         guard container.window != nil else { return ["error": "the pane is not in a window"] }
         let session: ChromiumHostSession
@@ -138,7 +148,7 @@ public final class ChromiumHostPrototype {
                 session?.close()
             }
             self.session = session
-            watchTunable()
+            watchSwitch()
         }
         if session.view.superview !== container {
             session.view.frame = container.bounds
@@ -167,16 +177,14 @@ public final class ChromiumHostPrototype {
         return report
     }
 
-    /// Closes the host when the tunable goes off. Started with the first session, for the
+    /// Closes the host when the switch goes off. Started with the first session, for the
     /// prototype's life: `debug.chromium_host` drives it, so it is automation work and needs no frame.
-    private func watchTunable() {
-        guard tunableWatch == nil else { return }
-        let watch = FrameObservation(owner: "browser.chromiumHost.tunable", delivery: .automation, on: mainWork) { [tunables] in
-            BrowserHostTunables.helper.value(in: tunables)
-        } onChange: { [weak self] on in
+    private func watchSwitch() {
+        guard switchWatch == nil else { return }
+        let watch = FrameObservation(owner: "browser.chromiumHost.switch", delivery: .automation, on: mainWork, track: isOn) { [weak self] on in
             if !on { _ = self?.close() }
         }
-        tunableWatch = watch
+        switchWatch = watch
         if !watch.value { _ = close() }
     }
 
@@ -187,7 +195,7 @@ public final class ChromiumHostPrototype {
 
     public var report: [String: Any] {
         var fields = session?.report ?? ["phase": "none"]
-        fields["tunable"] = BrowserHostTunables.helper.value(in: tunables)
+        fields["enabled"] = isOn()
         fields["app_pid"] = Int(ProcessInfo.processInfo.processIdentifier)
         return fields
     }

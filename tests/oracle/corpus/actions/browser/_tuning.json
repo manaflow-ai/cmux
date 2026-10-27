@@ -20,7 +20,7 @@
       },
       "depends_on": [
         "p15-oracle-222",
-        "p15-oracle-245"
+        "p15-oracle-225"
       ],
       "before": {
         "chromium": [
@@ -158,7 +158,7 @@
       "invariants": [
         "the page shows no certificate warning, so the action refuses with the reason"
       ],
-      "gap_success": "the success case needs a certificate warning page: p15-oracle-246 serves a loopback https page with an untrusted certificate"
+      "gap_success": "the success case needs a certificate warning page: p15-oracle-360 serves a loopback https page with an untrusted certificate"
     },
     "browser.certificateWarning.proceed": {
       "context": "page",
@@ -241,7 +241,7 @@
         }
       },
       "note": "no extension named oracle is installed: the typed refusal (unknownExtension) is the answer",
-      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-247 installs the oracle test extension into the hermetic Chromium profile before launch"
+      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-361 installs the oracle test extension into the hermetic Chromium profile before launch"
     },
     "browser.extension.disable": {
       "context": "page",
@@ -262,7 +262,7 @@
         }
       },
       "note": "no extension named oracle is installed: the typed refusal (unknownExtension) is the answer",
-      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-247 installs the oracle test extension into the hermetic Chromium profile before launch"
+      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-361 installs the oracle test extension into the hermetic Chromium profile before launch"
     },
     "browser.extension.enable": {
       "context": "page",
@@ -283,7 +283,7 @@
         }
       },
       "note": "no extension named oracle is installed: the typed refusal (unknownExtension) is the answer",
-      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-247 installs the oracle test extension into the hermetic Chromium profile before launch"
+      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-361 installs the oracle test extension into the hermetic Chromium profile before launch"
     },
     "browser.extension.move": {
       "context": "page",
@@ -305,7 +305,7 @@
         }
       },
       "note": "no extension named oracle is installed: the typed refusal (unknownExtension) is the answer",
-      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-247 installs the oracle test extension into the hermetic Chromium profile before launch"
+      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-361 installs the oracle test extension into the hermetic Chromium profile before launch"
     },
     "browser.extension.options": {
       "context": "page",
@@ -326,7 +326,7 @@
         }
       },
       "note": "no extension named oracle is installed: the typed refusal (unknownExtension) is the answer",
-      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-247 installs the oracle test extension into the hermetic Chromium profile before launch"
+      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-361 installs the oracle test extension into the hermetic Chromium profile before launch"
     },
     "browser.extension.pin": {
       "context": "page",
@@ -347,7 +347,7 @@
         }
       },
       "note": "no extension named oracle is installed: the typed refusal (unknownExtension) is the answer",
-      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-247 installs the oracle test extension into the hermetic Chromium profile before launch"
+      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-361 installs the oracle test extension into the hermetic Chromium profile before launch"
     },
     "browser.extension.reload": {
       "context": "page",
@@ -368,7 +368,7 @@
         }
       },
       "note": "no extension named oracle is installed: the typed refusal (unknownExtension) is the answer",
-      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-247 installs the oracle test extension into the hermetic Chromium profile before launch"
+      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-361 installs the oracle test extension into the hermetic Chromium profile before launch"
     },
     "browser.extension.remove": {
       "context": "page",
@@ -390,7 +390,7 @@
         }
       },
       "note": "no extension named oracle is installed: the typed refusal (unknownExtension) is the answer; destructive, so confirm reaches the handler",
-      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-247 installs the oracle test extension into the hermetic Chromium profile before launch"
+      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-361 installs the oracle test extension into the hermetic Chromium profile before launch"
     },
     "browser.extension.run": {
       "context": "page",
@@ -411,7 +411,7 @@
         }
       },
       "note": "no extension named oracle is installed: the typed refusal (unknownExtension) is the answer",
-      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-247 installs the oracle test extension into the hermetic Chromium profile before launch"
+      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-361 installs the oracle test extension into the hermetic Chromium profile before launch"
     },
     "browser.extension.unpin": {
       "context": "page",
@@ -432,7 +432,7 @@
         }
       },
       "note": "no extension named oracle is installed: the typed refusal (unknownExtension) is the answer",
-      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-247 installs the oracle test extension into the hermetic Chromium profile before launch"
+      "gap_success": "the success case needs an installed extension; loadUnpacked is person-only, so p15-oracle-361 installs the oracle test extension into the hermetic Chromium profile before launch"
     },
     "browser.extensions.loadUnpacked": {
       "context": "page",
@@ -951,7 +951,7 @@
       "invariants": [
         "the loopback page is http, so it has no certificate chain: PageInfoController.showCertificate opens the viewer with the empty chain the provider gives, and no tab or pane changes"
       ],
-      "gap_success": "the certificate viewer of a real chain needs an https page: p15-oracle-246 serves one"
+      "gap_success": "the certificate viewer of a real chain needs an https page: p15-oracle-360 serves one"
     },
     "browser.pageInfo.connection": {
       "context": "page",
@@ -1009,7 +1009,7 @@
       "invariants": [
         "no warning was proceeded past, so the warnings are already on (certificateWarningsAlreadyOn)"
       ],
-      "gap_success": "the success case needs a certificate warning proceeded past: p15-oracle-246 serves the warning page"
+      "gap_success": "the success case needs a certificate warning proceeded past: p15-oracle-360 serves the warning page"
     },
     "browser.pageInfo.resetPermissions": {
       "context": "page",

@@ -203,11 +203,12 @@ import Testing
 
     /// A tab dragged in from a pane rests on collapsed `g2`'s header until the spring-load opens it.
     static func springOpen(_ list: SidebarListView) async throws {
-        list.springLoadDelay = .zero
+        let rig = MainDeadlineRig()
+        list.deadlines = rig.deadlines
         let header = try Self.point(list, .group(GroupID("g2")))
         let hit = list.externalDragMoved(windowPoint: list.convert(header, to: nil), sourceMachine: nil)
         try #require(hit?.0 == .intoGroup(GroupID("g2")), "no group drop on the collapsed header: \(String(describing: hit))")
-        await list.external?.springTask?.value
+        rig.fireAndRun()
         try #require(list.model.group(GroupID("g2"))?.isCollapsed == false, "the spring-load did not open g2")
     }
 

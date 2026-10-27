@@ -22,8 +22,9 @@ final class FileInfoWindow: NSObject, NSWindowDelegate {
         return formatter
     }()
 
-    /// Makes the window for `url`; `onClose` runs when it closes.
-    init(url: URL, icon: NSImage, reader: FileInfoReader = FileInfoReader(), onClose: @escaping () -> Void) {
+    /// Makes the window for `url`; `icons` gives its icon (now when kept, else from the system lane); `onClose`
+    /// runs when it closes.
+    init(url: URL, icons: FileIconProvider, reader: FileInfoReader = FileInfoReader(), onClose: @escaping () -> Void) {
         self.url = url
         self.reader = reader
         self.onClose = onClose
@@ -32,9 +33,11 @@ final class FileInfoWindow: NSObject, NSWindowDelegate {
         super.init()
         panel.title = FilesStrings.infoTitle(url.lastPathComponent)
         panel.isReleasedWhenClosed = false
+        panel.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
         panel.hidesOnDeactivate = false
         panel.delegate = self
-        let image = NSImageView(image: icon)
+        let image = NSImageView(image: NSImage(systemSymbolName: url.hasDirectoryPath ? "folder" : "doc", accessibilityDescription: nil) ?? NSImage())
+        icons.fileIcon(at: url) { [weak image] in image?.image = $0 }
         image.imageScaling = .scaleProportionallyUpOrDown
         image.widthAnchor.constraint(equalToConstant: 48).isActive = true
         image.heightAnchor.constraint(equalToConstant: 48).isActive = true

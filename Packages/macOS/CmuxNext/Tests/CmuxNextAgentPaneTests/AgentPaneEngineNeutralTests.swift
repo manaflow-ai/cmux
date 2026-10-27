@@ -4,13 +4,15 @@ import CmuxNextPagesTestSupport
 import CmuxNextWakeups
 import Foundation
 import Testing
+import WebKit
 @testable import CmuxNextAgentPane
 
 /// The agent pane reaches its page only through the page host's engine-neutral calls
 /// (p13-webui-074): it keeps no WebKit view of its own, and the WebKit-only tools (render rate,
 /// Web Inspector, the WebContent pid) see a WebKit engine only while WebKit shows the chat. A chat
-/// shown in Chromium has a hidden WebKit view that never loads; closing the pane must not load one
-/// there (the old close loaded an empty document into it, which starts a WebContent process).
+/// shown in Chromium has no WebKit view at all (p13-webui-041): not while Chromium starts, not once
+/// it shows, and not when the pane closes (the old close loaded an empty document into a hidden
+/// one, which starts a WebContent process).
 @Suite(.serialized)
 @MainActor
 struct AgentPaneEngineNeutralTests {
@@ -20,10 +22,15 @@ struct AgentPaneEngineNeutralTests {
 
     private func chat(_ hosting: FakeChromiumHosting?) throws -> AgentPaneView {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
                                               webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         return view
+    }
+
+    /// The WebKit views in `view`'s subtree.
+    private func webKitViews(in view: NSView) -> Int {
+        (view is WKWebView ? 1 : 0) + view.subviews.reduce(0) { $0 + webKitViews(in: $1) }
     }
 
     private func waitForChromium(_ view: AgentPaneView) async throws {
@@ -32,12 +39,16 @@ struct AgentPaneEngineNeutralTests {
         try #require(view.page.showsChromium, "the chat never showed in Chromium")
     }
 
-    @Test func closingAChromiumChatLoadsNothingIntoWebKit() async throws {
+    @Test func aChromiumChatHasNoWebKitView() async throws {
         let view = try chat(FakeChromiumHosting())
+        // Chromium does not show the chat yet, so webKitEngine reads the page's WebKit view itself.
+        #expect(!view.page.showsChromium)
+        #expect(view.page.webKitEngine == nil, "the agent pane built a WebKit view for a Chromium chat")
+        #expect(webKitViews(in: view) == 0)
         try await waitForChromium(view)
-        #expect(view.page.webKitView.url == nil, "a Chromium chat loaded its document into WebKit")
+        #expect(webKitViews(in: view) == 0, "a Chromium chat has a WebKit view after the attach")
         view.close()
-        #expect(view.page.webKitView.url == nil, "closing a Chromium chat loaded a document into its unused WebKit view")
+        #expect(webKitViews(in: view) == 0, "closing a Chromium chat built a WebKit view")
     }
 
     @Test func aChromiumChatOffersNoWebKitTools() async throws {
@@ -59,11 +70,12 @@ struct AgentPaneEngineNeutralTests {
     @Test func aWebKitChatOffersItsWebKitEngine() throws {
         let view = try chat(nil)
         defer { view.close() }
-        #expect(view.page.webKitEngine === view.page.webKitView)
+        let webKit = try #require(view.page.webKitEngine)
+        #expect(webKit.isDescendant(of: view))
         view.zoom = 1.5
         // One zoom for both engines: the WebKit view shows the page host's.
-        #expect(Double(view.page.webKitView.pageZoom) == view.page.pageZoom)
+        #expect(Double(webKit.pageZoom) == view.page.pageZoom)
         #expect(view.uiPointerPageZoom == view.page.pageZoom)
-        #expect(view.focusTarget === view.page.webKitView)
+        #expect(view.focusTarget === webKit)
     }
 }

@@ -1,21 +1,25 @@
 import CoreFoundation
 import Foundation
 
-/// C entry for `OnScheduleMessagePumpWork`. `ctx` is the unretained
-/// `CEFRuntime`, which lives for the rest of the process once started.
+/// C entry for `OnScheduleMessagePumpWork`. `ctx` is the `CEFRuntime`'s
+/// ``CallbackRegistry`` token (``CEFRuntime/from(_:)``).
 let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMilliseconds in
+    // SAFETY: only the context's address is read; CEFRuntime.from and pumpGate(at:) turn it back.
+    let address = unsafe UInt(bitPattern: context)
     CEFPumpRequestDelivery.deliver(
-        context, admit: { gate, now in gate.admit(delayMilliseconds: delayMilliseconds, nowNanos: now) }
+        address, admit: { gate, now in gate.admit(delayMilliseconds: delayMilliseconds, nowNanos: now) }
     ) { pump, fromChromiumThread in
         pump.request(milliseconds: delayMilliseconds, fromChromiumThread: fromChromiumThread)
     }
 }
 
 /// C entry for the fork's delayed work as absolute run times (`cmux_shim_schedule_delayed_fn`,
-/// p14-energy-046). `ctx` is the unretained `CEFRuntime`, as for ``cefScheduleCallback``.
+/// p14-energy-046). `ctx` is the runtime's token, as for ``cefScheduleCallback``.
 let cefScheduleDelayedCallback: CEFShimLibrary.ScheduleDelayedFn = { context, runTimeNanos, leewayNanos, precise in
     let runTime = CEFPumpSchedule.runTimeNanos(runTimeNanos)
-    CEFPumpRequestDelivery.deliver(context, admit: { gate, now in gate.admit(runTimeNanos: runTime, nowNanos: now) }) { pump, fromChromiumThread in
+    // SAFETY: as for cefScheduleCallback.
+    let address = unsafe UInt(bitPattern: context)
+    CEFPumpRequestDelivery.deliver(address, admit: { gate, now in gate.admit(runTimeNanos: runTime, nowNanos: now) }) { pump, fromChromiumThread in
         pump.request(runTimeNanos: runTimeNanos, leewayNanos: leewayNanos, precise: precise != 0,
                      fromChromiumThread: fromChromiumThread)
     }
@@ -26,12 +30,11 @@ let cefScheduleDelayedCallback: CEFShimLibrary.ScheduleDelayedFn = { context, ru
 /// block on the main run loop. The seam between CEF's C callbacks and the main-actor pump.
 nonisolated struct CEFPumpRequestDelivery {
     static func deliver(
-        _ context: UnsafeMutableRawPointer?,
+        _ address: UInt,
         admit: (CEFPumpCrossThreadGate, UInt64) -> Bool,
         _ request: @escaping @MainActor @Sendable (CEFMessagePump, _ fromChromiumThread: Bool) -> Void
     ) {
-        guard let context else { return }
-        let address = UInt(bitPattern: context)
+        guard address != 0 else { return }
         let fromChromiumThread = !Thread.isMainThread
         if fromChromiumThread,
            let gate = CEFRuntime.pumpGate(at: address),

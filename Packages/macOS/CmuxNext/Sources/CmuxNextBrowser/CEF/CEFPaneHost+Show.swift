@@ -27,6 +27,12 @@ extension CEFPaneHost {
             hosting.pageShown(browser: browser, tabSwitch: tab.takeTabSwitchShow())
             hostView.postGeometryChange()
         }
+        showPageCursor(of: browser)
+        showPageAccessibility(of: browser)
+        suggestionsFollowShownBrowser(browser)
+        // Host mode: a display the page view read while no tab was shown (it entered another
+        // window before this tab was shown in it) is placed now (task 221).
+        hostedPageView?.placeIfNeeded()
         // A window-wide side panel stays open across tabs: no event.
         tab.sidePanel.scheduleRefresh()
     }

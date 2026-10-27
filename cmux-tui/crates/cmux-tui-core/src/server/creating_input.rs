@@ -16,9 +16,8 @@ impl Command {
     /// The caller-minted host terminal id of a pane or tab creation, normalized to lowercase hex.
     pub(super) fn created_terminal_id(&self) -> Option<String> {
         let id = match self {
-            Self::NewTab { terminal_id, .. } | Self::NewPane { terminal_id, .. } => {
-                terminal_id.as_deref()
-            }
+            Self::NewTab(params) => params.terminal_id.as_deref(),
+            Self::NewPane { terminal_id, .. } => terminal_id.as_deref(),
             Self::Split(params) => params.terminal_id(),
             Self::NewPaneRight(params) => params.terminal_id(),
             _ => None,
