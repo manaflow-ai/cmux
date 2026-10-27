@@ -190,7 +190,7 @@ fn read_sources(notes: &mut Vec<String>) -> Sources {
         },
         _ => Value::Null,
     };
-    Sources { peers, pairing, remote }
+    Sources { peers, pairing, remote, ssh_hosts: crate::machine_runtime::ssh_config_targets() }
 }
 
 fn choice(flags: &Flags) -> anyhow::Result<Choice> {
@@ -274,7 +274,7 @@ fn print_listing(listing: &Listing, notes: &[String]) {
         }
     }
     if !listing.available.is_empty() {
-        println!("\nOn your network, not added:");
+        println!("\nNot added yet (your network and ~/.ssh/config):");
         for a in &listing.available {
             println!("  {:<28} {:<10} cmux device add {} --yes", a.name, a.os, a.address);
         }
