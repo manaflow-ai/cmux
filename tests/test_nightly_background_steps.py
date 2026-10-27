@@ -124,6 +124,14 @@ class BackgroundStepTests(unittest.TestCase):
                     self.assertIn(f"Contents/Resources/bin/{name}", finished.stdout)
                 target.unlink()
 
+    def test_a_resumed_unsigned_app_is_proven_too(self):
+        # A resume (nightly_next_unsigned_run) restores a saved unsigned app,
+        # client included, in prepare; the proof scans it like a fresh build.
+        for job in PREPARE_JOBS:
+            for name in (PROOF_START, PROOF_FINISH):
+                with self.subTest(job=job, step=name):
+                    self.assertNotIn("nightly_next_unsigned_run", step(job, name)["if"])
+
     def test_a_finish_without_a_start_fails(self):
         for job in PREPARE_JOBS:
             with self.subTest(job=job):
