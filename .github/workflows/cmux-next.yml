@@ -24,8 +24,8 @@ name: cmux-next
 # deep); a MEMBER or OWNER dev-build PR keeps its scheme compile, and the
 # native tier compiles the PR's head on the build fleet instead
 # (app-compile-fleet; the Mac Release compile only when it gives no verdict, and only for a PR
-# that changes what the Linux Release check cannot see: path_route's mac_release, from
-# cmux_next_route.MAC_RELEASE_INPUTS, or a Swift file added or removed outside Packages/). A fork pull
+# that changes an input only that xcodebuild sees: path_route's mac_release,
+# cmux_next_route.MAC_RELEASE_INPUTS). A fork pull
 # request runs the fast tier and,
 # for a CmuxNext .swift change, the Release compile, and the other Mac tiers
 # only with the full-ci label, on its hosted fallback. full-ci also makes the router
@@ -666,9 +666,8 @@ jobs:
       native: ${{ steps.route.outputs.native }}
       swift_canary: ${{ steps.route.outputs.swift_canary }}
       cmuxnext_swift: ${{ steps.route.outputs.cmuxnext_swift }}
-      # A same-repository pull request runs the Mac Release compile only when this is true: it
-      # changes an input the Linux Release check cannot see (cmux_next_route.MAC_RELEASE_INPUTS)
-      # or adds or removes a Swift file outside Packages/.
+      # A same-repository pull request runs the Mac Release compile only when this is true: it changes
+      # an input only that xcodebuild sees (cmux_next_route.MAC_RELEASE_INPUTS).
       mac_release: ${{ steps.route.outputs.mac_release }}
       swift_canary_targets: ${{ steps.route.outputs.swift_canary_targets }}
       macos: ${{ steps.route.outputs.macos }}
@@ -710,11 +709,9 @@ jobs:
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed-files.txt"
-          added_removed="$RUNNER_TEMP/added-removed-files.txt"
           labels=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             git diff --no-renames --name-only HEAD^1 HEAD > "$changed"
-            git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$added_removed"
             if [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]; then
               labels="$EVENT_LABELS"
             else
@@ -725,7 +722,6 @@ jobs:
             fi
           else
             : > "$changed"
-            : > "$added_removed"
           fi
           echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
           if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
@@ -817,7 +813,6 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           else
             python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
-              --added-removed "$added_removed" \
               --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
           fi
           # Whether this pull request changes the cmux-tui it would test against:

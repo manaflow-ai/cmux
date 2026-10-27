@@ -137,19 +137,21 @@ GENERATED_INPUTS = (
     "scripts/cmux-next/settings-exports.txt",
 )
 
-# What the Linux Release check (cmux-next-swift-check --app --release, -Onone) cannot see: the
-# Xcode project and its build phases, asset catalogs, Info.plists, xcconfigs, entitlements, the
-# package manifests and the Xcode pin. A same-repository pull request runs the Mac Release
-# compile only when it changes one of these, or adds or removes a Swift file outside Packages/
-# (Xcode target membership: the project's synchronized folders take a new file with no pbxproj
-# change; a SwiftPM target takes its directory, which the Linux check builds); -O codegen, tests and the final app link of every other change are caught after
-# the merge by the base branch's own Mac Release compile.
+# The PR's Mac Release compile (check-release-compile.sh) builds the CmuxNext package, scheme
+# CmuxNextApp, with xcodebuild: not the Xcode app target (App/, Resources/, cmux.xcodeproj and its
+# build phases are the scheme compile's). The Linux Release check (cmux-next-swift-check --app
+# --release) builds the same package sources with SwiftPM and compiles its string catalogs. What
+# only xcodebuild sees: how it resolves the package graph (every local package's Package.swift and
+# Package.resolved), actool on package asset catalogs, package plists, xcconfigs and entitlements,
+# and the Xcode pin and the compile scripts. A same-repository pull request runs the Mac Release
+# compile only when it changes one of these. Apple's Swift 6.2 (Xcode 26.6) against the Linux
+# swift.org 6.3.3, -O codegen and tests are caught after the merge by the base push's Mac Release
+# compile.
 MAC_RELEASE_INPUTS = (
-    "*.xcodeproj/*", "*.xcworkspace/*", "*.xcassets/*", "*.icon/*", "*.plist", "*.xcconfig",
-    "*.entitlements", "Package.swift", "*/Package.swift", "Package.resolved", "*/Package.resolved",
-    "scripts/cmux-next/bundle-*.sh", "scripts/cmux-next/embed-cef.sh", "scripts/cmux-next/fetch-ublock.sh",
-    "scripts/build-diff-sidecar.sh", "scripts/sign-cmux-bundle-helpers.sh",
+    "Packages/*/Package.swift", "Packages/*/Package.resolved", "Packages/*.xcassets/*",
+    "Packages/*.plist", "Packages/*.xcconfig", "Packages/*.entitlements",
     "scripts/cmux-next/check-release-compile.sh", "scripts/cmux-next/release-derived-data-path.sh",
+    "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/swiftpm-binary-module-guard.sh",
     "scripts/select-ci-xcode.sh", "scripts/ci/xcode-pins.txt", ".xcode-version",
 )
 
@@ -244,8 +246,8 @@ class Route:
     swift_canary: bool = False
     # Any .swift file under the CmuxNext package (Sources or Tests): the PR runs the Release compile.
     cmuxnext_swift: bool = False
-    # A Mac-only build input changed (MAC_RELEASE_INPUTS) or a Swift file was added or removed:
-    # a same-repository pull request runs the Mac Release compile. Every tier sets it.
+    # An input only the Mac Release compile sees changed (MAC_RELEASE_INPUTS): a same-repository
+    # pull request runs it. Every tier sets it.
     mac_release: bool = False
     webview: bool = False
     scheme: bool = False
@@ -335,16 +337,13 @@ def priority_suites(root: Path, graph: dict, changed: list[str]) -> set[str]:
     return names
 
 
-def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
-          added_removed: list[str] | None = None) -> Route:
+def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -> Route:
     result = Route()
-    mac_inputs = sorted({path for path in changed or [] if mac_release_input(path)}
-                        | {path for path in added_removed or [] if path.endswith(".swift") and not path.startswith("Packages/")})
+    mac_inputs = [path for path in changed or [] if mac_release_input(path)]
     if mac_inputs:
         result.mac_release = True
-        more = f" and {len(mac_inputs) - 5} more" if len(mac_inputs) > 5 else ""
-        result.reasons.append(f"Xcode-only input or a Swift file added or removed ({', '.join(mac_inputs[:5])}{more}): "
-                              "the Mac Release compile runs")
+        more = f" and {len(mac_inputs) - 3} more" if len(mac_inputs) > 3 else ""
+        result.reasons.append(f"{', '.join(mac_inputs[:3])}{more} only the Mac Release compile sees: it runs")
     # Release-only optimizer crashes (cx-ebm.59.5) are invisible to the Debug tiers, so a PR that
     # changes any CmuxNext package Swift file runs the Release compile, whatever else it changes.
     result.cmuxnext_swift = any(path.startswith(PACKAGE) and path.endswith(".swift") for path in changed or [])
@@ -533,8 +532,6 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--event", required=True)
     parser.add_argument("--changed-files", type=Path)
-    parser.add_argument("--added-removed", type=Path,
-                        help="paths the pull request adds or removes (git diff --diff-filter=AD)")
     parser.add_argument("--labels", default="")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--summary", type=Path)
@@ -543,11 +540,8 @@ def main(argv: list[str]) -> int:
     changed = None
     if args.changed_files:
         changed = [line for line in args.changed_files.read_text(encoding="utf-8").splitlines() if line]
-    added_removed = None
-    if args.added_removed:
-        added_removed = [line for line in args.added_removed.read_text(encoding="utf-8").splitlines() if line]
     labels = {label for label in args.labels.split(",") if label}
-    result = route(args.root, args.event, changed, labels, added_removed)
+    result = route(args.root, args.event, changed, labels)
     values = outputs(result)
     lines = [f"{key}={value}" for key, value in values.items()]
     print("\n".join(lines))

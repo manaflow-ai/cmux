@@ -221,26 +221,23 @@ class GraphGenerator(unittest.TestCase):
 
 
 class MacReleaseInputs(unittest.TestCase):
-    """mac_release: what the Linux Release check (-Onone, no Xcode project) cannot see."""
+    """mac_release: what the Mac Release compile (the package through xcodebuild) sees and the Linux SwiftPM check does not."""
 
-    def test_package_swift_edits_and_additions_stay_on_linux(self):
-        source = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"
-        self.assertEqual(outputs(route(ROOT, "pull_request", [source], set()))["mac_release"], "false")
-        self.assertEqual(outputs(route(ROOT, "pull_request", [source], set(), [source]))["mac_release"], "false")
-
-    def test_xcode_only_inputs_and_app_target_membership_need_the_mac(self):
-        for changed, added in (
-            (["cmux.xcodeproj/project.pbxproj"], []),
-            (["App/Info.plist"], []),
-            (["App/cmux.entitlements"], []),
-            (["App/Assets.xcassets/Contents.json"], []),
-            (["Config/Release.xcconfig"], []),
-            ([f"{PACKAGE}/Package.resolved"], []),
-            (["scripts/cmux-next/embed-cef.sh"], []),
-            (["App/Gone.swift"], ["App/Gone.swift"]),
-        ):
+    def test_package_sources_stay_on_linux(self):
+        for changed in ([f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"],
+                        [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Localizable.xcstrings"],
+                        # The Xcode app target is not in this compile (the scheme compile builds it).
+                        ["App/main.swift"], ["cmux.xcodeproj/project.pbxproj"]):
             with self.subTest(changed=changed):
-                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set(), added))["mac_release"], "true")
+                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "false")
+
+    def test_inputs_only_xcodebuild_sees_need_the_mac(self):
+        for changed in ([f"{PACKAGE}/Package.swift"], [f"{PACKAGE}/Package.resolved"],
+                        ["Packages/Shared/CmuxTheme/Package.swift"], [f"{PACKAGE}/Sources/CmuxNextApp/Info.plist"],
+                        [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Media.xcassets/Contents.json"],
+                        ["scripts/ci/xcode-pins.txt"], ["scripts/cmux-next/check-release-compile.sh"]):
+            with self.subTest(changed=changed):
+                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "true")
 
     def test_every_tier_includes_it(self):
         self.assertEqual(outputs(route(ROOT, "push", [], set()))["mac_release"], "true")
