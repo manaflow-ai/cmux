@@ -25,7 +25,11 @@ final class SystemPermissionOpener: PermissionSettingsOpening {
             guard let target else { return }
             // task-owner: one macOS prompt, off the main actor (the call blocks until the person answers).
             Task { _ = await SystemPermissionProbe.automation(of: target, ask: true) }
-        case .fullDiskAccess, .accessibility, .screenRecording, .computerUse:
+        case .accessibility, .computerUse:
+            setup.open(.accessibility)
+        case .screenRecording:
+            setup.open(.screenRecording)
+        case .fullDiskAccess:
             guard let url = kind.settingsURL else { return }
             NSWorkspace.shared.openInBackground(url)
         }
