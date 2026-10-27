@@ -81,20 +81,17 @@ extension CEFTab: BrowserProcessReporting {
     @discardableResult
     private func showProcessExit(_ exit: BrowserProcessExit) -> Bool {
         guard !isClosed else { return false }
-        // A new renderer need not keep the old one's media emulation, so forget
-        // what the dead one was told: whichever way the page comes back (Reload
-        // here, or a hidden tab reloading when shown), the restarted renderer's
-        // `.loadStart` sends the color scheme again rather than trusting a memo
-        // no live page ever heard.
+        // A new renderer need not keep the old one's media emulation, so forget what the dead one was told:
+        // whichever way the page comes back (Reload here, or a hidden tab reloading when shown), the restarted
+        // renderer's `.loadStart` sends the color scheme again rather than trusting a memo no live page heard.
         sentColorScheme = nil
         machine.apply(.processExited(exit))
         noteAudible()
-        // After the sad tab, not before it: no first paint or load end is
-        // coming for the document that was loading, so the page area stops
-        // standing in for it (`CEFTab+LoadingBackground`) -- but settling
-        // repaints the base white, and doing that before the view that reads
-        // `state.processExit` is laid out shows a white page area for a frame
-        // in a dark theme.
+        // The sad tab in this turn (a host's end cleared the page's context in it), not at the chrome's next render.
+        crashPagePresenter?.showCrashPage(of: self)
+        // After the sad tab, not before it: no first paint or load end is coming for the document that was
+        // loading, so the page area stops standing in for it (`CEFTab+LoadingBackground`) -- but settling
+        // repaints the base white, which would show for a frame in a dark theme before the sad tab.
         documentDidSettle()
         firstContentFrame.contentShown() // the sad tab is what a new tab shows
         reloadWhenShown = host.visibleTab !== self

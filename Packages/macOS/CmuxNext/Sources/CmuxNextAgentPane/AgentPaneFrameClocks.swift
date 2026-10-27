@@ -19,13 +19,20 @@ import CmuxNextWakeups
     func deactivate() { client?.deactivate() }
 }
 
-/// The pacer's fallback on a ``DemandTimer``.
-@MainActor final class AgentPaneDemandDeadline: AgentPaneFallbackDeadline {
-    private let timer = DemandTimer(owner: "agent-pane.transport.fallback")
+/// The pacer's fallback on a ``MainDeadline`` of the app's deadline scheduler: `visible`, as the frames it
+/// delivers are what a shown chat draws, and precise, as its waits are a frame's (20 ms, a frame interval).
+/// A longer wait (a hidden pane's 250 ms) is flexible (``TimerAlignment/precise``: 36 ms and up), as
+/// Chromium's `kPrecise` delayed tasks are (base/task/delay_policy.h).
+@MainActor final class AgentPaneMainDeadline: AgentPaneFallbackDeadline {
+    private let deadline: MainDeadline
 
-    func schedule(after delay: Duration, _ action: @escaping @MainActor @Sendable () -> Void) {
-        timer.scheduleOnMain(after: delay, action)
+    init(deadlines: MainDeadlineScheduler) {
+        deadline = MainDeadline(owner: "agent-pane.transport.fallback", workClass: .visible, alignment: .precise, scheduler: deadlines)
     }
 
-    func cancel() { timer.cancel() }
+    func schedule(after delay: Duration, _ action: @escaping @MainActor @Sendable () -> Void) {
+        deadline.schedule(after: delay, action)
+    }
+
+    func cancel() { deadline.cancel() }
 }

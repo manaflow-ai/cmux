@@ -236,13 +236,19 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   `presented_userdata`. CmuxNextTerminal reads, hides and purges frames through the first two
 ///   (`GhosttyFrameSource`), reads no layer contents, and takes each presented frame as its contents mark
 ///   (`ghosttySurfacePresented`, p03-rendering-081).
+/// - GHOSTTY_PRESENT_NEVER_WAITS: `ghostty_surface_present_host_frame` never waits and orders its frame
+///   against the renderer's by one sequence, and `ghostty_surface_render_counters_s` ends with
+///   `host_superseded_presents` (ghostty-next cp/p03-rendering-084, not in 723c4ab93):
+///   `TerminalHostFramePresenter` calls it ahead of each commit with a resized terminal.
 let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasEnergySaver = false
 let ghosttyNextKitHasRendererFrames = false
+let ghosttyNextKitHasPresentNeverWaits = false
 let ghosttyNextKitCapabilities: [SwiftSetting] =
     (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
     + (ghosttyNextKitHasEnergySaver ? [.define("GHOSTTY_ENERGY_SAVER")] : [])
     + (ghosttyNextKitHasRendererFrames ? [.define("GHOSTTY_RENDERER_FRAMES")] : [])
+    + (ghosttyNextKitHasPresentNeverWaits ? [.define("GHOSTTY_PRESENT_NEVER_WAITS")] : [])
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
@@ -444,7 +450,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // popover (Show Chief Pet, Pet Character) and the notice it makes from a daemon notification.
         .target(
             name: "CmuxNextChiefPetWiring",
-            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextFloating", "CmuxNextSettings"],
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextFloating", "CmuxNextSettings",
+                           "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -1146,6 +1153,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHome",
                 "CmuxNextPages",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             resources: [
                 .process("Resources"),
@@ -1154,7 +1162,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextChiefViewsTests",
-            dependencies: ["CmuxNextAgentActivity", "CmuxNextChiefViews", "CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings"],
+            dependencies: ["CmuxNextAgentActivity", "CmuxNextChiefViews", "CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings",
+                           "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The acpmux watch feed (turn states and lanes), the sidebar's top items (Lanes, cx-v9k2f), its Chief item
@@ -1770,7 +1779,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextInputTests",
             dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextInputDiagnostics",
-                           "CmuxNextControl", "CmuxNextSettings", "CmuxNextSignposts", "CmuxNextWakeups",
+                           "CmuxNextControl", "CmuxNextSettings", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups",
                            "CmuxNextWakeupsTestSupport", .product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: uiSwiftSettings
         ),
@@ -1793,6 +1802,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSignposts",
                 // OnceContinuation (p10-stability-089).
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+                // LoopHost, the loop seam LoopVisibility conforms to and the Shared views take (p14-energy-056).
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -1801,6 +1812,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextDesignTests",
             dependencies: [
+                // LoopHost (LoopVisibilityTests).
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
@@ -1894,6 +1907,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTrace",
                 "CmuxNextMetrics",
                 "CmuxNextSignposts",
+                // The bounded Kitty image budget the runtime starts with (SubsystemBudget, p07-memory-083).
+                "CmuxNextMemory",
                 // OnceContinuation (p10-stability-089).
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
@@ -1997,7 +2012,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // RemoteLayer: RenderMotionSpikeTests clips a CALayerHost.
         .testTarget(
             name: "CmuxNextLayoutTests",
-            dependencies: ["CmuxNextDesign", "CmuxNextLayout", "CmuxNextRemoteLayer", "CmuxNextWakeups"],
+            // Input, WakeupsTestSupport: LayoutPointerCoalescingTests' hover window and fake-link coalescers.
+            dependencies: ["CmuxNextDesign", "CmuxNextInput", "CmuxNextLayout", "CmuxNextRemoteLayer", "CmuxNextWakeups",
+                           "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Browser tab hibernation policy (Memory Saver): which hidden pages freeze or are
