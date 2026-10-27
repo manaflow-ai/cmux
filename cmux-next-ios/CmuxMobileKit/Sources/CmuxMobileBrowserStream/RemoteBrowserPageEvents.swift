@@ -31,10 +31,26 @@ public struct RemoteBrowserMenuItem: Sendable, Equatable, Identifiable {
         guard let id = Self.int64(json["id"]), let type = json["type"] as? String else { return nil }
         self.id = id
         self.type = type
-        label = json["label"] as? String ?? ""
+        label = Self.withoutMnemonic(json["label"] as? String ?? "")
         enabled = json["enabled"] as? Bool ?? true
         checked = json["checked"] as? Bool ?? false
         items = (json["items"] as? [[String: Any]] ?? []).compactMap(RemoteBrowserMenuItem.init(json:))
+    }
+
+    /// Chromium's labels mark their keyboard mnemonic with `&` ("Open Link in New &Tab";
+    /// `&&` is a literal ampersand). iOS menus have no mnemonics: the label reads plainly.
+    static func withoutMnemonic(_ label: String) -> String {
+        var out = ""
+        var pending = false
+        for character in label {
+            if character == "&", !pending {
+                pending = true
+                continue
+            }
+            pending = false
+            out.append(character)
+        }
+        return out
     }
 
     static func int64(_ value: Any?) -> Int64? {
@@ -122,6 +138,7 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
     /// Chromium (chrome/app/chrome_command_ids.h) and CEF (`cef_menu_id_t`) commands that
     /// act on the Mac itself, not on the page.
     static let macOnlyCommands: Set<Int64> = [
+        50102, // IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD (an incognito window on the Mac)
         50103, // IDC_CONTENT_CONTEXT_SAVELINKAS
         50104, // IDC_CONTENT_CONTEXT_COPYLINKLOCATION
         50107, // IDC_CONTENT_CONTEXT_COPYLINKTEXT
@@ -130,13 +147,15 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
         50120, // IDC_CONTENT_CONTEXT_SAVEIMAGEAS
         50121, // IDC_CONTENT_CONTEXT_COPYIMAGELOCATION
         50122, // IDC_CONTENT_CONTEXT_COPYIMAGE
+        50158, // IDC_CONTENT_CONTEXT_COPYLINKTOTEXT (Copy Link to Highlight)
         50150, // IDC_CONTENT_CONTEXT_COPY
         50151, // IDC_CONTENT_CONTEXT_CUT
         50152, // IDC_CONTENT_CONTEXT_PASTE
         50153, // IDC_CONTENT_CONTEXT_PASTE_AND_MATCH_STYLE
         50162, // IDC_CONTENT_CONTEXT_INSPECTELEMENT
         50165, // IDC_CONTENT_CONTEXT_LOOK_UP
-        35000, // IDC_PRINT
+        50180, 50181, 50182, // the Speech submenu: Start and Stop Speaking speak on the Mac
+        35003, // IDC_PRINT
         35004, // IDC_SAVE_PAGE
         112, 113, 114, // MENU_ID_CUT, MENU_ID_COPY, MENU_ID_PASTE
         131, // MENU_ID_PRINT

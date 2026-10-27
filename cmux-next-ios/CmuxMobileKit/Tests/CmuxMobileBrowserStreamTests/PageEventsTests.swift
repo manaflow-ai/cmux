@@ -38,13 +38,22 @@ import Testing
     static let linkMenu = #"""
     {"t":"rb.menu.show","token":3,"menu":{"kind":"context","anchor":{"x":40,"y":80,"width":0,"height":0},"surface":0,
      "selected":null,"multiple":false,"right_aligned":false,"items":[
-      {"id":50100,"type":"command","label":"Open Link in New Tab","enabled":true,"checked":false,"items":[]},
-      {"id":50101,"type":"command","label":"Open Link in New Window","enabled":true,"checked":false,"items":[]},
+      {"id":50100,"type":"command","label":"Open Link in New &Tab","enabled":true,"checked":false,"items":[]},
+      {"id":50101,"type":"command","label":"Open Link in New &Window","enabled":true,"checked":false,"items":[]},
+      {"id":50102,"type":"command","label":"Open Link in Inco&gnito Window","enabled":true,"checked":false,"items":[]},
       {"id":-1,"type":"separator","label":"","enabled":true,"checked":false,"items":[]},
       {"id":50103,"type":"command","label":"Save Link As…","enabled":true,"checked":false,"items":[]},
       {"id":50104,"type":"command","label":"Copy Link Address","enabled":true,"checked":false,"items":[]},
       {"id":-1,"type":"separator","label":"","enabled":true,"checked":false,"items":[]},
-      {"id":50162,"type":"command","label":"Inspect","enabled":true,"checked":false,"items":[]}]}}
+      {"id":50158,"type":"command","label":"Copy Link to Highlight","enabled":true,"checked":false,"items":[]},
+      {"id":50191,"type":"command","label":"&Search for \u201cR&&D\u201d","enabled":true,"checked":false,"items":[]},
+      {"id":35003,"type":"command","label":"&Print\u2026","enabled":true,"checked":false,"items":[]},
+      {"id":-1,"type":"separator","label":"","enabled":true,"checked":false,"items":[]},
+      {"id":50162,"type":"command","label":"I&nspect","enabled":true,"checked":false,"items":[]},
+      {"id":-1,"type":"separator","label":"","enabled":true,"checked":false,"items":[]},
+      {"id":100,"type":"submenu","label":"Speech","enabled":true,"checked":false,"items":[
+        {"id":50181,"type":"command","label":"Start Speaking","enabled":true,"checked":false,"items":[]},
+        {"id":50182,"type":"command","label":"Stop Speaking","enabled":false,"checked":false,"items":[]}]}]}}
     """#
 
     // MARK: New tabs
@@ -90,8 +99,10 @@ import Testing
         await host(sink, Self.linkMenu)
         let open = try #require(got.first ?? nil)
         #expect(open.token == 3 && model.contextMenu?.token == 3)
-        // Save Link As…, Copy Link Address and Inspect would act on the Mac; their separators go too.
-        #expect(open.menu.phoneItems.map(\.label) == ["Open Link in New Tab", "Open Link in New Window"])
+        // Rows that act on the Mac itself (Incognito, Save, Copy, Print, Inspect, Speech) are
+        // left out with their separators; Chromium's `&` mnemonics are dropped (`&&` is `&`).
+        #expect(open.menu.phoneItems.map(\.label) == ["Open Link in New Tab", "Open Link in New Window", "-", "Search for \u{201C}R&D\u{201D}"]
+            .map { $0 == "-" ? "" : $0 })
         model.choose(.command(50100), in: 3)
         // The menu closing afterwards cancels this menu only: its pick already went.
         model.choose(.cancel, in: 3)
