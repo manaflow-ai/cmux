@@ -4,7 +4,8 @@ import XCTest
 /// (verify/composer-classic-parity.md): the key row shows with the keyboard
 /// down, Return in the composer starts a new line, the compose key reveals,
 /// closes and reopens the composer, and Hide Toolbar folds the dock until the
-/// next terminal tap. Runs on the DEBUG mock terminal (`-CmuxMobileTerminalDemo`).
+/// next terminal tap. Runs on a workspace's terminal tab as the app shows it
+/// (TabsKit chrome), with mock sign-in and the mock terminal session.
 final class TerminalComposerDockUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -13,7 +14,8 @@ final class TerminalComposerDockUITests: XCTestCase {
     @MainActor
     func testDockFollowsClassicComposerRules() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoPhases", "none"]
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle"]
         app.launch()
 
         let field = app.textViews["terminal.composer.field"]
