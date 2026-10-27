@@ -197,6 +197,8 @@ extension AppControl {
                 } else if call.params["file_dialog_cancel"]?.boolValue == true {
                     _ = services.cache.cef.answerHostFileDialog(with: nil)
                 }
+                // {"print_cancel": true} ends a host page's print panel, as its Cancel would (chromiumHostPrint).
+                if call.params["print_cancel"]?.boolValue == true { _ = services.cache.cef.cancelHostPrintPanel() }
                 return .value(DebugCEF.report(services))
             },
             // Remote localhost proxy: port, counters, recent outcomes.

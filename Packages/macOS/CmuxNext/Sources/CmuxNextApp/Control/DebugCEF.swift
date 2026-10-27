@@ -67,6 +67,11 @@ enum DebugCEF {
             .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
+        // Host mode with feature chromiumHostPrint (p01-process-065): the pages printed through cmux's print panel.
+        object["host_print"] = services.cache.cef.hostPagePrints.map { report in
+            .object(["asked": .number(Double(report.asked)), "printed": .number(Double(report.printed)),
+                     "shown": .number(Double(report.shown)), "failed": .number(Double(report.failed)), "showing": .bool(report.showing)])
+        } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats

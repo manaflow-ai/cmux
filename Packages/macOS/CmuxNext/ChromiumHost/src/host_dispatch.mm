@@ -59,6 +59,9 @@ constexpr size_t kMaxHeldPerBrowser = 16;
 // Browsers whose page visibility the host keeps (one per pane cmux shows; a
 // browser's entry goes at its BEFORE_CLOSE).
 constexpr size_t kMaxPageVisibilities = 65536;
+// kOpPrintToPdf ops printing at once (one per File > Print a person asks
+// for); one past it is answered 0 at once.
+constexpr size_t kMaxPrintsInFlight = 8;
 
 bool IsMirrorOp(uint16_t op) {
   for (const MirrorRefresh& row : kMirrorRefreshes) {
@@ -134,6 +137,7 @@ void HostContext::Attach() {
   // Not an export: the host acks every wheel of a gesture (OnWheelAck), so cmux asks the page nothing.
   if (set_wheel_ack_handler_) exports.push_back(kWheelAcksHelloName);
   if (energy_saver_) exports.push_back(kEnergySaverHelloName);
+  if (pdf_printer_) exports.push_back(kPrintToPdfHelloName);
   TlvWriter hello;
   hello.Str(kWireID);
   hello.StrList(exports.data(), static_cast<int>(exports.size()));
@@ -198,7 +202,8 @@ void HostContext::Handle(control::Message& message) {
     case State::kPreinit:
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
-      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver) {
+      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver ||
+                 message.op == kOpPrintToPdf) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -241,6 +246,10 @@ void HostContext::Handle(control::Message& message) {
       }
       if (message.op == kOpEnergySaver) {
         if (!HandleEnergySaver(message)) Bad("a malformed energy saver");
+        return;
+      }
+      if (message.op == kOpPrintToPdf) {
+        if (!HandlePrintToPdf(message)) Bad("a malformed print to PDF");
         return;
       }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
@@ -331,6 +340,41 @@ bool HostContext::HandleEnergySaver(const control::Message& message) {
     Reply(message.token, reply);
   }
   return true;
+}
+
+bool HostContext::HandlePrintToPdf(const control::Message& message) {
+  const std::optional<PrintToPdf> print = DecodePrintToPdf(message.fields);
+  if (!print || message.token == 0) return false;
+  if (!pdf_printer_ || prints_in_flight_ >= kMaxPrintsInFlight || AwaitsCreation(print->browser)) {
+    SendPrinted(message.token, -1, 0);
+    return true;
+  }
+  ++prints_in_flight_;
+  std::weak_ptr<HostContext*> alive = alive_;
+  pdf_printer_->Print(Browser(print->browser), *print, [alive, token = message.token](int fd, uint64_t size) {
+    const std::shared_ptr<HostContext*> host = alive.lock();
+    if (!host) {
+      if (fd >= 0) close(fd);
+      return;
+    }
+    --(*host)->prints_in_flight_;
+    (*host)->SendPrinted(token, fd, size);
+  });
+  return true;
+}
+
+void HostContext::SendPrinted(uint32_t token, int fd, uint64_t size) {
+  const bool printed = fd >= 0 && size > 0 && size <= control::kMaxSharedBytes;
+  if (state_ != State::kEnded) {
+    TlvWriter reply;
+    reply.I32(printed ? 1 : 0);
+    reply.I64(printed ? static_cast<int64_t>(size) : 0);
+    control::Message message = MessageOf(kOpReply, true, token, reply.Take());
+    // The channel sends a duplicate of the region with the frame (Channel::Send).
+    if (printed) message.fds.push_back(fd);
+    Post(std::move(message));
+  }
+  if (fd >= 0) close(fd);
 }
 
 void HostContext::RememberViewSize(uint64_t token, int32_t width, int32_t height) {

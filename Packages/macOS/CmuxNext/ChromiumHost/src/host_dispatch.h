@@ -38,6 +38,10 @@
 //                                              str exempt scheme (host_energy_saver.h); the
 //                                              host's shim applies it after initialize, and a
 //                                              token is answered with i32 its result
+//   kOpPrintToPdf                               a page as PDF (host_print.h): i32 version, i32
+//                                              browser, f64 paper width and height; answered
+//                                              later with i32 result, i64 size and the PDF's
+//                                              sealed region (task p01-process-065)
 //   kOpGeometryStats                            no fields: answered with GeometryStats as
 //                                              i64 frames, applied, unchanged, unplaced
 //                                              (chromium-host-bench.py geometry row)
@@ -68,13 +72,15 @@
 //
 // Messages the host sends:
 //   kOpHello   str kWireID, StrList of the optional exports its shim defines
-//              (and kEnergySaverHelloName when its fork has the saver);
+//              (and kEnergySaverHelloName when its fork has the saver,
+//              kPrintToPdfHelloName when it prints pages to PDF);
 //              once, after the MIRRORs whose only refresh is attach
 //   kOpMirror  i32 mirror op, bytes key (EncodeFields), then bytes value
 //              (EncodeFields), or no value: cmux forgets the key
 //   kOpEvent   EncodeEvent's fields, after the MIRRORs the event refreshes
 //   kOpAck     reply flag, token: the op ran
-//   kOpReply   reply flag, token, the op's result and out-parameters
+//   kOpReply   reply flag, token, the op's result and out-parameters; a
+//              printed kOpPrintToPdf's also carries the PDF's region
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
 //   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
@@ -90,6 +96,7 @@
 #include <deque>
 #include <functional>
 #include <list>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -103,6 +110,7 @@
 #include "host_energy_saver.h"
 #include "host_mirror.h"
 #include "host_page_activity.h"
+#include "host_print.h"
 #include "host_resize.h"
 #include "host_text_input.h"
 #include "host_wheel_ack.h"
@@ -315,6 +323,13 @@ class HostContext {
   // kEnergySaverHelloName); nullptr takes kOpEnergySaver and changes nothing.
   void SetEnergySaver(EnergySaverFn energy_saver) { energy_saver_ = energy_saver; }
 
+  // What prints pages for kOpPrintToPdf (browser_host_main.mm, before Attach,
+  // which then lists kPrintToPdfHelloName); nullptr answers every print 0.
+  // A Done that runs after this context is gone only closes its region.
+  void SetPdfPrinter(PdfPrinter* printer) { pdf_printer_ = printer; }
+  // kOpPrintToPdf ops whose PDF has not come yet.
+  size_t prints_in_flight() const { return prints_in_flight_; }
+
   // What the shown page count holds (browser_host_main.mm, before Attach):
   // the count goes to it after each kOpBrowserSetPageVisibility, at each
   // browser's close and once initialize returned; nullptr holds nothing.
@@ -369,6 +384,12 @@ class HostContext {
   bool HandlePageResize(const control::Message& message);
   // kOpEnergySaver: false for a malformed op.
   bool HandleEnergySaver(const control::Message& message);
+  // kOpPrintToPdf: false for a malformed op (no token, bad fields). The reply
+  // goes when the printer is done (SendPrinted), past kMaxPrintsInFlight at once with 0.
+  bool HandlePrintToPdf(const control::Message& message);
+  // The REPLY of print `token`: 1 and the region `fd` of `size` bytes, or 0
+  // when `fd` is -1. Closes `fd`; nothing goes once the context ended.
+  void SendPrinted(uint32_t token, int fd, uint64_t size);
   // Keeps `token`'s size for the next op that opens its view (view_sizes_).
   void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
@@ -468,6 +489,11 @@ class HostContext {
   SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;
   WheelAcks wheel_acks_;
   EnergySaverFn energy_saver_ = nullptr;
+  PdfPrinter* pdf_printer_ = nullptr;
+  size_t prints_in_flight_ = 0;
+  // Held by every print's Done: a Done that runs after this context is gone
+  // finds it expired and only closes its region.
+  std::shared_ptr<HostContext*> alive_ = std::make_shared<HostContext*>(this);
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).

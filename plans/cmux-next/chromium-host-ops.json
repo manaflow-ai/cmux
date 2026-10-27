@@ -1877,7 +1877,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 only when the browser is gone, which the client knows: BrowserPagePrint sends it one-way, as chrome::Print returns nothing; printing in host mode is task 065."
+      "reason": "Returns 0 only when the browser is gone, which the client knows: BrowserPagePrint sends it one-way, as chrome::Print returns nothing. In host mode with feature chromiumHostPrint, BrowserPagePrint sends the host's own kOpPrintToPdf instead (ChromiumHost/src/host_print.h, task 065) and shows the PDF in cmux's print panel."
     },
     {
       "name": "cmux_shim_find",

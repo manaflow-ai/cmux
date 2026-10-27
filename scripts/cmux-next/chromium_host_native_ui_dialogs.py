@@ -1,6 +1,6 @@
-"""The page dialog rows of chromium-host-bench.py `--native-ui` (p01-process-064): Chromium's file picker, certificate
-error, beforeunload question and renderer hang, each answered by cmux while the Chromium host is never the frontmost
-app and owns no visible window (CGWindowList: a window of the host's pid with alpha > 0).
+"""The page dialog rows of chromium-host-bench.py `--native-ui` (p01-process-064, 065): Chromium's file picker,
+certificate error, beforeunload question, renderer hang and print, each answered by cmux while the Chromium host is never
+the frontmost app and owns no visible window (CGWindowList: a window of the host's pid with alpha > 0).
 
   file_picker        <input type=file>: a click opens cmux's picker (FILE_DIALOG, ChromiumHostFiles, feature
                      `chromiumHostFileDialogs`; `debug.cef` `host_file_dialogs`). A choice through it
@@ -13,6 +13,10 @@ app and owns no visible window (CGWindowList: a window of the host's pid with al
                      (`browser.dialog.beforeunload`) asks in the tab, which stays; Cancel keeps it; Leave closes it.
   unresponsive       a page whose click never returns: the pane shows "Page unresponsive" within Chromium's hang
                      delay; Wait hides it; Exit page ends the renderer and the sad tab shows.
+  print              File > Print (`browserPrint`) of a page: the host prints it to PDF and cmux's print panel shows that
+                     PDF as a sheet on the page's window (feature `chromiumHostPrint`; `debug.cef` `host_print`), never
+                     Chromium's print preview; `print_cancel` ends the panel. Without cmux's panel (`host_print` null:
+                     host mode not live, or the feature off) the row says so and fails.
 """
 import http.server
 import json
@@ -23,9 +27,9 @@ import subprocess
 import threading
 import time
 
-ROWS = ("file_picker", "certificate_error", "beforeunload", "unresponsive")
+ROWS = ("file_picker", "certificate_error", "beforeunload", "unresponsive", "print")
 # What the app needs for these rows.
-FEATURES = "chromiumHostFileDialogs"
+FEATURES = "chromiumHostFileDialogs,chromiumHostPrint"
 # How long a picker, warning or question may take to show after the input that opens it.
 SHOW_DEADLINE_S = 10.0
 # Chromium's hang delay is 15 s; its ping adds a few more (page-hang-live.py).
@@ -53,6 +57,10 @@ document.addEventListener('mousedown', () => { document.title = 'unload armed'; 
 HANG_PAGE = """<!doctype html><meta charset=utf-8><title>hang probe</title>
 <body style="margin:0;height:100vh">A click here never returns.
 <script>addEventListener('mousedown', () => { for (;;) {} })</script>
+"""
+
+PRINT_PAGE = """<!doctype html><meta charset=utf-8><title>print probe</title>
+<h1>print probe</h1><p>Two pages of text.</p><p style="break-before:page">The second page.</p>
 """
 
 CERT_PAGE = b"<!doctype html><title>certificate probe proceeded</title><p>past the warning"
@@ -243,8 +251,33 @@ def unresponsive_row(rpc, wait, page_eval, out, clear):
     return row
 
 
+def host_print(rpc, **params):
+    """`debug.cef` `host_print` (after the params' answer, if any): None without cmux's print panel."""
+    return (rpc("debug.cef", params) or {}).get("host_print")
+
+
+def print_row(rpc, wait, page_eval, out, clear):
+    before = host_print(rpc)
+    if before is None:
+        return {"ok": False, "not_run": "no cmux print panel: host mode is not live in this build or chromiumHostPrint is off"}
+    if not open_page(rpc, wait, page_eval, write_page(out, "native-ui-print.html", PRINT_PAGE), "print probe"):
+        return {"ok": False, "error": "the print probe never loaded"}
+    started = time.time()
+    rpc("action.run", {"action": "browserPrint", "origin": "script"})
+    shown = wait(lambda: (lambda p: p if p and p.get("showing") and p.get("shown", 0) > before.get("shown", 0) else None)(
+        host_print(rpc)), SHOW_DEADLINE_S)
+    row = {"show_ms": round((time.time() - started) * 1000, 1) if shown else None, "host": clear(), "print": host_print(rpc)}
+    host_print(rpc, print_cancel=True)
+    row["cancelled"] = bool(shown) and bool(wait(lambda: not (host_print(rpc) or {}).get("showing"), 5))
+    after = host_print(rpc) or {}
+    row["printed"] = after.get("printed", 0) - before.get("printed", 0)
+    row["ok"] = bool(shown) and row["host"]["clear"] and row["cancelled"] and row["printed"] == 1 and \
+        after.get("failed", 0) == before.get("failed", 0)
+    return row
+
+
 RUNNERS = {"file_picker": file_picker_row, "certificate_error": certificate_row, "beforeunload": beforeunload_row,
-           "unresponsive": unresponsive_row}
+           "unresponsive": unresponsive_row, "print": print_row}
 
 
 def run(rpc, wait, page_eval, out, host_pid, front, windows, rows_to_run=ROWS):

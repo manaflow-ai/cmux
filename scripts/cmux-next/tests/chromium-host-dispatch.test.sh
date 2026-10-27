@@ -16,6 +16,9 @@
 #                           (ChromiumHost/client, built as a shared library
 #                           from the committed client/generated/remote_shim.inc)
 #                           on a socket pair: what cmux's shim reads
+#   host_print_test.cpp     a page printed to PDF (host_print.h), through the
+#                           dispatcher and on to the real remote shim, the
+#                           PDF's region with its REPLY (task p01-process-065)
 # Every test links a fake of the shim: the test's own functions, and a weak
 # zero stub for each other export of cmux_cef_shim.h (the generated cases call
 # them all). First, the sources compile alone with -Werror against the same
@@ -24,7 +27,7 @@
 #
 # Not in CI (lead, 2026-10-23: no new CI tests); run it when you change
 # host_dispatch.{h,mm}, host_mirror.{h,mm}, host_text_input.{h,mm}, host_resize.h, host_wheel_ack.h,
-# host_page_activity.h, the generator's host output or the ops JSON.
+# host_page_activity.h, host_print.h, the generator's host output or the ops JSON.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/chromium-host-dispatch.XXXXXX")"
@@ -109,3 +112,7 @@ fi
   "$host/tests/host_mirror_test.cpp" -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc" \
   ${test_libs[@]+"${test_libs[@]}"}
 "$work/host_mirror_test"
+"${cxx[@]}" "${flags[@]}" -I"$host/client" -O1 -DCMUX_REMOTE_SHIM_PATH="\"$client\"" -o "$work/host_print_test" \
+  "$host/tests/host_print_test.cpp" -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc" \
+  ${test_libs[@]+"${test_libs[@]}"}
+"$work/host_print_test"

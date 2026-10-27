@@ -12,13 +12,16 @@
 //                             value to forget the key; before the EVENT that refreshes it
 //                 kOpAck      `token`'s op ran: its pending marks clear
 //                 kOpReply    the answer to an awaited `token`, its fields to the reply callback;
-//                             its op ran, so its pending marks clear first
+//                             its op ran, so its pending marks clear first. A kOpPrintToPdf's
+//                             may carry one descriptor, the PDF's region (host_print.h), which
+//                             the callback takes (cmux_remote_shim_take_reply_region)
 // Anything else from the host is malformed and ends it, as bad_message::ReceivedBadMessage ends
 // a renderer (content/browser/bad_message.cc).
 
 #include "cmux_cef_shim.h"
 #include "cmux_page_path.h"
 #include "host_energy_saver.h"
+#include "host_print.h"
 #include "host_resize.h"
 #include "remote_shim_mirror.h"
 #include "remote_shim_runtime.h"
@@ -52,6 +55,10 @@ using cmux_host::control::Field;
 using cmux_host::control::kOpHello;
 using cmux_host::control::kTagNull;
 using cmux_host::control::Message;
+
+void CloseEach(const std::vector<int>& fds) {
+  for (int fd : fds) ::close(fd);
+}
 
 bool OnMainThread() {
 #if defined(__APPLE__)
@@ -222,6 +229,7 @@ bool SendFenceRight(uint32_t channel, uint32_t fence, uint64_t seq) {
 // or kEnergySaverHelloName; nullptr for an op every host takes.
 const char* OptionalExportName(uint16_t op) {
   if (op == cmux_host::kOpEnergySaver) return cmux_host::kEnergySaverHelloName;
+  if (op == cmux_host::kOpPrintToPdf) return cmux_host::kPrintToPdfHelloName;
   for (const OptionalExport& entry : kOptionalExports) {
     if (entry.op == op && op != 0) return entry.name;
   }
@@ -397,6 +405,32 @@ class Runtime {
     cmux_host::WriteEnergySaver(saver, &args);
     const bool sent = Post(cmux_host::kOpEnergySaver, 0, args);
     return known && sent ? 1 : 0;
+  }
+
+  // kOpPrintToPdf (host_print.h): 1 when sent, its REPLY token in last_reply_token_. 0 with no
+  // host attached, before its HELLO or when the host does not print (its HELLO did not list
+  // kPrintToPdfHelloName): no answer would come.
+  int PrintToPdf(int32_t browser, double paper_width, double paper_height) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    last_reply_token_ = 0;
+    if (link_ != Link::kAttached || !hello_ || host_exports_.count(cmux_host::kPrintToPdfHelloName) == 0) return 0;
+    cmux_host::PrintToPdf print;
+    print.browser = browser;
+    print.paper_width = paper_width;
+    print.paper_height = paper_height;
+    TlvWriter args;
+    cmux_host::WritePrintToPdf(print, &args);
+    if (!cmux_host::DecodePrintToPdf(args.fields())) return 0;  // a paper the host refuses as malformed
+    const uint32_t token = NextToken();
+    if (!PostForReply(cmux_host::kOpPrintToPdf, token, args)) return 0;
+    print_tokens_.insert(token);
+    return 1;
+  }
+
+  // The region of the REPLY being delivered now (the caller owns it), -1 when none.
+  int TakeReplyRegion() {
+    CMUX_REMOTE_ASSERT_MAIN();
+    return std::exchange(reply_region_, -1);
   }
 
   void SetFenceSender(cmux_remote_fence_send_fn send) {
@@ -629,6 +663,7 @@ class Runtime {
     if (token == 0) return;
     mirror_.Ack(token);
     awaiting_.erase(token);
+    print_tokens_.erase(token);
   }
 
   // Closes the channel. Its reader thread ends on its own and its end reaches Ended, which
@@ -651,6 +686,7 @@ class Runtime {
     queued_live_ = 0;
     mirror_.Clear();
     awaiting_.clear();
+    print_tokens_.clear();
     host_exports_.clear();
     ReleaseFenceChannel();  // the inbox was this host's
   }
@@ -723,14 +759,29 @@ class Runtime {
         return true;
       case kOpReply: {
         std::string fields;
-        if (awaiting_.erase(message.token) == 0) return false;  // a reply to no request
-        if (!cmux_host::control::EncodeFields(message.fields, &fields)) return false;
+        // Only a print's answer carries a descriptor, and at most one: its PDF.
+        const bool print = print_tokens_.erase(message.token) > 0;
+        if (!message.fds.empty() && (!print || message.fds.size() > 1)) {
+          CloseEach(message.fds);
+          return false;
+        }
+        if (awaiting_.erase(message.token) == 0) {  // a reply to no request
+          CloseEach(message.fds);
+          return false;
+        }
+        if (!cmux_host::control::EncodeFields(message.fields, &fields)) {
+          CloseEach(message.fds);
+          return false;
+        }
         mirror_.Ack(message.token);  // the op ran: the callback reads what it changed
+        reply_region_ = message.fds.empty() ? -1 : message.fds.front();
         if (reply_) {
           reply_(reply_ctx_, message.token, fields.data(), fields.size());
         } else {
           ++stats_.replies_unhandled;
         }
+        // A region the callback did not take goes with the delivery.
+        if (const int region = std::exchange(reply_region_, -1); region >= 0) ::close(region);
         return true;
       }
       case kOpHello: {
@@ -774,6 +825,10 @@ class Runtime {
   MirrorCache mirror_;
   // Tokens sent with PostForReply and not answered yet.
   std::unordered_set<uint32_t> awaiting_;
+  // The awaited tokens of kOpPrintToPdf: their REPLY may carry the PDF's region.
+  std::unordered_set<uint32_t> print_tokens_;
+  // During a REPLY's callback: the region it carried, until taken (TakeReplyRegion); else -1.
+  int reply_region_ = -1;
   std::unordered_set<std::string> host_exports_;
   // The app's last Energy Saver state (cmux_shim_set_energy_saver), for the whole session.
   std::optional<cmux_host::EnergySaver> energy_saver_;
@@ -906,6 +961,14 @@ int cmux_remote_shim_page_resize(uint64_t view_token, int browser_id, int width,
 
 void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send) {
   R().SetFenceSender(send);
+}
+
+int cmux_remote_shim_print_to_pdf(int browser_id, double paper_width, double paper_height) {
+  return R().PrintToPdf(browser_id, paper_width, paper_height);
+}
+
+int cmux_remote_shim_take_reply_region(void) {
+  return R().TakeReplyRegion();
 }
 
 uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq) {

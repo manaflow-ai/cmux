@@ -134,6 +134,18 @@ typedef int (*cmux_remote_fence_send_fn)(unsigned int channel, unsigned int fenc
 // Mach message of host_resize.h (SendFence), which sends nothing where there is no Mach; the
 // tests pass their own to drive the fenced path on Linux.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send);
+// Main thread. Asks the attached host for browser `browser_id`'s page as a PDF on paper
+// `paper_width` x `paper_height` inches (0 x 0: Chromium's default) with kOpPrintToPdf
+// (ChromiumHost/src/host_print.h, task p01-process-065). 1 when sent: its REPLY, under
+// cmux_remote_shim_last_reply_token, is i32 printed (1) and i64 size, and with printed 1 its
+// callback takes the PDF's region (cmux_remote_shim_take_reply_region). 0 when nothing was
+// sent: no host attached, no HELLO yet, a host that does not print, or a paper it refuses.
+CMUX_REMOTE_EXPORT int cmux_remote_shim_print_to_pdf(int browser_id, double paper_width, double paper_height);
+// Main thread, inside the reply callback: the sealed region (a read-only shm descriptor, its
+// size at least the REPLY's) that came with the REPLY being delivered; the caller owns it. -1
+// when it carried none, outside a callback, or once taken. A region the callback does not take
+// is closed when it returns.
+CMUX_REMOTE_EXPORT int cmux_remote_shim_take_reply_region(void);
 
 }  // extern "C"
 

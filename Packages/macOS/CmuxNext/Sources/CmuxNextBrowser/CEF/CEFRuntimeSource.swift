@@ -43,6 +43,10 @@ public final class CEFRuntimeSource {
     /// go to the host as paths (feature `chromiumHostFileDialogs`, set by the App; ``ChromiumHostFiles``).
     /// Nil leaves Chromium's own panel, which in host mode opens in the host. Read when the runtime adopts the source.
     public var hostFileDialogs: (any ChromiumFileDialogAnswering)?
+    /// Host mode: File > Print… of a page prints it to PDF in the host and shows cmux's print panel on the
+    /// page's window, so Chromium's print preview never opens in the host (feature `chromiumHostPrint`, set by
+    /// the App; ``BrowserPagePrint``). Read when the runtime adopts the source; in process it changes nothing.
+    public var printsHostPages = false
 
     /// Creates a source.
     ///

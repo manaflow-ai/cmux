@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostPrint",
+  "owner": "PL-cef-layer",
+  "description": "In host mode, File > Print of a Chromium page prints it to PDF in the Chromium host and shows cmux's print panel on the page's window, instead of Chromium's print preview opening in the host.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

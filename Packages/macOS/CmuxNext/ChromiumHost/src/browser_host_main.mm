@@ -525,6 +525,10 @@ int main(int argc, char* argv[]) {
   // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
   if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
   host.SetPageShowActivity(&page_activity);
+  // A page prints to PDF here and cmux runs the print panel (host_print.h, p01-process-065): Chromium's
+  // print preview would be a host window.
+  cmux_host::CefPdfPrinter pdf_printer;
+  host.SetPdfPrinter(&pdf_printer);
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then
   // no frame comes and cmux stamps no ordered op with an input seq.

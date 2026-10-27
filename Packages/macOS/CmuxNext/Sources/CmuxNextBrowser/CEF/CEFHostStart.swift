@@ -37,6 +37,9 @@ final class CEFHostStart {
     /// Page file choosers answered by cmux's pickers (feature `chromiumHostFileDialogs`,
     /// `CEFRuntime.fileDialogAsked`); nil leaves Chromium's own panel.
     let files: ChromiumHostFiles?
+    /// File > Print… of a page prints it to PDF in the host and shows cmux's print panel (feature
+    /// `chromiumHostPrint`, task p01-process-065; `BrowserPagePrint`); nil leaves Chromium's print preview.
+    var pagePrints: ChromiumHostPagePrints?
     /// The attached host's page resizes (`CEFRuntime.hostPageResizes()`), made on first use; a new host starts with none.
     var pageResizes: ChromiumHostResizeFence?
     private let supervisor: any ChromiumHostSupervising
