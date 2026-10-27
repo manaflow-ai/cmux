@@ -233,6 +233,29 @@ enum BrowserResize { static let `default` = true }
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/DevTunables.swift:default", result.stdout)
 
+    def test_cross_file_helper_and_continued_expression_are_snapshotted(self):
+        helper = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Factory.swift"
+        caller = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Surface.swift"
+        helper_source = """enum Factory {
+    static func number(_ value: Double) -> Tunable<Double> { .number("factory.value", .status, "Value", default: value) }
+}
+"""
+        caller_source = """enum Surface {
+    static let gap = Factory.number(2.0)
+    static let size = Tunable<Double>.number("surface.size", .status, "Size", default: 2.0
+        * 3.0)
+}
+"""
+        self.repo.write(helper, helper_source)
+        self.repo.write(caller, caller_source)
+        self.base = self.repo.commit("cross-file and continued defaults")
+        head = self.head(extra={helper: helper_source.replace("default: value", "default: value + 1"),
+                                caller: caller_source.replace("* 3.0", "* 4.0")})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Factory.swift:number", result.stdout)
+        self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Surface.swift:size", result.stdout)
+
     def test_two_flags_with_one_name_are_judged_apart(self):
         two = "enum A {\n    static let isEnabled = false\n}\nenum B {\n    static let isEnabled = true\n}\n"
         self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift", two)
