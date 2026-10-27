@@ -215,6 +215,29 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("12 calls left, under 200", result.stderr)
         self.assertEqual(h.waited(), 1)
 
+    def test_backoff_waits_by_try_and_never_fails(self) -> None:
+        # An action's call (the attestation) is refused outside gh; --backoff TRY waits as a refused gh call's try would.
+        h = self.harness(GH_BUDGET_WAIT_MAX_SECONDS="900")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text('#!/bin/bash\necho "$1" >> "$FAKE_STATE/slept"\n')
+        fake_sleep.chmod(0o755)
+        for try_number in ("1", "2", "3"):
+            result = subprocess.run([str(h.shim), "--backoff", try_number, "the attestation"], env=h.env,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result)
+            self.assertIn(f"the attestation failed (try {try_number})", result.stderr)
+        self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240"])
+        self.assertEqual(h.waited(), 420)
+        # The job total bounds it, and a spent total still exits 0 (the next try decides).
+        result = subprocess.run([str(h.shim), "--backoff", "4"], env={**h.env, "GH_BUDGET_WAIT_MAX_SECONDS": "500"},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240", "80"])
+        result = subprocess.run([str(h.shim), "--backoff", "5"], env={**h.env, "GH_BUDGET_WAIT_MAX_SECONDS": "500"},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.waited(), 500)
+
     def test_install_without_gh_is_a_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = {"PATH": "/nonexistent", "RUNNER_TEMP": tmp, "GITHUB_PATH": f"{tmp}/p"}
@@ -250,12 +273,13 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(any("actions/checkout" in str(s.get("uses", "")) for s in steps[:at]), name)
             later_gh = [i for i, s in enumerate(steps)
                         if "github.token" in str(s.get("env", {})) or "release-tag-token" in str(s.get("env", {}))]
-            # Only prepare's reuse probe (before any checkout; a refusal prepares here) and the
+            # Only prepare's reuse probe (before any checkout; a refusal prepares here), the nightly
+            # product lookup (no gh: a bounded REST lookup whose every refusal is a miss) and the
             # unsigned-resume restore (a hand-run recovery, not the publish path) come first.
             early = [i for i in later_gh if i < at]
             for i in early:
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
-                self.assertTrue(steps[i].get("id") == "reuse" or resume, (name, steps[i].get("name")))
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume, (name, steps[i].get("name")))
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:

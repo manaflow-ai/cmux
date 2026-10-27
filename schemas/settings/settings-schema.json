@@ -868,6 +868,7 @@
               "agents.subsessions.enabled",
               "agents.subsessions.answerQuestions",
               "agents.subsessions.maxChildren",
+              "agents.subsessions.maxRunning",
               "agents.subsessions.maxDepth"
             ],
             "title" : {
@@ -5600,6 +5601,65 @@
       "title" : {
         "key" : "settings.agents.subsessions.maxChildren",
         "text" : "Open Sub-sessions per Session"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        1000,
+        500.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 16,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.maxRunning.help",
+        "text" : "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.maxRunning",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "limit",
+        "running",
+        "concurrency",
+        "parallel",
+        "queue"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "maxRunning"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -998,
+        1999,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.maxRunning",
+        "text" : "Running Sub-sessions per Session"
       },
       "validation" : "portable"
     },

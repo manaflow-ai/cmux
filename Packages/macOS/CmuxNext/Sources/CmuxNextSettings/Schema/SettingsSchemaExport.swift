@@ -138,6 +138,7 @@ public struct SettingsSchemaExport {
             row["kind"] = "number_list"
             row["range"] = range(number)
         case .stringMap: row["kind"] = "string_map"
+        case .soundRules: row["kind"] = "sound_rules"
         case .stringList: row["kind"] = "string_list"
         case .orderedChoices(let list):
             row["kind"] = "string_list"

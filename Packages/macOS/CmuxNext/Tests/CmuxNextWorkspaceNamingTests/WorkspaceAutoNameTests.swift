@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 @testable import CmuxNextWorkspaceNaming
 import Testing
 
@@ -38,7 +39,7 @@ struct WorkspaceAutoNameTests {
 
     @Test func browserSplitNeverRenamesAUserNamedWorkspace() {
         let page = WorkspaceAutoName.Front.browser(title: "Pull requests · cmux", offTheRecord: false)
-        #expect(Self.live.label(name: "#20367: CI red", title: nil, front: page, anchor: nil) == nil)
+        #expect(Self.live.label(name: "#20367: CI red", title: nil, front: page, anchor: nil, nameSource: .user) == nil)
         #expect(Self.live.label(name: "workspace-3", title: "Mine", front: page, anchor: nil) == nil)
     }
 
@@ -63,7 +64,7 @@ struct WorkspaceAutoNameTests {
         for raw in ["⠂ Fix the login bug", "⠐ Fix the login bug", "✳ Fix the login bug"] {
             #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: raw)) == "Fix the login bug")
         }
-        #expect(Self.live.label(name: "Release", title: nil, front: Self.terminal(title: "⠂ Fix the login bug")) == nil)
+        #expect(Self.live.label(name: "Release", title: nil, front: Self.terminal(title: "⠂ Fix the login bug"), nameSource: .user) == nil)
     }
 
     @Test func terminalShowsItsLiveTitle() {
@@ -85,7 +86,7 @@ struct WorkspaceAutoNameTests {
 
     @Test func userNamedWorkspaceKeepsItsName() {
         let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag")
-        #expect(Self.live.label(name: "api", title: nil, front: front) == nil)
+        #expect(Self.live.label(name: "api", title: nil, front: front, nameSource: .user) == nil)
         #expect(Self.live.label(name: "workspace-3", title: "My work", front: front) == nil)
     }
 
@@ -128,9 +129,11 @@ struct WorkspaceAutoNameTests {
 
     private static func persisted(_ front: WorkspaceAutoName.Front?, name: String = "workspace-3", title: String? = nil,
                                   local: Bool = true, supportsNameSource: Bool = false, alreadyRenamed: Bool = false,
+                                  nameSource: WorkspaceNameSource = .auto, nameRevision: UInt64 = 0,
                                   rule: WorkspaceAutoName = persist) -> String? {
         rule.persistedName(name: name, title: title, front: front, isLocalMachine: local,
-                           supportsNameSource: supportsNameSource, alreadyRenamed: alreadyRenamed)
+                           supportsNameSource: supportsNameSource, alreadyRenamed: alreadyRenamed,
+                           nameSource: nameSource, nameRevision: nameRevision)
     }
 
     private static let titledChat = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag", generatedTitle: "Fix the sidebar drag")
@@ -163,8 +166,13 @@ struct WorkspaceAutoNameTests {
         #expect(Self.persisted(.browser(title: "Secret", offTheRecord: true)) == nil)
     }
 
+    @Test func persistFollowsAnAutomaticWorkspaceAndSkipsTheCurrentTitle() {
+        #expect(Self.persisted(Self.titledChat, name: "Old generated title", nameSource: .auto) == "Fix the sidebar drag")
+        #expect(Self.persisted(Self.titledChat, name: "Fix the sidebar drag", nameSource: .auto) == nil)
+    }
+
     @Test func persistNeverRenamesAUserNamedOrTitledWorkspace() {
-        #expect(Self.persisted(Self.titledChat, name: "api") == nil)
+        #expect(Self.persisted(Self.titledChat, name: "api", nameSource: .user, nameRevision: 1) == nil)
         #expect(Self.persisted(Self.titledChat, title: "Mine") == nil)
     }
 
@@ -184,7 +192,7 @@ struct WorkspaceAutoNameTests {
     @Test func aRenameIsDroppedWhenTheUserNamedTheWorkspaceMeanwhile() {
         #expect(Self.persist.confirmsRename(currentName: "workspace-3", currentTitle: nil))
         #expect(Self.persist.confirmsRename(currentName: "workspace-3", currentTitle: ""))
-        #expect(!Self.persist.confirmsRename(currentName: "api", currentTitle: nil))
+        #expect(!Self.persist.confirmsRename(currentName: "api", currentTitle: nil, nameSource: .user))
         #expect(!Self.persist.confirmsRename(currentName: "workspace-3", currentTitle: "Mine"))
         #expect(!Self.persist.confirmsRename(currentName: "~", currentTitle: nil, nameSource: .user, nameRevision: 1))
     }
