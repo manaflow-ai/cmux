@@ -13,7 +13,8 @@ export interface UnsentDraftThrottle {
   push(text: string): void;
   /** Sends the waiting text now, if any. */
   flush(): void;
-  /** Sends the waiting text now and resolves once the host answered the last send (a quit waits on it). */
+  /** Sends the waiting text now and resolves once the host answered the last send (a quit waits on it).
+   * A send the host refused resolves too: the text stays in the page, and a quit cannot retry it. */
   settle(): Promise<void>;
   /** Stops the timer (a waiting text is not sent: call `flush()` first to keep it). */
   dispose(): void;

@@ -289,6 +289,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// the update session took over.
     func endAutomaticInstallHold() {
         heldAutomaticRelaunch = nil
+        quitInstall = nil
         automaticInstallItem = nil
         actionDelegate?.updaterEndsAutomaticInstallHold()
     }

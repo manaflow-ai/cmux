@@ -36,7 +36,12 @@ extension UpdaterService {
         relaunchBehind({ [weak self] in
             // The quit ends every sheet (QuitCoordinator): it waits while a modal, sheet, menu or
             // composition is up (``UpdateRelaunchMomentHold``), the helper waiting with it.
-            guard let self, await self.relaunchMomentHold.waitUntilClear() else { return false }
+            guard let self else { return false }
+            guard await self.relaunchMomentHold.waitUntilClear() else {
+                // A click, a cancel or the session's end took the install over: nothing installs here.
+                self.controller?.dropQuitInstall()
+                return false
+            }
             guard self.staysBehindNow else { return false }
             self.updaterWillRelaunchApplication()
             return true

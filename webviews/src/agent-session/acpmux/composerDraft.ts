@@ -170,7 +170,9 @@ export function writePersistedDraft(sessionId: string | undefined, text: string)
   // Keep only the newest value per session. This preserves clear-after-type ordering when a
   // connection is down, without dropping the final clear or sending stale keystrokes on repair.
   pendingDraftWrites.set(sessionId, { sessionId, text, sequence: ++draftWriteSequence });
-  lastQueuedDraft.set(sessionId, text);
+  // A cleared draft is nothing to compare with: its entry goes, so the map holds only live drafts.
+  if (text) lastQueuedDraft.set(sessionId, text);
+  else lastQueuedDraft.delete(sessionId);
   flushPendingDraftWrites();
 }
 

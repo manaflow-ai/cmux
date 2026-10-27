@@ -110,11 +110,17 @@ final class UpdateRelaunchMomentHold {
     }
 
     /// Returns at once when nothing would be cut off, else once the moment clears (true) or the
-    /// hold is dropped (false: a click, a cancel or a newer hold took over).
+    /// hold is dropped (false: a click, a cancel or a newer hold took over). A true answer is
+    /// checked again when the caller resumes, so nothing that began in between is missed: the
+    /// caller acts in the same main-actor turn as that last check.
     func waitUntilClear() async -> Bool {
-        await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            let held = hold { done.resume(returning: true) }
-            if held { dropped = { done.resume(returning: false) } } else { done.resume(returning: true) }
+        while true {
+            let cleared = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                let held = hold { done.resume(returning: true) }
+                if held { dropped = { done.resume(returning: false) } } else { done.resume(returning: true) }
+            }
+            guard cleared else { return false }
+            if moment().interruption == nil { return true }
         }
     }
 

@@ -156,4 +156,25 @@ import Testing
         await waiting.value
         #expect(answer == false)
     }
+
+    /// A sheet that comes up again before the waiting quit resumes keeps it waiting.
+    @Test func theSelfQuitChecksAgainWhenItResumes() async {
+        let center = NotificationCenter()
+        let moment = Moment()
+        moment.now.sheet = true
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: center, clock: ManualClock())
+        var answer: Bool?
+        let waiting = Task { @MainActor in answer = await hold.waitUntilClear() }
+        await settle()
+        moment.now.sheet = false
+        hold.recheck() // releases the waiter...
+        moment.now.sheet = true // ...and a sheet begins before it resumes
+        await settle()
+        #expect(answer == nil)
+        #expect(hold.isHolding)
+        moment.now.sheet = false
+        center.post(name: NSWindow.didEndSheetNotification, object: nil)
+        await waiting.value
+        #expect(answer == true)
+    }
 }
