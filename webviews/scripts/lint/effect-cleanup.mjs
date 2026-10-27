@@ -51,7 +51,11 @@ export const intervalCleanup = {
         ));
     const resolveFunction = (node) => {
       if (functions.has(node?.type)) return node;
-      const def = variable(node)?.defs[0];
+      const binding = variable(node);
+      // Reading only the declaration would wrongly accept a cleanup function
+      // replaced later with a no-op.
+      if (binding?.references.some((reference) => reference.isWrite() && !reference.init)) return undefined;
+      const def = binding?.defs[0];
       if (def?.type === "FunctionName") return def.node;
       if (functions.has(def?.node?.init?.type)) return def.node.init;
     };
@@ -194,7 +198,10 @@ export const intervalCleanup = {
       const handle = variable(target);
       // A local binding has stable identity at teardown. Mutable ref.current
       // handles must first be captured locally, so a later write cannot leak it.
-      if (!handle || !returnsOnEveryPath(effect.body) || overwritten(effect, interval, handle)) return false;
+      let scopeOwner = handle?.scope.block;
+      while (scopeOwner && scopeOwner !== effect) scopeOwner = scopeOwner.parent;
+      if (!handle || !scopeOwner || !returnsOnEveryPath(effect.body) || overwritten(effect, interval, handle))
+        return false;
       const returns = [];
       walk(
         effect.body,

@@ -9,6 +9,16 @@ const config = resolve(import.meta.dir, "../scripts/lint/effect-cleanup.json");
 const vp = resolve(import.meta.dir, "../node_modules/.bin/vp");
 const prefix = 'import React, { useEffect, useEffect as effect, useLayoutEffect } from "react";\n';
 const cases = [
+  [
+    "shared outer handle",
+    "let id; useEffect(() => { id = setInterval(tick, 1000); return () => clearInterval(id); }, []);",
+    1,
+  ],
+  [
+    "overwritten cleanup helper",
+    "useEffect(() => { const id = setInterval(tick, 1000); let stop = () => clearInterval(id); stop = () => {}; return stop; }, []);",
+    1,
+  ],
   ["leak", "useEffect(() => { setInterval(tick, 1000); }, []);", 1],
   ["unrelated cleanup", "useEffect(() => { const id = setInterval(tick, 1000); return () => stop(); }, []);", 1],
   [
