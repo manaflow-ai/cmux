@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { NextIntlClientProvider } from "next-intl";
 import { type QueryClient, QueryObserver } from "@tanstack/react-query";
-import { planPromptChangeProps, planPromptOutdated, RequiresPro } from "../dashboard-app/components/requires-pro";
+import { planPromptOutdated, planPromptQuery, RequiresPro } from "../dashboard-app/components/requires-pro";
 import { planQuery } from "../dashboard-app/queries/billing";
 import { CloudPageFrame } from "../dashboard-app/screens/cloud/cloud-frame";
 import enMessages from "../messages/en.json";
@@ -97,15 +97,28 @@ describe("dashboard Cloud plan prompt", () => {
     queryClient.clear();
   });
 
+  test.each([
+    { name: "Free to Team", previous: free },
+    { name: "Team to Free", previous: team },
+  ])("a failed $name reload does not show the previous team's answer", async ({ previous }) => {
+    const queryClient = createScreenQueryClient();
+    queryClient.setQueryData(planQuery.queryKey, previous);
+    await queryClient.invalidateQueries({ queryKey: planQuery.queryKey, refetchType: "none" });
+    const reload = queryClient.fetchQuery({ ...planQuery, staleTime: 0, queryFn: () => Promise.reject(new Error("plan unavailable")) });
+    await expect(reload).rejects.toThrow("plan unavailable");
+
+    const html = await renderCloudWithClient(queryClient);
+    expect(html).toContain("Cloud machines");
+    expect(html).not.toContain('data-testid="requires-pro"');
+    queryClient.clear();
+  });
+
   test("the prompt re-renders through a team switch reload, whether it succeeds unchanged or fails", async () => {
     const queryClient = createScreenQueryClient();
     queryClient.setQueryData(planQuery.queryKey, free);
     let respond: () => Promise<Plan> = () => Promise.resolve({ ...free });
-    const observer = new QueryObserver(queryClient, {
-      ...planQuery,
-      queryFn: () => respond(),
-      notifyOnChangeProps: planPromptChangeProps,
-    });
+    // The same options RequiresPro passes to useQuery, with a controllable response.
+    const observer = new QueryObserver(queryClient, { ...planPromptQuery, queryFn: () => respond() });
     // React tracks the result fields a component reads; RequiresPro reads only the plan data.
     void observer.trackResult(observer.getCurrentResult()).data;
     // Each entry is what RequiresPro renders after a re-render: hidden while the plan is outdated.

@@ -12,11 +12,14 @@ import { settingsButtonClass } from "./settings-ui/styles";
 export type ProFeature = "cloud" | "testflight" | "mobileDevices";
 
 /**
- * What RequiresPro re-renders on. An invalidation, and the success or failure
- * of the reload after it, must each re-render the prompt, even when the plan
- * comes back unchanged; `data` alone does not change on any of them.
+ * The plan query as RequiresPro observes it. An invalidation, and the success
+ * or failure of the reload after it, must each re-render the prompt, even when
+ * the plan comes back unchanged; `data` alone does not change on any of them.
  */
-export const planPromptChangeProps: Array<keyof QueryObserverResult> = ["data", "isStale", "isFetching", "dataUpdatedAt", "errorUpdatedAt"];
+export const planPromptQuery = {
+  ...planQuery,
+  notifyOnChangeProps: ["data", "isStale", "isFetching", "dataUpdatedAt", "errorUpdatedAt"] as Array<keyof QueryObserverResult>,
+};
 
 /**
  * A team switch or checkout invalidates the plan: the cached answer may be the
@@ -38,7 +41,7 @@ export function RequiresPro({ feature }: { readonly feature: ProFeature }) {
   const locale = useLocale();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const plan = useQuery({ ...planQuery, notifyOnChangeProps: planPromptChangeProps });
+  const plan = useQuery(planPromptQuery);
   const welcome = welcomePlan((location.search as Record<string, unknown>).welcome);
   if (planPromptOutdated(queryClient) || !plan.data) return null;
   // The welcome shows only once the plan confirms the upgrade; a stale
