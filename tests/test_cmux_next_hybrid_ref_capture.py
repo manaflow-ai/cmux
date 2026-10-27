@@ -22,6 +22,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tarfile
@@ -102,6 +103,23 @@ def make_dd(root: Path) -> Path:
 def names(tgz: Path) -> set[str]:
     with tarfile.open(tgz) as tar:
         return set(tar.getnames())
+
+
+def shortest_timeout(value: object) -> int:
+    """A `timeout-minutes` as the FEWEST minutes it can resolve to.
+
+    A job's timeout may be an expression rather than a literal -- routing picks a
+    bigger limit for a slower runner, as `cmux-scheme-compile` does for hosted
+    macos-26 (#25798). A budget invariant has to hold on every branch of it, so the
+    worst case is the smallest, and reading only the literals keeps this honest
+    without evaluating GitHub expression syntax here: a new branch with a smaller
+    number tightens the check by itself.
+    """
+    if isinstance(value, int):
+        return value
+    numbers = [int(n) for n in re.findall(r"\b(\d+)\b", str(value))]
+    assert numbers, f"no minute count in timeout-minutes {value!r}"
+    return min(numbers)
 
 
 class Key(unittest.TestCase):
@@ -256,7 +274,8 @@ class Workflow(unittest.TestCase):
         upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
         self.assertLessEqual(decide["timeout-minutes"], 1)
         self.assertTrue(upload["continue-on-error"])
-        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], self.job["timeout-minutes"] - 10,
+        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"],
+                             shortest_timeout(self.job["timeout-minutes"]) - 10,
                              "a capture that starts by job minute 40 ends, upload included, well inside the job's limit")
         self.assertIn("(( $(date +%s) - started > 40 * 60 ))", capture["run"])
         self.assertIn("actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs", capture["run"],
