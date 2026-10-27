@@ -678,6 +678,8 @@ export function HomeChannelsPage({
                             }}
                             attachments={uploads}
                             dropZone={column}
+                            initialValue={store.composerDrafts.get(open.id)}
+                            onValueChange={(text) => store.composerDrafts.set(open.id, text)}
                             onSend={(text, files) => store.send(text, undefined, undefined, files)}
                           />
                         </div>

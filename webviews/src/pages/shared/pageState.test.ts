@@ -163,6 +163,31 @@ describe("page state restore", () => {
     expect(list.scrollTop).toBe(250);
   });
 
+  test("a hide before the list is tall enough saves the saved offset, and the restore goes on", () => {
+    const dom = new FakePageDom("#/");
+    const list = dom.scroller("list", 100);
+    openPageState(restoredClient(saved({ scroll: { list: 600, other: 80 } })), "history", dom).keep(() => null);
+    list.scrollHeight = 300;
+    dom.layout();
+    expect(list.scrollTop).toBe(200);
+    dom.hide();
+    expect(dom.lastSaved().scroll).toEqual({ list: 600, other: 80 });
+    // The list lays out while the page is hidden: it takes its offset, ready for the reshow.
+    list.scrollHeight = 2000;
+    dom.layout();
+    expect(list.scrollTop).toBe(600);
+  });
+
+  test("after the person scrolls, a hide saves where they are, not the old offset", () => {
+    const dom = new FakePageDom("#/");
+    const list = dom.scroller("list", 300);
+    openPageState(restoredClient(saved({ scroll: { list: 600 } })), "history", dom).keep(() => null);
+    dom.userInput();
+    list.scrollTop = 50;
+    dom.hide();
+    expect(dom.lastSaved().scroll).toEqual({ list: 50 });
+  });
+
   test("another page's state, another version and junk are not read", () => {
     expect(savedPageState(restoredClient(saved({ page: "apps" })), "history")).toBeNull();
     expect(savedPageState(restoredClient({ ...saved(), v: 2 }), "history")).toBeNull();

@@ -12,6 +12,7 @@ import {
   filterApps,
   listedInStore,
   parseRoute,
+  routeHash,
   type CardStyle,
   type StoreLayout,
   type StoreTab,
@@ -77,8 +78,11 @@ const LOG_LINES = 200;
 /** The page name its saved state carries (pageState.ts). */
 export const APPS_PAGE = "apps";
 
-/** What the App Store keeps across a discard: the search and the category. The tab, the layout and
-    the listing are the route's. */
+/**
+ * What the App Store keeps across a discard: the search and the category. The tab, the layout and
+ * the listing are the route's: the store writes the person's tab and listing into the fragment
+ * (`AppsStoreOptions.replaceRoute`), so the saved route carries them.
+ */
 export interface AppsInputs {
   query: string;
   category?: string;
@@ -92,6 +96,14 @@ export function restoredAppsInputs(state: unknown): Partial<AppsInputs> {
   if (typeof saved.query === "string") inputs.query = saved.query;
   if (typeof saved.category === "string" && saved.category) inputs.category = saved.category;
   return inputs;
+}
+
+export interface AppsStoreOptions {
+  /**
+   * Shows the fragment of the person's tab and listing, with no new history entry and no
+   * `hashchange` (`history.replaceState` in the app). A route the host sets is not written back.
+   */
+  replaceRoute?: (hash: string) => void;
 }
 
 /** The host's code for a declined native sheet: the person said no, which is not an error. */
@@ -119,6 +131,7 @@ export class AppsStore {
   constructor(
     private readonly client: PageClient | null,
     hash = "",
+    private readonly options: AppsStoreOptions = {},
   ) {
     const route = parseRoute(hash);
     this.snapshot = {
@@ -321,15 +334,27 @@ export class AppsStore {
   /** The host set a new fragment (`appStore.show {app}`, `showInstalled`): its tab and listing. */
   applyRoute(hash: string): void {
     const route = parseRoute(hash);
-    this.setTab(route.tab);
+    this.showTab(route.tab);
     if (route.layout !== this.snapshot.layout) this.set({ layout: route.layout });
     if (route.card !== this.snapshot.card) this.set({ card: route.card });
-    if (route.app !== this.snapshot.selection) void this.select(route.app);
+    if (route.app !== this.snapshot.selection) void this.show(route.app);
   }
 
+  /** The person picks a tab: shown, and written into the fragment. */
   setTab(tab: StoreTab): void {
+    this.showTab(tab);
+    this.writeRoute();
+  }
+
+  private showTab(tab: StoreTab): void {
     if (tab !== this.snapshot.tab)
       this.set({ tab, selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined });
+  }
+
+  /** The fragment of what the person now shows, so a hide saves it (pageState.ts). */
+  private writeRoute(): void {
+    const { tab, layout, card, selection } = this.snapshot;
+    this.options.replaceRoute?.(routeHash({ tab, layout, card, app: selection }));
   }
 
   setQuery(query: string): void {
@@ -344,7 +369,14 @@ export class AppsStore {
     this.set({ category: next, visible: filterApps(this.snapshot.catalog, this.snapshot.query, next) });
   }
 
-  async select(app: string | undefined): Promise<void> {
+  /** The person opens a listing (or goes back, `undefined`): shown, and written into the fragment. */
+  select(app: string | undefined): Promise<void> {
+    const shown = this.show(app);
+    this.writeRoute();
+    return shown;
+  }
+
+  private async show(app: string | undefined): Promise<void> {
     if (app && !listedInStore({ id: app })) app = undefined;
     this.set({
       selection: app,

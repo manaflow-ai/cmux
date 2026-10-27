@@ -42,8 +42,10 @@ export interface ComposerProps {
   people?: readonly HomeParticipant[];
   /** Up in an empty composer: edit my last message. */
   onEditLast?(): void;
-  /** The starting text (an edit of an existing message). */
+  /** The starting text (an edit of an existing message, or the conversation's unsent draft). */
   initialValue?: string;
+  /** Called with the text after each change (typing, a quote, the clear after a send). */
+  onValueChange?(markdown: string): void;
   /** An inline edit: Cancel and Save replace Send; Escape cancels. */
   onCancel?(): void;
   /** Take the keyboard focus when it opens (an inline edit started from the keyboard). */
@@ -82,6 +84,7 @@ export function Composer({
   people = [],
   onEditLast,
   initialValue = "",
+  onValueChange,
   onCancel,
   focusOnOpen,
   className,
@@ -90,6 +93,10 @@ export function Composer({
 }: ComposerProps) {
   const { t } = strings;
   const [value, setValue] = useState(initialValue);
+  const reportValue = useRef(onValueChange);
+  reportValue.current = onValueChange;
+  // The text the owner keeps (ComposerDrafts) follows every change, whichever path made it.
+  useEffect(() => reportValue.current?.(value), [value]);
   const [showFormats, setShowFormats] = useState(false);
   const [active, setActive] = useState("");
   const [pop, setPop] = useState<Pop | undefined>();

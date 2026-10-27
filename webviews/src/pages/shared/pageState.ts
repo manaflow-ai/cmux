@@ -170,21 +170,22 @@ export function openPageState(
   return {
     saved,
     keep(inputs) {
-      const stopRestore = sameEntry ? restoreScroll(saved.scroll, dom) : () => undefined;
+      // A hide does not end the restore: content that lays out while hidden still takes its
+      // offset, and an offset not reached yet is saved as it came, not as the short list's top.
+      const restore = sameEntry ? restoreScroll(saved.scroll, dom) : null;
       const stopSave = savePageStateOnHide(() => {
-        stopRestore();
         const state: SavedPageState = {
           v: PAGE_STATE_VERSION,
           page,
           entryRoute: client?.entryRoute ?? loadedRoute,
           route: dom.route(),
-          scroll: currentScroll(dom),
+          scroll: { ...currentScroll(dom), ...restore?.pending() },
           inputs: inputs() ?? null,
         };
         return state;
       }, dom.host);
       return () => {
-        stopRestore();
+        restore?.stop();
         stopSave();
       };
     },
@@ -198,15 +199,25 @@ function currentScroll(dom: PageStateDom): Record<string, number> {
   return offsets;
 }
 
+/** A scroll restore in progress (`restoreScroll`). */
+export interface ScrollRestore {
+  /** Ends the restore; the offsets not reached are dropped. */
+  stop(): void;
+  /**
+   * The saved offsets not reached yet, by key: what a save during the restore keeps, as Blink keeps
+   * the history item's offset until its restore completes. Empty once the restore has ended.
+   */
+  pending(): Record<string, number>;
+}
+
 /**
  * Puts `offsets` back as the content lays out: a scroller takes its offset once it is tall enough
  * for it, in the layout change that made it so, before that frame paints. The restore ends when
  * every offset is back, when the person scrolls first, or after `SCROLL_RESTORE_ATTEMPTS` changes,
- * leaving each short scroller at its nearest offset. Returns the stop function.
+ * leaving each short scroller at its nearest offset.
  */
-export function restoreScroll(offsets: Record<string, number>, dom: PageStateDom): () => void {
+export function restoreScroll(offsets: Record<string, number>, dom: PageStateDom): ScrollRestore {
   const pending = new Map(Object.entries(offsets));
-  if (pending.size === 0) return () => undefined;
   let attempts = 0;
   let stopped = false;
   let stopLayout: () => void = () => undefined;
@@ -214,9 +225,12 @@ export function restoreScroll(offsets: Record<string, number>, dom: PageStateDom
   const stop = () => {
     if (stopped) return;
     stopped = true;
+    pending.clear();
     stopLayout();
     stopUser();
   };
+  const restore: ScrollRestore = { stop, pending: () => Object.fromEntries(pending) };
+  if (pending.size === 0) return restore;
   const attempt = () => {
     if (stopped) return;
     attempts += 1;
@@ -233,5 +247,5 @@ export function restoreScroll(offsets: Record<string, number>, dom: PageStateDom
   stopUser = dom.observeUserScroll(stop);
   stopLayout = dom.observeLayout(attempt);
   attempt();
-  return stop;
+  return restore;
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LiveView } from "./LiveView";
 import { PromptView } from "./PromptView";
 import { Term } from "./Term";
@@ -10,6 +10,15 @@ import { useApi } from "./useApi";
 
 export type Tab = "prompt" | "tree" | "timeline" | "live";
 
+export const TAB_IDS: readonly Tab[] = ["prompt", "tree", "timeline", "live"];
+
+/** Where the inspector is: the tab, the turn the Prompt tab shows and the Tree's zoom path. */
+export interface InspectorView {
+  tab: Tab;
+  turn: string;
+  path: string[];
+}
+
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: "prompt", label: "Prompt", hint: "What the model saw at a turn" },
   { id: "tree", label: "Tree", hint: "Zoom through the memory like the agent does" },
@@ -17,11 +26,25 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: "live", label: "Live", hint: "Settle progress, running turn, errors" },
 ];
 
-/** The Chief memory inspector: four tabs over one shared turn choice and zoom path. */
-export function App({ initialTab = "prompt" }: { initialTab?: Tab }) {
-  const [tab, setTab] = useState<Tab>(initialTab);
-  const [turn, setTurn] = useState("now");
-  const [path, setPath] = useState<string[]>([]);
+/**
+ * The Chief memory inspector: four tabs over one shared turn choice and zoom path. `initial` is
+ * where a restored page was (chief-inspector); `onView` hears each move, so the page can keep it.
+ */
+export function App({
+  initialTab = "prompt",
+  initial,
+  onView,
+}: {
+  initialTab?: Tab;
+  initial?: Partial<InspectorView>;
+  onView?(view: InspectorView): void;
+}) {
+  const [tab, setTab] = useState<Tab>(initial?.tab ?? initialTab);
+  const [turn, setTurn] = useState(initial?.turn ?? "now");
+  const [path, setPath] = useState<string[]>(initial?.path ?? []);
+  const report = useRef(onView);
+  report.current = onView;
+  useEffect(() => report.current?.({ tab, turn, path }), [tab, turn, path]);
   const status = useApi<Status>("/api/status", tab === "live" ? 2000 : undefined);
   const turns = useApi<{ turns: TurnRow[] }>("/api/turns").data?.turns ?? [];
   const now = useApi<TurnPrompt>(tab === "tree" ? "/api/turn?key=now" : null);

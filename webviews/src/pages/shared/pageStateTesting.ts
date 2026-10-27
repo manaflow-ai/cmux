@@ -1,8 +1,8 @@
 // Fakes for page state tests (pageState.ts): a page DOM whose route, scrollers, layout and
 // visibility the test drives, and the client a discard then restore hands the next document.
-import { BridgePageClient, RESTORE_NAME, type ReplyHandler } from "./pageClient";
+import { BridgePageClient, RESTORE_NAME, type PageClient, type ReplyHandler } from "./pageClient";
 import { PAGE_STATE_KEY, type PageStateHost } from "./pageLifecycle";
-import type { PageScroller, PageStateDom, SavedPageState } from "./pageState";
+import { openPageState, type PageScroller, type PageStateDom, type SavedPageState } from "./pageState";
 
 const handler: ReplyHandler = { postMessage: async () => ({ t: "ok", id: 0, value: null }) };
 
@@ -123,4 +123,56 @@ export function restoredClient(saved: unknown, hash = ""): BridgePageClient {
 export function discardAndRestore(dom: FakePageDom, hash = dom.hash): BridgePageClient {
   dom.hide();
   return restoredClient(dom.lastSaved(), hash);
+}
+
+/** One page's discard as a test drives it (`pageRoundTrip`). */
+export interface PageRoundTrip {
+  /** The first document: its scrollers are set, and `keep` saves its inputs on hide. */
+  readonly before: FakePageDom;
+  /** Hides `before`, and opens the next document's state on a DOM whose scrollers are `heights`. */
+  restore(heights?: Record<string, number>): { client: BridgePageClient; after: FakePageDom };
+}
+
+/**
+ * Opens `page`'s state on a document at `route` with each `scroll` offset set, saving `inputs()` on
+ * hide, as main.tsx does for that page. `restore` then gives the next document's client and DOM,
+ * with its state opened (the scroll comes back as its scrollers lay out).
+ */
+export function pageRoundTrip(
+  page: string,
+  {
+    route = "",
+    scroll = {},
+    inputs = () => null,
+  }: { route?: string; scroll?: Record<string, number>; inputs?: () => unknown },
+): PageRoundTrip {
+  const before = new FakePageDom(route);
+  for (const [key, offset] of Object.entries(scroll)) before.scroller(key, offset + 5000).scrollTop = offset;
+  openPageState(new BridgePageClient(handler, { location: { hash: route } }), page, before).keep(inputs);
+  return {
+    before,
+    restore(heights = {}) {
+      const client = discardAndRestore(before, route);
+      const after = new FakePageDom(route);
+      for (const key of Object.keys(scroll)) after.scroller(key, heights[key] ?? (scroll[key] ?? 0) + 5000);
+      openPageState(client, page, after).keep(() => null);
+      return { client, after };
+    },
+  };
+}
+
+/** `provider` (a page's mock) as the restored document's client: its ops, `restored`'s restore. */
+export function withRestore(provider: PageClient, restored: PageClient): PageClient {
+  return {
+    call: (op, params, options) => provider.call(op, params, options),
+    subscribe: (stream, onEvent, filter) => provider.subscribe(stream, onEvent, filter),
+    handle: (op, handler) => provider.handle(op, handler),
+    restore: restored.restore,
+    entryRoute: restored.entryRoute,
+  };
+}
+
+/** The scroll offset of `after`'s scroller `key`. */
+export function scrollOf(after: FakePageDom, key: string): number {
+  return after.scrollers().get(key)?.scrollTop ?? 0;
 }

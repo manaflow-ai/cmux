@@ -11,6 +11,9 @@ import { setLocale, t } from "./strings";
 import { holdPaintUntil } from "../shared/paintGate";
 import { PARKED_NAME } from "../shared/pageClient";
 
+/** The page name its saved state carries (pageState.ts). */
+export const SETTINGS_PAGE = "settings";
+
 /** A pooled document the host has not claimed yet (pageClient.ts). */
 const parked = () => (globalThis as Record<string, unknown>)[PARKED_NAME] === true;
 

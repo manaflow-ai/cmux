@@ -23,7 +23,9 @@ export function mountAppsPage(
 ): AppsStore {
   // Before the store reads the fragment: a restored document shows the route it had moved on to.
   const state = openPageState(client, APPS_PAGE);
-  const store = new AppsStore(client, hash ?? location.hash);
+  const store = new AppsStore(client, hash ?? location.hash, {
+    replaceRoute: (route) => history.replaceState(history.state, "", route),
+  });
   state.keep(() => store.pageInputs());
   // The app's key dispatcher sends page commands; the page never reads chords.
   if (client) {
