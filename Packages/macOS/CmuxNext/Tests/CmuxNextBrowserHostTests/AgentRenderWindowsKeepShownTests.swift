@@ -15,7 +15,9 @@ import Testing
         let windows = AgentRenderWindows()
         let chrome = NSView()
         let told = Told()
-        #expect(windows.keepRendering(tabID: "tab", chrome: chrome, webView: nil, keepsPageShown: { told.values.append($0) }))
+        let tell: @MainActor (Bool) -> Void = { told.values.append($0) }
+        let parked = windows.keepRendering(tabID: "tab", chrome: chrome, webView: nil, keepsPageShown: tell)
+        #expect(parked)
         #expect(told.values == [true], "the parked page was not kept shown")
         #expect(chrome.window != nil, "the chrome did not move into the render window")
         windows.release(tabID: "tab")
@@ -29,10 +31,13 @@ import Testing
         let windows = AgentRenderWindows()
         let chrome = NSView()
         let told = Told()
-        #expect(windows.keepRendering(tabID: "tab", chrome: chrome, webView: nil, keepsPageShown: { told.values.append($0) }))
+        let tell: @MainActor (Bool) -> Void = { told.values.append($0) }
+        let parked = windows.keepRendering(tabID: "tab", chrome: chrome, webView: nil, keepsPageShown: tell)
+        #expect(parked)
         // A pane parked it hidden, so it is a background tab again and the next driver call parks it anew.
         chrome.isHidden = true
-        #expect(windows.keepRendering(tabID: "tab", chrome: chrome, webView: nil, keepsPageShown: { told.values.append($0) }))
+        let parkedAgain = windows.keepRendering(tabID: "tab", chrome: chrome, webView: nil, keepsPageShown: tell)
+        #expect(parkedAgain)
         #expect(told.values == [true, false, true], "the new park did not end the old one before it began")
         windows.release(tabID: "tab")
         #expect(told.values.last == false)
