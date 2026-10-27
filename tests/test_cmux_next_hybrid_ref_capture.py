@@ -394,7 +394,8 @@ class Workflow(unittest.TestCase):
         cases = {"complete=0\nrecent_incomplete=0": ("true", "true", "0"),
                  "complete=1\nrecent_incomplete=0": ("false", "false", "0"),
                  "complete=0\nrecent_incomplete=2": ("true", "false", "0"),
-                 None: ("true", "false", "1")}
+                 # a failed lookup must compile: with reuse it would build nothing to capture (40428066457)
+                 None: ("true", "true", "1")}
         for have_output, (capture, compile_, rc) in cases.items():
             got = self.decide(have_output)
             self.assertEqual((got["capture"], got["compile"], got["rc"]), (capture, compile_, rc), have_output)

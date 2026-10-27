@@ -4528,8 +4528,10 @@ jobs:
             printf 'key=%s\ncapture=%s\ncompile=%s\n' "$key" "$capture" "$compile" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          printf 'key=%s\ncapture=true\ncompile=false\n' "$key" >> "$GITHUB_OUTPUT"
-          echo "::error title=REF capture lookup failed::the capture artifact lookup for REF key $key failed (log above); a build that compiles still captures"
+          # Unknown: capture, and compile so there is a build to capture (a lookup that fails for
+          # 10 minutes is rare; a lost capture costs the Linux build its REF).
+          printf 'key=%s\ncapture=true\ncompile=true\n' "$key" >> "$GITHUB_OUTPUT"
+          echo "::error title=REF capture lookup failed::the capture artifact lookup for REF key $key failed (log above); compiling and capturing anyway"
           exit 1
       # The DEV Release app is reused, not recompiled, when nothing it is built from changed
       # (scripts/ci/dev_release_product_reuse.py): the key is job_input_fingerprint.py
