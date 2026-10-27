@@ -124,6 +124,7 @@ final class AgentActivityPageService {
         if services.environment.showcase || (DevTools.isEnabled && environment["CMUX_NEXT_AGENT_ACTIVITY_MOCK"] == "1") {
             return AgentActivityMockSource()
         }
-        return AgentActivitySocketSource(configuration: .standard(machineName: AgentActivityPaneStrings.thisMac))
+        return AgentActivitySocketSource(configuration: .standard(machineName: AgentActivityPaneStrings.thisMac),
+                                         deadlines: services.mainDeadlines)
     }
 }

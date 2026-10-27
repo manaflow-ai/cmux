@@ -15,8 +15,8 @@ import CmuxNextWakeups
 @MainActor final class TabClosingModeWatch {
     private weak var strip: TabStripView?
     /// Mouse closing mode ends `closingModeExitDelay` after the pointer leaves the strip's extended
-    /// area; the subscriptions follow it outside the strip meanwhile.
-    private let exitTimer = DemandTimer(owner: "TabStrip.closingModeExit")
+    /// area; the subscriptions follow it outside the strip meanwhile. A `visible` deadline on the app's placer.
+    private let exitTimer: MainDeadline
     private var exitMoves: InputSubscription?
     private var exitPresses: InputSubscription?
     private var exitOtherApps: InputSubscription?
@@ -25,7 +25,10 @@ import CmuxNextWakeups
     private var trackingArea: NSTrackingArea?
     private weak var trackingHost: NSView?
 
-    init(strip: TabStripView) { self.strip = strip }
+    init(strip: TabStripView) {
+        self.strip = strip
+        exitTimer = MainDeadline(owner: "TabStrip.closingModeExit", workClass: .visible, scheduler: strip.deadlines)
+    }
 
     /// The strip with Chrome's exit margins, in strip coordinates (flipped: y grows down).
     var area: CGRect {
@@ -122,7 +125,7 @@ import CmuxNextWakeups
             exitTimer.cancel()
         } else {
             let delay = strip.metrics.chrome.closingModeExitDelay
-            exitTimer.scheduleOnMainIfIdle(after: .milliseconds(Int((delay * 1000).rounded()))) { [weak self] in
+            exitTimer.scheduleIfIdle(after: .milliseconds(Int((delay * 1000).rounded()))) { [weak self] in
                 self?.exit()
             }
         }

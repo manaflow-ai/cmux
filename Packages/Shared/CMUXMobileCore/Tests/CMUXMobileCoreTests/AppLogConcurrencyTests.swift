@@ -46,7 +46,7 @@ import Testing
     @Test func acknowledgementResolvesOnceUnderRacingSignals() async {
         for round in 0..<200 {
             let acknowledgement = AppLog.Acknowledgement()
-            async let waited = acknowledgement.wait(timeoutNanoseconds: 30_000_000_000)
+            async let waited = acknowledgement.wait(timeout: .seconds(30), on: ContinuousClock())
             await withTaskGroup(of: Void.self) { group in
                 for signaller in 0..<4 {
                     group.addTask { acknowledgement.signal((round + signaller).isMultiple(of: 2)) }
@@ -54,18 +54,20 @@ import Testing
             }
             let result = await waited
             // Every later signal is ignored: waiting again returns the same value at once.
-            #expect(await acknowledgement.wait(timeoutNanoseconds: 30_000_000_000) == result)
+            #expect(await acknowledgement.wait(timeout: .seconds(30), on: ContinuousClock()) == result)
         }
     }
 
     @Test func acknowledgementTimesOutAndCancelsToFalse() async {
+        // The deadline passes at once, so the result never depends on wall time.
+        let deadline = WakeRecordingClock(.firesAtOnce)
         let timedOut = AppLog.Acknowledgement()
-        #expect(await timedOut.wait(timeoutNanoseconds: 1_000_000) == false)
+        #expect(await timedOut.wait(timeout: .milliseconds(1), on: deadline) == false)
         timedOut.signal(true)
-        #expect(await timedOut.wait(timeoutNanoseconds: 1_000_000) == false)
+        #expect(await timedOut.wait(timeout: .milliseconds(1), on: deadline) == false)
 
         let cancelled = AppLog.Acknowledgement()
-        let waiter = Task { await cancelled.wait(timeoutNanoseconds: 30_000_000_000) }
+        let waiter = Task { await cancelled.wait(timeout: .seconds(30), on: ContinuousClock()) }
         waiter.cancel()
         #expect(await waiter.value == false)
     }

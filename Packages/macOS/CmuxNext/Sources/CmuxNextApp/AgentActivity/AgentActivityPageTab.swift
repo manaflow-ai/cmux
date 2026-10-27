@@ -44,7 +44,7 @@ final class AgentActivityPageTab: BrowserTab {
         standInCap = MainDeadline(owner: "AgentActivityPageTab.standIn", workClass: .visible, scheduler: deadlines)
         self.engineKind = engine
         self.profileID = profile
-        let model = AgentActivityModel(source: source)
+        let model = AgentActivityModel(source: source, mainWork: deadlines.work)
         model.layout = AgentActivityTunables.layout.value
         self.model = model
         let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source), mainWork: deadlines.work)

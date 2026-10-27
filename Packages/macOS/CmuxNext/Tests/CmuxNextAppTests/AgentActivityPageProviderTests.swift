@@ -14,7 +14,7 @@ import Testing
 
     @Test func aRequestRunsOnTheModelAndAFailedOneIsAPageError() async throws {
         let source = AgentActivityMockSource()
-        let model = AgentActivityModel(source: source)
+        let model = AgentActivityModel(source: source, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source),
                                                  mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         _ = try await provider.call("cmux.agentActivity.filter", params: ["value": "safari"], context: context)
@@ -29,7 +29,7 @@ import Testing
 
     @Test func theStateStreamStartsWithTheWholeStateAndFollowsChanges() async throws {
         let source = AgentActivityMockSource()
-        let model = AgentActivityModel(source: source)
+        let model = AgentActivityModel(source: source, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source),
                                                  mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         var states: [JSONValue] = []

@@ -15,6 +15,7 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct CEFRuntimeHostExitTests {
     private static let killed = BrowserProcessExit(reason: .killed, code: Int(SIGKILL), engine: .cef)
     private static let page = URL(string: "https://example.com/")!
+    private static let elsewhere = URL(string: "https://example.org/next")!
 
     @Test func aHostEndShowsTheCrashStateOnEveryPageAndRecordsOnlyTheHost() async throws {
         let (runtime, supervisor, wire) = try await Self.startedRuntime()
@@ -38,6 +39,25 @@ import Testing
         #expect(runtime.shim == nil)
         #expect(runtime.awaitsHostRestart)
         #expect(HostWire.state.withLock { $0.detaches } == 1, "the remote shim kept the dead wire")
+    }
+
+    /// p01-process-085: each attach tells the supervisor its host's fork API, which that host's crash record names.
+    @Test func theAttachTellsTheSupervisorItsHostsForkAPI() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: 2)
+        defer { wire.close() }
+        #expect(supervisor.forkAPIs == [2])
+        supervisor.onHostEnded?(Self.killed)
+        HostWire.state.withLock { $0.forkAPI = 3 }
+        try await runtime.start(layout: nil, environment: [:], trigger: "tab")
+        #expect(supervisor.forkAPIs == [2, 3])
+    }
+
+    /// p01-process-085: in host mode Chromium's log is the one the host's spawn names (`--log-file`, whose end the
+    /// supervisor keeps in a crash record), so INITIALIZE names none: the runtime's `cef.log` would take its place.
+    @Test func hostModeInitializesChromiumWithNoLogFileOfItsOwn() async throws {
+        let (_, _, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        #expect(HostWire.state.withLock { $0.initializeLogFiles } == [""])
     }
 
     @Test func theNextStartAttachesTheNextHost() async throws {
@@ -198,6 +218,149 @@ import Testing
         #expect(runtime.crashLog.records.map(\.processType) == ["renderer", "renderer"], "each tab logs its renderer")
         let samples = try #require(CEFPumpTests.histogram(.cefHelperExit, in: store))
         #expect(samples.count == 1 && samples.sum == 17, "one renderer crash, not one per tab")
+    }
+
+    /// p01-process-083: a crash within the restart budget starts the next host at once and brings back every page of
+    /// every window and profile with the navigation its daemon record saved at its address: a shown page asks the new
+    /// host for its browser now, a hidden one keeps its crash page until it shows, and each restores its saved
+    /// navigation on its new browser (a page with no record loads its address).
+    @Test func aCrashWithinTheBudgetBringsBackEveryPageWithItsSavedNavigation() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFTab.navigationRestoreForkAPI)
+        defer { wire.close() }
+        let pages = (1...3).map { URL(string: "https://example.com/\($0)")! }
+        let work = BrowserProfileID(rawValue: UUID())
+        let tabs = [Self.tab(runtime, browser: 1), Self.tab(runtime, browser: 2, profile: work), Self.tab(runtime, browser: 3)]
+        for (tab, url) in zip(tabs, pages) { tab.committedURL = url }
+        // The first page is shown in its pane; the others are hidden.
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        tabs[0].host.present(tabs[0], in: container)
+        let saved = [tabs[0].id: "state-1", tabs[1].id: "state-2"]  // the third tab has no record
+        let asked = AskedURLs()
+        supervisor.savedNavigation = { id, url in
+            asked.urls.append(url)
+            return saved[id].map(BrowserRestoreState.chromium)
+        }
+        supervisor.lastEndRestoresPages = true
+
+        supervisor.onHostEnded?(Self.killed)
+        #expect(tabs.allSatisfy { $0.state.processExit == Self.killed }, "a page left its crash page before the next host")
+        let restores = try #require(runtime.hostStart?.pageRestores)
+        for _ in 0..<1_000 where supervisor.asked < 2 { await Task.yield() }
+        // Joins the restore's attach, so the test resumes once the runtime is ready again.
+        try await runtime.start(layout: nil, environment: [:], trigger: "test")
+        for _ in 0..<1_000 where tabs.dropFirst().contains(where: { restores.phase(of: $0) != .waitsForShow }) { await Task.yield() }
+
+        #expect(supervisor.asked == 2, "no host started after a crash within the budget")
+        #expect(Set(asked.urls) == Set(pages), "a page's saved navigation was not read at its address")
+        #expect(tabs.map(\.pendingRestore) == ["state-1", "state-2", nil])
+        #expect(tabs.map(\.pendingURL) == pages)
+        #expect(tabs[0].state.processExit == nil && tabs[0].isCreationPending, "the shown page did not ask the new host for its browser")
+        #expect(restores.phase(of: tabs[0]) == nil)
+        #expect(tabs.dropFirst().allSatisfy { $0.state.processExit == Self.killed }, "a hidden page started before it showed")
+        #expect(HostWire.state.withLock { $0.deadWireOps } == 0, "an op went to the dead host's wire")
+
+        // Shown, a hidden page starts; each new browser restores its saved navigation.
+        tabs[1].contentDidAppear(in: tabs[1].container)
+        #expect(tabs[1].state.processExit == nil && restores.phase(of: tabs[1]) == nil)
+        for (index, tab) in tabs.enumerated() { runtime.register(tab, browser: Int32(11 + index)) }
+        #expect(HostWire.state.withLock { $0.restoredBrowsers } == [11, 12], "a page came back without its saved navigation")
+        #expect(HostWire.state.withLock { $0.restoredStates } == ["state-1", "state-2"])
+    }
+
+    /// p01-process-083: a page sent to a new address while its restore reads its saved navigation (a person's address,
+    /// a script, the CLI or MCP) loads that address on the next host: its restore ends, and its new browser is made
+    /// with the new address and restores nothing.
+    @Test func aLoadWhileTheRestoreReadsLoadsTheNewAddressOnTheNextHost() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFTab.navigationRestoreForkAPI)
+        defer { wire.close() }
+        let tab = Self.tab(runtime, browser: 1)
+        tab.committedURL = Self.page
+        tab.host.present(tab, in: NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300)))
+        supervisor.savedNavigation = { _, _ in .chromium("state-1") }
+        supervisor.lastEndRestoresPages = true
+        let restores = try #require(runtime.hostStart?.pageRestores)
+
+        supervisor.onHostEnded?(Self.killed)
+        #expect(restores.blocksCreation(of: tab), "the page did not wait for its restore")
+        tab.load(Self.elsewhere)
+        #expect(restores.phase(of: tab) == nil, "the navigation left the restore waiting")
+        for _ in 0..<1_000 where supervisor.asked < 2 { await Task.yield() }
+        // Joins the restore's attach, so the test resumes once the runtime is ready again.
+        try await runtime.start(layout: nil, environment: [:], trigger: "test")
+        for _ in 0..<1_000 where !tab.isCreationPending { await Task.yield() }
+
+        #expect(supervisor.asked == 2)
+        #expect(tab.isCreationPending, "the shown page did not ask the new host for its browser")
+        #expect(tab.pendingRestore == nil && tab.pendingURL == Self.elsewhere, "the restore put the old page back")
+        #expect(HostWire.state.withLock { $0.createdURLs } == [Self.elsewhere.absoluteString])
+        runtime.register(tab, browser: 11)
+        #expect(HostWire.state.withLock { $0.restoredBrowsers }.isEmpty, "the new browser restored the old navigation")
+        #expect(tab.state.url == Self.elsewhere)
+    }
+
+    /// p01-process-083: a hidden page whose restore waits for it to show, sent to a new address meanwhile, shows that
+    /// address: its browser is made with it and restores nothing. A Reload before then keeps the restore.
+    @Test func aLoadOfAHiddenPageWaitingForItsRestoreLoadsTheNewAddressWhenItShows() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFTab.navigationRestoreForkAPI)
+        defer { wire.close() }
+        let tab = Self.tab(runtime, browser: 1)
+        tab.committedURL = Self.page
+        supervisor.savedNavigation = { _, _ in .chromium("state-1") }
+        supervisor.lastEndRestoresPages = true
+        let restores = try #require(runtime.hostStart?.pageRestores)
+        supervisor.onHostEnded?(Self.killed)
+        for _ in 0..<1_000 where supervisor.asked < 2 { await Task.yield() }
+        try await runtime.start(layout: nil, environment: [:], trigger: "test")
+        for _ in 0..<1_000 where restores.phase(of: tab) != .waitsForShow { await Task.yield() }
+        try #require(restores.phase(of: tab) == .waitsForShow)
+
+        tab.reload()
+        #expect(restores.phase(of: tab) == .waitsForShow && tab.pendingRestore == "state-1", "a Reload dropped the restore")
+        tab.load(Self.elsewhere)
+        #expect(restores.phase(of: tab) == nil && tab.pendingRestore == nil, "the navigation left the restore waiting")
+
+        tab.contentDidAppear(in: tab.container)
+        #expect(tab.isCreationPending, "the shown page did not ask for its browser")
+        #expect(HostWire.state.withLock { $0.createdURLs } == [Self.elsewhere.absoluteString])
+        runtime.register(tab, browser: 11)
+        #expect(HostWire.state.withLock { $0.restoredBrowsers }.isEmpty, "the new browser restored the old navigation")
+        #expect(tab.state.url == Self.elsewhere, "the address and the page do not match")
+    }
+
+    /// p01-process-083: a page that showed a form's result (a POST) is never sent again without the person: it keeps
+    /// its crash page, shown or hidden, and no host starts for it.
+    @Test func aFormResultKeepsItsCrashPageAfterACrashWithinTheBudget() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFTab.navigationRestoreForkAPI)
+        defer { wire.close() }
+        let tab = Self.tab(runtime, browser: 1)
+        tab.committedURL = Self.page
+        tab.restored.documentCommitted(url: Self.page, formPost: true)
+        supervisor.lastEndRestoresPages = true
+
+        supervisor.onHostEnded?(Self.killed)
+        for _ in 0..<100 { await Task.yield() }
+
+        #expect(supervisor.asked == 1, "a host started to send a form again")
+        #expect(tab.state.processExit == Self.killed)
+        #expect(!tab.reloadWhenShown, "the form's page would load again when it shows")
+        #expect(runtime.hostStart?.pageRestores.phase(of: tab) == nil)
+    }
+
+    /// p01-process-083: past the restart budget nothing comes back on its own: each page keeps its crash page and
+    /// reloads when it shows, as before.
+    @Test func aCrashPastTheBudgetRestoresNothing() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFTab.navigationRestoreForkAPI)
+        defer { wire.close() }
+        let tab = Self.tab(runtime, browser: 1)
+        tab.committedURL = Self.page
+
+        supervisor.onHostEnded?(Self.killed)
+        for _ in 0..<100 { await Task.yield() }
+
+        #expect(supervisor.asked == 1)
+        #expect(tab.state.processExit == Self.killed)
+        #expect(tab.reloadWhenShown)
+        #expect(runtime.hostStart?.pageRestores.phase(of: tab) == nil)
     }
 
     @Test func inProcessAHostEndDoesNothing() throws {
@@ -365,11 +528,11 @@ import Testing
         #endif
     }
 
-    /// A tab in a pane of its own whose browser is `browser`.
-    private static func tab(_ runtime: CEFRuntime, browser: Int32) -> CEFTab {
-        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+    /// A tab of `profile` in a pane of its own whose browser is `browser`.
+    private static func tab(_ runtime: CEFRuntime, browser: Int32, profile: BrowserProfileID = .default) -> CEFTab {
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: profile), runtime: runtime)
         host.endOfTurn = { $0() }
-        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        let tab = CEFTab(id: .random(), profile: profile, host: host, runtime: runtime)
         host.add(tab)
         runtime.register(tab, browser: browser)
         return tab
@@ -380,6 +543,9 @@ import Testing
 /// runtime sets.
 @MainActor private final class ReportingHost: @MainActor ChromiumHostExitReporting {
     var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?
+    /// Whether the next reported end is within the restart budget (p01-process-083).
+    var lastEndRestoresPages = false
+    var savedNavigation: ChromiumHostSavedNavigation?
     private(set) var asked = 0
     private let controlFD: Int32
 
@@ -406,6 +572,13 @@ import Testing
 
     func hostSaidHello() {}
 
+    /// The fork API each attach read from its host (p01-process-085).
+    private(set) var forkAPIs: [Int32] = []
+
+    func hostRuns(forkAPI: Int32) {
+        forkAPIs.append(forkAPI)
+    }
+
     #if DEBUG
     /// Launches a stand-in host, SIGKILLs it, waits for its end off main and reports it as the supervisor
     /// does: mapped with `pageExit`, on main, nothing for a clean exit.
@@ -420,6 +593,11 @@ import Testing
         if let exit = ended.pageExit { onHostEnded?(exit) }
     }
     #endif
+}
+
+/// The addresses whose saved navigation the runtime asked for.
+@MainActor private final class AskedURLs {
+    var urls: [URL] = []
 }
 
 /// Closes the tab when it asks to close, as the app's tab owner does.
@@ -465,6 +643,13 @@ private nonisolated enum HostWire {
         var forkAPI: Int32 = 0
         /// Each `cmux_shim_set_energy_saver` call's `enabled`.
         var energySaver: [Int32] = []
+        /// Each `cmux_shim_initialize` call's log file, nil for NULL.
+        var initializeLogFiles: [String?] = []
+        /// Each `cmux_shim_tab_restore_navigation` call's browser and state.
+        var restoredBrowsers: [Int32] = []
+        var restoredStates: [String] = []
+        /// Each `cmux_shim_create_window` call's URL while a wire is attached.
+        var createdURLs: [String] = []
     }
 
     static let state = Mutex(State())
@@ -501,12 +686,30 @@ private nonisolated enum HostWire {
             UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
             UnsafePointer<UnsafePointer<CChar>?>?,
             UnsafeMutableRawPointer?, CEFShimLibrary.ScheduleFn?, CEFShimLibrary.EventFn?, CEFShimLibrary.KeyFn?
-        ) -> Int32 = { _, _, _, _, _, _, _, _, _, _, _, _, _ in 1 }
+        ) -> Int32 = { _, _, _, _, logFile, _, _, _, _, _, _, _, _ in
+            let path = logFile.map { String(cString: $0) }
+            HostWire.state.withLock { $0.initializeLogFiles.append(path) }
+            return 1
+        }
         let browserOp: @convention(c) (Int32) -> Void = { _ in HostWire.op() }
         let loadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void = { _, _ in HostWire.op() }
-        let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in
+        let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, url, _ in
             HostWire.op()
-            return 0
+            let text = url.map { unsafe String(cString: $0) } ?? ""
+            return HostWire.state.withLock { wire in
+                guard wire.live else { return 0 }
+                wire.createdURLs.append(text)
+                return 1
+            }
+        }
+        let restoreSupported: @convention(c) () -> Int32 = { 1 }
+        let restoreNavigation: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = { browser, state in
+            let text = state.map { unsafe String(cString: $0) } ?? ""
+            HostWire.state.withLock { wire in
+                wire.restoredBrowsers.append(browser)
+                wire.restoredStates.append(text)
+            }
+            return 1
         }
         let tryClose: @convention(c) (Int32) -> Int32 = { _ in
             HostWire.op()
@@ -535,6 +738,8 @@ private nonisolated enum HostWire {
         case "cmux_shim_reload", "cmux_shim_close": unsafeBitCast(browserOp, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_load_url": unsafeBitCast(loadURL, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_navigation_restore_supported": unsafeBitCast(restoreSupported, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_tab_restore_navigation": unsafeBitCast(restoreNavigation, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_try_close": unsafeBitCast(tryClose, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_before_unload_reply": unsafeBitCast(beforeUnloadReply, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)

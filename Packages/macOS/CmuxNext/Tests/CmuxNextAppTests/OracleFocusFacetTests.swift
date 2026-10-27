@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextFocus
+import CmuxNextInputModel
 import CmuxNextOracle
 import CmuxNextSettings
 import Testing

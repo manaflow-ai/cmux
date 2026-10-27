@@ -1,7 +1,7 @@
 public import CmuxNextDaemon
 
 /// Why a workspace this connection saw with a pane has none now.
-public enum EmptiedWorkspaceCause: Equatable {
+public enum EmptiedWorkspaceCause: Equatable, Sendable {
     /// Its last tab was closed or its last process ended (exit or signal):
     /// the workspace closes (dogfood nxdog9).
     case tabClosed
