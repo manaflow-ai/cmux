@@ -226,6 +226,9 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// condition on in the same commit, and a condition on without the export fails the compile and link.
 /// - GHOSTTY_GPU_RESIDENT: `ghostty_surface_set_gpu_resident` (ghostty-next cp/p07-memory-036, not in
 ///   723c4ab93): `GhosttyGPUResidency`, so `terminalGPURelease` and the larger warm set.
+/// - GHOSTTY_TRACE_HOOK: `ghostty_set_trace_hook` and `ghostty_surface_trace_id` (ghostty-next
+///   cp/p09-observability-048, PR 57, not in 723c4ab93): `GhosttyTraceHook`, so `ghostty.render`,
+///   `frame.gpu_done`, the contents mark and echo stages in Release builds.
 /// - GHOSTTY_ENERGY_SAVER: `ghostty_app_set_energy_saver` (ghostty-next cp/p14-energy-114, not in
 ///   723c4ab93): `GhosttyRuntime.followEnergySaver(on:)` sends the saver's edges to libghostty.
 /// - GHOSTTY_RENDERER_FRAMES: renderer-owned frames (ghostty-next cp/p03-rendering-080 f60815cf5, not in
@@ -244,12 +247,14 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// - GHOSTTY_LOCK_WAIT: `ghostty_surface_set_lock_wait_callback` (ghostty-next cp/p04-input-078, not in
 ///   723c4ab93): `GhosttyLockWaitSignpost` records `ghostty.lock_wait` in Debug and bench builds.
 let ghosttyNextKitHasGPUResident = false
+let ghosttyNextKitHasTraceHook = false
 let ghosttyNextKitHasEnergySaver = false
 let ghosttyNextKitHasRendererFrames = false
 let ghosttyNextKitHasPresentNeverWaits = false
 let ghosttyNextKitHasLockWait = false
 let ghosttyNextKitCapabilities: [SwiftSetting] =
     (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
+    + (ghosttyNextKitHasTraceHook ? [.define("GHOSTTY_TRACE_HOOK")] : [])
     + (ghosttyNextKitHasEnergySaver ? [.define("GHOSTTY_ENERGY_SAVER")] : [])
     + (ghosttyNextKitHasRendererFrames ? [.define("GHOSTTY_RENDERER_FRAMES")] : [])
     + (ghosttyNextKitHasPresentNeverWaits ? [.define("GHOSTTY_PRESENT_NEVER_WAITS")] : [])
@@ -1972,7 +1977,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextWakeups", "CmuxNextInput",
                            "CmuxNextWakeupsTestSupport", "CmuxNextSignposts", "CmuxNextDesign",
                            .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"), .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
-            swiftSettings: uiSwiftSettings,
+            // The pin's capabilities: GhosttyTraceHookTests calls the hook through libghostty's record type.
+            swiftSettings: uiSwiftSettings + ghosttyNextKitCapabilities,
             linkerSettings: [.linkedLibrary("c++")]
         ),
         // Pure grid-geometry policy for terminal surfaces (which grid a
