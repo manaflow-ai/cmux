@@ -72,7 +72,7 @@ enum WorkspaceStructureHandlers {
             blueprint = blueprint.withoutBrowserTabs(fallbackDirectory: WorkspaceVerbHandlers.directory(of: workspace, context))
         }
         let windows = context.services.windows
-        let target = windows.targetWindow(preferring: windows.registry.value.owner(of: workspace.id) ?? context.activeWindow?.state.id)
+        let target = windows.targetWindow(preferring: windows.registry.value.owner(of: workspace.id) ?? windows.activeWindowID)
         build(blueprint, name: workspace.displayName, slot: .below(workspace.id), on: daemon, into: target,
               label: "duplicate workspace", services: context.services, done: done)
     }

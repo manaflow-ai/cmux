@@ -63,7 +63,7 @@ enum RoomMoveHandlers {
                                   _ context: AppActionContext) {
         let windows = context.services.windows
         let directories = terminalDirectories(of: workspace)
-        let target = windows.targetWindow(preferring: windows.active?.state.id)
+        let target = windows.targetWindow(preferring: windows.activeWindowID)
         let spawn = WorkspaceSpawn(cwd: directories.first ?? nil, name: workspace.displayName, profile: room)
         let daemon = daemon(of: workspace, context)
         // The create and each terminal after it are awaited off main, in order; the run's result is one task on main.

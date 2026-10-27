@@ -386,7 +386,7 @@ extension WindowManager {
         let held: Set<String> = FirstTabHold.held(live).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
-        }).union(restored ? [] : live.filter { id in placements[id].map(awaitsRestore) == true })
+        }).union(savedRegistryApplied ? [] : live.filter { id in placements[id].map(awaitsRestore) == true })
         for id in live where !held.contains(id) { pendingClaims[id] = nil }
         // A claimed workspace is selected in its window, unless it was
         // claimed quietly (`claim(select: false)`).
@@ -405,7 +405,9 @@ extension WindowManager {
         }
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
-        if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
+        // Not during the restore's awaits: the saved registry it applies next may not list the launch window,
+        // which then must still be the launch window (adopted, or closed if other windows take everything).
+        if let launch = launchWindowID, savedRegistryApplied, registry.value.window(launch) != nil { launchWindowID = nil }
         rememberIncognitoTabs()
         applyPendingPlacements(live: Set(live))
     }

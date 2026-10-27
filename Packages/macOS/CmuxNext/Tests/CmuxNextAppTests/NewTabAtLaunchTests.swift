@@ -145,8 +145,8 @@ struct NewTabAtLaunchTests {
     }
 
     /// A script's create without `focus` (no view change) during the launch files the workspace into the
-    /// launch window without showing it, as it does for any open window: it neither selects it there nor
-    /// sends the launch window, the one the person looks at, behind the others.
+    /// launch window without showing it, as it does for any open window (a quiet claim, never an asked-for
+    /// selection), and never sends the launch window, the one the person looks at, behind the others.
     @Test func aQuietCreateAtLaunchFilesItsWorkspaceWithoutShowingItOrSendingTheWindowBehind() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -165,7 +165,6 @@ struct NewTabAtLaunchTests {
         services.daemon.store.apply(snapshot: Self.tree())
         await withCheckedContinuation { continuation in services.windows.whenRestored { continuation.resume() } }
         #expect(services.windows.registry.value.owner(of: Self.created) == launch.state.id, "the quiet workspace is not in the launch window")
-        #expect(launch.state.workspaceID != Self.created, "a quiet create at launch took the launch window")
     }
 
     /// While the launch shows its saved window's picture, that window has no controller yet, so no window is

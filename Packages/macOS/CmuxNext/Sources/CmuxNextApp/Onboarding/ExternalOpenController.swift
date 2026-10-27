@@ -58,7 +58,7 @@ final class ExternalOpenController {
     /// one) whose terminal starts in the folder.
     func newWorkspace(at path: String, newWindow: Bool) {
         guard case .terminal(let cwd, _) = router.newTabHere(path), case let windows = services.windows else { return }
-        let target = newWindow ? UUID().uuidString.lowercased() : windows.targetWindow(preferring: windows.active?.state.id)
+        let target = newWindow ? UUID().uuidString.lowercased() : windows.targetWindow(preferring: windows.activeWindowID)
         let logger = services.daemon.logger
         // main-hop-allow: the task only awaits WindowManager's main-actor create (its row shows in the create's first step) and logs a failure
         Task {

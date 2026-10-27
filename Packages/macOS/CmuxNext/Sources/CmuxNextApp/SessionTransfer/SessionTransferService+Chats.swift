@@ -84,7 +84,7 @@ extension SessionTransferService {
            let pane = store.pane(containing: tab.surface), let workspace = store.workspace(containing: pane.handle)?.key {
             return workspace.rawValue
         }
-        let target = services.windows.targetWindow(preferring: services.windows.active?.state.id)
+        let target = services.windows.targetWindow(preferring: services.windows.activeWindowID)
         var spawn = WorkspaceSpawn(name: title.isEmpty ? nil : title)
         spawn.firstSession = session
         let id = try await services.windows.createWorkspace(spawn, into: target)

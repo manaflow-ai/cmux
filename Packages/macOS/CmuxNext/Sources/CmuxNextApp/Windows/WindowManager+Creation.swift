@@ -78,8 +78,11 @@ extension WindowManager {
     /// The launch window before restore registered it: a workspace claimed for it waits for the
     /// restore's reconcile, which registers it under the identity the restore gives it
     /// (`adoptLaunchWindow`) with every workspace the live tree has.
+    /// Neither its registration (a reconcile before the restore registers it, in a registry the restore
+    /// replaces) nor its controller (built behind a saved picture) ends this: only the restore applying the
+    /// saved registry does (`savedRegistryApplied`).
     func awaitsRestore(_ windowID: String) -> Bool {
-        windowID == launchWindowID && registry.isLaunching && registry.value.window(windowID) == nil && controller(for: windowID) != nil
+        windowID == launchWindowID && !savedRegistryApplied
     }
 
     /// The launch window took the identity of the saved window it stands for (`adoptLaunchWindow`): what
@@ -109,7 +112,8 @@ extension WindowManager {
             pendingClaims[workspaceID] = windowID
             if let frame, registry.value.window(windowID) == nil { pendingFrames[windowID] = frame }
             if !ActionRunScope.viewChangeAllowed() {
-                if registry.value.window(windowID)?.isOpen == true { quietClaims.insert(workspaceID) } else { behindWindows.insert(windowID) }
+                // The launch window is open (it is on screen): filed there unshown, never sent behind.
+                if registry.value.window(windowID)?.isOpen == true || awaitsRestore(windowID) { quietClaims.insert(workspaceID) } else { behindWindows.insert(windowID) }
             }
             return
         }
