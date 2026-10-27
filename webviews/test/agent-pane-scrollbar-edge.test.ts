@@ -72,10 +72,12 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
           await toggle.click();
           await panel.waitFor({ state: "detached" });
           await settled(page);
-          expect(await page.locator(".acpmux-scroll").evaluate((node) => {
-            const pane = node.closest(".acpmux-main")!.getBoundingClientRect();
-            return Math.abs(pane.right - node.getBoundingClientRect().right);
-          })).toBeLessThanOrEqual(1);
+          expect(
+            await page.locator(".acpmux-scroll").evaluate((node) => {
+              const pane = node.closest(".acpmux-main")!.getBoundingClientRect();
+              return Math.abs(pane.right - node.getBoundingClientRect().right);
+            }),
+          ).toBeLessThanOrEqual(1);
         } finally {
           await page.close();
         }
