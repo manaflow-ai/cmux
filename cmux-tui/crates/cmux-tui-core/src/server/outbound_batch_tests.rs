@@ -258,3 +258,30 @@ fn outbound_batch_ping_reply_waits_at_most_one_chunk_of_a_32_mib_snapshot() {
     let chunks = batch.iter().filter(|item| matches!(item, OutboundItem::Chunk { .. })).count();
     assert!(chunks <= 1, "{chunks} chunks in one batch");
 }
+
+/// A batch that takes a stream's items from its backpressure cap wakes the
+/// stream's space hook, as a single pop does: a subscription drain that went
+/// idle on the full stream (p05-ipc-146) runs again and sends the rest.
+#[test]
+fn outbound_batch_wakes_a_stream_it_takes_from_its_cap() {
+    use crate::server::OUTBOUND_BACKPRESSURED_STREAM_CAPACITY;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let service = RenderService::new();
+    let outbound = BoundedOutbound::default();
+    let stream = stream_on(&service, 5, StreamLane::Bulk);
+    let woken = Arc::new(AtomicUsize::new(0));
+    let counter = woken.clone();
+    assert!(stream.on_space(move || {
+        counter.fetch_add(1, Ordering::SeqCst);
+    }));
+    for index in 0..OUTBOUND_BACKPRESSURED_STREAM_CAPACITY {
+        outbound.push_regular(payload(&service, 40 + index), &stream).unwrap();
+    }
+    assert!(!outbound.has_backpressure_room(&stream), "the stream is at its cap");
+
+    let mut batch = Vec::new();
+    assert!(outbound.recv_batch(&mut batch));
+    assert_eq!(batch.len(), OUTBOUND_BACKPRESSURED_STREAM_CAPACITY);
+    assert_eq!(woken.load(Ordering::SeqCst), 1, "the batch woke the full stream once");
+}

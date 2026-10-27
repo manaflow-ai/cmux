@@ -1,9 +1,10 @@
 #![cfg(unix)]
-//! Subscriptions hold no thread each (p05-ipc-146): 5 `subscribe` streams
-//! and 5 `session.events` streams on one connection of a real daemon socket
-//! add at most 1 thread to the process, and every stream still gets the
-//! next change. Each used to hold a thread of its own (`mux-events-out`,
-//! `mux-resource-session-events`) blocked on its source.
+//! Subscriptions hold no thread each (p05-ipc-146): 10 subscriptions on one
+//! connection of a real daemon socket (4 `subscribe`, 3 `session.events`, 3
+//! `conversation.events`) add at most 1 thread to the process, and every
+//! stream still gets the next change. Each used to hold a thread of its own
+//! (`mux-events-out`, `mux-resource-session-events`,
+//! `mux-resource-conversation-events`) blocked on its source.
 //!
 //! This file holds one test, so its process count is not shared with other
 //! tests.
@@ -19,8 +20,9 @@ use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
 use support::{DaemonMuxOps, settled_threads};
 
-const SUBSCRIBES: usize = 5;
-const SESSION_STREAMS: usize = 5;
+const SUBSCRIBES: usize = 4;
+const SESSION_STREAMS: usize = 3;
+const CONVERSATION_STREAMS: usize = 3;
 const THREAD_BUDGET: usize = 1;
 
 struct Connection {
@@ -71,20 +73,33 @@ impl Connection {
         reply
     }
 
-    fn open_session_events(&mut self, stream_id: &str) {
-        let id = format!("events-{stream_id}");
-        self.send(&json!({
+    /// Sends one `cmux.protocol/2` request and returns its response.
+    fn v2(&mut self, operation: &str, mut params: Value, key: Option<&str>) -> Value {
+        let id = format!("v2-{}", self.next_id);
+        self.next_id += 1;
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        let mut request = json!({
             "protocol": "cmux.protocol/2",
             "type": "request",
             "id": id,
-            "operation": "session.events",
-            "params": {"machine": "current", "session": "current", "stream_id": stream_id},
-        }));
+            "operation": operation,
+            "params": params,
+        });
+        if let Some(key) = key {
+            request["idempotency_key"] = json!(key);
+        }
+        self.send(&request);
         let reply = self.take(|line| line["type"] == "response" && line["id"] == id);
         assert_eq!(reply["ok"], true, "{reply}");
-        let snapshot =
-            self.take(|line| line["type"] == "stream_item" && line["stream_id"] == stream_id);
-        assert_eq!(snapshot["item"]["kind"], "snapshot", "{snapshot}");
+        reply
+    }
+
+    /// Opens a v2 event stream and takes its snapshot item.
+    fn open_stream(&mut self, operation: &str, mut params: Value, stream_id: &str) -> Value {
+        params["stream_id"] = json!(stream_id);
+        self.v2(operation, params, None);
+        self.take(|line| line["type"] == "stream_item" && line["stream_id"] == stream_id)
     }
 }
 
@@ -100,24 +115,43 @@ fn ten_subscriptions_add_at_most_one_thread() {
         .join("s.sock");
     server::serve(mux.clone(), Some(socket.clone())).expect("serve");
     let mut connection = Connection::open(&socket);
-    connection.rpc(json!({"cmd": "set-client-info", "capabilities": []}));
-    // One of each first: whatever a first stream starts once (a pool
-    // worker of its priority) is not a per-subscription thread.
-    connection.rpc(json!({"cmd": "subscribe"}));
-    connection.open_session_events(&stream_id(0));
+    connection.rpc(json!({"cmd": "set-client-info", "capabilities": ["browser-runtime-v1"]}));
+    let created = connection.rpc(json!({
+        "cmd": "conversation-create",
+        "idempotency_key": "threads",
+        "actor": "user_local",
+        "title": "threads",
+        "participants": [{"id": "user_local", "kind": "human", "display_name": "Me"}],
+    }));
+    let conversation = created["data"]["conversation"]["id"].as_str().expect("id").to_owned();
+    // The drains run on the Files lane. An unrelated Files-lane item (the
+    // browser runtime status read) starts that lane's foreground worker, so
+    // the baseline is taken before the first subscription.
+    connection.rpc(json!({"cmd": "browser-runtime-status"}));
     let before = settled_threads();
 
-    for _ in 1..SUBSCRIBES {
+    for _ in 0..SUBSCRIBES {
         connection.rpc(json!({"cmd": "subscribe"}));
     }
-    for index in 1..SESSION_STREAMS {
-        connection.open_session_events(&stream_id(index));
+    let session = (0..SESSION_STREAMS).map(stream_id).collect::<Vec<_>>();
+    for id in &session {
+        let snapshot = connection.open_stream("session.events", json!({}), id);
+        assert_eq!(snapshot["item"]["kind"], "snapshot", "{snapshot}");
+    }
+    let conversations = (SESSION_STREAMS..SESSION_STREAMS + CONVERSATION_STREAMS)
+        .map(stream_id)
+        .collect::<Vec<_>>();
+    for id in &conversations {
+        let params = json!({"conversation": conversation});
+        let snapshot = connection.open_stream("conversation.events", params, id);
+        assert_eq!(snapshot["item"]["type"], "snapshot", "{snapshot}");
     }
     let after = settled_threads();
+    let subscriptions = SUBSCRIBES + session.len() + conversations.len();
+    assert_eq!(subscriptions, 10);
     assert!(
         after.saturating_sub(before) <= THREAD_BUDGET,
-        "{} more subscriptions added {} threads ({before} -> {after})",
-        SUBSCRIBES + SESSION_STREAMS - 2,
+        "{subscriptions} subscriptions added {} threads ({before} -> {after})",
         after.saturating_sub(before)
     );
 
@@ -126,14 +160,23 @@ fn ten_subscriptions_add_at_most_one_thread() {
     for _ in 0..SUBSCRIBES {
         connection.take(|line| line["event"] == "tree-changed");
     }
-    for index in 0..SESSION_STREAMS {
-        let id = stream_id(index);
+    for id in &session {
         let delta = connection.take(|line| {
             line["type"] == "stream_item"
-                && line["stream_id"] == id
+                && line["stream_id"] == *id
                 && line["item"]["kind"] == "delta"
         });
         assert_eq!(delta["sequence"], "1", "{delta}");
+    }
+    let params = json!({"conversation": conversation, "text": "woken"});
+    connection.v2("conversation.send", params, Some("woken"));
+    for id in &conversations {
+        let message = connection.take(|line| {
+            line["type"] == "stream_item"
+                && line["stream_id"] == *id
+                && line["item"]["type"] == "message"
+        });
+        assert_eq!(message["item"]["message"]["parts"][0]["text"], "woken", "{message}");
     }
     drop(connection);
     mux.shutdown();
