@@ -5916,127 +5916,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعطلت لوحة الوكيل بشكل متكرر."
+            "value": "تعطلت لوحة الوكيل."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Panel agenta se više puta srušio."
+            "value": "Panel agenta se srušio."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentpanelet gik ned gentagne gange."
+            "value": "Agentpanelet gik ned."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Agentenbereich ist wiederholt abgestürzt."
+            "value": "Der Agentenbereich ist abgestürzt."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent pane crashed repeatedly."
+            "value": "The agent pane crashed."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El panel del agente se bloqueó repetidamente."
+            "value": "El panel del agente se bloqueó."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le panneau de l’agent a planté à plusieurs reprises."
+            "value": "Le panneau de l’agent a planté."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il pannello dell’agente si è arrestato ripetutamente."
+            "value": "Il pannello dell’agente si è arrestato."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントペインが繰り返しクラッシュしました。"
+            "value": "エージェントペインがクラッシュしました。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ផ្ទាំងភ្នាក់ងារបានគាំងម្តងហើយម្តងទៀត។"
+            "value": "ផ្ទាំងភ្នាក់ងារបានគាំង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트 패널이 반복해서 충돌했습니다."
+            "value": "에이전트 패널이 충돌했습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentpanelet krasjet gjentatte ganger."
+            "value": "Agentpanelet krasjet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Panel agenta wielokrotnie uległ awarii."
+            "value": "Panel agenta uległ awarii."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O painel do agente travou repetidamente."
+            "value": "O painel do agente travou."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Панель агента несколько раз аварийно завершилась."
+            "value": "Панель агента аварийно завершилась."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บานหน้าต่างเอเจนต์ขัดข้องซ้ำหลายครั้ง"
+            "value": "บานหน้าต่างเอเจนต์ขัดข้อง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajan bölmesi art arda çöktü."
+            "value": "Ajan bölmesi çöktü."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Панель агента кілька разів аварійно завершилася."
+            "value": "Панель агента аварійно завершилася."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ngăn tác tử đã gặp sự cố nhiều lần."
+            "value": "Ngăn tác tử đã gặp sự cố."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理窗格反复崩溃。"
+            "value": "代理窗格已崩溃。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理窗格反覆當機。"
+            "value": "代理窗格已當機。"
           }
         }
       }

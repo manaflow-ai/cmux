@@ -103,6 +103,12 @@ impl Daemon {
             .env("ACPMUX_TEST_POOL_ADOPT_REPORT_FILE", self.home.join("adopt-report"))
             // The same while a chat claims it, and then MDM's off is unset: `claim-report`.
             .env("ACPMUX_TEST_POOL_CLAIM_REPORT_FILE", self.home.join("claim-report"))
+            // While this file exists, MDM's off begins and is unset while a chat claims a pooled
+            // agent: `claim_off_seam`.
+            .env("ACPMUX_TEST_POOL_CLAIM_OFF_FILE", self.home.join("claim-off"))
+            // While this file exists, MDM's off is pushed and unset as a chat takes the pooled
+            // agent it claimed: `take_off_seam`.
+            .env("ACPMUX_TEST_POOL_TAKE_OFF_FILE", self.home.join("take-off"))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -810,6 +816,61 @@ async fn under_an_mdm_off_a_report_at_the_handoff_keeps_the_agent_from_the_chat_
     assert!(
         refused,
         "a chat took a pooled agent that reported full access under the off: {created}"
+    );
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 69): a pooled agent a chat claims while
+/// an off begins escapes the drain that off's push runs (only ready entries drain). Though the off
+/// is unset before the chat takes it, the chat starts cold instead, as for every entry started
+/// under the old bound.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_agent_claimed_as_an_off_began_is_not_taken_after_an_unset() {
+    let daemon = Daemon::with_fakeb("faclaimoff", 0, &profile("b"));
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert!(fakeb_ready(&warmed), "{warmed}");
+    std::fs::write(home.join("claim-off"), "").unwrap();
+    let created = rpc
+        .raw(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb"}}}),
+        )
+        .await;
+    let id = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+    assert!(!taken(&daemon, id), "a chat took a pooled agent claimed as an off began");
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 69): an off pushed as a chat takes the
+/// pooled agent it claimed, past the take's checks, and unset right after, still ends that agent
+/// when its profile pins full access (`--yolo`): the chat's start is refused under the off, or the
+/// push ends what runs in full access once the chat has it, and the unset waits for that.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pinned_pooled_agent_taken_as_an_off_comes_and_goes_ends() {
+    let mut fakeb = profile("b");
+    fakeb["argv"].as_array_mut().unwrap().push(json!("--yolo"));
+    let daemon = Daemon::with_fakeb("fatakeoff", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert!(fakeb_ready(&warmed), "{warmed}");
+    let pooled = daemon.pool_records().into_iter().next().expect("a pooled agent");
+    let harness_pid = pooled["harness_pid"].as_i64().expect("its harness pid");
+    std::fs::write(home.join("take-off"), "").unwrap();
+    let created = rpc
+        .raw(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb"}}}),
+        )
+        .await;
+    let refused = created["error"]["data"]["reason"] == "full_access_off";
+    let id = created["result"]["sessionId"].as_str();
+    assert!(refused || id.is_some_and(|id| taken(&daemon, id)), "not the take: {created}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a pinned pooled agent ran on after an off came and went as a chat took it"
     );
 }
 
