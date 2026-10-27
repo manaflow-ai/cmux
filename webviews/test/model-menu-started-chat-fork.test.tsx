@@ -515,6 +515,18 @@ test("when no other harness can take the chat, the composer's Fork to is disable
   await forkToCodexDisabled(await mountChat(snapshot));
 });
 
+test("another profile of the chat's own family is no Fork to target (the daemon refuses same_harness)", async () => {
+  const { continueTargets } = await import("../src/agent-session/acpmux/cmuxCommands");
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude" },
+    { id: "cmux", name: "cmux router", family: "claude" },
+    { id: "codex", name: "Codex", family: "codex" },
+  ];
+  expect(continueTargets(catalog, "claude").map((target) => target.id)).toEqual(["codex"]);
+  expect(continueTargets(catalog, "cmux").map((target) => target.id)).toEqual(["codex"]);
+  expect(continueTargets(catalog, "codex").map((target) => target.id)).toEqual(["claude", "cmux"]);
+});
+
 test("canContinueIn is Continue In…'s whole check", async () => {
   const { canContinueIn } = await import("../src/agent-session/acpmux/handoff/continueIn");
   const catalog = await acpmuxCatalog();

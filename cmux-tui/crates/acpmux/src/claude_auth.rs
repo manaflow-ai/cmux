@@ -368,6 +368,8 @@ fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str)
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     /// A sign-in failure is explained; one that says the provider was unreachable is not.
     #[test]
     fn an_outage_that_names_a_token_is_not_explained_as_a_sign_in() {
@@ -376,5 +378,30 @@ mod tests {
         assert!(!super::explains("HTTP 503: OAuth token has expired"));
         assert!(!super::explains("connection error: Not logged in"));
         assert!(!super::explains("Claude is not signed in here. Not logged in"));
+    }
+
+    /// Dogfood 2026-10-26: Claude Code's 401 ("Failed to authenticate") reached the person as
+    /// raw API text instead of the sign-in explanation.
+    #[test]
+    fn a_rejected_credential_is_a_sign_in_failure() {
+        let said = r#"Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#;
+        assert!(is_sign_in_failure(said));
+        assert!(is_sign_in_failure("Not logged in · Please run /login"));
+        assert!(!is_sign_in_failure("API Error: 529 overloaded_error"));
+    }
+
+    /// A rejected ANTHROPIC_API_KEY wins over `claude /login`, so the fix names the key, not a
+    /// login that would not help.
+    #[test]
+    fn a_rejected_env_api_key_says_to_remove_it() {
+        let agent = Found {
+            home: PathBuf::from("/h/.claude"),
+            sources: vec!["an API key (ANTHROPIC_API_KEY)".to_owned()],
+            env_keys: vec!["ANTHROPIC_API_KEY".to_owned()],
+            ..Found::default()
+        };
+        let text = compose(&agent, &agent, Some("/bin/zsh"), "Failed to authenticate. API Error: 401");
+        assert!(text.contains("remove ANTHROPIC_API_KEY from ~/.zshrc"), "{text}");
+        assert!(!text.contains("Run `claude /login`"), "{text}");
     }
 }
