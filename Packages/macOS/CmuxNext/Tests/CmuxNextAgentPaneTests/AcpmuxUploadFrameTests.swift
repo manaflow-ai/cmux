@@ -30,7 +30,7 @@ struct AcpmuxUploadFrameTests {
             wire: wire, limits: transport.limits, options: transport.permissionOptions,
             sessions: transport.sessions, ids: AcpmuxRequestIds(), signal: {})
         try await socket.start(timeout: 1)
-        let request = Task { _ = try await socket.callHost("_acpmux/file_put_begin", params: ["sessionId": "s"]); return true }
+        let request = Task { _ = try await socket.callHost("_acpmux/file_put_begin", params: ["sessionId": "s", "forPrompt": true]); return true }
         var events = sent.stream.makeAsyncIterator()
         _ = await events.next()
         request.cancel()
@@ -53,6 +53,8 @@ struct AcpmuxUploadFrameTests {
 
     final class UploadWire: AcpmuxPaneWire, Sendable {
         let sentCount = Mutex(0)
+        let sentFrames = Mutex<[String]>([])
+        private let ownerToken: String?
         private let lastID = Mutex(0)
         private let holdReply: Bool
         private let holdBegin: Bool
@@ -60,11 +62,12 @@ struct AcpmuxUploadFrameTests {
         private let errorResponse: Bool
         private let closed = Mutex<(@Sendable (Int, String) -> Void)?>(nil)
         private let onSend: @Sendable () -> Void
-        init(holdReply: Bool = false, holdBegin: Bool = false, closeOnSend: Bool = false, errorResponse: Bool = false, onSend: @escaping @Sendable () -> Void = {}) {
+        init(holdReply: Bool = false, holdBegin: Bool = false, closeOnSend: Bool = false, errorResponse: Bool = false, ownerToken: String? = "0123456789abcdef0123456789abcdef", onSend: @escaping @Sendable () -> Void = {}) {
             self.holdReply = holdReply
             self.holdBegin = holdBegin
             self.closeOnSend = closeOnSend
             self.errorResponse = errorResponse
+            self.ownerToken = ownerToken
             self.onSend = onSend
         }
         private let incoming = Mutex<(@Sendable (String) -> Void)?>(nil)
@@ -75,6 +78,7 @@ struct AcpmuxUploadFrameTests {
         }
         func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void) {
             sentCount.withLock { $0 += 1 }
+            sentFrames.withLock { $0.append(text) }
             let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
             lastID.withLock { $0 = object?["id"] as? Int ?? 0 }
             completion(true)
@@ -87,8 +91,10 @@ struct AcpmuxUploadFrameTests {
         }
         func reply(begin: Bool = false) {
             let id = lastID.withLock { $0 }
-            let result = begin ? #"{"uploadId":"u","offset":0}"# : #"{"offset":2}"#
-            incoming.withLock { $0 }?(#"{"id":\#(id),"result":\#(result)}"#)
+            var result: [String: Any] = begin ? ["uploadId": "u", "offset": 0] : ["offset": 2]
+            if begin, let ownerToken { result["ownerToken"] = ownerToken }
+            let resultText = String(decoding: try! JSONSerialization.data(withJSONObject: result), as: UTF8.self)
+            incoming.withLock { $0 }?(#"{"id":\#(id),"result":\#(resultText)}"#)
         }
         func cancel(code: Int, reason: String) {}
     }
