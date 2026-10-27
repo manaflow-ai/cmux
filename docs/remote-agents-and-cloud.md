@@ -151,8 +151,10 @@ how the chat reaches the host:
   signed build; a signed build on a Mac without one cannot allow from the card)
   and only the signed answer crosses the peer link. The host
   counts it once, for that prompt, tool call and option, within two minutes,
-  and only as Allow once (the card offers no Allow for this chat there): never
-  an always-allow, a plan or a mode change. Until
+  and only as Allow once: never an always-allow, Allow for this chat, a plan
+  or a mode change. A tool batch's card offers only Allow once and Deny; a
+  single prompt's card may still offer an always-allow, which this Mac does
+  not sign, and the card says only a one-time Allow works. Until
   the host enrolls this Mac, the card's notice says "Enroll this Mac on NAME"
   and its Enroll this Mac button runs the same command. `acpmux host approvals
   unenroll NAME` from the Mac, or `acpmux host approvals rm ID` on the host,

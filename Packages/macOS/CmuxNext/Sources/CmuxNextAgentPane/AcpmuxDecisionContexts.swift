@@ -61,10 +61,11 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     func observe(_ object: [String: Any], replyTo method: String?) {
         if method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond" {
             // This reply's own request: whether it carried this Mac's signed allow. Any reply
-            // ends it, an error of any kind too.
+            // ends it, an error of any kind too. A reply to no answer this connection sent (a
+            // late one of the connection before a reconnect, which `reset` forgot) says nothing.
             let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)
             state.withLock { state in
-                let proved = pageID.flatMap { state.proved.removeValue(forKey: $0) } ?? false
+                guard let proved = pageID.flatMap({ state.proved.removeValue(forKey: $0) }) else { return }
                 var answer: Answer?
                 if let error = object["error"] as? [String: Any] {
                     let data = error["data"] as? [String: Any]
