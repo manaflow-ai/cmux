@@ -24,6 +24,9 @@ extension LineTransport {
             recorder?.lineRead(.ignored)
             return
         }
+        if let stream = envelope.stream, let event = envelope.event, routeAttachStream(stream, event: event, line: line) {
+            return
+        }
         // A v2 stream line goes to the stream handler of a dedicated
         // connection (`SessionJournalRead`); on the control connection it
         // travels with the raw events, in socket order (`session.events`).

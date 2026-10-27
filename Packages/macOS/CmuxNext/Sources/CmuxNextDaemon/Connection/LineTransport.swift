@@ -160,9 +160,7 @@ final class LineTransport: Sendable {
     /// Starts the reader thread, handing each event its envelope cause. Call once.
     func start(onCausedEvent onEvent: @escaping CausedEventHandler, onClose: @escaping CloseHandler) {
         let fd = socket.withLock { $0.fd }
-        let thread = Thread { [self] in
-            readLoop(fd: fd, onEvent: onEvent, onClose: onClose)
-        }
+        let thread = Thread { [self] in readLoop(fd: fd, onEvent: onEvent, onClose: onClose) }
         thread.name = "cmux-tui reader \(path)"
         thread.qualityOfService = role.readerQoS
         thread.start()
@@ -399,6 +397,7 @@ final class LineTransport: Sendable {
         failAll(reason)
         writer.close()
         closeDescriptor()
+        endAttachStreams(reason)
         onClose(reason)
     }
 

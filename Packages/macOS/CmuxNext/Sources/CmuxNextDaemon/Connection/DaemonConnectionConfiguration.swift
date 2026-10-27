@@ -65,6 +65,15 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// `daemon.line` scope, never its `read(2)` wait). The App's composition root sets it to its
     /// ``HangWatch``; nil (the default) watches nothing.
     public var hangWatch: (any HangWatchScoping)?
+    /// Terminal views attach as client-minted streams on this connection (`attach-streams-v1`, p05-ipc-095)
+    /// instead of a connection each: the `terminalStreams` feature, off by default. The connection echoes the
+    /// grant and, with `sizingDevice`, joins shared sizing as that device; a daemon that does not offer the
+    /// grant keeps every view on a connection of its own (``TerminalAttachment/attach(on:target:size:claimGeometry:snapshotVersion:localHistory:images:clientName:device:hangs:createIntent:inputQueue:)``).
+    /// Only a `main` connection streams terminals.
+    public var terminalStreams = false
+    /// The device this connection's terminal streams are sized for (`shared-sizing-v1`): the views of one
+    /// connection are one sizing participant. Read only with ``terminalStreams``.
+    public var sizingDevice: TerminalSizingDevice?
 
     public init(
         clientName: String = "cmux-next",
@@ -115,10 +124,19 @@ public struct ClientHelloIdentity: Sendable {
 }
 
 extension DaemonConnectionConfiguration {
-    /// What the connection echoes in `set-client-info`.
+    /// What the connection echoes in `set-client-info`. A daemon ignores a capability it does not grant, so
+    /// the stream grant is echoed before `identify` says whether it is offered.
     var handshakeCapabilities: [String] {
         DaemonCapability.handshakeCapabilities(advertisedCapabilities,
                                                  resolvesShellIntegration: resolvesShellIntegration,
                                                  echoesPlacementShift: echoesPlacementShift)
+            + (streamsTerminals ? [TerminalAttachment.streamsCapability] : [])
+            + (streamSizingDevice == nil ? [] : [DaemonCapability.sharedSizing.rawValue])
     }
+
+    /// This connection asks for terminal streams.
+    var streamsTerminals: Bool { terminalStreams && role == .main }
+
+    /// The device a streaming connection declares in `set-client-info`; nil without terminal streams.
+    var streamSizingDevice: TerminalSizingDevice? { streamsTerminals ? sizingDevice : nil }
 }

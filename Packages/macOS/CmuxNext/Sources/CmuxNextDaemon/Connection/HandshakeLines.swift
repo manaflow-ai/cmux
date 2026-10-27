@@ -21,7 +21,9 @@ enum HandshakeLines {
                      logger: Logger) async -> Replies {
         let setup = [
             PipelinedLine(SetClientInfoRequest(name: configuration.clientName, kind: "frontend",
-                                               capabilities: configuration.handshakeCapabilities)),
+                                               capabilities: configuration.handshakeCapabilities,
+                                               deviceKind: configuration.streamSizingDevice?.kind,
+                                               deviceName: configuration.streamSizingDevice?.name)),
             PipelinedLine(SubscribeRequest(treeEvents: configuration.treeEvents)),
         ]
         guard let hello = configuration.clientHello else {

@@ -583,7 +583,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `terminalFrontendShellIntegration` is not in it: only a connection
     /// that resolves the integration echoes it (`handshakeCapabilities`).
     /// `sharedSizing` is not either: a terminal attachment that names its device adds it
-    /// (`TerminalAttachment.attach(device:)`); other connections only read it from `identify`.
+    /// (`TerminalAttachment.attach(device:)`), as does a connection that streams terminals with a
+    /// `sizingDevice` (`DaemonConnectionConfiguration`); other connections only read it from `identify`.
     /// `placementShift` only with the sidebar document (`handshakeCapabilities`).
     public static let advertised: [String] = (required + optional + unservedByBundledDaemon).filter {
         !notAdvertised.contains($0)
