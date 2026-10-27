@@ -49,8 +49,9 @@ fn request_priority_parses_user_automation_or_nothing() {
     assert!(unset.get("priority").is_none(), "{unset}");
 }
 
-/// The classes the reader enters for one v2 line on a connection that is
-/// the verified app (`app`) or not, with the feature on.
+/// The classes the connection's dispatcher enters for one v2 line on a
+/// connection that is the verified app (`app`) or not, with the feature on
+/// (the reader runs no handler, p05-ipc-086).
 fn entered_for(app: bool, priority: Option<&str>) -> Vec<ThreadQos> {
     let mux = Mux::new_for_test(
         format!("request-priority-{app}-{}", priority.unwrap_or("none")),
@@ -65,7 +66,6 @@ fn entered_for(app: bool, priority: Option<&str>) -> Vec<ThreadQos> {
     }
     let scheduler =
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
-    let _ = crate::request_qos::tests::take_entered();
     let line = workspace_create("prioritized", priority).to_string();
     assert!(handle_connection_frame(
         &mux,
@@ -75,7 +75,6 @@ fn entered_for(app: bool, priority: Option<&str>) -> Vec<ThreadQos> {
         &writer,
         &scheduler
     ));
-    let entered = crate::request_qos::tests::take_entered();
     let deadline = Instant::now() + Duration::from_secs(10);
     let reply: Value = loop {
         if let Some(line) = outbound.try_pop() {
@@ -85,6 +84,9 @@ fn entered_for(app: bool, priority: Option<&str>) -> Vec<ThreadQos> {
         std::thread::sleep(Duration::from_millis(2));
     };
     assert_eq!(reply["ok"], true, "{reply}");
+    let entered = super::sequenced_lines_tests::dispatcher_entered(
+        &mux, client, &writer, &scheduler, &outbound,
+    );
     mux.shutdown();
     entered
 }

@@ -2365,7 +2365,8 @@ mod connection_scheduler;
 #[cfg(test)]
 use connection_scheduler::ConnectionSurfaceState;
 use connection_scheduler::{
-    ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, run_pending_request,
+    ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, SequencedItem,
+    run_pending_request,
 };
 
 mod bounded_outbound;
@@ -2473,8 +2474,8 @@ mod routes;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, constant_time_eq, handle_connection_frame_at, handle_request_with_cancellation,
-    lock_caller_scope, pairing_request, zeroize_string,
+    auth_token, constant_time_eq, debug_assert_off_reader, handle_connection_frame_at,
+    handle_request_with_cancellation, lock_caller_scope, pairing_request, zeroize_string,
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};

@@ -762,15 +762,17 @@ creates and splits are `create`). A request a worker answers later
 (`url-open`, `chief-inspect`, the cloud commands) counts when the worker's
 reply is queued. The time a reply then waits for the writer thread's socket
 write is not counted. `dispatch_queue_us` is the time from a request's parse
-to its handler's start: the wait in the connection's request queue (0 for a
-line answered inline).
+to its handler's start: the wait in the connection's control sequence, which
+every request line joins in arrival order (0 for a line refused on the
+reader).
 
 `ipc` counts the IPC layer since daemon start, over the connections of every
 transport: the local socket, the remote entry and WebSocket. `streams`
 counts each connection's stream 0 (`open` now, `peak`, `opened` in total);
 no connection opens a second stream yet, so `open` is the open connections.
 `sequence_depth` samples the requests in a connection's sequence as each
-`cmd` request arrives at it, itself included, also when the full sequence
+request line (a `cmd` command, a `cmux.protocol/2` request or a feature
+route's line) arrives at it, itself included, also when the full sequence
 refuses it. `received` and `sent` list messages and bytes by kind, only kinds
 seen at least once: `line` (a JSON line, bytes counting its delimiter, or a
 WebSocket text message) first, then frame kinds by name in wire order (a

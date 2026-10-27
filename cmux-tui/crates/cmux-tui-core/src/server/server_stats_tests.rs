@@ -136,7 +136,10 @@ fn request_path_a_frame_runs_its_handler_in_the_daemon_scope() {
     let reply: Value = serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap();
     assert!(reply["result"].is_array(), "a synchronous v2 reply: {reply}");
     let (runs_after, sqlite_after) = request_path_counts(&mux);
-    assert_eq!(runs_after, runs + 1, "one frame, one outermost scope");
+    // The reader's scope while it sequences the line and the handler's on
+    // the connection's control sequence, as for a queued `Command`
+    // (p05-ipc-086).
+    assert_eq!(runs_after, runs + 2, "the reader's scope and the handler's");
     assert!(sqlite_after > sqlite, "workspace.list reads the registry in the frame scope");
 }
 

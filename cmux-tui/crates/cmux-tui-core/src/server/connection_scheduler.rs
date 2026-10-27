@@ -1,6 +1,12 @@
-//! The per-connection surface scheduler: pending surface requests, the
-//! connection's cancellation token, clear-history barriers, and the
-//! dispatcher thread that runs queued surface operations in order.
+//! The per-connection surface scheduler: the connection's control sequence
+//! (every request of the connection in arrival order: its `Command`s and,
+//! since p05-ipc-086, its v2 operations, feature routes and remote-relay
+//! lines), the connection's cancellation token, clear-history barriers, and
+//! the dispatcher thread that runs the sequence in order. The reader only
+//! reads, cuts and sequences, as Chrome's IO thread only reads a Mojo
+//! message and posts it to its receiver's sequence
+//! (mojo/public/cpp/bindings/lib/multiplex_router.cc, `Accept` posting to
+//! the endpoint's task runner).
 //!
 //! Request threads (this dispatcher, its clear-history workers, the WebSocket
 //! connection thread) start through [`spawn_request_thread`]: UserInitiated,
@@ -20,6 +26,7 @@ use super::ResponseErrorDelivery;
 use super::ServerSurfaceAdmissionError;
 use super::ServerSurfaceBytesPermit;
 use super::ServerSurfaceOperationAdmission;
+use super::connection_frame::PendingLine;
 use super::frame_dispatch::FrameCall;
 use super::handle_request_with_cancellation;
 use super::send_request_error;
@@ -85,9 +92,78 @@ pub(super) struct PendingSurfaceRequest {
     pub(super) _bytes_permit: ServerSurfaceBytesPermit,
 }
 
+/// One item of a connection's control sequence.
+pub(super) enum SequencedItem {
+    /// A request whose line parsed as a `Command`.
+    Request(PendingSurfaceRequest),
+    /// Any other line (connection_frame.rs): its handler runs here, in
+    /// arrival order with the connection's `Command`s.
+    Line(PendingLine),
+}
+
+impl SequencedItem {
+    fn request(&self) -> Option<&Request> {
+        match self {
+            Self::Request(pending) => Some(&pending.request),
+            Self::Line(_) => None,
+        }
+    }
+
+    /// The surface it is ordered by; a line is ordered by none, so it
+    /// waits behind every clear-history barrier.
+    fn ordering_surface(&self) -> Option<SurfaceId> {
+        self.request().and_then(|request| request.cmd.ordering_surface())
+    }
+
+    fn can_overtake_clear_barrier(&self) -> bool {
+        self.request().is_some_and(|request| request.cmd.can_overtake_clear_barrier())
+    }
+
+    fn is_clear_history(&self) -> bool {
+        self.request().is_some_and(|request| request.cmd.is_clear_history())
+    }
+
+    fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Request(pending) => pending.retained_bytes,
+            Self::Line(line) => line.retained_bytes(),
+        }
+    }
+
+    #[cfg(test)]
+    fn is_line(&self) -> bool {
+        matches!(self, Self::Line(_))
+    }
+}
+
+/// Why an item did not join its connection's control sequence.
+#[derive(Debug)]
+pub(super) enum NotSequenced {
+    /// The sequence closed: the connection is ending.
+    Closed,
+    /// The sequence or the daemon's byte budget is full; the request was
+    /// not executed.
+    Full(&'static str),
+    /// The dispatcher thread could not start.
+    Dispatcher(std::io::Error),
+}
+
+impl NotSequenced {
+    /// The error text of the request's refusal (none when closed).
+    pub(super) fn refusal(&self) -> Option<String> {
+        match self {
+            Self::Closed => None,
+            Self::Full(reason) => Some((*reason).to_owned()),
+            Self::Dispatcher(error) => {
+                Some(format!("could not start connection request dispatcher: {error}"))
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct ConnectionSurfaceState {
-    pub(super) requests: VecDeque<PendingSurfaceRequest>,
+    pub(super) requests: VecDeque<SequencedItem>,
     pub(super) queued_bytes: usize,
     pub(super) active_clear_surfaces: HashSet<SurfaceId>,
     /// Terminal creates handed to the terminal work pool and not yet answered (`terminal_create`).
@@ -95,6 +171,9 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) dispatcher_started: bool,
     pub(super) dispatcher_done: bool,
     pub(super) closed: bool,
+    /// The dispatcher is running a line (tests wait for it to answer).
+    #[cfg(test)]
+    pub(super) line_running: bool,
 }
 
 /// Set when a connection's request scheduler closes. Request handlers that
@@ -233,16 +312,49 @@ impl ConnectionSurfaceScheduler {
         retained_bytes: usize,
         writer: MessageWriter,
     ) -> Option<bool> {
+        // Nothing to schedule; the connection stays open.
+        let Some(queued) = request.take() else { return Some(true) };
+        let (request_id, is_clear_history) = (queued.id.clone(), queued.cmd.is_clear_history());
+        let sequenced = self.sequence(&mux, client, retained_bytes, &writer, |bytes_permit| {
+            SequencedItem::Request(PendingSurfaceRequest {
+                request: queued,
+                arrival,
+                cause: EventCause::current(),
+                frame_call: writer.frame_call().cloned(),
+                retained_bytes,
+                _bytes_permit: bytes_permit,
+            })
+        });
+        let Err(not_sequenced) = sequenced else { return Some(true) };
+        let Some(refusal) = not_sequenced.refusal() else { return Some(false) };
+        Some(send_request_error_with_delivery(
+            &writer,
+            request_id,
+            &refusal,
+            is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
+        ))
+    }
+
+    /// Appends the item `item` makes to the connection's control sequence,
+    /// unless the sequence is closed or full, and starts the dispatcher
+    /// with the first one. `item` gets the item's share of the daemon's
+    /// byte budget; it runs under the sequence's lock and does not block.
+    pub(super) fn sequence(
+        self: &Arc<Self>,
+        mux: &Arc<Mux>,
+        client: u64,
+        retained_bytes: usize,
+        writer: &MessageWriter,
+        item: impl FnOnce(ServerSurfaceBytesPermit) -> SequencedItem,
+    ) -> Result<(), NotSequenced> {
+        // A connection whose writer closed answers nothing more.
+        if !writer.is_open() {
+            return Err(NotSequenced::Closed);
+        }
         let mut state = self.state.lock().recover_poison();
         if state.closed {
-            return Some(false);
+            return Err(NotSequenced::Closed);
         }
-        let Some((is_clear_history, request_id)) =
-            request.as_ref().map(|pending| (pending.cmd.is_clear_history(), pending.id.clone()))
-        else {
-            // Nothing to schedule; the connection stays open.
-            return Some(true);
-        };
         // The depth this request meets on arrival, itself included, recorded
         // also when the sequence is full and refuses it: those are the
         // saturation samples (`server-stats` `ipc` `sequence_depth`).
@@ -250,53 +362,27 @@ impl ConnectionSurfaceScheduler {
         let over_count = state.requests.len() >= CONNECTION_SURFACE_QUEUE_CAPACITY;
         let over_bytes = retained_bytes
             > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
-        if over_count || over_bytes {
-            drop(state);
-            mux.ipc_stats().sequence_depth(arrival_depth);
-            *request = None;
-            return Some(send_request_error_with_delivery(
-                &writer,
-                request_id,
-                "surface request queue is full; request was not executed",
-                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
-            ));
-        }
-        let bytes_permit = match self.admission.try_reserve_bytes(retained_bytes) {
-            Ok(bytes) => bytes,
-            Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
+        let admitted = if over_count || over_bytes {
+            Err("surface request queue is full; request was not executed")
+        } else {
+            self.admission.try_reserve_bytes(retained_bytes).map_err(
+                |ServerSurfaceAdmissionError::RetainedByteCapacity| {
+                    "server surface-operation byte budget is full; request was not executed"
+                },
+            )
+        };
+        let bytes_permit = match admitted {
+            Ok(bytes_permit) => bytes_permit,
+            Err(reason) => {
                 drop(state);
                 mux.ipc_stats().sequence_depth(arrival_depth);
-                *request = None;
-                return Some(if is_clear_history {
-                    send_request_error_with_delivery(
-                        &writer,
-                        request_id,
-                        "server surface-operation byte budget is full; request was not executed",
-                        Some(ResponseErrorDelivery::KnownNotDelivered),
-                    )
-                } else {
-                    send_request_error(
-                        &writer,
-                        request_id,
-                        "server surface-operation byte budget is full; request was not executed",
-                    )
-                });
+                return Err(NotSequenced::Full(reason));
             }
-        };
-        let Some(queued) = request.take() else {
-            return Some(true);
         };
         let start_dispatcher = !state.dispatcher_started;
         state.dispatcher_started = true;
         state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
-        state.requests.push_back(PendingSurfaceRequest {
-            request: queued,
-            arrival,
-            cause: EventCause::current(),
-            frame_call: writer.frame_call().cloned(),
-            retained_bytes,
-            _bytes_permit: bytes_permit,
-        });
+        state.requests.push_back(item(bytes_permit));
         self.changed.notify_all();
         drop(state);
         mux.ipc_stats().sequence_depth(arrival_depth);
@@ -304,18 +390,14 @@ impl ConnectionSurfaceScheduler {
         // The dispatcher outlives this request: it gets the connection's
         // writer, and each request answers on its own (`frame_call`).
         if start_dispatcher
-            && let Err(error) = self.start_dispatcher(mux, client, writer.connection_writer())
+            && let Err(error) =
+                self.start_dispatcher(mux.clone(), client, writer.connection_writer())
         {
             self.finish_dispatcher();
             self.close();
-            return Some(send_request_error_with_delivery(
-                &writer,
-                request_id,
-                &format!("could not start connection request dispatcher: {error}"),
-                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
-            ));
+            return Err(NotSequenced::Dispatcher(error));
         }
-        Some(true)
+        Ok(())
     }
 
     pub(super) fn start_dispatcher(
@@ -337,11 +419,11 @@ impl ConnectionSurfaceScheduler {
             return (!state.requests.is_empty()).then_some(0);
         }
         for (index, pending) in state.requests.iter().enumerate() {
-            let surface = pending.request.cmd.ordering_surface()?;
+            let surface = pending.ordering_surface()?;
             if state.active_clear_surfaces.contains(&surface) {
                 continue;
             }
-            if pending.request.cmd.can_overtake_clear_barrier() {
+            if pending.can_overtake_clear_barrier() {
                 return Some(index);
             }
             return None;
@@ -349,20 +431,24 @@ impl ConnectionSurfaceScheduler {
         None
     }
 
-    pub(super) fn next_request(&self) -> Option<PendingSurfaceRequest> {
+    pub(super) fn next_request(&self) -> Option<SequencedItem> {
         let mut state = self.state.lock().recover_poison();
         loop {
             if let Some(index) = Self::next_runnable_index(&state)
                 && let Some(pending) = state.requests.remove(index)
             {
-                state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes);
+                state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes());
                 // Clear-history is always ordered by a surface; a clear
                 // worker never overlaps another on the same surface.
-                if pending.request.cmd.is_clear_history()
-                    && let Some(surface) = pending.request.cmd.ordering_surface()
+                if pending.is_clear_history()
+                    && let Some(surface) = pending.ordering_surface()
                     && !state.active_clear_surfaces.insert(surface)
                 {
                     eprintln!("cmux: clear-history worker overlapped surface {surface}");
+                }
+                #[cfg(test)]
+                {
+                    state.line_running = pending.is_line();
                 }
                 return Some(pending);
             }
@@ -373,6 +459,32 @@ impl ConnectionSurfaceScheduler {
             }
             // Idle for the connection's next request: not blocking work.
             state = self.changed.idle().wait(state).recover_poison();
+        }
+    }
+
+    /// Tests: the dispatcher answered the line it took.
+    #[cfg(test)]
+    fn finish_line(&self) {
+        let mut state = self.state.lock().recover_poison();
+        state.line_running = false;
+        self.changed.notify_all();
+    }
+
+    /// Tests: whether the sequence closed (a handler closed its connection).
+    #[cfg(test)]
+    pub(super) fn is_closed(&self) -> bool {
+        self.state.lock().recover_poison().closed
+    }
+
+    /// Tests: waits until every line sequenced so far is answered, as a
+    /// caller that wants the reply of the line it just handed in.
+    #[cfg(test)]
+    pub(super) fn wait_for_lines(&self) {
+        let mut state = self.state.lock().recover_poison();
+        while !state.dispatcher_done
+            && (state.line_running || state.requests.iter().any(SequencedItem::is_line))
+        {
+            state = self.changed.wait(state).recover_poison();
         }
     }
 
@@ -526,8 +638,26 @@ fn run_connection_surface_dispatcher(
     let _dispatcher = ConnectionDispatcherGuard(scheduler.clone());
     let mut resting = scheduler.resting_class(&mux);
     while writer.is_open() {
-        let Some(pending) = scheduler.next_request() else { return };
+        let Some(item) = scheduler.next_request() else { return };
         resting.follow();
+        let pending = match item {
+            SequencedItem::Request(pending) => pending,
+            SequencedItem::Line(line) => {
+                let connection = line.connection_writer();
+                let keep_open = super::connection_frame::run_sequenced_line(&scheduler, &mux, line);
+                #[cfg(test)]
+                scheduler.finish_line();
+                if !keep_open {
+                    // The handler closes its connection, as its `false`
+                    // did on the reader: the replies queued so far go out,
+                    // then the socket shuts and the reader ends.
+                    connection.close_after_control();
+                    scheduler.close();
+                    return;
+                }
+                continue;
+            }
+        };
         if pending.request.cmd.is_clear_history()
             && let Some(surface) = pending.request.cmd.ordering_surface()
         {

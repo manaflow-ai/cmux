@@ -585,14 +585,14 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
             }),
         ),
     ] {
-        state.requests.push_back(PendingSurfaceRequest {
+        state.requests.push_back(SequencedItem::Request(PendingSurfaceRequest {
             request: Request { id: Some(json!(id)), cmd },
             arrival: RequestArrival::now(),
             cause: crate::event_cause::EventCause::Program,
             frame_call: None,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
-        });
+        }));
     }
 
     assert_eq!(
@@ -626,14 +626,14 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         let admission = Arc::new(ServerSurfaceOperationAdmission::default());
         let mut state = ConnectionSurfaceState::default();
         state.active_clear_surfaces.insert(1);
-        state.requests.push_back(PendingSurfaceRequest {
+        state.requests.push_back(SequencedItem::Request(PendingSurfaceRequest {
             request: Request { id: Some(json!(1)), cmd },
             arrival: RequestArrival::now(),
             cause: crate::event_cause::EventCause::Program,
             frame_call: None,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
-        });
+        }));
 
         assert_eq!(
             ConnectionSurfaceScheduler::next_runnable_index(&state),

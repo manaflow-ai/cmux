@@ -12,7 +12,7 @@ use std::time::Instant;
 use serde_json::{Value, json};
 
 use super::{LineFrame, dispatch_line};
-use crate::line_parses::LineParses;
+use crate::diagnostics::{IpcStats, IpcTransport, JsonParseScope};
 use crate::request_origin::page_router_table;
 use crate::resource::ResourceOperation;
 use crate::server::command_names::COMMANDS;
@@ -34,26 +34,29 @@ impl Conn {
     }
 
     /// Dispatches `message` as the frame handler does after its preamble
-    /// and returns how many times it was parsed and the replies it got
-    /// (its own scheduler drains a queued `Command`).
-    fn dispatch(&self, mux: &Arc<Mux>, message: &str) -> (u32, Vec<Value>) {
+    /// and returns how many times it was parsed, on the reader and on the
+    /// sequence (the `server-stats` `ipc` count follows the line there),
+    /// and the replies it got (its own scheduler drains the sequence).
+    fn dispatch(&self, mux: &Arc<Mux>, message: &str) -> (u64, Vec<Value>) {
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stats = IpcStats::default();
         let line = LineFrame {
             mux,
             client: self.client,
             message,
             writer: &self.writer,
             scheduler: &scheduler,
-            arrived: Instant::now(),
+            arrival: RequestArrival::parsed_now(Instant::now()),
             watched: None,
         };
-        let parses = LineParses::enter();
-        dispatch_line(&line);
-        let count = parses.count();
+        let parses = JsonParseScope::enter(&stats, IpcTransport::Lines);
+        dispatch_line(&line, RequestHead::parse(message));
         drop(parses);
         scheduler.finish_and_wait();
-        (count, self.replies())
+        let counted = stats.snapshot().parses.lines;
+        assert_eq!(counted.requests, 1, "{message} counts as one request");
+        (counted.json_parses, self.replies())
     }
 
     fn replies(&self) -> Vec<Value> {
@@ -88,7 +91,7 @@ fn connection_frame_parses_every_accepted_line_twice() {
     let mux = test_mux();
     let conn = Conn::new(&mux);
     let resource = json!({"protocol":"cmux.protocol/2","type":"request","id":"r-1",
-        "operation":"session.ping","params":{"machine":"current","session":"current"}})
+        "operation":"request.cancel","params":{"request_id":"r-none"}})
     .to_string();
     let page_routed = json!({"protocol":"cmux.protocol/2","type":"request","id":"r-2",
         "operation":"apps.catalog.list","params":{}})

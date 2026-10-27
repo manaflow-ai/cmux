@@ -23,12 +23,12 @@ pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
 mod ipc;
-pub(crate) use ipc::note_json_parse;
 pub use ipc::{
     CountedWrite, IpcKindSnapshot, IpcParseSnapshot, IpcParsesSnapshot, IpcSnapshot, IpcStats,
     IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseScope, OpenStream,
     WRITE_STALL_THRESHOLD,
 };
+pub(crate) use ipc::{JsonParseHandoff, hand_off_json_parses, note_json_parse};
 mod owner_panic_log;
 #[cfg(debug_assertions)]
 pub use owner_panic_log::spawn_owner_hang_test;

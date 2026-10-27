@@ -45,9 +45,9 @@ pub(super) struct RequestHead<'a> {
     /// answered by the resource router whatever its other members say.
     protocol: bool,
     /// The `stream` member as written: the stream a request runs on.
-    stream: Option<&'a RawValue>,
+    stream: Option<Cow<'a, RawValue>>,
     /// The `params` member as written, for the one handler that decodes it.
-    params: Option<&'a RawValue>,
+    params: Option<Cow<'a, RawValue>>,
 }
 
 impl<'a> RequestHead<'a> {
@@ -55,16 +55,33 @@ impl<'a> RequestHead<'a> {
         crate::line_parses::parse::<Self>(message).unwrap_or_default()
     }
 
+    /// The head with every member it borrows from the line copied, so it
+    /// goes with the line to the connection's control sequence and the
+    /// handler there reads it without a second parse (p05-ipc-086).
+    pub(super) fn into_owned(self) -> RequestHead<'static> {
+        let owned = |text: Option<Cow<'a, str>>| text.map(|text| Cow::Owned(text.into_owned()));
+        let raw = |raw: Option<Cow<'a, RawValue>>| raw.map(|raw| Cow::Owned(raw.into_owned()));
+        RequestHead {
+            parsed: self.parsed,
+            id: self.id,
+            cmd: owned(self.cmd),
+            operation: owned(self.operation),
+            protocol: self.protocol,
+            stream: raw(self.stream),
+            params: raw(self.params),
+        }
+    }
+
     /// The line's `stream` member, unread.
     #[cfg_attr(not(test), expect(dead_code, reason = "read by the typed handlers of 063-070"))]
-    pub(super) fn stream(&self) -> Option<&'a RawValue> {
-        self.stream
+    pub(super) fn stream(&self) -> Option<&RawValue> {
+        self.stream.as_deref()
     }
 
     /// The line's `params` member, unread.
     #[cfg_attr(not(test), expect(dead_code, reason = "read by the typed handlers of 063-070"))]
-    pub(super) fn params(&self) -> Option<&'a RawValue> {
-        self.params
+    pub(super) fn params(&self) -> Option<&RawValue> {
+        self.params.as_deref()
     }
 
     /// The line's `cmd`, when it is a string.
@@ -132,8 +149,8 @@ impl<'de> Visitor<'de> for HeadVisitor {
                 "id" => head.id = map.next_value::<Option<Value>>()?,
                 "cmd" => head.cmd = map.next_value::<Member<'de>>()?.text(),
                 "operation" => head.operation = map.next_value::<Member<'de>>()?.text(),
-                "stream" => head.stream = Some(map.next_value::<&'de RawValue>()?),
-                "params" => head.params = Some(map.next_value::<&'de RawValue>()?),
+                "stream" => head.stream = Some(Cow::Borrowed(map.next_value::<&'de RawValue>()?)),
+                "params" => head.params = Some(Cow::Borrowed(map.next_value::<&'de RawValue>()?)),
                 "protocol" => {
                     map.next_value::<IgnoredAny>()?;
                     head.protocol = true;

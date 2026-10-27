@@ -164,26 +164,33 @@ fn event_cause_of_a_v2_request_is_narrowed_by_its_claim() {
     mux.shutdown();
 }
 
-/// With request classes on (crate::request_qos), the reader runs the
-/// verified app's line at USER_INITIATED and the same line with an `agent`
-/// claim at UTILITY, the class of the narrowed cause the dispatcher would
-/// also use.
+/// With request classes on (crate::request_qos), the connection's
+/// dispatcher runs the verified app's line at USER_INITIATED and the same
+/// line with an `agent` claim at UTILITY, the class of the narrowed cause.
 #[test]
 fn request_qos_of_a_claimed_line_follows_the_narrowed_cause() {
     use cmux_threads::ThreadQos::{UserInitiated, Utility};
     let mux = mux("claim-qos");
     mux.set_request_qos_for_test(true);
     let app = Conn::app(&mux);
-    let _ = crate::request_qos::tests::take_entered();
+    let entered = |app: &Conn| {
+        super::sequenced_lines_tests::dispatcher_entered(
+            &mux,
+            app.client,
+            &app.writer,
+            &app.scheduler,
+            &app.outbound,
+        )
+    };
     app.frame(&mux, &workspace_create("qos-as-user", None));
     assert_eq!(app.next_line()["ok"], true);
-    let entered = crate::request_qos::tests::take_entered();
-    assert_eq!(entered.first(), Some(&UserInitiated), "{entered:?}");
-    assert!(!entered.contains(&Utility), "the app's own line: {entered:?}");
+    let as_user = entered(&app);
+    assert_eq!(as_user.first(), Some(&UserInitiated), "{as_user:?}");
+    assert!(!as_user.contains(&Utility), "the app's own line: {as_user:?}");
 
     app.frame(&mux, &workspace_create("qos-as-agent", Some("agent")));
     assert_eq!(app.next_line()["ok"], true);
-    let entered = crate::request_qos::tests::take_entered();
+    let entered = entered(&app);
     assert_eq!(entered.get(..2), Some(&[UserInitiated, Utility][..]), "claimed: {entered:?}");
     mux.shutdown();
 }
