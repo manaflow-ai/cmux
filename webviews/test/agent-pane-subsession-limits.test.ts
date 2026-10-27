@@ -23,11 +23,14 @@ type Recorded = ReturnType<typeof record>[number];
 const limits = (maxRunning: number, maxRunningSource = "session") => ({ maxRunning, maxRunningSource });
 const changed = (maxRunning: number): Step => ["mux", "subsession", { event: "limits", limits: limits(maxRunning) }];
 
-/// A daemon over a fake socket: attach answers with `history` and the detail's limit of 8;
-/// `push` sends live events; `asked` keeps each request's params by method.
-function fakeDaemon(history: Recorded[]) {
+/// A daemon over a fake socket: attach answers with `history` and the detail's limit of 8 (the
+/// chat's own unless `inherited`); `push` sends live events; `asked` keeps each request's params by
+/// method, `limitAsks` each `_acpmux/subsession/limits` request's; `held` is the limit acpmux holds.
+function fakeDaemon(history: Recorded[], inherited = false) {
   let socket: any;
   const asked = new Map<string, any>();
+  const limitAsks: any[] = [];
+  const state = { held: 8, source: inherited ? "inherited" : "session" };
   const session = { sessionId: CHAT, cwd: "/Users/dev/app", title: "x", harness: "claude", status: "idle" };
   const lastSeq = () => history.at(-1)?.seq ?? 0;
   const answer = (method: string) => {
@@ -38,15 +41,22 @@ function fakeDaemon(history: Recorded[]) {
         return { sessions: [session] };
       case "_acpmux/attach":
         return {
-          session: { ...session, subsessionLimits: limits(8) },
+          session: { ...session, subsessionLimits: limits(8, state.source) },
           lastSeq: lastSeq(),
           events: history,
           hasMore: false,
         };
       case "_acpmux/events":
         return { events: [], hasMore: false, more: false, lastSeq: lastSeq() };
-      case "_acpmux/subsession/limits":
-        return { sessionId: CHAT, subsessionLimits: limits(asked.get(method)?.maxRunning ?? 16) };
+      case "_acpmux/subsession/limits": {
+        const params = asked.get(method) ?? {};
+        // Naming no field only reads the limit.
+        if ("maxRunning" in params) {
+          state.held = params.maxRunning;
+          state.source = "session";
+        }
+        return { sessionId: CHAT, subsessionLimits: limits(state.held, state.source) };
+      }
       default:
         return null;
     }
@@ -57,6 +67,7 @@ function fakeDaemon(history: Recorded[]) {
       send(raw: string) {
         const message = JSON.parse(raw);
         if (message.method) asked.set(message.method, message.params);
+        if (message.method === "_acpmux/subsession/limits") limitAsks.push(message.params);
         if (message.id !== undefined)
           queueMicrotask(() =>
             socket.onmessage?.({
@@ -75,7 +86,7 @@ function fakeDaemon(history: Recorded[]) {
       socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
     }
   };
-  return { open, push, asked };
+  return { open, push, asked, limitAsks, state };
 }
 
 /// Yields until `ready()` holds; fails after 2 s with what it waited for.
@@ -116,6 +127,37 @@ test("the attach asks for the limit's records, and only one newer than the attac
     await client.setRunningLimit(CHAT, 13);
     expect(daemon.asked.get("_acpmux/subsession/limits")).toEqual({ sessionId: CHAT, maxRunning: 13 });
     await until(() => snapshot.summary.subsessionLimits?.maxRunning === 13, "the reply's limit");
+  } finally {
+    client.close();
+  }
+});
+
+test("a step on an inherited limit steps from the limit acpmux holds now, and quick steps build on each other", async () => {
+  // The chat inherits 8; then its parent's limit moves to 20, which reaches this chat as no record.
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }]]), true);
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.summary.subsessionLimits).toEqual({ maxRunning: 8, maxRunningSource: "inherited" });
+    daemon.state.held = 20;
+    // Two quick + clicks on the stale 8: 8 → 9, then 9 → 10.
+    await Promise.all([client.setRunningLimit(CHAT, 9, 8), client.setRunningLimit(CHAT, 10, 9)]);
+    // The first read acpmux's 20 and set 21; the second stepped from that answer, the chat's own now.
+    expect(daemon.limitAsks).toEqual([
+      { sessionId: CHAT },
+      { sessionId: CHAT, maxRunning: 21 },
+      { sessionId: CHAT, maxRunning: 22 },
+    ]);
+    expect(snapshot.summary.subsessionLimits).toEqual({ maxRunning: 22, maxRunningSource: "session" });
+    // Reset names no step: it is sent as is.
+    await client.setRunningLimit(CHAT, null);
+    expect(daemon.limitAsks.at(-1)).toEqual({ sessionId: CHAT, maxRunning: null });
   } finally {
     client.close();
   }

@@ -38,7 +38,7 @@ import { resentAttachments, shownPrompt } from "./pastedText";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
-import { subsessionLimits } from "./subsessionLimits";
+import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
@@ -1118,6 +1118,8 @@ export class AcpmuxDirectClient {
   /// The seq the selected chat's `subsessionLimits` were read at (the attach's `lastSeq`, then each
   /// newer `limits` record): an older record replayed with the page never takes them back.
   private limitsSeq = 0;
+  /// The running-limit changes in flight, one after another: each steps from the answer before it.
+  private limitsChain: Promise<unknown> = Promise.resolve();
   /// The session detail's goal is current through attach's lastSeq; older session-info history
   /// must not replace it while newer live goal events still apply.
   private goalSeq = 0;
@@ -2255,9 +2257,40 @@ export class AcpmuxDirectClient {
   /// `null` to drop the chat's own limit for the one it inherits (an ancestor's, the workspace's,
   /// the settings' or acpmux's default). acpmux answers `{sessionId, subsessionLimits}` and logs a
   /// `limits` record; the selected chat's summary takes the reply's limits at once.
-  async setRunningLimit(sessionId: string, maxRunning: number | null): Promise<void> {
-    const result = await this.request("_acpmux/subsession/limits", { sessionId, maxRunning }, 10_000);
-    const limits = result?.subsessionLimits;
+  ///
+  /// A step (− or +) names the limit it stepped `from`. A chat's inherited limit moves with no
+  /// record of its own (an ancestor's, the workspace's or the settings' changed), so unless the
+  /// chat's own limit is known here, acpmux is read first, and a limit that is no longer `from`
+  /// is stepped from instead: + on a stale 16 when acpmux holds 20 sets 21, never 17. Changes run
+  /// one after another, each from the answer before it, so quick clicks never step from the same
+  /// number twice.
+  setRunningLimit(sessionId: string, maxRunning: number | null, from?: number): Promise<void> {
+    const run = this.limitsChain.then(() => this.applyRunningLimit(sessionId, maxRunning, from));
+    this.limitsChain = run.catch(() => undefined);
+    return run;
+  }
+
+  private async applyRunningLimit(sessionId: string, maxRunning: number | null, from?: number): Promise<void> {
+    let value = maxRunning;
+    if (value !== null && from !== undefined) {
+      const known =
+        sessionId === this.selectedSessionId ? subsessionLimits(this.summary?.subsessionLimits) : undefined;
+      const current = known?.maxRunningSource === "session" ? known : await this.readRunningLimit(sessionId);
+      if (current && current.maxRunning !== from) value = clampRunning(current.maxRunning + (value - from));
+    }
+    const result = await this.request("_acpmux/subsession/limits", { sessionId, maxRunning: value }, 10_000);
+    this.takeRunningLimit(sessionId, result?.subsessionLimits);
+  }
+
+  /// Chat `sessionId`'s limits as acpmux holds them now (`_acpmux/subsession/limits` naming no
+  /// field only reads them).
+  private async readRunningLimit(sessionId: string) {
+    const result = await this.request("_acpmux/subsession/limits", { sessionId }, 10_000);
+    this.takeRunningLimit(sessionId, result?.subsessionLimits);
+    return subsessionLimits(result?.subsessionLimits);
+  }
+
+  private takeRunningLimit(sessionId: string, limits: unknown) {
     if (sessionId !== this.selectedSessionId || !limits || typeof limits !== "object") return;
     this.summary = { ...this.summary, subsessionLimits: limits };
     this.emit("subsession limits");

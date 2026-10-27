@@ -321,7 +321,7 @@ export function useChatInspector({
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
   /// `_acpmux/subsession/limits` (direct.ts setRunningLimit): chat `sessionId`'s running limit.
-  onSetRunningLimit?: (sessionId: string, maxRunning: number | null) => Promise<unknown>;
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
   workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
@@ -534,7 +534,7 @@ function InspectorPresence({
     onOpen: (id: string) => void;
   };
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
-  onSetRunningLimit?: (sessionId: string, maxRunning: number | null) => Promise<unknown>;
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
   workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
   revealed?: { section: InspectorSectionId; at: number };
@@ -921,7 +921,7 @@ export function ChatInspector({
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
   /// Sets or drops the chat's running limit (SubagentLimitStepper.tsx); without it the limit only reads.
-  onSetRunningLimit?: (sessionId: string, maxRunning: number | null) => Promise<unknown>;
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs): they head Background tasks, and leave Subagents.
   workflows?: readonly WorkflowSummary[];
   onStopWorkflow?: (id: string) => Promise<unknown>;
@@ -1015,7 +1015,7 @@ export function ChatInspector({
   // limit only from its own person, so the line only reads.
   const setRunningLimit =
     onSetRunningLimit && chatId && !summary?.peer
-      ? (maxRunning: number | null) => onSetRunningLimit(chatId, maxRunning)
+      ? (maxRunning: number | null, from?: number) => onSetRunningLimit(chatId, maxRunning, from)
       : undefined;
   const progress = !known && agent ? subagentProgress(t, language, agent) : [];
   const value = (text: string) => <span className="acpmux-chat-inspector-section__value">{text}</span>;

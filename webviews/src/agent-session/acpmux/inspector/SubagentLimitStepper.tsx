@@ -40,8 +40,10 @@ export function SubagentLimitStepper({
   limits?: SubsessionLimits;
   /// The chats its agent started, for the live counts.
   sessions?: readonly StartedSession[];
-  /// `_acpmux/subsession/limits` for this chat: a number sets its own limit, `null` drops it.
-  onSet?: (maxRunning: number | null) => Promise<unknown>;
+  /// `_acpmux/subsession/limits` for this chat: a number sets its own limit, `null` drops it. A step
+  /// names the limit it stepped `from`, so a limit that moved meanwhile (an ancestor's, the
+  /// workspace's or the settings', which reach this chat as no record) is stepped from instead.
+  onSet?: (maxRunning: number | null, from?: number) => Promise<unknown>;
 }) {
   const t = useT();
   // The value a click asked for, until acpmux's answer: kept with the chat and the limits it may
@@ -63,7 +65,7 @@ export function SubagentLimitStepper({
   const max = pending ?? limits.maxRunning;
   const failed = refused !== undefined && refused.chat === chatId;
   const { running, queued } = slotCounts(limits, sessions);
-  const set = (value: number | null) => {
+  const set = (value: number | null, from?: number) => {
     if (!onSet) return;
     const chat = chatId;
     setRefused(undefined);
@@ -78,13 +80,13 @@ export function SubagentLimitStepper({
     };
     // A handler that returns no promise, or throws, still settles the line (never an unhandled error).
     Promise.resolve()
-      .then(() => onSet(value))
+      .then(() => onSet(value, from))
       .then(answered, () => {
         answered();
         setRefused({ chat, at: Date.now() });
       });
   };
-  const step = (by: number) => set(clampRunning(max + by));
+  const step = (by: number) => set(clampRunning(max + by), max);
   const own = limits.maxRunningSource === "session";
   return (
     <div className="acpmux-subagent-limit">
