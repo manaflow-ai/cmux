@@ -26,6 +26,10 @@ on:
       - "scripts/tests/test_pr_scoped_lint_gates.py"
       - "scripts/ci/package-conventions-gate.sh"
       - "scripts/ci/crash-class-gate.sh"
+      # The crash-class lint test_pr_scoped_lint_gates.py runs: check-concurrency.sh and what it loads.
+      - "scripts/cmux-next/check-concurrency.sh"
+      - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/cmux-next/swift_scope.py"
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/ci/ios_runner_pool.py"
       - "scripts/ci/select_ios_simulator.py"
@@ -425,7 +429,7 @@ jobs:
           fi
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too.
-          if grep -Eq '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/tests/test_pr_scoped_lint_gates\.py$|scripts/ci/package-conventions-gate\.sh$|scripts/ci/crash-class-gate\.sh$|scripts/ci/pr_owned_findings\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint-namespace-types-ratchet\.txt$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/tests/test_pr_scoped_lint_gates\.py$|scripts/ci/package-conventions-gate\.sh$|scripts/ci/crash-class-gate\.sh$|scripts/cmux-next/check-concurrency\.sh$|scripts/cmux-next/check-main-actor-work\.py$|scripts/cmux-next/swift_scope\.py$|scripts/ci/pr_owned_findings\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint-namespace-types-ratchet\.txt$)' /tmp/changed-files.txt; then
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
           else
             echo "No package-owned files changed; skipping conventions lint."
@@ -1001,15 +1005,32 @@ jobs:
           fi
           echo "Testing scheme $scheme on simulator $SIMULATOR_ID"
           log_path="$IOS_DERIVED_DATA/logs/cmuxios-unit-tests.log"
-          python3 "$GITHUB_WORKSPACE/scripts/ci/hung_test_watchdog.py" --silence-seconds 300 \
-            --label CmuxiOS --log "$log_path" -- \
-            xcodebuild test \
-              -scheme "$scheme" \
-              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-              -derivedDataPath "$pkg_dd" \
-              -clonedSourcePackagesDirPath "$IOS_SPM_CACHE" \
-              -skipMacroValidation \
-              -skipPackagePluginValidation
+          run_tests() {
+            python3 "$GITHUB_WORKSPACE/scripts/ci/hung_test_watchdog.py" --silence-seconds 300 \
+              --label CmuxiOS --log "$log_path" -- \
+              xcodebuild test \
+                -scheme "$scheme" \
+                -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+                -derivedDataPath "$pkg_dd" \
+                -clonedSourcePackagesDirPath "$IOS_SPM_CACHE" \
+                -skipMacroValidation \
+                -skipPackagePluginValidation
+          }
+          # The per-runner DerivedData keeps explicit precompiled modules; a header the build
+          # copies again (ghostty.h, new mtime) makes them stale and the build stops with
+          # "has been modified since the module file ... was built". Clear the module caches
+          # and run once more; any other failure stands.
+          if ! run_tests; then
+            if grep -q "has been modified since the module file" "$log_path"; then
+              echo "::warning::stale precompiled modules in $pkg_dd; clearing them and running again"
+              rm -rf "$pkg_dd/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules" \
+                     "$pkg_dd/Build/Intermediates.noindex/ExplicitPrecompiledModules" \
+                     "$pkg_dd/ModuleCache.noindex"
+              run_tests
+            else
+              exit 1
+            fi
+          fi
           grep -Eq '(Executed [1-9][0-9]* tests?|Test run with [1-9][0-9]* tests?)' "$log_path" || {
             echo "::error::CmuxiOS unit tests ran no tests"
             exit 1
@@ -1050,7 +1071,7 @@ jobs:
         with:
           name: ios-simulator-build-log
           path: ${{ env.IOS_DERIVED_DATA }}/logs/*.log
-          retention-days: 7
+          retention-days: 3
 
       - name: Remove compatibility simulator
         # Also a simulator select_ios_simulator.py created for this run, which

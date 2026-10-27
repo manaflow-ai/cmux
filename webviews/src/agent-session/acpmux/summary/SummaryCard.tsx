@@ -13,12 +13,18 @@ import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
 import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
+import { sessionStatus } from "../inspector/ChildSessionRows";
+import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
+import type { ChatToolsControl } from "./SourcesAddMenu";
 import type { SummaryCardControl } from "./cardState";
 import { backgroundCommands } from "../inspector/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
 import type { ProcessRegistry } from "../inspector/processes";
+import type { WorkflowActions } from "./WorkflowSummary";
+import type { WorkflowSummary } from "./workflow";
+import type { WorkflowCapacitySignal } from "./foldWorkflows";
 
 const NO_SESSIONS: readonly StartedSession[] = [];
 const NO_TASKS: readonly SummaryBackgroundTask[] = [];
@@ -33,9 +39,10 @@ const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 /// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
 /// Subagents tab beside the Summary (SubagentsTab.tsx), as the ChatGPT desktop app's right pane
 /// does; its close button goes back to the summary.
-/// Background work shows live: the chat's background commands (`background`, the process
-/// registry's merged with the transcript's, backgroundWork.ts) with Stop, and the chats its agent
-/// started (`sessions`) under Subagents. The header's counts include the running ones.
+/// Background work shows as compact task cards: the chat's background commands (`background`, the
+/// process registry's merged with the transcript's, backgroundWork.ts) keep their description,
+/// running/completed/failed state and Stop affordance, and the chats its agent started (`sessions`)
+/// stay under Subagents. The header's counts include the running ones.
 export function SummaryCard({
   card,
   rows,
@@ -48,6 +55,12 @@ export function SummaryCard({
   onAttach,
   background,
   sessions,
+  tools,
+  workflow,
+  workflowActions,
+  workflows,
+  workflowActionsFor,
+  workflowCapacity,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -81,6 +94,14 @@ export function SummaryCard({
   };
   /// The chats this chat's agent started, and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// Sources' Use tools: the chat's tools, where acpmux can change them (cx-thur3).
+  tools?: ChatToolsControl;
+  /// Labs-only workflow data from the optional acpmux adapter.
+  workflow?: WorkflowSummary;
+  workflowActions?: WorkflowActions;
+  workflows?: readonly WorkflowSummary[];
+  workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
+  workflowCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -132,17 +153,23 @@ export function SummaryCard({
     const away = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target || panel.current?.contains(target)) return;
-      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery")) return;
+      // The card's own menus (Sources' +, SourcesAddMenu.tsx) draw in the page's portal, outside it.
+      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery, .acpmux-summary-menu")) return;
       close();
     };
     document.addEventListener("pointerdown", away, true);
     return () => document.removeEventListener("pointerdown", away, true);
   }, [close, popover]);
-  useEscapeCloses(popover && !gallery, () => {
-    const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
-    card.close();
-    button?.focus();
-  });
+  // Escape in one of the card's menus closes that menu only.
+  useEscapeCloses(
+    popover && !gallery,
+    () => {
+      const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
+      card.close();
+      button?.focus();
+    },
+    ".acpmux-summary-menu",
+  );
   if (!drawn) {
     // Keep the inline column's width stable before the first summary row arrives. The rail is
     // intentionally invisible until it has content, but removing it from the flex row would make
@@ -158,12 +185,16 @@ export function SummaryCard({
   );
   const count = (status: string) =>
     agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
-    subsessionRows.filter((session) => SUBSESSION_STATUS[session.state] === status).length;
+    subsessionRows.filter(
+      (session) =>
+        (sessionRetry(session).kind === "retrying" ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state]) ===
+        status,
+    ).length;
   // A started chat waiting on the person is counted with the waiting subagents.
-  const waitingCount = count("waiting") + children.filter((child) => child.state === "waiting").length;
+  const waitingCount = count("waiting") + children.filter((child) => sessionStatus(child) === "waiting").length;
   const runningCommands = commands.filter((command) => command.state === "running").length;
   // A started chat whose turn runs is a running subagent too: one word, as the tray says.
-  const runningCount = count("running") + children.filter((child) => child.state === "running").length;
+  const runningCount = count("running") + children.filter((child) => sessionStatus(child) === "running").length;
   const counts = [
     waitingCount > 0 && t("summary.subagents.waiting", { n: waitingCount }),
     runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
@@ -304,8 +335,14 @@ export function SummaryCard({
               subagents={hasSubagents ? <></> : undefined}
               onOpenOutput={onOpenOutput}
               onAttach={onAttach}
+              tools={tools}
               commands={commands}
               onStopCommand={background?.onStop}
+              workflow={workflow}
+              workflowActions={workflowActions}
+              workflows={workflows}
+              workflowActionsFor={workflowActionsFor}
+              workflowCapacity={workflowCapacity}
             />
           </div>
         )}

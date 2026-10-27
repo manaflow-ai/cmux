@@ -41,6 +41,35 @@ fn screenshot_out_is_made_absolute_except_stdout() {
     assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
 }
 
+/// `cmux cloud new-machine --bootstrap-script FILE` uploads a file of the
+/// caller's working directory, so the app gets it absolute; `--persistent`
+/// alone is a true flag and `--size` keeps its value.
+#[test]
+fn new_machine_bootstrap_script_is_made_absolute() {
+    let (method, params) = call(
+        run_action(
+            "cloud new-machine",
+            &args(&[
+                "--persistent",
+                "--size",
+                "medium",
+                "--bootstrap",
+                "lane",
+                "--bootstrap-script",
+                "boot.sh",
+            ]),
+            ActionName::Cli,
+        )
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(params["args"]["bootstrapScript"], json!(cwd.join("boot.sh").to_string_lossy()));
+    assert_eq!(params["args"]["persistent"], json!(true));
+    assert_eq!(params["args"]["size"], json!("medium"));
+    assert_eq!(params["args"]["bootstrap"], json!("lane"));
+}
+
 #[test]
 fn non_app_scopes_are_left_to_the_resource_grammar() {
     assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);
@@ -253,6 +282,28 @@ fn action_run_maps_flags_to_target_and_arguments() {
             "args": { "title": "Build", "keep_case": "true" },
         })
     );
+}
+
+#[test]
+fn both_agent_tab_command_forms_forward_the_peer_host() {
+    for words in [
+        vec!["agent", "open-tab", "session-id", "--target", "pane_0123", "--host", "cmux16"],
+        vec![
+            "action",
+            "run",
+            "agent.openSessionTab",
+            "--target",
+            "pane_0123",
+            "--session",
+            "session-id",
+            "--host",
+            "cmux16",
+        ],
+    ] {
+        let (_, params) = call(parse(&args(&words)).unwrap().unwrap());
+        assert_eq!(params["target"], "pane_0123");
+        assert_eq!(params["args"], json!({"session": "session-id", "host": "cmux16"}));
+    }
 }
 
 #[test]

@@ -86,7 +86,12 @@ pub(super) const GUIDES: &[Guide] = &[
         status on a workspace's sidebar row: workspace_status_set {workspace, key, text, state, \
         progress, ttl_ms} (CLI `cmux workspace WS status set KEY TEXT`), workspace_progress_set \
         and workspace_log_append; clear them when the work is done. Ask for attention: \
-        notification_create {title, body} (desktop: false shows no banner). The focus tools \
+        notification_create {title, body} (desktop: false shows no banner). When the user must \
+        act in a tab (confirm, log in, approve, pick), mark it: tab_update {tab, attention: \
+        \"one-line reason\"} (CLI `cmux attention request --tab TAB --reason TEXT`); it never \
+        moves focus, and tab_update {tab, attention: null} (`cmux attention clear --tab TAB`) \
+        drops it. Tell the user the workspace and tab by their titles, never a ws_ or tab_ id. \
+        The focus tools \
         (tab_focus, pane_focus, screen_focus, workspace_focus, agents_tab_select) and focus: true \
         move the user's focus: use them only when the user asked. The selector `current` is what \
         the user looks at, not your own workspace.",
@@ -189,6 +194,41 @@ pub(super) const GUIDES: &[Guide] = &[
         [--fix]` checks or repairs one; `cmux host ticket new` mints a single-use line that \
         installs cmux on another machine and joins it (`cmux host join`) without ssh; `cmux \
         setup tailnet` serves this machine over Tailscale.",
+    },
+    Guide {
+        topic: "Start, prompt and drive another agent chat in the app",
+        keywords: &[
+            "agent",
+            "agents",
+            "start",
+            "spawn",
+            "delegate",
+            "subagent",
+            "message",
+            "nudge",
+            "continue",
+            "interrupt",
+            "stop",
+            "model",
+            "effort",
+            "screenshot",
+            "capture",
+        ],
+        text: "Start an ordinary agent chat the user sees in the app, as New Agent Chat and a \
+        first message do, without moving their focus: `cmux agents chat new [--workspace WS | \
+        --pane PANE] [--harness claude|codex|...] [--model M] [--effort \
+        low|medium|high|xhigh|max] [--mode M] [--policy ask|approve-reads|deny-all] [--cwd DIR] \
+        [--name N] -- PROMPT` (MCP agents_chat_new); with neither --workspace nor --pane it gets \
+        a new workspace. It runs in the app's own acpmux (not as your subagent) and PROMPT is its \
+        first prompt, as if the user typed it. Its receipt names the chat (an acpmux session \
+        id), tab, pane and workspace. Drive a chat of this cmux session (never your own): `cmux \
+        agents chat send CHAT -- TEXT` (agents_chat_send, an agent message), `chat read CHAT \
+        --after N` (agents_chat_read), `chat state CHAT` (agents_chat_state: status, running, \
+        pending permissions), `chat interrupt CHAT` (agents_chat_interrupt, stops its turn) and \
+        `chat continue CHAT [TEXT]` (a nudge). Wait for its answer with agents_wait or read on \
+        from next_after. See a pane or tab: `cmux pane screenshot --target pane_ID --out PATH` or \
+        `cmux tab screenshot --target tab_ID --out PATH` (browser pages come out blacked out; a \
+        browser page's own pixels are `cmux browser page screenshot`).",
     },
 ];
 
@@ -407,6 +447,16 @@ mod tests {
         assert!(has_scope_operations("sidebar"));
         assert!(has_scope_operations("pairing"));
         assert!(has_scope_operations("projection"));
+    }
+
+    /// An agent that wants another agent to do work finds the chat verbs.
+    #[test]
+    fn starting_another_agent_finds_its_guide() {
+        for query in ["spawn an agent", "interrupt", "screenshot a pane"] {
+            let found = guides(query);
+            assert_eq!(found.len(), 1, "{query}");
+            assert!(found[0].text.contains("agents chat new"), "{query}");
+        }
     }
 
     /// An agent that searches in its own words for showing its work finds

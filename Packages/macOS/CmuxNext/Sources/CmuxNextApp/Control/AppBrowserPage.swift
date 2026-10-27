@@ -57,10 +57,10 @@ enum AppBrowserPage {
             target = try navigationTarget(raw, tabEngine: tab.browserEngine, page: page.engineKind).get()
         }
         if let refusal = agentURLRefusal(operation, target: target, page: page) { throw refusal }
-        if let refusal = agentExtensionRefusal(operation, target: target, page: page,
-                                               allowedByPerson: services.cache.agentMayUseExtensionTab(tabID), access: .fromDisk) {
-            throw refusal
-        }
+        if needsLiveBrowser(operation) { try await ensureBrowser(page) }
+        // No extension rule here: every agent may drive every tab, in any
+        // profile (#24413). Saved passwords never fill in an agent-driven tab
+        // (`markAgentDriven` above), and the per-tab lease coordinates agents.
         switch operation {
         case .navigate:
             if let target { page.load(target) }
@@ -70,39 +70,57 @@ enum AppBrowserPage {
         case .state:
             return stateResult(page)
         case .evaluate(let script):
-            try await ensureBrowser(page)
             // The page's pending navigation (the first load after open) ends
             // first, bounded; then the script acts on the loaded document.
             _ = await awaitPendingNavigation(page, within: actionWait)
             do {
-                let value = try await page.evaluate(script)
-                return ["value": CmuxNextSettings.JSONValue(foundation: value.foundationValue) ?? .null]
+                let value = try await page.evaluate(script, world: .page, gesture: .agent)
+                return ["value": await json(value)]
             } catch {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         case .evaluateAsync(let body):
             do {
                 let value = try await page.evaluateAsync(body)
-                return ["value": JSONValue(foundation: value.foundationValue) ?? .null]
+                return ["value": await json(value)]
             } catch {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         case .screenshot(let capture):
-            // A Chromium page no pane has shown has no browser yet, so its
-            // capture failed with `snapshotUnavailable` (an agent's tab in a
-            // workspace off screen): create it in the background first.
-            try await ensureBrowser(page)
             return try await screenshot(page, tabID: tabID, capture)
         case .cookies(let request):
-            // Chromium's cookie methods go through the page's DevTools.
-            try await ensureBrowser(page)
             return try await cookies(page, request)
         case .input(let input):
             // Trusted input after the page's first load, as a script acts on the loaded document.
             _ = await awaitPendingNavigation(page, within: actionWait)
             return try await services.browserNativeInputs.deliver(input, to: page, key: tabID)
+        case .upload(let upload):
+            // The page's own file chooser takes the files (`BrowserAgentFiles`); a page without one gets them
+            // through a page script (the service).
+            _ = await awaitPendingNavigation(page, within: actionWait)
+            guard let chooser = page as? any BrowserAgentFileChoosing else { return ["chooser": "unsupported"] }
+            do {
+                let (answer, outcome) = try await chooser.agentFiles.offer(upload.files, within: upload.within, clicking: upload.script, on: page)
+                return ["value": await json(answer), "chooser": .string(outcome.code)]
+            } catch {
+                throw ControlError(code: "js_error", message: String(describing: error))
+            }
         }
         return [:]
+    }
+
+    /// Whether `operation` needs the page's engine browser, created in the
+    /// background for a Chromium tab no pane has shown. A script (a page
+    /// wait is an async one: without the browser it ended with "closed"
+    /// until the timeout), a capture
+    /// (else `snapshotUnavailable` for an agent's tab off screen) and cookies
+    /// (Chromium's go through the page's DevTools) do. Input creates it in
+    /// ``BrowserNativeInputs``; navigation and `state` do not need it.
+    static func needsLiveBrowser(_ operation: BrowserPageOperation) -> Bool {
+        switch operation {
+        case .evaluate, .evaluateAsync, .screenshot, .cookies, .upload: true
+        case .navigate, .back, .forward, .reload, .state, .input: false
+        }
     }
 
     /// A Chromium page has no browser until its pane shows it: a background

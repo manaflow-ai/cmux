@@ -10,6 +10,11 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
     /// tabs are store tabs now (cmux-tui/spec/commands.md, new-conversation-tab): the app imports these once
     /// into the store and empties the field; it is written only while it holds records.
     public var legacyAgentTabs: [String: [AgentTabRecord]]
+    /// The front window's frame (and display) at the last save. `prune(liveWorkspaces:)` keeps it
+    /// after the records are gone (their workspaces ended at quit, or the last window closed), so
+    /// the next launch's first window still opens there (#25568).
+    public var lastFrame: WindowFrame?
+    public var lastDisplay: String?
 
     public init(windows: [WindowRecord] = [], collapsedGroups: [String: Bool] = [:],
                 legacyAgentTabs: [String: [AgentTabRecord]] = [:]) {
@@ -22,6 +27,8 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
         case windows
         case collapsedGroups = "collapsed_groups"
         case legacyAgentTabs = "agent_tabs"
+        case lastFrame = "last_frame"
+        case lastDisplay = "last_display"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -29,6 +36,8 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
         windows = try c.decodeIfPresent([WindowRecord].self, forKey: .windows) ?? []
         collapsedGroups = try c.decodeIfPresent([String: Bool].self, forKey: .collapsedGroups) ?? [:]
         legacyAgentTabs = try c.decodeIfPresent([String: [AgentTabRecord]].self, forKey: .legacyAgentTabs) ?? [:]
+        lastFrame = try c.decodeIfPresent(WindowFrame.self, forKey: .lastFrame)
+        lastDisplay = try c.decodeIfPresent(String.self, forKey: .lastDisplay)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -36,6 +45,8 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
         try c.encode(windows, forKey: .windows)
         try c.encode(collapsedGroups, forKey: .collapsedGroups)
         if !legacyAgentTabs.isEmpty { try c.encode(legacyAgentTabs, forKey: .legacyAgentTabs) }
+        try c.encodeIfPresent(lastFrame, forKey: .lastFrame)
+        try c.encodeIfPresent(lastDisplay, forKey: .lastDisplay)
     }
 
     /// Replaces or appends one window by id.

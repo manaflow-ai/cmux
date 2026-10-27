@@ -86,13 +86,24 @@ case "$host" in *unreachable*)
   echo "ssh: connect to host $host port 22: Connection refused" >&2
   exit 255;;
 esac
+# An install or update holds the host's update lease for its length (41f11ee0253,
+# host_lock.rs): the holder says it took the lease and runs until its stdin closes.
+case "$script" in *"echo ACPMUX_UPDATE_LOCKED"*)
+  echo ACPMUX_UPDATE_LOCKED
+  cat >/dev/null
+  exit 0;;
+esac
+# Every step of it is fenced for that lease: answer the script inside the fence.
+case "$script" in *"} 8>&- 9>&-")
+  script=$(printf '%s\n' "$script" | awk '!f && $0 == "{" {f=1; next} f && $0 != "} 8>&- 9>&-" {print}');;
+esac
 case "$script" in
   # `acp host update`'s probe (c9e045f2e48): this machine's own `uname -sm`,
   # so the update pushes this binary, then a daemon on an older build.
   *ACPMUX_UNAME=*)
     printf 'ACPMUX_UNAME=%s\n\nACPMUX_PROBE\n{"pid":1,"build":"0000000 2026-01-01"}\n\nACPMUX_PROBE\n\nACPMUX_PROBE\n' "$(uname -sm)";;
   # Its wait for the restarted daemon: one answers.
-  "i=0; while :; do s="*) echo '{"pid":2,"build":"fake-new"}';;
+  *"i=0; while :; do s="*) echo '{"pid":2,"build":"fake-new"}';;
   *--version*) echo "acpmux 0.0.0-fake";;
   *"cat ~/.acpmux/config.json"*) echo '{}';;
   "uname -s") echo Linux;;
@@ -186,9 +197,10 @@ exit 0
         let output = self.run(args);
         assert!(
             output.status.success(),
-            "{args:?} exited {:?}: {}",
+            "{args:?} exited {:?}: {} {}",
             output.status.code(),
-            String::from_utf8_lossy(&output.stderr)
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout)
         );
         serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
             panic!("{args:?}: {error}: {}", String::from_utf8_lossy(&output.stdout))
@@ -931,7 +943,8 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
             &json!("computer_use"),
             &json!("cloud_machine"),
             &json!("notifications"),
-            &json!("browser_import")
+            &json!("browser_import"),
+            &json!("tailnet")
         ],
         "{status}"
     );
@@ -1494,4 +1507,27 @@ fn cmux_setup_computer_use_waits_when_the_phase_lags_the_ok() {
     let rerun = world.json(&["setup", "computer-use"]);
     assert_eq!(rerun["state"], "ok", "{rerun}");
     assert_eq!(app.settings_sets().len(), 1, "the rerun showed a second sheet");
+}
+
+/// A decision recorded under another spelling of the folder (made before the folder moved behind
+/// a link) is the folder's own: setup reads it as acpmux does, and `--level unknown` forgets it.
+#[test]
+fn cmux_setup_trust_forgets_a_decision_recorded_under_another_spelling() {
+    let world = World::new("trust-spelling");
+    let folder = world.folder();
+    let link = world.home.parent().unwrap().join("spelled-through-a-link");
+    std::os::unix::fs::symlink(&folder, &link).unwrap();
+    let old = link.to_string_lossy().into_owned();
+    std::fs::create_dir_all(&world.acpmux).unwrap();
+    std::fs::write(world.acpmux.join("trust.json"), json!({old.as_str(): "untrusted"}).to_string())
+        .unwrap();
+
+    let held = world.json(&["setup", "trust", &folder, "--level", "untrusted"]);
+    assert_eq!(held["state"], "ok", "{held}");
+    assert_eq!(held["recorded"], "untrusted", "{held}");
+
+    let forgot = world.json(&["setup", "trust", &folder, "--level", "unknown"]);
+    assert_eq!(forgot["state"], "changed", "{forgot}");
+    assert_eq!(forgot["after"]["level"], "unknown", "{forgot}");
+    assert_eq!(world.record(), Some(json!({})));
 }

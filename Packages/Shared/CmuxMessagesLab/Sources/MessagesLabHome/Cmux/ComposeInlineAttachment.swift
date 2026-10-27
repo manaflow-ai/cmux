@@ -79,17 +79,22 @@ final class ComposeInlineAttachment: NSTextAttachment {
                 ComposeAttachmentStrip.thumbnail(asset, maxPixels: px)
             }.value
             guard let self, self.model.asset == asset else { return }
-            self.thumbnail = image
-            self.shownView?.show(image)
-            self.redrawField()
+            self.thumbnailArrived(image)
         }
     }
 
-    /// The field draws the attachment again (the thumbnail arrived after it drew the placeholder).
+    /// The decoded thumbnail is here (main actor): the view or the field shows it.
+    func thumbnailArrived(_ image: CGImage?) {
+        thumbnail = image
+        shownView?.show(image)
+        redrawField()
+    }
+
+    /// The field draws the attachment again (the thumbnail arrived after it drew the placeholder):
+    /// only its rect and no layout, with the other arrivals of this turn (`ComposeInlineRedraw`).
     private func redrawField() {
         guard let tv = drawnIn?.textView else { return }
-        if let tlm = tv.textLayoutManager { tlm.invalidateLayout(for: tlm.documentRange) }
-        tv.needsDisplay = true
+        ComposeInlineRedraw.of(tv).arrived(self)
     }
 
     // MARK: Its own line, as in Messages
@@ -190,9 +195,7 @@ final class ComposeInlineAttachment: NSTextAttachment {
     /// Decodes the thumbnail now (tests).
     func loadThumbnailNow(scale: CGFloat) {
         guard isImage, let asset = model.asset else { return }
-        thumbnail = ComposeAttachmentStrip.thumbnail(asset, maxPixels: thumbnailPixels(scale))
-        shownView?.show(thumbnail)
-        redrawField()
+        thumbnailArrived(ComposeAttachmentStrip.thumbnail(asset, maxPixels: thumbnailPixels(scale)))
     }
 
     /// The attachments' file type, private to the message box.

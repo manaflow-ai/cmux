@@ -20,11 +20,11 @@ const inTabRow: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-status--inline"));
 };
 
-// The same row while connected: the compact Environment line leads the tools.
+// The same row while connected: the Environment line sits below the tab row.
 const inTabRowConnected: Play = async (ctx) => {
   const { setTabRow } = await import("./tabRow");
   setTabRow({ height: 28, trailingInset: 0 });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-line--compact"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-environment-row"));
 };
 
 export default agentPaneEntry({
@@ -39,11 +39,11 @@ export default agentPaneEntry({
   ],
   variants: {
     quiet: {
-      note: "Connected after a turn: no title or status, the Environment line (machine · folder · branch) at the start, the Changes button icon-only.",
+      note: "Connected after a turn: no title or status, the Environment line (machine · folder · branch) below the tab row, the Changes button icon-only.",
       snapshot: chat(finished),
     },
     "long-branch": {
-      note: "A long folder and branch end in an ellipsis inside the slot; the tools stay put.",
+      note: "A long folder and branch end in an ellipsis inside the chip row; the tools stay put.",
       snapshot: chat(finished, { branch: "leo/inspector-overlay-default-and-hidden-empty-sections-follow-up" }),
     },
     disconnected: {
@@ -55,12 +55,12 @@ export default agentPaneEntry({
       snapshot: chat(finished, { connection: "connecting: connection refused by the local daemon" }),
     },
     "tab-row": {
-      note: "The header shares the pane's tab row: the compact Environment line leads the tools at the row's right end.",
+      note: "The header shares the pane's tab row: the Environment line sits below the row at the configured edge.",
       snapshot: chat(finished),
       play: inTabRowConnected,
     },
     "tab-row-disconnected": {
-      note: "The header shares the pane's tab row: the warning leads the tools at the row's right end.",
+      note: "The header shares the pane's tab row: the warning replaces the Environment line in the header tools.",
       snapshot: chat(finished, { connection: "disconnected" }),
       play: inTabRow,
     },

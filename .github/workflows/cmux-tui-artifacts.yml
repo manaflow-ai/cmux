@@ -18,6 +18,8 @@ name: cmux-tui artifacts
 #                                                  install as cmux-browser-host beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-host-<rust-target>  slim terminal host (macOS);
 #                                                  install as cmux-tui-host beside cmux-tui
+#   cmux-tui/<commit-sha>/cmux-tui-holder-<rust-target>  terminal holder (macOS);
+#                                                  install as cmux-holder beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-agent-screen-detection-<rust-target>  agent screen
 #                                                  detector (macOS); install as
 #                                                  cmux-agent-screen-detection beside cmux-tui;
@@ -59,16 +61,16 @@ on:
   # cmux-next dogfood, tagged and nightly builds bundle the daemon built from
   # their own cmux-tui source (scripts/cmux-next/pin-cmux-tui.sh --help): the
   # tree key is the git tree hash of the cmux-tui tree and the ghostty
-  # gitlink. Pushes to the cmux-next branches, and to cmux-tui-pin-* helper
-  # branches that publish an unmerged branch's tree, publish
+  # gitlink. Trusted pushes to the cmux-next branches publish
   # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
   #
   # Every other branch of this repository publishes its pushed head too
-  # (cx-r2is), so a pull request's same-tree checks find their tree without a
+  # (cx-r2is), so a same-repository branch can repair its own tree without a
   # hand-pushed cmux-tui-pin-* ref. Those lane-branch pushes publish without
-  # the daemon tests (tree-preflight's daemon-policy step). Forks never push here. Pull request
-  # trees publish through the cmux-tui-pin-<merge sha> branch push that
-  # main's cmux-next-pr-merge-tree.yml makes. A push trigger cannot filter paths per branch, so
+  # the daemon tests (tree-preflight's daemon-policy step). Forks never push
+  # here. Pull requests do not publish synthetic merge trees: path routing
+  # skips a cold own tree with a named reason until a trusted feat-cmux-next
+  # publication exists. A push trigger cannot filter paths per branch, so
   # tree-preflight is the filter: a branch push whose tree key is already
   # published spends no macOS time (run_macos=false) and publishes nothing.
   push:
@@ -88,8 +90,8 @@ on:
         type: string
 
 concurrency:
-  # One group per feat-cmux-next push (cx-73f2), per other pushed branch (main,
-  # each cmux-tui-pin-*), and per commit for a manual dispatch.
+  # One group per feat-cmux-next push (cx-73f2), per other pushed branch, and
+  # per commit for a manual dispatch. Pin refs are refused before preflight.
   # cancel-in-progress stays false: a started run is never cancelled, so no
   # publish of immutable objects stops mid-upload.
   # feat-cmux-next pushes do not share a workflow group (the group cannot read
@@ -117,11 +119,28 @@ env:
   CMUX_GHOSTTY_SRC: ""
 
 jobs:
+  reject-untrusted-pin-ref:
+    name: refuse cmux-tui pin ref
+    if: startsWith(github.ref, 'refs/heads/cmux-tui-pin-')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    permissions: {}
+    timeout-minutes: 1
+    steps:
+      - name: Refuse the untrusted publisher path
+        run: |
+          echo "::error title=cmux-tui pin ref rejected::cmux-tui-pin-* refs are not a publisher. Land the reviewed change, then re-run after a trusted feat-cmux-next publication. A fleet build can bundle its own daemon without publishing it."
+          exit 1
+
   # Keep the common path cheap: a tree-addressed publication is complete when
   # all runtime binaries and checksum markers exist, so there is no reason to spend a macOS build
   # or daemon-test slot on another commit with the same inputs.
   tree-preflight:
     name: cmux-tui tree preflight
+    if: ${{ !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
+    # The glaeda read token's key is an external credential: a dispatchable
+    # job holding one runs in an environment (tests/test_supplychain_security.py).
+    # ci-routing-agent is the one the other glaeda-route readers use.
+    environment: ci-routing-agent
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The feat-cmux-next election fetches each active run's commit.
     timeout-minutes: 6
@@ -151,6 +170,24 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
+      # The reads of the superseded check, the owner election and the
+      # publisher lookups go out as the manaflow-glaeda-route App, on its
+      # own budget, not the GITHUB_TOKEN core budget every workflow shares
+      # (it ran out every hour on 2026-10-26; Leo approved the move that day).
+      # No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+
       # A queued run can be superseded before it gets a runner: on 2026-10-14
       # 37% of the queued runs of this workflow were cmux-tui-pin-* merge trees
       # of pull requests that had moved on, or lane-branch pushes whose branch
@@ -167,7 +204,9 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          # Branch heads are read over git, which spends no REST budget.
+          CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
         run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
 
       # A lane-branch push publishes its tree without the cmux_next_ daemon
@@ -229,7 +268,7 @@ jobs:
           # silent curls took for "no other run" (cmuxterm-hq#1279).
           API_URL: ${{ github.api_url }}
           RUN_ID: ${{ github.run_id }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           STALE: ${{ steps.stale.outputs.stale }}
           # The pool a feat-cmux-next push's daemon tests take now
           # (cmux-next-daemon-tests): a publisher whose test job waits on
@@ -427,6 +466,11 @@ jobs:
               while IFS=$'\t' read -r candidate_id candidate_branch; do
                 [[ "$candidate_id" =~ ^[0-9]+$ && "$candidate_id" != "$RUN_ID" ]] || continue
                 [[ "$candidate_branch" == main ]] && continue
+                # A cp/, lane/ or perf/ run may be superseded (no open pull
+                # request has its head) and then builds nothing and hands off
+                # nothing, so it is never elected owner here; at worst both
+                # runs build, and publish keeps the first publication.
+                [[ "$candidate_branch" == cp/* || "$candidate_branch" == lane/* || "$candidate_branch" == perf/* ]] && continue
                 if (( candidate_id < owner_run_id )); then
                   owner_run_id="$candidate_id"
                 fi
@@ -534,8 +578,15 @@ jobs:
 
   tree-owner-wait:
     name: wait for same-key tree publisher
-    if: needs.tree-preflight.result == 'success'
+    # A superseded push (tree-preflight's stale step: a moved lane branch, a
+    # moved pin, or a cp/, lane/ or perf/ head no open pull request has) builds
+    # nothing, so it has no publisher to wait for and spends no API calls here.
+    if: needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true'
     needs: tree-preflight
+    # The glaeda read token's key is an external credential: a dispatchable
+    # job holding one runs in an environment (tests/test_supplychain_security.py).
+    # ci-routing-agent is the one the other glaeda-route readers use.
+    environment: ci-routing-agent
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     outputs:
@@ -547,6 +598,23 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # Reads of the owner's run, jobs and builder artifacts (the wait step and
+      # the re-check, which also runs for a published-unmarked deferral) go out as the manaflow-glaeda-route App, on its
+      # own budget, not the GITHUB_TOKEN core budget every workflow shares
+      # (it ran out every hour on 2026-10-26; Leo approved the move that day).
+      # No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
       # Only the claim script, from this run's commit, for a takeover through
       # the tree-claim authority.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -573,7 +641,9 @@ jobs:
           # silent curls took for "no other run" (cmuxterm-hq#1279).
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
+          DAEMON_TESTED: ${{ needs.tree-preflight.outputs.daemon_tested }}
           # The pool a feat-cmux-next push's daemon tests take now
           # (cmux-next-daemon-tests): a publisher whose test job waits on
           # another label, or too long, is not waited for
@@ -610,6 +680,7 @@ jobs:
           }
           poll=0
           deferred=false
+          unmarked=false
           if [[ -n "$OWNER_RUN_ID" ]]; then
             # One look, no waiting (cx-urd.26). Polling a live owner for up to
             # 55 minutes held 21,801 runner minutes on 2026-10-12, and 221 of
@@ -691,6 +762,7 @@ jobs:
                   echo "Tree $KEY has no daemon-tests marker yet; feat-cmux-next push run $OWNER_RUN_ID is still active and tests it and requests the promotion."
                 else
                   unmarked=true
+                  deferred=true
                   echo "Tree $KEY has no daemon-tests marker and run $OWNER_RUN_ID is not an active feat-cmux-next push whose daemon tests run soon; this run tests it here."
                 fi
               fi
@@ -732,6 +804,16 @@ jobs:
               takeover=false
               deferred=true
             fi
+          elif [[ "$TREE_READY" == true && "$DAEMON_TESTED" == false ]]; then
+            # A published tree with separate daemon tests has no tree owner in
+            # preflight: its publisher already finished, so the first follower
+            # is the tester. Leave the same deferred marker as an ordinary
+            # owner waiter, so a cancelled or failed tester hands the key to a
+            # later follower instead of leaving the tick with no marker.
+            takeover=false
+            deferred=true
+            unmarked=true
+            echo "Tree $KEY is published without daemon-tests.json; this run tests it and leaves a takeover marker."
           else
             echo "This run owns tree $KEY; building and publishing it."
           fi
@@ -740,7 +822,7 @@ jobs:
             echo "owner=$OWNER_RUN_ID"
             echo "feat_builder=${feat_builder:-false}"
             echo "takeover=$takeover"
-            echo "unmarked=${unmarked:-false}"
+            echo "unmarked=$unmarked"
           } >> "$GITHUB_OUTPUT"
 
       # The marker a later feat-cmux-next push of this key reads, so only
@@ -794,7 +876,7 @@ jobs:
           OWNER_RUN_ID: ${{ steps.wait.outputs.owner }}
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           takeover=false
@@ -969,6 +1051,10 @@ jobs:
     name: plan the macOS fallback build
     if: ${{ !cancelled() && needs.build.result == 'failure' && needs.tree-preflight.outputs.darwin_builder == 'linux' }}
     needs: [tree-preflight, build]
+    # The glaeda read token's key is an external credential: a dispatchable
+    # job holding one runs in an environment (tests/test_supplychain_security.py).
+    # ci-routing-agent is the one the other glaeda-route readers use.
+    environment: ci-routing-agent
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -977,10 +1063,25 @@ jobs:
       target_set: ${{ steps.plan.outputs.target_set }}
       recovered: ${{ steps.plan.outputs.recovered }}
     steps:
+      # The artifact listing goes out as the manaflow-glaeda-route App, on its
+      # own budget, not the GITHUB_TOKEN core budget every workflow shares
+      # (it ran out every hour on 2026-10-26; Leo approved the move that day).
+      # No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+
       - name: Find the macOS targets the build left without artifacts
         id: plan
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
         run: |
@@ -1104,6 +1205,10 @@ jobs:
     # the same tree still tests it on its Mac pool before promotion
     # (tests/test_cmux_tui_daemon_tests_linux.py). The name keeps "(macOS)":
     # cmux_tui_publisher_testing.py and the routing tests find the job by it.
+    # The glaeda read token's key is an external credential: a dispatchable
+    # job holding one runs in an environment (tests/test_supplychain_security.py).
+    # ci-routing-agent is the one the other glaeda-route readers use.
+    environment: ci-routing-agent
     runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && (vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && vars.CI_PIN_DAEMON_POOL != (vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL) && vars.CI_PIN_DAEMON_POOL || 'blacksmith-16vcpu-ubuntu-2404') || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
@@ -1133,6 +1238,24 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
+      # The superseded re-check's reads go out as the manaflow-glaeda-route
+      # App, on its own budget, not the GITHUB_TOKEN core budget every
+      # workflow shares (it ran out every hour on 2026-10-26; Leo approved
+      # the move that day).
+      # No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: read-token
+        if: github.event_name == 'push' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+
       # This job can queue for an hour on the owned Macs, and the push can be
       # superseded meanwhile: it asks again now that it has a Mac (tree-
       # preflight's stale step) and skips the tests if so, unless another run
@@ -1148,7 +1271,9 @@ jobs:
           SHA: ${{ github.sha }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_ID: ${{ github.run_id }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          # Branch heads are read over git, which spends no REST budget.
+          CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
@@ -1283,7 +1408,7 @@ jobs:
     # stays build-only, so its publish jobs are skipped, not failed. Pushes
     # to any branch publish.
     name: publish skipped (branch not allowed)
-    if: github.event_name != 'pull_request' && !(github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))
+    if: github.event_name != 'pull_request' && !(github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')
     needs: build
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 2
@@ -1294,7 +1419,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           short="${SHA:0:12}"
-          echo "::notice title=publish skipped::${REF_NAME} is build-only. Use a cmux-tui-pin-* branch to publish: git push origin ${SHA}:refs/heads/cmux-tui-pin-${short}"
+          echo "::notice title=publish skipped::${REF_NAME} is build-only. This tree has no artifact yet; re-run after a trusted feat-cmux-next publication."
 
   sentry-dsyms:
     environment: sentry-dsyms
@@ -1341,10 +1466,11 @@ jobs:
     # PR runs of this workflow only validate the build. Only the refs the
     # artifacts environment admits publish; a dispatch from any other branch
     # is a green build-only run (publish-ref-notice says how to publish).
-    if: ${{ !cancelled() && needs.build-ok.result == 'success' && github.event_name != 'pull_request' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) }}
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     needs: build-ok
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # 15 minutes of work, plus the hour the attestation retry may wait for the API budget.
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
@@ -1468,7 +1594,7 @@ jobs:
               binary, so infer libc from the build artifact set rather than
               the target name alone.
               """
-              target = filename.removeprefix(sys.argv[2]).removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
+              target = filename.removeprefix(sys.argv[2]).removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("holder-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
               if "apple-darwin" in target:
                   return {"os": "macos", "architecture": "arm64" if target.startswith("aarch64") else "x86_64", "libc": "none"}
               if "windows" in target:
@@ -1663,6 +1789,8 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            --require-artifact cmux-tui-holder-aarch64-apple-darwin \
+            --require-artifact cmux-tui-holder-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -1693,7 +1821,41 @@ jobs:
             --machine-manifest \
             --artifact-directory assets/chatmux-relay
 
+      # The attestation is the only GitHub API write on the publish path, and it
+      # fails when other workflows have spent the installation's hourly budget
+      # ("API rate limit exceeded for installation": runs 40376958903 and
+      # 40380418761 on 2026-10-26 left their trees unpublished, and nightly-next
+      # promotion waited an hour). A failed first try waits once, bounded, for
+      # the budget (scripts/ci/gh_budget_wait.sh --reserve, as nightly.yml's
+      # daemon attestation does) and tries again; the retry must pass, so no
+      # binary is published without provenance.
       - name: Attest raw binary subjects
+        id: attest_subjects
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            assets/cmux-tui/cmux-tui-*
+            assets/cmux-tui/manifest.json
+            assets/cmux-tui-windows/cmux-tui-*
+            assets/cmux-tui-windows/manifest.json
+            assets/cmux-relay/cmux-relay-*
+            assets/cmux-relay/manifest.json
+            assets/chatmux-relay/chatmux-relay-*
+            assets/chatmux-relay/cmux-tui-*
+            assets/chatmux-relay/manifest.json
+          # These are file subjects, not OCI images. No artifact-metadata
+          # storage records are created for this R2 publication.
+          push-to-registry: false
+
+      - name: Wait for the API budget before retrying the attestation
+        if: steps.attest_subjects.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_budget_wait.sh --reserve 200
+
+      - name: Retry the attestation of raw binary subjects
+        if: steps.attest_subjects.outcome == 'failure'
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
@@ -1835,7 +1997,7 @@ jobs:
           legacy_assets="assets-legacy"
           mkdir -p "$legacy_assets"
           for file in assets/cmux-tui/cmux-tui-*; do
-            if [[ "$(basename "$file")" == cmux-tui-hook-* || "$(basename "$file")" == cmux-tui-acpmux-* || "$(basename "$file")" == cmux-tui-app-host-* || "$(basename "$file")" == cmux-tui-cloud-server-* || "$(basename "$file")" == cmux-tui-browser-host-* || "$(basename "$file")" == cmux-tui-host-* || "$(basename "$file")" == cmux-tui-agent-screen-detection-* ]]; then
+            if [[ "$(basename "$file")" == cmux-tui-hook-* || "$(basename "$file")" == cmux-tui-acpmux-* || "$(basename "$file")" == cmux-tui-app-host-* || "$(basename "$file")" == cmux-tui-cloud-server-* || "$(basename "$file")" == cmux-tui-browser-host-* || "$(basename "$file")" == cmux-tui-host-* || "$(basename "$file")" == cmux-tui-holder-* || "$(basename "$file")" == cmux-tui-agent-screen-detection-* ]]; then
               continue
             fi
             cp "$file" "$legacy_assets/$(basename "$file" | sed 's/^cmux-tui-/cmux-mux-/')"
@@ -1919,6 +2081,8 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            --require-artifact cmux-tui-holder-aarch64-apple-darwin \
+            --require-artifact cmux-tui-holder-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -2023,6 +2187,8 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            --require-artifact cmux-tui-holder-aarch64-apple-darwin \
+            --require-artifact cmux-tui-holder-x86_64-apple-darwin \
             --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -2073,6 +2239,8 @@ jobs:
               --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
               --require-artifact cmux-tui-host-aarch64-apple-darwin \
               --require-artifact cmux-tui-host-x86_64-apple-darwin \
+              --require-artifact cmux-tui-holder-aarch64-apple-darwin \
+              --require-artifact cmux-tui-holder-x86_64-apple-darwin \
               --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
               --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -2106,7 +2274,8 @@ jobs:
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.build-windows.outputs.windows_built == 'true' }}
     needs: [publish, build-windows]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # As publish: the shared steps' attestation retry may wait up to an hour.
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
@@ -2313,7 +2482,7 @@ jobs:
   publish-tree:
     environment: artifacts
     name: publish tree-addressed cmux-tui
-    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && github.event_name != 'pull_request' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) }}
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     # Independent of the daemon tests on every ref (chief 2026-10-13, hq-11;
     # cx-y0nf2): their macOS runner queues up to ~1 h, and every dev build
     # waited for the tree. A published tree does not mean the daemon tests
@@ -2331,7 +2500,8 @@ jobs:
     # (tests/test_cmux_tui_feat_publish_order.py).
     needs: [tree-preflight, build-ok, publish]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # A slow companion fetch may take its retries (fetch below).
+    timeout-minutes: 30
     # Ownership is elected before expensive work; publication stays per run
     # and the write-once uploader makes a rare election race safe.
     concurrency:
@@ -2430,7 +2600,10 @@ jobs:
           rm -rf tree assets/tree
           cp -R assets/run assets/tree
           base="https://files.cmux.com/cmux-tui/tree/$KEY"
-          fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 120 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
+          # A companion is up to ~100 MB: 120 s with no retry timed out at 37 of
+          # 40 MB (run 40376958903). curl retries timeouts and 5xx, never a 404,
+          # so the source.json absence check below still fails at once.
+          fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 300 --retry 3 --retry-delay 10 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
           fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
           mkdir -p tree
           if fetch "$base/source.json" tree/source.json 2>/dev/null; then
@@ -2636,7 +2809,8 @@ jobs:
     if: ${{ !cancelled() && needs.publish-tree.result == 'success' && needs.publish-windows.result == 'success' }}
     needs: [tree-preflight, publish-tree, publish-windows]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # As publish-tree, whose steps it runs: a slow companion fetch may take its retries.
+    timeout-minutes: 30
     concurrency:
       group: cmux-tui-tree-windows-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}
       cancel-in-progress: false
@@ -2679,6 +2853,40 @@ jobs:
           KEY_V2: ${{ needs.tree-preflight.outputs.key }}
           LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
         run: scripts/ci/cmux-tui-mark-daemon-tested.sh "$KEY_V2" "$LEGACY_KEY"
+
+  # Linux hosts keep their daemon on the newest feat-cmux-next build by
+  # themselves (`acpmux host self-update`, run by their acpmux-update.timer):
+  # they read cmux-tui/channels/feat-cmux-next.json, the tree key, commit and
+  # acpmux sha256s of the newest feat-cmux-next push whose tree is published
+  # and daemon-tested. Every such push points it there, also one whose tree
+  # another run tested (publish-tree-tested is then skipped); the script
+  # checks the marker and moves the pointer only forward, failing closed. No
+  # concurrency group: GitHub would replace a pending job with the next one to
+  # queue, which may be an older push's. Runs that overlap are safe because the
+  # write is a compare-and-swap (tests/test_cmux_tui_point_channel.py).
+  point-feat-channel:
+    environment: artifacts
+    name: point the feat-cmux-next channel at this tree
+    needs: [tree-preflight, publish-tree-tested]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Point the channel at this tree once it is daemon-tested
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+        run: scripts/ci/cmux-tui-point-channel.sh feat-cmux-next "$KEY"
 
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
   # and whose cmux-next Release compile passed, so the nightly builds its tip
@@ -2751,7 +2959,7 @@ jobs:
     # The macOS cross jobs keep the run in progress; waiting for them makes this the run's last
     # job, so a run re-run below finds this owner ended (cx-urd.26).
     needs: [tree-preflight, tree-owner-wait, build, build-windows, cmux-next-daemon-tests, publish, publish-windows, publish-tree, publish-tree-windows, macos-cross-shadow, macos-cross-runtime-x86_64]
-    if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) }}
+    if: ${{ always() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -2767,7 +2975,7 @@ jobs:
       # A run whose daemon tests found it superseded publishes no tree on
       # purpose: no failure to report. It still hands the key on (below).
       - name: Report the unpublished tree to the cmux-next runs that wait for it
-        if: needs.cmux-next-daemon-tests.outputs.superseded != 'true'
+        if: needs.tree-preflight.outputs.tree_ready != 'true' && needs.cmux-next-daemon-tests.outputs.superseded != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

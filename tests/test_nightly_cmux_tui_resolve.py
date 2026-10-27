@@ -45,7 +45,11 @@ for name in ("commit", "key", "source_commit"):
     check(bool(outputs) and re.search(rf"^      {name}:", outputs.group(1), re.MULTILINE) is not None,
           f"resolve-nightly-cmux-tui-client must output {name}")
 timeout = re.search(r"^    timeout-minutes: (\d+)", job, re.MULTILINE)
-check(bool(timeout) and int(timeout.group(1)) <= 20, "a resolver that never waits needs no 55-minute timeout")
+# It waits on nothing but GitHub's API budget: 60 of its minutes are the hour gh_budget_wait.sh may
+# wait for a rate-limit reset (tests/test_gh_budget_wait.py); its own work stays within 20.
+budget_wait = 60 if "scripts/ci/gh_budget_wait.sh --install" in job else 0
+check(bool(timeout) and int(timeout.group(1)) <= 20 + budget_wait,
+      "a resolver that never waits needs no 55-minute timeout")
 depth = re.search(r"fetch-depth: (\d+)", job)
 check(bool(depth) and (int(depth.group(1)) == 0 or int(depth.group(1)) > 50),
       "the checkout must hold the search window (fetch-depth > 50)")
@@ -62,12 +66,14 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # EARLIER run's build with this run's tools; this run's build commit does not
 # apply to them (the recovered build carries its own, from its manifest).
 # The cmux NIGHTLY-identity jobs (sign-, verify- and publish-nightly-identity-legacy)
-# build nothing either: they download the cmux NEXT DMG publish-nightly released,
-# re-sign that build as cmux NIGHTLY, smoke it and publish it with this run's
-# tools; verify checks out the build's own commit only for its license check
-# (cx-x7hwx, cx-vws1x). legacy-identity-target checks out only to run
-# scripts/ci/nightly-next-legacy-target.py, which compares the two published
-# feeds to pick that build; it builds and ships nothing.
+# build nothing: the signing job downloads this run's prepared app and makes a
+# temporary NEXT DMG when available, or a published DMG for a continuation,
+# re-signs that build as cmux NIGHTLY and publishes it with this run's tools;
+# verify checks out the build's own commit only for its license check
+# (cx-x7hwx, cx-vws1x).
+# legacy-identity-target checks out only to run
+# scripts/ci/nightly-next-legacy-target.py, which compares the feeds and admits
+# the current signed artifact beside publication; it builds and ships nothing.
 # verify-recovered-nightly-next smokes the DMG recover-nightly-next-notarization
 # continued, with this run's tools. promote-nightly-next and its -acked job run
 # only on main and check out the promote guard at github.sha; they move a branch
@@ -79,6 +85,8 @@ exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilat
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.
 SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"
+# publish-nightly-next-github copies that same selected build to the GitHub release.
+PUBLISHED_SHA = "${{ needs.publish-nightly.outputs.build_sha }}"
 
 def tooling_checkout(body: str) -> "tuple[int, int] | None":
     """The publication-tooling checkout of a job: `ref: github.sha` into .publish-tooling whose
@@ -137,13 +145,18 @@ for name in ("build-nightly-app", "build-sign-notarize-nightly", "publish-nightl
     check(name in shipping, f"{name} must check out the source (guard setup)")
 for name in shipping:
     body = blocks[name]
+    # A sole, narrowly validated scripts checkout builds and ships no source.
+    # Any second checkout still has to meet the resolver/build pin contract.
+    tooling = tooling_checkout(body)
+    if tooling and body.count("actions/checkout@") == 1:
+        continue
     needs = re.search(r"^    needs: (.*)$", body, re.MULTILINE)
     check(bool(needs) and RESOLVE in needs.group(1), f"{name} must need {RESOLVE}")
-    allowed = {BUILD_SHA, SELECTED_SHA} if name == "publish-nightly" else {BUILD_SHA}
+    allowed = ({BUILD_SHA, SELECTED_SHA} if name == "publish-nightly"
+               else {BUILD_SHA, PUBLISHED_SHA} if name == "publish-nightly-next-github" else {BUILD_SHA})
     # The publication tooling (not shipped source) comes from the workflow's own
     # commit, so a recovered older build runs this workflow's scripts. It is a
     # sparse checkout of scripts into .publish-tooling, never the build tree.
-    tooling = tooling_checkout(body)
     if name == "publish-nightly":
         check(tooling is not None, "publish-nightly must check out its publication tooling at github.sha into .publish-tooling")
     if tooling:

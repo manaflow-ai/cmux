@@ -1,5 +1,6 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextSettings
 
 /// Describes the named DEBUG scenes available to the deterministic capture route.
@@ -97,7 +98,7 @@ final class CaptureSceneRegistry {
 
         // Home is native: it settles on its own conditions, and neither the
         // agent pane's readiness nor its web view is part of its picture.
-        let isHome = definition.name == Self.homeChiefScene
+        let isHome = definition.name == Self.homeChiefScene || definition.name == Self.homeChiefLongDraftScene
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
         guard isHome || readinessIsComplete(readiness) else {
             return .object([
@@ -107,7 +108,8 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
-        let actionReadiness = isHome ? await showHomeChief(windowID: targetWindowID) : await waitForSceneAnimation()
+        let actionReadiness = isHome
+            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene) : await waitForSceneAnimation()
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
               isHome || actionReadinessReport["animations_pending"]?.boolValue == false else {
@@ -122,9 +124,9 @@ final class CaptureSceneRegistry {
         if isHome { clearShowcaseAgent(windowID: targetWindowID) }
         guard case .object(var result) = snapshot else { return snapshot }
         result["click"] = click
-        guard isHome || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
+        guard isHome || Self.pageComposited(result) else {
             return .object([
-                "error": .string("agent web view was not composited"),
+                "error": .string("agent page was not composited"),
                 "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
             ])
         }
@@ -153,7 +155,15 @@ final class CaptureSceneRegistry {
         _ = DebugTunables.handle(["action": .string("set"), "key": .string("sidebar.sections.look"),
                                    "value": .string(name == "sidebar-tiles" ? "tray" : "quiet")], services: services)
         _ = await DebugAgentPane.handle(["action": .string("close_menus")], services)
+        let chat = services.windows.controllers.lazy.compactMap { $0.content?.focusedPane?.currentTabKey }.first
+        if let chat { services.cloud.toolCards.set([], owner: CloudStartSessionAsks.owner, tab: chat) { _, _, _ in } }
         switch name {
+        case "cloud-start-session-ask":
+            // The card an agent's `cmux cloud start-session` raises in its chat (CloudStartSessionAsks).
+            guard let chat else { return .object(["error": .string("no focused chat tab")]) }
+            let card = CloudStartSessionAsks.askCard(tab: chat, text: CloudStartSessionStrings.askNew(agent: "claude", machine: "dev"))
+            let shown = services.cloud.toolCards.set([card], owner: CloudStartSessionAsks.owner, tab: chat) { _, _, _ in }
+            return .object(["card": .bool(shown), "tab": .string(chat)])
         case "composer":
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
         case "sidebar-tiles":
@@ -177,6 +187,17 @@ final class CaptureSceneRegistry {
     }
 
     /// The agent pane drew the worked turn and shows its composer.
+    /// Whether `snapshot` (``DebugWindowSnapshot/captureAsync(_:services:)``) drew a page image:
+    /// a WebKit web view or a Chromium page. The agent chat shows on either engine
+    /// (`agent.chromium`, on by default, puts it in Chromium when `browser.defaultEngine` is
+    /// Chromium; WebKit otherwise or after a Chromium fallback), so counting only WebKit refused
+    /// every Chromium agent page. The snapshot does not say which page is the agent's; the
+    /// readiness check before it already proved the agent page has a transcript and a composer,
+    /// so this only refuses a still in which no page drew at all.
+    static func pageComposited(_ snapshot: [String: JSONValue]) -> Bool {
+        (snapshot["webviews_composited"]?.intValue ?? 0) + (snapshot["chromium_pages_composited"]?.intValue ?? 0) > 0
+    }
+
     private func readinessIsComplete(_ readiness: JSONValue) -> Bool {
         guard case .object(let report) = readiness else { return false }
         return (report["body_text_length"]?.intValue ?? 0) > 0 && (report["transcript_rows"]?.intValue ?? 0) > 0
@@ -193,10 +214,14 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "sidebar-tiles", description: "Showcase rail and workspace tiles."),
         CaptureSceneDefinition(name: "settings", description: "Showcase window with the settings destination available."),
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
+        CaptureSceneDefinition(name: "cloud-start-session-ask", description: "An agent's cmux cloud start-session ask card in its chat."),
         CaptureSceneDefinition(name: "hints-cmd-held", description: "Command modifier hint destination."),
         CaptureSceneDefinition(name: "hints-ctrl-held", description: "Control modifier hint destination."),
         CaptureSceneDefinition(name: homeChiefScene,
                                description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
+        // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
+        CaptureSceneDefinition(name: "home-chief-long-draft",
+                               description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
     ]
 }
 #endif
