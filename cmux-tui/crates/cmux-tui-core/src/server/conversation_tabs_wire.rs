@@ -154,11 +154,10 @@ const MACHINE_HOST_PREFIX: &str = "registry:";
 /// A session for a `registry:` tab from anywhere but that machine's own
 /// `agent-session-start` (cx-k21v): a session never leaves its machine, so
 /// another machine's chat (a Mac's acpmux session or an outside chat it
-/// resumes) is never bound into a tab of this one. Exceptions are chats of
-/// this machine's own acpmux ([`landed_here`]): a chat this daemon itself
-/// landed through `agent-transfer-finish`, a chat an attached tab's session
-/// started here as `agent-session-children` listed or followed it, or a root
-/// session already held by a live tab in this daemon.
+/// resumes) is never bound into a tab of this one. Two exceptions, both chats
+/// of this machine's own acpmux ([`landed_here`]): a chat this daemon itself
+/// landed through `agent-transfer-finish`, and a chat an attached tab's
+/// session started here as `agent-session-children` listed or followed it.
 #[derive(Debug)]
 pub(crate) struct MachineMismatch;
 
@@ -192,68 +191,7 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
 fn landed_here(mux: &Mux, host: &str, session: &str) -> bool {
     // This store's host, as agent-session-start names it.
     let own = format!("{MACHINE_HOST_PREFIX}{}", mux.registry_identity().0);
-    host == own
-        && (landed_agent_session(mux, session)
-            || started_here(mux, session)
-            || live_registry_session(mux, host, session))
-}
-
-/// A live tab in this store is a narrow proof that a registry-root session is
-/// already served by this daemon. The tab record is durable only while its
-/// surface is live, and the host must still match this daemon's registry id.
-/// This does not admit a session merely because its id was supplied by a
-/// client, and never admits a record from another registry host.
-fn live_registry_session(mux: &Mux, host: &str, session: &str) -> bool {
-    let own = format!("{MACHINE_HOST_PREFIX}{}", mux.registry_identity().0);
-    if host != own {
-        return false;
-    }
-    // The presentation registry retains a closed tab record for reopen/history. Only a
-    // resource identity held by a live surface proves that this daemon still serves the tab.
-    let live_content_ids = mux.with_state(|state| {
-        state
-            .surfaces
-            .values()
-            .filter_map(|surface| surface.resource_identity())
-            .map(|identity| identity.content_id.as_str().to_owned())
-            .collect::<Vec<_>>()
-    });
-    let presentation = mux.presentation_snapshot();
-    live_content_ids.into_iter().any(|content_id| {
-        matches!(
-            presentation.conversation_tabs.get(&content_id),
-            Some(ConversationTabRecord::AgentSession {
-                host: existing_host,
-                session: Some(existing_session),
-                ..
-            }) if existing_host == host && existing_session == session
-        )
-    }) && root_session_stays_here(mux, session)
-}
-
-/// Ask this daemon's acpmux for its durable transfer decision. A surviving live
-/// surface is not authorization after a move; neither restart nor an automatic
-/// abort may leave us relying on a separate cache of that decision.
-#[cfg(unix)]
-fn root_session_stays_here(mux: &Mux, session: &str) -> bool {
-    use super::agent_session_attach::agent_session_link::AcpmuxLink;
-    let Some(socket) = mux.control_clients.agent_sessions.socket() else { return false };
-    let Ok(link) = AcpmuxLink::connect(&socket, |_| {}) else { return false };
-    let Ok(info) = link.call(
-        "_acpmux/info",
-        json!({"sessionId": session, "waitLogs": true}),
-        std::time::Duration::from_secs(5),
-    ) else {
-        return false;
-    };
-    info.get("sessionId").and_then(Value::as_str) == Some(session)
-        && info.get("transferBlocked").and_then(Value::as_bool) == Some(false)
-        && info.get("peer").is_none_or(Value::is_null)
-}
-
-#[cfg(not(unix))]
-fn root_session_stays_here(_: &Mux, _: &str) -> bool {
-    false
+    host == own && (landed_agent_session(mux, session) || started_here(mux, session))
 }
 
 #[cfg(unix)]

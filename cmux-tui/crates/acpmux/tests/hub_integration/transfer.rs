@@ -112,8 +112,6 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
         .await
         .unwrap();
     assert_eq!(committed["committed"], true, "{committed}");
-    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(info["transferBlocked"], true, "a committed transfer remains revoked: {info}");
 
     // The queue runs on the target, in order, each prompt once.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
@@ -148,8 +146,6 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
         .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
         .await
         .unwrap();
-    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(info["transferBlocked"], true, "a begun transfer is moving: {info}");
     let refused = src.request(method::SESSION_PROMPT, prompt(&id, "p-late", "late")).await;
     assert!(refused.as_ref().is_err_and(|e| e.contains("transfer.moving")), "{refused:?}");
     // Its queue and draft move as they are.
@@ -169,8 +165,6 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
     .unwrap();
     // Given back: its queue runs, and it takes prompts again.
     src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
-    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(info["transferBlocked"], false, "an aborted transfer is available again: {info}");
     src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
     assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "until-cancel", "a", "again"]);
 }
@@ -217,8 +211,6 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
         .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
         .await
         .unwrap();
-    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(info["transferBlocked"], true, "a begun transfer is moving: {info}");
     // One small page, then the client is gone.
     let path = begin["files"][0]["path"].clone();
     let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1});
@@ -232,8 +224,6 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
     // No target can have the chat: it comes back here, runs its queue and takes prompts.
     src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
     src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
-    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(info["transferBlocked"], false, "a stalled transfer is available again: {info}");
     let aborted = records(&mut src, &id, "transfer_aborted").await;
     assert_eq!(aborted.len(), 1, "{aborted:?}");
     assert_eq!(aborted[0]["reason"], "stalled", "{aborted:?}");
@@ -321,26 +311,11 @@ fn disk_hub(dir: &std::path::Path) -> Arc<Hub> {
         effort: None,
         policy: None,
     };
-    let harnesses = BTreeMap::from([
-        ("fake".to_owned(), profile.clone()),
-        ("cmux-harness".to_owned(), profile),
-    ]);
-    let mut cfg = Config { harnesses, default_harness: Some("fake".into()), ..Default::default() };
+    let harnesses = BTreeMap::from([("cmux-harness".to_owned(), profile)]);
+    let mut cfg = Config { harnesses, ..Default::default() };
     cfg.store.mode = StoreMode::Local;
     let store = acpmux::store::open(&cfg.store, dir).unwrap();
     Hub::new(cfg, store)
-}
-
-/// A protocol client connected to a disk-backed hub, for restart assertions.
-async fn disk_client(dir: &std::path::Path) -> (Arc<Hub>, TestClient) {
-    let hub = disk_hub(dir);
-    hold_person_key(&hub);
-    let (in_tx, in_rx) = mpsc::channel(64);
-    let (out_tx, out_rx) = mpsc::channel(4096);
-    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
-    let mut client = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    client.become_person().await;
-    (hub, client)
 }
 
 /// A bundle of a cmux-harness chat whose agent session is `agent`, its log `events`, and no
@@ -377,56 +352,5 @@ async fn a_failed_durable_import_leaves_no_recovery_marker_so_a_retry_runs_on_th
             assert!(!marker.exists(), "{attempt} {failure} left its recovery marker");
         }
     }
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[tokio::test]
-async fn transfer_revocation_survives_restart_and_abort_restores_access() {
-    let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
-    let (hub, mut c) = disk_client(&dir).await;
-    let made =
-        c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
-    let id = made["sessionId"].as_str().unwrap().to_owned();
-    let begin = c.request("_acpmux/transfer_begin", json!({"sessionId": id})).await.unwrap();
-    let before =
-        c.request(method::MUX_INFO, json!({"sessionId": id, "waitLogs": true})).await.unwrap();
-    assert_eq!(before["transferBlocked"], true, "a begun move revokes access: {before}");
-    hub.shutdown_all().await;
-    drop(c);
-    drop(hub);
-
-    let (hub2, mut c2) = disk_client(&dir).await;
-    let after =
-        c2.request(method::MUX_INFO, json!({"sessionId": id, "waitLogs": true})).await.unwrap();
-    assert_eq!(after["transferBlocked"], true, "a begun move stays revoked after restart: {after}");
-    c2.request(
-        "_acpmux/transfer_abort",
-        json!({"sessionId": id, "transferId": begin["transferId"]}),
-    )
-    .await
-    .unwrap();
-    let restored = c2.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(restored["transferBlocked"], false, "an aborted move restores access: {restored}");
-
-    let again = c2.request("_acpmux/transfer_begin", json!({"sessionId": id})).await.unwrap();
-    c2.request(
-        "_acpmux/transfer_commit",
-        json!({"sessionId": id, "transferId": again["transferId"]}),
-    )
-    .await
-    .unwrap();
-    hub2.shutdown_all().await;
-    drop(c2);
-    drop(hub2);
-
-    let (hub3, mut c3) = disk_client(&dir).await;
-    let committed =
-        c3.request(method::MUX_INFO, json!({"sessionId": id, "waitLogs": true})).await.unwrap();
-    assert_eq!(committed["status"], "closed", "{committed}");
-    assert_eq!(
-        committed["transferBlocked"], true,
-        "a committed move stays revoked after restart: {committed}"
-    );
-    hub3.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }

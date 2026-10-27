@@ -30,12 +30,6 @@ import Testing
         #expect(AgentTabStore.hostRefusal(local, localHost: local, chiefHost: chief, daemonIsLocal: false)
             == RefusalStrings.agentTabMachineMismatch)
     }
-    @Test func aRemoteRootMayReopenOnlyOnItsOwnDaemon() {
-        let root = AgentSessionRef(host: "registry:remote", session: "root")
-        #expect(AgentTabStore.canReopenRemote("root", source: root, registry: "registry:remote"))
-        #expect(!AgentTabStore.canReopenRemote("root", source: root, registry: "registry:other"))
-        #expect(!AgentTabStore.canReopenRemote("other", source: root, registry: "registry:remote"))
-        #expect(!AgentTabStore.canReopenRemote("root", source: nil, registry: "registry:remote"))
-    }
+
 
 }

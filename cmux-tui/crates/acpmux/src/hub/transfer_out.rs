@@ -99,22 +99,6 @@ fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
 }
 
 impl Hub {
-    /// Whether the durable transfer history withholds this chat from this daemon.
-    /// Read on an explicit info request, not on every session-list update. Aborts
-    /// (including the watchdog's) and arrivals supersede the outgoing move.
-    pub(crate) fn transfer_blocks_local_tab(&self, id: &str) -> Result<bool, RpcError> {
-        let mut blocked = false;
-        let kinds =
-            ["transfer_out", "transferred", "transfer_aborted", "imported", "transferred_in"];
-        self.store
-            .scan_kinds(id, &kinds, &mut |event: crate::store::EventRecord| {
-                blocked = matches!(event.kind.as_str(), "transfer_out" | "transferred");
-                true
-            })
-            .map_err(|error| RpcError::internal(format!("transfer history: {error}")))?;
-        Ok(blocked)
-    }
-
     /// `_acpmux/transfer_*`, for the local socket and peers only: a bundle holds the whole chat.
     pub async fn transfer_request(
         self: &Arc<Self>,

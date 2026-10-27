@@ -91,8 +91,7 @@ extension AgentTabStore {
                 return openBeside(hasSide ? anchor : source, split: !hasSide, origin: focus ? .user : .script, main: source,
                     open: { [weak self] pane, daemon in
                         guard let self else { throw CancellationError() }
-                        let record = lookup(source)?.record
-                        return try open(in: pane, of: daemon, session: session, host: daemon.isLocal ? record?.host : nil, reopening: record)
+                        return try open(in: pane, of: daemon, session: session, host: daemon.isLocal ? record?.host : nil)
                     }, created: { [weak self] key in
                         created(key)
                         self?.subagentSources[key] = source
