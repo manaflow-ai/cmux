@@ -67,7 +67,14 @@ enum DebugCEF {
             .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
-        object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
+        // Feature chromiumHangFollowsVisibility (p01-process-072): each tab's renderer hang; null with the feature off.
+        object["renderer_hangs"] = services.cache.cef.rendererHangs.map { hangs in
+            .array(hangs.map { hang in
+                .object(["browser": .number(Double(hang.browser)), "title": hang.title.map(JSONValue.string) ?? .null,
+                         "prompting": .bool(hang.prompting), "held": .bool(hang.held), "shown": .bool(hang.shown)])
+            })
+        } ?? .null
+        object["host_resize"] =services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats
         object["swipe"] = .object([

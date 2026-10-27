@@ -136,6 +136,11 @@ chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_d
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
 and shows no window, with feature chromiumHostFileDialogs on.
 
+--renderer-hang runs instead the renderer hang row (chromium_host_renderer_hang.py, p01-process-072) with feature
+chromiumHangFollowsVisibility on: a `while(true){}` page's Page unresponsive prompt shows in that tab only, after
+kHungRendererDelay (15 s), never as the host's banner; hidden behind another tab it goes and stays away past the
+delay; shown again it comes back a full delay after the show; Exit page ends that renderer.
+
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
 count and active match (the oracle's overlays.findBar) and the page scrolled to the active match.
@@ -166,6 +171,7 @@ import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
+import chromium_host_renderer_hang  # noqa: E402
 
 
 def parse(argv=None):
@@ -184,6 +190,8 @@ def parse(argv=None):
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
                              f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
+    parser.add_argument("--renderer-hang", action="store_true",
+                        help="only the renderer hang row (chromium_host_renderer_hang.py, about 90 s)")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -193,8 +201,8 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
-    if args.native_ui is not None and args.find:
-        parser.error("--native-ui and --find each run instead of the modes: pick one")
+    if sum([args.native_ui is not None, args.find, args.renderer_hang]) > 1:
+        parser.error("--native-ui, --find and --renderer-hang each run instead of the modes: pick one")
     if args.native_ui is not None:
         try:
             args.native_ui = chromium_host_native_ui.rows_named(
@@ -680,6 +688,8 @@ def main():
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
         url = pathlib.Path(find_page).as_uri()
+    if opts.renderer_hang:
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_renderer_hang.FEATURES]))
     if "dragin" in opts.modes.split(","):
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
     if opts.host_switches:
@@ -703,7 +713,7 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui or opts.find else opts.modes.split(",")
+        modes = [] if opts.native_ui or opts.find or opts.renderer_hang else opts.modes.split(",")
         if opts.native_ui:
             RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), url,
@@ -718,6 +728,9 @@ def main():
                 ok = ok and dialogs_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+        if opts.renderer_hang:
+            RESULT["modes"]["renderer_hang"], ok = chromium_host_renderer_hang.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), opts.out, chromium_host_pid, front_pid, on_screen_windows)
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
