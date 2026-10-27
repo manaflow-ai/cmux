@@ -52,10 +52,11 @@ import Testing
         let options = CrashReporter(policy: Self.policy, recorder: recorder).options()
         #expect(!options.enableAutoSessionTracking, "session updates would reach Sentry past the recorder")
         #expect(!options.sendClientReports)
-        let send = try #require(options.beforeSendWithHint)
+        #expect(options.beforeSendWithHint == nil)
+        let send = try #require(options.beforeSend)
         let event = Event(level: .warning)
 
-        #expect(send(event, Hint()) == nil, "a recorded event is never sent")
+        #expect(send(event) == nil, "a recorded event is never sent")
 
         let items = try Self.items(of: recorder.file(eventID: event.eventId.sentryIdString))
         let payload = try #require(JSONSerialization.jsonObject(with: items.entries[0].payload) as? [String: Any])

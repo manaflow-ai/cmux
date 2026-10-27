@@ -4,7 +4,7 @@ public import Foundation
 import os
 public import Sentry
 
-/// Writes each Sentry event of this launch, with its attachments, as one envelope file instead of sending it
+/// Writes each Sentry event of this launch as one envelope file instead of sending it
 /// (p09-observability-086). DEBUG and bench builds only: Release compiles none of it.
 ///
 /// `CMUX_NEXT_SENTRY_RECORDER=<dir>` turns it on (``init(environment:)``); ``CrashReporter`` then installs it
@@ -15,8 +15,8 @@ public import Sentry
 ///
 /// The file is `<event_id>.envelope` in Sentry's envelope format
 /// (https://develop.sentry.dev/sdk/data-model/envelopes/): the header `{"event_id":...}`, the `event` item,
-/// then one `attachment` item per attachment. It is written atomically on the recorder's lane, never on the
-/// thread that captured the event.
+/// then one `attachment` item per attachment ``record(_:attachments:)`` is given. It is written atomically
+/// on the recorder's lane, never on the thread that captured the event.
 ///
 /// Recording starts only when Sentry starts (``CrashReportingPolicy``): a DEV build also needs
 /// `CMUX_NEXT_DEV_SENTRY=1`.
@@ -62,14 +62,13 @@ public final class SentryRecorderTransport: Sendable {
 
     /// Makes `options` record every event instead of sending it. `prepare` is what the options' own
     /// `beforeSend` does (scrub and label); it runs first, so the file holds what Sentry would receive.
+    /// Only the event is recorded: sentry-cocoa 9 shows an event's attachments only to the deprecated
+    /// `beforeSendWithHint`, and its next major version passes them to `beforeSend`.
     public func install(on options: Options, prepare: @escaping (Event) -> Event) {
-        options.beforeSend = nil
-        // The hint is the only public way to see an event's attachments (the previous run's blackbox.txt);
-        // Sentry deprecates the setter only for its next major version, which moves the hint into beforeSend.
-        options.beforeSendWithHint = { [self] event, hint in
+        options.beforeSend = { [self] event in
             let prepared = prepare(event)
             do {
-                try record(prepared, attachments: hint.attachments)
+                try record(prepared)
             } catch {
                 let id = prepared.eventId.sentryIdString
                 logger.error("sentry recorder: event \(id, privacy: .public) not recorded: \(String(describing: error), privacy: .public)")
@@ -82,7 +81,7 @@ public final class SentryRecorderTransport: Sendable {
 
     /// Serializes `event` and copies the attachments' data on the caller's thread, then writes
     /// ``file(eventID:)`` on the lane. An attachment whose file cannot be read is left out, as Sentry does.
-    public func record(_ event: Event, attachments: [Attachment]) throws(RecordError) {
+    public func record(_ event: Event, attachments: [Attachment] = []) throws(RecordError) {
         let object = event.serialize()
         guard JSONSerialization.isValidJSONObject(object),
               let json = try? JSONSerialization.data(withJSONObject: object) else { throw .eventNotJSON }
