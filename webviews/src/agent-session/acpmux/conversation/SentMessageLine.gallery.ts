@@ -55,6 +55,19 @@ const fromFile = bash(
   "completed",
   { output: "queued" },
 );
+// A prior Bash call records the message file in the same turn. The send row can show the body
+// without reading the machine's filesystem; its command remains behind Raw after expansion.
+const writeRecorded = bash(
+  `cat > /tmp/net-retries/summary.md <<'EOF'\n## Recorded report\n\n- **#4182** merged; checks pass.\n- Follow-up stays with the toast owner.\nEOF`,
+  "Write the report for the send",
+  "completed",
+);
+const recordedFileSend = bash(
+  "acpmux send --no-wait reports:leo - < /tmp/net-retries/summary.md",
+  "Send the recorded report to Leo",
+  "completed",
+  { output: "queued" },
+);
 const failed = bash(
   "acpmux send perf-lane 'Profile the transcript scroll on the long fixture.'",
   "Hand the profile to perf-lane",
@@ -103,6 +116,19 @@ const sent = () => {
   return { ...snapshot, sessions: [...snapshot.sessions, CHILD] };
 };
 
+const recordedFile = () => {
+  const snapshot = chat(
+    [
+      user("Write the report, then send it without showing the shell plumbing.", 2),
+      activity([writeRecorded, recordedFileSend], 1.8),
+      assistant("The report is queued for reports:leo.", 1.5),
+      summary(1.5, { status: "completed" }),
+    ],
+    { title: "net-retries" },
+  );
+  return { ...snapshot, sessions: [...snapshot.sessions, CHILD] };
+};
+
 /// Opens the finished turn's "Worked for" line, where its calls are.
 const openTurn: Play = async (ctx) => {
   await ctx.click({ selector: ".cv-worked.is-toggle" });
@@ -138,6 +164,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
         await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-shell"));
+      },
+    },
+    "recorded-file": {
+      note: "Before: an acpmux send whose stdin comes from a file shows only its target. After the preceding Bash write is part of this turn, the compact row still says Sent message to reports:leo; opening it renders the recorded Markdown and keeps the shell command behind Raw.",
+      snapshot: recordedFile(),
+      play: async (ctx) => {
+        await openTurn(ctx);
+        await ctx.click({ selector: ".cv-sent" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
       },
     },
     failed: {

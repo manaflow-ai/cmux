@@ -26,7 +26,7 @@ import { messagePreview } from "./AgentMessageRow";
 import { messageDelivery } from "./agentMessages";
 import { useFindReveal } from "./chatFind";
 import { AlertCircle, ChevronRight, Envelope, Spinner } from "./icons";
-import { Markdown } from "./Markdown";
+import { AgentMessageBody } from "./AgentMessageBody";
 import { ShellBlock } from "./ShellBlock";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
@@ -208,7 +208,7 @@ export function SentMessageLine({
         <div id={id} className="cv-subsession__under">
           {text && (
             <div className="cv-subsession__markdown selectable">
-              <Markdown commits="quiet">{text}</Markdown>
+              <AgentMessageBody text={text} commits="quiet" />
             </div>
           )}
           <RawToggle open={rawShown} onOpenChange={setRawShown}>
