@@ -214,6 +214,10 @@ path = "tests/test_bash32_linux_job.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_signing_keychain_real_import_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_shim_cpp_linux.py"
 lane = "linux-guard"
 
