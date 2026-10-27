@@ -6,6 +6,9 @@
 .cv-message-actions.cv-message-actions:has([aria-expanded="true"]) {
   opacity: 1;
 }
+.cv-message-actions:has([aria-expanded="true"]) .cv-message-actions {
+  opacity: 1;
+}
 .cv-message-actions.cv-message-actions .cv-iconbtn:not(.cv-turn-continue) {
   flex: none;
   box-sizing: border-box;
