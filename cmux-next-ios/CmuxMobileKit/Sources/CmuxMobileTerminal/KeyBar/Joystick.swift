@@ -156,7 +156,7 @@ struct JoystickThumbOverlay: View {
             let origin = proxy.frame(in: .global).origin
             if engine.showsFloatingThumb {
                 Circle()
-                    .fill(Color.primary.opacity(0.9))
+                    .fill(Color.white.opacity(0.9))
                     .frame(width: 12, height: 12)
                     .scaleEffect(engine.touching ? 1.2 : 1)
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
@@ -176,21 +176,17 @@ struct Joystick: View {
     var body: some View {
         // Classic cmux iOS's arrow nub: a 28 pt circle with a 12 pt dot.
         let size = JoystickGeometry.circle
-        ZStack {
-            // A glass circle, as classic's nub (`UIGlassEffect`); not
-            // interactive: the drag owns the touch.
-            Color.clear
-                .frame(width: size, height: size)
-                .glassEffect(engine.gear > 0 ? .regular.tint(Color.primary.opacity(0.2)) : .regular, in: .circle)
-            Circle()
-                .fill(Color.primary.opacity(0.9))
-                .frame(width: 12, height: 12)
-                .shadow(color: .white.opacity(0.3), radius: 3)
-                // While dragged the dot is drawn above the key row, where
-                // it can leave the circle (`JoystickThumbOverlay`).
-                .opacity(engine.showsFloatingThumb ? 0 : 1)
-        }
-        .frame(width: size, height: size)
+        Circle()
+            .fill(Color.white.opacity(0.9))
+            .frame(width: 12, height: 12)
+            // While dragged the dot is drawn above the key row, where it can
+            // leave the circle (`JoystickThumbOverlay`).
+            .opacity(engine.showsFloatingThumb ? 0 : 1)
+            .frame(width: size, height: size)
+            // A glass circle under the dot, as classic's nub (`UIGlassEffect`);
+            // not interactive: the drag owns the touch. The dot draws on top,
+            // crisp.
+            .glassEffect(engine.gear > 0 ? .regular.tint(Color.white.opacity(0.15)) : .regular, in: .circle)
         .onGeometryChange(for: CGPoint.self) { proxy in
             let frame = proxy.frame(in: .global)
             return CGPoint(x: frame.midX, y: frame.midY)

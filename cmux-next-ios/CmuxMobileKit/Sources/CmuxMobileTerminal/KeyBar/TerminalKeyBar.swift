@@ -2,6 +2,7 @@
 import AudioToolbox
 import CmuxMobileDesign
 import SwiftUI
+import UIKit
 
 /// The key row (classic cmux iOS's accessory toolbar): pinned at the leading
 /// edge the keyboard key, the joystick and the compose key; then a scroller
@@ -14,58 +15,54 @@ struct TerminalKeyBar: View {
     /// Scroller keys clipped at its edges (`KeyBarClipping`): hidden from
     /// accessibility, offered as row actions.
     @State private var clipped: Set<KeyBarKey> = []
+    /// The pinned keys' width: the scroller's content passes under them, so
+    /// a key there is not on screen.
+    @State private var pinnedWidth: CGFloat = 0
 
     var body: some View {
-        HStack(spacing: 6) {
-            // Spacing 0: neighboring caps stay separate shapes, never merge.
+        ScrollView(.horizontal) {
+            GlassEffectContainer(spacing: 0) {
+                HStack(spacing: TerminalDockMetrics.keySpacing) {
+                    ForEach(KeyBarKey.row, id: \.self) { key in
+                        Group {
+                            if key == .paste {
+                                // The system paste control: no "Allow Paste" prompt (Codex QA F14).
+                                PasteKeyCap(model: model)
+                                    .frame(width: TerminalDockMetrics.minKeyWidth, height: TerminalDockMetrics.keyRowHeight)
+                                    .keyGlass(armed: false, quiet: false)
+                            } else {
+                                KeyCap(key: key, model: model)
+                            }
+                        }
+                        .onGeometryChange(for: Bool.self) { [pinnedWidth] proxy in
+                            let visible = proxy.bounds(of: .scrollView).map {
+                                $0.inset(by: UIEdgeInsets(top: 0, left: pinnedWidth, bottom: 0, right: 0))
+                            }
+                            return KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: visible)
+                        } action: { visible in
+                            if visible { clipped.remove(key) } else { clipped.insert(key) }
+                        }
+                        .accessibilityHidden(clipped.contains(key))
+                    }
+                }
+                .padding(.trailing, TerminalDockMetrics.horizontalInset)
+            }
+        }
+        .scrollIndicators(.hidden)
+        // The pinned keys are the scroller's leading bar, as a toolbar is a
+        // scroll view's: the keys scroll under them and iOS draws its own soft
+        // scroll edge effect there (classic dissolves them at the compose key).
+        .safeAreaBar(edge: .leading, spacing: TerminalDockMetrics.keySpacing) {
             GlassEffectContainer(spacing: 0) {
                 HStack(spacing: 6) {
                     KeyboardToggleKey(model: model)
                     Joystick(engine: model.joystickEngine)
                     KeyCap(key: .composer, model: model)
                 }
+                .padding(.leading, TerminalDockMetrics.horizontalInset)
             }
-            scroller
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pinnedWidth = $0 }
         }
-        .padding(.leading, TerminalDockMetrics.horizontalInset)
-        .frame(height: TerminalDockMetrics.keyRowHeight)
-        .tint(.primary)
-    }
-
-    private var scroller: some View {
-        ScrollView(.horizontal) {
-            GlassEffectContainer(spacing: 0) {
-            HStack(spacing: TerminalDockMetrics.keySpacing) {
-                ForEach(KeyBarKey.row, id: \.self) { key in
-                    Group {
-                        if key == .paste {
-                            // The system paste control: no "Allow Paste" prompt (Codex QA F14).
-                            PasteKeyCap(model: model)
-                                .frame(width: TerminalDockMetrics.minKeyWidth, height: TerminalDockMetrics.keyRowHeight)
-                                .keyGlass(armed: false, quiet: false)
-                        } else {
-                            KeyCap(key: key, model: model)
-                        }
-                    }
-                    .onGeometryChange(for: Bool.self) { proxy in
-                        KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
-                    } action: { visible in
-                        if visible { clipped.remove(key) } else { clipped.insert(key) }
-                    }
-                    .accessibilityHidden(clipped.contains(key))
-                }
-            }
-            // The row runs to the screen's edge; the 4 pt gap after the
-            // compose key lives inside the scroller, so a key scrolled left
-            // dissolves at the compose key's edge (classic).
-            .padding(.leading, TerminalDockMetrics.keySpacing)
-            .padding(.trailing, TerminalDockMetrics.horizontalInset)
-            }
-        }
-        .scrollIndicators(.hidden)
-        // The system's soft scroll edge effect at both ends, as iOS draws it
-        // under its own toolbars: keys dissolve as they reach the pinned keys
-        // or the screen's edge.
         .scrollEdgeEffectStyle(.soft, for: .horizontal)
         // Room above and below the 28 pt row for the glass's touch lift,
         // which the scroller would otherwise clip; the row's layout height
@@ -73,6 +70,7 @@ struct TerminalKeyBar: View {
         .contentMargins(.vertical, KeyRowGlass.liftRoom, for: .scrollContent)
         .frame(height: TerminalDockMetrics.keyRowHeight + 2 * KeyRowGlass.liftRoom)
         .padding(.vertical, -KeyRowGlass.liftRoom)
+        .tint(.primary)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("More keys")
         .accessibilityActions {
