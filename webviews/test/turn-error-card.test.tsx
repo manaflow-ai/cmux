@@ -490,6 +490,27 @@ test("CodeRouter alone takes the filled button; a refused move says so", async (
   expect(actionLabels()).toEqual(["CodeRouter couldn't take this chat"]);
 });
 
+test("a sign-in card with Sign in again and CodeRouter's button keeps one filled button: Sign in again", async () => {
+  for (const error of ["Not logged in · Please run /login", "HTTP 401 Unauthorized"]) {
+    await act(async () =>
+      root.render(
+        <TurnActionsContext.Provider
+          value={{
+            reauthenticate: () => undefined,
+            route: { name: "Claude Code", harness: "claude" },
+            ownRoute: { find: async () => undefined, use: async () => undefined },
+          }}
+        >
+          <TurnFooter row={failed(error)} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+    expect([error, actionLabels()]).toEqual([error, ["Sign in again", "Set up cmux CodeRouter"]]);
+    expect([error, card().querySelectorAll(".cv-turn-error__primary").length]).toEqual([error, 1]);
+    expect(button("Sign in again")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  }
+});
+
 test("a turn that cannot be sent again offers no move onto CodeRouter, which would change nothing on the card", async () => {
   await renderOffer("invalid x-api-key", cr);
   expect(actionLabels()).toEqual(["Switch model"]);
