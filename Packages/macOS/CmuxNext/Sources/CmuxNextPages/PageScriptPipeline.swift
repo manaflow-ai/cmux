@@ -119,12 +119,17 @@ final class PageScriptPipeline {
     ///     the main actor by default.
     init(deliver: @escaping @MainActor (PageDelivery) -> Void,
          form: @escaping @MainActor () -> PageDeliveryForm,
-         render: @escaping @Sendable ([JSONValue], PageDeliveryForm) async -> PageDelivery = { envelopes, form in
-             await PageScriptPipeline.render(envelopes, as: form)
-         }) {
+         render: @escaping @Sendable ([JSONValue], PageDeliveryForm) async -> PageDelivery) {
         self.deliver = deliver
         self.form = form
         self.render = render
+    }
+
+    /// Runs rendered off the main actor (``render(_:as:)``).
+    convenience init(deliver: @escaping @MainActor (PageDelivery) -> Void, form: @escaping @MainActor () -> PageDeliveryForm) {
+        self.init(deliver: deliver, form: form) { envelopes, form in
+            await PageScriptPipeline.render(envelopes, as: form)
+        }
     }
 
     /// Every run as a script, run by `evaluate`.
@@ -133,12 +138,16 @@ final class PageScriptPipeline {
     ///   - evaluate: Runs one script in the page.
     ///   - render: Makes the script of one run of envelopes (``PageRouter/receiveManyScript(_:)``).
     convenience init(evaluate: @escaping @MainActor (String) -> Void,
-                     render: @escaping @Sendable ([JSONValue]) async -> String = { envelopes in
-                         await PageScriptPipeline.render(envelopes)
-                     }) {
+                     render: @escaping @Sendable ([JSONValue]) async -> String) {
         self.init(deliver: { delivery in
             if case .script(let script) = delivery { evaluate(script) }
         }, form: { .script }, render: { envelopes, _ in .script(await render(envelopes)) })
+    }
+
+    convenience init(evaluate: @escaping @MainActor (String) -> Void) {
+        self.init(evaluate: evaluate) { envelopes in
+            await PageScriptPipeline.render(envelopes)
+        }
     }
 
     /// From now on envelopes wait for `frame`, and each frame's run goes to the page as one script.
