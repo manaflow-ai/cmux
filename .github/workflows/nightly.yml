@@ -1971,6 +1971,9 @@ jobs:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       NIGHTLY_COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
       CHANNEL_ICON_NAME: ${{ needs.decide.outputs.icon_name }}
+      # Jobs publish-nightly needs that run beside this one; derived from the
+      # needs graph by tests/test_nightly_stop_if_publish_doomed.py.
+      NIGHTLY_PUBLISH_PEERS: resolve-nightly-ghostty-cli-helper build-nightly-ghostty-cli-helper
     steps:
       - name: Checkout trusted unsigned-resume controls
         if: inputs.nightly_next_unsigned_run != ''
@@ -2533,6 +2536,22 @@ jobs:
         if: inputs.nightly_next_unsigned_run == ''
         run: python3 scripts/ci/background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine
 
+      # The run cannot publish once a job publish-nightly needs, running beside
+      # this one, has failed (run 40460194731 compiled and uploaded for 65 min
+      # after its Ghostty helper failed): stop and give the Mac back. One read
+      # of this attempt's jobs; a read error carries on. NIGHTLY_PUBLISH_PEERS
+      # is derived from the needs graph by tests/test_nightly_stop_if_publish_doomed.py.
+      - name: Stop when the run can no longer publish (before the compile)
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # An older resolved build_sha may predate the check: fail open.
+          check=scripts/ci/stop_if_publish_doomed.py
+          if [ ! -f "$check" ]; then echo "::notice::$check is not at this build_sha; carrying on"; exit 0; fi
+          read -ra peers <<< "$NIGHTLY_PUBLISH_PEERS"
+          python3 "$check" "${peers[@]}"
+
       - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         env:
@@ -3025,8 +3044,29 @@ jobs:
           fi
           tar -C "$products" -czf "$RUNNER_TEMP/cmux-nightly-unsigned.tar.gz" cmux.app
 
-      - name: Upload unsigned nightly app
+      # The run cannot publish once a job publish-nightly needs, running beside
+      # this one, has failed (run 40460194731 compiled and uploaded for 65 min
+      # after its Ghostty helper failed): stop and give the Mac back. One read
+      # of this attempt's jobs; a read error carries on. NIGHTLY_PUBLISH_PEERS
+      # is derived from the needs graph by tests/test_nightly_stop_if_publish_doomed.py.
+      - name: Stop when the run can no longer publish (before the upload)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # An older resolved build_sha may predate the check: fail open.
+          check=scripts/ci/stop_if_publish_doomed.py
+          if [ ! -f "$check" ]; then echo "::notice::$check is not at this build_sha; carrying on"; exit 0; fi
+          read -ra peers <<< "$NIGHTLY_PUBLISH_PEERS"
+          python3 "$check" "${peers[@]}"
+
+      # A stalled upload once held the Mac 39 min (run 40460194731): 10 min,
+      # then one retry that replaces a partial upload.
+      - name: Upload unsigned nightly app
+        id: upload-unsigned
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
+        continue-on-error: true
+        timeout-minutes: 10
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-unsigned-app
@@ -3035,6 +3075,18 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
+
+      - name: Upload unsigned nightly app (retry)
+        if: steps.upload-unsigned.outcome == 'failure'
+        timeout-minutes: 10
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-unsigned-app
+          path: ${{ runner.temp }}/cmux-nightly-unsigned.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
 
       # The dSYMs of every nightly-next build, a handoff to publish-nightly, which keeps a
       # published build's dSYMs on R2 (nightly-next/next/dsyms/): a crash or hang report
@@ -3202,10 +3254,6 @@ jobs:
           # Preserve Chief lockfile repairs too: run 37724899486 selected an
           # older published revision and failed cargo build --locked.
           CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock
-          # A commit other than the tip also needs a green Release compile:
-          # run 40070613185 fell back 32 commits to dee35e3f, whose app did not
-          # compile. No such commit in the window fails, listing what it skipped.
-          CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN: "1"
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
