@@ -14,54 +14,72 @@ import Testing
                               approvalKey: "04" + String(repeating: "bb", count: 64), pairToken: token)
     }
 
+    // `#expect` cannot call a mutating method, so each redemption is read into a `let` first.
+
     @Test func aTokenPairsOnceThenIsBurnt() {
         var tokens = MobileHostPairTokens()
         let minted = tokens.mint(macDeviceID: "mac-1", now: Self.now)
         #expect(minted.token.count >= 16)
         #expect(minted.expiresAt == Self.now.addingTimeInterval(MobileHostPairTokens.lifetime))
-        #expect(tokens.redeem(minted.token, macDeviceID: "mac-1", now: Self.now.addingTimeInterval(10)))
-        #expect(!tokens.redeem(minted.token, macDeviceID: "mac-1", now: Self.now.addingTimeInterval(11)), "used twice")
+        let first = tokens.redeem(minted.token, macDeviceID: "mac-1", now: Self.now.addingTimeInterval(10))
+        let second = tokens.redeem(minted.token, macDeviceID: "mac-1", now: Self.now.addingTimeInterval(11))
+        #expect(first)
+        #expect(!second, "used twice")
     }
 
     @Test func anExpiredWrongMacUnknownOrRevokedTokenPairsNothing() {
         var tokens = MobileHostPairTokens()
         let minted = tokens.mint(macDeviceID: "mac-1", now: Self.now)
-        #expect(!tokens.redeem(minted.token, macDeviceID: "mac-1", now: minted.expiresAt), "expired")
+        let expired = tokens.redeem(minted.token, macDeviceID: "mac-1", now: minted.expiresAt)
+        #expect(!expired, "expired")
         let fresh = tokens.mint(macDeviceID: "mac-1", now: Self.now)
-        #expect(!tokens.redeem(fresh.token, macDeviceID: "mac-2", now: Self.now), "another Mac id")
-        #expect(!tokens.redeem(fresh.token, macDeviceID: nil, now: Self.now), "no Mac id yet")
-        #expect(!tokens.redeem(nil, macDeviceID: "mac-1", now: Self.now))
-        #expect(!tokens.redeem(fresh.token + "x", macDeviceID: "mac-1", now: Self.now))
-        #expect(!tokens.redeem(String(fresh.token.dropLast()), macDeviceID: "mac-1", now: Self.now))
+        let otherMac = tokens.redeem(fresh.token, macDeviceID: "mac-2", now: Self.now)
+        let noMac = tokens.redeem(fresh.token, macDeviceID: nil, now: Self.now)
+        let noToken = tokens.redeem(nil, macDeviceID: "mac-1", now: Self.now)
+        let longer = tokens.redeem(fresh.token + "x", macDeviceID: "mac-1", now: Self.now)
+        let shorter = tokens.redeem(String(fresh.token.dropLast()), macDeviceID: "mac-1", now: Self.now)
+        #expect(!otherMac, "another Mac id")
+        #expect(!noMac, "no Mac id yet")
+        #expect(!noToken)
+        #expect(!longer)
+        #expect(!shorter)
         let newer = tokens.mint(macDeviceID: "mac-1", now: Self.now)
-        #expect(!tokens.redeem(fresh.token, macDeviceID: "mac-1", now: Self.now), "a new code revokes the old one")
+        let superseded = tokens.redeem(fresh.token, macDeviceID: "mac-1", now: Self.now)
+        #expect(!superseded, "a new code revokes the old one")
         tokens.revoke()
-        #expect(!tokens.redeem(newer.token, macDeviceID: "mac-1", now: Self.now), "revoked")
+        let revoked = tokens.redeem(newer.token, macDeviceID: "mac-1", now: Self.now)
+        #expect(!revoked, "revoked")
     }
 
     @Test func theShownTokenIsReusedUntilAMinuteBeforeItExpires() {
         var tokens = MobileHostPairTokens()
         let first = tokens.current(macDeviceID: "mac-1", now: Self.now)
-        #expect(tokens.current(macDeviceID: "mac-1", now: Self.now.addingTimeInterval(200)) == first)
+        let again = tokens.current(macDeviceID: "mac-1", now: Self.now.addingTimeInterval(200))
+        #expect(again == first)
         let next = tokens.current(macDeviceID: "mac-1", now: Self.now.addingTimeInterval(MobileHostPairTokens.lifetime - 30))
         #expect(next.token != first.token)
-        #expect(tokens.current(macDeviceID: "mac-2", now: Self.now).token != next.token, "another Mac id mints its own")
+        let otherMac = tokens.current(macDeviceID: "mac-2", now: Self.now)
+        #expect(otherMac.token != next.token, "another Mac id mints its own")
     }
 
     /// The token stands in for the person's Allow only for the signed-in user's own list.
     @Test func onlyTheSignedInUsersListIsPreapproved() {
         var tokens = MobileHostPairTokens()
         let token = tokens.mint(macDeviceID: "mac-1", now: Self.now).token
-        #expect(!IPhoneHostService.redeems(Self.request(token: nil), tokens: &tokens, macDeviceID: "mac-1",
-                                           pairedUserID: "u1", accountUserID: "u1", now: Self.now))
-        #expect(!IPhoneHostService.redeems(Self.request(token: token), tokens: &tokens, macDeviceID: "mac-1",
-                                           pairedUserID: "u1", accountUserID: nil, now: Self.now))
-        #expect(!IPhoneHostService.redeems(Self.request(token: token), tokens: &tokens, macDeviceID: "mac-1",
-                                           pairedUserID: "u1", accountUserID: "u2", now: Self.now))
-        #expect(IPhoneHostService.redeems(Self.request(token: token), tokens: &tokens, macDeviceID: "mac-1",
-                                          pairedUserID: "u1", accountUserID: "u1", now: Self.now))
-        #expect(!IPhoneHostService.redeems(Self.request(token: token), tokens: &tokens, macDeviceID: "mac-1",
-                                           pairedUserID: "u1", accountUserID: "u1", now: Self.now), "burnt")
+        func redeems(_ presented: String?, account: String?) -> Bool {
+            IPhoneHostService.redeems(Self.request(token: presented), tokens: &tokens, macDeviceID: "mac-1",
+                                      pairedUserID: "u1", accountUserID: account, now: Self.now)
+        }
+        let noToken = redeems(nil, account: "u1")
+        let signedOut = redeems(token, account: nil)
+        let otherAccount = redeems(token, account: "u2")
+        let sameAccount = redeems(token, account: "u1")
+        let again = redeems(token, account: "u1")
+        #expect(!noToken)
+        #expect(!signedOut)
+        #expect(!otherAccount)
+        #expect(sameAccount)
+        #expect(!again, "burnt")
     }
 
     @Test func theCodeNamesThisMacItsTeamTheTokenAndItsKey() throws {

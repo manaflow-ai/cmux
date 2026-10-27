@@ -991,10 +991,13 @@ async fn a_scanned_pairing_code_reaches_the_app_with_the_request() {
     let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
     let token = "Zm9vYmFyLWJhel9xdXV4";
 
-    let mut bad = auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some("no spaces allowed")).await;
+    let mut bad =
+        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some("no spaces allowed"))
+            .await;
     assert_eq!(drain(&mut bad).await.1, "bad_request");
 
-    let mut channel = auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some(token)).await;
+    let mut channel =
+        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some(token)).await;
     assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
     let request = fixture.events.as_ref().unwrap().lock().await.recv().await.unwrap();
     assert_eq!(

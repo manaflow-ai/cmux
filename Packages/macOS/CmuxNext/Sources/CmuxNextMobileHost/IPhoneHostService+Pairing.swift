@@ -98,6 +98,11 @@ extension IPhoneHostService {
             allowed.pairToken = nil
             trusted.approve(allowed, at: Date())
             savePaired(trusted)
+            // An earlier request from this phone (before it scanned) is answered: its prompt closes,
+            // so a stale Allow cannot overwrite the keys just approved.
+            prompts.forget(id: request.phoneDeviceID)
+            if prompts.pending.isEmpty { quietAttention() }
+            showPairDialog()
             return
         }
         // A waiting request never keeps a token.

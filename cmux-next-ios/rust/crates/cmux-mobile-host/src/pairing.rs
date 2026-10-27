@@ -550,7 +550,8 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 
 /// A pairing code's pre-approval as the Mac mints it: 16 to 64 base64url characters.
 fn is_pair_token(token: &str) -> bool {
-    (16..=64).contains(&token.len()) && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    (16..=64).contains(&token.len())
+        && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 fn new_nonce() -> Result<String, Refused> {
@@ -658,7 +659,8 @@ async fn authenticate(
                 .as_ref()
                 .and_then(|v| v.get("signature").and_then(Value::as_str).map(str::to_owned))
                 .ok_or(("bad_request", "expected {signature}".to_owned()))?;
-            let pair_token = reply.as_ref().and_then(|v| v.get("pairToken")).and_then(Value::as_str).map(str::to_owned);
+            let pair_token =
+                reply.as_ref().and_then(|v| v.get("pairToken")).and_then(Value::as_str).map(str::to_owned);
             if pair_token.as_deref().is_some_and(|token| !is_pair_token(token)) {
                 return Err(("bad_request", "pairToken is 16 to 64 base64url characters".into()));
             }
