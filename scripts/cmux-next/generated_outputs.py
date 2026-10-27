@@ -36,7 +36,7 @@ from collections.abc import Iterable
 # any CmuxNext source is an input, not only CmuxNextSettings or CmuxNextActions.
 ACTIONS_INPUTS = (
     r"Packages/macOS/CmuxNext/Sources/"
-    r"|Packages/macOS/CmuxNext/Tests/CmuxNextActions(AppKit)?Tests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift"
+    r"|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextActionsAppKitTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift"
     r"|scripts/cmux-next/regenerate-action-exports\.sh"
 )
 SETTINGS_INPUTS = (
