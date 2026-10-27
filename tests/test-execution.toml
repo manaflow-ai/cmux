@@ -1734,6 +1734,10 @@ path = "tests/test_gh_budget_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_stop_if_publish_doomed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_cancelled_tip.py"
 lane = "linux-guard"
 
@@ -2104,4 +2108,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_landing_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_fallback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"

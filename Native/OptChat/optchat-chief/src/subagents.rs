@@ -466,6 +466,9 @@ pub struct Spawner {
     /// `with_person`, as the host read it at start): a task names the
     /// lines learned since (assistant.rs).
     person_start: String,
+    /// The app's Cloud actions `cloud_workspace` runs (cloud_workspace.rs);
+    /// None: no cmux app behind this host.
+    cloud_workspaces: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
 }
 
 impl Spawner {
@@ -495,7 +498,17 @@ impl Spawner {
             agent_keys: None,
             person: None,
             person_start: String::new(),
+            cloud_workspaces: None,
         }
+    }
+
+    /// `cloud_workspace` makes Cloud workspaces through `cloud` (None: off).
+    pub fn with_cloud_workspaces(
+        mut self,
+        cloud: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
+    ) -> Spawner {
+        self.cloud_workspaces = cloud;
+        self
     }
 
     /// `remember` keeps preferences in the profile at `path`.
@@ -1607,6 +1620,26 @@ impl Orchestrator for Spawner {
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn cloud_workspace(&self, request: &crate::cloud_workspace::Request) -> Result<String, String> {
+        let Some(cloud) = &self.cloud_workspaces else {
+            return Err(
+                "cloud_workspace: this Chief host has no cmux app to make Cloud workspaces in"
+                    .into(),
+            );
+        };
+        let answer = cloud.call(request);
+        (self.log)(&format!(
+            "cloud_workspace {:?}: {}",
+            request.title,
+            answer.as_ref().unwrap_or_else(|e| e)
+        ));
+        self.trace.emit(
+            "chief.cloud_workspace",
+            serde_json::json!({"title": self.trace.text(&request.title), "ok": answer.is_ok()}),
+        );
+        answer
     }
 
     fn control(&self, request: crate::tools::ControlCall) -> Result<String, String> {
