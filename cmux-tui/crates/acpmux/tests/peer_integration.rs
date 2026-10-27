@@ -849,6 +849,78 @@ async fn a_web_prompt_for_an_unresolved_key_is_refused_and_one_for_a_peer_sessio
     assert_eq!(ok["peer"], "b", "{ok}");
 }
 
+/// Leo, 2026-10-21 ("this literally doesn't work"): the app showed Allow,
+/// Always and Deny for a peer chat's asks under approve-reads, and every
+/// answer came back "this session's permission settings do not ask before it
+/// acts (policy approve-reads); a paired device cannot prompt it or answer
+/// its permissions": the peer served this daemon as Web and held the answer
+/// to the Web's asking rule. A deny only narrows and now goes through. A
+/// group allow from this daemon is never the peer's person (`hub/person.rs`),
+/// and the read through this daemon says so before anyone clicks.
+#[tokio::test]
+async fn a_peer_chats_deny_goes_through_under_approve_reads_and_its_read_refuses_allows() {
+    let mut cfg_b = config(PermissionPolicy::ApproveReads);
+    // On B the fake harness's `normal` mode asks: only the policy does not.
+    cfg_b.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+    let b = hub(cfg_b).await;
+    let port = free_port();
+    tokio::spawn(listen_ws(b.clone(), format!("127.0.0.1:{port}"), "tok".into()));
+    let mut cb = client(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "reviewer"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    // No peer token: B serves A as a Web client.
+    assert_eq!(a.peers()[0]["servedAs"], "remote", "{:?}", a.peers());
+    // The turn runs on B (an agent there started it); A's app sees its ask.
+    let mut turns = plain(b.clone()).await;
+    turns.next += 1;
+    let text = json!([{"type": "text", "text": "ask: touch marker"}]);
+    let prompt = Message::request(
+        turns.next,
+        method::SESSION_PROMPT,
+        json!({"sessionId": remote_id, "prompt": text}),
+    );
+    turns.tx.send(prompt.to_line()).await.unwrap();
+    let mut app = client(a.clone()).await;
+    let mut read = Value::Null;
+    for _ in 0..500 {
+        let key = json!({"sessionId": remote_id});
+        read = app.call(method::MUX_PERMISSION_GROUPS, key).await.unwrap();
+        if read["groups"].as_array().into_iter().flatten().any(|g| g["state"] == "pending") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(read["allowRefused"], "permission.person_required", "{read}");
+    let groups = read["groups"].as_array().unwrap();
+    let group = groups.iter().find(|g| g["state"] == "pending").unwrap();
+    let answer = |decision: &str| {
+        json!({"sessionId": remote_id, "groupId": group["groupId"], "revision": group["revision"],
+               "decisionKey": format!("k-{decision}"), "decision": decision})
+    };
+    assert!(app.call(method::MUX_PERMISSION_GROUP_RESPOND, answer("allow_once")).await.is_err());
+    let r = app.call(method::MUX_PERMISSION_GROUP_RESPOND, answer("deny")).await;
+    assert!(r.is_ok(), "a deny through the peer: {r:?}");
+    for _ in 0..500 {
+        let key = json!({"sessionId": remote_id, "limit": 500});
+        let events = cb.call(method::MUX_EVENTS, key).await.unwrap();
+        if events.to_string().contains("chose no") {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the agent never heard the deny");
+}
+
 #[tokio::test]
 async fn a_web_notification_cancel_forwarded_by_a_peer_keeps_web_control() {
     let mut cfg_b = config(PermissionPolicy::Ask);
