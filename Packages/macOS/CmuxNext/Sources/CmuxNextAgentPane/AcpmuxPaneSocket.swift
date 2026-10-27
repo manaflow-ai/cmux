@@ -430,7 +430,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     continuation.resume(throwing: AgentPaneTransportError.closed)
                     return
                 }
-                if Task.isCancelled { cancelHostReply(id) }
+                if Task.isCancelled { cancelHostReply(id, lateReply: lateReply) }
                 else if send(text) != nil { failed() }
             }
         } onCancel: { self.cancelHostReply(id, lateReply: lateReply) }
