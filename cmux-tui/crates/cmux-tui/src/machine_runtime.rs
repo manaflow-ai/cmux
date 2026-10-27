@@ -320,6 +320,7 @@ fn ssh_config_targets_from_path(config: &Path, ssh_root: &Path, home: &Path) -> 
         home,
         read: 0,
         chain: Vec::new(),
+        seen: 0,
         names: HashMap::new(),
         every: None,
     };
@@ -329,10 +330,15 @@ fn ssh_config_targets_from_path(config: &Path, ssh_root: &Path, home: &Path) -> 
         .hosts
         .into_iter()
         .map(|alias| {
-            // A HostName before the first Host line comes first, so it wins.
-            let host_name = match &every {
-                Some(name) => Some(name.replace("%h", &alias.to_ascii_lowercase())),
-                None => host_names.remove(&alias.to_ascii_lowercase()),
+            // ssh takes the first HostName that holds for the host, in the
+            // order the lines are read (an Include where it stands).
+            let key = alias.to_ascii_lowercase();
+            let own = host_names.remove(&key);
+            let host_name = match (&every, own) {
+                (Some((at, name)), own) if own.as_ref().is_none_or(|(o, _)| at < o) => {
+                    Some(name.replace("%h", &key))
+                }
+                (_, own) => own.map(|(_, name)| name),
             };
             SshConfigHost { alias, host_name }
         })
@@ -401,11 +407,13 @@ struct HostNames<'a> {
     read: usize,
     /// The include chain being read, so a cycle stops.
     chain: Vec<PathBuf>,
-    /// By lowercased alias.
-    names: HashMap<String, String>,
+    /// `HostName` lines read so far, so the first one for a host wins.
+    seen: usize,
+    /// By lowercased alias: where its first `HostName` was read, and it.
+    names: HashMap<String, (usize, String)>,
     /// The first `HostName` before any `Host` line, which ssh gives every
-    /// host (`%h` not yet replaced).
-    every: Option<String>,
+    /// host (`%h` not yet replaced), and where it was read.
+    every: Option<(usize, String)>,
 }
 
 impl HostNames<'_> {
@@ -447,18 +455,20 @@ impl HostNames<'_> {
                 "match" => *block = Some(Vec::new()),
                 "hostname" => {
                     let Some(name) = values.into_iter().next() else { continue };
+                    self.seen += 1;
+                    let at = self.seen;
                     let Some(aliases) = block.as_ref() else {
                         // Before any Host line, outside any Include gate:
                         // every host's (an Include's gate is its block).
                         if gate.is_none() {
-                            self.every.get_or_insert(name);
+                            self.every.get_or_insert((at, name));
                         }
                         continue;
                     };
                     for alias in aliases {
                         self.names
                             .entry(alias.clone())
-                            .or_insert_with(|| name.replace("%h", alias));
+                            .or_insert_with(|| (at, name.replace("%h", alias)));
                     }
                 }
                 "include" => {
@@ -1281,6 +1291,18 @@ mod tests {
             ("first", &["HostName %h.tail1234.ts.net"]),
         ]);
         assert_eq!(names, vec![named("jump", "jump.tail1234.ts.net")]);
+    }
+
+    #[test]
+    fn a_host_s_own_name_read_before_the_global_one_wins() {
+        let names = host_names_of(&[
+            (
+                "config",
+                &["Include early", "HostName old-air.tail1234.ts.net", "Host jump", "  HostName x"],
+            ),
+            ("early", &["Host jump", "  HostName jump.internal"]),
+        ]);
+        assert_eq!(names, vec![named("jump", "jump.internal")]);
     }
 
     #[test]
