@@ -119,7 +119,7 @@ import Security
         // setup-token prints its minted secret: keep ALL its output out of terminal transcripts.
         // Its browser opens normally; the parent UI displays progress while approval is pending.
         let command = provider == .claude
-            ? "CLAUDE_CONFIG_DIR=\(dir)/claude perl -e 'alarm 300; exec @ARGV' -- claude setup-token"
+            ? "CLAUDE_CONFIG_DIR=\(dir)/claude CMUX_CAPTURE_DIR=\(dir) perl -e 'alarm 300; exec @ARGV' -- claude setup-token"
             : "CODEX_HOME=\(dir) perl -e 'alarm 300; exec @ARGV' -- codex -c 'cli_auth_credentials_store=\"file\"' login --device-auth"
         return """
             #!/bin/bash
@@ -135,10 +135,11 @@ import Security
             if [ "\(provider.rawValue)" = claude ]; then
               set -o pipefail
               \(command) 2>&1 | perl -ne '
-                BEGIN { $| = 1; open $f, ">>", "\(dir)/output" or exit 2; }
+                BEGIN { $| = 1; open $f, ">>", ($ENV{CMUX_CAPTURE_DIR} . "/output") or exit 2; }
                 print $f $_;
-                while (m{https://(?:claude\\.ai|auth\\.anthropic\\.com)/oauth/authorize[^\\s<>"'"'"']*}g) {
-                  my $u = $&; next if $u =~ /sk-ant-oat01-/ || $seen{$u}++;
+                my $safe = $_; $safe =~ s/\\e\\[[0-9;]*[A-Za-z]//g;
+                while ($safe =~ m{https://(?:claude\\.ai|auth\\.anthropic\\.com)/oauth/authorize\\?[^\\s<>"'"'"']*}g) {
+                  my $u = $&; next if $u =~ /sk-ant-oat01-/ || $seen{$u}++ || length($u) > 2048;
                   print "Browser fallback URL (open only this provider URL):\\n$u\\n";
                   print "If prompted, enter the one-time code shown by Claude Code in this terminal.\\n";
                 }
@@ -150,7 +151,7 @@ import Security
             fi
             trap - INT TERM HUP
             if [ "$code" -ne 0 ] && [ "\(provider.rawValue)" = claude ]; then
-              printf '%s\n' 'If the browser did not open, retry `claude setup-token` in this terminal.'
+              printf '%s\n' 'If the browser did not open, retry provider setup in this cmux terminal.'
             fi
             printf '%s' "$code" > \(dir)/status.tmp
             mv \(dir)/status.tmp \(dir)/status

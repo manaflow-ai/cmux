@@ -100,11 +100,11 @@ struct CloudCredentialTransferTests {
     }
 
     @Test func claudeLoginCapturesTokenWithoutPrintingIt() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("login-test-\(UUID().uuidString)")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("login test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let fake = directory.appendingPathComponent("claude")
-        try Data("#!/bin/sh\nprintf '%s\\n' '\(String(decoding: Self.token, as: UTF8.self))'\nprintf 'private diagnostic\\n' >&2\n".utf8).write(to: fake)
+        try Data("#!/bin/sh\nprintf '\\033[32mhttps://claude.ai/oauth/authorize?code=abc\\033[0m\\n' >&2\nprintf '%s\\n' '\(String(decoding: Self.token, as: UTF8.self))' >&2\nprintf 'private diagnostic\\n' >&2\n".utf8).write(to: fake)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
         let ran = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/bash"),
             arguments: ["-c", CloudCredentialLogin.loginScript(provider: .claude, directory: directory)],
@@ -112,6 +112,8 @@ struct CloudCredentialTransferTests {
         #expect(ran.status == 0)
         #expect(!ran.stdout.isEmpty && !String(decoding: ran.stdout, as: UTF8.self).contains(String(decoding: Self.token, as: UTF8.self)))
         #expect(!String(decoding: ran.stdout, as: UTF8.self).contains("private diagnostic"))
+        #expect(String(decoding: ran.stdout, as: UTF8.self).contains("https://claude.ai/oauth/authorize?code=abc"))
+        #expect(String(decoding: ran.stdout, as: UTF8.self).contains("one-time code"))
         #expect(try CloudCredentialLogin.claudeToken(from: Data(contentsOf: directory.appendingPathComponent("output"))) == Self.token)
         #expect(try String(contentsOf: directory.appendingPathComponent("status"), encoding: .utf8) == "0")
     }
