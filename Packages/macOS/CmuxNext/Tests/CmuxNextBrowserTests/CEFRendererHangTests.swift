@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -134,6 +135,61 @@ import Testing
         #expect(tab.state.isUnresponsive)
     }
 
+    /// A minimized window's tab is not visible (Chrome's `WebContents::GetVisibility()`): its hang is
+    /// held, and the window's show answers Wait, so the timer runs a full `kHungRendererDelay` from it.
+    @Test func aHangInAMinimizedWindowIsHeldAndTheWindowsShowRestartsTheTimer() throws {
+        let rig = try Rig(followsVisibility: true)
+        let tab = try rig.shownTab(browser: 10)
+        rig.window.change(\.isShown, false, NSWindow.didMiniaturizeNotification)
+        #expect(!tab.showsForRendererHang)
+
+        rig.runtime.handle(.renderUnresponsive(browser: 10))
+        #expect(!tab.state.isUnresponsive, "a minimized window's tab shows no prompt")
+        #expect(tab.rendererHang.isHeld)
+        #expect(HangReplySpy.replies.isEmpty, "no timer runs while the window is hidden")
+
+        rig.window.change(\.isShown, true, NSWindow.didDeminiaturizeNotification)
+        #expect(HangReplySpy.replies.map({ $0.browser }) == [10])
+        #expect(HangReplySpy.replies.map({ $0.terminate }) == [0], "Wait: kHungRendererDelay again from the window's show")
+        #expect(!tab.rendererHang.isHeld)
+        #expect(!tab.state.isUnresponsive, "the prompt waits for the restarted timer")
+    }
+
+    /// A covered window, by AppKit or by an opaque cmux window over it (``WindowOcclusionFamily``),
+    /// takes its tab's prompt down; uncovering it answers Wait.
+    @Test func coveringAPromptingTabsWindowTakesThePromptDownAndUncoveringRestartsTheTimer() throws {
+        let rig = try Rig(followsVisibility: true)
+        let tab = try rig.shownTab(browser: 10)
+        rig.runtime.handle(.renderUnresponsive(browser: 10))
+        try #require(tab.state.isUnresponsive)
+
+        let family = WindowOcclusionFamily.of(rig.window.window)
+        family.set(occluded: true)
+        #expect(!tab.state.isUnresponsive, "an occluded window's tab is not visible")
+        #expect(tab.rendererHang.isHeld)
+        family.set(occluded: false)
+        #expect(HangReplySpy.replies.map({ $0.terminate }) == [0])
+        #expect(!tab.rendererHang.isHeld)
+
+        rig.runtime.handle(.renderUnresponsive(browser: 10))
+        try #require(tab.state.isUnresponsive)
+        rig.window.change(\.isOccluded, true, NSWindow.didChangeOcclusionStateNotification)
+        #expect(!tab.state.isUnresponsive, "AppKit's occlusion hides the tab too")
+        rig.window.change(\.isOccluded, false, NSWindow.didChangeOcclusionStateNotification)
+        #expect(HangReplySpy.replies.map({ $0.terminate }) == [0, 0])
+    }
+
+    /// A hidden tab watches no window: its window's notices cost it nothing.
+    @Test func onlyAShownTabWatchesItsWindow() throws {
+        let rig = try Rig(followsVisibility: true)
+        let tab = try rig.shownTab(browser: 10)
+        #expect(rig.window.events.subscriberCount(NSWindow.didChangeOcclusionStateNotification) == 1)
+        tab.contentDidDisappear()
+        #expect(rig.window.events.subscriberCount(NSWindow.didChangeOcclusionStateNotification) == 0)
+        tab.contentDidAppear(in: tab.container)
+        #expect(rig.window.events.subscriberCount(NSWindow.didChangeOcclusionStateNotification) == 1)
+    }
+
     @Test func waitAndExitPageAnswerTheShownPrompt() throws {
         let rig = try Rig(followsVisibility: true)
         let tab = try rig.shownTab(browser: 10)
@@ -149,20 +205,23 @@ import Testing
 
     // MARK: Fixtures
 
-    /// A runtime on the spy shim, and pane hosts each showing one tab.
+    /// A runtime on the spy shim, and pane hosts each showing one tab in one window the test shows or hides.
     @MainActor final class Rig {
         let runtime: CEFRuntime
+        let window = ChromiumHostPageVisibilityTests.FakeWindow()
 
         init(followsVisibility: Bool) throws {
             HangReplySpy.reset()
             let root = FileManager.default.temporaryDirectory.appending(path: "cef-renderer-hang-\(UUID().uuidString)", directoryHint: .isDirectory)
             runtime = CEFRuntime(shim: try HangReplySpy.library(), storage: CEFProfileStorage(root: root))
             runtime.rendererHangFollowsVisibility = followsVisibility
-            // A shown tab schedules work that reads its runtime after the test returned.
+            runtime.rendererHangWindows = window.source
+            // A shown tab schedules work that reads its runtime (and its window source) after the test returned.
             _ = Unmanaged.passRetained(runtime)
+            _ = Unmanaged.passRetained(window)
         }
 
-        /// A tab whose content view shows in a pane of its own, with browser `browser` created.
+        /// A tab whose content view shows in a pane of its own in ``window``, with browser `browser` created.
         func shownTab(browser: Int32) throws -> CEFTab {
             let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
             host.endOfTurn = { $0() }
@@ -170,7 +229,7 @@ import Testing
             tab.container.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
             host.add(tab)
             let pending = Set(runtime.pendingWindows.keys)
-            tab.contentDidAppear(in: tab.container)
+            window.container.addSubview(tab.container) // its viewDidMoveToWindow calls contentDidAppear(in:)
             host.createDeferred()
             let request = try #require(runtime.pendingWindows.keys.first { !pending.contains($0) })
             runtime.handle(.afterCreated(browser: browser, request: request, window: browser))

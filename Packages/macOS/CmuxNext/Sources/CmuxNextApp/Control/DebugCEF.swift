@@ -74,7 +74,7 @@ enum DebugCEF {
                          "prompting": .bool(hang.prompting), "held": .bool(hang.held), "shown": .bool(hang.shown)])
             })
         } ?? .null
-        object["host_resize"] =services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
+        object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats
         object["swipe"] = .object([

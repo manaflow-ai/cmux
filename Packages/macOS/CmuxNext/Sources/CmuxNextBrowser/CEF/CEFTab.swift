@@ -173,6 +173,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// The visibility tree node Chromium hears for this tab, and its freeze (`CEFTab+Visibility`).
     @ObservationIgnored let nodeVisibility = CEFTabNodeVisibility()
     @ObservationIgnored var rendererHang = CEFRendererHang()  // a hang held while the tab is hidden
+    @ObservationIgnored var rendererHangWindowWatch = CEFRendererHangWindowWatch()  // the shown tab's window, for the hang rules
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)

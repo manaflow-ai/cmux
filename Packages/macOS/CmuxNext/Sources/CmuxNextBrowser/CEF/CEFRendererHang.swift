@@ -1,3 +1,6 @@
+import AppKit
+import CmuxNextWakeups
+
 /// One tab's renderer hang under Chrome's visibility rules (task p01-process-072, feature
 /// `chromiumHangFollowsVisibility`).
 ///
@@ -59,12 +62,32 @@ nonisolated struct CEFRendererHang: Equatable, Sendable {
     }
 }
 
+/// The window a shown tab watches for the hang rules (``CEFTab/followRendererHangWindow()``): its
+/// minimize, its occlusion and its occlusion family's flips.
+struct CEFRendererHangWindowWatch {
+    weak var window: NSWindow?
+    var events: [EventSubscription] = []
+    var occlusion: WindowOcclusionSubscription?
+}
+
 extension CEFTab {
     /// Chrome's `WebContents::GetVisibility() == Visibility::VISIBLE` for the hang rules: the tab its
-    /// pane shows, not hidden by the content lifecycle. Each change reaches
-    /// ``rendererHangVisibilityChanged()``: the tab's content view shows or hides in its pane
-    /// (`contentDidAppear(in:)`, `contentDidDisappear()`), and ``setContentVisible(_:)``.
-    var showsForRendererHang: Bool { !isClosed && host.visibleTab === self && !isContentHidden }
+    /// pane shows, not hidden by the content lifecycle, in a window that shows (ordered in, not
+    /// minimized, its app not hidden) and is not occluded, by AppKit or by its
+    /// ``WindowOcclusionFamily``, as `-[WebContentsViewCocoa updateWebContentsVisibility]` makes a
+    /// covered window's tabs `OCCLUDED` (content/app_shim_remote_cocoa/web_contents_view_cocoa.mm).
+    /// Each change reaches ``rendererHangVisibilityChanged()``: the tab's content view shows or hides
+    /// in its pane (`contentDidAppear(in:)`, `contentDidDisappear()`), ``setContentVisible(_:)``, and
+    /// the shown tab's window (``followRendererHangWindow()``).
+    var showsForRendererHang: Bool {
+        guard showsInPaneForRendererHang, let window = container.window else { return false }
+        let covered = WindowOcclusionFamily.installed(on: window)?.isOccluded ?? false
+        let state = runtime.rendererHangWindows.windowState(window)
+        return !covered && ChromiumHostPageVisibility.WindowState.visibility(of: state) == .visible
+    }
+
+    /// The tab's part of ``showsForRendererHang``: its pane shows it and the content lifecycle does not hide it.
+    private var showsInPaneForRendererHang: Bool { !isClosed && host.visibleTab === self && !isContentHidden }
 
     /// Answers "Page unresponsive" (``BrowserHangAnswering``) through `cmux_shim_unresponsive_reply`:
     /// wait restarts Chromium's hang timer, terminate ends the renderer (the sad tab follows).
@@ -92,7 +115,32 @@ extension CEFTab {
     /// The tab showed or hid: a held hang restarts Chromium's timer, a prompt on a hidden tab goes.
     func rendererHangVisibilityChanged() {
         guard runtime.rendererHangFollowsVisibility else { return }
+        followRendererHangWindow()
         applyRendererHang(rendererHang.shownChanged(shown: showsForRendererHang, prompting: state.isUnresponsive))
+    }
+
+    /// Watches the window of the tab its pane shows, and nothing for a hidden tab: a minimize, an
+    /// occlusion change (an app hide or unhide changes every window's) or a flip of the window's
+    /// ``WindowOcclusionFamily`` reaches ``rendererHangVisibilityChanged()``. The window's notices come
+    /// through ``CEFRuntime/rendererHangWindows`` (its shared ``WindowEvents``; a test's own).
+    private func followRendererHangWindow() {
+        let window = showsInPaneForRendererHang ? container.window : nil
+        guard window !== rendererHangWindowWatch.window else { return }
+        rendererHangWindowWatch = CEFRendererHangWindowWatch()
+        guard let window else { return }
+        let events = runtime.rendererHangWindows.events(window)
+        let owner = "CEFTab.rendererHang"
+        let update: @MainActor () -> Void = { [weak self] in self?.rendererHangVisibilityChanged() }
+        rendererHangWindowWatch = CEFRendererHangWindowWatch(
+            window: window,
+            events: [
+                events.subscribe(NSWindow.didMiniaturizeNotification, owner: owner, update),
+                events.subscribe(NSWindow.didDeminiaturizeNotification, owner: owner, update),
+                events.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: owner, update),
+            ],
+            occlusion: WindowOcclusionFamily.of(window).subscribe(.content, owner: owner) { [weak self] _ in
+                self?.rendererHangVisibilityChanged()
+            })
     }
 
     private func applyRendererHang(_ step: CEFRendererHang.Step) {
