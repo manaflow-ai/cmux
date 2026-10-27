@@ -38,6 +38,7 @@
   /* Its controls answer to its own width (the folder cuts in the middle, the computer gives way
      to its icon), not the pane's. */
   container: acpmux-strip / inline-size;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* The chat composer's strip (design panel, compact composer): its first and last marks line up
    with the card's content, the folder icon over the prompt's first letter and the branch chevron
@@ -202,7 +203,7 @@
    .ui-positioner the pane's tokens), so the composer menu's own absolute placement is undone. Both
    classes, so this wins over styles.css's .acpmux-menu whichever loads last: losing it puts the
    popup its own height above the positioner. */
-.acpmux-menu.acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: var(--text-control); }
+.acpmux-menu.acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: var(--text-control); letter-spacing: var(--text-control--letter-spacing); }
 /* The recent folders (and the folder field's suggestions) scroll; Choose folder… stays in view under
    them. A location menu keeps the side it chose when it opened (locationPopover.ts
    useLocationPopover), so the list fits the room the positioner reports there, less Choose folder…
@@ -295,18 +296,18 @@
 .acpmux-access-item .acpmux-access-item-icon { grid-row: 1; grid-column: 1; }
 .acpmux-access-item .acpmux-menu-text { grid-row: 1; grid-column: 2; min-width: 0; }
 /* The numbers are secondary, as a native menu's key equivalents: quieter than the row's title. */
-.acpmux-access-item .ui-menu-shortcut { grid-row: 1; grid-column: 3; justify-self: center; margin-inline-start: 0; padding-inline-start: 0; color: var(--agent-muted); font-size: var(--text-detail); font-variant-numeric: tabular-nums; }
-.acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); }
+.acpmux-access-item .ui-menu-shortcut { grid-row: 1; grid-column: 3; justify-self: center; margin-inline-start: 0; padding-inline-start: 0; color: var(--agent-muted); font-size: var(--text-detail); font-variant-numeric: tabular-nums; letter-spacing: var(--text-detail--letter-spacing); }
+.acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); letter-spacing: var(--text-control--letter-spacing); }
 /* The chosen row shows its check where its number was. */
 .acpmux-access-item[data-checked] .ui-menu-shortcut { visibility: hidden; }
-.acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; }
+.acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
 /* Claude Code's mode menu draws no icon column: the name, its description, then the number or check. */
 .ui-menu-item.acpmux-access-item.acpmux-access-item-iconless { grid-template-columns: minmax(0, 1fr) 16px; }
 .acpmux-access-item-iconless .acpmux-menu-text { grid-column: 1; }
 .acpmux-access-item-iconless :is(.ui-menu-check, .ui-menu-shortcut) { grid-column: 2; }
 /* The harness's own title over its modes ("Mode", "How should actions be approved?"). */
-.acpmux-access-heading { padding: 4px 4px 2px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
+.acpmux-access-heading { padding: 4px 4px 2px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; letter-spacing: var(--text-detail--letter-spacing); }
 /* Claude Code's Recommended badge beside Auto, on the name's line. */
 .acpmux-access-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .acpmux-menu-badge {
@@ -318,6 +319,7 @@
   color: var(--agent-soft, var(--agent-muted));
   font-size: var(--text-detail);
   line-height: 16px;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-access-grants {
   min-inline-size: 0;
@@ -330,6 +332,7 @@
   padding: 0 8px 4px;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-access-grant {
   display: flex;
@@ -340,7 +343,7 @@
   border-radius: var(--ui-row-radius);
 }
 .acpmux-access-grant:hover { background: var(--acpmux-menu-highlight); }
-.acpmux-access-grant-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); }
+.acpmux-access-grant-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-access-grant-remove {
   flex: none;
   width: 22px;
@@ -350,10 +353,11 @@
   border-radius: 6px;
   background: transparent;
   color: var(--agent-muted);
-  font-family: system-ui;
+  font-family: var(--font-ui);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   cursor: pointer;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
 .acpmux-access-grant-remove:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: -1px; }
@@ -380,6 +384,7 @@
 }
 .acpmux-composer-context .acpmux-location-label {
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* The strip's ghost buttons (folder, computer, branch) on the scale's regular weight, not the
    ghost primitive's 500. */
@@ -427,6 +432,7 @@
 .acpmux-composer-bar .acpmux-steer {
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-composer-bar .acpmux-mode-text {
   display: inline;
@@ -536,6 +542,7 @@
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button {
   font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 /* The plain footer (Debug Settings > Pages > "Agent composer: plain footer", composerSettings.ts
    plainFooter): Claude Code desktop's footer, text at rest. Neither look draws a pill at rest
@@ -769,9 +776,9 @@
   box-shadow: var(--elevation-2);
 }
 .acpmux-permission-card-heading { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
-.acpmux-permission-card-heading strong { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-title); }
+.acpmux-permission-card-heading strong { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-title); letter-spacing: var(--text-title--letter-spacing); }
 .acpmux-permission-card-leading { display: inline-flex; flex: none; align-items: center; justify-content: center; color: var(--agent-muted); }
-.acpmux-permission-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-permission-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-permission-card-meta .acpmux-permission-coverage { margin-left: auto; }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button { border-radius: 7px; }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny) { background: var(--agent-accent); color: var(--agent-accent-text, #fff); }
@@ -1080,6 +1087,7 @@
   color: var(--agent-muted);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-location-worktrees:hover { background: color-mix(in srgb, var(--agent-text) 9%, transparent); color: var(--agent-text); }
 .acpmux-location-worktrees[data-open] > .acpmux-icon:last-child { transform: rotate(90deg); }
@@ -1103,7 +1111,7 @@
   background: none;
   color: var(--agent-muted);
 }
-.acpmux-speed { display: inline-flex; flex: none; align-items: center; font-size: var(--text-detail); }
+.acpmux-speed { display: inline-flex; flex: none; align-items: center; font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-speed-choices { min-width: 16px; width: 16px; height: 28px; border: 0; border-radius: 6px; padding: 0; background: none; color: var(--agent-muted); font: inherit; }
 .acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
@@ -1288,9 +1296,13 @@
    in Local, SSH and Cloud sections. A section's name sits above its first row, outside the row's
    hover; each of the first nine rows ends with its ⌥⌘ digit, then the current one's check. */
 .acpmux-env-popover { min-width: 260px; }
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-section]) { position: relative; margin-top: 20px; }
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-first-section]) { margin-top: 18px; }
-.acpmux-env-row[data-section]::before {
+/* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections the same way. */
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-section]),
+.acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-section]) { position: relative; margin-top: 20px; }
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-first-section]),
+.acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-first-section]) { margin-top: 18px; }
+.acpmux-env-row[data-section]::before,
+.acpmux-location-name[data-section]::before {
   content: attr(data-section);
   position: absolute;
   top: -17px;
@@ -1300,6 +1312,7 @@
   font-weight: 600;
   line-height: 14px;
   pointer-events: none;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-env-row .acpmux-env-key {
   flex: none;
@@ -1311,6 +1324,7 @@
   font: inherit;
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-env-row .acpmux-env-key + .acpmux-location-check { margin-left: 6px; }
 .acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
@@ -1337,6 +1351,16 @@
 }
 .acpmux-env-row .acpmux-env-status[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
 .acpmux-env-row .acpmux-env-status[data-connected="false"] { border: 1px solid var(--agent-muted); }
+/* A machine a chat cannot start on yet (still connecting, reconnecting, offline): greyed, its state
+   in words where the shortcut would be. */
+.acpmux-env-row[data-ready="false"],
+.acpmux-location-name[data-ready="false"] { color: var(--agent-muted); }
+.acpmux-env-row .acpmux-env-state {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--text-caption);
+}
+.acpmux-env-row .acpmux-env-state + .acpmux-location-check { margin-left: 6px; }
 /* New Cloud Machine, Move to Cloud and Bring Back Local: the name, then one quiet line of what it does. */
 .acpmux-env-new:is([data-kind="cloud"], [data-kind="local"]) .acpmux-menu-text {
   display: flex;
@@ -1350,4 +1374,5 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }

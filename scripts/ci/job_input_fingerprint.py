@@ -185,7 +185,9 @@ JOBS = {
     # alone, and by `decide`'s outputs that reach the build (NIGHTLY_PRODUCT_FLAGS): the identity, the
     # icon, the arches and the browser-import variant. The job name is part of the key, so a nightly
     # key never equals a DEV key.
-    "nightly-release-product": Job(("xcode", "sdk", "arch", "recipe", "tui_tree"),
+    # The runner's macOS too (`sw_vers` version and build): the SDK alone does not name the host
+    # tools and system libraries a build runs.
+    "nightly-release-product": Job(("xcode", "sdk", "arch", "recipe", "tui_tree", "macos", "macos_build"),
                                    NIGHTLY_PRODUCT_FLAGS, product=True,
                                    workflow=".github/workflows/nightly.yml"),
 }
