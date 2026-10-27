@@ -53,6 +53,12 @@ struct AppEnvironment: Sendable {
     /// only the real app process sets it; without it nothing is read or
     /// written (tests that build `AppServices`).
     var sidebarSnapshotFile: SidebarSnapshotFile?
+    /// That file's launch read, started in `main` before the settings read in one sequence, so it has ended when
+    /// `AppServices` is made; nil makes `AppServices` start its own.
+    var sidebarSnapshot: LaunchRead<SidebarSnapshotDocument>?
+    /// The run marker's launch read (`AppRunMarker.startLaunchRead`), started in `main` with ``marksRun``, before the
+    /// settings read in one sequence; nil leaves no marker (tests that build `AppServices`).
+    var runMarker: LaunchRead<AppRunMarker.Launch>?
     /// The incognito workspaces the last run left (`IncognitoWorkspaceLedger`), read on a launch lane from
     /// `main`: the launch window's check never reads the file on the main thread. Only the real app process
     /// starts it; without it the ledger starts its own as `AppServices` is built (tests that build `AppServices`).
@@ -63,7 +69,13 @@ struct AppEnvironment: Sendable {
     /// One picture per window from the last quit (`WindowPictureStore`, feature `savedWindowPicture`). Only the real
     /// app process makes it; without it no window picture is written (tests that build `AppServices`).
     var windowPictures: WindowPictureStore?
+    /// The daemon's launch snapshot, read and decoded on the files lane from `main` (p08-startup-074): the local
+    /// daemon's start takes it over. Without it (tests that build `AppServices`) the start posts its own read.
+    var launchSnapshot: LaunchSnapshotPrefetch?
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// The launch's main-job census (`CMUX_NEXT_MAIN_JOB_CENSUS=1`, p08-startup-080): `debug.startup.main_jobs` reads it.
+    /// Only the real app process arms it.
+    var mainJobCensus: MainJobCensus?
     /// The launch's global-job census (`CMUX_NEXT_GLOBAL_JOB_CENSUS=1`, p08-startup-082): `debug.startup.global_jobs`
     /// reads it. Only the real app process arms it.
     var globalJobCensus: GlobalJobCensus?

@@ -203,18 +203,16 @@ pub(super) fn serve_connection(
     let writer_ipc = mux.ipc_stats().clone();
     let writer_hangs = mux.echo_watch();
     let Ok(writer_thread) = crate::echo_thread::spawn("mux-line-out", move || {
+        // Every ready item up to 256 KiB leaves in one writev (p05-ipc-088).
+        let mut batch = Vec::new();
         // mq14-allow: the writer thread waits for its own queue (a checked wait).
-        while let Some(item) = writer_outbound.recv() {
-            // Each item's write is a 100 ms hang scope; the wait above is not.
-            let _item = writer_hangs.item(WatchKind::LineOut);
-            match &item {
-                OutboundItem::Text(text) => writer_ipc.line_sent(text.len() + 1),
-                OutboundItem::Frame(header, _) | OutboundItem::Chunk { header, .. } => {
-                    writer_ipc.frame_sent(header.kind(), header.frame_len());
-                }
-                OutboundItem::Flush(_) => {}
-            }
-            if write_line_outbound_item(&mut writer_ipc.counted(&mut *write_half), item).is_err() {
+        while writer_outbound.recv_batch(&mut batch) {
+            // Each batch's write is a 100 ms hang scope; the wait above is not.
+            let _batch = writer_hangs.item(WatchKind::LineOut);
+            let written = write_counted_batch(&mut *write_half, &writer_ipc, &batch);
+            // The written texts go now, not when the next item arrives.
+            batch.clear();
+            if written.is_err() {
                 writer_outbound.close();
                 let _ = write_half.shutdown(Shutdown::Both);
                 break;

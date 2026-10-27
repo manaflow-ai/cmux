@@ -18,6 +18,8 @@ struct AgentPaneFileRows {
         return [
             AgentPaneMenuAction.item(AgentPaneMenuStrings.copyFile, symbol: "doc.on.doc") {
                 // task-owner: one read of an image's bytes off the main actor; ends when the pasteboard is written
+                // main-hop-allow: the person's Copy, userBlocking (p06 rule 2): pasteboardImage reads the bytes off
+                // main; this task only starts it, and its one resume writes the pasteboard (main-only)
                 Task { @MainActor in _ = await rows.copy(file) }
             },
             AgentPaneMenuAction.item(AgentPaneMenuStrings.saveAs, symbol: "square.and.arrow.down") {

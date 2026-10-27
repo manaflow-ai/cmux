@@ -63,27 +63,27 @@ impl Router {
 /// or others; the socket is 0600.
 pub fn listen(router: Arc<Router>, path: &Path) -> std::io::Result<tokio::task::JoinHandle<()>> {
     let parent = path.parent().ok_or_else(|| std::io::Error::other("socket path has no parent"))?;
-    if !parent.exists() {
-        std::fs::create_dir_all(parent)?;
-        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+    if cmux_blocking::fs::metadata(parent).is_err() {
+        cmux_blocking::fs::create_dir_all(parent)?;
+        cmux_threads::checked::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
     }
-    if std::fs::metadata(parent)?.permissions().mode() & 0o022 != 0 {
+    if cmux_blocking::fs::metadata(parent)?.permissions().mode() & 0o022 != 0 {
         return Err(std::io::Error::other(format!(
             "{} is writable by group or others",
             parent.display()
         )));
     }
-    if let Ok(existing) = std::fs::symlink_metadata(path) {
+    if let Ok(existing) = cmux_blocking::fs::symlink_metadata(path) {
         if !existing.file_type().is_socket() {
             return Err(std::io::Error::other(format!(
                 "{} exists and is not a socket",
                 path.display()
             )));
         }
-        std::fs::remove_file(path)?;
+        cmux_blocking::fs::remove_file(path)?;
     }
     let listener = UnixListener::bind(path)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    cmux_threads::checked::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(tokio::spawn(async move {
         let handle = |(stream, _): (UnixStream, tokio::net::unix::SocketAddr)| {
             let connection =
