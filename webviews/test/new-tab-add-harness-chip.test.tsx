@@ -165,9 +165,9 @@ test.serial(
     await act(async () => void openPicker("Model"));
     const menu = host.querySelector<HTMLElement>(".acpmux-mp")!;
     expect(menu).not.toBeNull();
-    const actionable = buttons(menu).filter((button) => !button.disabled);
-    expect(actionable.at(-1)?.textContent?.trim()).toBe("Add harness…");
-    await act(async () => actionable.at(-1)!.click());
+    const addHarness = menu.querySelector<HTMLButtonElement>(".acpmux-mp-add-harness");
+    expect(addHarness?.textContent?.trim()).toBe("Add harness…");
+    await act(async () => addHarness!.click());
     expect(opened.count).toBe(1);
 
     // From the search field, ArrowUp walks the rows back and wraps to Add harness…; Return opens it.
