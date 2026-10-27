@@ -18,6 +18,10 @@ import CmuxNextWakeups
 /// there (``LinkOpener/drop(_:plan:in:)``): a pane's center adds a tab, an edge makes a split. A
 /// release anywhere else, Escape, a press after a lost release, or the app going inactive ends it
 /// with nothing opened.
+///
+/// With `motion.renderServer` on the pill (``LinkDragGhost``) shows in the source window's overlay while
+/// the pointer is over that window and the window shows the pill in front, as the tab drag ghost does
+/// (p03-rendering-035): a pointer move there moves one view, with no window call.
 @MainActor
 final class LinkDragSession {
     /// The layout's drag key for a link (it names no tab; a link drag never emits a tab drop).
@@ -34,12 +38,15 @@ final class LinkDragSession {
         var input: InputSubscription?
         /// The app's resign-active notice ends the drag (``AppEvents``: one observer for the app).
         var resign: EventSubscription?
+        /// The window the drag started in (its overlay holds the pill there).
+        let sourceID: String?
         /// The window whose layout shows the preview now, and the plan a release there runs.
         weak var window: WindowController?
         var plan: LinkDropPlan?
-        init(item: LinkDragItem, ghost: LinkDragGhost) {
+        init(item: LinkDragItem, ghost: LinkDragGhost, sourceID: String?) {
             self.item = item
             self.ghost = ghost
+            self.sourceID = sourceID
         }
     }
 
@@ -54,7 +61,10 @@ final class LinkDragSession {
     func begin(_ url: URL, screenPoint: CGPoint) -> Bool {
         guard let services, drag == nil, !services.dragSession.isDragging,
               let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled) else { return false }
-        let drag = Drag(item: item, ghost: LinkDragGhost(title: item.title))
+        // The press is in a chat of the frontmost window under it: the drag's source window.
+        let source = services.dragSession.window(at: screenPoint, in: services.dragSession.windowOrder(source: nil, ghost: nil))
+        let ghost = LinkDragGhost(title: item.title, sourceWindow: source?.window, rendersOnServer: LayoutTunables.motionRenderServer.value)
+        let drag = Drag(item: item, ghost: ghost, sourceID: source?.state.id)
         drag.input = services.inputTap.subscribe(class: TabDragSession.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
             self?.handle(event) ?? .pass
         }
@@ -62,7 +72,6 @@ final class LinkDragSession {
             self?.finish(commit: false)
         }
         self.drag = drag
-        drag.ghost.show(at: screenPoint)
         update(screenPoint)
         return true
     }
@@ -89,22 +98,14 @@ final class LinkDragSession {
         }
     }
 
-    /// The app window under `screenPoint` (a page's child window counts as its parent), below
-    /// the ghost.
-    private func window(at screenPoint: CGPoint, below ghost: NSWindow) -> WindowController? {
-        guard let services else { return nil }
-        let number = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: ghost.windowNumber)
-        var window = NSApp.window(withWindowNumber: number)
-        while let child = window, !services.windows.controllers.contains(where: { $0.window === child }), let parent = child.parent {
-            window = parent
-        }
-        return services.windows.controllers.first { $0.window === window && window != nil }
-    }
-
+    /// One pointer event of the drag. One walk of the app's windows (front to back) serves the pill's host and
+    /// the window under the pointer (``TabDragWindowPick``: page child windows, the overlay panel and the pill's
+    /// panel are looked through, so a page counts as its window).
     private func update(_ screenPoint: CGPoint) {
-        guard let drag else { return }
-        drag.ghost.move(to: screenPoint)
-        let controller = window(at: screenPoint, below: drag.ghost.panel)
+        guard let drag, let tabDrags = services?.dragSession else { return }
+        let order = tabDrags.windowOrder(source: drag.ghost.sourceWindow, ghost: drag.ghost.panel)
+        drag.ghost.move(to: screenPoint, holds: TabDragSession.holds(drag.sourceID, at: screenPoint, in: order))
+        let controller = tabDrags.window(at: screenPoint, in: order)
         if let old = drag.window, old !== controller { old.content?.layoutView.cancelTabDrag() }
         drag.window = controller
         drag.plan = nil

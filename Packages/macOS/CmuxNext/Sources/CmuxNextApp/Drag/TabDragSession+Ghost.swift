@@ -49,7 +49,14 @@ extension TabDragSession {
     /// Whether the source window shows a screen rect in front of every other window, while the
     /// pointer is over it (Chrome's attached drag); nil elsewhere.
     func sourceHolds(_ drag: Drag, order: [TabDragWindowPick.Candidate]) -> ((CGRect) -> Bool)? {
-        guard let id = drag.source.window?.state.id, TabDragWindowPick.frontmost(at: drag.point, in: order) == id else { return nil }
+        Self.holds(drag.source.window?.state.id, at: drag.point, in: order)
+    }
+
+    /// Whether content window `id` shows a screen rect in front of every other window, while `point` is over
+    /// it; nil elsewhere (or with no `id`). Tab and workspace ghosts and the link pill (``LinkDragSession``)
+    /// show in that window's overlay only where this holds.
+    static func holds(_ id: String?, at point: CGPoint, in order: [TabDragWindowPick.Candidate]) -> ((CGRect) -> Bool)? {
+        guard let id, TabDragWindowPick.frontmost(at: point, in: order) == id else { return nil }
         return { TabDragWindowPick.isFrontmost(id, over: $0, in: order) }
     }
 

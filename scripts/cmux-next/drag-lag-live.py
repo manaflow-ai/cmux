@@ -33,6 +33,8 @@ def parse(argv=None):
     parser.add_argument("--app", default=os.environ.get("NX_APP"), help="the tagged app bundle (default $NX_APP)")
     parser.add_argument("--tag")  # the story runner passes it; the bundle carries the tag
     parser.add_argument("--moves", type=int, default=120)
+    parser.add_argument("--render-server", choices=["on", "off"],
+                        help="set motion.renderServer for the run (debug.tunables); default: the build's own value")
     parser.add_argument("--story", default=results.DRAG_LAG_STORY, help="result-v1 story")
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
@@ -232,7 +234,7 @@ def drags():
         if frame and target:
             sx, sy = center(frame)
             tx, ty = center(target)
-            with DaemonProbe() as probe:
+            with DaemonProbe() as probe, WindowCalls("tab_drag"):
                 paced_drag("tab_drag", sx, sy, tx, ty + 200, opts.moves)
                 time.sleep(2)  # test harness: the probe's tail after the drag
             probed("daemon_during_tab_drag", probe)
@@ -250,6 +252,62 @@ def drags():
                 time.sleep(2)  # test harness: the probe's tail after the drag
             probed("daemon_during_sidebar_drag", probe)
     SUMMARY.setdefault("sidebar_drag", {"error": f"rows={len(rows)}"})
+
+    # A workspace row dragged sideways out of the sidebar into the window's content: the sidebar hands it to the
+    # tab drag session, whose ghost flies inside the source window (p03-rendering-118: with motion.renderServer on
+    # it is a view of the window's overlay, so its moves cost no window call).
+    rows = sidebar_rows()
+    content = content_point()
+    if rows and content:
+        frame = rows[1 if len(rows) > 1 else 0].get("window_frame")
+        if frame:
+            sx, sy = center(frame)
+            with WindowCalls("workspace_drag"):
+                paced_drag("workspace_drag", sx, sy, content[0], content[1], opts.moves)
+    SUMMARY.setdefault("workspace_drag", {"error": f"rows={len(rows)} content={content}"})
+
+
+def content_point():
+    """A point in the first window's content right of the sidebar (window coordinates, y down), or None."""
+    windows = (rpc("debug.layers") or {}).get("windows") or [{}]
+    frame = windows[0].get("frame")
+    rows = sidebar_rows()
+    if not frame or not rows:
+        return None
+    row = rows[0]["window_frame"]
+    right = (row["x"] + row["width"]) if isinstance(row, dict) else row[0] + row[2]
+    return (right + frame[2]) / 2, frame[3] / 2
+
+
+class WindowCalls:
+    """The render counters (`debug.frames` with `render`) armed around one drag: SUMMARY["<key>_window_calls"] gets the
+    drag's window frame and alpha calls, in all and per owner class (an in-window ghost makes none)."""
+
+    def __init__(self, key):
+        self.key = key
+
+    def __enter__(self):
+        started = rpc("debug.frames", {"action": "start", "render": True}, timeout=120) or {}
+        self.armed = isinstance(started, dict) and started.get("render_armed") is True
+        return self
+
+    def __exit__(self, *_):
+        stopped = rpc("debug.frames", {"action": "stop"}, timeout=60) or {}
+        if not self.armed or not isinstance(stopped, dict) or "window_calls" not in stopped:
+            SUMMARY[f"{self.key}_window_calls"] = {"error": f"render counters unavailable: {str(stopped)[:200]}"}
+            return
+        owners = {o.get("owner"): o.get("window_calls") for o in stopped.get("render_owners") or [] if o.get("window_calls")}
+        SUMMARY[f"{self.key}_window_calls"] = {"total": stopped["window_calls"], "max_in_frame": stopped.get("window_calls_max"),
+                                               "owners": owners}
+
+
+def set_render_server():
+    """--render-server: sets motion.renderServer over debug.tunables and records what it reads back."""
+    if not opts.render_server:
+        return
+    rpc("debug.tunables", {"action": "set", "key": "motion.renderServer", "value": opts.render_server == "on"})
+    row = rpc("debug.tunables", {"action": "get", "key": "motion.renderServer"}) or {}
+    SUMMARY["render_server"] = row.get("value") if isinstance(row, dict) else None
 
 
 def record_results():
@@ -272,6 +330,7 @@ def main(argv=None):
         SOCKET, CLI = LAUNCHER.socket, LAUNCHER.cli
         time.sleep(2)  # test harness: let the window settle
         since = time.strftime("%Y-%m-%d %H:%M:%S")
+        set_render_server()
         drags()
         time.sleep(2)  # test harness: late log lines land
         SUMMARY["app_errors"] = app_errors(since)

@@ -12,6 +12,9 @@ import CmuxNextSidebar
 // the workspace beside it), any window's content (append),
 // outside every window (new window under the pointer; with every
 // workspace of the source window, that window moves instead).
+// With `motion.renderServer` on, the ghost shows in the source window's
+// overlay while the pointer is over it (`sourceHolds`, p03-rendering-035):
+// a move there costs no window call; the drag panel shows it only outside.
 extension TabDragSession {
     /// Installs the handoff on `controller`'s sidebar.
     func installWorkspaceHandoff(on controller: WindowController) {
