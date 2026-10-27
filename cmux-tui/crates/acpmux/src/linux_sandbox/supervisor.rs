@@ -1236,7 +1236,7 @@ mod notification_tests {
             let fifo = CString::new(fixture.0.join("fifo").to_str().unwrap()).unwrap();
             assert_eq!(unsafe { mkfifo(fifo.as_ptr(), 0o600) }, 0);
         }
-        if (4..=16).contains(&case) {
+        if (4..=16).contains(&case) || case == 18 {
             fs::write(fixture.0.join(".git/hooks/pre-commit.sample"), b"protected").unwrap();
             fs::write(fixture.0.join("CLAUDE.md"), b"instructions").unwrap();
             fs::write(fixture.0.join("ordinary"), b"ordinary").unwrap();
