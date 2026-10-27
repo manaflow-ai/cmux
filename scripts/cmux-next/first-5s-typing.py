@@ -54,7 +54,7 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--json")
 parser.add_argument("--tag")
 parser.add_argument("--families", default="", help="comma list, one per app: next (cmux-next) or classic (default next)")
-parser.add_argument("--scenarios", default="terminal,split,browser")
+parser.add_argument("--scenarios", default="terminal,split,newtab,browser")
 parser.add_argument("--rounds", type=int, default=6, help="measured rounds per scenario")
 parser.add_argument("--sample-rounds", type=int, default=1, help="extra rounds per scenario under /usr/bin/sample")
 parser.add_argument("--seconds", type=float, default=5.0)
@@ -71,7 +71,13 @@ opts, _unknown = parser.parse_known_args()
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
 SCENARIOS = [s for s in opts.scenarios.split(",") if s]
-OPEN_KEYS = {"terminal": ("t", ["command"]), "split": ("d", ["command"]), "browser": ("l", ["command", "shift"])}
+# cmux-next: Ctrl-` is New Terminal Tab, Cmd-T the New Tab page, Cmd-D a split, Cmd-Shift-L a browser tab
+# (DebugInstantCreateBench's keys). Classic: Cmd-T is a new terminal tab.
+OPEN_KEYS = {"terminal": ("`", ["control"]), "newtab": ("t", ["command"]), "split": ("d", ["command"]),
+             "browser": ("l", ["command", "shift"])}
+CLASSIC_OPEN_KEYS = {"terminal": ("t", ["command"]), "split": ("d", ["command"]), "browser": ("l", ["command", "shift"])}
+KEY_CODES = dict(hid_input.KEYCODES, **{"`": 50})
+MODIFIER_CODES = {"command": 55, "shift": 56, "control": 59, "option": 58}
 REPO = subprocess.run(["git", "-C", HERE, "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or HERE
 NOW_NS = lambda: time.clock_gettime_ns(getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC))  # noqa: E731
 
@@ -278,6 +284,24 @@ class NextApp:
             params["modifiers"] = list(modifiers)
         return self.control.rpc("debug.key", params, timeout=20)
 
+    def play(self, name, modifiers, typed):
+        """One `debug.key` sequence: the open shortcut, then a letter every --interval, posted to the app's own event
+        queue by the app, each stamped with its intended press time (DebugKey+Sequence.swift)."""
+        steps = [{"key_code": MODIFIER_CODES[m], "down": True} for m in modifiers]
+        steps += [{"key_code": KEY_CODES[name], "down": True}, {"key_code": KEY_CODES[name], "down": False, "after_ms": 8}]
+        steps += [{"key_code": MODIFIER_CODES[m], "down": False, "after_ms": 2} for m in reversed(modifiers)]
+        used = 8 + 2 * len(modifiers)
+        for k, letter in enumerate(typed):
+            gap = (k + 1) * opts.interval * 1000 - used
+            steps.append({"key_code": KEY_CODES[letter], "down": True, "after_ms": round(gap, 3)})
+            steps.append({"key_code": KEY_CODES[letter], "down": False, "after_ms": 8})
+            used = (k + 1) * opts.interval * 1000 + 8
+        t0 = NOW_NS()
+        reply = self.control.rpc("debug.key", {"sequence": steps}, timeout=20) or {}
+        base = reply.get("base_s") if isinstance(reply, dict) else None
+        open_ns = int(base * 1e9) if isinstance(base, (int, float)) and base > 0 else t0
+        return [], reply, open_ns
+
     def close(self, scenario):
         self.control.action("closeTab")
 
@@ -350,7 +374,9 @@ class ClassicApp:
 
     def launch(self):
         env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX")}
-        env.update({"CMUX_SOCKET_MODE": "allowAll", "CMUX_SOCKET_ENABLE": "1", "CMUX_TAG": self.tag, "XDG_CONFIG_HOME": os.path.join(self.scratch, "xdg"),
+        self.log = os.path.join(self.out, "classic-debug.log")
+        env.update({"CMUX_SOCKET_MODE": "allowAll", "CMUX_SOCKET_ENABLE": "1", "CMUX_KEY_LATENCY_PROBE": "1",
+                    "CMUX_DEBUG_LOG": self.log, "CMUX_TAG": self.tag, "XDG_CONFIG_HOME": os.path.join(self.scratch, "xdg"),
                     **shell_env(self.zdot)})
         before = set(self._sockets())
         log = open(os.path.join(self.out, "app-classic.log"), "w")
@@ -400,6 +426,35 @@ class ClassicApp:
     def key(self, name, modifiers=(), stamp=None):
         combo = "+".join([{"command": "cmd", "control": "ctrl", "option": "opt", "shift": "shift"}[m] for m in modifiers] + [name])
         return self._send(self.sock, f"simulate_shortcut {combo}")
+
+    def play(self, name, modifiers, typed):
+        """simulate_shortcut per key from this script on schedule; the app's key latency probe (CMUX_KEY_LATENCY_PROBE)
+        logs each keyDown's delay from the request's arrival to its dispatch."""
+        before = self._log_lines()
+        open_ns = NOW_NS()
+        reply = self.key(name, modifiers)
+        for k, letter in enumerate(typed):
+            when = open_ns + int((k + 1) * opts.interval * 1e9)
+            wait = (when - NOW_NS()) / 1e9
+            if wait > 0:
+                time.sleep(wait)
+            self.key(letter)
+        time.sleep(0.5)
+        delays = []
+        for line in self._log_lines()[len(before):]:
+            m = re.search(r"typing\.delay probe=keyDown delayMs=([\d.]+)", line)
+            if m:
+                delays.append(float(m.group(1)))
+        delays = delays[-len(typed):]
+        sent = [{"delay_ms": None}] * (len(typed) - len(delays)) + [{"delay_ms": d} for d in delays]
+        return sent, reply, open_ns
+
+    def _log_lines(self):
+        try:
+            with open(self.log) as f:
+                return f.read().splitlines()
+        except OSError:
+            return []
 
     def close(self, scenario):
         self.key("w", ["command"])
@@ -469,7 +524,7 @@ def main_thread_tree(path, min_share=0.02, limit=260):
 
 
 def run_round(app, scenario, index, sampled):
-    name, modifiers = OPEN_KEYS[scenario]
+    name, modifiers = (CLASSIC_OPEN_KEYS if app.family == "classic" else OPEN_KEYS)[scenario]
     nkeys = int(round(opts.seconds / opts.interval))
     rows_before = app.probe_rows()
     base = max([int(r["index"]) for r in rows_before if (r.get("index") or "").isdigit()], default=-1)
@@ -478,19 +533,12 @@ def run_round(app, scenario, index, sampled):
     if sampler:
         time.sleep(0.6)  # sample attaches before the open key
     typed = "".join(hid_input.LETTERS[i % 26] for i in range(nkeys))
-    open_ns = NOW_NS()
-    schedule = [open_ns + int((k + 1) * opts.interval * 1e9) for k in range(nkeys)]
-    sent = []
-    open_reply = app.key(name, modifiers, stamp=open_ns / 1e9)
+    sent, open_reply, open_ns = app.play(name, modifiers, typed)
     open_reply_ms = round((NOW_NS() - open_ns) / 1e6, 1)
-    for k, when in enumerate(schedule):
-        wait = (when - NOW_NS()) / 1e9
-        if wait > 0:
-            time.sleep(wait)
-        s0 = NOW_NS()
-        answer = app.key(typed[k], stamp=when / 1e9)
-        sent.append({"k": k, "late_ms": round((s0 - when) / 1e6, 2), "rpc_ms": round((NOW_NS() - s0) / 1e6, 2),
-                     "handled_by": answer.get("handled_by") if isinstance(answer, dict) else str(answer)[:40]})
+    schedule = [open_ns + int((k + 1) * opts.interval * 1e9) for k in range(nkeys)]
+    rest = (schedule[-1] - NOW_NS()) / 1e9
+    if rest > 0:
+        time.sleep(rest)
     time.sleep(opts.settle)
     end_ns = NOW_NS()
     line = app.line()
@@ -518,7 +566,7 @@ def run_round(app, scenario, index, sampled):
         keys.append({"k": k, "t_ms": round((schedule[k] - open_ns) / 1e6, 1), "probe_ms": latency,
                      "complete": (row or {}).get("complete"), "dispatch_end_ms": col("dispatch_end_ms"), "io_write_ms": col("io_write_ms"),
                      "output_received_ms": col("output_received_ms"), "contents_ms": col("contents_ms"), "commit_ms": col("commit_ms"),
-                     **{x: sent[k][x] for x in ("late_ms", "rpc_ms", "handled_by")}})
+                     "delay_ms": sent[k].get("delay_ms") if k < len(sent) else None})
     frames = app.photon.frames(open_ns - int(0.2e9), end_ns) if app.photon and not app.photon.error else []
     big = (app.photon_area or 10 ** 12) * 0.25
     for k, key in enumerate(keys):
@@ -534,7 +582,11 @@ def run_round(app, scenario, index, sampled):
            "first_big_frame_ms": round(first_big, 1) if first_big is not None else None,
            "frames": frames}
     if sampled:
-        rec["sample"] = main_thread_tree(os.path.join(app.out, f"sample-{scenario}-{index}.txt"))
+        rec["sample"] = main_thread_tree(os.path.join(app.out, f"sample-{scenario}-{index}.txt"), min_share=0.01, limit=400)
+        tree = (rec["sample"] or {}).get("tree") or []
+        note(f"      SAMPLE {scenario}: {(rec['sample'] or {}).get('samples')} main-thread samples; {len(tree)} lines over 1%")
+        for line in tree[:120]:
+            note(f"      S {line}")
     probe = [k["probe_ms"] for k in keys if k["probe_ms"] is not None]
     photon = [k["photon_ms"] for k in keys if k["photon_ms"] is not None]
     note(f"  {scenario} {index}{' (sampled)' if sampled else ''}: open reply {open_reply_ms} ms, probe rows {len(rows)}, "
@@ -543,7 +595,7 @@ def run_round(app, scenario, index, sampled):
          f"hangs {len((hangs or {}).get('window') or []) if isinstance(hangs, dict) else None}")
     for h in ((hangs or {}).get("window") or [])[:12] if isinstance(hangs, dict) else []:
         note(f"      hang +{h['at_ms']} ms {h['ms']} ms cpu {h['cpu_ms']} [{h['list']}] {h.get('task') or h.get('name') or ''} "
-             f"{' < '.join(h['frames'][:6])}")
+             f"{' < '.join(f[:150] for f in h['frames'][:5])}")
     # Back to the base terminal.
     if scenario == "browser":
         app.key("escape")
@@ -573,7 +625,7 @@ def hops(rounds):
     out = []
     for b in range(edges):
         row = {"from_ms": int(b * width)}
-        for h in ("late_ms", "dispatch_end_ms", "io_write_ms", "output_received_ms", "contents_ms"):
+        for h in ("delay_ms", "dispatch_end_ms", "io_write_ms", "output_received_ms", "contents_ms"):
             vals = [k[h] for r in rounds if not r["sampled"] for k in r["keys"] if k.get(h) is not None and b * width <= k["t_ms"] < (b + 1) * width]
             row[h] = round(statistics.median(vals), 2) if vals else None
         out.append(row)
@@ -603,13 +655,18 @@ def measure(app_path, zdot, result, family):
         entry["photon"] = app.photon.ready or app.photon.error
         entry["shells_loaded_at_start"] = shells_loaded(zdot)
         for scenario in SCENARIOS:
+            if family == "classic" and scenario not in CLASSIC_OPEN_KEYS:
+                continue
             rounds = []
             for index in range(opts.rounds + opts.sample_rounds):
                 rounds.append(run_round(app, scenario, index, sampled=index >= opts.rounds))
                 save(result)
             entry["scenarios"][scenario] = {"rounds": rounds, "probe_buckets": buckets(rounds, "probe_ms"),
+                                            "delay_buckets": buckets(rounds, "delay_ms"),
+                                            "dispatch_buckets": buckets(rounds, "dispatch_end_ms"),
                                             "photon_buckets": buckets(rounds, "photon_ms"), "hops": hops(rounds)}
             print_table(entry["app"], scenario, entry["scenarios"][scenario])
+            print_dispatch(entry["app"], scenario, entry["scenarios"][scenario])
             save(result)
     finally:
         if getattr(app, "photon", None):
@@ -620,12 +677,20 @@ def measure(app_path, zdot, result, family):
 
 def print_table(name, scenario, data):
     note(f"FIRST5S {name} {scenario}: per {int(opts.bucket_ms)} ms after the open key, key-to-frame ms")
-    note("   bucket      probe n/p50/p95/max            photon n/p50/p95/max          hops (median): late dispatch write echo frame")
+    note("   bucket      probe n/p50/p95/max            photon n/p50/p95/max          hops (median): classic-delay dispatch write echo frame")
     for p, f, h in zip(data["probe_buckets"], data["photon_buckets"], data["hops"]):
         def cell(d):
             return f"{d.get('n', 0):3d} {d.get('p50', '-'):>7} {d.get('p95', '-'):>7} {d.get('max', '-'):>7}" if d.get("n") else "  0       -       -       -"
-        note(f"   {p['from_ms']:5d}-{p['to_ms']:<5d} {cell(p)}    {cell(f)}    {h['late_ms']} {h['dispatch_end_ms']} {h['io_write_ms']} "
+        note(f"   {p['from_ms']:5d}-{p['to_ms']:<5d} {cell(p)}    {cell(f)}    {h['delay_ms']} {h['dispatch_end_ms']} {h['io_write_ms']} "
              f"{h['output_received_ms']} {h['contents_ms']}")
+
+
+def print_dispatch(name, scenario, data):
+    note(f"FIRST5S-DISPATCH {name} {scenario}: key press to its dispatch in the app (main-thread wait), per bucket n/p50/p95/max")
+    for d, c in zip(data["dispatch_buckets"], data["delay_buckets"]):
+        def cell(x):
+            return f"{x.get('n', 0):3d} {x.get('p50', '-'):>7} {x.get('p95', '-'):>7} {x.get('max', '-'):>7}" if x.get("n") else "  0       -       -       -"
+        note(f"   {d['from_ms']:5d}-{d['to_ms']:<5d} next {cell(d)}    classic {cell(c)}")
 
 
 def save(result):
