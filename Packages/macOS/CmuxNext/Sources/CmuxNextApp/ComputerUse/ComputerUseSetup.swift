@@ -191,8 +191,11 @@ final class ComputerUseSetup {
     /// only). On macOS 26 the Screen Recording toggle alone is not enough: the
     /// helper must ask once ("bypass the system private window picker"), or
     /// its capture check stays false (seen 2026-10-27 on macOS 26.6).
+    /// Accessibility needs no such request: the toggle is enough, and the
+    /// request only raised macOS's "would like to control this computer"
+    /// alert on top of the drag panel that already guides the person.
     func open(_ pane: ComputerUsePermissionPane) {
-        if phase == .ready, driver == .legacy, let configuration = configuration() {
+        if pane == .screenRecording, phase == .ready, driver == .legacy, let configuration = configuration() {
             let requestGrant = requestGrant
             // task-owner: one host request to the helper; the next read (app activation, trust change) shows the answer.
             Task { await requestGrant(configuration, pane) }
