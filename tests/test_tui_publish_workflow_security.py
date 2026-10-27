@@ -2413,6 +2413,11 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
     # Only an owned label passes through; anything else is Blacksmith macOS 15,
     # never the nightly's macOS 26 labels.
     assert "glaeda-*)" in pick and 'label="$FALLBACK_LABEL"' in pick
+    # ROUTE_TOKEN replaces GH_TOKEN in the picker, which also reads the
+    # janitor's queue snapshot artifact, so both mints carry Actions read.
+    for step_id in ("route-token", "route-token-repo"):
+        mint = next(step for step in runner["steps"] if step.get("id") == step_id)["with"]
+        assert mint["permission-actions"] == "read", step_id
     fallback = next(step for step in runner["steps"] if step.get("id") == "pool")["env"]["FALLBACK_LABEL"]
     assert fallback.endswith("|| 'blacksmith-6vcpu-macos-15' }}"), fallback
 
