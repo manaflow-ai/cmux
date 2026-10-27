@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextInput
@@ -24,8 +25,8 @@ import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let environment: AppEnvironment
-    /// The daemon's first connect attempt, begun in `main`.
-    private let daemonPrestart: DaemonPrestart?
+    /// The local daemon's Team ID and first connect attempt, made on the system lane in `main`.
+    private let daemonStart: LaunchRead<DaemonLaunchStart>
     /// The launch load-in, region by region; its last region revealing ends the startup phase's
     /// `launching` (made here, the composition root, and passed by init).
     private let launchReveal: LaunchReveal
@@ -83,11 +84,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?, features: FeatureList? = nil,
+    init(environment: AppEnvironment, daemonStart: LaunchRead<DaemonLaunchStart>, wireStats: DaemonWireStats?, features: FeatureList? = nil,
          startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, settingsRead: SettingsController.PendingLaunchRead,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, frames: TerminalLaunchFrames, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         (self.environment, self.launchReads, self.settingsRead) = (environment, launchReads, settingsRead)
-        (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
+        (self.daemonStart, self.startupTrace) = (daemonStart, startupTrace)
         (self.wireStats, self.features) = (wireStats, features)
         self.launchCleanup = launchCleanup
         self.order = order
@@ -229,8 +230,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         order.startup.post(.critical, "WindowActivation.activateApp", on: .main) { WindowActivation.activateApp() }
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, on: services.mainWork)
         launchSettle.dropLaunchReads(frames: services.terminalLaunchFrames, pages: services.launchImages, features: services.features, images: launchImageHold)  // p07-memory-083
+        if services.features.isEnabled(.hiddenPollPause) {  // before the local daemon's first connect (p14-energy-064)
+            let presence = DaemonPresenceFeed(windows: services.appVisibility.shownWindows)
+            services.lifetimeFollowers.append(presence)
+            services.machines.connectionPresence = presence.presence
+        }
         // The painted terminal colors first (OSC 10/11/12), and the prompts' side-event subscriptions before the connect.
-        daemonPrompts = services.startLocalDaemon(prestart: daemonPrestart)
+        daemonPrompts = services.startLocalDaemon(after: daemonStart)
         services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
@@ -332,12 +338,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
         // The web OTA launch check (kept update read in `main`) before any page asks for its entry document, else the
         // entry can come from the bundle and later chunks from the update; the network check waits for startup complete.
-        WebUpdates.shared.prepare(
-            launch.snapshot.updates, launch: environment.webUpdates, files: services.work, energy: services.mainWork.energy,
-            shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil)
+        WebUpdates.shared.prepare(launch.snapshot.updates, launch: environment.webUpdates, inputs: WebUpdates.Inputs(
+            files: services.work, energy: services.mainWork.energy, shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil,
+            deadlines: services.mainDeadlines, appEvents: services.appEvents, checkNode: services.appVisibility.node))
         order.startup.post(.afterStartup, "WebUpdates.startChecks", on: .main) { WebUpdates.shared.startChecks() }
         let registry = services.registry
-        let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
+        let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch, mainWork: services.mainWork)
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md: written on the files lane after startup.
         let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -376,17 +382,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                           locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
         // The file watches and the diagnostic toasts; the launch read is applied above, and the start reloads once.
         // A diagnostic's Show in Settings follows the same availability as the page and `openSettings`.
-        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services] in
-            settings?.start(announcingDiagnostics: true,
+        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services, events = services.appEvents] in
+            settings?.start(announcingDiagnosticsOn: events,
                             availability: { [weak services] in services?.settingsAvailability ?? SettingsAvailability() })
         }
         AppProcessRoot.shared.hangReports?.recordUserWrites(of: settings)  // the person's own consent, from the first write on
         order.startup.post(.afterStartup, "HangReports.start", on: .main) { [weak settings, asks = services.machineAsks, startup = order.startup] in
             if let settings { AppProcessRoot.shared.hangReports?.start(settings: settings, asks: asks, firstWindow: { await startup.afterFirstFrame() }) }
         }
-        // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
-        let acpmux = QuitAgents.environment(services)
-        services.lifetimeFollowers += ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath, on: services.mainWork)
         // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
         services.followEnergySaver(settings)
@@ -396,8 +399,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settings.loadCount >= 1 ? settings.snapshot.savedPicture : nil
             }, on: services.mainWork))
         }
-        // A page's chat clicks and All chats pages work from its first frame; the feeds come after it (p08-startup-027).
-        AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+        // Once main's acpmux resolve lands (now, unless its signature check still runs on the system lane): an
+        // attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings; a page's chat clicks and All
+        // chats pages work from then; the feeds come after the first frame (p08-startup-027).
+        QuitAgents.whenResolved(services, owner: "launch.acpmuxChats") { [weak services] acpmux in
+            guard let services else { return }
+            services.lifetimeFollowers += ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath,
+                                                                 on: services.mainWork)
+            AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+        }
         services.home.postLaunchFeeds(startup: order.startup)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second

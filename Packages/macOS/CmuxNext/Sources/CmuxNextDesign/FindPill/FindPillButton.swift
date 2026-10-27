@@ -8,7 +8,6 @@ final class FindPillButton: NSButton {
     private var hovering = false {
         didSet { if hovering != oldValue { applyColors() } }
     }
-    private var tracking: NSTrackingArea?
 
     init(image: NSImage?, title: String = "", toggle: Bool = false, target: AnyObject?, action: Selector) {
         super.init(frame: .zero)
@@ -28,6 +27,7 @@ final class FindPillButton: NSButton {
             widthAnchor.constraint(greaterThanOrEqualToConstant: FindPillMetrics.buttonSize),
         ])
         setContentHuggingPriority(.required, for: .horizontal)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -39,15 +39,6 @@ final class FindPillButton: NSButton {
 
     override var isEnabled: Bool {
         didSet { applyColors() }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-                                  owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) { hovering = true }
