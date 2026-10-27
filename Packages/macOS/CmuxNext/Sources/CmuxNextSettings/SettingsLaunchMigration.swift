@@ -158,7 +158,8 @@ extension CmuxConfigFile {
     /// Runs `step` on the file as it is now and writes its edits in one atomic publish. Returns whether the
     /// step had edits; throws, writing nothing, when the file is unreadable or an edit touches a managed key.
     func migrate(_ step: SettingsLaunchMigration) throws -> Bool {
-        let edits = step.edits(in: try document(), managedKeys: managedGuard.managedKeys)
+        let root = try document()
+        let edits = step.edits(in: root, managedKeys: managedGuard.managedKeys)
         guard !edits.isEmpty else { return false }
         try apply(edits)
         return true
@@ -178,6 +179,7 @@ extension SettingsController {
     public func postLaunchMigrationWrites(on startup: StartupScheduler, work: BackgroundWork,
                                           classicMarker: (@MainActor @Sendable () -> UserDefaults)?) {
         startup.post(.afterStartup, "Settings.launchMigrations", on: .main) { [weak self] in
+            guard let self else { return }
             // task-owner: one write of the launch migrations and the two classic imports; quit may skip it, the
             // next launch's load applies the migrations again. R-hop: the file writes run on its actor, off main.
             work.task(.bestEffort) { [weak self] in await self?.writeLaunchMigrations(classicMarker: classicMarker) }
