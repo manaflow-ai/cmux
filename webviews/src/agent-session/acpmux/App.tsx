@@ -302,6 +302,7 @@ import {
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
 import { PreviewCard } from "./conversation/PreviewCard";
+import { installWheelGlide } from "./wheelGlide";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
@@ -346,7 +347,6 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
-import { EnvironmentLine, environmentOpener } from "./header/EnvironmentLine";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
@@ -355,7 +355,7 @@ import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
-import { environmentPlacementSurface, registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
+import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
@@ -2170,6 +2170,7 @@ export function VirtualTranscript({
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
   const jumpTarget = useRef<number | undefined>(undefined);
+  const wheelGlide = useRef<ReturnType<typeof installWheelGlide>>(undefined);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
   /// The scrollbar's lane (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE: always there, its thumb drawn while
@@ -2178,6 +2179,8 @@ export function VirtualTranscript({
   const [lane, setLane] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const stopJump = useCallback(() => {
+    // Find, reveal and an asynchronous send own their new placement, even without a jump in flight.
+    wheelGlide.current?.stop();
     const active = jumpTarget.current !== undefined;
     jumpTarget.current = undefined;
     if (active && ref.current) stopScroll(ref.current);
@@ -3091,6 +3094,7 @@ export function VirtualTranscript({
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
       previousSession.current = sessionId;
+      wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
       // Another chat's count (the subagent view takes none) is not a send in this one.
       seenSends.current = sends;
@@ -3825,7 +3829,10 @@ export function VirtualTranscript({
           )
         : undefined;
     gutterRelease.current = gutter?.release;
+    wheelGlide.current = node ? installWheelGlide(node) : undefined;
     return () => {
+      wheelGlide.current?.remove();
+      wheelGlide.current = undefined;
       stopJump();
       for (const name of inputs) node?.removeEventListener(name, reader, { capture: true });
       node?.removeEventListener("click", holdClicked, { capture: true });
@@ -5879,7 +5886,6 @@ function AcpmuxPane() {
     if (!preview && sandbox.mode === "sandboxed") sandbox.setMode("persistent");
   }, [preview, sandbox]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
-  const environmentPlacement = useChatDisplay().environmentPlacement;
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
@@ -7882,40 +7888,7 @@ function AcpmuxPane() {
   const ComposerChips = registryChips ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
-  // The Environment line (header/EnvironmentLine.tsx): machine · folder · branch, opening the
-  // Inspector at Environment while the Inspector is on, else the chat folder's Files tree. Left
-  // owns the dedicated row below tabs; Right preserves the original header slot/compact tab-row
-  // placement.
-  // Called while the header draws, after `localCwd` and `runSplitAction` below are set.
-  const environmentOpenRef = useRef<(() => void) | undefined>(undefined);
-  const stableEnvironmentOpen = useCallback(() => environmentOpenRef.current?.(), []);
-  const environmentLine = (compact = false) => {
-    const open = environmentOpener(
-      inspector.reveal,
-      localCwd ? () => runSplitAction(HEADER_ACTIONS.files, localCwd, "toggle") : undefined,
-    );
-    environmentOpenRef.current = open;
-    return (
-      <EnvironmentLine
-        summary={snapshot.summary}
-        machineName={machineName}
-        peerKinds={snapshot.peerKinds}
-        compact={compact}
-        onOpen={open ? stableEnvironmentOpen : undefined}
-      />
-    );
-  };
-  // Keep the row out of a new/loading chat until the daemon has reported a cwd or branch. The
-  // render site calls `environmentLine()` only after the local folder and split handlers below
-  // have been initialized, avoiding a transient render-time TDZ for a started chat.
-  const hasEnvironment = Boolean(snapshot.summary?.cwd || snapshot.summary?.branch);
-  const environmentSurface = environmentPlacementSurface({
-    placement: environmentPlacement,
-    inTabRow,
-    hasEnvironment,
-    hasStatus: Boolean(header.status),
-    covered: environmentCovered,
-  });
+  // The pane header never says where the chat runs (Leo 2026-10-26); the Inspector's Environment does.
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -9842,19 +9815,13 @@ function AcpmuxPane() {
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
-                  <ChatHeaderStatus status={header.status} detail={header.detail}>
-                    {!inTabRow && environmentSurface.header && environmentLine(environmentSurface.compact)}
-                  </ChatHeaderStatus>
+                  <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
                     <LivePresenceStack
                       sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                       fallback={snapshot.presence}
                     />
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {environmentSurface.header && environmentLine(environmentSurface.compact)}
-                      </ChatHeaderInlineStatus>
-                    )}
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     {preview && (
                       <span
                         className="acpmux-session-coverage"
@@ -9940,11 +9907,6 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                {environmentSurface.row && (
-                  <div className="acpmux-environment-row" data-placement="left">
-                    {environmentLine()}
-                  </div>
-                )}
                 {!inspector.on && !summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
@@ -10051,6 +10013,7 @@ function AcpmuxPane() {
                       files={diffDisplay?.files ?? diffFiles}
                       turn={diffDisplay}
                       initialPath={diffView.path}
+                      root={snapshot.summary?.cwd}
                       onClose={closeDiff}
                       source={changesSource}
                       onOpenFile={openChangedFile}

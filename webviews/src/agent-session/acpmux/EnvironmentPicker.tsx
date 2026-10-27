@@ -107,7 +107,6 @@ export function EnvironmentPicker({
   current,
   onPick,
   onConnect,
-  onBrowseFolder,
   saved,
   onOpen,
   offload,
@@ -125,8 +124,6 @@ export function EnvironmentPicker({
   current: string;
   onPick(id: string): void;
   onConnect?(kind: ConnectKind): void;
-  /// Opens the host's folder chooser for a started chat's environment menu.
-  onBrowseFolder?(): void;
   saved?: SavedEnvironmentRows;
   /// The list opened, and every few seconds while it stays open: the host reads the machines
   /// again, so each one's status is current.
@@ -263,16 +260,6 @@ export function EnvironmentPicker({
             text: t("composer.openCloud"),
             kind: "cloud" as const,
             run: () => onConnect("cloudPage"),
-          },
-        ]
-      : []),
-    ...(onBrowseFolder
-      ? [
-          {
-            value: ACTION + "folder",
-            text: t("composer.chooseFolderMenu"),
-            kind: "local" as const,
-            run: onBrowseFolder,
           },
         ]
       : []),
