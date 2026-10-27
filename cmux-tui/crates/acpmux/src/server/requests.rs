@@ -684,6 +684,15 @@ async fn dispatch_request(
         method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
             Err(crate::hub::person::person_required("changing or reading trusted approvers"))
         }
+        method::MUX_MAC_APPROVER_SET if conn.is_person() => hub.person.macs.set_own(&params),
+        method::MUX_MAC_APPROVER_SET => {
+            Err(crate::hub::person::person_required("setting this Mac's approver key"))
+        }
+        // This machine's own: never a remote connection's (a peer's included).
+        method::MUX_MAC_APPROVERS if conn.origin.web_class() => Err(RpcError::invalid_params(
+            "the enrolled Macs are read only on this machine, over its unix socket or app",
+        )),
+        method::MUX_MAC_APPROVERS => Ok(hub.person.macs.view(&params)),
         method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
             hub.person.set_workspace_roots(&params)
         }
@@ -822,8 +831,24 @@ async fn dispatch_request(
                     // CLI argv or a second copy of the prompt file to create the session.
                     m.remove("argv");
                     m.remove("promptFileText");
+                    // Only this daemon decides the VM boundary, never its caller.
+                    m.remove(crate::hub::vm_boundary::FIELD);
                 }
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
+                // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
+                // for the person's own clients here only (`vm_boundary::owner`).
+                if peer.vm_boundary()
+                    && crate::hub::vm_boundary::owner(
+                        conn.auth,
+                        super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                        &params,
+                    )
+                {
+                    crate::hub::merge_mux_meta(
+                        &mut p,
+                        json!({crate::hub::vm_boundary::FIELD: true}),
+                    );
+                }
                 let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     view::subscribe_remote(hub, conn, id, None);
@@ -1400,9 +1425,12 @@ async fn dispatch_request(
             };
             let (name, url, token) = (required("name")?, required("url")?, required("token")?);
             let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
+            // Only `true` opts this caller's remote chains there out of the sandbox
+            // (`hub/vm_boundary.rs`); anything else leaves them in it.
+            let vm_boundary = params.get("vmBoundary") == Some(&Value::Bool(true));
             let (lease, mut settled) = {
                 let cfg = hub.config.read().await;
-                hub.lease_peer(&name, &url, token, text("peerToken"), &cfg)?
+                hub.lease_peer(&name, &url, token, text("peerToken"), vm_boundary, &cfg)?
             };
             conn.hold_peer_lease(hub, lease);
             if wait {
@@ -1767,16 +1795,19 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             let mut list = hub.permission_groups(&s, &params)?;
             // Only the person allows a group (`hub/person.rs`): a reader that
-            // is not one is told so, and draws no Allow it cannot give.
+            // is not one is told so, and draws no Allow it cannot give. An enrolled Mac's
+            // signed one-time allow still counts here (`macAllowOnce`), which a peer
+            // forwarding for its own person may draw (`peer_forward.rs`).
             if !conn.is_person() {
                 list["allowRefused"] = json!(crate::hub::person::REASON);
+                list["macAllowOnce"] = json!(true);
             }
             Ok(list)
         }
         method::MUX_PERMISSION_GROUP_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
-            hub.respond_permission_group(&s, params, control).await
+            hub.respond_permission_group(&s, params, control, conn.is_person()).await
         }
         method::MUX_PERMISSION_CHAT_REVOKE => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -1856,6 +1887,17 @@ async fn dispatch_request(
             crate::hub::subagent_transcript::handle(hub, &params).await
         }
         method::MUX_SHUTDOWN => {
+            // The person's own daemon is never stopped by a test runner or a client from a
+            // runner's `_work` or a temp folder (`exe_path::shutdown_refusal`). Only the daemon's
+            // own environment can allow those; nothing a client sends does.
+            let allow = crate::daemon::exe_path::allowed_by_env();
+            if let Some(why) =
+                crate::daemon::exe_path::peer_shutdown_refusal(conn.peer.as_ref(), allow)
+            {
+                tracing::warn!("{why}");
+                return Err(RpcError::new(-32000, why)
+                    .with_data(json!({"reason": "shutdown.refused_client"})));
+            }
             // `endAgents: true` (the app's Quit Everything) ends agents that
             // run under agent hosts; otherwise they keep running for the next
             // daemon.
