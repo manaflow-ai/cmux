@@ -619,6 +619,90 @@ mod tests {
         String::from_utf8_lossy(&output).into_owned()
     }
 
+    /// The PTY is its child's controlling terminal, with the child's group in
+    /// the foreground, so the 0x03 Ctrl-C writes makes the line discipline
+    /// send SIGINT to the child (dogfood chrome-parity-v1 on macOS: "ctrl c
+    /// is broken"). The child is a copy of this test binary that reports its
+    /// own terminal (`tcgetpgrp(0)`, -1 when its session has no controlling
+    /// terminal) and then waits to be interrupted; it opens no terminal
+    /// itself, as zsh does not (zsh opens its tty with O_NOCTTY, and then runs
+    /// with no job control and no Ctrl-C). A thread drains the PTY all along,
+    /// as the daemon does: a session leader that exits waits for its terminal's
+    /// output (the `^C` echo) to drain.
+    #[test]
+    fn a_pty_child_has_the_pty_as_controlling_terminal_and_gets_sigint_from_ctrl_c() {
+        const CHILD: &str = "CMUX_PTY_CTTY_CHILD";
+        const NAME: &str =
+            "tests::a_pty_child_has_the_pty_as_controlling_terminal_and_gets_sigint_from_ctrl_c";
+        if std::env::var_os(CHILD).is_some() {
+            // SAFETY: plain queries of this process and its fd 0.
+            let (pid, pgrp, foreground) =
+                unsafe { (libc::getpid(), libc::getpgrp(), libc::tcgetpgrp(0)) };
+            println!("ctty-report pid={pid} pgrp={pgrp} foreground={foreground} end");
+            // test harness: wait for the parent's Ctrl-C (SIGINT ends this process)
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            return;
+        }
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new(std::env::current_exe().unwrap().to_string_lossy());
+        command.args(["--exact", NAME, "--nocapture", "--test-threads=1"]);
+        command.env(CHILD, "1");
+        let mut spawned = pair.spawn(command).unwrap();
+        let pid = spawned.child.process_id().unwrap() as libc::pid_t;
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let (report_tx, report_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut output = Vec::new();
+            let mut buffer = [0u8; 1024];
+            let mut sent = false;
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => output.extend_from_slice(&buffer[..count]),
+                }
+                let text = String::from_utf8_lossy(&output);
+                if !sent && let Some(line) = text.lines().find(|line| line.contains(" end")) {
+                    sent = true;
+                    let _ = report_tx.send(line.to_string());
+                }
+            }
+        });
+        let report = report_rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the child never reported its terminal");
+
+        let mut writer = spawned.master.take_writer().unwrap();
+        writer.write_all(b"\x03").unwrap();
+        writer.flush().unwrap();
+        let child: &mut dyn Child = &mut *spawned.child;
+        let child = child.downcast_mut::<NativePtyChild>().expect("a native PTY child");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let status = loop {
+            if let Some(status) = child.try_wait_native().unwrap() {
+                break Some(status);
+            }
+            if std::time::Instant::now() >= deadline {
+                break None;
+            }
+            // test harness: poll the child's end for a bounded time
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        if status.is_none() {
+            let _ = spawned.child.kill();
+        }
+        use std::os::unix::process::ExitStatusExt as _;
+        assert!(
+            report.contains(&format!("pid={pid} pgrp={pid} foreground={pid} ")),
+            "the PTY is not the child's controlling terminal with its group in the foreground: \
+             {report}"
+        );
+        assert_eq!(
+            status.and_then(|status| status.signal()),
+            Some(libc::SIGINT),
+            "Ctrl-C (0x03) did not interrupt the PTY child: {status:?}; {report}"
+        );
+    }
+
     /// `kill` of a child that ignores the hangup: SIGHUP, then SIGKILL
     /// after the grace, so the child ends anyway.
     #[test]
