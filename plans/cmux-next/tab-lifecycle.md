@@ -122,7 +122,9 @@ cmux.json:
   when shown, when an agent drives it (before the call goes out) and before
   the hibernation probe. Pinned tabs (unless `hibernatePinnedTabs`), excluded
   hosts, open DevTools, capture, playing media and Web Audio stay awake; a
-  page kept for media is asked again after `freezeHiddenTabs`.
+  page kept for media is asked again after `freezeHiddenTabs`. With
+  `memoryFreezeEligibility`, Chrome's freeze reasons and opener groups apply
+  too (memory-DESIGN.md, "Freezing hidden pages").
 
 - Neighbors (plans/cmux-next/neighbor-tabs-DESIGN.md): the tabs beside each
   pane's shown tab (`keepNeighborTabsAwake`, wrapping) never freeze or
