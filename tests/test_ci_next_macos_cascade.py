@@ -823,9 +823,9 @@ class Wiring(unittest.TestCase):
         is taken only on attempt 1 and only when placement named the job and the label."""
         fresh = "glaeda-dev-std-xcode-26.6"
         feat = "refs/heads/" + "feat-cmux-next"
-        # The slot's hook admits only cmux-scheme-compile, so the push's Release compile never reads it.
-        self.assertNotIn("fresh_runner", self.jobs["release-compile"]["runs-on"])
-        for name, event in (("cmux-scheme-compile", "workflow_dispatch"),):
+        # The slot's hook (glaeda#1636) admits cmux-scheme-compile and a push's Release compile, the
+        # nightly-next promote gate.
+        for name, event in (("cmux-scheme-compile", "workflow_dispatch"), ("release-compile", "push")):
             job = self.jobs[name]
             for attempt, outputs, expected in (
                     ("1", {"fresh_runner": fresh, "fresh_jobs": f" {name} "}, fresh),
