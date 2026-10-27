@@ -122,7 +122,14 @@ pub(super) async fn handle_notification(
     match m {
         method::SESSION_CANCEL => {
             // Notifications have no response channel, but they still cross
-            // the same origin/ownership boundary as request-form cancels.
+            // the same origin/ownership boundary as request-form cancels,
+            // the VM boundary's owner rule included (`hub/vm_boundary.rs`).
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+            if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &params) {
+                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
+                return;
+            }
+            hub.hold_at_vm_boundary(conn.auth, control, &mut params);
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             if conn.origin != Origin::Local
                 && let Err(e) = super::remote_guard::check(
@@ -556,6 +563,7 @@ pub(super) async fn handle_request(
     // A request that is not the person's own, naming a session here at the VM
     // boundary, runs under the Web's rules from here on (`hub/vm_boundary.rs`).
     let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+    hub.refuse_at_vm_boundary(conn.auth, control, m, &params)?;
     hub.hold_at_vm_boundary(conn.auth, control, &mut params);
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
@@ -1318,7 +1326,13 @@ async fn dispatch_request(
             let limit =
                 params.get("limit").and_then(Value::as_u64).unwrap_or(3).clamp(1, 8) as usize;
             let web = super::trust_gate::for_web(conn.origin, &params);
-            let warmed = hub.warm_sessions(&requested, limit, web).await;
+            // Only the person's own clients start a session at the VM boundary (`hub/vm_boundary.rs`).
+            let owner = crate::hub::vm_boundary::owner(
+                conn.auth,
+                super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                &params,
+            );
+            let warmed = hub.warm_sessions(&requested, limit, web, owner).await;
             Ok(json!({"warmed": warmed}))
         }
         method::MUX_PREWARM => {

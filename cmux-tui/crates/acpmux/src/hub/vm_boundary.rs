@@ -132,6 +132,39 @@ impl Hub {
         }
     }
 
+    /// Refuses a request that is not the person's own ([`owner`] false: a Web
+    /// client, a paired machine, or a peer forwarding for either) when it names
+    /// a session here at the VM boundary, unless it only reads (the read-only
+    /// role's closed allow list, `pairing::read_only_allows`). So no such caller
+    /// prompts, steers, cancels, answers for, restarts, re-models, forks, kills
+    /// or reconfigures one, including any method added later. `_acpmux/warm`,
+    /// which names its sessions in a list, skips them instead (`warm.rs`).
+    pub fn refuse_at_vm_boundary(
+        &self,
+        auth: crate::server::ConnAuth,
+        control: Control,
+        m: &str,
+        params: &Value,
+    ) -> Result<(), RpcError> {
+        if owner(auth, control, params) || crate::pairing::read_only_allows(m) {
+            return Ok(());
+        }
+        let at_boundary = crate::server::session_key(params)
+            .ok()
+            .and_then(|key| self.resolve(key).ok())
+            .is_some_and(|s| s.meta().vm_boundary);
+        if !at_boundary {
+            return Ok(());
+        }
+        Err(RpcError::new(
+            -32000,
+            format!(
+                "{m}: this chat runs without the sandbox on its owner's own VM; only the owner's own devices change it"
+            ),
+        )
+        .with_data(json!({"reason": "remote.unsandboxed_agent", "method": m})))
+    }
+
     /// Whether `meta`'s remote chain runs its Claude Code without the
     /// platform sandbox now (module docs).
     pub(crate) async fn vm_boundary_unsandboxed(&self, meta: &crate::store::SessionMeta) -> bool {

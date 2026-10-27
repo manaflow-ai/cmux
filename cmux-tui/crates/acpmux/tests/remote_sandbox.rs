@@ -393,10 +393,11 @@ async fn only_the_callers_vm_boundary_over_its_peer_link_skips_the_linux_sandbox
 /// Only the person's own clients control a session at the VM boundary. A paired machine's
 /// `client` credential (served as a peer, `ConnAuth::Device`), and a peer forwarding for one
 /// (`via: device`), are held to the Web's rules for it (`Hub::hold_at_vm_boundary`): no prompt
-/// and no fork. A paired machine never turns vmHost back on either.
+/// and no fork, model change, cancel or warm start; reads stay. A Web client likewise. A
+/// paired machine never turns vmHost back on either.
 #[cfg(target_os = "linux")]
 #[tokio::test]
-async fn a_paired_machine_never_controls_forks_or_reenables_the_vm_boundary() {
+async fn a_paired_machine_or_web_client_only_reads_a_session_at_the_vm_boundary() {
     let d = dir("vmb-device");
     let hub = hub_with(&d, None);
     hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
@@ -419,6 +420,18 @@ async fn a_paired_machine_never_controls_forks_or_reenables_the_vm_boundary() {
     let mut forwarded = Client::new(&hub, Origin::Peer);
     let forwarded_prompt =
         forwarded.call("session/prompt", prompt(json!({"acpmux": {"via": "device"}}))).await;
+    // Nothing but reads: no model change, no cancel, no warm start, for a paired machine or
+    // a Web client; reads stay.
+    let mut web = Client::new(&hub, Origin::Web);
+    let model = json!({"sessionId": id, "modelId": "other"});
+    let device_model = device.call("session/set_model", model.clone()).await;
+    let web_model = web.call("session/set_model", model).await;
+    let device_cancel = device.call("session/cancel", json!({"sessionId": id})).await;
+    let warm = json!({"sessionIds": [id]});
+    let device_warm = device.call("_acpmux/warm", warm.clone()).await;
+    let web_warm = web.call("_acpmux/warm", warm.clone()).await;
+    let owner_warm = owner.call("_acpmux/warm", warm).await;
+    let device_read = device.call("_acpmux/events", json!({"sessionId": id, "limit": 5})).await;
     let device_on = device.call("_acpmux/vm_host", json!({"on": true})).await;
     let owner_on = owner.call("_acpmux/vm_host", json!({"on": true})).await;
     let sessions = hub.sessions().len();
@@ -429,6 +442,18 @@ async fn a_paired_machine_never_controls_forks_or_reenables_the_vm_boundary() {
     }
     assert!(device_fork.to_string().contains("remote.unsandboxed_agent"), "fork: {device_fork}");
     assert_eq!(sessions, 1, "a fork of the boundary session started");
+    for (what, r) in [
+        ("device model", &device_model),
+        ("web model", &web_model),
+        ("device cancel", &device_cancel),
+    ] {
+        assert!(r.to_string().contains("remote.unsandboxed_agent"), "{what}: {r}");
+    }
+    let warmed = |r: &Value| r["result"]["warmed"].to_string().contains(&id);
+    assert!(!warmed(&device_warm), "device warm: {device_warm}");
+    assert!(!warmed(&web_warm), "web warm: {web_warm}");
+    assert!(warmed(&owner_warm), "owner warm: {owner_warm}");
+    assert!(device_read.get("error").is_none(), "a read stays: {device_read}");
     assert!(device_on.to_string().contains("vmHost.remote"), "{device_on}");
     assert!(owner_on.get("error").is_none(), "{owner_on}");
 }
