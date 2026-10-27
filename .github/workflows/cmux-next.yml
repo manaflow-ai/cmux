@@ -5626,11 +5626,10 @@ jobs:
   # The pull request's Release compile gate: the commit status cmux-next/compile on the exact
   # head. The build fleet's controller compiles every feat-cmux-next head and same-repository PR
   # head (SwiftPM Release at -Onone); this job reads that one result and publishes it.
-  # It also posts the same state under the context's previous name, cmux-next/linux-compile,
-  # until every reader of the status takes cmux-next/compile. The controller holds no GitHub key and posts nothing: the status comes only
-  # from here, with a cmux-bot token (statuses: write) minted from the repository secret. Any
-  # other route that compiles the head (a Blacksmith job of this repository) posts the same
-  # context with the same mapping.
+  # The controller holds no GitHub key and posts nothing: the status comes only from here, with
+  # a cmux-bot token (statuses: write) minted from the repository secret. Any other route that
+  # compiles the head (a Blacksmith job of this repository) posts the same context with the
+  # same mapping.
   #
   # Mapping, fail closed: pass is success; fail is failure with the compile log as its link;
   # unavailable, no result by the deadline, a result for another sha, repo, configuration or
@@ -5675,20 +5674,16 @@ jobs:
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
           # One deadline for the pending post and the wait (40 min); the terminal post comes after it
-          # (at most 110 s per context, 220 s for both), so the step (50 min) and the App token (60 min) always outlast both.
+          # (at most 110 s), so the step (50 min) and the App token (60 min) always outlast both.
           deadline=$((SECONDS + ${WAIT_SECONDS:-2400}))
-          # The context and its previous name, posted together until every reader takes the new one.
-          contexts=(cmux-next/compile cmux-next/linux-compile)
           post() {  # state, description, target url
-            local body context
-            for context in "${contexts[@]}"; do
-              body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" --arg c "$context" \
-                '{state: $s, description: $d, target_url: $u, context: $c}')"
-              # timeout bounds the whole post, retries and any Retry-After included.
-              timeout 110 curl -sS --fail-with-body --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 10 --retry-all-errors \
-                -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-                "$API/statuses/$SHA" -d "$body" > /dev/null || return 1
-            done
+            local body
+            body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" \
+              '{state: $s, description: $d, target_url: $u, context: "cmux-next/compile"}')"
+            # timeout bounds the whole post, retries and any Retry-After included.
+            timeout 110 curl -sS --fail-with-body --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 10 --retry-all-errors \
+              -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "$API/statuses/$SHA" -d "$body" > /dev/null
           }
           post pending "The Release compile (-Onone) of this head is running" "$RUN_URL" \
             || { echo "::error title=Compile check::could not post the pending status"; exit 1; }
