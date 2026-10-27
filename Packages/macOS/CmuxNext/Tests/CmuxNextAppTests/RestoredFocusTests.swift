@@ -8,7 +8,8 @@ import Testing
 /// tab in that pane), Cmd-Q, open the app again, type. The typed text landed in Home's Chief message box.
 /// The launch window showed the home workspace (its panes, the first one Home's) before it adopted the
 /// saved window record; the record's focused pane, the browser pane, then came as `restoredPane` for the
-/// workspace the window already showed, and the focus machine dropped it. Home's own message box took
+/// workspace the window already showed, and the focus machine dropped it. `WindowState.adopt` sends the
+/// record's panes through `FocusCoordinator.restore`. Home's own message box took
 /// the keyboard (its default conversation shown) and the machine kept it: the focus stayed on Home.
 @MainActor
 struct RestoredFocusTests {
@@ -35,7 +36,7 @@ struct RestoredFocusTests {
         focus.send(.topology(Self.homeAndBrowser))
         #expect(focus.state.resolved == .page(pane: "home-pane", tab: "home-tab"), "before the record: the first pane")
         recorder.effects.removeAll()
-        focus.send(.restoredPane("right-pane", workspace: Self.workspace))
+        focus.restore("right-pane", workspace: Self.workspace)
         #expect(focus.state.resolved == .browserPage(pane: "right-pane", tab: "browser-tab"))
         #expect(recorder.effects.contains(.moveResponder(.browserPage(pane: "right-pane", tab: "browser-tab"))))
     }
@@ -46,7 +47,7 @@ struct RestoredFocusTests {
         let focus = FocusCoordinator()
         focus.send(.topology(Self.homeAndBrowser))
         focus.send(.responder(.content(pane: "home-pane"), source: .programmatic))
-        focus.send(.restoredPane("right-pane", workspace: Self.workspace))
+        focus.restore("right-pane", workspace: Self.workspace)
         #expect(focus.state.resolved == .browserPage(pane: "right-pane", tab: "browser-tab"))
     }
 
@@ -55,14 +56,14 @@ struct RestoredFocusTests {
         let focus = FocusCoordinator()
         focus.send(.topology(Self.homeAndBrowser))
         focus.send(.focusPane("home-pane", source: .mouse))
-        focus.send(.restoredPane("right-pane", workspace: Self.workspace))
+        focus.restore("right-pane", workspace: Self.workspace)
         #expect(focus.state.resolved == .page(pane: "home-pane", tab: "home-tab"))
     }
 
     /// The record comes first (the usual launch): unchanged, the workspace shows on its saved pane.
     @Test func aRecordBeforeTheWorkspaceShowsStillLandsOnItsPane() {
         let focus = FocusCoordinator()
-        focus.send(.restoredPane("right-pane", workspace: Self.workspace))
+        focus.restore("right-pane", workspace: Self.workspace)
         focus.send(.topology(Self.homeAndBrowser))
         #expect(focus.state.resolved == .browserPage(pane: "right-pane", tab: "browser-tab"))
     }
