@@ -120,6 +120,7 @@ pub(crate) fn start_host_runtime(
         size: Mutex::new((launch.cols, launch.rows)),
         cell_pixels: Mutex::new(cell_pixels),
         viewer_sizes: Mutex::new(ViewerSizes::default()),
+        geometry_gate: Default::default(),
         taps: Mutex::new(HashMap::new()),
         broadcast_lock: Mutex::new(()),
         sequence: AtomicU64::new(0),

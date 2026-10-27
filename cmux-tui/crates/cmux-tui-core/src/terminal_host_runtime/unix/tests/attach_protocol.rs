@@ -711,6 +711,7 @@ fn snapshot_boundary_waits_for_parser_progress_and_times_out() {
 fn terminal_host_snapshot_blocks_on_a_geometry_writer_without_polling() {
     let host = exited_host_fixture();
     // A resize writer holds the geometry for 100 ms.
+    let geometry = host.geometry_gate.hold();
     let size = host.size.lock().unwrap();
     let waiter_host = host.clone();
     let waiter = thread::spawn(move || {
@@ -718,10 +719,77 @@ fn terminal_host_snapshot_blocks_on_a_geometry_writer_without_polling() {
     });
     thread::sleep(Duration::from_millis(100));
     drop(size);
+    drop(geometry);
 
     let attempts = waiter.join().unwrap().unwrap();
     // The try-lock loop parked 1 ms per pass: about 100 passes here.
     assert_eq!(attempts, 1, "the snapshot polled the geometry lock {attempts} times");
+}
+
+/// A geometry writer that holds `size` past the snapshot's deadline: the
+/// snapshot gives up at its deadline, not when the writer releases.
+fn hold_size_until_released(host: &Arc<HostShared>) -> (Sender<()>, thread::JoinHandle<()>) {
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let (holding, held) = std::sync::mpsc::channel();
+    let writer_host = host.clone();
+    let writer = thread::spawn(move || {
+        let _geometry = writer_host.geometry_gate.hold();
+        let _size = writer_host.size.lock().unwrap();
+        holding.send(()).unwrap();
+        let _ = released.recv_timeout(Duration::from_secs(10));
+    });
+    held.recv().unwrap();
+    (release, writer)
+}
+
+#[test]
+fn terminal_host_snapshot_gives_up_at_its_deadline_while_a_writer_holds_geometry() {
+    let host = exited_host_fixture();
+    let (release, writer) = hold_size_until_released(&host);
+    let started = Instant::now();
+    let result = host.lock_snapshot(Duration::from_millis(50)).map(|locks| locks.attempts);
+    let elapsed = started.elapsed();
+    drop(release);
+    writer.join().unwrap();
+
+    let error = match result {
+        Ok(attempts) => panic!("the snapshot locked held geometry after {attempts} attempts"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("did not stabilize"), "{error:#}");
+    // The writer holds for 10 s; blocking on its lock returned only then.
+    assert!(elapsed >= Duration::from_millis(50), "gave up early: {elapsed:?}");
+    assert!(elapsed < Duration::from_secs(1), "waited for the writer: {elapsed:?}");
+}
+
+#[test]
+fn attach_resyncs_at_its_snapshot_timeout_while_a_writer_holds_geometry() {
+    let host = exited_host_fixture();
+    let (release, writer) = hold_size_until_released(&host);
+    let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+    client_stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let server_host = host.clone();
+    let server = thread::spawn(move || {
+        serve_client_with_snapshot_timeout(server_host, server_stream, Duration::from_millis(20))
+    });
+
+    write_frame(&mut client_stream, &snapshot_boundary_client_hello(&host, false).unwrap())
+        .unwrap();
+    assert_eq!(
+        read_required_frame(&mut client_stream, "host hello").unwrap().kind,
+        MessageKind::HostHello
+    );
+    let started = Instant::now();
+    let resync = read_required_frame(&mut client_stream, "resync").unwrap();
+    let elapsed = started.elapsed();
+    let served = server.join().unwrap();
+    drop(release);
+    writer.join().unwrap();
+
+    assert_eq!(resync.kind, MessageKind::ResyncRequired);
+    assert!(elapsed < Duration::from_secs(1), "the attach waited for the writer: {elapsed:?}");
+    let error = served.unwrap_err();
+    assert!(error.to_string().contains("did not stabilize"), "{error:#}");
 }
 
 #[test]

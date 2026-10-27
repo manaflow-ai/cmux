@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use std::io::Write;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel as mpsc_channel;
-use std::sync::{Arc, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -17,6 +17,7 @@ use super::super::sys::{self, HostStream};
 use super::super::*;
 use super::clipboard_read::*;
 use super::codec::*;
+use super::geometry_gate::GeometryHold;
 use super::host_shared::{HostLoop, HostShared};
 use super::host_state::*;
 
@@ -180,47 +181,88 @@ pub(crate) struct SnapshotLocks<'a> {
     pub(crate) size: MutexGuard<'a, (u16, u16)>,
     pub(crate) cell_pixels: MutexGuard<'a, (u16, u16)>,
     pub(crate) term: MutexGuard<'a, ghostty_vt::Terminal>,
-    /// Passes of the lock loop: one, plus one per parser step that left the
-    /// stream mid-sequence between the boundary wait and the geometry locks.
+    /// Try-locks of the geometry: one, plus one per writer that came in
+    /// between the free gate and the try-lock, and one per parser step that
+    /// left the stream mid-sequence meanwhile.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) attempts: u32,
+    /// Last field: fields drop in declaration order, so the hold is released
+    /// after the guards above.
+    _geometry: GeometryHold<'a>,
+}
+
+type GeometryGuards<'a> =
+    (MutexGuard<'a, ViewerSizes>, MutexGuard<'a, (u16, u16)>, MutexGuard<'a, (u16, u16)>);
+
+fn try_lock_or_refused<'a, T>(
+    lock: &'a Mutex<T>,
+    poisoned: &str,
+) -> anyhow::Result<Option<MutexGuard<'a, T>>> {
+    match lock.try_lock() {
+        Ok(guard) => Ok(Some(guard)),
+        Err(TryLockError::WouldBlock) => Ok(None),
+        Err(TryLockError::Poisoned(_)) => anyhow::bail!("terminal snapshot {poisoned} is poisoned"),
+    }
 }
 
 impl HostShared {
     /// Locks a snapshot's state in the host's one lock order (`viewer_sizes`,
     /// `size`, `cell_pixels`, then `term`, as `apply_viewer_minimum` and the
-    /// cell-metric commits take them), blocking, never try-locking on a timer.
-    /// The parser-boundary wait runs before the geometry locks, so a stalled
-    /// escape sequence never holds resize or cell-metric writers; with the
-    /// geometry held, the terminal is checked at the boundary once more and
-    /// the loop waits again only if the parser moved off it meanwhile.
+    /// cell-metric commits take them) before `timeout`, or fails so the caller
+    /// sends a resync. The parser-boundary wait runs with no geometry held, so
+    /// a stalled escape sequence never holds resize or cell-metric writers;
+    /// the geometry wait sleeps on the [`super::geometry_gate::GeometryGate`] until the writers
+    /// release it, never on a timer. With the geometry held, the terminal is
+    /// checked at the boundary once more; the loop runs again only if the
+    /// parser moved off it or a writer came in meanwhile.
     pub(crate) fn lock_snapshot(&self, timeout: Duration) -> anyhow::Result<SnapshotLocks<'_>> {
         let deadline = Instant::now() + timeout;
+        let timed_out =
+            || anyhow::anyhow!("terminal snapshot geometry did not stabilize before timeout");
         let mut attempts = 0;
+        let mut after_release = None;
         loop {
-            attempts += 1;
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
-                anyhow::bail!("terminal snapshot geometry did not stabilize before timeout");
+                return Err(timed_out());
             }
             drop(self.terminal_at_snapshot_boundary(remaining)?);
-            let viewer_sizes = self
-                .viewer_sizes
-                .lock()
-                .map_err(|_| anyhow::anyhow!("terminal snapshot viewer-size state is poisoned"))?;
-            let size = self
-                .size
-                .lock()
-                .map_err(|_| anyhow::anyhow!("terminal snapshot size state is poisoned"))?;
-            let cell_pixels = self
-                .cell_pixels
-                .lock()
-                .map_err(|_| anyhow::anyhow!("terminal snapshot cell-pixel state is poisoned"))?;
+            let geometry =
+                self.geometry_gate.hold_when_free(after_release, deadline).ok_or_else(timed_out)?;
+            attempts += 1;
+            let Some((viewer_sizes, size, cell_pixels)) = self.try_lock_geometry()? else {
+                after_release = geometry.refused();
+                continue;
+            };
+            after_release = None;
             let term = self.term.lock().recover_poison();
             if term.vt_stream_is_ground() {
-                return Ok(SnapshotLocks { viewer_sizes, size, cell_pixels, term, attempts });
+                return Ok(SnapshotLocks {
+                    viewer_sizes,
+                    size,
+                    cell_pixels,
+                    term,
+                    attempts,
+                    _geometry: geometry,
+                });
             }
         }
+    }
+
+    /// The geometry in lock order, or `None` (nothing held) when a writer
+    /// holds any of it.
+    fn try_lock_geometry(&self) -> anyhow::Result<Option<GeometryGuards<'_>>> {
+        let Some(viewer_sizes) = try_lock_or_refused(&self.viewer_sizes, "viewer-size state")?
+        else {
+            return Ok(None);
+        };
+        let Some(size) = try_lock_or_refused(&self.size, "size state")? else {
+            return Ok(None);
+        };
+        let Some(cell_pixels) = try_lock_or_refused(&self.cell_pixels, "cell-pixel state")? else {
+            return Ok(None);
+        };
+        Ok(Some((viewer_sizes, size, cell_pixels)))
     }
 }
 
@@ -333,14 +375,16 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
     let command_sender = tap.clone();
     let (snapshot, colors, snapshot_sequence, replay_gap, _active_client_stream) = {
-        let SnapshotLocks { mut viewer_sizes, size, cell_pixels, mut term, .. } =
-            match host.lock_snapshot(snapshot_timeout) {
-                Ok(locks) => locks,
-                Err(error) => {
-                    send_snapshot_resync(&host, &mut stream, smart_renderer);
-                    return Err(error);
-                }
-            };
+        let mut snapshot_locks = match host.lock_snapshot(snapshot_timeout) {
+            Ok(locks) => locks,
+            Err(error) => {
+                send_snapshot_resync(&host, &mut stream, smart_renderer);
+                return Err(error);
+            }
+        };
+        // Borrowed, not moved out: the locks drop together at the end of
+        // this block, the geometry hold last.
+        let SnapshotLocks { viewer_sizes, size, cell_pixels, term, .. } = &mut snapshot_locks;
         let replay = term
             .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)?;
         let colors = term.color_overrides();
@@ -356,8 +400,8 @@ pub(crate) fn serve_client_with_snapshot_timeout(
             let shell_activity = shell_activity_negotiated.then(|| metadata.activity.snapshot());
             (metadata.osc_progress().to_owned(), shell_activity, records)
         };
-        let (cols, rows) = *size;
-        let cell_pixels = *cell_pixels;
+        let (cols, rows) = **size;
+        let cell_pixels = **cell_pixels;
         debug_assert_eq!((term.cols(), term.rows()), (cols, rows));
         if host.dead.load(Ordering::Acquire) {
             anyhow::bail!("terminal host exited before snapshot");
@@ -397,7 +441,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 colors: colors.clone(),
                 pid: host.pid,
                 command: host.command.clone(),
-                cwd: snapshot_cwd(&term, host.cwd.as_deref(), &host.owner_token, selected_version),
+                cwd: snapshot_cwd(term, host.cwd.as_deref(), &host.owner_token, selected_version),
                 osc_progress,
                 program_status,
                 shell_activity,

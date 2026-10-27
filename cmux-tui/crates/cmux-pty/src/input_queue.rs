@@ -177,7 +177,7 @@ mod tests {
     use std::fs::File;
     use std::io::{Read, Write};
     use std::os::fd::{AsRawFd, FromRawFd};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use super::{CAPACITY, Cut, cut, write_waiting};
 
@@ -257,11 +257,22 @@ mod tests {
             got
         });
 
+        let started = Instant::now();
         let (written, waits) = write_waiting(&mut master, WHEEL_UP, Duration::from_secs(2));
+        let elapsed = started.elapsed();
 
         assert_eq!(written.unwrap(), WHEEL_UP.len());
+        // No wait: ReadWaiter::new failed and the write blocked in the kernel instead.
+        assert!(waits >= 1, "the write never waited for the program to read");
         // The 1 ms poll checked the queue about 100 times while the program was busy.
         assert!(waits <= 3, "the waiting write woke {waits} times before the program read");
+        // It returned when the program read at 100 ms, not at its 2 s room wait: a read that
+        // fires no EVFILT_WRITE leaves only the timeout to wake it.
+        assert!(
+            elapsed >= Duration::from_millis(50),
+            "returned before the program read: {elapsed:?}"
+        );
+        assert!(elapsed < Duration::from_secs(1), "woke on the room-wait timeout: {elapsed:?}");
         let got = program.join().unwrap();
         assert_eq!(&got[1021..], WHEEL_UP, "the wheel report arrived changed");
     }

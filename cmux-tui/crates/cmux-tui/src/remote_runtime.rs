@@ -3158,6 +3158,17 @@ mod tests {
     #[cfg(unix)]
     mod initial_route_budget;
 
+    /// Spaces a test's checks of another process's files or exit, which send
+    /// this process no event.
+    #[cfg(unix)]
+    const OTHER_PROCESS_BACKOFF: cmux_tui_core::backoff::Backoff =
+        cmux_tui_core::backoff::Backoff::new(Duration::from_millis(2), Duration::from_millis(50));
+
+    /// The reconnect fixtures' retry delay: short, so a test reaches its
+    /// reconnect at once.
+    #[cfg(unix)]
+    const FIXTURE_RECONNECT_DELAY: Duration = Duration::from_millis(5);
+
     /// flock(2) on a test's own lock file: 0, or -1 with errno set.
     #[cfg(unix)]
     fn flock(file: &fs::File, operation: libc::c_int) -> libc::c_int {
@@ -4673,8 +4684,9 @@ mod tests {
         }
         caller.join().unwrap();
         let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut backoff = OTHER_PROCESS_BACKOFF;
         while link_socket.exists() && std::time::Instant::now() < cleanup_deadline {
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(backoff.next_delay());
         }
 
         assert!(
@@ -4738,10 +4750,11 @@ mod tests {
         let runtime_path = state_dir.join("runtime.json");
         let outcome_path = state_dir.join("shutdown.json");
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut backoff = OTHER_PROCESS_BACKOFF;
         while (runtime_path.exists() || !outcome_path.exists())
             && std::time::Instant::now() < deadline
         {
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(backoff.next_delay());
         }
 
         assert!(!runtime_path.exists(), "orphaned startup retained active runtime metadata");
@@ -5343,8 +5356,8 @@ mod tests {
             session: SessionId([21; 16]),
             lane_policy: LanePolicy::Single,
             reconnect: ReconnectPolicy {
-                initial_delay: Duration::from_millis(10),
-                maximum_delay: Duration::from_millis(10),
+                initial_delay: FIXTURE_RECONNECT_DELAY,
+                maximum_delay: FIXTURE_RECONNECT_DELAY,
                 // This fixture injects carrier EOF directly and asserts prompt
                 // shutdown during SSH bootstrap. Give setup handshakes their
                 // own budget and keep heartbeat timing out of that invariant.
@@ -5371,6 +5384,7 @@ mod tests {
         proxy.join().unwrap();
         let deadline =
             std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(3));
+        let mut backoff = OTHER_PROCESS_BACKOFF;
         let pid = loop {
             if let Ok(value) = fs::read_to_string(&pid_file)
                 && let Ok(pid) = value.parse::<libc::pid_t>()
@@ -5381,7 +5395,7 @@ mod tests {
                 std::time::Instant::now() < deadline,
                 "client did not enter reconnect SSH bootstrap"
             );
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(backoff.next_delay());
         };
 
         let (done_tx, done_rx) = mpsc::sync_channel(1);
@@ -5413,9 +5427,10 @@ mod tests {
 
         let deadline =
             std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(2));
+        let mut backoff = OTHER_PROCESS_BACKOFF;
         // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
         while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(backoff.next_delay());
         }
         // SAFETY: kill takes no pointer; signal 0 only checks that the process exists.
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "cancelled SSH child is still alive");

@@ -41,6 +41,7 @@ impl HostShared {
     ) -> anyhow::Result<bool> {
         let _source_order = self.source_order_lock.lock().recover_poison();
         self.wait_for_parser_fifo();
+        let _geometry = self.geometry_gate.hold();
         let next = (width_px.max(1), height_px.max(1));
         let size = self.size.lock().recover_poison();
         let mut cell_pixels = self.cell_pixels.lock().recover_poison();
@@ -157,6 +158,7 @@ impl HostShared {
             .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
         let _source_order = self.source_order_lock.lock().recover_poison();
         self.wait_for_parser_fifo();
+        let _geometry = self.geometry_gate.hold();
         let size = *self.size.lock().recover_poison();
         let cell_pixels = *self.cell_pixels.lock().recover_poison();
         let mut term = self.term.lock().recover_poison();

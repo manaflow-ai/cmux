@@ -23,6 +23,7 @@ use super::super::sys::{self, GroupSignal, HostStream};
 use super::super::*;
 use super::clipboard_read::ClipboardReads;
 use super::codec::*;
+use super::geometry_gate::GeometryGate;
 use super::host_state::*;
 use super::records::*;
 
@@ -49,9 +50,13 @@ pub(crate) struct HostShared {
     pub(crate) pid: Option<u32>,
     pub(crate) command: Vec<String>,
     pub(crate) cwd: Option<String>,
+    /// The geometry: `viewer_sizes`, `size` and `cell_pixels`, locked in
+    /// that order and only under a [`GeometryGate::hold`], which lets a
+    /// snapshot wait for them under its deadline.
     pub(crate) size: Mutex<(u16, u16)>,
     pub(crate) cell_pixels: Mutex<(u16, u16)>,
     pub(crate) viewer_sizes: Mutex<ViewerSizes>,
+    pub(crate) geometry_gate: GeometryGate,
     pub(crate) taps: Mutex<HashMap<u64, HostTap>>,
     pub(crate) broadcast_lock: Mutex<()>,
     pub(crate) sequence: AtomicU64,
@@ -460,6 +465,7 @@ impl HostShared {
         self.release_clipboard_owner(client);
         self.taps.lock().recover_poison().remove(&client);
         self.smart.remove(client);
+        let _geometry = self.geometry_gate.hold();
         let _ = mutate_viewer_sizes(
             &self.viewer_sizes,
             |viewer_sizes| viewer_sizes.remove_client(client),

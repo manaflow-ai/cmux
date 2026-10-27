@@ -15,6 +15,7 @@ impl HostShared {
     ) -> anyhow::Result<bool> {
         let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
         let mut acknowledgement_queued = true;
+        let _geometry = self.geometry_gate.hold();
         mutate_viewer_sizes(
             &self.viewer_sizes,
             |viewer_sizes| {
@@ -30,6 +31,7 @@ impl HostShared {
     }
 
     pub(crate) fn remove_viewer_size(&self, client: u64) {
+        let _geometry = self.geometry_gate.hold();
         let _ = mutate_viewer_sizes(
             &self.viewer_sizes,
             |viewer_sizes| viewer_sizes.release(client),
@@ -49,6 +51,7 @@ impl HostShared {
         // size and cell_pixels, matching the other geometry mutation
         // paths, so concurrent viewer and cell-metric updates cannot
         // acquire the locks in opposite orders.
+        let _geometry = self.geometry_gate.hold();
         let _source_order = self.source_order_lock.lock().recover_poison();
         let mut size = self.size.lock().recover_poison();
         let cell_pixels = self.cell_pixels.lock().recover_poison();
