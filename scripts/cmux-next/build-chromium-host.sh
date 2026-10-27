@@ -16,7 +16,7 @@
 # CEFShim and this script is not build-cef-shim.sh, so neither the shim build
 # key nor cef-runtime-pack.sh's pack key reads them. An edit to the host never
 # makes Release users download the engine again or rebuilds the shim cache.
-# embed-cef.sh calls this for Debug builds only.
+# embed-cef.sh calls this for every configuration.
 #
 # Every source compiles with the wrapper's own flags: `common` below is
 # build-cef-shim.sh's `common`, copied here so the flags live in no file that

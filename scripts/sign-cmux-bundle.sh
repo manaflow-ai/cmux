@@ -42,8 +42,10 @@
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
 #   2. The nested cmux Computer Use app with the Developer ID identity.
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
-#   4. The embedded Chromium engine (CEF framework, its libraries, the shim
-#      and the five helper apps with their own entitlements) through
+#   4. The embedded Chromium engine (CEF framework, its libraries, the shim,
+#      the remote shim, the five helper apps with their own entitlements and
+#      the Chromium host Contents/MacOS/<product> Chromium Host: hardened
+#      runtime, no entitlements, the app's identifier) through
 #      scripts/cmux-next/sign-cef.sh, the remote browser host under
 #      Contents/Helpers (rbh_sign), then every other nested framework under
 #      Contents/Frameworks/* with --deep (covers Sparkle's XPCServices and
@@ -187,7 +189,7 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
     done
     while IFS= read -r -d '' framework; do
       case "$(basename "$framework")" in
-        "$CEF_FRAMEWORK_NAME"|libcmux_cef_shim.dylib|*" Helper.app"|*" Helper ("*").app") continue ;;
+        "$CEF_FRAMEWORK_NAME"|libcmux_cef_shim.dylib|libcmux_cef_shim_remote.dylib|*" Helper.app"|*" Helper ("*").app") continue ;;
       esac
       echo "==> signing framework $(basename "$framework")"
       /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
@@ -228,6 +230,9 @@ fi
 # The browser host, when the bundle carries one, sits beside bin/cmux (the
 # daemon runs its sibling) and is signed like it: Developer ID, hardened runtime.
 "$SCRIPT_DIR/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" --hardened
+# The Chromium host is nested code the notary service checks with the app: it
+# must verify, run hardened, carry no entitlements and share the app's identity.
+"$SCRIPT_DIR/cmux-next/sign-cef.sh" --verify-host "$APP_PATH"
 
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"

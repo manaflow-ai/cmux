@@ -48,16 +48,21 @@ cmux (app)                          <App>.app/Contents/MacOS/<App> Chromium Host
   identity for TCC and the keychain (decision 3, Lawrence 2026-10-25: this layout, no fork patch). It loads the app's CEF framework from `Contents/Frameworks` with `cef_load_library` while it has one
   thread, so no zone race. It uses the same five helper apps as today (`browser_subprocess_path`), and Chromium's main
   bundle path is the outer app (`--main-bundle`). Prototype: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm`,
-  bundled by `scripts/cmux-next/embed-cef.sh` (Debug only).
+  bundled by `scripts/cmux-next/embed-cef.sh` in every configuration (Release since p01-process-088).
 - cmux no longer maps the framework. The shim becomes a client library of the wire (Swift, no CEF).
 - One host for every profile, as Chrome has one browser process. A host crash then reloads every Chromium page. One
   host per profile would contain a crash to that profile for about 60-90 MB more per profile (decision below).
 - Signing: hardened runtime, no JIT entitlement (the browser process does not JIT; Renderer and GPU keep `allow-jit`,
   `scripts/cmux-next/sign-cef.sh`). Sandbox: none for the browser process, as Chrome and today. Release signing
-  (`scripts/sign-cmux-bundle.sh`) signs the host with `sign-cef.sh`.
-- Keychain: Chromium's "Chromium Safe Storage" item encrypts cookies and passwords. Its ACL names the cmux app today.
-  The host is another code identity, so release builds must give the host the same keychain access group or migrate
-  the item once (open item). Dev builds use the mock keychain (`CEFSwitches.useMockKeychain`).
+  (`scripts/sign-cmux-bundle.sh`) signs the host with `sign-cef.sh` as nested code before the app, with no entitlements
+  and with the app's bundle id as its code identifier (Chrome's browser process is the app's own executable,
+  `chrome/installer/mac/signing/parts.py`), so its designated requirement is the app's; the app's notarization covers
+  it, and `sign-cef.sh --verify-host` refuses a host without the hardened runtime, with entitlements, or with another
+  identifier or team (p01-process-088).
+- Keychain: Chromium's "Chromium Safe Storage" item encrypts cookies and passwords. Its ACL names the cmux app's
+  designated requirement, which the host's signature now satisfies (same identifier, same team), so a release host is
+  expected to read the item without a prompt; task 089 checks that on 14, 15, 26 and 27. Dev builds use the mock keychain
+  (`CEFSwitches.useMockKeychain`).
 
 ### 3.2 Lifecycle
 
@@ -170,11 +175,11 @@ an active flag: no page window is ever key, so neither the key-state walk nor th
 change runs for a page focus. That needs the pin past API 24 (this design's host work needs 27). DevTools focus
 emulation in process is not a substitute: the page view then has no text input client, so IME breaks.
 
-## 4. Prototype (behind the feature `cefHelperHost`, default off; the host app is in Debug builds only)
+## 4. Prototype (behind the feature `cefHelperHost`, default off; the host is in every build, its Swift side in Debug and bench builds only)
 
 - Host: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm` (built by `scripts/cmux-next/build-chromium-host.sh`
   as `cmux-chromium-host` against the shim build's wrapper, with a cache key of its own, so a host edit changes neither the
-  shim's key nor the Chromium runtime pack's; bundled by `embed-cef.sh` as `Contents/MacOS/<Product> Chromium Host`, Debug only,
+  shim's key nor the Chromium runtime pack's; bundled by `embed-cef.sh` as `Contents/MacOS/<Product> Chromium Host` in every configuration,
   signed by `sign-cef.sh`). One Chrome-style page per host.
   Its parent view sits in a transparent, click-through, floating window of the host at the pane's screen rect; its
   `-cmuxOcclusionRects` covers the page, so the fork's tracker never lets the page window take the mouse. It calls
