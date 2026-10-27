@@ -20,6 +20,16 @@ extension WorkspaceContentController {
         rekeySurfaceWait() // a tab this topology adds may be the one a surface wait names
     }
 
+    /// Brings each pane strip whose record's tabs changed since its last apply up to the store, inside this
+    /// workspace's apply (its topology goes out once, at the end). Each pane's own observation would do it in a later
+    /// main-actor job; until then the topology listed a tab moved to a new pane in both panes, focus waited on it,
+    /// and the moved terminal, already shown in its new pane, did not have the keyboard: keys typed then went to the
+    /// window and were lost (dogfood v2.1, 2026-10-27: the first keys typed into a new terminal from Home's dock).
+    /// O(tabs of this workspace's panes), on a layout change only.
+    func syncStaleStrips() {
+        for controller in panes.values where controller.stripIsStale { controller.syncStripIfStale() }
+    }
+
     /// Topologies name tabs by id only: a wait by a daemon surface takes its tab's id (same target, pane, generation)
     /// once the store has it: at each topology send (a new tab) and at a split's confirm (`terminalConfirmed`).
     func rekeySurfaceWait() {
@@ -131,6 +141,15 @@ extension FocusTopology.Kind {
 }
 
 extension PaneController {
+    /// The strip lags the pane record's tabs (a tab moved out or in since its last apply).
+    var stripIsStale: Bool { !isSuspended && !pane.tabs.lazy.map(\.id).elementsEqual(appliedRecordTabs) }
+
+    /// Maps the strip again when it lags the record (`stripIsStale`).
+    func syncStripIfStale() {
+        guard stripIsStale else { return }
+        syncStripFromStore()
+    }
+
     /// This pane as the focus topology sees it: strip order (pending closes
     /// hidden, session browser tabs included) and the selected tab.
     var focusPane: FocusTopology.Pane {
