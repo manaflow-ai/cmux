@@ -336,7 +336,8 @@ impl Supervisor {
         }
     }
 
-    /// Run `body` once on a new thread named `name`. A panic or an `Err` is fatal.
+    /// Run `body` once on a new thread named `name`. A panic or an `Err` is
+    /// fatal unless a stop was asked.
     pub fn supervise_thread<F, O>(
         &self,
         name: impl Into<String>,
@@ -491,7 +492,7 @@ impl Supervisor {
 #[cfg(feature = "tokio")]
 impl Supervisor {
     /// Run the future `body` makes once on the current tokio runtime. A panic
-    /// (`JoinError::is_panic`) or an `Err` is fatal.
+    /// in `body` or its future, or an `Err`, is fatal unless a stop was asked.
     pub fn supervise_task<F, Fut>(
         &self,
         name: impl Into<String>,
@@ -548,28 +549,35 @@ impl Supervisor {
             let _guard = guard;
             let mut budget = restart.map(Budget::new);
             loop {
-                let Some(fut) = make(token.clone()) else { return };
                 let run_started = Instant::now();
-                let mut run = inner_runtime.spawn(fut);
-                let joined = if shutdown == ShutdownBehavior::Skip {
-                    tokio::select! {
-                        joined = &mut run => joined,
-                        () = token.cancelled() => {
-                            run.abort();
-                            let _ = run.await;
-                            return;
+                // The body's code before its future is part of the run: a
+                // panic there is a failure like one inside the future.
+                let failure = match catch_unwind(AssertUnwindSafe(|| make(token.clone()))) {
+                    Ok(None) => return,
+                    Err(payload) => Some(Failure::Panicked { message: payload_text(&*payload) }),
+                    Ok(Some(fut)) => {
+                        let mut run = inner_runtime.spawn(fut);
+                        let joined = if shutdown == ShutdownBehavior::Skip {
+                            tokio::select! {
+                                joined = &mut run => joined,
+                                () = token.cancelled() => {
+                                    run.abort();
+                                    let _ = run.await;
+                                    return;
+                                }
+                            }
+                        } else {
+                            run.await
+                        };
+                        match joined {
+                            Ok(outcome) => outcome.into_failure(),
+                            Err(error) if error.is_panic() => Some(Failure::Panicked {
+                                message: payload_text(&*error.into_panic()),
+                            }),
+                            // Cancelled: the runtime is shutting down.
+                            Err(_) => return,
                         }
                     }
-                } else {
-                    run.await
-                };
-                let failure = match joined {
-                    Ok(outcome) => outcome.into_failure(),
-                    Err(error) if error.is_panic() => {
-                        Some(Failure::Panicked { message: payload_text(&*error.into_panic()) })
-                    }
-                    // Cancelled: the runtime is shutting down.
-                    Err(_) => return,
                 };
                 let Some(failure) = failure else { return };
                 match decide(&worker, budget.as_mut(), failure, token.is_stopped(), run_started) {
@@ -733,13 +741,14 @@ fn decide(
     run_started: Instant,
 ) -> Decision {
     let fatal = |reason| Decision::Fatal(FatalReport { worker: worker.to_string(), reason });
-    let Some(budget) = budget else { return fatal(FatalReason::Failed(failure)) };
-    if budget.poisoned() {
+    if budget.as_deref().is_some_and(Budget::poisoned) {
         return fatal(FatalReason::Poisoned(failure));
     }
+    // A worker asked to stop ends however its last run went, under either policy.
     if stopping {
         return Decision::End;
     }
+    let Some(budget) = budget else { return fatal(FatalReason::Failed(failure)) };
     match budget.next(Instant::now(), run_started.elapsed()) {
         Some(backoff) => Decision::Restart(backoff, failure),
         None => fatal(FatalReason::GaveUp {
