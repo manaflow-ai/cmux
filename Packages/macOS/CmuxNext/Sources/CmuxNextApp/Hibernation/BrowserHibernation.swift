@@ -67,7 +67,7 @@ final class BrowserHibernation {
     /// Pages a discard probe is asking now.
     private(set) var probing: Set<String> = []
     /// Pages whose discard was tried and did not finish (a refused freeze, a `beforeunload` that asked, no restore state,
-    /// nothing prepared at release): kept until shown or the person's Hibernate Tab (`DiscardRule.discardAttempted`).
+    /// nothing prepared at release): kept from every discard until shown (`DiscardRule.discardAttempted`).
     var discardAttempts = ContentDiscardPlanner.AttemptMarkers()
     /// The next page to come due: one background deadline (nobody sees a discard happen).
     private let deadline: MainDeadline
@@ -713,7 +713,6 @@ final class BrowserHibernation {
     /// unless a disallowed rule keeps it (`HibernationPlanner.hibernateTabRefusal`). Returns why not, or nil when it started.
     func hibernateNow(_ key: String) -> HibernationPlanner.Exemption? {
         guard let cache, let entry = cache.browsers[key], cache.lifecycle.phase(key) == .mountedHidden else { return .disabled }
-        discardAttempts.clear(key) // the person asks again: the mark only stops cmux's own retries
         if let refusal = HibernationPlanner.hibernateTabRefusal(candidate(key, entry: entry, hiddenFor: 0), setting: setting) {
             exemptions[key] = refusal
             return refusal
@@ -737,6 +736,8 @@ final class BrowserHibernation {
             // The person's Hibernate Tab asks the page nothing (only a disallowed rule keeps it).
             var exemption: HibernationPlanner.Exemption?
             var mayAsk = false
+            // Its beforeunload handlers asked (or could not be asked): the discard was tried and failed.
+            var askedOnUnload = false
             if user {
                 exemption = self.flatMap { HibernationPlanner.hibernateTabRefusal($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting) }
             } else {
@@ -756,9 +757,9 @@ final class BrowserHibernation {
                 ? (await self?.snapshot(tab, key: key), await (tab as? any BrowserAppPage)?.saveViewState()) : (nil, nil)
             guard let self else { return }
             // The page's beforeunload handlers run last, only when nothing else keeps it, still hidden
-            // and about to go, and at most once while it stays hidden (`askedBeforeUnload`).
+            // and about to go, and at most once while it stays hidden (`discardAttempts`).
             if exemption == nil, mayAsk, self.discardCheck(key, tab: tab, generation: generation, user: user) == .go {
-                exemption = await self.asksBeforeUnload(key, tab) ? .beforeUnload : nil
+                askedOnUnload = await self.asksBeforeUnload(key, tab)
             }
             guard let cache = self.cache else { return }
             self.probing.remove(key)
@@ -766,20 +767,21 @@ final class BrowserHibernation {
             case .stale:
                 cache.trace(key, "hibernate probe dropped (stale)")
                 return
-            case .keep(let reason) where exemption == nil:
+            case .keep(let reason) where exemption == nil && !askedOnUnload:
                 self.exemptions[key] = reason
                 return
             case .keep, .go:
                 break
             }
-            if let exemption, exemption != .beforeUnload {
+            // A probe answer keeps the page and asks again after `keptBackoff`; it is no failed discard.
+            if let exemption {
                 self.exemptions[key] = exemption
                 self.probeKeptAt[key] = self.now()
                 return
             }
-            guard exemption == nil, let state = viewState.map(BrowserRestoreState.appPage) ?? source.hibernationState() else {
-                self.discardFailed(key, exemption ?? .unsupported)
-                return
+            if askedOnUnload { return self.discardFailed(key, .beforeUnload) }
+            guard let state = viewState.map(BrowserRestoreState.appPage) ?? source.hibernationState() else {
+                return self.discardFailed(key, .unsupported)
             }
             self.prepared[key] = (state, snapshot)
             cache.applyLifecycle(cache.lifecycle.send(.hibernate(key)))
