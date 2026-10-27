@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextBridge
+import CmuxNextAppCore
 import CmuxNextDaemon
 import CmuxNextWorkspaceNaming
 import CmuxNextSettings
