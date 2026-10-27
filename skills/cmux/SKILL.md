@@ -42,7 +42,7 @@ Inside a cmux terminal, `$CMUX_BUNDLED_CLI_PATH` is the CLI that ships with the 
 
 ## Selectors
 
-Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_…`), `current`, or an exact name. `name:<value>` forces a name; it is required for names equal to `current`, shaped like an id, or containing `_`. An ambiguous name fails with every candidate id. `current` is the focused object in the session, not the caller; use `$CMUX_TUI_TERMINAL_ID` for the caller. Ids are stable across app and daemon restarts. The old `window:N`, `workspace:N`, `pane:N` and `surface:N` refs are gone.
+Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_…`), `caller`, `current`, or an exact name. `name:<value>` forces a name; it is required for names equal to `current` or `caller`, shaped like an id, or containing `_`. An ambiguous name fails with every candidate id. `caller` is the workspace, screen, pane, tab or terminal the command runs in (its terminal or agent chat, as `cmux identify` reports). Inside cmux, `current` means the caller's object too; it is the focused object only without a caller (a shell outside cmux) or under `--socket`/`--session`. Prefer `caller` in scripts: it fails instead of guessing. Ids are stable across app and daemon restarts. The old `window:N`, `workspace:N`, `pane:N` and `surface:N` refs are gone.
 
 ## Running a command in a new terminal
 
