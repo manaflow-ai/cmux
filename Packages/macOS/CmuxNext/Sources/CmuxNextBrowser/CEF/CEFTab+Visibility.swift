@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 public import CmuxNextWakeups
 
 // Chromium follows the tab's visibility tree node through `nodeVisibility` (``CEFTabNodeVisibility``).
@@ -59,6 +60,10 @@ extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing 
               page.hostReportsUnhandledKeys else { return false }
         return window.firstResponder === page
     }
+
+    /// Where this tab's page draws (``BrowserBackend/pageSurface`` of the process's backend): a window
+    /// that shows it (its DevTools window, a popup window) takes the child-window machinery only in process.
+    public var pageSurface: PageSurface { (host.isHostMode ? BrowserBackend.host : .inProcess).pageSurface }
 
     /// A page window sits at the host view's screen rect to within 2 points.
     nonisolated static func frame(_ frame: CGRect, isPlacedAt rect: CGRect) -> Bool {

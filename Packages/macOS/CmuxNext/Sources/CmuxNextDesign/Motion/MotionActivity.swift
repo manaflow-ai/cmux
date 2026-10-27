@@ -11,7 +11,7 @@ public import QuartzCore
 @MainActor
 enum MotionActivity {
     /// When the last started animation ends (`CACurrentMediaTime`); 0 once that passed.
-    private static var end: CFTimeInterval = 0
+    private(set) static var end: CFTimeInterval = 0
 
     /// An animation runs from now for `seconds` (no effect for 0, a negative or a non-finite time).
     static func began(seconds: TimeInterval) {
@@ -32,6 +32,11 @@ enum MotionActivity {
         if animation.repeatDuration > 0 { return animation.repeatDuration }
         let once = animation.duration * (animation.autoreverses ? 2 : 1)
         return animation.repeatCount > 0 ? once * Double(animation.repeatCount) : once
+    }
+
+    /// Forgets every started animation, so a test reads only the end its own change sets.
+    static func reset() {
+        end = 0
     }
 
     /// A Motion animation runs now.
