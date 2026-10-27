@@ -35,7 +35,9 @@ extension ControlCommandCoordinator {
         }
         return .object([
             "workspace_id": .string(snapshot.workspaceId.uuidString),
+            "workspace_ref": ref(.workspace, snapshot.workspaceId),
             "window_id": orNull(windowID?.uuidString),
+            "window_ref": ref(.window, windowID),
             "enabled": .bool(snapshot.enabled),
             "tier": orNull(snapshot.tier),
             "difficulty": .string(snapshot.difficulty),
@@ -159,6 +161,7 @@ extension ControlCommandCoordinator {
         case .resolved(let windowID, let enabled, let urgentCount, let workspaces):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
                 "enabled": .bool(enabled),
                 "urgent_count": .int(Int64(urgentCount)),
                 "workspaces": .array(workspaces.map { sessionPriorityPayload(windowID: windowID, snapshot: $0) }),
