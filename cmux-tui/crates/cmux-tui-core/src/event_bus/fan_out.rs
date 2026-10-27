@@ -324,7 +324,10 @@ impl ScopedRoute {
             | MuxEvent::ClientDetached(_)
             | MuxEvent::ClientListInvalidated
             | MuxEvent::TreeChanged
-            | MuxEvent::TreeSelectionChanged => Self::None,
+            | MuxEvent::TreeSelectionChanged
+            // Neither scoped filter accepts a daemon diagnostic site; it goes
+            // to the app's control connection, an unscoped subscriber.
+            | MuxEvent::DiagnosticSite(_) => Self::None,
             MuxEvent::GraphicsStatus(_)
             | MuxEvent::Status(_)
             | MuxEvent::ConfigReloadRequested
