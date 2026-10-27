@@ -723,6 +723,22 @@ def signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
                            "stall time, and every other job of the run has finished")
 
 
+def gated_signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime, first_seen: Mapping[Any, dt.datetime],
+                        workflow_text: str | None) -> Look | None:
+    """signing_stall(), with Look "stalled" turned into "watch" unless every unfinished signing job's runs-on in
+    `workflow_text` takes its alternate label on a re-run (sign_stall_gate())."""
+    stall = signing_stall(jobs, now, first_seen)
+    if stall is None or stall.action != "stalled":
+        return stall
+    keys = sorted({key for job in jobs if job.get("status") != "completed" for key in [sign_job_key(job)] if key})
+    missing = sign_stall_gate(workflow_text, keys)
+    if missing:
+        return Look("watch", f"{stall.reason}, but the runs-on of {', '.join(missing)} at the run's head takes no "
+                             "alternate label on a re-run, so a re-run would queue on the same label; not rescued",
+                    waiting=True)
+    return stall
+
+
 def sign_stall_gate(workflow_text: str | None, keys: Sequence[str]) -> list[str]:
     """The jobs among `keys` whose runs-on in `workflow_text` lacks their attempt-2 alternate label expression
     (NIGHTLY_SIGN_ALTERNATES). Fails closed: a missing or unreadable file, or a missing job, counts."""
@@ -1831,8 +1847,12 @@ def read(call: Callable[[], Any], sleep: Callable[[float], None], log: Callable[
 def watch(api: GitHub, target: Target, *, budget_seconds: int,
           now: Callable[[], dt.datetime], sleep: Callable[[float], None],
           log: Callable[[str], None], deadline: dt.datetime | None = None,
-          floor_seconds: int | None = None) -> tuple[str, str]:
+          floor_seconds: int | None = None, sign_seen: dict[Any, dt.datetime] | None = None,
+          sign_text: list[str | None] | None = None) -> tuple[str, str]:
     """Watch until a stop, a rescue or `deadline`. Returns (outcome, reason).
+
+    `sign_seen` and `sign_text` (when each signing job was first seen queued, and the run's workflow file once
+    read) carry over from an earlier watch of the same attempt (follow()), so a stall keeps counting.
 
     A job's budget is cut to end before `deadline`, never below
     `floor_seconds` (job_budget()).
@@ -1847,9 +1867,9 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     on_persistent = False
     picker_marker: bool | None = None
     first_seen: dict[Any, dt.datetime] = {}
-    sign_seen: dict[Any, dt.datetime] = {}
+    sign_seen = {} if sign_seen is None else sign_seen
     sign_said = ""
-    sign_text: list[str | None] = []  # the run's workflow file, read once a signing job stalls
+    sign_text = [] if sign_text is None else sign_text  # the run's workflow file, read once a signing job stalls
     while True:
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
@@ -1867,14 +1887,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     except READ_ERRORS as error:
                         log(f"could not read {target.path} at {target.head_sha[:12]} ({error})")
                         sign_text.append(None)
-                keys = sorted({key for job in jobs if job.get("status") != "completed"
-                               for key in [sign_job_key(job)] if key})
-                sign_gate = sign_stall_gate(sign_text[0], keys)
-                if sign_gate:
-                    stall = Look("watch", f"{stall.reason}, but the runs-on of {', '.join(sign_gate)} in "
-                                          f"{target.path} at {target.head_sha[:12]} takes no alternate label on a "
-                                          "re-run, so a re-run would queue on the same label; not rescued")
-                else:
+                stall = gated_signing_stall(jobs, seen_at, sign_seen, sign_text[0])
+                if stall is not None and stall.action == "stalled":
                     log(f"look {looks}: {stall.reason}")
                     return "stalled", stall.reason
             if stall is not None and stall.reason != sign_said:
@@ -2252,19 +2266,28 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     return f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool"
 
 
+# rescue_stalled_signing()'s answer when its own last look found the run changed; follow() watches on after it.
+SIGN_NOT_YET = "not rescued yet: "
+
+
 def rescue_stalled_signing(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
                            sleep: Callable[[float], None], log: Callable[[str], None],
-                           deadline: dt.datetime | None) -> str:
+                           deadline: dt.datetime | None, sign_seen: Mapping[Any, dt.datetime] | None = None,
+                           workflow_text: str | None = None) -> str:
     """Cancel a nightly-next run whose only unfinished jobs are signing jobs stalled on Blacksmith macOS, then
     re-run its failed jobs: only those jobs (and what needs them) run again, on their alternate label.
 
-    The jobs are read again first, so a job that started or a sibling that came back since the watch's look
-    leaves the run alone (signing_stall()), and rescue() reads the run's attempt and status before it cancels.
+    The jobs are read again first, with the watch's first-seen times and the gate (gated_signing_stall()), so
+    a job that started, a sibling that came back or a job without the alternate leaves the run alone, and
+    rescue() reads the run's attempt and status before it cancels. A runner can still take a stalled job in
+    the few requests between that read and the cancel; that job is cancelled in its setup, having done no
+    work, and re-run on the alternate label. A cancel whose re-run fails leaves the run cancelled, which
+    gave_up() annotates and nightly-next-tick.yml re-runs (scripts/ci/nightly_next_cancelled_tip.sh).
     """
     jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-    look = signing_stall(jobs, now())
+    look = gated_signing_stall(jobs, now(), sign_seen or {}, workflow_text)
     if look is None or look.action != "stalled":
-        return f"not rescued: {look.reason if look else 'no signing job is stalled any more'}"
+        return f"{SIGN_NOT_YET}{look.reason if look else 'no signing job is stalled any more'}"
     result = rescue(api, target, now=now, sleep=sleep, log=log, failed_only=True, deadline=deadline, refused=False)
     if result.startswith("re-ran the failed jobs"):
         result += "; its signing jobs take their alternate macOS label on that attempt"
@@ -2399,12 +2422,24 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     rescue_deadline = capped(deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS))
     # Every attempt gets the queue allowance: a re-run's owned jobs queue on the owned labels like attempt 1's.
     first_budget = effective_seconds + queue_extra
+    sign_seen: dict[Any, dt.datetime] = {}
+    sign_text: list[str | None] = []
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
-                            log=log, deadline=deadline, floor_seconds=effective_seconds)
-    if outcome == "stalled":
+                            log=log, deadline=deadline, floor_seconds=effective_seconds,
+                            sign_seen=sign_seen, sign_text=sign_text)
+    while outcome == "stalled":
         log(f"stalled: {reason}")
-        log(rescue_stalled_signing(client, target, now=clock, sleep=rescue_sleep, log=log, deadline=rescue_deadline))
-        return "done"
+        result = rescue_stalled_signing(client, target, now=clock, sleep=rescue_sleep, log=log,
+                                        deadline=rescue_deadline, sign_seen=sign_seen,
+                                        workflow_text=sign_text[0] if sign_text else None)
+        log(result)
+        if not result.startswith(SIGN_NOT_YET) or clock() >= deadline:
+            return "done"
+        # The run changed since the look (a job started, a sibling came back): watch on, next look decides.
+        sleep(POLL_SECONDS)
+        outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
+                                log=log, deadline=deadline, floor_seconds=effective_seconds,
+                                sign_seen=sign_seen, sign_text=sign_text)
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}"
     if target.refusals_only and outcome == "rescue":

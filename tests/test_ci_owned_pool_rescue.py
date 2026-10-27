@@ -3229,8 +3229,38 @@ class NightlySigningStall(unittest.TestCase):
         clock.seconds = 60 + rescue.SIGN_STALL_SECONDS + 30
         result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
                                                deadline=clock.now() + dt.timedelta(hours=1))
-        self.assertTrue(result.startswith("not rescued:"), result)
+        self.assertTrue(result.startswith(rescue.SIGN_NOT_YET), result)
         self.assertEqual(mutations(api), [])
+        # Nor does a job whose runs-on has no alternate, though the watch's look had passed the gate.
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                               deadline=clock.now() + dt.timedelta(hours=1),
+                                               workflow_text=SIGN_WORKFLOW_BEFORE)
+        self.assertIn("takes no alternate label on a re-run", result)
+        self.assertEqual(mutations(api), [])
+        # A job first seen queued late counts from then, not from its created_at.
+        result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                               deadline=clock.now() + dt.timedelta(hours=1),
+                                               sign_seen={4: clock.now(), 5: clock.now()}, workflow_text=SIGN_WORKFLOW)
+        self.assertTrue(result.startswith(rescue.SIGN_NOT_YET), result)
+        self.assertEqual(mutations(api), [])
+
+    def test_a_change_at_the_last_look_resumes_the_watch(self):
+        # The final look finds a sibling running again; the watch goes on and rescues once it finishes.
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        real = rescue.rescue_stalled_signing
+        answers = []
+
+        def once(*args, **kwargs):
+            if not answers:
+                answers.append(rescue.SIGN_NOT_YET + "a sibling came back")
+                return answers[0]
+            return real(*args, **kwargs)
+        with unittest.mock.patch.object(rescue, "rescue_stalled_signing", once):
+            _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn("not rescued yet: a sibling came back", summary)
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
 
     def test_signing_stall_rules(self):
         now = START + dt.timedelta(seconds=60 + rescue.SIGN_STALL_SECONDS)
