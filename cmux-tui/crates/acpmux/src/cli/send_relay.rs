@@ -72,12 +72,14 @@ pub(crate) fn attach_error(e: anyhow::Error, relaying: bool, session: &str) -> a
     if unknown { AppError::no_session(session).into() } else { e }
 }
 
-/// The sender the relay names in `ACPMUX_FROM`: `--from` or `ACPMUX_FROM` (`named`), else the
-/// acpmux session this runs in, which its own daemon would have proved.
+/// The sender the relay names in `ACPMUX_FROM`: `--from` or `ACPMUX_FROM` outside a session
+/// (`named`), else `ACPMUX_FROM`, else the acpmux session this runs in, which its own daemon
+/// would have proved; the relay's receiver has no daemon to prove it to.
 pub(crate) fn sender(named: Option<&str>, env: impl Fn(&str) -> Option<String>) -> Option<String> {
     let set = |key: &str| env(key).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
     named
         .map(str::to_owned)
+        .or_else(|| set(FROM_ENV))
         .or_else(|| set("ACPMUX_SESSION_ID").and_then(|_| set("ACPMUX_SESSION_NAME")))
 }
 
@@ -211,9 +213,15 @@ mod tests {
             move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
         };
         let in_session = env(&[("ACPMUX_SESSION_ID", "s-1"), ("ACPMUX_SESSION_NAME", "lane-a")]);
-        assert_eq!(sender(Some("vm/lane"), &in_session).as_deref(), Some("vm/lane"));
-        assert_eq!(sender(None, &in_session).as_deref(), Some("lane-a"));
+        assert_eq!(sender(Some("vm/lane"), in_session).as_deref(), Some("vm/lane"));
+        assert_eq!(sender(None, in_session).as_deref(), Some("lane-a"));
         assert_eq!(sender(None, env(&[("ACPMUX_SESSION_NAME", "lane-a")])), None);
+        let named_in_session = env(&[
+            (FROM_ENV, "vm/lane"),
+            ("ACPMUX_SESSION_ID", "s-1"),
+            ("ACPMUX_SESSION_NAME", "lane-a"),
+        ]);
+        assert_eq!(sender(None, named_in_session).as_deref(), Some("vm/lane"));
         assert_eq!(sender(None, env(&[])), None);
     }
 
