@@ -6,8 +6,8 @@ on blacksmith-12vcpu-macos-26. Two cmux-tui workloads reached that label through
 vars.MACOS_RUNNER_PR (which names it):
 
 - cmux-tui.yml's release-path dogfood build, on every attempt (#20612).
-- cmux-tui-artifacts.yml's cmux_next_ daemon tests and macOS build legs on a
-  re-run: attempt 1 takes the owned side label, but
+- cmux-tui-artifacts.yml's cmux_next_ daemon tests (on Blacksmith Linux
+  since 2026-10-26) and macOS build legs on a re-run: attempt 1 takes the owned side label, but
   cmux-tui-artifacts-retry re-runs a failed run's jobs (attempt 2 and 3), and
   those fell through to vars.MACOS_RUNNER_PR. Run 38579574731 attempt 2 ran
   the daemon tests on blacksmith-12vcpu-macos-26.
@@ -36,7 +36,7 @@ PROMOTE_LABEL = "glaeda-promote-trusted-std-xcode-26.6"
 DAEMON_LABEL = "glaeda-daemon-tests-xcode-26.6"
 LIGHT_LABEL = "glaeda-side-light-xcode-26.6"
 PIN_LABEL = "glaeda-pin-daemon-xcode-26.6"
-LINUX_DAEMON_LABEL = "blacksmith-16vcpu-ubuntu-2404"
+LINUX_DAEMON_LABEL = "blacksmith-32vcpu-ubuntu-2404"
 PIN_REF = "refs/heads/cmux-tui-pin-0123456789ab"
 
 # The repository's variables as of 2026-10-14 (gh variable list), the ones
@@ -175,64 +175,19 @@ def test_dogfood_artifacts_never_take_the_nightly_label() -> None:
                 assert label == "blacksmith-6vcpu-macos-15", where
 
 
-def test_daemon_tests_stay_on_the_owned_minis_on_every_attempt() -> None:
+def test_daemon_tests_never_take_a_mac() -> None:
+    # 2026-10-26 (Leo: "I THOUGHT THESE COULD JUST GO ON LINUX"): the
+    # promotion gate runs on Blacksmith Linux on every attempt, so no re-run
+    # reaches the nightly label, the side lane or the promote pool
+    # (tests/test_cmux_tui_daemon_tests_gate.py).
     runs_on = load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"]["runs-on"]
-    trusted = {"push", "pull_request", "workflow_dispatch", "schedule"}
     for owned in ("1", ""):
-        for context in contexts(CI_PR_POOL_OWNED=owned):
+        for context in contexts(CI_PR_POOL_OWNED=owned, CI_NEXT_DAEMON_POOL=DAEMON_LABEL):
             label = route(runs_on, context)
             where = (context["github.repository_owner"], context["github.event_name"],
                      context["github.ref"], context["github.run_attempt"], owned)
-            if context["github.repository_owner"] != "manaflow-ai":
-                assert label == "macos-26", where
-                continue
-            assert label != NIGHTLY_LABEL, where
-            # cx-km8nz: attempt 1 of a feat-cmux-next push takes the reserved
-            # promote runners, whatever the owned-pool switch says.
-            if (
-                context["github.event_name"] == "push"
-                and context["github.ref"] == "refs/heads/feat-cmux-next"
-                and context["github.run_attempt"] == 1
-            ):
-                assert label == PROMOTE_LABEL, where
-                continue
-            # 2026-10-21: a cmux-tui-pin-* push takes its own pool, else
-            # Blacksmith Linux, on every attempt; never the side lane
-            # (tests/test_cmux_tui_daemon_tests_linux.py).
-            if context["github.event_name"] == "push" and context["github.ref"] == PIN_REF:
-                assert label == LINUX_DAEMON_LABEL, where
-                continue
-            if owned != "1" or context["github.event_name"] not in trusted:
-                assert label == "blacksmith-6vcpu-macos-15", where
-                continue
-            # Every other re-run stays on the minis.
-            assert label == SIDE_LABEL, where
-    # CI_PIN_DAEMON_POOL, when set, takes every attempt of a pin push.
-    for owned in ("1", ""):
-        for context in contexts(CI_PR_POOL_OWNED=owned, CI_PIN_DAEMON_POOL=PIN_LABEL):
-            label = route(runs_on, context)
-            where = (context["github.repository_owner"], context["github.event_name"],
-                     context["github.ref"], context["github.run_attempt"], owned)
-            pin_push = (context["github.repository_owner"] == "manaflow-ai"
-                        and context["github.event_name"] == "push" and context["github.ref"] == PIN_REF)
-            assert (label == PIN_LABEL) == pin_push, where
-
-
-def test_pin_pushes_while_promotion_shares_the_light_minis() -> None:
-    # The landing state (claude-sr2, 2026-10-21): CI_PIN_DAEMON_POOL unset and
-    # CI_NEXT_DAEMON_POOL naming the light minis. Pins take Linux on every
-    # attempt; a pin pool naming the promotion's pool or the side lane is
-    # ignored for Linux.
-    runs_on = load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"]["runs-on"]
-    for pin in ("", LIGHT_LABEL, SIDE_LABEL):
-        for context in contexts(CI_NEXT_DAEMON_POOL=LIGHT_LABEL, CI_PIN_DAEMON_POOL=pin):
-            if (context["github.repository_owner"], context["github.event_name"], context["github.ref"]) == (
-                    "manaflow-ai", "push", PIN_REF):
-                assert route(runs_on, context) == LINUX_DAEMON_LABEL, (pin, context["github.run_attempt"])
-    for context in contexts(CI_NEXT_DAEMON_POOL=PIN_LABEL, CI_PIN_DAEMON_POOL=PIN_LABEL):
-        if (context["github.repository_owner"], context["github.event_name"], context["github.ref"]) == (
-                "manaflow-ai", "push", PIN_REF):
-            assert route(runs_on, context) == LINUX_DAEMON_LABEL, context["github.run_attempt"]
+            expected = LINUX_DAEMON_LABEL if context["github.repository_owner"] == "manaflow-ai" else "ubuntu-24.04"
+            assert label == expected, where
 
 
 def _pin_variable_combinations():
@@ -277,36 +232,6 @@ def test_pin_pushes_never_share_the_side_lane_or_the_promotion_daemon_pool() -> 
                 assert label != NIGHTLY_LABEL, where
 
 
-def test_daemon_tests_take_their_own_promote_time_pool_when_set() -> None:
-    # 2026-10-15: one mini serves CI_NEXT_PROMOTE_POOL, and cmux-next.yml's
-    # Release compile runs there too, so the daemon tests queued behind it
-    # for over an hour (runs 38702524262, 38702991658, 38705858681,
-    # 38706222238) and nightly-next promotion stalled. CI_NEXT_DAEMON_POOL
-    # takes attempt 1 of a feat-cmux-next push when set; empty, the promote
-    # pool keeps it. Every other context routes as before.
-    runs_on = load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"]["runs-on"]
-    for owned in ("1", ""):
-        for unset, set_ in zip(contexts(CI_PR_POOL_OWNED=owned),
-                               contexts(CI_PR_POOL_OWNED=owned, CI_NEXT_DAEMON_POOL=DAEMON_LABEL)):
-            where = (set_["github.repository_owner"], set_["github.event_name"],
-                     set_["github.ref"], set_["github.run_attempt"], owned)
-            promote_slot = (
-                set_["github.repository_owner"] == "manaflow-ai"
-                and set_["github.event_name"] == "push"
-                and set_["github.ref"] == "refs/heads/feat-cmux-next"
-                and set_["github.run_attempt"] == 1
-            )
-            if promote_slot:
-                assert route(runs_on, unset) == PROMOTE_LABEL, where
-                assert route(runs_on, set_) == DAEMON_LABEL, where
-            else:
-                assert route(runs_on, set_) == route(runs_on, unset), where
-                assert route(runs_on, set_) != DAEMON_LABEL, where
-            # The dispatch input still wins over the new pool.
-            set_["inputs.macos_runner"] = "blacksmith-6vcpu-macos-26"
-            assert route(runs_on, set_) == "blacksmith-6vcpu-macos-26", where
-
-
 def test_artifact_build_legs_never_rerun_on_the_nightly_label() -> None:
     build = load("cmux-tui-artifacts.yml")["jobs"]["build"]["with"]
     for owned in ("1", ""):
@@ -322,7 +247,6 @@ def test_a_dispatch_runner_input_still_wins() -> None:
     artifacts = load("cmux-tui-artifacts.yml")["jobs"]
     for context in contexts(**{}):
         context["inputs.macos_runner"] = "blacksmith-6vcpu-macos-26"
-        assert route(artifacts["cmux-next-daemon-tests"]["runs-on"], context) == "blacksmith-6vcpu-macos-26"
         assert route(artifacts["build"]["with"]["macos_runner"], context) == "blacksmith-6vcpu-macos-26"
 
 

@@ -32,6 +32,7 @@ from pathlib import Path
 import browser_resize
 import dark_load_flash
 import sidebar_content
+import split_resize
 
 EPS = 0.75  # points: a value this close to its start or end counts as there
 
@@ -54,6 +55,8 @@ THRESHOLDS: dict[str, dict[str, float]] = {
     "reduce_sidebar_expand": {"max_intermediate": 1, "min_frames": 20},
     # Reported only (browser_resize.py): frames a Chromium page trails its host in a live resize.
     "browser_resize": {},
+    # Reported only (split_resize.py): a Chromium page beside a split divider a person drags.
+    "split_resize": {},
     # Judged by dark_load_flash.py: no frame brighter than the window at rest while a page loads.
     "dark_load_flash": {},
 }
@@ -197,6 +200,9 @@ class Driver:
     def browser_resize(self) -> None:
         browser_resize.drive(self, self.out)
 
+    def split_resize(self) -> None:
+        split_resize.drive(self, self.out)
+
     def dark_load_flash(self) -> None:
         dark_load_flash.drive(self, self.out)
 
@@ -247,6 +253,7 @@ class Driver:
             ("transcript_follow", self.transcript),
             ("capture", self.capture),
             ("browser_resize", self.browser_resize),
+            ("split_resize", self.split_resize),
             # Last: it leaves the app in a dark theme of its own.
             ("dark_load_flash", self.dark_load_flash),
         ]
@@ -397,6 +404,9 @@ def judge(out: Path) -> dict[str, dict]:
         if name == "browser_resize":
             verdicts[name] = browser_resize.judge(data or {"error": "no result file"}, refresh)
             continue
+        if name == "split_resize":
+            verdicts[name] = split_resize.judge(data or {"error": "no result file"}, refresh)
+            continue
         if name == "dark_load_flash":
             verdicts[name] = dark_load_flash.judge(data or {"error": "no result file"}, refresh)
             continue
@@ -522,6 +532,9 @@ def markdown(out: Path, verdicts: dict[str, dict]) -> str:
     for name, verdict in verdicts.items():
         if name == "browser_resize":
             lines.append(browser_resize.markdown_row(verdict))
+            continue
+        if name == "split_resize":
+            lines.append(split_resize.markdown_row(verdict))
             continue
         if name == "dark_load_flash":
             lines.append(dark_load_flash.markdown_row(verdict))
