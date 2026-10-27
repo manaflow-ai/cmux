@@ -161,7 +161,7 @@ import Testing
         try #require(contents.count == Self.strip.count)
         w.window.displayIfNeeded()
         let tracking = contents.map(\.trackingAreaUpdates), dividerAreas = dividers.map(\.trackingAreaIDs)
-        let cursors = contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets)
+        let cursors = contents.map(\.cursorRectResets)
         let shownBefore = try #require(w.root.frame(of: "p2"))
         #expect(w.scroll(at: point, phase: .began), "the layout takes the Command gesture")
         let sets = screen.stripContainer.translationSets
@@ -180,7 +180,7 @@ import Testing
         #expect(w.root.overlayHostsPlaced == placed, "no overlay sync places a ring during the pan")
         #expect(contents.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt")
         #expect(dividers.map(\.trackingAreaIDs) == dividerAreas, "the dividers keep their one tracking area")
-        #expect(contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
+        #expect(contents.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
         #expect(screen.stripContainer.translationSets - sets == 50, "one translation per event")
         #expect(Window.translation(of: screen.stripChrome.layer) == screen.stripContainer.translation,
                 "the rings' plane takes the same translation")
@@ -570,7 +570,8 @@ import Testing
 }
 
 extension DividerHandleView {
-    /// The identities of the handle's own tracking areas: init adds one, and a pan or fling keeps it.
+    /// The identities of the handle's own tracking areas (init's hover area and the cursor area at its rect):
+    /// a pan or fling, which sets no frame, keeps them.
     var trackingAreaIDs: [ObjectIdentifier] {
         trackingAreas.filter { ($0.owner as? NSView) === self }.map { ObjectIdentifier($0) }
     }

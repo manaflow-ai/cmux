@@ -45,6 +45,7 @@ public class ArrowCursorView: NSView {
 
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // cursor-rects-allow: the key window's fallback under subviews' own rects (the editing omnibar text); `.cursorUpdate` showed the arrow past the text in a window that was not key (see init)
     public override func resetCursorRects() {
         addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
     }

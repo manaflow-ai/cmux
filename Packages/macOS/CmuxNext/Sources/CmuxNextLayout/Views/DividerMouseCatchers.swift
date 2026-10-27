@@ -164,7 +164,7 @@ final class DividerMousePanel: NSPanel {
 /// view gets the press and, as the press's view, the drags and the release.
 final class DividerMouseCatcherView: NSView {
     var resizesColumns = true {
-        didSet { if resizesColumns != oldValue { window?.invalidateCursorRects(for: self) } }
+        didSet { if resizesColumns != oldValue, isEntered { cursor.set() } }
     }
     var onHover: ((Bool) -> Void)?
 
@@ -223,6 +223,7 @@ final class DividerMouseCatcherView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) { forward(event) }
+    // input-coalesce: native (a forward into the parent window, whose divider drag coalesces it, p04-input-031)
     override func mouseDragged(with event: NSEvent) { forward(event) }
     override func mouseUp(with event: NSEvent) { forward(event) }
     override func rightMouseDown(with event: NSEvent) { forward(event) }

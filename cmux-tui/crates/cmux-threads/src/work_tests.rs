@@ -192,6 +192,26 @@ fn shutdown_runs_block_items_and_drops_skip_items() {
 }
 
 #[test]
+fn posted_counts_accepted_items_of_their_lane_only() {
+    let work = work("t-posted", 2, Duration::from_secs(30), 0);
+    for _ in 0..3 {
+        work.post(Priority::UserVisible, Lane::Cpu, Shutdown::SkipOnShutdown, || {}).unwrap();
+    }
+    assert_eq!(
+        work.run(Priority::BestEffort, Lane::Files, Shutdown::SkipOnShutdown, || 1).wait(),
+        Ok(1)
+    );
+    assert_eq!(lane_stats(&work, Lane::Cpu).posted, 3);
+    assert_eq!(lane_stats(&work, Lane::Files).posted, 1);
+    work.shutdown();
+    assert_eq!(
+        work.post(Priority::UserBlocking, Lane::Cpu, Shutdown::SkipOnShutdown, || {}),
+        Err(Refused)
+    );
+    assert_eq!(lane_stats(&work, Lane::Cpu).posted, 3, "a refused item counted as posted");
+}
+
+#[test]
 fn shutdown_waits_for_started_skip_items_and_not_for_continue_items() {
     let work = work("t-skip", 1, Duration::from_secs(30), 0);
     let skip =

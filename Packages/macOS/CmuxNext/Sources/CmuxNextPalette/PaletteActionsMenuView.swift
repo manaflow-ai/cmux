@@ -179,6 +179,7 @@ final class PaletteActionsMenuView: NSView {
         press.began(event)
     }
 
+    // input-coalesce: native (a press highlight: a row hit test per event; it selects only when the row changes)
     override func mouseDragged(with event: NSEvent) {
         guard press.isPressed else { return super.mouseDragged(with: event) }
         press.dragged(event)
