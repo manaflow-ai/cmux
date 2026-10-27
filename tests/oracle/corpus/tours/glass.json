@@ -27,7 +27,8 @@
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
-    "the main window is 1440 x 900 pt"
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -110,8 +111,8 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/topology/topology/workspaces",
-        "predicate": "changed",
+        "pointer": "/terminals/list/1/attach",
+        "equals": "attached",
         "maxMs": 5000
       }
     },
@@ -135,7 +136,7 @@
           "current",
           "write",
           "--text",
-          "clear; echo 'cmux glass tour: plain text stays readable over the art'; for c in 1 2 3 4 5 6 7; do printf '\\033[3%sm color %s \\033[1m bold \\033[0m' $c $c; done; echo\r"
+          "clear; echo 'cmux glass tour: plain text stays readable over the art'; for c in 1 2 3 4 5 6 7; do printf '\\033[3%sm color %s \\033[1m bold \\033[0m' $c $c; done; echo; printf '\\033]2;%s\\007' 'tours glass 03'; cat >/dev/null\r"
         ]
       },
       "expect": {
@@ -143,11 +144,12 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/terminals/list",
-        "predicate": "changed",
+        "pointer": "/topology/topology/workspaces/1/screens/0/panes/0/tabs/0/title",
+        "equals": "tours glass 03",
         "maxMs": 10000
       },
-      "settleMaxMs": 10000
+      "settleMaxMs": 10000,
+      "note": "the screen is the command's output alone: it starts with clear, sets its title last and holds the shell, so no prompt races the snapshot; the step waits on that title"
     },
     {
       "id": "04-split-right",
@@ -171,25 +173,6 @@
         "predicate": "changed",
         "maxMs": 5000
       }
-    },
-    {
-      "id": "05-agent-chat-beside-the-terminal",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "agent",
-          "new-chat"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "settleMaxMs": 10000,
-      "note": "tour.py optional (agent chat views are not ported yet): the settle barrier alone, since the step may not do its work"
     },
     {
       "id": "06-command-palette-on-glass-over-art",
@@ -421,6 +404,7 @@
     "verify its debug socket is gone"
   ],
   "untested": [
-    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture"
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture",
+    "tour step 5 (Agent chat beside the terminal): `cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build"
   ]
 }

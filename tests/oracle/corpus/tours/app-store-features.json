@@ -27,7 +27,8 @@
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
-    "the main window is 1440 x 900 pt"
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -60,8 +61,12 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "settleMaxMs": 10000,
-      "note": "no snapshot value appStore.show is sure to change"
+      "waitFor": {
+        "pointer": "/webviews/pages",
+        "predicate": "changed",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000
     },
     {
       "id": "03-shuffle-paintings-on-the-card-says-on-an",
@@ -129,7 +134,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (debug.appearance is DEBUG only): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (debug.appearance is DEBUG only), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers debug.appearance in DEBUG || CMUX_BENCH_HOOKS builds and answers in its main-actor turn, so the bench build runs it; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "06-back-to-the-system-appearance",
@@ -149,7 +154,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (debug.appearance is DEBUG only): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (debug.appearance is DEBUG only), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers debug.appearance in DEBUG || CMUX_BENCH_HOOKS builds and answers in its main-actor turn, so the bench build runs it; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "07-both-removed-the-cards-say-get-again",

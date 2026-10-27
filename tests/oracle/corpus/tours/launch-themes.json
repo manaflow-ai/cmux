@@ -27,7 +27,8 @@
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
-    "the main window is 1440 x 900 pt"
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -85,8 +86,8 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/topology/topology/workspaces",
-        "predicate": "changed",
+        "pointer": "/terminals/list/1/attach",
+        "equals": "attached",
         "maxMs": 5000
       }
     },
@@ -109,8 +110,8 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/topology/topology/workspaces",
-        "predicate": "changed",
+        "pointer": "/terminals/list/2/attach",
+        "equals": "attached",
         "maxMs": 5000
       }
     },
@@ -133,8 +134,8 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/topology/topology/workspaces",
-        "predicate": "changed",
+        "pointer": "/terminals/list/3/attach",
+        "equals": "attached",
         "maxMs": 5000
       }
     },
@@ -158,7 +159,7 @@
           "current",
           "write",
           "--text",
-          "clear; printf '%s\\n' 'cmux launch clip' infra docs-site app\r"
+          "clear; printf '%s\\n' 'cmux launch clip' infra docs-site app; printf '\\033]2;%s\\007' 'tours launch-themes 05'; cat >/dev/null\r"
         ]
       },
       "expect": {
@@ -166,11 +167,11 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/terminals/list",
-        "predicate": "changed",
+        "pointer": "/topology/topology/workspaces/3/screens/0/panes/0/tabs/0/title",
+        "equals": "tours launch-themes 05",
         "maxMs": 5000
       },
-      "note": "host output (uname, the macOS app list) differs by host and OS; a golden baseline needs fixed text"
+      "note": "host output (uname, the macOS app list) differs by host and OS; a golden baseline needs fixed text; the screen is the command's output alone: it starts with clear, sets its title last and holds the shell, so no prompt races the snapshot; the step waits on that title"
     },
     {
       "id": "06-split-right",
@@ -194,25 +195,6 @@
         "predicate": "changed",
         "maxMs": 5000
       }
-    },
-    {
-      "id": "07-agent-chat-beside-the-terminal",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "agent",
-          "new-chat"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "settleMaxMs": 10000,
-      "note": "tour.py optional (agent chat needs the agent backend on this runner): the settle barrier alone, since the step may not do its work"
     },
     {
       "id": "08-soft-blue",
@@ -353,6 +335,7 @@
     "verify its debug socket is gone"
   ],
   "untested": [
-    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture"
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture",
+    "tour step 7 (Agent chat beside the terminal): `cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build"
   ]
 }

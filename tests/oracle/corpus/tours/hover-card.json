@@ -27,7 +27,8 @@
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
-    "the main window is 1440 x 900 pt"
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -84,7 +85,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "no snapshot value this command is sure to change"
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "03-session-cards-light",
@@ -177,7 +178,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "no snapshot value this command is sure to change"
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "07-tab-cards-light-over-art",
@@ -269,7 +270,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "no snapshot value this command is sure to change"
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "11-new-workspace",
@@ -290,8 +291,8 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/topology/topology/workspaces",
-        "predicate": "changed",
+        "pointer": "/terminals/list/1/attach",
+        "equals": "attached",
         "maxMs": 5000
       }
     },
@@ -312,8 +313,12 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "settleMaxMs": 10000,
-      "note": "no snapshot value workspace.showResources is sure to change"
+      "waitFor": {
+        "pointer": "/overlays/hoverCard/target",
+        "predicate": "changed",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000
     }
   ],
   "invariants": [

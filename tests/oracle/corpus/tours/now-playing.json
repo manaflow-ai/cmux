@@ -27,7 +27,8 @@
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
-    "the main window is 1440 x 900 pt"
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"

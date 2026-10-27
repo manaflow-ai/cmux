@@ -21,15 +21,14 @@
     "seed": "tours-pinned-tabs-v1",
     "network": "offline",
     "clock": "fixed",
-    "agent": "mock",
-    "web": true
+    "agent": "mock"
   },
   "preconditions": [
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
     "the main window is 1440 x 900 pt",
-    "the loopback web fixture server ($WEB, webfixture.py)"
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -61,8 +60,8 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/topology/topology/workspaces",
-        "predicate": "changed",
+        "pointer": "/terminals/list/1/attach",
+        "equals": "attached",
         "maxMs": 5000
       }
     },
@@ -113,32 +112,6 @@
       }
     },
     {
-      "id": "05-browser-tab-four-tabs",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "tab",
-          "new-browser",
-          "--url",
-          "$WEB/load.html"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/0/loadState",
-        "equals": "finished",
-        "maxMs": 10000
-      },
-      "settleMaxMs": 10000,
-      "note": "the tour's remote page is $WEB/load.html (the loopback web fixture)"
-    },
-    {
       "id": "06-pin-the-browser-tab-it-moves-to-the-star",
       "op": "cli",
       "target": {
@@ -159,7 +132,8 @@
         "pointer": "/topology/topology/workspaces",
         "predicate": "changed",
         "maxMs": 5000
-      }
+      },
+      "note": "the browser tab step is dropped (no web fixture in driver_app), so this pins the selected terminal tab"
     },
     {
       "id": "07-select-the-next-tab",
@@ -263,6 +237,7 @@
     "verify its debug socket is gone"
   ],
   "untested": [
-    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture"
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture",
+    "tour step 5 (Browser tab: four tabs): driver_app.py fails a fixture.web case as a Crash (no loopback web fixture yet), so a step that opens a $WEB page waits until driver_app serves webfixture.py"
   ]
 }

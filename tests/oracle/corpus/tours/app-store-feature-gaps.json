@@ -27,7 +27,8 @@
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
-    "the main window is 1440 x 900 pt"
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -60,8 +61,12 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "settleMaxMs": 10000,
-      "note": "no snapshot value appStore.show is sure to change"
+      "waitFor": {
+        "pointer": "/webviews/pages",
+        "predicate": "changed",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000
     },
     {
       "id": "03-channels-on-its-card-says-on-and-channel",
@@ -88,27 +93,6 @@
       }
     },
     {
-      "id": "04-new-terminal-added-to-the-sidebar-its-ca",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "action",
-          "run",
-          "sidebar.item.add",
-          "--item",
-          "new_terminal"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "note": "tour.py optional (the sidebar.item.add flag name may differ): the settle barrier alone, since the step may not do its work"
-    },
-    {
       "id": "05-dark",
       "op": "cli",
       "target": {
@@ -126,7 +110,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (debug.appearance is DEBUG only): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (debug.appearance is DEBUG only), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers debug.appearance in DEBUG || CMUX_BENCH_HOOKS builds and answers in its main-actor turn, so the bench build runs it; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "06-back-to-the-system-appearance",
@@ -146,7 +130,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (debug.appearance is DEBUG only): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (debug.appearance is DEBUG only), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers debug.appearance in DEBUG || CMUX_BENCH_HOOKS builds and answers in its main-actor turn, so the bench build runs it; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "07-channels-removed-its-card-says-get",
@@ -181,6 +165,7 @@
     "verify its debug socket is gone"
   ],
   "untested": [
-    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture"
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture",
+    "tour step 4 (New Terminal added to the sidebar: its card says On): tour.py optional (the sidebar.item.add flag name may differ): its outcome on the bench build is not known, and a case step expects one outcome"
   ]
 }

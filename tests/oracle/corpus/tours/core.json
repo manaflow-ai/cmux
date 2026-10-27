@@ -21,15 +21,14 @@
     "seed": "tours-core-v1",
     "network": "offline",
     "clock": "fixed",
-    "agent": "mock",
-    "web": true
+    "agent": "mock"
   },
   "preconditions": [
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
     "the main window is 1440 x 900 pt",
-    "the loopback web fixture server ($WEB, webfixture.py)"
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -61,8 +60,8 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/topology/topology/workspaces",
-        "predicate": "changed",
+        "pointer": "/terminals/list/1/attach",
+        "equals": "attached",
         "maxMs": 5000
       }
     },
@@ -86,7 +85,7 @@
           "current",
           "write",
           "--text",
-          "echo hello from the cmux-next tour\r"
+          "clear; echo hello from the cmux-next tour; printf '\\033]2;%s\\007' 'tours core 03'; cat >/dev/null\r"
         ]
       },
       "expect": {
@@ -94,10 +93,11 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/terminals/list",
-        "predicate": "changed",
+        "pointer": "/topology/topology/workspaces/1/screens/0/panes/0/tabs/0/title",
+        "equals": "tours core 03",
         "maxMs": 5000
-      }
+      },
+      "note": "the screen is the command's output alone: it starts with clear, sets its title last and holds the shell, so no prompt races the snapshot; the step waits on that title"
     },
     {
       "id": "04-a-command-reports-progress-tab-loading-s",
@@ -119,7 +119,7 @@
           "current",
           "write",
           "--text",
-          "clear; printf '\\033]9;4;3\\007'; cat >/dev/null\r"
+          "\u0004clear; printf '\\033]9;4;3\\007'; printf '\\033]2;%s\\007' 'tours core 04'; cat >/dev/null\r"
         ]
       },
       "expect": {
@@ -127,11 +127,11 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/terminals/list",
-        "predicate": "changed",
+        "pointer": "/topology/topology/workspaces/1/screens/0/panes/0/tabs/0/title",
+        "equals": "tours core 04",
         "maxMs": 5000
       },
-      "note": "the shell holds the progress state by reading stdin, not by a timed wait"
+      "note": "the shell holds the progress state by reading stdin, not by a timed wait; the screen is the command's output alone: it starts with clear, sets its title last and holds the shell, so no prompt races the snapshot; the step waits on that title"
     },
     {
       "id": "05-split-right",
@@ -203,32 +203,6 @@
       }
     },
     {
-      "id": "08-browser-tab",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "tab",
-          "new-browser",
-          "--url",
-          "$WEB/load.html"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "waitFor": {
-        "pointer": "/tabs/panes/0/tabs/0/loadState",
-        "equals": "finished",
-        "maxMs": 10000
-      },
-      "settleMaxMs": 10000,
-      "note": "the tour's remote page is $WEB/load.html (the loopback web fixture)"
-    },
-    {
       "id": "09-hide-the-sidebar",
       "op": "cli",
       "target": {
@@ -293,45 +267,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "no snapshot value this command is sure to change"
-    },
-    {
-      "id": "12-notifications-panel",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "action",
-          "run",
-          "showNotifications"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "note": "tour.py optional (the notifications panel is not ported yet): the settle barrier alone, since the step may not do its work"
-    },
-    {
-      "id": "13-agent-chat",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "agent",
-          "new-chat"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "settleMaxMs": 10000,
-      "note": "tour.py optional (agent chat views are not ported yet): the settle barrier alone, since the step may not do its work"
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "14-agent-workspace",
@@ -352,8 +288,8 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/topology/topology/workspaces",
-        "predicate": "changed",
+        "pointer": "/terminals/list/5/attach",
+        "equals": "attached",
         "maxMs": 5000
       }
     },
@@ -377,7 +313,7 @@
           "current",
           "write",
           "--text",
-          "clear; printf '\\033]7501;state=working\\033\\\\'; head -n 1 >/dev/null; printf '\\033]7501;state=done\\033\\\\'; cat >/dev/null\r"
+          "clear; printf '\\033]7501;state=working\\033\\\\'; printf '\\033]2;%s\\007' 'tours core 15'; head -n 1 >/dev/null; printf '\\033]7501;state=done\\033\\\\'; printf '\\033]2;%s\\007' 'tours core 17'; cat >/dev/null\r"
         ]
       },
       "expect": {
@@ -385,11 +321,11 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/terminals/list",
-        "predicate": "changed",
+        "pointer": "/topology/topology/workspaces/2/screens/0/panes/0/tabs/0/title",
+        "equals": "tours core 15",
         "maxMs": 5000
       },
-      "note": "the agent state holds until a later step writes a line, not for 8 timed seconds; then the shell reads stdin"
+      "note": "the agent state holds until a later step writes a line, not for 8 timed seconds; each state then sets its title, and the shell reads stdin"
     },
     {
       "id": "16-an-agent-works-row-working-spinner",
@@ -410,8 +346,8 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/topology/topology/workspaces",
-        "predicate": "changed",
+        "pointer": "/terminals/list/6/attach",
+        "equals": "attached",
         "maxMs": 5000
       }
     },
@@ -443,11 +379,11 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/terminals/list",
-        "predicate": "changed",
+        "pointer": "/topology/topology/workspaces/2/screens/0/panes/0/tabs/0/title",
+        "equals": "tours core 17",
         "maxMs": 5000
       },
-      "note": "the tour waited 8 timed seconds for the agent to finish; this line ends the agent's wait, so the done state follows the step, not a clock (its echo is the terminal change the step waits on)"
+      "note": "the tour waited 8 timed seconds for the agent to finish; this line ends the agent's wait, so the done state follows the step, not a clock; the line ends the agent run's head; the done state and its title follow it"
     },
     {
       "id": "18-session-tree-keycaps-on-the-first-rows",
@@ -467,7 +403,12 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (an app from before sidebar.sessionTree): the settle barrier alone, since the step may not do its work"
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "tour.py optional (an app from before sidebar.sessionTree), kept: schemas/settings/settings-schema.json has sidebar.sessionTree, so the bench build's settings set takes it"
     },
     {
       "id": "19-session-tree-back-off-for-later-tours",
@@ -487,26 +428,12 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (an app from before sidebar.sessionTree): the settle barrier alone, since the step may not do its work"
-    },
-    {
-      "id": "20-profile-menu",
-      "op": "cli",
-      "target": {
-        "window": "current"
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "predicate": "changed",
+        "maxMs": 5000
       },
-      "args": {
-        "argv": [
-          "action",
-          "run",
-          "sidebar.profileMenu"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "note": "tour.py optional (the menu shot needs a screen capture route): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (an app from before sidebar.sessionTree), kept: schemas/settings/settings-schema.json has sidebar.sessionTree, so the bench build's settings set takes it"
     }
   ],
   "invariants": [
@@ -518,6 +445,10 @@
     "verify its debug socket is gone"
   ],
   "untested": [
-    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture"
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture",
+    "tour step 8 (Browser tab): driver_app.py fails a fixture.web case as a Crash (no loopback web fixture yet), so a step that opens a $WEB page waits until driver_app serves webfixture.py",
+    "tour step 12 (Notifications panel): tour.py optional (the notifications panel is not ported yet): its outcome on the bench build is not known, and a case step expects one outcome",
+    "tour step 13 (Agent chat): `cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build",
+    "tour step 20 (Profile menu): tour.py optional (the menu shot needs a screen capture route): its outcome on the bench build is not known, and a case step expects one outcome"
   ]
 }

@@ -27,7 +27,8 @@
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
-    "the main window is 1440 x 900 pt"
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -58,7 +59,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "no snapshot value this command is sure to change"
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "04-a-light-theme",
@@ -102,7 +103,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "no snapshot value this command is sure to change"
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
     }
   ],
   "invariants": [

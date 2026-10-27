@@ -27,7 +27,8 @@
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
-    "the main window is 1440 x 900 pt"
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -84,87 +85,10 @@
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
       "waitFor": {
-        "pointer": "/topology/topology/workspaces",
-        "predicate": "changed",
+        "pointer": "/terminals/list/1/attach",
+        "equals": "attached",
         "maxMs": 5000
       }
-    },
-    {
-      "id": "03-an-agent-chat-docks-left-the-terminal-si",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "agent",
-          "new-chat"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "settleMaxMs": 10000,
-      "note": "tour.py optional (agent backend unavailable on this runner): the settle barrier alone, since the step may not do its work"
-    },
-    {
-      "id": "04-focus-the-terminal-column",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "action",
-          "run",
-          "focusRight"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "note": "no snapshot value focusRight is sure to change"
-    },
-    {
-      "id": "05-closing-the-right-column-gives-the-chat",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "action",
-          "run",
-          "closePane"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "settleMaxMs": 10000,
-      "note": "tour.py optional (closing the terminal asked to confirm): the settle barrier alone, since the step may not do its work"
-    },
-    {
-      "id": "06-focus-the-chat",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "action",
-          "run",
-          "focusLeft"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "note": "no snapshot value focusLeft is sure to change"
     }
   ],
   "invariants": [
@@ -177,6 +101,10 @@
   ],
   "untested": [
     "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture",
+    "tour step 3 (An agent chat docks left, the terminal sits on its right): `cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build",
+    "tour step 4 (Focus the terminal column): it acts on the chat column the dropped agent new-chat step opens",
+    "tour step 5 (Closing the right column gives the chat its full width): tour.py optional (closing the terminal asked to confirm): its outcome on the bench build is not known, and a case step expects one outcome",
+    "tour step 6 (Focus the chat): it acts on the chat column the dropped agent new-chat step opens",
     "tour step 7 (A link clicked in the lone chat: the chat docks left and the page slides in on its right): debug.terminal.links: CmuxNextApp/DebugTerminalLinks.swift registers it in DEBUG builds only, and the tours suite runs the bench build",
     "tour step 8 (Focus the chat again): it acts on the column a dropped debug.terminal.links step opens",
     "tour step 9 (A second link opens as a tab in the same right column): debug.terminal.links: CmuxNextApp/DebugTerminalLinks.swift registers it in DEBUG builds only, and the tours suite runs the bench build",

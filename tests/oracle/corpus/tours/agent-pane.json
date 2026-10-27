@@ -27,7 +27,8 @@
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
-    "the main window is 1440 x 900 pt"
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -39,43 +40,6 @@
     {
       "id": "01-launch",
       "op": "snapshot"
-    },
-    {
-      "id": "02-open-agent-chat",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "agent",
-          "new-chat"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "settleMaxMs": 10000,
-      "note": "tour.py optional (agent backend unavailable on this runner): the settle barrier alone, since the step may not do its work"
-    },
-    {
-      "id": "03-queue-a-second-chat",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "agent",
-          "new-chat"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "note": "tour.py optional (agent backend unavailable on this runner): the settle barrier alone, since the step may not do its work"
     }
   ],
   "invariants": [
@@ -87,6 +51,8 @@
     "verify its debug socket is gone"
   ],
   "untested": [
-    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture"
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture",
+    "tour step 2 (Open agent chat): `cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build",
+    "tour step 3 (Queue a second chat): `cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build"
   ]
 }

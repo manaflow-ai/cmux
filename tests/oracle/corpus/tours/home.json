@@ -27,7 +27,8 @@
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
-    "the main window is 1440 x 900 pt"
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -39,26 +40,6 @@
     {
       "id": "01-launch",
       "op": "settle"
-    },
-    {
-      "id": "02-go-to-home",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "action",
-          "run",
-          "home.show"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "settleMaxMs": 10000,
-      "note": "tour.py optional (Home needs its page in this build): the settle barrier alone, since the step may not do its work"
     },
     {
       "id": "03-six-conversations-two-pinned",
@@ -78,7 +59,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "04-dark",
@@ -98,7 +79,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "no snapshot value this command is sure to change"
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "05-dark-320-header-row-at-rest-a-row-select",
@@ -118,7 +99,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "06-dark-320-search-focused",
@@ -138,7 +119,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "07-dark-320-search-ends",
@@ -158,7 +139,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "08-dark-320-unread-only",
@@ -178,7 +159,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "09-dark-all-again",
@@ -198,7 +179,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "10-dark-260-the-field-narrows-the-buttons-s",
@@ -218,7 +199,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "11-dark-260-search-focused",
@@ -238,7 +219,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "12-dark-260-search-ends",
@@ -258,7 +239,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "13-dark-180-the-narrowest-field",
@@ -278,7 +259,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "14-dark-140-search-is-an-icon-compact-rows",
@@ -298,7 +279,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "15-dark-140-the-search-opens-over-the-row",
@@ -318,7 +299,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "16-dark-140-search-ends",
@@ -338,7 +319,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "17-dark-76-the-narrowest-list-three-small-b",
@@ -358,7 +339,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "18-light",
@@ -378,7 +359,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "no snapshot value this command is sure to change"
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "19-light-320-header-row-at-rest-a-row-selec",
@@ -398,7 +379,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "20-light-320-search-focused",
@@ -418,7 +399,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "21-light-320-search-ends",
@@ -438,7 +419,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "22-light-260",
@@ -458,7 +439,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "23-light-180",
@@ -478,7 +459,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "24-light-140-search-is-an-icon",
@@ -498,7 +479,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "25-light-76",
@@ -518,7 +499,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "26-back-to-320",
@@ -538,7 +519,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "27-back-to-the-system-appearance",
@@ -558,7 +539,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "no snapshot value this command is sure to change"
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
     }
   ],
   "invariants": [
@@ -570,6 +551,7 @@
     "verify its debug socket is gone"
   ],
   "untested": [
-    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture"
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture",
+    "tour step 2 (Go to Home): tour.py optional (Home needs its page in this build): its outcome on the bench build is not known, and a case step expects one outcome"
   ]
 }

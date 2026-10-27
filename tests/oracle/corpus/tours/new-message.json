@@ -27,7 +27,8 @@
     "private scratch config",
     "tagged bench build",
     "no unrelated app instance",
-    "the main window is 1440 x 900 pt"
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
   ],
   "requires": [
     "gui"
@@ -39,46 +40,6 @@
     {
       "id": "01-launch",
       "op": "snapshot"
-    },
-    {
-      "id": "02-go-to-home",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "action",
-          "run",
-          "home.show"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "settleMaxMs": 10000,
-      "note": "tour.py optional (the Chief's daemon may not start on this runner): the settle barrier alone, since the step may not do its work"
-    },
-    {
-      "id": "03-new-message-the-chiefs-listed-under-to-b",
-      "op": "cli",
-      "target": {
-        "window": "current"
-      },
-      "args": {
-        "argv": [
-          "action",
-          "run",
-          "home.newMessage"
-        ]
-      },
-      "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
-      },
-      "settleMaxMs": 10000,
-      "note": "tour.py optional (New Message needs the Home page in this build): the settle barrier alone, since the step may not do its work"
     },
     {
       "id": "04-dark",
@@ -98,7 +59,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (debug.appearance is DEBUG only): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (debug.appearance is DEBUG only), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers debug.appearance in DEBUG || CMUX_BENCH_HOOKS builds and answers in its main-actor turn, so the bench build runs it; its effect is done when its control call answers (the generator's mapping table)"
     },
     {
       "id": "05-back-to-the-system-appearance",
@@ -118,7 +79,7 @@
         "outcome": "ok",
         "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
       },
-      "note": "tour.py optional (debug.appearance is DEBUG only): the settle barrier alone, since the step may not do its work"
+      "note": "tour.py optional (debug.appearance is DEBUG only), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers debug.appearance in DEBUG || CMUX_BENCH_HOOKS builds and answers in its main-actor turn, so the bench build runs it; its effect is done when its control call answers (the generator's mapping table)"
     }
   ],
   "invariants": [
@@ -130,6 +91,8 @@
     "verify its debug socket is gone"
   ],
   "untested": [
-    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture"
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture",
+    "tour step 2 (Go to Home): tour.py optional (the Chief's daemon may not start on this runner): its outcome on the bench build is not known, and a case step expects one outcome",
+    "tour step 3 (New Message: the Chiefs listed under To: before anything is typed): tour.py optional (New Message needs the Home page in this build): its outcome on the bench build is not known, and a case step expects one outcome"
   ]
 }
