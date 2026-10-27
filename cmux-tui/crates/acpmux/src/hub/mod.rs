@@ -248,6 +248,11 @@ pub(super) struct PendingPermission {
     pub(super) ancestor_may_answer: bool,
     /// The session's status before this prompt made it Waiting (`settle_permission`).
     pub(super) prev_status: SessionStatus,
+    /// The agent's JSON-RPC id for the request, when the agent asked. A
+    /// matching `$/cancel_request` withdraws this prompt.
+    pub(super) agent_request: Option<Id>,
+    /// The hosted child generation that owns `agent_request`.
+    pub(super) agent_host_incarnation: Option<String>,
 }
 
 #[derive(Debug, Clone)]

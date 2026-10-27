@@ -38,6 +38,10 @@ pub enum Inbound {
         id: Id,
         method: String,
         params: Option<Value>,
+        /// The hosted agent entry that carried this message, when durable.
+        host_seq: Option<u64>,
+        /// The host incarnation or direct child generation that owns this message.
+        host_incarnation: Option<String>,
     },
     /// `agent` is the [`ChildAgent::generation`] it came from: the hub drops what an agent
     /// already replaced still had in flight where it would stand for the new one (a hosted
@@ -46,16 +50,19 @@ pub enum Inbound {
         method: String,
         params: Option<Value>,
         agent: u64,
+        /// The hosted agent entry that carried this message, when durable.
+        host_seq: Option<u64>,
+        /// The host incarnation or direct child generation that owns this message.
+        host_incarnation: Option<String>,
+        /// A hosted cancellation is acknowledged only after its durable
+        /// withdrawal marker is stored. The reader owns the receiver.
+        persisted: Option<oneshot::Sender<bool>>,
     },
     /// One stderr line; `host_seq` names the agent host entry it came from.
     Stderr(String, Option<u64>),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
-    Exited {
-        pid: Option<u32>,
-        code: Option<i32>,
-        host_seq: Option<u64>,
-    },
+    Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64> },
     /// Answered once every item queued before it was handled. A prompt's answer
     /// bypasses this queue, so a turn sends one before it settles: the agent's
     /// last notifications (the reply text) are applied first.
@@ -64,9 +71,7 @@ pub enum Inbound {
     /// is all in front of this: the session's preview takes that agent's words again
     /// (`ReplayHold` in `hub/lifecycle.rs`). Queued through the agent's own sender, behind
     /// everything its reader already queued.
-    ReplayDone {
-        agent: u64,
-    },
+    ReplayDone { agent: u64 },
 }
 
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
@@ -542,6 +547,12 @@ pub fn process_state(params: &Value) -> bool {
 }
 
 impl ChildAgent {
+    /// Direct children have no durable host record, but requests must still
+    /// belong to one process generation when a replacement reuses their ids.
+    fn direct_incarnation(&self) -> String {
+        format!("direct:{}", self.generation)
+    }
+
     /// Ends every process in the agent's job (Windows; killpg on Unix).
     #[cfg(windows)]
     fn kill_job(&self) {
@@ -824,7 +835,15 @@ impl ChildAgent {
                                 }
                             }
                             Message::Request { id, method, params } => {
-                                let _ = inbound.send(Inbound::Request { id, method, params }).await;
+                                let _ = inbound
+                                    .send(Inbound::Request {
+                                        id,
+                                        method,
+                                        params,
+                                        host_seq: None,
+                                        host_incarnation: Some(agent_for_exit.direct_incarnation()),
+                                    })
+                                    .await;
                             }
                             Message::Notification { method, params } => {
                                 let _ = inbound
@@ -832,6 +851,9 @@ impl ChildAgent {
                                         method,
                                         params,
                                         agent: agent_for_exit.generation,
+                                        host_seq: None,
+                                        host_incarnation: Some(agent_for_exit.direct_incarnation()),
+                                        persisted: None,
                                     })
                                     .await;
                             }
@@ -848,6 +870,9 @@ impl ChildAgent {
                                     method,
                                     params,
                                     agent: agent_for_exit.generation,
+                                    host_seq: None,
+                                    host_incarnation: Some(agent_for_exit.direct_incarnation()),
+                                    persisted: None,
                                 })
                                 .await;
                         }
@@ -1150,12 +1175,28 @@ impl ChildAgent {
                     }
                 }
                 Message::Request { id, method, params } => {
-                    let _ = cx.inbound.send(Inbound::Request { id, method, params }).await;
+                    let _ = cx
+                        .inbound
+                        .send(Inbound::Request {
+                            id,
+                            method,
+                            params,
+                            host_seq: None,
+                            host_incarnation: Some(self.direct_incarnation()),
+                        })
+                        .await;
                 }
                 Message::Notification { method, params } => {
                     let _ = cx
                         .inbound
-                        .send(Inbound::Notification { method, params, agent: self.generation })
+                        .send(Inbound::Notification {
+                            method,
+                            params,
+                            host_seq: None,
+                            host_incarnation: Some(self.direct_incarnation()),
+                            persisted: None,
+                            agent: self.generation,
+                        })
                         .await;
                 }
             }
@@ -1591,8 +1632,41 @@ impl ChildAgent {
             },
             Entry::In { msg } => {
                 let Ok(m) = Message::from_value(msg) else { return true };
-                // Dropped as the direct reader drops it; the entry counts as handled.
-                match self.tap_live(&m, || (self.tap)(Direction::In, &m, Some(h))) {
+                let host_incarnation =
+                    self.hosted.as_ref().map(|host| host.link().record.incarnation.clone());
+                let needs_durable_cancel = matches!(
+                    &m,
+                    Message::Notification { method, params }
+                        if method == crate::rpc::method::CANCEL_REQUEST
+                            && params.as_ref().and_then(|p| p.get("requestId")).is_some()
+                );
+                // The incarnation-bearing marker is this entry's durable
+                // checkpoint. Store it before acknowledging the cancellation.
+                if needs_durable_cancel {
+                    let Message::Notification { method, params } = &m else { return false };
+                    let (done, persisted) = oneshot::channel();
+                    if inbound
+                        .send(Inbound::Notification {
+                            method: method.clone(),
+                            params: params.clone(),
+                            host_seq: Some(h),
+                            host_incarnation: host_incarnation.clone(),
+                            persisted: Some(done),
+                            agent: self.generation,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        return false;
+                    }
+                    if !persisted.await.unwrap_or(false) {
+                        return false;
+                    }
+                }
+                // The incarnation-bearing durable marker owns a cancellation's
+                // checkpoint. Its delayed raw copy must never advance a new host.
+                let raw_seq = (!needs_durable_cancel).then_some(h);
+                match self.tap_live(&m, || (self.tap)(Direction::In, &m, raw_seq)) {
                     None => return true,
                     Some(false) => return false,
                     Some(true) => {}
@@ -1614,11 +1688,29 @@ impl ChildAgent {
                         }
                     }
                     Message::Request { id, method, params } => {
-                        let _ = inbound.send(Inbound::Request { id, method, params }).await;
+                        let _ = inbound
+                            .send(Inbound::Request {
+                                id,
+                                method,
+                                params,
+                                host_seq: Some(h),
+                                host_incarnation,
+                            })
+                            .await;
                     }
                     Message::Notification { method, params } => {
+                        if needs_durable_cancel {
+                            return true;
+                        }
                         let _ = inbound
-                            .send(Inbound::Notification { method, params, agent: self.generation })
+                            .send(Inbound::Notification {
+                                method,
+                                params,
+                                host_seq: Some(h),
+                                host_incarnation: host_incarnation.clone(),
+                                persisted: None,
+                                agent: self.generation,
+                            })
                             .await;
                     }
                 }
@@ -1710,6 +1802,95 @@ pub(crate) fn spawn_error(what: &str, e: std::io::Error) -> anyhow::Error {
 #[cfg(all(test, unix))]
 mod spawn_error_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_durable_withdrawal_never_logs_an_unscoped_raw_cursor() -> anyhow::Result<()> {
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["python3", "-c", "import sys; sys.stdin.read()"]
+        }))?;
+        let cursors = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = cursors.clone();
+        let tap: Tap = Arc::new(move |_, _, seq| {
+            recorded.lock().unwrap_or_else(|e| e.into_inner()).push(seq);
+            true
+        });
+        let (tx, mut rx) = mpsc::channel(8);
+        let agent =
+            ChildAgent::spawn("old", &profile, &std::env::temp_dir(), tx.clone(), tap).await?;
+        let cancel = Message::notification(
+            crate::rpc::method::CANCEL_REQUEST,
+            serde_json::json!({"requestId": 7}),
+        );
+        let pending =
+            agent.on_host_entry(900, crate::agent_host::Entry::In { msg: cancel.to_value() }, &tx);
+        let persist = async {
+            if let Some(Inbound::Notification { persisted: Some(done), host_seq, .. }) =
+                rx.recv().await
+            {
+                assert_eq!(host_seq, Some(900), "the durable marker owns the checkpoint");
+                assert!(cursors.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
+                let _ = done.send(true);
+            }
+        };
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            tokio::join!(pending, persist).0
+        })
+        .await;
+        agent.kill().await;
+        assert!(result?, "the cancellation was not stored");
+        assert_eq!(
+            *cursors.lock().unwrap_or_else(|e| e.into_inner()),
+            vec![None],
+            "raw cancellation has no incarnation fence"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn direct_children_give_withdrawals_distinct_request_owners() -> anyhow::Result<()> {
+        let ask = Message::request(7, crate::rpc::method::SESSION_REQUEST_PERMISSION, Value::Null);
+        let cancel = Message::notification(
+            crate::rpc::method::CANCEL_REQUEST,
+            serde_json::json!({"requestId": 7}),
+        );
+        let script = format!(
+            "import sys; print({:?}, flush=True); print({:?}, flush=True); sys.stdin.read()",
+            ask.to_line().trim(),
+            cancel.to_line().trim()
+        );
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["python3", "-c", script]
+        }))?;
+        let mut owners = Vec::new();
+        for _ in 0..2 {
+            let (inbound, mut rx) = mpsc::channel(8);
+            let agent = ChildAgent::spawn(
+                "direct",
+                &profile,
+                &std::env::temp_dir(),
+                inbound,
+                Arc::new(|_, _, _| true),
+            )
+            .await?;
+            let messages = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                (rx.recv().await, rx.recv().await)
+            })
+            .await;
+            agent.kill().await;
+            let (
+                Some(Inbound::Request { host_incarnation: request, .. }),
+                Some(Inbound::Notification { host_incarnation: cancel, .. }),
+            ) = messages?
+            else {
+                anyhow::bail!("the direct child did not ask and withdraw its request");
+            };
+            assert!(request.is_some(), "a direct request needs its child's identity");
+            assert_eq!(request, cancel, "a withdrawal must carry its request's owner");
+            owners.push(request);
+        }
+        assert_ne!(owners[0], owners[1], "a replacement child reused its predecessor's owner");
+        Ok(())
+    }
 
     #[test]
     fn out_of_descriptors_says_it_is_the_daemon_and_what_to_do() {
