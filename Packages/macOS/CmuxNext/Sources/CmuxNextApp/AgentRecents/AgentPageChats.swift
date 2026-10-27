@@ -79,14 +79,18 @@ final class AgentPageChats {
     static func wireSandbox(_ tabs: AgentTabStore, services: AppServices) {
         tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            // Cloud turned off by policy: a definite refusal, nothing was asked of the server.
-            guard !services.registry.disabledFeatures.contains(.cloud) else {
+            // Cloud turned off by policy, or the managed team it requires missing: a definite
+            // refusal, nothing was asked of the server.
+            guard !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud else {
                 return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
             }
             guard services.settings?.snapshot.previewFeatures == true else { return AgentPaneReply.failure(code: "labs_off", message: "labs_off") }
             guard services.cloud.isSignedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
-            let api = services.cloud.api
-            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key) },
+            // The send, its create's retry and its waits stay with the team and account it began with.
+            let user = services.cloud.auth.user?.id
+            let api = services.cloud.api.pinningTeam(await services.cloud.api.currentTeam())
+            let sameAccount: @Sendable () async -> Bool = { @MainActor [weak services] in services?.cloud.auth.user?.id == user }
+            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key, sameAccount: sameAccount) },
                                                 code: AgentPageChats.sandboxCode)
         }
     }
