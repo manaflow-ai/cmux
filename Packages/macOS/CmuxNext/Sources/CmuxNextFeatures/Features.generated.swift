@@ -1396,6 +1396,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A cmux page in Chromium sends its calls to the app on the fork's page channel (fork API 29), the posts of one task as one message, with no DevTools binding event and no sender probe per call; off, every call is a DevTools binding call whose sender is asked first.
+    public static let pageHostChannel = Feature(
+        index: 78,
+        name: "pageHostChannel",
+        owner: "PL-webui",
+        description: "A cmux page in Chromium sends its calls to the app on the fork's page channel (fork API 29), the posts of one task as one message, with no DevTools binding event and no sender probe per call; off, every call is a DevTools binding call whose sender is asked first.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hidden cmux page tabs go Hidden, Frozen, Discarded on one deadline, fed by the tab content lifecycle, browser.hibernation, memory pressure and Low Power Mode; a page thaws before it shows. When on, it replaces memoryDiscardInternalPages for page tabs.
     public static let pageLifecycle = Feature(
         index: 79,
@@ -2226,6 +2243,7 @@ nonisolated extension Feature {
         .occludedWindowDiscard,
         .overlayTopLayer,
         .pageHangNotice,
+        .pageHostChannel,
         .pageLifecycle,
         .pageProcessGroups,
         .pagePushChannel,
@@ -2353,6 +2371,7 @@ nonisolated extension Feature {
         .occludedWindowDiscard,
         .overlayTopLayer,
         .pageHangNotice,
+        .pageHostChannel,
         .pageLifecycle,
         .pageProcessGroups,
         .pagePushChannel,
