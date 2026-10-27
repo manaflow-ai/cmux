@@ -5068,7 +5068,9 @@ jobs:
       # The post-sign checks of sign-cmux-bundle.sh (entitlements, helpers,
       # browser host) on this signed app whichever signer made it, and the
       # Computer Use helper's own ticket on a copy taken out of the app.
+      # A build commit older than these checks has none to run.
       - name: Verify signed app entitlements and the Computer Use helper ticket
+        if: hashFiles('scripts/ci/nightly-steps/verify-signed-app-checks.sh') != ''
         run: bash scripts/ci/nightly-steps/verify-signed-app-checks.sh
 
 
