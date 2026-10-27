@@ -7,10 +7,10 @@
 pub mod beads;
 pub mod chats;
 pub mod cli_agent;
-pub mod command;
-pub mod command_host;
 #[cfg(unix)]
 pub mod codex_auth_broker;
+pub mod command;
+pub mod command_host;
 pub mod entry;
 pub mod errors;
 pub mod forum;
