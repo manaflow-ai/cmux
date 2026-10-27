@@ -317,6 +317,15 @@ pub fn random_hex(bytes: usize) -> Result<String> {
 
 /// Every record in `dir`: those this build reads, and those it cannot.
 pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<UnreadableRecord>)> {
+    // Debug builds only: while the file `ACPMUX_TEST_HOST_RECORDS_FAIL_FILE` names exists, the
+    // records cannot be read, as on a disk that fails, so the daemon's integration tests can drive
+    // that path. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(flag) = std::env::var_os("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE")
+        && Path::new(&flag).exists()
+    {
+        anyhow::bail!("the agent host records could not be read");
+    }
     let mut good = Vec::new();
     let mut bad = Vec::new();
     match std::fs::symlink_metadata(dir) {

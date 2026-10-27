@@ -467,6 +467,9 @@ pub struct ChildAgent {
     /// not a flag: the reader holds it while it checks and logs such an answer (`tap_live`), so a
     /// failover that retires the agent and then logs itself can never land between the two.
     retired: std::sync::Mutex<bool>,
+    /// Set once acpmux ends the agent on purpose (MDM's off, `end_managed_full_access`): its
+    /// turn's end leaves the chat idle and no failover runs its prompt again (review 3 of #26034).
+    ended_on_purpose: std::sync::atomic::AtomicBool,
     /// The question preview format its command was pinned to, for a direct
     /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
     pub preview_format: Option<crate::hub::questions::PreviewFormat>,
@@ -583,6 +586,7 @@ impl ChildAgent {
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
             retired: std::sync::Mutex::new(false),
+            ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format,
             writer_stop: std::sync::OnceLock::new(),
@@ -854,6 +858,16 @@ impl ChildAgent {
     /// logged right now, so what the caller logs next comes after it.
     pub fn retire(&self) {
         *self.retired.lock().unwrap_or_else(|e| e.into_inner()) = true;
+    }
+
+    /// Mark the agent ended on purpose ([`Self::ended_on_purpose`]).
+    pub fn end_on_purpose(&self) {
+        self.ended_on_purpose.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether [`Self::end_on_purpose`] ran.
+    pub fn ended_on_purpose(&self) -> bool {
+        self.ended_on_purpose.load(Ordering::SeqCst)
     }
 
     /// Whether [`Self::retire`] ran.
@@ -1470,6 +1484,7 @@ impl ChildAgent {
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
             retired: std::sync::Mutex::new(false),
+            ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format: None,
             writer_stop: std::sync::OnceLock::new(),

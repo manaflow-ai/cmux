@@ -4,6 +4,7 @@
 //! replayed entries are in the log, then rebuild the turn and permission
 //! state that died with the previous daemon from that complete log.
 
+use super::full_access_bound::FullAccessEnd;
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
@@ -66,8 +67,13 @@ impl Hub {
     /// Sessions whose agent host is still running, by session id. Read at
     /// startup so their open turns are not marked lost.
     pub(super) fn live_host_sessions() -> std::collections::HashSet<String> {
+        Self::read_live_host_sessions().unwrap_or_default()
+    }
+
+    /// `live_host_sessions`, or `None` when the host records cannot be read.
+    fn read_live_host_sessions() -> Option<std::collections::HashSet<String>> {
         let dir = agent_host::hosts_dir();
-        let Ok((good, bad)) = agent_host::load_records(&dir) else { return Default::default() };
+        let (good, bad) = agent_host::load_records(&dir).ok()?;
         let mut live: std::collections::HashSet<String> = good
             .into_iter()
             .filter(|(_, r)| {
@@ -85,7 +91,7 @@ impl Hub {
             }
             live.insert(b.session_id);
         }
-        live
+        Some(live)
     }
 
     /// Adopt this session's running host again (its link was lost, or a
@@ -165,10 +171,18 @@ impl Hub {
         Self::live_host_sessions().contains(session_id)
     }
 
+    /// Whether the host records prove that no host for `session` runs. Records that cannot be
+    /// read prove nothing (review 66 of #23322).
+    pub(super) fn host_record_gone(session_id: &str) -> bool {
+        Self::read_live_host_sessions().is_some_and(|live| !live.contains(session_id))
+    }
+
     /// Reattach every running agent host. Called once at daemon start,
     /// before agents may spawn; a prompt to a kept session may still adopt
     /// its host first (`readopt`).
     pub async fn adopt_agent_hosts(self: &Arc<Self>) {
+        // MDM's off (start-mode.json, loaded with the hub), read once for this adoption (#23322).
+        let off = self.full_access_managed_off();
         // Pooled sessions of a previous daemon were never taken: end them.
         self.sweep_pool_hosts().await;
         let dir = agent_host::hosts_dir();
@@ -210,12 +224,28 @@ impl Hub {
             {
                 continue;
             }
+            // MDM forces full access off (start-mode.json, loaded with the hub): a host left
+            // running in it is ended, never adopted (#23322). One whose end failed is not adopted
+            // either (review 51).
+            if self.end_if_runs_full_access(&session, off).await != FullAccessEnd::NotInFullAccess {
+                continue;
+            }
             if let Err(e) = self.adopt_one(&session, record).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
             }
         }
         for unreadable in bad {
             if let Some(session) = self.session_by_id(&unreadable.session_id) {
+                // MDM forces full access off (#23322): a live host this build cannot adopt ends
+                // too when its chat runs in full access (`end_unadopted_host`: its nonce proves it).
+                let ended = {
+                    let _spawning = session.spawn_lock.lock().await;
+                    self.end_if_runs_full_access(&session, off).await
+                        != FullAccessEnd::NotInFullAccess
+                };
+                if ended && Self::host_record_gone(&session.id) {
+                    continue;
+                }
                 self.mark_unadoptable(
                     &session,
                     json!({"recordVersion": unreadable.record_version, "reason": unreadable.reason}),
@@ -1009,6 +1039,16 @@ pub(super) async fn end_host_blocking(
     nonce: Option<String>,
     host_pid: Option<u32>,
 ) -> bool {
+    // Debug builds only: `ACPMUX_TEST_HOST_END_FAILS` makes every end by nonce fail (`=once`: only
+    // the first), as one does on a host that outlives its proof, so the daemon's integration
+    // tests can drive that path. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Ok(how) = std::env::var("ACPMUX_TEST_HOST_END_FAILS") {
+        static FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if how != "once" || !FAILED.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+    }
     tokio::task::spawn_blocking(move || {
         agent_host::terminate_unadoptable(&dir, &session_id, nonce.as_deref(), host_pid)
             .unwrap_or(false)
@@ -1132,6 +1172,8 @@ impl Hub {
             started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
         }
         self.append(session, "mux", "host_started", started);
+        // A new host: no end is pending for it (`full_access_bound.rs`).
+        session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
         let attached = ChildAgent::attach_hosted(
             &meta.harness,
             record.clone(),

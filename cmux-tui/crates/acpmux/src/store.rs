@@ -110,6 +110,10 @@ pub struct SessionMeta {
     pub harness: String,
     #[serde(default, alias = "agent_argv")]
     pub harness_argv: Vec<String>,
+    /// The argv its agent last started with: a config or preset reload since creation can change
+    /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spawn_argv: Option<Vec<String>>,
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
