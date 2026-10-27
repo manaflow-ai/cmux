@@ -115,6 +115,8 @@ fn size_arg(arg: &str) -> (u16, u16) {
 fn term_size() -> (u16, u16) {
     // SAFETY: TIOCGWINSZ into a zeroed winsize.
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
+    // SAFETY: TIOCGWINSZ writes one winsize through the pointer, which points to the live local
+    // `ws`; a non-terminal stdout fails with ENOTTY and writes nothing.
     if unsafe { libc::ioctl(1, libc::TIOCGWINSZ, &mut ws) } == 0 && ws.ws_col > 0 {
         (ws.ws_col, ws.ws_row)
     } else {
@@ -238,8 +240,9 @@ fn resize_payload(t: u32) -> Vec<u8> {
 
 fn attach(s: UnixStream, t: u32) -> i32 {
     // SIGWINCH is handled by a sigwait thread; block it everywhere first.
-    // SAFETY: building and applying a signal mask before threads exist.
     let mut winch: libc::sigset_t = 0;
+    // SAFETY: the set functions write only to `winch`, a live local, and pthread_sigmask only
+    // reads it; no threads exist yet, so every later thread inherits the mask.
     unsafe {
         libc::sigemptyset(&mut winch);
         libc::sigaddset(&mut winch, libc::SIGWINCH);
