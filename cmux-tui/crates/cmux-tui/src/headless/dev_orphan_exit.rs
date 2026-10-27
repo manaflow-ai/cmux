@@ -368,9 +368,11 @@ pub(crate) fn spawn(
     // A client that connected before the observer was installed.
     watch.clients_changed();
     let waiter = watch.clone();
-    let thread = std::thread::Builder::new()
-        .name(name.into())
-        .spawn(move || {
+    let thread = cmux_tui_core::thread_qos::spawn_raisable(
+        name,
+        cmux_tui_core::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || {
             while waiter.wait() {
                 if stop_owner(waiter.facts.as_ref()) {
                     return;
@@ -379,8 +381,9 @@ pub(crate) fn spawn(
                 // start the delay again.
                 waiter.restart_after_failed_exit();
             }
-        })
-        .ok();
+        },
+    )
+    .ok();
     OrphanExit { watch, thread }
 }
 
