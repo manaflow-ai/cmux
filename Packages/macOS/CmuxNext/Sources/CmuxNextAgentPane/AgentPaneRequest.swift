@@ -116,6 +116,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setAgentAvatar(String)
     /// `agent.avatar.remove {sessionId}`: Remove Avatar: the session's harness mark again.
     case removeAgentAvatar(String)
+    /// `harness.symbol {name}`: a custom harness's SF Symbol icon as a template PNG `data:` URL
+    /// (``HarnessSymbolImages``); a name this Mac cannot draw answers nothing.
+    case harnessSymbol(String)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -127,6 +130,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chatsPage(AgentPaneChatsQuery)
     /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
     case environment(AgentPaneEnvironmentRequest)
+    /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
+    case cloudMachine(AgentPaneCloudMachineRequest)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of

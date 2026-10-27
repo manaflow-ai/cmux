@@ -268,6 +268,8 @@ const transcriptTasks: NonNullable<Props["transcriptTasks"]> = [
 const summary = {
   ...local.summary!,
   usage: { used: 94_000, size: 200_000 },
+  // At most 16 of the chats it started run at once (acpmux's default).
+  subsessionLimits: { maxRunning: 16, maxRunningSource: "default" as const },
   branch: "feat/next-inspector",
   mcpServers: [
     { name: "github", status: "connected" as const },
@@ -297,6 +299,7 @@ const full: Props = {
   onOpenOutput: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
+  onSetRunningLimit: async () => undefined,
   onReconnectMcp: async () => undefined,
   remoteControl: { on: false, set: () => undefined },
 };
@@ -491,6 +494,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/InspectorSection.tsx",
     "agent-session/acpmux/inspector/OutputsSection.tsx",
     "agent-session/acpmux/inspector/ServersSection.tsx",
+    "agent-session/acpmux/inspector/SubagentLimitStepper.tsx",
     "agent-session/acpmux/inspector/SubagentsSection.tsx",
     "agent-session/acpmux/inspector/SubagentScopeHeader.tsx",
     "agent-session/acpmux/inspector/subagentScope.ts",
@@ -625,6 +629,36 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /40 done · 1 failed/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector-subagents__list") !== null);
+      },
+    },
+    "subagent-limit": {
+      note: 'Subagents with the chat\'s own running limit of 2: two of the chats it started run, a third waits for a slot ("1 queued"), with Reset back to the inherited limit and − / + beside it.',
+      props: {
+        ...full,
+        summary: { ...summary, subsessionLimits: { maxRunning: 2, maxRunningSource: "session" } },
+        sessions: [
+          ...sessions.slice(1),
+          { sessionId: "child-4", title: "Profile the sidebar", state: "running", createdAt: started - 300_000 },
+          {
+            sessionId: "child-5",
+            title: "Audit the strings",
+            state: "idle",
+            waitsForSlot: true,
+            createdAt: started - 200_000,
+          },
+        ],
+      },
+    },
+    "subagent-limit-hidden-default": {
+      note: "A chat that never started a subagent or a chat, at acpmux's default running limit: no Subagents card at all.",
+      props: { summary, machineName: "Studio", onSetRunningLimit: async () => undefined },
+    },
+    "subagent-limit-set-no-rows": {
+      note: "No subagents or chats yet, but the settings set the running limit to 4: Subagents shows only that limit, with − and +.",
+      props: {
+        summary: { ...summary, subsessionLimits: { maxRunning: 4, maxRunningSource: "settings" } },
+        machineName: "Studio",
+        onSetRunningLimit: async () => undefined,
       },
     },
     "subagents-busy": {

@@ -20,7 +20,8 @@ public struct TabItemMapping {
     /// terminal icon, no failure mark, the directory its new shell starts in, so its item stays
     /// the same when the new shell runs (cx-8w027.23).
     public func item(_ tab: TabModel, fallbackTitle: String, isNewTabPage: Bool = false, restarting: Bool = false,
-                     asset: (String) -> TabImage? = { _ in nil }, turns: AgentTurnStateStore = .shared) -> StripTabItem {
+                     asset: (String) -> TabImage? = { _ in nil }, turns: AgentTurnStateStore = .shared,
+                     harnessIcons: HarnessIconLookup = .none) -> StripTabItem {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
         let title = title(tab, fallbackTitle: fallbackTitle)
@@ -31,7 +32,7 @@ public struct TabItemMapping {
             // The New Tab and blank pages' addresses are no place a person went: no address line.
             subtitle: isConversation ? nil : isBrowser ? tab.url.flatMap { Self.isBlankPageAddress($0) ? nil : $0 }
                 : tab.cwd.map(SidebarMapping.shared.abbreviate),
-            icon: isNewTabPage ? .icon(.tabNew) : icon(tab, isBrowser: isBrowser, isConversation: isConversation),
+            icon: isNewTabPage ? .icon(.tabNew) : icon(tab, isBrowser: isBrowser, isConversation: isConversation, harnessIcons: harnessIcons),
             isPinned: tab.pinned,
             isUnread: tab.showsUnread,
             isBusy: busy.state.isLoading || isReportingProgress(tab),
@@ -65,11 +66,14 @@ public struct TabItemMapping {
     }
 
     /// A tab's kind icon from the cmux icon registry. A terminal whose agent session is live,
-    /// and an agent chat whose harness is known, wear the agent's brand mark (design/agent-icons);
+    /// and an agent chat whose harness is known, wear the agent's brand mark (design/agent-icons),
+    /// a chat on a custom harness its own icon (`harnessIcons`);
     /// others, ended sessions and agents without a mark keep their kind's icon.
-    func icon(_ tab: TabModel, isBrowser: Bool, isConversation: Bool) -> TabIcon {
+    func icon(_ tab: TabModel, isBrowser: Bool, isConversation: Bool, harnessIcons: HarnessIconLookup = .none) -> TabIcon {
         if isConversation {
-            return tab.agentBrand.map(TabIcon.agentMark) ?? .icon(.agentChat)
+            // A custom harness's own icon (user 12922), else its brand mark, else the chat icon.
+            return harnessIcons.tabIcon(for: tab.agentSession?.harness)
+                ?? tab.agentBrand.map(TabIcon.agentMark) ?? .icon(.agentChat)
         }
         if isBrowser { return .icon(.browser) }
         if tab.dead { return .icon(.terminalDead) }

@@ -214,6 +214,10 @@ path = "tests/test_bash32_linux_job.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_signing_keychain_real_import_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_shim_cpp_linux.py"
 lane = "linux-guard"
 
@@ -314,7 +318,7 @@ path = "tests/test_ci_cmux_next_compile_revert.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_cmux_next_linux_compile_status.py"
+path = "tests/test_ci_cmux_next_compile_status.py"
 lane = "linux-guard"
 
 [[test]]
@@ -335,6 +339,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_queue_janitor.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_rescue_actors.py"
 lane = "linux-guard"
 
 [[test]]
@@ -447,6 +455,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_github_release_publication.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publish_release_assets_callers.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1702,7 +1714,15 @@ path = "tests/test_gh_budget_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_cancelled_tip.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_gh_app_token.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publish_app_token_workflow.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1715,6 +1735,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_sign_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_build_runner.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2007,7 +2031,7 @@ path = "tests/test_ci_linux_compile_runners.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_tui_daemon_tests_linux.py"
+path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
 [[test]]
