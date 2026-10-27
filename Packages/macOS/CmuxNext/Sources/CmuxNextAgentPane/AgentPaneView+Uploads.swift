@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 
 @MainActor final class NativeUploadResult {
@@ -62,7 +63,7 @@ import Foundation
         }
         if op == "cmux.agent.uploads.cancel", let updated = records[token], updated.state != "uploading",
            (!hadActiveTask || updated.state == "finished"),
-           let id = updated.uploadId, let model {
+           let id = updated.uploadId {
             guard await model.transport.cancelUpload(connection: updated.connection, sessionId: updated.sessionId, uploadId: id) else {
                 return AgentPaneReply.failure(code: "upload_cancel_failed", message: "The upload cleanup was not acknowledged")
             }
