@@ -276,7 +276,8 @@ and `swift-shared.sh` with the compiler-error queue (004), `tier-imports.py` (00
 - All pure `git mv` moves and their manifest edits land in one coordinated commit (119) that names every owner.
   If an owner refuses, that target leaves the tier for the push.
 - `oracle-replay` (104) and `oracle-input-walk` (105) are executables, not test targets (the 2026-10-10 ruling
-  deleted the in-process suites). Neither has landed. On Linux, `oracle-input-walk` can rebuild only the attach
+  deleted the in-process suites). `oracle-replay` is `Sources/OracleReplay` (it replays
+  `tests/oracle/corpus/journals/`, which driver_app.py fills from corpus runs); `oracle-input-walk` has not landed. On Linux, `oracle-input-walk` can rebuild only the attach
   part of the input fuzzer of [input-spec.md](input-spec.md#6-model-based-fuzzing): `TerminalAttachMachine`,
   `AttachOracle`, the input invariants and replay, which 102 and 103 move into `CmuxNextInputModel`. The focus,
   omnibar, `KeyRouter` and palette parts stay in `CmuxNextApp/Focus`, outside the tier, and so do the
@@ -327,7 +328,7 @@ Which p15 tasks are on the branch: `git log --format=%s origin/perf/chrome-parit
 
 - [chrome-parity/p15-oracle.md](chrome-parity/p15-oracle.md): the program spec, task details and machine queues.
 - [ui-workflow-corpus.md](ui-workflow-corpus.md): journey manifests; the oracle case is their executable form.
-- [input-spec.md](input-spec.md): input invariants; `oracle-input-walk` and `oracle-replay` (planned) run its attach-machine walk and replay on Linux.
+- [input-spec.md](input-spec.md): input invariants; `oracle-input-walk` (planned) and `oracle-replay` run its attach-machine walk and replay on Linux.
 - [refactor-switches/README.md](refactor-switches/README.md), [schemas/oracle/README.md](../../schemas/oracle/README.md),
   [tests/oracle/README.md](../../tests/oracle/README.md).
 - [stability-DESIGN.md](stability-DESIGN.md): crash lab, sanitizers and the `cmux-tui/fuzz` workspace (PL-stability);

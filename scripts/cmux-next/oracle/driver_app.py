@@ -37,6 +37,10 @@ not-comparable from the app); the `daemon` facet is read from the tag's own cmux
 `--headless` process, found by TagTeardown's bundle-path match) through the Python SDK, with the snapshot
 schema's capture rules. Every checkpoint of a case is canonicalized together by normalize.py.
 
+Journals: at the end of a case on an app that still answers, the app's input journal (`debug.journal`, the whole
+ring) goes to `<out>/journals/<suite>/<case>.jsonl`, a `cmux-input-journal-v1` header line and one entry per line,
+for oracle-replay (OracleReplay, p15-oracle-104); tests/oracle/corpus/journals/ keeps the ones a push replays.
+
 Chrome reference (chromium/src):
 - ui/base/interaction/interactive_test.h, chrome/test/interaction/README.md (Kombucha): Action, WaitForState and
   Check verbs; a wait is a StateObserver on the producer's own signal, never a sleep.
@@ -86,6 +90,10 @@ DAEMON = "daemon"
 # The app's control method names (CmuxNextControl OracleControl, OracleSettleControl, OracleRecorderControl).
 SNAPSHOT, SETTLE, WAIT_FOR = "debug.oracle.snapshot", "debug.oracle.settle", "debug.oracle.wait_for"
 RECORDER, TURNS = "debug.oracle.recorder", "debug.oracle.turns"
+# The input journal (input-spec.md section 3) each case saves for oracle-replay (p15-oracle-104): the whole ring
+# (InputJournal.defaultCapacity is 4,096), so replay starts from the windows' checkpoints and the terminals' starts.
+JOURNAL, JOURNAL_LAST = "debug.journal", 1 << 16
+JOURNAL_SCHEMA = "cmux-input-journal-v1"
 # OracleSettleControl.defaultSettleMilliseconds and maxSettleMilliseconds; OracleWaitCondition.maxMilliseconds.
 DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MAX_WAIT_MS = 5_000, 300_000, 30_000
 REQUEST_S = 30.0
@@ -305,6 +313,18 @@ def action_target(target: Mapping[str, Any], step: str) -> Optional[str]:
     if not isinstance(value, str):
         raise CaseError("Crash", f"target.{kind} is {value!r}, not a string", step)
     return None if value == CURRENT else f"{kind}:{value}"
+
+
+def integral(value: Any) -> Any:
+    """`value` with every whole float as an int: a journal's seq and timestamps are UInt64 fields, which Swift's
+    decoder reads only from integer text."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: integral(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [integral(item) for item in value]
+    return value
 
 
 def typed_error(namespace: str, error: Any) -> str:
@@ -553,6 +573,8 @@ class CaseRun:
         if status in ("Crash", "Timeout") or self.dirty or not self.app.alive():
             # A crash or a stuck barrier leaves state the next case must not inherit (task 189 adds the reset check).
             result["session_dirty"] = True
+        if "session_dirty" not in result:
+            self.save_journal(result)
         if self.unchecked_receipts:
             notes = ", ".join(f"{step} {kind}" for step, kind in self.unchecked_receipts.items())
             result["message"] = "; ".join(filter(None, [message, f"receipt kind not compared (the app reply has no "
@@ -565,6 +587,31 @@ class CaseRun:
             if checkpoint["step"] in self.unchecked_receipts:
                 checkpoint["uncertain"] = True
         return result
+
+    def save_journal(self, result: Dict[str, Any]) -> None:
+        """The app's input journal at the end of the case, as `<out>/journals/<case>.jsonl` (a header line, then one
+        entry per line) for oracle-replay. Only on an app that still answers (a Crash or Timeout dirtied the
+        session); the journal is evidence beside the case, so one that cannot be read or written is named in
+        `journal_error` and never changes the case's result."""
+        try:
+            reply = self.app.request(JOURNAL, {"last": JOURNAL_LAST}, REQUEST_S * self.scale)
+        except (socket.timeout, AppGone) as error:
+            result["journal_error"] = f"{JOURNAL}: {error!r}"
+            return
+        body = reply.get("result") if reply.get("ok") is True else None
+        if not isinstance(body, dict) or not isinstance(body.get("entries"), list):
+            result["journal_error"] = f"{JOURNAL} refused: {json.dumps(reply.get('error'))[:300]}"
+            return
+        header = {"schema": JOURNAL_SCHEMA, "source": self.case_id, "sha": self.session.sha, "stats": body.get("stats")}
+        path = self.session.journals / f"{self.case_id}.jsonl"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lines = [json.dumps(integral(value), sort_keys=True) for value in [header, *body["entries"]]]
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except OSError as error:
+            result["journal_error"] = f"{path}: {error}"
+            return
+        result["journal"] = str(path)
 
     def rpc(self, method: str, params: Optional[Mapping[str, Any]] = None) -> Any:
         """The fixtures' control call: the result, or the error object as {"error": ...}."""
@@ -979,9 +1026,12 @@ class AppSession:
         self.paths = OraclePaths(Path(tempfile.mkdtemp(prefix="a", dir=str(root_base))))
         self.paths.home.mkdir()
         # The app log stays after close (the session root goes): a failed launch's report names it.
-        out = Path(session_ctx.get("out_dir") or root_base / "logs") / "app" / self.paths.root.name
+        logs = Path(session_ctx.get("out_dir") or root_base / "logs")
+        out = logs / "app" / self.paths.root.name
         out.mkdir(parents=True, exist_ok=True)
         self.out = out
+        # Each case's input journal (CaseRun.save_journal), outside the session root so it outlives the launch.
+        self.journals = logs / "journals"
         self.app = (make_app or BenchAppPort)(app, out, self.environment())
         self.launched: Optional[LaunchSpec] = None
         self.armable: Tuple[str, ...] = ()

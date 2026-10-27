@@ -190,8 +190,9 @@ part of the walker below from `git show 36f2381bf1a^:Packages/macOS/CmuxNext/Tes
 as an executable, not a test target and not in CI. On the Linux VM it can run only the attach part:
 `TerminalAttachMachine`, `AttachOracle`, the input invariants and replay, after tasks 102 and 103
 move them into `CmuxNextInputModel`. The same seed gives the same walk, and a failure writes its
-minimized journal. `oracle-replay` (task 104) replays saved attach journals, the Linux form of
-section 5. The focus, omnibar, `KeyRouter` and palette parts of `InputWorld` need the real
+minimized journal. `oracle-replay` (task 104, `Packages/macOS/CmuxNext/Sources/OracleReplay/`) replays
+saved journals with `InputReplay`, the offline form of section 5: oracle corpus runs save each case's
+journal, and `tests/oracle/corpus/journals/` keeps the ones a push replays (its README). The focus, omnibar, `KeyRouter` and palette parts of `InputWorld` need the real
 `FocusCoordinator` and its reducers, which stay in `CmuxNextApp/Focus`, outside the Linux tier. They
 have no runner until those move out of the app, and no p15 task does that yet.
 [oracle-DESIGN.md](oracle-DESIGN.md#8-linux-tier) describes both executables. The text below
