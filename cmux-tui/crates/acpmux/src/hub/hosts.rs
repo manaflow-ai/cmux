@@ -276,7 +276,7 @@ impl Hub {
                     self.end_if_runs_full_access(&session, off).await
                         != FullAccessEnd::NotInFullAccess
                 };
-                if ended && !Self::host_record_live(&session.id) {
+                if ended && Self::host_record_gone(&session.id) {
                     continue;
                 }
                 self.mark_unadoptable(

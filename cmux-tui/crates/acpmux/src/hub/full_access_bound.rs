@@ -378,11 +378,12 @@ impl Hub {
     /// Whether `session`'s agent host may hold reports this daemon has not seen: its link broke
     /// (an entry could not be logged) or closed while the host still runs. What it reported since
     /// is unknown, so under MDM's off it counts as full access (review 64 of #23322); a request
-    /// would reattach it, but the push does not wait for one.
+    /// would reattach it, but the push does not wait for one. Host records that cannot be read
+    /// do not prove the host gone (`host_record_gone`, review 67).
     async fn host_unheard(session: &Session) -> bool {
         let child = session.child.lock().await.clone();
         let Some(child) = child.filter(|c| c.host_record().is_some()) else { return false };
-        child.is_broken() || (!child.is_alive().await && Self::host_record_live(&session.id))
+        child.is_broken() || (!child.is_alive().await && !Self::host_record_gone(&session.id))
     }
 
     /// Whether `session`'s agent runs in full access by what acpmux keeps of it, or, for a host a
@@ -391,11 +392,13 @@ impl Hub {
     /// reaches it live), so the log is read once per host, not at each check
     /// (`FloorState::left_host_read`, cleared at each `host_started`). A log that cannot be read
     /// says nothing either way: under MDM's off the host counts as in full access (review 61).
+    /// Host records that cannot be read do not prove the host gone, so its log is read back then
+    /// too (`host_record_gone`, review 67).
     fn runs_full_access_by_any_record(&self, session: &Session) -> bool {
         if runs_full_access(&FullAccessView::of_session(session)).is_some() {
             return true;
         }
-        if !Self::host_record_live(&session.id)
+        if Self::host_record_gone(&session.id)
             || session.floor.left_host_read.load(Ordering::SeqCst)
         {
             return false;
