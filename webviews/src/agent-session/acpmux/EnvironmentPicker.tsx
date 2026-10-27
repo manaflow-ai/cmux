@@ -493,7 +493,10 @@ export function EnvironmentPicker({
       >
         <Combobox
           suggestions={suggestions}
-          onQuery={setQuery}
+          onQuery={(next) => {
+            setQuery(next);
+            autoHighlighted.current = undefined;
+          }}
           onSubmit={submit}
           onCancel={close}
           onCommand={(event) => {
