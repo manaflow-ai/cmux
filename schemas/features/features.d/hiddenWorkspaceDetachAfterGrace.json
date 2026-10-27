@@ -1,0 +1,17 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "hiddenWorkspaceDetachAfterGrace",
+  "owner": "PL-switch",
+  "description": "A workspace hidden longer than a grace leaves its window in the background, the oldest first, one per turn, and joins it again when shown. Off, hidden workspaces stay in their window, so a switch back moves no view into it. The arm measured against hiding only.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [
+    { "name": "grace", "type": "duration", "default": 30, "min": 5, "max": 900,
+      "description": "How long a workspace stays hidden in its window before it leaves it." }
+  ],
+  "stories": ["switch", "activation-stress", "memory-hidden"],
+  "sticky": false,
+  "runtimeMutable": false
+}

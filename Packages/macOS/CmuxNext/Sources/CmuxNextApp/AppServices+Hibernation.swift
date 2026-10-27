@@ -143,6 +143,15 @@ extension AppServices {
             evictions: MainDeadline(owner: "HiddenFrameLRU.evict", workClass: .background, scheduler: mainDeadlines),
             memory: memoryCoordinator)
     }
+
+    /// A window's detach of workspaces hidden past the grace with `hiddenWorkspaceDetachAfterGrace`
+    /// (p03-rendering-096), on one background deadline; nil while off: hidden workspaces stay in their window.
+    func makeHiddenWorkspaceDetach() -> HiddenWorkspaceDetach? {
+        guard features.isEnabled(.hiddenWorkspaceDetachAfterGrace) else { return nil }
+        return HiddenWorkspaceDetach(
+            grace: Feature.hiddenWorkspaceDetachAfterGrace.durationParam("grace") ?? .seconds(30),
+            deadline: MainDeadline(owner: "HiddenWorkspaceDetach", workClass: .background, scheduler: mainDeadlines))
+    }
 }
 
 // The memory histograms' discard and wake counts come from the page hibernation (p07-memory-016).
