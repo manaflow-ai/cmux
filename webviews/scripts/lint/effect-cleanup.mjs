@@ -269,6 +269,8 @@ export const intervalCleanup = {
         if (isTimer(node.callee, "setInterval")) intervals.push(node);
         if (isEffect(node.callee)) {
           const callbacks = [];
+          const direct = resolveFunction(node.arguments[0]);
+          if (direct) callbacks.push(direct);
           walk(node.arguments[0], (child) => {
             if (functions.has(child.type)) callbacks.push(child);
           });
