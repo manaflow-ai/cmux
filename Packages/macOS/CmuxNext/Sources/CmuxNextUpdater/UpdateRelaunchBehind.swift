@@ -130,7 +130,7 @@ public nonisolated enum UpdateRelaunchBehind {
 }
 
 /// Runs `body` with `strings` as a NULL-terminated C string array (argv / envp).
-private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeMutablePointer<CChar>?>?) -> R) -> R {
+nonisolated private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeMutablePointer<CChar>?>?) -> R) -> R {
     let pointers = strings.map { strdup($0) } + [nil]
     defer { pointers.forEach { free($0) } }
     return pointers.withUnsafeBufferPointer { body($0.baseAddress) }
