@@ -50,8 +50,14 @@ pub struct Fixture {
 
 impl Fixture {
     /// Reads and parses a fixture file.
+    /// The file itself, never a link (a capture app can write the folder
+    /// that holds it).
     pub fn read(path: &Path) -> Result<Self, String> {
-        let text = std::fs::read(path)
+        let text = open_no_follow(path)
+            .and_then(|mut file| {
+                let mut text = Vec::new();
+                std::io::Read::read_to_end(&mut file, &mut text).map(|_| text)
+            })
             .map_err(|e| format!("{ENV}: cannot read {}: {e}", path.display()))?;
         serde_json::from_slice(&text)
             .map_err(|e| format!("{ENV}: {} is not a harness fixture: {e}", path.display()))
@@ -61,6 +67,17 @@ impl Fixture {
     pub fn names(&self, id: &str) -> bool {
         self.harnesses.contains_key(id) || self.health.iter().any(|row| row.id == id)
     }
+}
+
+#[cfg(unix)]
+fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path)
+}
+
+#[cfg(not(unix))]
+fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::open(path)
 }
 
 /// The fixture file's outcome, read once per process: None when the
@@ -134,6 +151,16 @@ mod tests {
         std::fs::write(&file, br#"{"harness": {}}"#).unwrap();
         assert!(Fixture::read(&file).unwrap_err().contains("not a harness fixture"));
         assert!(Fixture::read(&dir.join("missing.json")).unwrap_err().contains("cannot read"));
+        #[cfg(unix)]
+        {
+            let link = dir.join("link.json");
+            let _ = std::fs::remove_file(&link);
+            std::os::unix::fs::symlink(&file, &link).unwrap();
+            assert!(
+                Fixture::read(&link).unwrap_err().contains("cannot read"),
+                "a link was followed"
+            );
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 
