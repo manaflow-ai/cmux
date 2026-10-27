@@ -56,6 +56,37 @@ struct BrowserCLIDialogTests {
         }
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/25107: a click whose handler
+    /// opens `confirm()` blocks the page's script thread, so the click's own
+    /// script never returns. The click took effect, so it reports the dialog it
+    /// opened instead of a `js_error` and leaves it for `browser.dialog.accept`.
+    @Test func clickThatOpensAConfirmReportsTheDialogInsteadOfFailing() async throws {
+        try await withPanel { panel, params in
+            panel.webView.loadHTMLString(
+                "<button id=\"btn\" onclick=\"document.title = String(confirm('ok?'))\">ask</button>",
+                baseURL: nil
+            )
+            var click = params
+            click["selector"] = "#btn"
+            let clicked = try await request("browser.click", click)
+            #expect(clicked["ok"] as? Bool == true, "\(clicked)")
+            let result = try #require(clicked["result"] as? [String: Any])
+            let dialog = try #require(result["dialog"] as? [String: Any])
+            #expect(dialog["kind"] as? String == "javascript_confirm")
+            #expect(dialog["message"] as? String == "ok?")
+            #expect(panel.pendingJavaScriptDialogs.count == 1)
+
+            let accepted = try await request("browser.dialog.accept", params)
+            #expect(accepted["ok"] as? Bool == true)
+            #expect(panel.pendingJavaScriptDialogs.isEmpty)
+            var eval = params
+            eval["script"] = "document.title"
+            let title = try await request("browser.eval", eval)
+            #expect(title["ok"] as? Bool == true, "\(title)")
+            #expect((title["result"] as? [String: Any])?["value"] as? String == "true")
+        }
+    }
+
     @Test func queuedDialogsAreFIFOAndTeardownCancelsTheRest() async throws {
         try await withPanel { panel, params in
             var answers: [String] = []
