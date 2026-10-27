@@ -48,6 +48,7 @@ public final class AgentApprovalBanners {
         guard let answerer else { return post(nil) }
         reads[tab] = id
         // task-owner: AgentApprovalBanners.read: one prompt read before one banner posts.
+        // main-hop-allow: pendingApproval is the answerer's main-actor async read (one acpmux connection whose lines decode off main and land in batches, MainActorLineBatch); the task only starts it and posts the banner it answers
         Task { [weak self] in
             let approval = await answerer.pendingApproval(session: session)
             guard let self, self.reads[tab] == id else { return }

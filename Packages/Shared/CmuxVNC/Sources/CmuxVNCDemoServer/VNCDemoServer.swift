@@ -220,15 +220,16 @@ final class DemoConnection: @unchecked Sendable {
 
     // MARK: Client messages
 
+    // A client's bytes are read as slices of what arrived: no read indexes `input`.
     private func take(_ count: Int) -> [UInt8]? {
-        guard input.count >= count else { return nil }
+        guard count >= 0, input.count >= count else { return nil }
         defer { input.removeFirst(count) }
-        return Array(input[0 ..< count])
+        return Array(input.prefix(count))
     }
 
-    private func peekU16(_ offset: Int) -> Int { Int(input[offset]) << 8 | Int(input[offset + 1]) }
+    private func peekU16(_ offset: Int) -> Int { input.dropFirst(offset).prefix(2).bigEndian(as: UInt16.self).widened }
     private func peekU32(_ offset: Int) -> Int {
-        Int(input[offset]) << 24 | Int(input[offset + 1]) << 16 | Int(input[offset + 2]) << 8 | Int(input[offset + 3])
+        Int(truncatingIfNeeded: input.dropFirst(offset).prefix(4).bigEndian(as: UInt32.self))
     }
 
     private func process() {
@@ -281,23 +282,24 @@ final class DemoConnection: @unchecked Sendable {
                     let count = peekU16(2)
                     guard let bytes = take(4 + count * 4) else { return }
                     encodings = Set((0 ..< count).map { index in
-                        let o = 4 + index * 4
-                        return Int32(bitPattern: UInt32(bytes[o]) << 24 | UInt32(bytes[o + 1]) << 16 | UInt32(bytes[o + 2]) << 8 | UInt32(bytes[o + 3]))
+                        Int32(bitPattern: bytes.dropFirst(4 + index * 4).prefix(4).bigEndian(as: UInt32.self))
                     })
                 case 3:
                     guard let bytes = take(10) else { return }
-                    if bytes[1] == 0 { pending = [CGRect(x: 0, y: 0, width: scene.width, height: scene.height)] }
+                    if bytes.dropFirst(1).first == 0 { pending = [CGRect(x: 0, y: 0, width: scene.width, height: scene.height)] }
                     requested = true
                     flush()
                 case 4:
                     guard let bytes = take(8) else { return }
-                    let keysym = UInt32(bytes[4]) << 24 | UInt32(bytes[5]) << 16 | UInt32(bytes[6]) << 8 | UInt32(bytes[7])
-                    if keysym == 0xFFE1 || keysym == 0xFFE2 { shift = bytes[1] != 0 }
-                    onSceneChange?(scene.key(keysym, down: bytes[1] != 0, shift: shift))
+                    let keysym = bytes.dropFirst(4).bigEndian(as: UInt32.self)
+                    let down = bytes.dropFirst(1).first != 0
+                    if keysym == 0xFFE1 || keysym == 0xFFE2 { shift = down }
+                    onSceneChange?(scene.key(keysym, down: down, shift: shift))
                 case 5:
                     guard let bytes = take(6) else { return }
-                    buttons = bytes[1]
-                    let x = Int(bytes[2]) << 8 | Int(bytes[3]), y = Int(bytes[4]) << 8 | Int(bytes[5])
+                    buttons = bytes.dropFirst(1).first ?? 0
+                    let x = bytes.dropFirst(2).prefix(2).bigEndian(as: UInt16.self).widened
+                    let y = bytes.dropFirst(4).prefix(2).bigEndian(as: UInt16.self).widened
                     onSceneChange?(scene.pointer(x: x, y: y, leftDown: buttons & 1 != 0))
                 case 6:
                     guard input.count >= 8 else { return }

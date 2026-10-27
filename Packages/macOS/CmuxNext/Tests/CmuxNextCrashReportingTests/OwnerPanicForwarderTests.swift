@@ -364,4 +364,32 @@ import Testing
         await recorder.waitUntil(hangs: 1)
         #expect(recorder.hangEntries == [Recorder.Entry(thread: "while-the-app-was-away", source: .owner)])
     }
+
+    /// The app makes its acpmux forwarder at the forwarders' first pass (finding acpmux reads the file system), after
+    /// the hang-report sink may have attached to ``CrashForwarders``: acpmux's hang lines still reach that sink.
+    @Test(.timeLimit(.minutes(1))) func theAcpmuxForwarderMadeAfterTheSinkAttachesHandsItsHangsOn() async throws {
+        let dir = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let home = dir.appending(path: "acpmux", directoryHint: .isDirectory)
+        let hangFile = home.appending(path: "hangs-7.jsonl")
+        try Self.append("", to: hangFile)
+        let acpmuxLogs = RustDiagnosticsLog.acpmux(home: home)
+        let acpmuxState = dir.appending(path: "acpmux-state.json")
+        // The previous run read the log to its end; this run's line comes after.
+        _ = OwnerPanicForwarder(logs: acpmuxLogs, stateFile: acpmuxState, sends: true, capture: { _ in }).forwardNew()
+        try Self.append(Self.fixtureLine(thread: "acpmux-request"), to: hangFile)
+        let recorder = Recorder()
+        let system = SystemCrashForwarder(directory: dir.appending(path: "DiagnosticReports", directoryHint: .isDirectory),
+                                          stateFile: dir.appending(path: "system-state.json"), bundlePath: dir.path,
+                                          mainExecutable: nil, capture: { _ in })
+        let owner = Self.forwarder([Self.hangLog(dir)], dir: dir, recorder: recorder, attached: false)
+        let forwarders = CrashForwarders(system: system, ownerPanics: owner) {
+            OwnerPanicForwarder(logs: acpmuxLogs, stateFile: acpmuxState, sends: true, capture: { recorder.capture($0) })
+        }
+        forwarders.setHangEntries { recorder.hang($0, $1) }
+        forwarders.run()
+        await recorder.waitUntil(sent: 1, hangs: 1)
+        #expect(recorder.hangEntries == [Recorder.Entry(thread: "acpmux-request", source: .acpmux)])
+        #expect(forwarders.acpmuxPanics != nil)
+    }
 }

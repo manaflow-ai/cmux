@@ -223,14 +223,19 @@ public struct RustDiagnosticsLog: Sendable, Equatable {
                                name: .pattern(prefix: "server-helper-panics", suffix: ".jsonl"),
                                source: .serverHelper, kind: .panic, createsDirectory: false),
         ]
-        if let home = roots.acpmuxHome {
-            logs.append(.file(RustPanicSource.acpmuxLog(acpmuxHome: home), source: .acpmux, kind: .panic))
-            logs.append(RustDiagnosticsLog(directory: home, name: hangs, source: .acpmux, kind: .hang))
-        }
+        if let home = roots.acpmuxHome { logs += acpmux(home: home) }
         for role in stateRootRoles {
             logs.append(RustDiagnosticsLog(directory: roots.stateRoot, name: .pattern(prefix: "\(role.stem)-panics-", suffix: ".jsonl"),
                                            source: role.source, kind: .panic))
         }
         return logs
+    }
+
+    /// The acpmux daemon's logs in its `ACPMUX_HOME`: `panics.jsonl` and `hangs-<pid>.jsonl` (acpmux
+    /// `daemon::hang_watch::init(home)`). The app finds that home with a file system read, so its launch adds these at
+    /// the forwarders' first pass (``CrashForwarders``); ``all(_:)`` holds them when ``Roots/acpmuxHome`` is set.
+    public static func acpmux(home: URL) -> [RustDiagnosticsLog] {
+        [.file(RustPanicSource.acpmuxLog(acpmuxHome: home), source: .acpmux, kind: .panic),
+         RustDiagnosticsLog(directory: home, name: .pattern(prefix: "hangs-", suffix: ".jsonl"), source: .acpmux, kind: .hang)]
     }
 }

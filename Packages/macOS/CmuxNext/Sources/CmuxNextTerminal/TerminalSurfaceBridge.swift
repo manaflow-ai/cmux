@@ -61,11 +61,13 @@ nonisolated final class SurfaceBridge: Sendable {
     }
 
     /// The surface's ``GhosttyActionMailbox``: its state actions apply once per frame of its target's
-    /// window, to the target that shows it then.
+    /// window, to the target that shows it then; while nobody sees the target's tab they wait for it to show.
     @MainActor var actionMailbox: GhosttyActionMailbox {
         if let mailbox { return mailbox }
         let made = GhosttyActionMailbox(owner: "terminal.actions", scheduler: { [weak self] in
             self?.target?.actionFrameScheduler ?? .app
+        }, node: { [weak self] in
+            self?.target?.actionNode
         }, apply: { [weak self] action in
             _ = self?.target?.applyAction(action)
         })

@@ -157,14 +157,25 @@ public final class OwnerPanicForwarder: Sendable {
 
     /// Reads now and on each change of a log's folder or file, off the main thread.
     public func start() {
-        queue.async { [self] in
-            for log in logs where log.createsDirectory {
-                try? FileManager.checked.createDirectory(at: log.directory, withIntermediateDirectories: true)
-            }
-            // Watch first: a line added between the read and the watch would wait for the next change.
-            updateWatches()
-            forwardNew()
+        queue.async { [self] in firstPass() }
+    }
+
+    /// ``start()``'s work on the calling thread, which may block on files (a launch lane post,
+    /// ``CrashForwarders/run()``): makes the log folders the app may make, watches each log's folder and file,
+    /// then reads the lines added since the last read. It runs as one item of the forwarder's queue, so a watch
+    /// event that fires during the read waits for it and a line is never sent twice. Call it, or ``start()``, once.
+    public func forwardAndWatch() {
+        queue.sync { firstPass() }
+    }
+
+    /// The first pass (on `queue`).
+    private func firstPass() {
+        for log in logs where log.createsDirectory {
+            try? FileManager.checked.createDirectory(at: log.directory, withIntermediateDirectories: true)
         }
+        // Watch first: a line added between the read and the watch would wait for the next change.
+        updateWatches()
+        forwardNew()
     }
 
     /// Sends the lines added since the last read. Returns the events sent.

@@ -1,0 +1,574 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "chrome-tab-keys-terminal-two-tabs",
+  "suite": "e2e",
+  "title": "Chrome's tab keys move between sidebar items from a terminal in a pane with two tabs, not between the pane's tabs",
+  "priority": "P0",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    }
+  },
+  "fixture": {
+    "seed": "e2e-chrome-tab-keys-terminal-two-tabs-v1",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock"
+  },
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab"
+  ],
+  "requires": [
+    "actions",
+    "keys",
+    "gui"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "focus",
+          "sidebar",
+          "settings"
+        ]
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "numbering-workspaces",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "set",
+          "sidebar.numbering",
+          "workspacesOnly"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a settings write has no action receipt"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "predicate": {
+          "op": "contains",
+          "value": "sidebar.numbering"
+        },
+        "maxMs": 10000
+      },
+      "note": "Cmd-1 to Cmd-9 count workspaces only: the default allItems numbers Home = 1 and the App Store = 2 first (SidebarItemOrder.items(_:), schemas/defaults/cmux-next.json setting.sidebar.numbering)"
+    },
+    {
+      "id": "w1",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "workspace.newAtBottom"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/workspaces",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "w1: a terminal workspace at the bottom of the sidebar, not shown"
+    },
+    {
+      "id": "w2",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "workspace.newAtBottom"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/workspaces",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "w2: a terminal workspace at the bottom of the sidebar, not shown"
+    },
+    {
+      "id": "w3",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "workspace.newAtBottom"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/workspaces",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "w3: a terminal workspace at the bottom of the sidebar, not shown"
+    },
+    {
+      "id": "w4",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "workspace.newAtBottom"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/workspaces",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "w4: a terminal workspace at the bottom of the sidebar, not shown"
+    },
+    {
+      "id": "show-start",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "goToWorkspace",
+        "params": {
+          "workspace": "$step:w2#/created/0"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w2#/created/0",
+        "maxMs": 5000
+      },
+      "note": "w2 is the start: not the first, second or last item, so every key must move the selection"
+    },
+    {
+      "id": "second-tab",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "ctrl+`"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/tab_count",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "a second terminal tab in the start's pane (newSurface), selected: the old Previous / Next switched these"
+    },
+    {
+      "id": "start",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "focus",
+          "tabs"
+        ]
+      },
+      "settleMaxMs": 5000,
+      "note": "the start's pane has two terminal tabs, the second selected"
+    },
+    {
+      "id": "ctrl-cmd-close-bracket-show-start",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "goToWorkspace",
+        "params": {
+          "workspace": "$step:w2#/created/0"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w2#/created/0",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "ctrl-cmd-close-bracket",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "ctrl+cmd+]"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w3#/created/0",
+        "maxMs": 5000
+      },
+      "checkpoint": [
+        "turn",
+        "settled"
+      ],
+      "note": "selects the sidebar item below the start (nextSidebarTab): w3"
+    },
+    {
+      "id": "ctrl-cmd-open-bracket-show-start",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "goToWorkspace",
+        "params": {
+          "workspace": "$step:w2#/created/0"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w2#/created/0",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "ctrl-cmd-open-bracket",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "ctrl+cmd+["
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w1#/created/0",
+        "maxMs": 5000
+      },
+      "checkpoint": [
+        "turn",
+        "settled"
+      ],
+      "note": "selects the sidebar item above the start (prevSidebarTab): w1"
+    },
+    {
+      "id": "ctrl-pagedown-show-start",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "goToWorkspace",
+        "params": {
+          "workspace": "$step:w2#/created/0"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w2#/created/0",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "ctrl-pagedown",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "ctrl+pagedown"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w3#/created/0",
+        "maxMs": 5000
+      },
+      "checkpoint": [
+        "turn",
+        "settled"
+      ],
+      "note": "selects the sidebar item below the start (nextSidebarTab): w3"
+    },
+    {
+      "id": "ctrl-pageup-show-start",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "goToWorkspace",
+        "params": {
+          "workspace": "$step:w2#/created/0"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w2#/created/0",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "ctrl-pageup",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "ctrl+pageup"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w1#/created/0",
+        "maxMs": 5000
+      },
+      "checkpoint": [
+        "turn",
+        "settled"
+      ],
+      "note": "selects the sidebar item above the start (prevSidebarTab): w1"
+    },
+    {
+      "id": "cmd-1-show-start",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "goToWorkspace",
+        "params": {
+          "workspace": "$step:w2#/created/0"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w2#/created/0",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "cmd-1",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+1"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "checkpoint": [
+        "turn",
+        "settled"
+      ],
+      "note": "selects the first workspace (selectWorkspaceByNumber 1 with numbering workspacesOnly): the launch's workspace"
+    },
+    {
+      "id": "cmd-2-show-start",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "goToWorkspace",
+        "params": {
+          "workspace": "$step:w2#/created/0"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w2#/created/0",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "cmd-2",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+2"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w1#/created/0",
+        "maxMs": 5000
+      },
+      "checkpoint": [
+        "turn",
+        "settled"
+      ],
+      "note": "selects the second workspace (selectWorkspaceByNumber 2 with numbering workspacesOnly): w1"
+    },
+    {
+      "id": "cmd-9-show-start",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "goToWorkspace",
+        "params": {
+          "workspace": "$step:w2#/created/0"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w2#/created/0",
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "cmd-9",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+9"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "equals": "$step:w4#/created/0",
+        "maxMs": 5000
+      },
+      "checkpoint": [
+        "turn",
+        "settled"
+      ],
+      "note": "Cmd-9 selects the last workspace (sidebar.cmd9 last): w4"
+    }
+  ],
+  "invariants": [
+    "converted from scripts/cmux-next/chrome-tab-keys-e2e.py, which stays as the live check; tests/oracle/corpus/e2e/coverage.json maps the script to this case and its cited fix",
+    "each key changes the window's selected sidebar item exactly as its sidebar action does from the same start (the script's oracle): the key wins over the focused surface, with no rebinding (Leo 2026-10-12)",
+    "the start's tabs are the same at every key's settled checkpoint as at start: no key switches the pane's tabs instead",
+    "Cmd-Opt-Left / Right are Ghostty's pane focus keys (schemas/keybindings/ghostty-reserved-keys.json), not sidebar keys",
+    "every mutation has one receipt or one typed error (I1)"
+  ],
+  "teardown": [
+    "quit the tagged app the run started",
+    "verify its debug socket is gone",
+    "end the tag's daemons (TagTeardown)"
+  ],
+  "untested": [
+    "Leo's Karabiner sequences (Cmd-Shift-] / [, Ctrl-Tab) cycle the pane's tabs now; the script's SEQUENCES is empty",
+    "real key-downs through cua-driver (--real): the case uses the app's key path (debug.key), as the script does by default",
+    "the router's dry-run decision per key (debug.key dry_run) is not a case op; the settled selection is the check"
+  ]
+}

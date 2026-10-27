@@ -6,13 +6,13 @@ public import AppKit
 /// the app has the Screen Recording grant (capture slots do not), so the image paints Chromium's
 /// own image of each page over its area, as it does for browser tabs.
 extension PageWebView {
-    /// The page as Chromium drew it (`Page.captureScreenshot`); nil on a WebKit page, on a page that
+    /// The page as Chromium drew it, at the view's pixel size (its surface copy, with no DevTools agent;
+    /// a PNG `Page.captureScreenshot` on a fork without the copy); nil on a WebKit page, on a page that
     /// is discarded or still shows its discard snapshot (the window's own image has that layer), or
     /// when Chromium gives no image.
     public func chromiumImage() async -> CGImage? {
-        guard !isDiscarded, !showsDiscardSnapshot, let session = chromiumSession,
-              let json = try? await session.page.devTools("Page.captureScreenshot", params: ["format": "png"]) else { return nil }
-        return await Self.capturedPageImage(json, on: session.work)
+        guard !isDiscarded, !showsDiscardSnapshot, let session = chromiumSession else { return nil }
+        return await chromiumPicture(of: session, devToolsParams: ["format": "png"])
     }
 }
 
