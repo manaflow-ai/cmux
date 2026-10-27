@@ -20,3 +20,9 @@ import Foundation
     }
     return done()
 }
+
+/// One main run loop pass of at most `seconds` (tests). It is a sync call, so an async test can make it:
+/// `RunLoop.run(mode:before:)` itself is unavailable from async contexts.
+@MainActor func runMainLoopPass(for seconds: TimeInterval) {
+    _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: seconds))
+}

@@ -208,9 +208,12 @@ pub fn outside_request_class() -> ThreadQos {
     own_class()
 }
 
-/// The calling thread's class outside every request.
+/// The calling thread's class outside every request: the class it declared.
+/// Not its desired class, which a connection thread sets to the class it
+/// rests at (cmux-tui-core server/connection_qos.rs): a thread it starts
+/// serves every connection, not only that one.
 fn own_class() -> ThreadQos {
-    cmux_threads::current_slot().map_or(ThreadQos::Default, |slot| slot.desired())
+    cmux_threads::current_slot().map_or(ThreadQos::Default, |slot| slot.declared())
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextFloating
 import os
+import CmuxNextWakeups
 
 /// Start Agent (`palette.quickAgentChat`, cx-hkat): one agent chat in a
 /// floating panel over any app. Every entrypoint (its key, the opt-in
@@ -43,6 +44,8 @@ final class QuickComposerController {
     private let context: @MainActor () async -> AgentPaneQuickContext?
     /// Where the held chat's session is kept, so a quit does not lose it (`heldSessionKey`).
     private let defaults: UserDefaults
+    /// The app's main-thread scheduler: the handed-off page's close is a posted task on it.
+    private let mainWork: MainWorkScheduler
     static let heldSessionKey = "quickComposer.floatingChatSession"
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
 
@@ -54,8 +57,10 @@ final class QuickComposerController {
         floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value },
         pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) },
         context: (@MainActor () async -> AgentPaneQuickContext?)? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        mainWork: MainWorkScheduler
     ) {
+        self.mainWork = mainWork
         self.makeChat = makeChat
         self.makeWindow = makeWindow
         self.openInWindow = openInWindow
@@ -198,9 +203,9 @@ final class QuickComposerController {
         }
         guard let used = chat else { return }
         chat = nil
-        // The page's request is still being answered; close it after.
-        // task-owner: one-shot close of the handed-off page
-        Task { used.close() }
+        // The page's request is still being answered; close it after, in a later task. `visible`: the panel's page
+        // goes, which no input of the person in this turn waits on.
+        mainWork.post(.visible, owner: "QuickComposerController.closeChat") { used.close() }
     }
 
     @discardableResult

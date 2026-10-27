@@ -16,6 +16,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxMobileTunnel"),
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        .package(path: "../../Shared/CmuxSafeConcurrency"),
         .package(url: "https://github.com/apple/swift-nio-ssh.git", from: "0.9.1"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.89.0"),
         .package(url: "https://github.com/apple/swift-nio-transport-services.git", from: "1.23.0"),
@@ -26,6 +28,7 @@ let package = Package(
             name: "CmuxMobileSSH",
             dependencies: [
                 "CmuxMobileTunnel",
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "NIOSSH", package: "swift-nio-ssh"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOTransportServices", package: "swift-nio-transport-services"),

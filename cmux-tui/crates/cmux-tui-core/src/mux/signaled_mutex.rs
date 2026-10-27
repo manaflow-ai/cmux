@@ -6,10 +6,11 @@
 //! time every acquisition by the request's caller class and op
 //! (`debug-daemon-locks`, crate::diagnostics::DaemonLockTable).
 
+use cmux_threads::sync::Mutex;
 use std::ops::{Deref, DerefMut};
 #[cfg(test)]
 use std::sync::TryLockResult;
-use std::sync::{LockResult, Mutex, MutexGuard, PoisonError, TryLockError};
+use std::sync::{LockResult, MutexGuard, PoisonError, TryLockError};
 use std::time::{Duration, Instant};
 
 use super::{Mux, State, WorkspaceRegistry};

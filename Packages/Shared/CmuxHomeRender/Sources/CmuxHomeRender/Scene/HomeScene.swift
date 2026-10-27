@@ -21,7 +21,7 @@ final class HomeScene {
     let bitmaps: RowBitmaps
     var morphs: [String: MorphBubble] = [:]
     /// Attachment pictures by content hash, and inline video playback.
-    let media = MediaStore()
+    let media: MediaStore
     let video = VideoPlayback()
     /// Upload progress by content hash (absent: not uploading).
     var uploadProgress: [String: Double] = [:]
@@ -54,14 +54,20 @@ final class HomeScene {
     var crossFadeEnd: CFTimeInterval = 0
     var momentum: (velocity: CGFloat, last: CFTimeInterval)?
 
-    /// Row recycler: rows matched by key; a pool that is never freed.
+    /// Row recycler: rows matched by key; a pool that is never freed (a
+    /// pooled row holds no image).
     var visible: [String: RowLayer] = [:]
     var visibleIndex: [ObjectIdentifier: Int] = [:]
-    private var pool: [RowLayer] = []
+    private(set) var pool: [RowLayer] = []
     private var dirty = true
+    /// The host hid the transcript: the model and layout still change, but no
+    /// row shows, draws or loads until it shows again (`setHidden(false)`
+    /// lays out once to its final state).
+    private(set) var isHidden = false
 
-    init(palette: HomePalette) {
-        bitmaps = RowBitmaps(palette: palette)
+    init(palette: HomePalette, memoryBudget: HomeMemoryBudget) {
+        bitmaps = RowBitmaps(palette: palette, maxBytes: memoryBudget.rowBitmapBytes)
+        media = MediaStore(maxBytes: memoryBudget.pictureBytes)
         compose = ComposeLayer(palette: palette)
         layout = ChatLayout(model: model)
         for l in [root, clip, clipMask, scrollLayer, morphLayer] {
@@ -203,9 +209,30 @@ final class HomeScene {
 
     // MARK: Rows
 
+    /// Hides the transcript (every row goes back to the pool and the caches
+    /// let go of everything) or shows it again with one layout pass.
+    func setHidden(_ hidden: Bool) {
+        guard hidden != isHidden else { return }
+        isHidden = hidden
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if hidden {
+            for (key, r) in visible { recycle(r, key: key) }
+            visible = [:]
+            visibleIndex = [:]
+            bitmaps.releaseHidden()
+            media.releaseHidden()
+        }
+        markAllDirty()
+        layoutRows()
+        CATransaction.commit()
+    }
+
     /// Rows in the visible rect keep their layer (matched by key); leaving
     /// rows go back to the pool (hidden, never freed); new rows take one.
+    /// The caches learn which rows are on screen before any row asks them.
     func layoutRows() {
+        guard !isHidden else { return }
         let n = model.count
         let rect = CGRect(x: 0, y: offset, width: size.width, height: size.height)
         let indices = layout.rows(in: rect).filter { $0 < n }
@@ -234,16 +261,22 @@ final class HomeScene {
             next.updateValue(row, forKey: key)
             newIndex[ObjectIdentifier(row)] = i
         }
-        for (key, r) in visible {
-            video.rowLeft(key)
-            r.layer.isHidden = true
-            r.prepareForReuse()
-            pool.append(r)
-        }
+        for (key, r) in visible { recycle(r, key: key) }
         visible = next
         visibleIndex = newIndex
+        let m = metrics
+        let shown = indices.compactMap { model.rows[checked: $0]?.spec }
+        bitmaps.show(shown.map { (spec: $0, size: RowArt.frame($0, metrics: m).size) })
+        media.show(Set(shown.compactMap { $0.partRow?.media?.ref.hash }))
         for (r, i) in fresh { decorate(r, i) }
-        prefetchNearViewport()
+        prefetchNearViewport(around: indices)
+    }
+
+    private func recycle(_ r: RowLayer, key: String) {
+        video.rowLeft(key)
+        r.layer.isHidden = true
+        r.prepareForReuse()
+        pool.append(r)
     }
 
     /// Rows within one viewport above and below the visible rect: their
@@ -254,12 +287,19 @@ final class HomeScene {
         return layout.rows(in: rect).filter { $0 < n }
     }
 
-    private func prefetchNearViewport() {
+    /// Offers the rows near the viewport to the bitmap cache nearest first;
+    /// it draws ahead only what its budget keeps beside the rows on screen.
+    private func prefetchNearViewport(around shown: [Int]) {
         let m = metrics
-        for i in prefetchIndices() {
-            guard let spec = model.rows[checked: i]?.spec, visible[spec.key] == nil else { continue }
-            bitmaps.prefetch(spec, size: RowArt.frame(spec, metrics: m).size)
+        let first = shown.first ?? 0
+        let last = shown.last ?? -1
+        let distance = { (i: Int) -> Int in i > last ? i - last : first - i }
+        let near = prefetchIndices().filter { $0 < first || $0 > last }.sorted { distance($0) < distance($1) }
+        let rows: [(spec: RowSpec, size: CGSize)] = near.compactMap { i in
+            guard let spec = model.rows[checked: i]?.spec else { return nil }
+            return (spec: spec, size: RowArt.frame(spec, metrics: m).size)
         }
+        bitmaps.prefetch(rows)
     }
 
     private func take() -> RowLayer {

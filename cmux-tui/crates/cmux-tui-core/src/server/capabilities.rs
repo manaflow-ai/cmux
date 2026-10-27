@@ -631,6 +631,7 @@ pub(super) fn advertised_capabilities(
         clipboard_read::CAPABILITY,
         chief_inspect::CAPABILITY,
         crate::event_cause::CAPABILITY,
+        crate::event_cause::REQUEST_PRIORITY_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);

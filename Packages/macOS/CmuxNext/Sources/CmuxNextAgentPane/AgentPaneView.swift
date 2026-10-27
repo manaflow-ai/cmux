@@ -349,9 +349,9 @@ public final class AgentPaneView: NSView {
         applyTheme()
     }
 
-    /// Runs a script in the page (tests record them).
-    lazy var evaluateScript: (String) -> Void = { [weak self] script in
-        self?.page.evaluate(script)
+    /// Runs a script in the page; a frozen one thaws first for a command, or holds the latest state of a `push` kind.
+    func evaluateScript(_ script: String, whileFrozen push: PageFrozenPush = .thawsFirst) {
+        page.evaluate(script, whileFrozen: push)
     }
 
     /// Focus Location Bar on a new tab page: the field takes the keyboard and

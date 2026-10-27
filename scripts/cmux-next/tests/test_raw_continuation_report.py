@@ -69,8 +69,14 @@ class RawContinuationReportTests(unittest.TestCase):
     def test_the_report_counts_every_package_outside_the_owner_tests_and_comments(self):
         run = self.ratchet("--report", "raw_continuation")
         self.assertEqual(run.returncode, 0, run.stderr)
+        app, linked, phone = ("Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift",
+                              "Packages/Shared/Linked/Sources/Linked/L.swift", "Packages/iOS/Phone/Sources/Phone/P.swift")
+        sites = [(app, 2, "CmuxNextApp"), (app, 5, "CmuxNextApp"), (phone, 2, "Phone"), (phone, 3, "Phone"),
+                 (linked, 2, "Linked")]
         self.assertEqual(json.loads(run.stdout), {"raw_continuation": {
-            "total": 5, "modules": {"CmuxNextApp": 2, "Linked": 1, "Phone": 2}}})
+            "total": 5, "modules": {"CmuxNextApp": 2, "Linked": 1, "Phone": 2},
+            "hits": [{"path": path, "line": line, "class": "raw_continuation", "module": module, "hits": 1}
+                     for path, line, module in sorted(sites)]}})
 
     def test_an_unknown_report_class_is_refused(self):
         run = self.ratchet("--report", "raw_continuations")

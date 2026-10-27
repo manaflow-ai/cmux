@@ -25,7 +25,8 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     /// Loading while its document loads (``PageLoadState``: Chrome's kLoading reads the
     /// page's loading state, which also ends while the page is hidden), focused while it holds its
-    /// window's first responder, the reasons of ``PageKeepReasons``: its document's
+    /// window's first responder, a page call while a host call waits for its answer
+    /// (``PageWebView/callPageScript(_:arguments:)``), the reasons of ``PageKeepReasons``: its document's
     /// `cmux.page.keepAlive` and the host's holds (a confirmation sheet, a menu or popup, a drop it
     /// reads, Web Inspector, dictation), each of which tells the lifecycle when it starts or ends, and
     /// preload while it is the pool's parked spare (the pool owns its life; a claimed pooled host is a
@@ -35,6 +36,7 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
         var reasons = view.keepReasons.current
         if view.isParkedSpare { reasons.insert(.preload) }
         if view.loadState.isLoading { reasons.insert(.loading) }
+        if view.pushes.callsInFlight > 0 { reasons.insert(.pageCall) }
         if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) { reasons.insert(.focused) }
         return reasons
     }

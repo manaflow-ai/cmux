@@ -12,13 +12,14 @@
 //! the next terminal in turn and gives each one an equal share, and a small
 //! frame (an echo) goes ahead of queued bulk output. No timers: `poll`
 //! waits forever unless a CLOSE grace, a handshake deadline or the idle
-//! exit is pending.
+//! exit is pending. Each pass of the work after `poll` is one hang scope
+//! ([`HangWatch`], on its own watcher thread); the wait is not.
 //!
-//! The loop thread is hang-watched (p09-observability section 3E): it
-//! registers as [`POLL_THREAD`] and each turn's work, never its `poll` wait,
-//! runs in one scope with the [`TURN_DEADLINE`] (Chrome's `WatchHangsInScope`
-//! around a task, not around the message pump's wait,
-//! base/threading/hang_watcher.h).
+//! The loop thread is also registered with the process hang watch
+//! (p09-observability section 3E): it registers as [`POLL_THREAD`] and each
+//! turn's work, never its `poll` wait, runs in one scope with the
+//! [`TURN_DEADLINE`] (Chrome's `WatchHangsInScope` around a task, not around
+//! the message pump's wait, base/threading/hang_watcher.h).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io;
@@ -35,9 +36,11 @@ use crate::wire::{self, Frame, In, Kind, Out};
 use crate::{ExitStatus, SpawnRequest, pty};
 
 mod handshake;
+mod hang;
 mod input_flow;
 mod trace;
 
+pub use hang::{HOLDER_LOOP, HangWatch};
 use input_flow::InputFlow;
 pub use trace::{ProcessTrace, TraceControl};
 
@@ -286,7 +289,9 @@ pub struct Holder {
     trace: Box<dyn TraceControl>,
     /// The current link started the recording: it stops when the link ends.
     link_recording: bool,
-    /// The hang-watch deadline of one turn's work ([`TURN_DEADLINE`]).
+    /// Watches each pass of the loop's work ([`HangWatch`]); `None`: unwatched.
+    hangs: Option<HangWatch>,
+    /// The process hang-watch deadline of one turn's work ([`TURN_DEADLINE`]).
     turn_deadline: Duration,
 }
 
@@ -382,6 +387,7 @@ impl Holder {
             sigchld,
             trace: Box::new(ProcessTrace::new(wake_loop)),
             link_recording: false,
+            hangs: None,
             turn_deadline: TURN_DEADLINE,
         })
     }
@@ -481,7 +487,10 @@ impl Holder {
         // The turn's work, not its wait (Chrome's `ThreadController` active slice): recording
         // only (`task`), so an idle holder writes nothing.
         let _turn = cmux_trace::trace_scope!(task, "task.holder_poll", ready, fds.len());
-        // The same turn, watched: the wait above stays outside.
+        // The same work is one hang scope; the poll above is not.
+        let watcher = self.pass_watcher();
+        let _pass = watcher.as_deref().map(|watcher| watcher.scope(&HOLDER_LOOP));
+        // The same turn, watched by the process hang watch: the wait above stays outside.
         let _watched = cmux_hang_watch::watch(self.turn_deadline);
         if fds[1].revents != 0 {
             self.reap();
@@ -518,6 +527,7 @@ impl Holder {
             self.accept();
         }
         self.kill_overdue();
+        self.send_hang_reports();
         self.pump();
         self.retire_closed();
         self.end_orphans(now);

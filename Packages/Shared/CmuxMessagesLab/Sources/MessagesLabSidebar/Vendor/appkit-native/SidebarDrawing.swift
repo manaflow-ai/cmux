@@ -36,12 +36,31 @@ struct SidebarBitmapKey: Hashable, Sendable { // cmux: Sendable (Swift 6)
 /// Bitmaps of one sidebar, least recently used out first, with a byte budget. Main thread
 /// only (the render queue hands its results to the main thread).
 @MainActor // cmux: Swift 6 (main thread only, as above)
-final class SidebarBitmapCache {
+final class SidebarBitmapCache { // memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
     private var map: [SidebarBitmapKey: (image: CGImage, bytes: Int, used: UInt64)] = [:]
     private var clock: UInt64 = 0
     private(set) var bytes = 0
-    let budget: Int
-    init(budget: Int = 40 << 20) { self.budget = budget }
+    /// cmux: MessagesLab's 40 MB until the host sizes the cache (`setBudget(bytes:)`, p07-memory-081).
+    static let defaultBudget = 40 << 20
+    private(set) var budget: Int
+    init(budget: Int = SidebarBitmapCache.defaultBudget) { self.budget = budget }
+    /// cmux: the host's cap (p07-memory-081). Lowering it frees nothing: the next insert trims to it.
+    func setBudget(bytes: Int) { budget = max(0, bytes) }
+    /// cmux: frees the least recently used bitmaps until at most `fraction` of the bytes held now remain (0 frees
+    /// every one), off main (p07-memory-081). A row on screen keeps the bitmap its layer shows; the next pass draws
+    /// what is missing.
+    func trim(toFraction fraction: Double) {
+        guard !fraction.isNaN else { return }
+        let target = CrashGuard.int(Double(bytes) * min(max(fraction, 0), 1), in: 0...max(bytes, 0))
+        guard bytes > target else { return }
+        var dropped: [CGImage] = []
+        for (key, v) in map.sorted(by: { $0.value.used < $1.value.used }) where bytes > target {
+            map[key] = nil
+            bytes -= v.bytes
+            dropped.append(v.image)
+        }
+        SidebarDraw.release(dropped)
+    }
 
     func image(_ k: SidebarBitmapKey) -> CGImage? {
         guard var e = map[k] else { return nil }

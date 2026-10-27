@@ -171,11 +171,11 @@ final class AppServices {
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
     /// The app's one file picker made ahead of the click (agent panes, page inputs, Home's "+"). With feature
-    /// `memoryOpenPanelOnFirstUse` (default off) it is made on the first click and released once unused, so no
-    /// panel service process runs at Home idle.
+    /// `memoryOpenPanelOnFirstUse` (default off) it is made on the first click and is an overlay page released once
+    /// unused or at memory pressure (``overlayPageDiscards``), so no panel service process runs at Home idle.
     private(set) lazy var openPanel = MadeAheadOpenPanel(policy: features.isEnabled(.memoryOpenPanelOnFirstUse)
-        ? .afterFirstUse(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300),
-                         deadline: MainDeadline(owner: "openPanel.release", workClass: .background, scheduler: mainDeadlines)) : .ahead)
+        ? .afterFirstUse(overlayPageDiscards.terms(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300)))
+        : .ahead)
     /// The agent page WebKit warm-up.
     private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat)
     /// Whether a new agent page may show in Chromium: feature `agentChromium`, its Debug tunable `agent.chromium` (the
@@ -201,7 +201,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency() : nil)  // first read in init (no IUO); its Chromium engine at its first read
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, deadlines: mainDeadlines, appEvents: appEvents, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches)), gpuResidency: features.isEnabled(.terminalGPURelease) ? GhosttyGPUResidency() : nil)  // first read in init (no IUO); its Chromium engine at its first read
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
     /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux). Its
@@ -229,7 +229,7 @@ final class AppServices {
     /// The command palette on demand (p08-startup-023): launch builds none; it is built after the first frame
     /// (`postBuild`) or by the first palette key, in that key's turn. Handlers add pages to `palettes.sources`.
     private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map { PaletteSourcesBridge.make(services: $0) } ?? PaletteSources() }) { [registry, mainWork, weak self] sources in
-        PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0) }, mainWork: mainWork, hoverFrameInput: self?.hoverFrameInput)
+        PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0, mainWork: mainWork) }, mainWork: mainWork, hoverFrameInput: self?.hoverFrameInput)
     }
     var palette: PaletteController { palettes.controller }
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // built by the first tab card
@@ -274,7 +274,7 @@ final class AppServices {
         self?.revealTab(tab, intent: .raise) ?? false
     }
     /// The session vault (past agent sessions); tests may set one over a fixed source.
-    lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
+    lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self), work: work)
     /// `cmux://vault`: Open Vault as Pane.
     private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
     /// Where each window's right sidebar remembers its state (tests set a suite of their own).
@@ -386,7 +386,7 @@ final class AppServices {
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
     /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md); tests may set a fake owner.
     lazy var sidebarLayout: SidebarLayoutService = {
-        let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
+        let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self), mainWork: self.mainWork, work: self.work,
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()
         SidebarDocWiring.start(self, layout: service)
@@ -426,7 +426,8 @@ final class AppServices {
     /// nil unless `memoryHiddenFrameLRU`.
     private(set) lazy var hiddenFrames: HiddenFrameLRU? = makeHiddenFrameLRU()
     /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
-    private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.hibernationKinds)
+    private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.discardKinds(
+        overlayPages: features.isEnabled(.memoryOverlayPagesOnFirstUse) || features.isEnabled(.memoryOpenPanelOnFirstUse)))
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
@@ -462,7 +463,17 @@ final class AppServices {
     private(set) lazy var pageScriptFrame: PageScriptFrame? = features.isEnabled(.pageScriptFrames)
         ? FrameBatchQueue(owner: "pages.scripts", budgeted: .visible, on: mainWork).pageScriptFrame(causes: mainWork.causes) : nil
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
-    private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
+    private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI, mainWork: mainWork, release: overlayPageRelease)
+    /// When overlay content (the icon picker, the update card's highlights, each Extensions bubble) is made and
+    /// released: feature `memoryOverlayPagesOnFirstUse` (default off) makes none before its first open and lets it go
+    /// after it goes unused or at memory pressure (p07-memory-086); nil keeps each for good.
+    private(set) lazy var overlayPageRelease: OverlayPageReleaseTerms? = features.isEnabled(.memoryOverlayPagesOnFirstUse)
+        ? overlayPageDiscards.terms(releaseAfter: Feature.memoryOverlayPagesOnFirstUse.durationParam("releaseAfter") ?? OverlayPageRelease.defaultReleaseAfter)
+        : nil
+    /// The one discard path of overlay pages (`ContentKind.overlayPage`), made only when a feature above releases one.
+    private(set) lazy var overlayPageDiscards = OverlayPageDiscards(memory: memoryCoordinator) { [weak self] in
+        self?.memoryHistograms.recordDiscard(kind: ContentKind.overlayPage.rawValue)
+    }
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // built by its start
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -478,7 +489,7 @@ final class AppServices {
     private(set) lazy var verificationAutofill = VerificationAutofillCoordinator(
         inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: PublicSuffixList.bundled() ?? PublicSuffixList(listText: ""))),
         source: MailAppVerificationSource(),
-        isEnabled: { [weak self] in self?.settings.map { BrowserVerificationAutofillSetting.current($0).enabled } ?? false }
+        isEnabled: { [weak self] in self?.settings.map { BrowserVerificationAutofillSetting.current($0).enabled } ?? false }, deadlines: mainDeadlines
     )
     /// Design mode in browser panes: highlights become cards in an agent chat
     /// (plans/cmux-next/design-mode-DESIGN.md).
@@ -508,6 +519,7 @@ final class AppServices {
             .view(SidebarContainerView.self, is: .sidebar), .view(LayoutRootView.self, is: .layout)])
     }
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
+    private var scrollerStyleWatch: EventSubscription?  // the scroll bar setting's notice, for every native scroller
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
         .wrap { [weak self] (event: NSEvent, window: NSWindow?) in self?.keyRouter.interceptKeyDown(event, in: window) ?? false }  // debug.key calls it too
@@ -520,7 +532,8 @@ final class AppServices {
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).
-    private(set) lazy var backdropCatalog = BackdropCatalogStore(systemDirectory: AppleWallpapers.system.desktopPictures, userImages: SettingsWindowService.userImages)
+    private(set) lazy var backdropCatalog = BackdropCatalogStore(systemDirectory: AppleWallpapers.system.desktopPictures, userImages: SettingsWindowService.userImages,
+                                                                 mainWork: mainWork)
     let chiefPetHomes = ChiefPetHomes()  // the Chief Settings popovers the Chief pet's Chief Pet Settings… opens
     /// Each Chief's own pet character (the default Chief's is `home.chiefPetMascot`).
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
@@ -593,7 +606,7 @@ final class AppServices {
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
     let popups: BrowserPopupWindows
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
-    let linkHints = LinkHintController()
+    let linkHints: LinkHintController
     /// Toggle React Grab on a page; the library is fetched once per run (`ReactGrabScriptLoader`).
     let reactGrab = ReactGrab(scripts: ReactGrabScriptLoader())
     /// Click by Hint over the whole window (`hints.show`, Cmd-J).
@@ -697,13 +710,14 @@ final class AppServices {
         self.appearance = appearance
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
+        linkHints = LinkHintController(work: work)
         builtInAdBlockerFolder = AppServices.preloadBuiltInAdBlockerFolder(on: work)
         self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         (self.wireStats, self.inputTap) = (wireStats, inputTap)
-        hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges)
+        hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges, appEvents: appEvents, workspaceEvents: workspaceEvents)
         _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
         (self.launchStartup, self.crashKeys) = (launchStartup, crashKeys)
@@ -721,6 +735,7 @@ final class AppServices {
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
+        IconAssetImages.shared.attach(mainWork: mainWork)  // before any view maps an asset icon
         // Its scroll events are timed to their frame (`key.scroll_frame`) by their latency slots (``inputLatency``).
         inputDispatch = InputDispatchContext(discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) },
                                              discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })
@@ -735,7 +750,7 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys, work: work, mainWork: mainWork)
         self.features = features ?? Self.launchFeatures(environment)
         launchPanes = LaunchPaneGate(startup: self.features.isEnabled(.launchVisiblePanesOnly) ? launchStartup : nil)
-        crashReporting = AppCrashReporting(environment: environment, afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
+        crashReporting = AppCrashReporting(environment: environment, features: CrashFeatureScope(FeatureFlagsPage.report(self.features, tunables: TunableStore.shared).fieldState), afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
@@ -806,6 +821,7 @@ final class AppServices {
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
             attachMachineBadgeMenu(entry)
+            if let overlayPageRelease { entry.chrome.releaseExtensionsMenuWhenUnused(overlayPageRelease) }
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }
@@ -877,6 +893,7 @@ final class AppServices {
             windowHints.cancel()
             keyRouter.cancelChord()
         }
+        scrollerStyleWatch = SystemScrollers.follow(settingChangesOn: appEvents)
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }
     /// Builds and starts the browser host's engine provider once, from its launch post (p08-startup-031). Its
@@ -890,6 +907,8 @@ final class AppServices {
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
         energy.start(inputs: energyMonitor, suspend: features.isEnabled(.sleepWakeKeepalives) ? SuspendWatch(events: workspaceEvents, path: .system(on: mainWork)) : nil)
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
+        // The video wallpaper's release and coverage deadlines, and the session notices every video holds for.
+        videos.follow(deadlines: mainDeadlines, session: workspaceEvents)
         daemon.follow(mainWork.energy, on: mainWork)
         energyLink = energyMonitor.follow { [weak self] inputs in
             keepAwake.setOnBattery(inputs.onBattery)

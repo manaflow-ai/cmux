@@ -34,6 +34,10 @@ nonisolated struct CEFPageMessage: Equatable, Sendable {
 
         /// Messages from child frames are dropped.
         var mainFrameOnly: Bool { self == .verification || self == .firstPaint }
+
+        /// A cmux page tab reads it: only the first paint, the one channel whose script runs in every
+        /// document (``CEFDocumentScripts/Scope/everyDocument``). The others are browser tabs' own.
+        var servesCmuxPages: Bool { self == .firstPaint }
     }
 
     /// The largest payload accepted. A media report is under 2 KB; more is not cmux's script.

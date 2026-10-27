@@ -30,7 +30,7 @@ import Testing
         let (page, _, directory) = try await Self.settingsPage(hostLists: { [:] })
         defer { try? FileManager.default.removeItem(at: directory) }
         page.accountsState = { [:] }
-        page.agents = AgentHarnessCenter(environment: { nil })
+        page.agents = AgentHarnessCenter(environment: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         page.harnessesState = { [:] }
         page.devicesState = { [:] }
         page.devicesWatching = { _ in }
