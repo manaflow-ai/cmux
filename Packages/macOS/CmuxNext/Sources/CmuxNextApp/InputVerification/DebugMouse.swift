@@ -100,11 +100,12 @@ enum DebugMouse {
                   let target = frameView.hitTest(frameView.convert(baseLocation(point, in: window), from: nil)) else {
                 return .object(["error": .string("no view under the point")])
             }
-            // A real scroll first meets the input tap's observers (the
-            // sidebar's space paging, SidebarSwipeFeed), then the layout's
-            // event monitor (strip and row scrolls); a windowless synthesized
-            // one skips both, so it goes through the tap's observe stage, then
-            // the layout under the point, then the view. All run inside the
+            // A real scroll first meets the input tap's observers and
+            // intercepts (a hover card's scroll, the layout's routing, the
+            // sidebar's space paging, SidebarSwipeFeed); a windowless
+            // synthesized one skips them, so it goes through the tap's observe
+            // and intercept stages (the layout's intercept passes a windowless
+            // scroll), then the layout under the point, then the view. All run inside the
             // tap's dispatch scope and the app's input dispatch context with a
             // latency slot, as sendEvent's do, so the scroll is timed to its
             // frame the same way (`key.scroll_frame`, `input.latency` as automation).
@@ -116,6 +117,7 @@ enum DebugMouse {
             tap.dispatching {
                 layoutTook = services.inputDispatch.dispatching(event) { () -> Bool in
                     tap.deliverObserve(event)
+                    if tap.deliverIntercepts(event) == .consume { return false }
                     if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) { return true }
                     target.scrollWheel(with: event)
                     return false

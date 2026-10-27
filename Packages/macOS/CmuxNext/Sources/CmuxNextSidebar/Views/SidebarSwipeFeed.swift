@@ -3,10 +3,13 @@ import CmuxNextInput
 
 /// A sidebar view's space paging from the app's input tap (p04-input-100): the two-finger horizontal
 /// trackpad swipe (`ProfileSwipeTracker`, or 1:1 through `onHorizontalScroll`) and the mouse wheel page
-/// (`SpaceWheelPager`) hear every scroll of the view's window in the tap's observe stage, before AppKit
-/// dispatches it. The view's `scrollWheel(with:)` only asks ``takes(_:)`` whether to keep an event from
-/// scrolling; it feeds nothing. So the paging still hears a gesture that AppKit's responsive scrolling
-/// tracks without calling `scrollWheel(with:)` for each event (p03-rendering-110).
+/// (`SpaceWheelPager`) hear every scroll of the view's window as a passing intercept at
+/// ``InputEventTap/InterceptOrder/standard``, before AppKit dispatches it. An intercept that comes first
+/// and consumes the scroll (a hover card's own scroll at `popup`, the layout's at `layout`) keeps it from
+/// the paging, so one input never both scrolls a card and pages the spaces. The view's
+/// `scrollWheel(with:)` only asks ``takes(_:)`` whether to keep an event from scrolling; it feeds nothing.
+/// So the paging still hears a gesture that AppKit's responsive scrolling tracks without calling
+/// `scrollWheel(with:)` for each event (p03-rendering-110).
 ///
 /// A trackpad gesture latches at its first event: it is the view's when that event hits the view, and
 /// every later event of the gesture, its momentum too, goes with it wherever the pointer is then. A
@@ -58,10 +61,13 @@ import CmuxNextInput
         decided = nil
         guard let tap, window != nil else { return }
         // Every window's scrolls: the tap's window scope never matches a synthesized scroll that AppKit left
-        // windowless. ``hits(_:)`` keeps only the view's window's.
-        subscription = tap.subscribe(class: .scroll, while: { [weak self] in self?.listens ?? false }) { [weak self] event in
-            guard let self else { return }
+        // windowless. ``hits(_:)`` keeps only the view's window's. The intercept passes every scroll: the view's
+        // `scrollWheel(with:)` keeps what the paging took (``takes(_:)``), as the responder AppKit routes it to.
+        subscription = tap.subscribe(class: .scroll, phase: .intercept(order: .standard),
+                                     while: { [weak self] in self?.listens ?? false }) { [weak self] event in
+            guard let self else { return .pass }
             receive(event) { self.hits(event) }
+            return .pass
         }
     }
 

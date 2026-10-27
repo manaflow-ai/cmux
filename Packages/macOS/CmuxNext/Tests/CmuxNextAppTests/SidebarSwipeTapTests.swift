@@ -5,7 +5,8 @@ import CmuxNextInput
 import Testing
 
 /// The sidebar's space paging hears the app's input tap (p04-input-100), not `scrollWheel(with:)`: the list's
-/// scroll view and the space bar each hold one scroll observer while in a window with the tap; a
+/// scroll view and the space bar each hold one passing scroll intercept while in a window with the tap; a
+/// scroll an earlier intercept consumed (a hover card's) pages nothing; a
 /// horizontal trackpad gesture that began over the view pages 1:1 and never scrolls; a vertical one scrolls; a
 /// gesture that began elsewhere never pages; a wheel roll pages once and its rest is held; an event the tap never
 /// fed scrolls. So responsive scrolling (p03-rendering-110), which tracks a gesture without calling
@@ -42,7 +43,7 @@ import Testing
 
         func close() { window.orderOut(nil) }
 
-        var observers: Int { tap.subscriberCount(.scroll, stage: .observe) }
+        var intercepts: Int { tap.subscriberCount(.scroll, stage: .intercept) }
 
         /// A trackpad scroll in `phase` (Quartz: began 1, changed 2, ended 4; momentum by `momentum`), with no window
         /// unless `at` places it in the harness's window (window coordinates; that needs a display).
@@ -77,9 +78,15 @@ import Testing
             return event
         }
 
-        /// `event` through the tap's observe stage, as `CmuxApplication.sendEvent` delivers it before AppKit.
-        func deliver(_ event: NSEvent) {
-            tap.dispatching { tap.deliverObserve(event) }
+        /// `event` through the tap's observe and intercept stages, as `CmuxApplication.sendEvent` delivers it
+        /// before AppKit; whether an intercept consumed it.
+        @discardableResult func deliver(_ event: NSEvent) -> InputEventTap.InterceptResult {
+            var result = InputEventTap.InterceptResult.pass
+            tap.dispatching {
+                tap.deliverObserve(event)
+                result = tap.deliverIntercepts(event)
+            }
+            return result
         }
 
         /// A point over the list, and one over the space bar, in window coordinates.
@@ -98,16 +105,18 @@ import Testing
 
     // MARK: Subscriptions
 
-    @Test func theListAndTheBarEachHoldOneScrollObserverWhileInAWindowWithTheTap() {
+    @Test func theListAndTheBarEachHoldOneScrollInterceptWhileInAWindowWithTheTap() {
         let harness = Harness()
         defer { harness.close() }
-        #expect(harness.observers == 2, "the list's scroll view and the space bar each hold one scroll observer")
+        #expect(harness.intercepts == 2, "the list's scroll view and the space bar each hold one scroll intercept")
+        #expect(harness.tap.subscriberCount(.scroll, stage: .observe) == 0,
+                "the paging acts on a scroll, so it runs after the intercepts that may consume it, not as an observer")
         harness.sidebar.removeFromSuperview()
-        #expect(harness.observers == 0, "a sidebar out of its window hears no scroll")
+        #expect(harness.intercepts == 0, "a sidebar out of its window hears no scroll")
         harness.window.contentView?.addSubview(harness.sidebar)
-        #expect(harness.observers == 2)
+        #expect(harness.intercepts == 2)
         harness.sidebar.inputTap = nil
-        #expect(harness.observers == 0, "no tap, no observer")
+        #expect(harness.intercepts == 0, "no tap, no intercept")
     }
 
     // MARK: The feed's decisions
@@ -236,11 +245,15 @@ import Testing
         harness.window.orderFrontRegardless()
         let began = try harness.trackpad(dx: 10, phase: 1, at: harness.overList)
         let changed = try harness.trackpad(dx: 20, phase: 2, at: harness.overList)
-        harness.deliver(began)
+        let feed = harness.sidebar.scrollView.swipes
+        // AppKit calls scrollWheel right after each event's tap delivery, so each event is asked about then.
+        #expect(harness.deliver(began) == .pass, "the paging consumed a scroll; scrollWheel decides what scrolls")
         harness.deliver(changed)
-        harness.deliver(try harness.trackpad(phase: 4, at: harness.outside)) // latched: it follows the fingers off the list
+        #expect(feed.takes(changed), "scrollWheel would scroll the list for a horizontal gesture")
+        let ended = try harness.trackpad(phase: 4, at: harness.outside)
+        harness.deliver(ended) // latched: it follows the fingers off the list
+        #expect(!feed.takes(ended), "a gesture's end goes on to the scroll view, as before")
         #expect(harness.scrolls.map { $0.0 } == [.began, .changed, .ended])
-        #expect(harness.sidebar.scrollView.swipes.takes(changed), "scrollWheel would scroll the list for a horizontal gesture")
     }
 
     @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
@@ -272,11 +285,36 @@ import Testing
         harness.window.orderFrontRegardless()
         let first = try harness.wheel(dx: -1, at: harness.overList)
         let rest = try harness.wheel(dx: -1, at: harness.overList)
+        let feed = harness.sidebar.scrollView.swipes
+        // AppKit calls scrollWheel right after each event's tap delivery, so each event is asked about then.
         harness.deliver(first)
+        #expect(feed.takes(first), "scrollWheel would scroll the list for the notch that paged")
         harness.deliver(rest)
+        #expect(feed.takes(rest), "scrollWheel would scroll the list for the rest of the roll")
         #expect(harness.pages == [1], "one sideways roll over the list pages once")
-        #expect(harness.sidebar.scrollView.swipes.takes(first), "scrollWheel would scroll the list for the notch that paged")
-        #expect(harness.sidebar.scrollView.swipes.takes(rest), "scrollWheel would scroll the list for the rest of the roll")
+    }
+
+    @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))
+    func aScrollAnEarlierInterceptConsumedOverTheListPagesNothing() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        harness.window.orderFrontRegardless()
+        // A hover card shown over the list takes the scrolls on it at `popup` (HoverCardCoordinator+Input).
+        var cardHeard = 0
+        let card = harness.tap.subscribe(class: .scroll, phase: .intercept(order: .popup)) { _ -> InputEventTap.InterceptResult in
+            cardHeard += 1
+            return .consume
+        }
+        defer { card.cancel() }
+        let notch = try harness.wheel(dx: -1, at: harness.overList)
+        #expect(harness.deliver(notch) == .consume)
+        #expect(!harness.sidebar.scrollView.swipes.takes(notch))
+        let changed = try harness.trackpad(dx: 20, phase: 2, at: harness.overList)
+        harness.deliver(try harness.trackpad(dx: 10, phase: 1, at: harness.overList))
+        harness.deliver(changed)
+        #expect(!harness.sidebar.scrollView.swipes.takes(changed))
+        #expect(cardHeard == 3)
+        #expect(harness.pages.isEmpty && harness.scrolls.isEmpty, "a scroll the card consumed also paged the spaces")
     }
 
     @Test(.enabled(if: hasDisplay, "a windowed scroll's point needs a display"))

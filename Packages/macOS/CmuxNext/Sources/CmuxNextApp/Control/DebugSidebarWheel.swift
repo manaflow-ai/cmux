@@ -50,8 +50,8 @@ import CmuxNextSettings
             }
             guard let nsEvent = NSEvent(cgEvent: event) else { continue }
             // As agent input, the app's dispatch (its input tap feeds the space paging, SidebarSwipeFeed) when
-            // the event names the window; otherwise the tap's observe stage, then the view under the point, as
-            // that dispatch would pick.
+            // the event names the window; otherwise the tap's observe and intercept stages, then the view under
+            // the point unless an intercept consumed the scroll, as that dispatch would pick.
             if nsEvent.window === window {
                 SyntheticInput.register([nsEvent])
                 NSApp.sendEvent(nsEvent)
@@ -60,7 +60,7 @@ import CmuxNextSettings
                 let tap = services.inputTap
                 tap.dispatching {
                     tap.deliverObserve(nsEvent)
-                    hit.scrollWheel(with: nsEvent)
+                    if tap.deliverIntercepts(nsEvent) == .pass { hit.scrollWheel(with: nsEvent) }
                 }
                 routes.insert("hit")
             } else { continue }
