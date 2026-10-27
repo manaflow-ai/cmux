@@ -1247,6 +1247,7 @@ async fn dispatch_request(
                 preset: s("preset"),
                 cwd: s("cwd").map(PathBuf::from),
                 wait: params.get("wait").and_then(Value::as_bool) == Some(true),
+                release: params.get("release").and_then(Value::as_bool) == Some(true),
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
@@ -1717,7 +1718,13 @@ async fn dispatch_request(
         }
         method::MUX_PERMISSION_GROUPS => {
             let s = hub.resolve(session_key(&params)?)?;
-            hub.permission_groups(&s, &params)
+            let mut list = hub.permission_groups(&s, &params)?;
+            // Only the person allows a group (`hub/person.rs`): a reader that
+            // is not one is told so, and draws no Allow it cannot give.
+            if !conn.is_person() {
+                list["allowRefused"] = json!(crate::hub::person::REASON);
+            }
+            Ok(list)
         }
         method::MUX_PERMISSION_GROUP_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;

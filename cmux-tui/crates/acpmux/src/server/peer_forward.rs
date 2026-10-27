@@ -316,6 +316,12 @@ async fn forward_inner(
         {
             obj.insert("presence".into(), crate::hub::presence::none(&id));
         }
+        // This daemon's link is never the person on the peer, so the peer
+        // refuses every group allow it forwards (`hub/person.rs`), whatever
+        // its build says: the client draws none.
+        if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
+            result["allowRefused"] = json!(crate::hub::person::REASON);
+        }
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {

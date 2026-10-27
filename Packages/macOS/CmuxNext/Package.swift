@@ -734,12 +734,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // supplies its browser pages, New Tab pages and the rename command.
         .target(
             name: "CmuxNextWorkspaceNaming",
-            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesignTokens"],
+            dependencies: ["CmuxNextActions", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesignTokens"],
+            resources: [.process("Resources/WorkspaceNaming.xcstrings")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextWorkspaceNamingTests",
-            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextSidebar"],
+            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextActions", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextSidebar"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone tabs (plans/cmux-next/phone.md): simulators through simctl, real
@@ -1657,6 +1658,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextLayout",
                 "CmuxNextMacScreen",
                 "CmuxNextMobile",
+                "CmuxNextMobileHost",
                 "CmuxNextNowPlaying",
                 "CmuxNextOnboarding",
                 "CmuxNextPagesTestSupport",
