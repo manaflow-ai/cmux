@@ -123,20 +123,52 @@ extension ControlRouterFuzzTests {
     }
 
     static func batch(_ rng: inout FuzzRNG, step: Int, catalog: ControlCatalog, daemon: RouterFuzzDaemon) -> RouterFuzzCommand {
-        // Past the 64-op limit now and then: `batch_too_large`, or consecutive items when not atomic.
+        // Past the 64-op limit now and then: `batch_too_large` when atomic, consecutive transactions when not.
         let count = rng.oneIn(16) ? rng.int(in: 60...70) : rng.below(6)
-        var ops: [JSONValue] = []
-        for _ in 0..<count {
-            let action = rng.oneIn(12) ? nil : rng.element(of: catalog.actions)
-            let op = actionParams(&rng, action: action, catalog: catalog, daemon: daemon)
-            ops.append(rng.oneIn(24) ? randomJSON(&rng) : .object(op))
-        }
+        let ops = batchOps(&rng, count: count, catalog: catalog, daemon: daemon)
         var params: [String: JSONValue] = ["ops": rng.oneIn(16) ? randomJSON(&rng) : .array(ops)]
         if rng.oneIn(4) { params["atomic"] = rng.oneIn(6) ? randomJSON(&rng) : .bool(rng.bool()) }
         if rng.oneIn(4) { params["wait"] = .bool(rng.bool()) }
         if rng.oneIn(4) { params["idempotency_key"] = key(&rng) }
         if rng.oneIn(10) { params["after"] = after(&rng, daemon: daemon) }
         return envelope(&rng, step: step, method: "action.batch", params: params)
+    }
+
+    /// `count` ops without the batch-level members (``ControlRouter/batchLevelMembers``), but for one
+    /// op in 32 that keeps its per-op refusal covered. A large batch is mostly ops that validate, so it
+    /// reaches the op limit and its transactions; else each op is `action.run` params.
+    static func batchOps(_ rng: inout FuzzRNG, count: Int, catalog: ControlCatalog, daemon: RouterFuzzDaemon) -> [JSONValue] {
+        let plain = count > 6 && !rng.oneIn(4) ? catalog.actions.filter(isPlain) : []
+        var ops: [JSONValue] = []
+        ops.reserveCapacity(count)
+        for _ in 0..<count {
+            if let action = rng.element(of: plain) {
+                ops.append(.object(plainOp(&rng, action: action, daemon: daemon)))
+                continue
+            }
+            let action = rng.oneIn(12) ? nil : rng.element(of: catalog.actions)
+            var op = actionParams(&rng, action: action, catalog: catalog, daemon: daemon)
+            for member in ControlRouter.batchLevelMembers { op[member] = nil }
+            if rng.oneIn(32), let member = rng.element(of: ControlRouter.batchLevelMembers) {
+                op[member] = paramValue(&rng, key: member, catalog: catalog, daemon: daemon)
+            }
+            ops.append(rng.oneIn(24) ? randomJSON(&rng) : .object(op))
+        }
+        return ops
+    }
+
+    /// An action an op can name with no arguments and no confirmation.
+    static func isPlain(_ action: ControlActionInfo) -> Bool {
+        !action.isDestructive && !action.isDebugOnly && action.disabledFeature == nil && action.arguments.allSatisfy { !$0.isRequired }
+    }
+
+    /// `action` by id, on a live object of a kind it takes now and then: it validates.
+    static func plainOp(_ rng: inout FuzzRNG, action: ControlActionInfo, daemon: RouterFuzzDaemon) -> [String: JSONValue] {
+        var op: [String: JSONValue] = ["action": .string(action.id)]
+        if rng.bool(), let object = rng.element(of: daemon.live.filter { action.targets.contains($0.kind) }) {
+            op["target"] = .string(object.kind + ":" + object.id)
+        }
+        return op
     }
 
     /// `action.run` params for `action` (an unknown action when nil): its name in one of the forms
@@ -247,7 +279,8 @@ extension ControlRouterFuzzTests {
         for key in named where !rng.oneIn(4) {
             params[key] = paramValue(&rng, key: key, catalog: catalog, daemon: daemon)
         }
-        for _ in 0..<rng.below(named.isEmpty ? 4 : 2) {
+        // A method that names its params refuses others (`browser.open_split`, `file.open`): rarely one more.
+        for _ in 0..<(named.isEmpty ? rng.below(4) : rng.oneIn(8) ? 1 : 0) {
             let key = rng.element(of: generalKeys) ?? "id"
             params[key] = paramValue(&rng, key: key, catalog: catalog, daemon: daemon)
         }
@@ -279,6 +312,8 @@ extension ControlRouterFuzzTests {
             return .string(rng.bool() ? action?.id ?? "" : action?.cliName ?? "")
         case "category":
             return .string(rng.element(of: catalog.actions)?.category ?? "tab")
+        case "idempotency_key":
+            return key(&rng)
         case "after", "over_budget_after":
             return after(&rng, daemon: daemon)
         case "caller":
@@ -305,8 +340,8 @@ extension ControlRouterFuzzTests {
         }
     }
 
-    /// A read barrier: `"sync"`, a sequence the daemon reached, a future one (the request waits
-    /// to its deadline), or a value that is no sequence.
+    /// A read barrier: `"sync"`, a sequence the daemon reached, the next one (the request waits to
+    /// its deadline; on a method with a longer limit the step publishes it first), or no sequence.
     static func after(_ rng: inout FuzzRNG, daemon: RouterFuzzDaemon) -> JSONValue {
         switch rng.below(8) {
         case 0, 1: return "sync"
