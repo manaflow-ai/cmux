@@ -26,11 +26,12 @@ final class ComposerNativePasteUITests: XCTestCase {
 
     @MainActor
     func testChiefComposerPastes() throws {
-        try checkPaste(demo: "chief-open", field: "conversation.composer.text", attachment: "conversation.composer.attachment")
+        // Chief labels every attachment "Attachment"; its file chip shows the name as an image.
+        try checkPaste(demo: "chief-open", field: "conversation.composer.text", attachment: "conversation.composer.attachment", namesFiles: false)
     }
 
     @MainActor
-    private func checkPaste(demo: String, field id: String, attachment: String, expand: String? = nil) throws {
+    private func checkPaste(demo: String, field id: String, attachment: String, expand: String? = nil, namesFiles: Bool = true) throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", demo]
@@ -73,6 +74,11 @@ final class ComposerNativePasteUITests: XCTestCase {
         let tiles = app.descendants(matching: .any).matching(identifier: attachment)
         XCTAssertTrue(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "count >= 2"), object: tiles)], timeout: 5) == .completed,
                       "pasted file attached\n\(app.debugDescription)")
+        if namesFiles {
+            let named = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Quarterly Report.pdf")).firstMatch
+            XCTAssertTrue(named.waitForExistence(timeout: 3),
+                          "the file keeps its name from Files\n\(app.debugDescription)")
+        }
         XCTAssertTrue(waitForValue(field, containing: "echo menu-paste"), "the draft text is kept")
         attach(app, "\(demo)-file-paste")
     }

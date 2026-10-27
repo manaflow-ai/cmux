@@ -648,7 +648,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private func pasteAttachments() {
         let board = UIPasteboard.general
         guard board.hasImages else {
-            if !board.hasStrings, let first = board.types.first.flatMap({ UTType($0) }), ComposerTextView.isPastedFileType(first) {
+            if let first = board.types.first.flatMap({ UTType($0) }), ComposerTextView.isPastedFileType(first),
+               !board.hasStrings || first.conforms(to: .image) {
                 pasteFileData(board.itemProviders)
                 return
             }
@@ -681,26 +682,27 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     }
 
     /// A file copied in Files is its bytes on the pasteboard, not a path:
-    /// each is written under its own name and attached as Files would attach it.
+    /// each is copied (off the main thread) under its own name, then attached
+    /// as the Files picker attaches a file. The copy goes once it is attached.
     private func pasteFileData(_ providers: [NSItemProvider]) {
         for provider in providers {
             guard let type = provider.registeredTypeIdentifiers.lazy.compactMap({ UTType($0) })
                 .first(where: { ComposerTextView.isPastedFileType($0) }) else { continue }
-            var name = provider.suggestedName ?? "Pasted file"
+            var name = (provider.suggestedName ?? "").replacingOccurrences(of: "/", with: "-")
+            if name.isEmpty || name == "." || name == ".." {
+                name = String(localized: "conversation.composer.pastedFile", defaultValue: "Pasted file", bundle: .module)
+            }
             if let ext = type.preferredFilenameExtension, (name as NSString).pathExtension.isEmpty { name += ".\(ext)" }
-            let target = FileManager.default.temporaryDirectory
+            let folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("ConversationComposerPaste", isDirectory: true)
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)
-                .appendingPathComponent(name.replacingOccurrences(of: "/", with: "-"))
-            _ = provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
-                guard let data, !data.isEmpty else { return }
+            let target = folder.appendingPathComponent(name)
+            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
+                // The provider's file exists only during this call, on its own queue.
+                guard let url, (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil,
+                      (try? FileManager.default.copyItem(at: url, to: target)) != nil else { return }
                 Task { @MainActor [weak self] in
-                    do {
-                        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                        try data.write(to: target, options: .atomic)
-                    } catch {
-                        return
-                    }
+                    defer { try? FileManager.default.removeItem(at: folder) }
                     guard let traits = self?.traitCollection,
                           let attachment = await ConversationMediaDelegate.composerAttachment(for: target, traits: traits) else { return }
                     self?.addAttachment(attachment)
@@ -910,16 +912,21 @@ final class ComposerTextView: UITextView {
         guard onPasteAttachments != nil, acceptsAttachments() else { return false }
         let board = UIPasteboard.general
         guard let first = board.types.first.flatMap({ UTType($0) }) else { return false }
-        if first.conforms(to: .image) || first.conforms(to: .fileURL) { return true }
+        if first.conforms(to: .fileURL) { return true }
+        if first.conforms(to: .image) { return board.hasImages || Self.isPastedFileType(first) }
         guard !board.hasStrings else { return false }
         return board.hasImages || board.contains(pasteboardTypes: [UTType.fileURL.identifier]) || Self.isPastedFileType(first)
     }
 
     /// A copied file's own type (Files' Copy puts the file's bytes, a PDF or
     /// an archive): declared, and not text, a web link or an app's private format.
+    /// The same rule as CmuxMobileDesign's `UIPasteboard.isComposerFileType`
+    /// (another package).
     static func isPastedFileType(_ type: UTType) -> Bool {
         guard type.isDeclared, !type.isDynamic else { return false }
-        if type.conforms(to: .text) || type.conforms(to: .url) { return false }
+        if type.conforms(to: .image) { return true }
+        let prose: [UTType] = [.text, .url, .rtfd, .flatRTFD, .webArchive]
+        if prose.contains(where: { type.conforms(to: $0) }) { return false }
         return type.conforms(to: .data) || type.conforms(to: .package)
     }
 

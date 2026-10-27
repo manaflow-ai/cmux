@@ -134,10 +134,14 @@ struct ChatComposer: View {
             }
         } else if board.composerHoldsFileData {
             // A file copied in Files is its bytes on the pasteboard, not a path.
+            let providers = board.itemProviders
             Task {
-                let (files, refused) = await UIPasteboard.general.composerFiles(maxBytes: LinkUpload.maxBytes)
-                attachments += files.map { AgentAttachment(kind: .file, name: $0.name, data: $0.data) }
-                if let name = refused.first { store.clientError = "\(name) is larger than \(LinkUpload.maxBytes >> 20) MB." }
+                let pasted = await ComposerPastedFiles.load(providers, maxBytes: LinkUpload.maxBytes)
+                attachments += pasted.files.map {
+                    AgentAttachment(kind: $0.type.conforms(to: .image) && UIImage(data: $0.data) != nil ? .image : .file, name: $0.name, data: $0.data)
+                }
+                if let name = pasted.tooLarge.first { store.clientError = "\(name) is larger than \(LinkUpload.maxBytes >> 20) MB." }
+                if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
             }
         } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
             let (files, refused) = Self.readFiles(urls)

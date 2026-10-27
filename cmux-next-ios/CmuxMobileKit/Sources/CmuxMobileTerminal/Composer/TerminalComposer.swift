@@ -204,7 +204,8 @@ struct TerminalComposer: View {
         let board = UIPasteboard.general
         // A file copied in Files is its bytes on the pasteboard, not a path.
         if board.composerHoldsFileData {
-            Task { await loadPastedFiles() }
+            let providers = board.itemProviders
+            Task { await loadPastedFiles(providers) }
             return
         }
         let route = ComposerPasteRoute.route(hasImage: board.hasImages, fileURL: board.hasURLs ? board.url : nil,
@@ -248,12 +249,15 @@ struct TerminalComposer: View {
     }
 
     /// Copied files, as Files would attach them (uploaded on send).
-    private func loadPastedFiles() async {
-        let (files, refused) = await UIPasteboard.general.composerFiles(maxBytes: LinkUpload.maxBytes)
-        if let name = refused.first { model.attachmentError = "\(name) is larger than \(LinkUpload.maxBytes >> 20) MB." }
-        for file in files {
-            let kind: ComposerAttachment.Kind = file.type.conforms(to: .movie) ? .video : .file
-            model.addAttachment(ComposerAttachment(kind: kind, name: file.name, thumbnail: nil, data: file.data))
+    private func loadPastedFiles(_ providers: [NSItemProvider]) async {
+        let pasted = await ComposerPastedFiles.load(providers, maxBytes: LinkUpload.maxBytes)
+        if let name = pasted.tooLarge.first { model.attachmentError = "\(name) is larger than \(LinkUpload.maxBytes >> 20) MB." }
+        if let name = pasted.unreadable.first { model.attachmentError = "Couldn't read \(name)." }
+        for file in pasted.files {
+            let image = file.type.conforms(to: .image) ? UIImage(data: file.data) : nil
+            let kind: ComposerAttachment.Kind = image != nil ? .image : file.type.conforms(to: .movie) ? .video : .file
+            model.addAttachment(ComposerAttachment(kind: kind, name: file.name,
+                                                   thumbnail: image?.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: file.data))
         }
     }
 

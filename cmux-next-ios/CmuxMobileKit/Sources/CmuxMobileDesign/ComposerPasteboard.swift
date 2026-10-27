@@ -10,6 +10,15 @@ public struct ComposerPastedFile: Sendable {
     public let type: UTType
 }
 
+/// Copied files read for a paste, and the ones that could not be attached.
+public struct ComposerPastedFiles: Sendable {
+    public var files: [ComposerPastedFile] = []
+    /// Over the upload limit.
+    public var tooLarge: [String] = []
+    /// Offered but unreadable.
+    public var unreadable: [String] = []
+}
+
 /// What a composer's Paste takes from the pasteboard. Only types are read
 /// (no "Allow Paste" prompt); the composer reads the data once the person
 /// chose Paste.
@@ -19,23 +28,27 @@ public extension UIPasteboard {
     /// picture) still pastes as text, as the copying app put it first.
     var composerPastesAttachments: Bool {
         guard let first = types.first.flatMap({ UTType($0) }) else { return false }
-        if first.conforms(to: .image) || first.conforms(to: .fileURL) { return true }
+        if first.conforms(to: .fileURL) { return true }
+        if first.conforms(to: .image) { return hasImages || Self.isComposerFileType(first) }
         guard !hasStrings else { return false }
         return hasImages || contains(pasteboardTypes: [UTType.fileURL.identifier]) || Self.isComposerFileType(first)
     }
 
     /// The pasteboard holds a copied file's own bytes (Files' Copy puts the
-    /// file, not its path), not text or an image.
+    /// file, not its path), not an image UIKit decodes or text.
     var composerHoldsFileData: Bool {
-        guard !hasStrings, !hasImages, let first = types.first.flatMap({ UTType($0) }) else { return false }
-        return Self.isComposerFileType(first)
+        guard !hasImages, let first = types.first.flatMap({ UTType($0) }), Self.isComposerFileType(first) else { return false }
+        return !hasStrings || first.conforms(to: .image)
     }
 
-    /// A copied file's own type (a PDF, an archive, a movie from Files or
-    /// Mail): declared, and not text, a web link or an app's private format.
+    /// A copied file's own type (a PDF, an archive, a movie, an SVG from
+    /// Files or Mail): declared, and not text, rich text, a web page or link,
+    /// or an app's private format.
     static func isComposerFileType(_ type: UTType) -> Bool {
         guard type.isDeclared, !type.isDynamic else { return false }
-        if type.conforms(to: .text) || type.conforms(to: .url) { return false }
+        if type.conforms(to: .image) { return true }
+        let prose: [UTType] = [.text, .url, .rtfd, .flatRTFD, .webArchive]
+        if prose.contains(where: { type.conforms(to: $0) }) { return false }
         return type.conforms(to: .data) || type.conforms(to: .package)
     }
 
@@ -53,31 +66,52 @@ public extension UIPasteboard {
         }
         return own.isEmpty ? (images ?? []).compactMap { image in image.pngData().map { ($0, "image/png") } } : own
     }
+}
 
-    /// The copied files on the pasteboard, each read through its item
-    /// provider. A file over `maxBytes` is left out and named in `refused`.
+public extension ComposerPastedFiles {
+    /// Reads the copied files of `providers` (take them from the pasteboard
+    /// during the paste). Each arrives as a file the system wrote; its size
+    /// is checked before it is read, and the read happens off the main thread.
     @MainActor
-    func composerFiles(maxBytes: Int) async -> (files: [ComposerPastedFile], refused: [String]) {
-        var files: [ComposerPastedFile] = []
-        var refused: [String] = []
-        for provider in itemProviders {
+    static func load(_ providers: [NSItemProvider], maxBytes: Int) async -> ComposerPastedFiles {
+        var result = ComposerPastedFiles()
+        for provider in providers {
             guard let type = provider.registeredTypeIdentifiers.lazy.compactMap({ UTType($0) })
-                .first(where: { Self.isComposerFileType($0) }) else { continue }
-            var name = provider.suggestedName ?? String(localized: "Pasted file")
-            if let ext = type.preferredFilenameExtension, (name as NSString).pathExtension.isEmpty { name += ".\(ext)" }
-            let data: Data? = await withCheckedContinuation { continuation in
-                _ = provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
-                    continuation.resume(returning: data)
+                .first(where: { UIPasteboard.isComposerFileType($0) }) else { continue }
+            let name = fileName(provider.suggestedName, type: type)
+            let read: Read = await withCheckedContinuation { continuation in
+                _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
+                    continuation.resume(returning: Read(url, maxBytes: maxBytes))
                 }
             }
-            guard let data, !data.isEmpty else { continue }
-            guard data.count <= maxBytes else {
-                refused.append(name)
-                continue
+            switch read {
+            case .data(let data): result.files.append(ComposerPastedFile(data: data, name: name, type: type))
+            case .tooLarge: result.tooLarge.append(name)
+            case .unreadable: result.unreadable.append(name)
             }
-            files.append(ComposerPastedFile(data: data, name: name, type: type))
         }
-        return (files, refused)
+        return result
+    }
+
+    /// The copying app's name, safe as a file name, with the type's extension.
+    static func fileName(_ suggested: String?, type: UTType) -> String {
+        var name = (suggested ?? "").replacingOccurrences(of: "/", with: "-")
+        if name.isEmpty || name == "." || name == ".." { name = String(localized: "Pasted file") }
+        if let ext = type.preferredFilenameExtension, (name as NSString).pathExtension.isEmpty { name += ".\(ext)" }
+        return name
+    }
+
+    private enum Read: Sendable {
+        case data(Data), tooLarge, unreadable
+
+        /// Called on the provider's queue, while `url` still exists.
+        init(_ url: URL?, maxBytes: Int) {
+            guard let url else { self = .unreadable; return }
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            guard size <= maxBytes else { self = .tooLarge; return }
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), !data.isEmpty else { self = .unreadable; return }
+            self = .data(data)
+        }
     }
 }
 #endif
