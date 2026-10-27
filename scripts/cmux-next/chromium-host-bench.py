@@ -109,6 +109,9 @@ Per mode:
            with a second display (cmux20-bench has an external one), frames until both are the new display's after
            the window moves there and back, counted from the move (pass: rate within 2 frames, scale within 1, the
            1x to 2x move reported as `scale_up`) (chromium_host_display.py).
+  profiles `--modes profiles` (task 080): two browser profiles made with the app's CLI, a Chromium tab of each; pass
+           when the backend is the host, both load, exactly one Chromium Host serves both and their localStorage is
+           apart (chromium_host_profiles.py).
 
   swipe    `--modes swipe` (task 234), on an input host (real HID events): a two-finger trackpad swipe
            (pointer-probe.swift swipe, through NSApp's event dispatch like a hand's) over a Chromium tab of the app's
@@ -166,6 +169,7 @@ import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
+import chromium_host_profiles  # noqa: E402
 
 
 def parse(argv=None):
@@ -554,16 +558,37 @@ def front_pid():
 
 def chromium_host_pid():
     """The pid of the running Chromium Host (`<Product> Chromium Host` in the app's Contents/MacOS), or None."""
+    return next(iter(chromium_host_pids()), None)
+
+
+def chromium_host_pids():
+    """The pids of every running Chromium Host of the app (`<Product> Chromium Host` in its Contents/MacOS)."""
     macos = os.path.join(os.path.abspath(opts.app), "Contents", "MacOS") + "/"
     try:
         listing = subprocess.run(["/bin/ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
     except subprocess.TimeoutExpired:
-        return None
+        return []
+    pids = []
     for line in listing.splitlines():
         pid, _, command = line.strip().partition(" ")
         if command.startswith(macos) and command[len(macos):].split(" --", 1)[0].endswith(" Chromium Host"):
-            return int(pid)
-    return None
+            pids.append(int(pid))
+    return pids
+
+
+def bundled_cli(*args, timeout=90):
+    """(exit code, JSON reply) of the app's bundled `cmux --json` on its own session (no socket flag)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+    cli = os.path.join(os.path.abspath(opts.app), "Contents", "Resources", "bin", "cmux")
+    try:
+        run = subprocess.run([cli, "--json", *args], capture_output=True, text=True, timeout=timeout, env=env,
+                             stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return 1, {"error": str(error)}
+    try:
+        return run.returncode, json.loads(run.stdout or "{}")
+    except ValueError:
+        return run.returncode, {"error": run.stdout.strip()[:400]}
 
 
 def defaults_snapshot(domain):
@@ -755,6 +780,11 @@ def main():
             open(display_probe, "w").write(chromium_host_display.PAGE)
             RESULT["modes"]["display"], ran = chromium_host_display.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(display_probe).as_uri(), time.sleep)
+            ok = ran and ok
+        if "profiles" in modes:
+            RESULT["modes"]["profiles"], ran = chromium_host_profiles.run(
+                rpc, wait, lambda script, tab: page_eval(rpc, script, tab), url, bundled_cli, chromium_host_pids,
+                str(int(time.time())))
             ok = ran and ok
         if opts.stress:
             run_stress_pump(rpc, url, "helper" in modes)

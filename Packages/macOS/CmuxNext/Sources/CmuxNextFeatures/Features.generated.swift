@@ -1793,12 +1793,12 @@ nonisolated extension Feature {
     )
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.
+    /// debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; in Debug builds every Chromium tab of the launch runs in that one host (ChromiumHostSupervisor).
     public static let cefHelperHost = Feature(
         index: 103,
         name: "cefHelperHost",
         owner: "PL-cef-helper",
-        description: "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.",
+        description: "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; in Debug builds every Chromium tab of the launch runs in that one host (ChromiumHostSupervisor).",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
