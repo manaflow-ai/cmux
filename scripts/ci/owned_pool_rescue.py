@@ -3067,6 +3067,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 
     if (env.get("POOL_OWNED") or "").strip() != "1":
         return finish("owned pools are off (CI_PR_POOL_OWNED is not 1); nothing to watch")
+    if int((env.get("GITHUB_RUN_ATTEMPT") or "1").strip() or 1) > 1:
+        # A re-run of a rescue run keeps the first attempt's creation time, so rescue_jobs() (which lists rescue runs
+        # by creation) could miss the CANCEL_SETTLED it would log: it logs none. The next sweeper (every
+        # schedule tick) adopts whatever it would have watched.
+        return finish("a re-run of the rescue workflow acts on nothing; the next sweeper adopts the runs it watches")
     seconds = budget(env.get("RESCUE_SECONDS"))
     if seconds is None:
         return finish(f"CI_OWNED_POOL_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS}; "

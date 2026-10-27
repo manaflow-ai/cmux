@@ -63,6 +63,10 @@ class Clock:
     def sleep(self, seconds):
         self.seconds += seconds
 
+    def advance(self, seconds):
+        """The test moves its virtual clock on (not a wait: nothing real passes)."""
+        self.seconds += seconds
+
 
 class FakeAPI:
     """Jobs come from a function of elapsed seconds; every call is recorded."""
@@ -1449,7 +1453,7 @@ class StrandedCancel(unittest.TestCase):
         self.assertEqual(mutations(api), ["cancel"])
         self.assertIn(f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1", killed_log)
         self.assertNotIn(f"{rescue.CANCEL_SETTLED} run {RUN_ID} attempt 1", killed_log)
-        clock.sleep(api.settles_after)
+        clock.advance(api.settles_after)
         # The next sweeper adopts the run again (by its marker): cancelled by the bot, and the killed rescue's own
         # log says it meant to re-run it.
         lines = []
@@ -1470,7 +1474,7 @@ class StrandedCancel(unittest.TestCase):
         def with_held(run_id, attempt):
             return jobs(run_id, attempt) + ([held] if attempt == 1 else [])
         api.jobs = with_held
-        clock.sleep(60)
+        clock.advance(60)
         self.assertEqual(self.follow(api, clock), "done")
         self.assertEqual(mutations(api), ["rerun-failed"])
 
@@ -1558,7 +1562,7 @@ class StrandedCancel(unittest.TestCase):
         clock = Clock()
         cancelled = CancelledAPI(clock, cancelled=True, rescue_log=[f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1"])
         cancelled.rescue_jobs = lambda earliest_end: (_ for _ in ()).throw(rescue.RescueHistoryCapped("capped"))
-        clock.sleep(60)
+        clock.advance(60)
         lines = []
         self.assertEqual(rescue.rerun_intended(cancelled, cancelled.run(RUN_ID), 1, clock.sleep, lines.append), "")
         self.assertTrue(any("left cancelled" in line for line in lines), lines)
@@ -1594,6 +1598,16 @@ class StrandedCancel(unittest.TestCase):
                                    failed_only=True, refused=refused, refusal=True)
             self.assertEqual(result, "not rescued: the run was cancelled by @leo meanwhile; left cancelled", refused)
         self.assertEqual(mutations(api), [])
+
+    def test_a_re_run_of_the_rescue_workflow_acts_on_nothing(self):
+        # Its marks could fall outside rescue_jobs()' creation window (the run keeps attempt 1's created_at).
+        clock = Clock()
+        api = CancelledAPI(clock, rescue_log=[f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1"])
+        for extra in ({"GITHUB_RUN_ATTEMPT": "2"}, {"GITHUB_RUN_ATTEMPT": "3", "SWEEP": "1"}):
+            code, summary = run_main(api, clock, env_extra=extra)
+            self.assertEqual(code, 0)
+            self.assertIn("a re-run of the rescue workflow acts on nothing", summary)
+        self.assertEqual(api.calls, [])
 
     def test_a_janitor_cancel_by_the_same_bot_stays_cancelled(self):
         # The queue janitor cancels as cmux-bot too (a superseded DEV run that never started, an orphan): no rescue
@@ -1652,7 +1666,7 @@ class StrandedCancel(unittest.TestCase):
                 for index in range(rescue.CANCELLED_BY_READS + 1)]
         clock = Clock()
         api = CancelledAPI(clock, note="", cancelled=True, extra=[refused, *many])
-        clock.sleep(60)
+        clock.advance(60)
         self.assertEqual(self.follow(api, clock),
                          "stopped: the run was cancelled, and who cancelled it could not be read; left cancelled")
         self.assertEqual(mutations(api), [])
@@ -1682,7 +1696,7 @@ class StrandedCancel(unittest.TestCase):
         # GitHub's own cancels (a job timeout) write no "canceled by" line: the refusal and timeout rules decide.
         clock = Clock()
         api = CancelledAPI(clock, note="", cancelled=True)
-        clock.sleep(60)
+        clock.advance(60)
         self.assertEqual(self.follow(api, clock), "stopped: the run finished")
         self.assertNotIn("rescue-jobs", api.calls)
 
@@ -1704,7 +1718,7 @@ class StrandedCancel(unittest.TestCase):
         # Someone re-ran it meanwhile: the watch of attempt 1 reads no annotation and re-runs nothing.
         clock = Clock()
         api = CancelledAPI(clock, cancelled=True, attempt_after_cancel=2)
-        clock.sleep(60)
+        clock.advance(60)
         api.run = lambda run_id: {"status": "completed", "conclusion": "cancelled", "run_attempt": 2}
         self.follow(api, clock)
         self.assertEqual(mutations(api), [])
@@ -1868,7 +1882,7 @@ class StrandedCancel(unittest.TestCase):
         clock = Clock()
         cancelled = CancelledAPI(clock, cancelled=True)
         cancelled.job_marks = lambda job_id: None
-        clock.sleep(60)
+        clock.advance(60)
         self.assertFalse(rescue.rerun_intended(cancelled, cancelled.run(RUN_ID), 1, clock.sleep, lambda _: None))
 
     def test_a_successor_that_resumed_the_re_run_stops_the_next_one(self):
