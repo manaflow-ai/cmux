@@ -130,4 +130,64 @@ import Testing
         column.host.isOnLayoutSpring = false
         #expect(column.page.frame.width == 184, "the hold did not release at landing: \(column.page.frame)")
     }
+
+    /// Open and close each resize the live page once, at the landing frame. An interruption in
+    /// either direction keeps that painted page attached and at the largest announced size.
+    @Test func openCloseAndInterruptedPaneMotionNeverShowsBlankOrReflowsPerFrame() {
+        let column = Screen(hostFrame: CGRect(x: 0, y: 0, width: 200, height: 300), holdsContent: true)
+        var sizes: [CGFloat] = []
+        func record(_ label: String) {
+            #expect(column.page.superview != nil, "\(label): page was detached")
+            #expect(column.page.frame.width > 0, "\(label): page was blank")
+            sizes.append(column.page.frame.width)
+        }
+
+        // Ordinary open and close.
+        column.host.restSize = CGSize(width: 400, height: 300)
+        column.host.isOnLayoutSpring = true
+        column.host.announceRest()
+        for width in [240.0, 300.0, 360.0] as [CGFloat] {
+            column.host.frame = CGRect(x: 0, y: 0, width: width, height: 300)
+            column.host.layoutSubtreeIfNeeded()
+            record("open \(width)")
+        }
+        column.host.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+        column.host.isOnLayoutSpring = false
+        record("open landed")
+        #expect(sizes.dropFirst().allSatisfy { $0 == sizes[0] }, "open reflowed per frame: \(sizes)")
+
+        sizes.removeAll()
+        column.host.restSize = CGSize(width: 200, height: 300)
+        column.host.isOnLayoutSpring = true
+        column.host.announceRest()
+        for width in [360.0, 300.0, 240.0] as [CGFloat] {
+            column.host.frame = CGRect(x: 0, y: 0, width: width, height: 300)
+            column.host.layoutSubtreeIfNeeded()
+            record("close \(width)")
+        }
+        column.host.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
+        column.host.isOnLayoutSpring = false
+        record("close landed")
+        #expect(Set(sizes).count == 2, "close did not release once at landing: \(sizes)")
+
+        // Open, then close before landing. The held width remains stable through the retarget.
+        sizes.removeAll()
+        column.host.restSize = CGSize(width: 400, height: 300)
+        column.host.isOnLayoutSpring = true
+        column.host.announceRest()
+        column.host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+        column.host.layoutSubtreeIfNeeded()
+        record("interrupted open")
+        column.host.restSize = CGSize(width: 200, height: 300)
+        column.host.announceRest()
+        for width in [260.0, 220.0] as [CGFloat] {
+            column.host.frame = CGRect(x: 0, y: 0, width: width, height: 300)
+            column.host.layoutSubtreeIfNeeded()
+            record("interrupted close \(width)")
+        }
+        column.host.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
+        column.host.isOnLayoutSpring = false
+        record("interrupted landed")
+        #expect(Set(sizes).count == 2, "interrupted motion reflowed per frame: \(sizes)")
+    }
 }

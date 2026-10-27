@@ -41,10 +41,6 @@ struct ChatDockLinkSplitMotionTests {
         private var hosting: FakeChromiumHosting?
         let io = GridRecordingTerminalIO()
         init(_ content: Content = .plain) { self.content = content }
-        func holdsContentInMotion(for pane: PaneID) -> Bool {
-            if case .chat = content { return true }
-            return false
-        }
         func makeContentView(for pane: PaneID) -> NSView {
             guard pane == ChatDockLinkSplitMotionTests.anchor else { return NSView() }
             switch content {
