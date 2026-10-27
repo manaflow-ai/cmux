@@ -361,7 +361,12 @@ fn bind_unix_admin(socket_path: &Path) -> anyhow::Result<AdminConnections> {
         cmux_blocking::scoped_blocking_call(
             "fs::set_permissions",
             cmux_blocking::BlockingKind::Fs,
-            || std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600)),
+            || {
+                cmux_threads::checked::fs::set_permissions(
+                    socket_path,
+                    std::fs::Permissions::from_mode(0o600),
+                )
+            },
         )?;
     }
     let (tx, rx) = tokio::sync::mpsc::channel(16);
@@ -434,9 +439,10 @@ fn watch_owners(fifo: std::path::PathBuf) -> tokio::sync::oneshot::Receiver<()> 
         // the first check below find no writer (a blocking open would wait
         // for one forever). Any failure: no owner can be watched, so the
         // router stops as it would without one.
-        let Ok(mut owners) =
-            std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&fifo)
-        else {
+        let Ok(mut owners) = cmux_threads::checked::fs::open_with(
+            std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK),
+            &fifo,
+        ) else {
             return;
         };
         let fd = owners.as_raw_fd();
@@ -535,8 +541,9 @@ async fn serve_owned(
     // gets an answer.
     let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new("default")?);
     let _ = INSTALL_SECRET_KIND.set(INSTALL_SECRET_EPHEMERAL);
-    // `<home>/router/router.sock`, or a short path for a long home (admin_socket.rs).
-    let socket_path = admin_socket_path(home);
+    // `<home>/router/router.sock`, or a short path for a long home
+    // (admin_socket.rs), whose private folder is made and checked on disk.
+    let socket_path = admin_socket::admin_socket_path_async(home).await?;
     let _ = tokio::fs::remove_file(&socket_path).await;
     let admin = bind_admin(&socket_path)?;
     let bind_address: SocketAddr = "127.0.0.1:0".parse()?;
@@ -955,45 +962,4 @@ mod relay_error_tests {
 }
 
 #[cfg(all(test, unix))]
-mod serve_tests {
-    use super::*;
-    use std::os::unix::fs::PermissionsExt;
-    use std::time::{Duration, Instant};
-
-    async fn wait_for(path: &Path) {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while !path.exists() {
-            assert!(Instant::now() < deadline, "{} never appeared", path.display());
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    }
-
-    /// The router's start with no blocking std file call on a worker: the
-    /// admin socket is still private, and router.lock (opened by tokio, then
-    /// locked on its own thread) still keeps a second router out until the
-    /// first one ends.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_admin_socket_is_private_and_router_lock_admits_one_router() {
-        let home = tempfile::tempdir().unwrap();
-        let socket = admin_socket_path(home.path());
-        let first_home = home.path().to_owned();
-        let first = tokio::spawn(async move { serve_owned(&first_home, bind_unix_admin).await });
-        wait_for(&socket).await;
-        let mode = std::fs::metadata(&socket).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "admin socket mode {mode:o}");
-        assert!(home.path().join("router").join("router.lock").is_file());
-
-        std::fs::remove_file(&socket).unwrap();
-        let second_home = home.path().to_owned();
-        let second = tokio::spawn(async move { serve_owned(&second_home, bind_unix_admin).await });
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        assert!(!socket.exists(), "a second router bound its socket while the first held the lock");
-        assert!(!second.is_finished());
-
-        first.abort();
-        assert!(first.await.unwrap_err().is_cancelled());
-        wait_for(&socket).await;
-        second.abort();
-        let _ = second.await;
-    }
-}
+mod serve_tests;

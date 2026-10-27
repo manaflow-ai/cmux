@@ -91,7 +91,10 @@ async fn up(args: &Args) -> anyhow::Result<()> {
             coord: args.need("--coord")?,
             tailnet: args.need("--tailnet")?,
             auth_key,
-            name: args.one("--name").unwrap_or_else(hostname),
+            name: match args.one("--name") {
+                Some(name) => name,
+                None => hostname().await,
+            },
         }),
         None => None,
     };
@@ -149,9 +152,10 @@ async fn up(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn hostname() -> String {
-    std::process::Command::new("hostname")
+async fn hostname() -> String {
+    tokio::process::Command::new("hostname")
         .output()
+        .await
         .ok()
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .map(|name| name.trim().to_owned())
