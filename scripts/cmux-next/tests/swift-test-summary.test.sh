@@ -510,8 +510,8 @@ keys=$(awk "$names_awk$count_awk"'
   END { for (i = 1; i <= name_count; i++)
           for (k = first_open_run(names[i]); k <= started[names[i]]; k++) print run_key(names[i], k) }
 ' "$TMP/collide.log")
-[[ "$(wc -l <<<"$keys")" == 2 ]] || fail "expected two open runs, got: $(cat -v <<<"$keys")"
-[[ "$(sort -u <<<"$keys" | wc -l)" == 2 ]] \
+[[ "$(wc -l <<<"$keys" | tr -d " ")" == 2 ]] || fail "expected two open runs, got: $(cat -v <<<"$keys")"
+[[ "$(sort -u <<<"$keys" | wc -l | tr -d " ")" == 2 ]] \
   || fail "two different open runs share one watchdog key: $(cat -v <<<"$keys")"
 # And the keys still read as words for a person.
 labels=$(awk "$names_awk"'{ print run_label($0) }' <<<"$keys")
@@ -539,7 +539,7 @@ probe=$(awk "$names_awk"'
     }
   }' </dev/null)
 ! grep -q MANGLED <<<"$probe" || fail "a run key does not read back as its own name" "$(cat -v <<<"$probe")"
-[[ "$(wc -l <<<"$probe")" == "$(sort -u <<<"$probe" | wc -l)" ]] \
+[[ "$(wc -l <<<"$probe" | tr -d " ")" == "$(sort -u <<<"$probe" | wc -l | tr -d " ")" ]] \
   || fail "two different runs share one key: $(cat -v <<<"$probe")"
 
 # An open test is not a RUNNING test, so age alone must never end a run. swift-testing prints

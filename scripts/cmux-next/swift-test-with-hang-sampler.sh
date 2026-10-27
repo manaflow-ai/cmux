@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Runs `swift test` with the given arguments. If it is still running after
-# CMUX_NEXT_TEST_HANG_SECONDS (default 1200), or one Swift Testing test has run
-# for CMUX_NEXT_TEST_STUCK_SECONDS (default 300; checked every
-# CMUX_NEXT_TEST_STUCK_POLL_SECONDS, default 10), it names the stuck tests,
-# samples the test processes so the log shows where they are stuck, kills them,
-# and fails. Swift Testing has no package-wide time limit (its default limit
+# CMUX_NEXT_TEST_HANG_SECONDS (default 1200), or no Swift Testing test has
+# finished for CMUX_NEXT_TEST_STUCK_SECONDS (default 300; checked every
+# CMUX_NEXT_TEST_STUCK_POLL_SECONDS, default 10), it names the tests open at
+# least that long, samples the test processes so the log shows where they are
+# stuck, kills them, and fails. Swift Testing has no package-wide time limit (its default limit
 # cannot be set from `swift test`), so a test without its own `.timeLimit`
 # would otherwise hold the run until the whole-run limit with no name. Run from
 # Packages/macOS/CmuxNext.
