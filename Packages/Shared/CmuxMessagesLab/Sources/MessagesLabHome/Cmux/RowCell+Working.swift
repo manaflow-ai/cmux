@@ -1,7 +1,6 @@
 import AppKit
 
 /// cmux's working indicator: fixed opacity and geometry, with only rotation animated.
-@MainActor
 extension RowCell {
     static func makeTypingSpinner() -> CAShapeLayer {
         let spinner = CAShapeLayer()
@@ -20,8 +19,11 @@ extension RowCell {
     func startTypingSpinner(begin: CFTimeInterval) {
         typingSpinnerActive = true
         typingSpinner.removeAnimation(forKey: "workingSpin")
-        guard !MessagesLabHomeView.reducesMotion, MessagesLabHomeView.voiceMotionGate(),
+        guard Thread.isMainThread, !MessagesLabHomeView.reducesMotion,
               Springs.typingStillPhase == nil else { return }
+        // main-proof: guarded by Thread.isMainThread above; the vendored layer cell is nonisolated.
+        let animates = MainActor.assumeIsolated { MessagesLabHomeView.voiceMotionGate() }
+        guard animates else { return }
         // motion: allow the host's Home motion gate and Reduce Motion above govern this render-server loop.
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")
         spin.fromValue = 0
