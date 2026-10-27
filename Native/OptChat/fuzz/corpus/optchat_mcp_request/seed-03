@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","method":"tools/call","id":"a","params":{"name":"spawn","arguments":{"task":"x"}}}
+{"jsonrpc":"2.0","method":"tools/call","id":"b","params":{"name":"zoom","arguments":{"id":1,"n":1}}}
+{"jsonrpc":"2.0","method":"tools/call","id":"c","params":{"name":"send","arguments":{"text":"y"}}}
+{"jsonrpc":"2.0","method":"tools/call","id":"d","params":{"name":"stop","arguments":{}}}

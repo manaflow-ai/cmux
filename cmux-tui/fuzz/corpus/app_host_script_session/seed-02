@@ -1,0 +1,5 @@
+{"t":"ready","runtime":"1.0.0"}
+{"t":"call","cb":1,"name":"workspace.list","params":{},"options":{}}
+{"t":"call","cb":2,"name":"pane.split","params":{"pane":"p1"},"options":{"gesture":null}}
+{"t":"log","level":"info","message":"hello"}
+{"t":"done","cb":1,"ok":true,"body":{"value":3}}

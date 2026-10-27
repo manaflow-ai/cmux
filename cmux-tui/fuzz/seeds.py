@@ -6,10 +6,12 @@ pane-protocol vectors, the relay-control fixture, the default settings) plus
 a few frames built here from each wire's documented layout, so the fuzzer
 starts past every magic number and length check. Each seed is named by its
 SHA-1, as libFuzzer names corpus files, so seeding twice adds nothing. The
-seeds checked in under cmux-tui/fuzz/corpus/<target>/ (batches 2 and 3) are
-copied in the same way, so every target starts from its stored seeds.
+seeds checked in under cmux-tui/fuzz/corpus/<target>/ (batches 2 and 3), and
+under the corpus/<target>/ of each --corpus-dir (the fuzz workspaces of the
+other Cargo workspaces, task 181), are copied in the same way, so every
+target starts from its stored seeds.
 
-Usage: seeds.py --repo REPO_ROOT --out CORPUS_ROOT [TARGET ...]
+Usage: seeds.py --repo REPO_ROOT --out CORPUS_ROOT [--corpus-dir DIR ...] [TARGET ...]
 """
 
 from __future__ import annotations
@@ -135,20 +137,27 @@ TARGETS: dict[str, Callable[[Path], Iterable[bytes]]] = {
 }
 
 
-def checked_in(repo: Path, target: str) -> Iterable[bytes]:
-    directory = repo / "cmux-tui/fuzz/corpus" / target
-    if directory.is_dir():
-        for path in sorted(directory.iterdir()):
-            if path.is_file():
-                yield path.read_bytes()
+def corpus_roots(repo: Path, extra: Iterable[Path]) -> list[Path]:
+    roots = [repo / "cmux-tui/fuzz/corpus"]
+    roots.extend(path for path in extra if path.resolve() != roots[0].resolve())
+    return roots
 
 
-def write_seeds(repo: Path, out: Path, target: str) -> int:
+def checked_in(roots: Iterable[Path], target: str) -> Iterable[bytes]:
+    for root in roots:
+        directory = root / target
+        if directory.is_dir():
+            for path in sorted(directory.iterdir()):
+                if path.is_file():
+                    yield path.read_bytes()
+
+
+def write_seeds(repo: Path, out: Path, target: str, roots: list[Path]) -> int:
     directory = out / target
     directory.mkdir(parents=True, exist_ok=True)
     written = 0
     built = TARGETS[target](repo) if target in TARGETS else ()
-    for seed in (*built, *checked_in(repo, target)):
+    for seed in (*built, *checked_in(roots, target)):
         seed = seed[:MAX_SEED_BYTES]
         path = directory / hashlib.sha1(seed).hexdigest()
         if not path.exists():
@@ -161,15 +170,18 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--corpus-dir", type=Path, action="append", default=[],
+                        help="another root of checked-in seeds, one subdirectory per target")
     parser.add_argument("--list", action="store_true", help="print the seeded targets")
     parser.add_argument("targets", nargs="*")
     args = parser.parse_args(argv)
     if args.list:
         print("\n".join(TARGETS))
         return 0
+    roots = corpus_roots(args.repo, args.corpus_dir)
     for target in args.targets or list(TARGETS):
-        written = write_seeds(args.repo, args.out, target)
-        if target in TARGETS or (args.repo / "cmux-tui/fuzz/corpus" / target).is_dir():
+        written = write_seeds(args.repo, args.out, target, roots)
+        if target in TARGETS or any((root / target).is_dir() for root in roots):
             print(f"{target}: {written} new seeds")
         else:
             # A target added without seeds starts from an empty corpus.

@@ -1,0 +1,3 @@
+{"jsonrpc":"2.0","method":"tools/call","id":1,"params":{"name":"version","arguments":{}}}
+{"jsonrpc":"2.0","method":"tools/call","id":2,"params":{"name":"move","arguments":{"to":"/tmp"}}}
+{"jsonrpc":"2.0","method":"resources/list","id":3}

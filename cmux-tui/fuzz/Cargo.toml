@@ -48,6 +48,12 @@ arbitrary = { version = "1", features = ["derive"] }
 base64 = "0.22"
 flate2 = "1"
 sha2 = "0.10"
+# Batch 6 (task 181): browser host CDP evaluate and gate fetch, app host
+# script session. The mobile host and the OptChat Chief are other
+# workspaces, fuzzed from cmux-next-ios/rust/fuzz and Native/OptChat/fuzz.
+cmux-browser-host = { path = "../crates/cmux-browser-host" }
+cmux-app-host = { path = "../crates/cmux-app-host", default-features = false, features = ["fuzzing"] }
+url = "2"
 
 # The same Crossterm patch as the main workspace, so any crate here that
 # reaches Crossterm builds the code cmux ships.
@@ -411,6 +417,28 @@ bench = false
 [[bin]]
 name = "page_request_head"
 path = "fuzz_targets/page_request_head.rs"
+test = false
+doc = false
+bench = false
+
+# Batch 6 (task 181): cmux-browser-host, cmux-app-host.
+[[bin]]
+name = "browser_host_cdp_evaluate"
+path = "fuzz_targets/browser_host_cdp_evaluate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "browser_host_gate_fetch"
+path = "fuzz_targets/browser_host_gate_fetch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "app_host_script_session"
+path = "fuzz_targets/app_host_script_session.rs"
 test = false
 doc = false
 bench = false

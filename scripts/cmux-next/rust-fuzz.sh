@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Run the coverage-guided Rust fuzz targets of cmux-tui/fuzz (cargo-fuzz, libFuzzer with
-# SanitizerCoverage and ASan) with resource limits, and classify what each run found. The
+# Run the coverage-guided Rust fuzz targets (cargo-fuzz, libFuzzer with SanitizerCoverage
+# and ASan) with resource limits, and classify what each run found. The targets live in one
+# fuzz workspace per Cargo workspace (FUZZ_DIRS below: cmux-tui/fuzz, and the fuzz dirs of
+# the separate workspaces cmux-next-ios/rust and Native/OptChat, each with its own lock and
+# nightly pin); target names are unique across them. The
 # stability lab's rust-fuzz lane (plans/cmux-next/chrome-parity/p10-stability.md, section 3.A)
 # and people on a Linux Testbox or VM run it. It reports; it is not a CI gate.
 #
@@ -13,13 +16,14 @@
 #            [--timeout N] [--sanitizer address|leak|none] [--build-only] [--list]
 #            [-- EXTRA LIBFUZZER FLAGS]
 #        scripts/cmux-next/rust-fuzz.sh --self-test [--out DIR] [--sanitizer address|leak]
-#   --all          every target in cmux-tui/fuzz/Cargo.toml except the selftest_ ones.
+#   --all          every target of every fuzz workspace except the selftest_ ones.
 #   --target       the named targets only.
 #   --seconds      fuzzing time per target (default 300).
 #   --parallel     targets fuzzed at once (default 1). Each run is one libFuzzer process.
 #   --out          results directory (default artifacts/rust-fuzz/<UTC>).
 #   --corpus       corpus root, one subdirectory per target (default <out>/corpus). Seeds from
-#                  cmux-tui/fuzz/seeds.py are added to it first; what the run finds stays in it.
+#                  cmux-tui/fuzz/seeds.py and each workspace's corpus/<target>/ are added to it
+#                  first; what the run finds stays in it.
 #   --rss-limit-mb, --malloc-limit-mb, --timeout
 #                  libFuzzer limits (defaults 2048, 256 and 2 seconds).
 #   --sanitizer    cargo fuzz --sanitizer (default address). libFuzzer enforces the malloc
@@ -40,9 +44,10 @@
 # Exit 0 when every target is clean, 1 on any finding, 2 on a usage error, 75 when the build
 # failed or a run gave no verdict.
 #
-# The fuzz workspace pins its own nightly in cmux-tui/fuzz/rust-toolchain.toml (installed on the
-# Linux VM by scripts/cmux-next/linux/setup-tools.sh). Never run this on a person's Mac: it
-# compiles cmux-tui (CLAUDE.md, "Agents never compile or test on the person's Mac").
+# Each fuzz workspace pins its own nightly in its rust-toolchain.toml, all the same one
+# (installed on the Linux VM by scripts/cmux-next/linux/setup-tools.sh). Never run this on a
+# person's Mac: it compiles cmux-tui (CLAUDE.md, "Agents never compile or test on the person's
+# Mac").
 #
 # libghostty-vt (Zig) is built for fuzzing by cmux-tui/crates/ghostty-vt-sys/fuzzing/build.zig:
 # ReleaseSafe with SanitizerCoverage, so libFuzzer sees the VT parser's edges (as extra
@@ -53,6 +58,9 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FUZZ_DIR="$REPO/cmux-tui/fuzz"
+# Every fuzz workspace, the cmux-tui one first. A separate Cargo workspace gets its own fuzz
+# dir and lock (p10-stability.md task 181), never a path into another workspace's lock.
+FUZZ_DIRS=("$FUZZ_DIR" "$REPO/cmux-next-ios/rust/fuzz" "$REPO/Native/OptChat/fuzz")
 
 ALL=0 TARGETS="" SECONDS_PER_TARGET=300 PARALLEL=1 OUT="" CORPUS=""
 RSS_LIMIT_MB=2048 MALLOC_LIMIT_MB=256 TIMEOUT=2 SANITIZER=address BUILD_ONLY=0 LIST=0
@@ -98,11 +106,33 @@ case "$SANITIZER" in
   *) echo "rust-fuzz.sh: --sanitizer must be address, leak or none" >&2; exit 2 ;;
 esac
 
-# Every [[bin]] name in the fuzz manifest, in file order.
-manifest_targets() {
+# Every [[bin]] name of one fuzz manifest, in file order.
+manifest_targets_of() {
   awk '/^\[\[bin\]\]/ { in_bin = 1; next }
        /^\[/ { in_bin = 0 }
-       in_bin && $1 == "name" { gsub(/"/, "", $3); print $3 }' "$FUZZ_DIR/Cargo.toml"
+       in_bin && $1 == "name" { gsub(/"/, "", $3); print $3 }' "$1/Cargo.toml"
+}
+
+# Every target of every fuzz workspace, workspace by workspace.
+manifest_targets() {
+  local dir
+  for dir in "${FUZZ_DIRS[@]}"; do
+    if [[ -f "$dir/Cargo.toml" ]]; then
+      manifest_targets_of "$dir"
+    fi
+  done
+}
+
+# The fuzz workspace that holds TARGET.
+dir_of() {
+  local dir
+  for dir in "${FUZZ_DIRS[@]}"; do
+    if [[ -f "$dir/Cargo.toml" ]] && manifest_targets_of "$dir" | grep -qxF -- "$1"; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+  done
+  return 1
 }
 
 # --self-test runs this script once per case, so each case goes through the same option
@@ -141,6 +171,11 @@ print(rows[-1]["verdict"] if rows else "none")' "$out/summary.jsonl" 2>/dev/null
 }
 
 ALL_BINS="$(manifest_targets)"
+DUPLICATES="$(sort <<<"$ALL_BINS" | uniq -d)"
+if [[ -n "$DUPLICATES" ]]; then
+  echo "rust-fuzz.sh: fuzz targets named in two workspaces: $DUPLICATES" >&2
+  exit 2
+fi
 # selftest_ targets test this script, not cmux code: --all and --list leave them out.
 KNOWN="$(grep -v '^selftest_' <<<"$ALL_BINS" || true)"
 if [[ "$SELF_TEST" == 1 ]]; then
@@ -165,12 +200,16 @@ else
   echo "rust-fuzz.sh: give --all or --target NAME" >&2; usage
 fi
 
-CHANNEL="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$FUZZ_DIR/rust-toolchain.toml")"
 VM_NIGHTLY="$(sed -n '/^\[nightly\]/,/^\[/s/^channel *= *"\(.*\)"/\1/p' "$REPO/scripts/cmux-next/linux/tool-versions.toml")"
-if [[ "$CHANNEL" != "$VM_NIGHTLY" ]]; then
-  echo "rust-fuzz.sh: cmux-tui/fuzz/rust-toolchain.toml pins $CHANNEL but scripts/cmux-next/linux/tool-versions.toml installs $VM_NIGHTLY; change both" >&2
-  exit 75
-fi
+CHANNEL="$VM_NIGHTLY"
+for dir in "${FUZZ_DIRS[@]}"; do
+  [[ -f "$dir/Cargo.toml" ]] || continue
+  pinned="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$dir/rust-toolchain.toml")"
+  if [[ "$pinned" != "$VM_NIGHTLY" ]]; then
+    echo "rust-fuzz.sh: ${dir#"$REPO"/}/rust-toolchain.toml pins $pinned but scripts/cmux-next/linux/tool-versions.toml installs $VM_NIGHTLY; change both" >&2
+    exit 75
+  fi
+done
 if [[ "$SANITIZER" == none ]]; then
   echo "rust-fuzz.sh: warning: --sanitizer none: libFuzzer cannot enforce -malloc_limit_mb=$MALLOC_LIMIT_MB or find leaks without a sanitizer runtime; the summary records malloc_limit_mb null" >&2
   MALLOC_LIMIT_RECORDED=null LEAK_DETECTION=false
@@ -198,6 +237,8 @@ CORPUS="$(cd "$CORPUS" && pwd)"
 # section (appended to ASAN_OPTIONS). Prints the libFuzzer flags, one per line, then a line
 # "ASAN_OPTIONS=..." last.
 target_options() {
+  local dir
+  dir="$(dir_of "$1")"
   python3 -I -c 'import configparser, sys
 parser = configparser.ConfigParser(interpolation=None)
 parser.optionxform = str
@@ -206,12 +247,15 @@ for key, value in parser.items("libfuzzer") if parser.has_section("libfuzzer") e
     print(f"-{key}={value}")
 asan = parser.items("asan") if parser.has_section("asan") else []
 print("ASAN_OPTIONS=" + ":".join(f"{key}={value}" for key, value in asan))' \
-    "$FUZZ_DIR/fuzz_targets/$1.options"
+    "$dir/fuzz_targets/$1.options"
 }
 
-# cargo fuzz runs from the fuzz directory so rustup picks its pinned nightly.
+# cargo fuzz COMMAND TARGET ARGS... runs from the target's fuzz directory, so rustup picks
+# that workspace's pinned nightly and cargo its own lock.
 cargo_fuzz() {
-  (cd "$FUZZ_DIR" && cargo fuzz "$1" --fuzz-dir . --sanitizer "$SANITIZER" "${@:2}")
+  local dir
+  dir="$(dir_of "$2")"
+  (cd "$dir" && cargo fuzz "$1" --fuzz-dir . --sanitizer "$SANITIZER" "${@:2}")
 }
 
 echo "rust-fuzz.sh: building ${#SELECTED[@]} targets with $CHANNEL (sanitizer $SANITIZER)"
@@ -227,7 +271,11 @@ if [[ "$BUILD_ONLY" == 1 ]]; then
   exit 0
 fi
 
-python3 -I "$FUZZ_DIR/seeds.py" --repo "$REPO" --out "$CORPUS" "${SELECTED[@]}"
+corpus_dirs=()
+for dir in "${FUZZ_DIRS[@]}"; do
+  corpus_dirs+=(--corpus-dir "$dir/corpus")
+done
+python3 -I "$FUZZ_DIR/seeds.py" --repo "$REPO" --out "$CORPUS" "${corpus_dirs[@]}" "${SELECTED[@]}"
 
 # One libFuzzer run of one target. Writes <out>/verdict-<target>.json.
 run_target() {
@@ -238,7 +286,7 @@ run_target() {
   artifacts="$(mktemp -d "$OUT/artifacts/$target/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")/"
   local -a own=() lines=()
   local asan="${ASAN_OPTIONS:-}"
-  if [[ -f "$FUZZ_DIR/fuzz_targets/$target.options" ]]; then
+  if [[ -f "$(dir_of "$target")/fuzz_targets/$target.options" ]]; then
     mapfile -t lines < <(target_options "$target")
     own=("${lines[@]:0:${#lines[@]}-1}")
     local target_asan="${lines[-1]#ASAN_OPTIONS=}"

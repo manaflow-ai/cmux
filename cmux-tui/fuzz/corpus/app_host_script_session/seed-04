@@ -1,0 +1,2 @@
+{"t":"done","cb":7,"ok":false,"body":{"code":"script.error","message":"boom"}}
+{"t":"fatal","reason":"memory","entry":"eval"}

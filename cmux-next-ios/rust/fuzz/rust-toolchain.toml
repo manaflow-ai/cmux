@@ -1,0 +1,8 @@
+# cargo-fuzz needs a nightly (-Zsanitizer); pinned here only, the rest of
+# cmux-next-ios/rust stays on ../rust-toolchain.toml. The channel must equal
+# [nightly] in scripts/cmux-next/linux/tool-versions.toml (the same pin as
+# cmux-tui/fuzz); scripts/cmux-next/rust-fuzz.sh refuses to run when they differ.
+[toolchain]
+channel = "nightly-2026-10-20"
+profile = "minimal"
+components = ["llvm-tools"]

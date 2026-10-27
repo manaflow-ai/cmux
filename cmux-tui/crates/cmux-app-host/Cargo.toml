@@ -24,6 +24,9 @@ default = ["engine"]
 # The VM, the process loop and the OS sandbox. The daemon's supervisor uses
 # only the wire types (`default-features = false`).
 engine = ["dep:rquickjs"]
+# `script::fuzzing`: the script session's reader as a cmux-tui/fuzz target.
+# Only that workspace turns it on.
+fuzzing = []
 
 [dependencies]
 rquickjs = { workspace = true, optional = true }

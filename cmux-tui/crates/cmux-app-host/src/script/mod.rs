@@ -19,6 +19,10 @@
 pub mod prelude;
 mod session;
 
+/// The entry point of the cmux-tui/fuzz `app_host_script_session` target
+/// (feature `fuzzing`; no production build turns it on).
+#[cfg(feature = "fuzzing")]
+pub use session::fuzzing;
 pub use session::{
     DEFAULT_TIMEOUT, LogSink, MAX_TIMEOUT, ScriptError, ScriptRouter, Session, codes,
 };

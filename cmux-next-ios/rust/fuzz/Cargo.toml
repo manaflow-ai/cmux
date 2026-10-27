@@ -1,0 +1,52 @@
+# libFuzzer targets for cmux-mobile-host's frame decoders
+# (plans/cmux-next/chrome-parity/p10-stability.md, task 181). Its own workspace
+# and lock, so the cmux-next-ios/rust Cargo.toml and Cargo.lock never change for
+# a fuzz target; the lock started as a copy of ../Cargo.lock, so the host builds
+# with the versions it ships with. Build and run with
+# scripts/cmux-next/rust-fuzz.sh (cargo-fuzz on the nightly in
+# rust-toolchain.toml); seeds are in corpus/<target>/.
+[package]
+name = "cmux-mobile-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+cmux-mobile-host = { path = "../crates/cmux-mobile-host" }
+cmux-rd-proto = { path = "../../../cmux-tui/crates/cmux-rd-proto", features = ["serde"] }
+serde_json = "1"
+
+# A wrapped integer or a broken debug_assert! is a finding, as Chrome's fuzzers
+# build with DCHECKs on (the same profile as cmux-tui/fuzz).
+[profile.release]
+debug = 1
+debug-assertions = true
+overflow-checks = true
+
+[[bin]]
+name = "mobile_host_phone_stream"
+path = "fuzz_targets/mobile_host_phone_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mobile_host_source_frames"
+path = "fuzz_targets/mobile_host_source_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mobile_host_control_line"
+path = "fuzz_targets/mobile_host_control_line.rs"
+test = false
+doc = false
+bench = false

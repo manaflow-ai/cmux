@@ -1,0 +1,54 @@
+# libFuzzer targets for the OptChat Chief's request and transcript parsers
+# (plans/cmux-next/chrome-parity/p10-stability.md, task 181). Its own workspace
+# and lock, like every crate under Native/OptChat, so optchat-chief's and
+# chief-turn's Cargo.toml and Cargo.lock never change for a fuzz target; the
+# lock started as a copy of ../optchat-chief/Cargo.lock, so the Chief builds
+# with the versions it ships with. Build and run with
+# scripts/cmux-next/rust-fuzz.sh (cargo-fuzz on the nightly in
+# rust-toolchain.toml); seeds are in corpus/<target>/.
+[package]
+name = "optchat-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+optchat-chief = { path = "../optchat-chief" }
+optchat-core = { path = "../optchat-core" }
+chief-turn = { path = "../chief-turn", default-features = false }
+serde_json = "1"
+
+# A wrapped integer or a broken debug_assert! is a finding, as Chrome's fuzzers
+# build with DCHECKs on (the same profile as cmux-tui/fuzz).
+[profile.release]
+debug = 1
+debug-assertions = true
+overflow-checks = true
+
+[[bin]]
+name = "optchat_mcp_request"
+path = "fuzz_targets/optchat_mcp_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "optchat_claude_import"
+path = "fuzz_targets/optchat_claude_import.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "optchat_chief_turn_stream"
+path = "fuzz_targets/optchat_chief_turn_stream.rs"
+test = false
+doc = false
+bench = false

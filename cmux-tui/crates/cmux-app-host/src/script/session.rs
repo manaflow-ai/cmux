@@ -130,6 +130,53 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Shared {
+    /// The session state over the channel to the host; `writer` is our end.
+    fn new(
+        writer: UnixStream,
+        router: Arc<dyn ScriptRouter>,
+        log: LogSink,
+    ) -> std::io::Result<Arc<Self>> {
+        let killer = writer.try_clone()?;
+        Ok(Arc::new(Shared {
+            writer: Mutex::new(writer),
+            killer,
+            waiters: Mutex::new(HashMap::new()),
+            subs: Mutex::new(HashMap::new()),
+            watch: Mutex::new(None),
+            inflight: AtomicUsize::new(0),
+            fatal: Mutex::new(None),
+            cancelled: AtomicBool::new(false),
+            timed_out: AtomicBool::new(false),
+            dead: AtomicBool::new(false),
+            router,
+            log,
+        }))
+    }
+
+    /// Handles the host's lines until its channel ends, a line runs past
+    /// `MAX_LINE_BYTES`, the last line is cut off, or a line is not a
+    /// [`FromHost`] message: a host that sends one is broken, and the caller
+    /// ends the session.
+    fn read_host(
+        self: &Arc<Self>,
+        channel: impl Read,
+        ready: &mut Option<Sender<Result<(), String>>>,
+    ) {
+        let mut lines = BufReader::new(channel);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            match lines.by_ref().take(MAX_LINE_BYTES as u64 + 1).read_until(b'\n', &mut line) {
+                Ok(0) | Err(_) => return,
+                Ok(_) if line.last() != Some(&b'\n') => return,
+                Ok(_) => match serde_json::from_slice::<FromHost>(&line) {
+                    Ok(message) => self.handle(message, ready),
+                    Err(_) => return,
+                },
+            }
+        }
+    }
+
     fn send(&self, message: &ToHost) {
         let Ok(mut line) = serde_json::to_vec(message) else { return };
         line.push(b'\n');
@@ -300,46 +347,20 @@ impl Session {
         let mut child =
             command.spawn().map_err(|e| host_error("could not start the script runtime", e))?;
         drop(theirs);
-        let (writer, killer) = match (ours.try_clone(), ours.try_clone()) {
-            (Ok(writer), Ok(killer)) => (writer, killer),
-            (Err(e), _) | (_, Err(e)) => {
+        let shared = match ours.try_clone().and_then(|writer| Shared::new(writer, router, log)) {
+            Ok(shared) => shared,
+            Err(e) => {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(host_error("socket", e));
             }
         };
         let pid = child.id();
-        let shared = Arc::new(Shared {
-            writer: Mutex::new(writer),
-            killer,
-            waiters: Mutex::new(HashMap::new()),
-            subs: Mutex::new(HashMap::new()),
-            watch: Mutex::new(None),
-            inflight: AtomicUsize::new(0),
-            fatal: Mutex::new(None),
-            cancelled: AtomicBool::new(false),
-            timed_out: AtomicBool::new(false),
-            dead: AtomicBool::new(false),
-            router,
-            log,
-        });
         let (ready_tx, ready_rx) = mpsc::channel();
         let reader_shared = shared.clone();
         let spawned = cmux_threads::spawn("cmux-script-host", SCRIPT_THREAD_QOS, move || {
             let mut ready = Some(ready_tx);
-            let mut lines = BufReader::new(ours);
-            let mut line = Vec::new();
-            loop {
-                line.clear();
-                match lines.by_ref().take(MAX_LINE_BYTES as u64 + 1).read_until(b'\n', &mut line) {
-                    Ok(0) | Err(_) => break,
-                    Ok(_) if line.last() != Some(&b'\n') => break,
-                    Ok(_) => match serde_json::from_slice::<FromHost>(&line) {
-                        Ok(message) => reader_shared.handle(message, &mut ready),
-                        Err(_) => break,
-                    },
-                }
-            }
+            reader_shared.read_host(ours, &mut ready);
             reader_shared.kill();
             let _ = child.kill();
             let _ = child.wait();
@@ -441,6 +462,10 @@ impl Drop for Session {
         self.shared.kill();
     }
 }
+
+#[cfg(feature = "fuzzing")]
+#[path = "session_fuzzing.rs"]
+pub mod fuzzing;
 
 /// In the child before exec: the channel on fd 3 without close-on-exec, and
 /// every other inherited descriptor above 2 closed.

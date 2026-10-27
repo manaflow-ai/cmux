@@ -1,0 +1,9 @@
+not json
+[1,2]
+
+{"type":"user","uuid":"u1","timestamp":"2026-10-01T10:00:00Z","cwd":"/repo","message":{"content":"Fix the build"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-10-01T10:00:05Z","message":{"content":[{"type":"text","text":"Looking."},{"type":"tool_use","name":"Read","input":{"file_path":"/repo/a.rs"}},{"type":"tool_use","name":"Bash","input":{"command":"make"}}]}}
+{"type":"user","uuid":"u2","message":{"content":[{"type":"tool_result","content":"ok"}]}}
+{"type":"assistant","uuid":"a2","timestamp":"2026-10-01T10:01:00Z","message":{"content":[{"type":"text","text":"Fixed."}]}}
+{"type":"user","uuid":"u3","isMeta":true,"message":{"content":"<command-name>/clear"}}
+{"type":"user","uuid":"u4","isSidechain":true,"message":{"content":"side"}}

@@ -78,8 +78,16 @@ root = "Native/OptChat/optchat-wasm"
 run = true
 
 [[workspace]]
+root = "Native/OptChat/fuzz"
+skip = "nightly cargo-fuzz targets; run by scripts/cmux-next/rust-fuzz.sh in the stability lab, not CI"
+
+[[workspace]]
 root = "cmux-next-ios/rust"
 run = true
+
+[[workspace]]
+root = "cmux-next-ios/rust/fuzz"
+skip = "nightly cargo-fuzz targets; run by scripts/cmux-next/rust-fuzz.sh in the stability lab, not CI"
 
 [[workspace]]
 root = "first-party-apps/cloud/server"

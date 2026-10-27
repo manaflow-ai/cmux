@@ -1,0 +1,5 @@
+{"t":"subscribe","sub":1,"stream":"resource.changed","filter":{}}
+{"t":"subscribe","sub":2,"stream":"resource.changed","filter":null}
+{"t":"unsubscribe","sub":1}
+{"t":"scene","mount":"m","ops":[]}
+{"t":"mounted","mount":"m"}
