@@ -132,6 +132,34 @@ extension AgentPaneView {
         String(localized: "agentPane.remoteApprovals.thisMachine", defaultValue: "the other machine", bundle: .module)
     }
 
+    /// Peer-route approvals: a peer of this Mac's agent daemon has not enrolled this Mac, so it
+    /// refused this Mac's signed one-time allow.
+    static func peerApprovalsOffTitle(_ peer: String) -> String {
+        String(format: String(localized: "agentPane.peerApprovals.off.title", defaultValue: "Enroll this Mac on %@ to allow from here",
+                              bundle: .module), peer)
+    }
+
+    static var peerApprovalsOffDetail: String {
+        String(localized: "agentPane.peerApprovals.off.detail",
+               defaultValue: "That machine counts this Mac's one-time Allow only after this Mac is enrolled there. The key never leaves this Mac.",
+               bundle: .module)
+    }
+
+    static var peerApprovalsEnroll: String {
+        String(localized: "agentPane.peerApprovals.enroll", defaultValue: "Enroll this Mac", bundle: .module)
+    }
+
+    static func peerApprovalsEnrollFailed(_ peer: String, _ reason: String) -> String {
+        String(format: String(localized: "agentPane.peerApprovals.enrollFailed", defaultValue: "Could not enroll this Mac on %@: %@",
+                              bundle: .module), peer, reason)
+    }
+
+    /// An always-allow (or an answer with notes) for a peer's prompt: only a one-time allow counts.
+    static var peerApprovalsOnceOnly: String {
+        String(localized: "agentPane.peerApprovals.onceOnly.title", defaultValue: "Only a one-time Allow works from this Mac",
+               bundle: .module)
+    }
+
     static func remoteApprovalsRestartFailed(_ machine: String, _ failure: AgentPaneRemoteApprovals.Failure) -> String {
         let reason: String
         switch failure {
