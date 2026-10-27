@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { menuItemForShortcut, type ChatMenuItem } from "./ChatHeaderTools";
+import { guardedChatMenu, menuItemForShortcut, type ChatMenuItem } from "./ChatHeaderTools";
 import { ThreadTitle } from "./ThreadTitle";
 
 let dom: JSDOM | undefined;
@@ -143,4 +143,26 @@ test("resolves explicit title-menu shortcut letters", () => {
   item?.onSelect?.();
   expect(selected).toBe(1);
   expect(menuItemForShortcut(rows(), "D")?.disabled).toBe(true);
+});
+
+test("stored title and submenu actions become inert when their chat changes", () => {
+  let session = "A";
+  const ran: string[] = [];
+  const guarded = guardedChatMenu(
+    [
+      { key: "archive", label: "Archive", icon: "inbox", onSelect: () => ran.push(session) },
+      {
+        key: "move",
+        label: "Move",
+        icon: "machine.remote",
+        children: [{ key: "vm", label: "VM", onSelect: () => ran.push(session) }],
+      },
+    ],
+    () => session === "A",
+  );
+  if (guarded[0] !== "separator") guarded[0]!.onSelect?.();
+  session = "B";
+  if (guarded[0] !== "separator") guarded[0]!.onSelect?.();
+  if (guarded[1] !== "separator") guarded[1]!.children?.[0]?.onSelect();
+  expect(ran).toEqual(["A"]);
 });

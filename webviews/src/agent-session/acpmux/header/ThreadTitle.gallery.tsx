@@ -5,11 +5,11 @@ import type { ChatMenuItem } from "./ChatHeaderTools";
 import { ThreadTitle } from "./ThreadTitle";
 
 const menuRows = (move: "local" | "cloud", targets: readonly string[]): ChatMenuItem[] => [
-  { key: "rename", label: "Rename", icon: "action.edit", shortcutAction: "renameTab", onSelect: () => undefined },
-  { key: "fork", label: "Fork", icon: "agent.fork", shortcutAction: "chat.fork", onSelect: () => undefined },
+  { key: "rename", label: "Rename", icon: "action.edit", shortcutLabel: "R", onSelect: () => undefined },
+  { key: "fork", label: "Fork", icon: "agent.fork", shortcutLabel: "F", onSelect: () => undefined },
   {
     key: "move",
-    label: move === "local" ? "Move to Cloud" : "Bring Back Local",
+    label: move === "local" ? "Move to machine" : "Bring Back Local",
     icon: "machine.remote",
     children:
       move === "local"
@@ -26,8 +26,8 @@ const menuRows = (move: "local" | "cloud", targets: readonly string[]): ChatMenu
       { key: "window", label: "New window", onSelect: () => undefined },
     ],
   },
-  { key: "archive", label: "Archive", icon: "inbox", onSelect: () => undefined },
-  { key: "delete", label: "Delete", icon: "action.delete", onSelect: () => undefined },
+  { key: "archive", label: "Archive", icon: "inbox", shortcutLabel: "A", onSelect: () => undefined },
+  { key: "delete", label: "Delete", icon: "action.delete", shortcutLabel: "D", onSelect: () => undefined },
 ];
 
 function TitleMenuGallery({

@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample chats and connection errors), not shipped UI.
-// The pane header (ChatHeaderStatus.tsx): no title and no change counts; where the chat runs
+// The pane header: an actionable title and where the chat runs
 // (EnvironmentLine.tsx: machine · folder · branch), and in its place, only for a connection problem,
 // a status with the failure detail as its tooltip.
 import { agentPaneEntry } from "../../../gallery/format";
@@ -25,6 +25,7 @@ const inTabRowConnected: Play = async (ctx) => {
   const { setTabRow } = await import("./tabRow");
   setTabRow({ height: 28, trailingInset: 0 });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-environment-row"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-thread-title-trigger"));
 };
 
 export default agentPaneEntry({
@@ -36,10 +37,11 @@ export default agentPaneEntry({
     "agent-session/acpmux/header/ChatHeaderStatus.tsx#ChatHeaderStatus",
     "agent-session/acpmux/header/ChatHeaderStatus.tsx#ChatHeaderInlineStatus",
     "agent-session/acpmux/header/EnvironmentLine.tsx#EnvironmentLine",
+    "agent-session/acpmux/header/ThreadTitle.tsx#ThreadTitle",
   ],
   variants: {
     quiet: {
-      note: "Connected after a turn: no title or status, the Environment line (machine · folder · branch) below the tab row, the Changes button icon-only.",
+      note: "Connected after a turn: the title opens chat actions, the Environment line sits below tabs, and Changes stays icon-only.",
       snapshot: chat(finished),
     },
     "long-branch": {
@@ -55,7 +57,7 @@ export default agentPaneEntry({
       snapshot: chat(finished, { connection: "connecting: connection refused by the local daemon" }),
     },
     "tab-row": {
-      note: "The header shares the pane's tab row: the Environment line sits below the row at the configured edge.",
+      note: "The header shares the pane's tab row: the compact title menu stays available beside the tools; the Environment line sits below the row.",
       snapshot: chat(finished),
       play: inTabRowConnected,
     },
