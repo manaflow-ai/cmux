@@ -58,6 +58,8 @@ public final class TraceRuntime: Sendable {
     let ringAddress = Atomic<UInt64>(0)
     /// The last scope ``nextAsyncScope()`` handed out.
     let asyncScopes = Atomic<UInt64>(0)
+    /// The last id ``nextRequestID()`` handed out.
+    let requestIDs = Atomic<UInt64>(0)
     /// The address of this runtime's ``CmuxNextCompat/BlockingTraceSink`` (an `Unmanaged` reference retained once
     /// and never released) when it routes the process's checked blocking calls (``shared`` does), else 0. Set
     /// once, in `init`, before any other thread sees the runtime.
@@ -266,6 +268,14 @@ public final class TraceRuntime: Sendable {
     /// the same way (base/atomic_sequence_num.h).
     public func nextAsyncScope() -> UInt64 {
         asyncScopes.add(1, ordering: .relaxed).newValue
+    }
+
+    /// A request id no earlier call on this runtime returned, from 1, for every daemon connection that traces into
+    /// it: a peer derives a request's flow from the pid and this id alone, so ids are unique in the process, not per
+    /// connection. Chrome keys a Mojo message's flow on a process-wide nonce the same way
+    /// (mojo/public/cpp/bindings/lib/message.cc).
+    public func nextRequestID() -> UInt64 {
+        requestIDs.add(1, ordering: .relaxed).newValue
     }
 }
 

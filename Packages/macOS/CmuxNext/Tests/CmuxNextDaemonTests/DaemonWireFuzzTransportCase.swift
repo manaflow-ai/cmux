@@ -170,7 +170,9 @@ struct WireFuzzTransportCase {
         let stats = DaemonWireStats()
         let routedLines = WireFuzzRoutedLines()
         peer.serve(requestLines: requests, chunks: chunks, routedLines: routedLines)
-        let transport = try LineTransport(path: peer.path, role: .control, stats: stats, hangs: routedLines)
+        // Its own runtime, so its own request ids: the script names this connection's requests 1...requests.
+        let transport = try LineTransport(path: peer.path, role: .control, stats: stats, hangs: routedLines,
+                                          trace: TraceRuntime(role: .app))
         defer { transport.close() }
         for streamID in controlStreams.sorted() { transport.routeOnControlSequence(streamID: streamID) }
         let handled = WireFuzzLocked<[Handled]>([])

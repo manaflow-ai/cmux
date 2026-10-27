@@ -157,6 +157,9 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
     let mut routed = (!head.is_command()).then(open);
     if let Some(route) = head.cmd().and_then(routes::find) {
         line.stage(route.stage);
+        // The route queues its own reply: its writer writes the flow-out first.
+        let answering = routed.as_ref().and_then(|span| span.answering(writer));
+        let writer = answering.as_ref().unwrap_or(writer);
         let route_line = routes::RouteLine { mux, client, message, writer, head: &head };
         if let Some(keep_open) = (route.entry)(&route_line) {
             return match routed.as_mut() {
@@ -214,6 +217,8 @@ fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
     if let Some(route) = head.operation().and_then(routes::find_operation) {
         line.stage(route.stage);
         let mut span = head.open(stats, RequestArrival::parsed_now(arrived)).flowing(flow);
+        let answering = span.answering(writer);
+        let writer = answering.as_ref().unwrap_or(writer);
         let route_line = routes::RouteLine { mux, client, message, writer, head };
         if let Some(keep_open) = (route.entry)(&route_line) {
             return Some(span.answered(keep_open));
@@ -266,6 +271,10 @@ fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
             crate::debug_spans::install(Some(trace));
             true
         });
+    // The resource handlers queue their own reply: its writer writes the
+    // flow-out first.
+    let answering = span.answering(writer);
+    let writer = answering.as_ref().unwrap_or(writer);
     let keep_open =
         origin_gate::handle_resource_line(mux, client, message, request, writer, &mut span);
     if traced {

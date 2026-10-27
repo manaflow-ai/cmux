@@ -79,6 +79,7 @@ final class LineTransport: Sendable {
     /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), the top bits of its
     /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``): nil on a bridged
     /// connection, whose socket peer is the bridge child, so the daemon cannot derive this process's flows.
+    /// Request ids come from `trace` too (``TraceRuntime/nextRequestID()``): unique in the process, so each is one flow.
     let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64?
 
     /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:writerTarget:trace:)``); nil connects to `path`.
@@ -252,8 +253,7 @@ final class LineTransport: Sendable {
             let id: UInt64
             switch state.withLock({ state -> Result<UInt64, DaemonError> in
                 if let reason = state.closed { return .failure(Self.closedError(reason)) }
-                defer { state.nextID += 1 }
-                return .success(state.nextID)
+                return .success(trace.nextRequestID())
             }) {
             case .success(let value): id = value
             case .failure(let error): return error

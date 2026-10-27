@@ -88,12 +88,14 @@ import Testing
         await #expect(throws: DaemonError.self) {
             try await transport.request(cmd: "no-such-command", timeout: .milliseconds(20)) { Self.line($0, "no-such-command") }
         }
+        // Read back, not refusedID + 1: ids are the runtime's, not this connection's.
+        let timedOutID = try daemon.readRequestID()
 
         let all = records.all
         expectMatchedPairs(all, count: 3, received: 2)
         let begins = all.filter { $0.phase == .asyncBegin }
         #expect(begins.map(\.arg0) == [0, UInt64(DaemonCommandName.resourceBase), 0x8007])
-        #expect(begins.map { $0.arg1 & LineTransport.requestIDMask } == [answeredID, refusedID, refusedID + 1])
+        #expect(begins.map { $0.arg1 & LineTransport.requestIDMask } == [answeredID, refusedID, timedOutID])
         #expect(all.filter { $0.phase == .asyncEnd }.map(\.arg0) == [0, 1, 2], "outcomes: reply, error, timeout")
     }
 
@@ -228,6 +230,32 @@ import Testing
         }
         let unsliced = chains[LineTransport.requestFlow(seed: seed, requestID: first)] ?? []
         #expect(!unsliced.isEmpty && unsliced.allSatisfy { $0.arg0 == 0 }, "\(unsliced)")
+    }
+
+    /// Two connections on one trace runtime, each sending one request, are two flows: the daemon derives a flow from
+    /// the pid and the request id only, so ids come from the runtime (``TraceRuntime/nextRequestID()``), not from
+    /// each connection (task 103 finding: the app's many connections all sent id 1 first, and decoded as one chain).
+    @Test func requestsOnTwoConnectionsAreTwoFlows() async throws {
+        let records = Records()
+        let runtime = records.runtime(on: true)
+        let daemons = try [FakeDaemon(), FakeDaemon()]
+        let transports = try daemons.map { try connect($0, runtime) }
+        defer { transports.forEach { $0.close() } }
+
+        var ids: [UInt64] = []
+        for (daemon, transport) in zip(daemons, transports) {
+            let answered = Task { try await transport.request(cmd: "ping", timeout: nil) { Self.line($0, "ping") } }
+            let id = try daemon.readRequestID()
+            daemon.write([#"{"id":\#(id),"ok":true,"data":{}}"#])
+            _ = try await answered.value
+            ids.append(id)
+        }
+
+        #expect(ids[0] != ids[1], "two connections gave a request the same id: \(ids)")
+        let flows = records.all.filter { $0.phase == .flowOut }.map(\.arg1)
+        #expect(flows.count == 2 && Set(flows).count == 2, "two requests share one flow: \(flows)")
+        let replies = records.all.filter { $0.phase == .flowIn }.map(\.arg1)
+        #expect(Set(replies) == Set(flows), "a reply is not on its request's flow")
     }
 
     /// Each link kind reads and writes at its role's class, read back from the kernel on the reader thread: the

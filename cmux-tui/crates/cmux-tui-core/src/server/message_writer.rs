@@ -192,6 +192,10 @@ pub(super) struct MessageWriter {
     /// Where the flows of the connection's requests start: its peer's pid,
     /// read at accept (server/request_flow.rs).
     pub(super) request_flows: super::request_flow::RequestFlowSeed,
+    /// The request this writer answers, whose flow-out its first control
+    /// line writes before it is queued (`answering_flow`). Empty on the
+    /// connection's own writer.
+    pub(super) reply_flow: super::request_flow::ReplyFlow,
 }
 
 impl MessageWriter {
@@ -216,6 +220,7 @@ impl MessageWriter {
             reply: None,
             lock_caller: Arc::default(),
             request_flows: super::request_flow::RequestFlowSeed::default(),
+            reply_flow: super::request_flow::ReplyFlow::default(),
         }
     }
 
@@ -233,9 +238,17 @@ impl MessageWriter {
         Self { reply: Some(call), ..self.clone() }
     }
 
+    /// This connection's writer, answering the request whose reply's
+    /// flow-out is `flow` (server/request_flow.rs): its first control line
+    /// writes it, before the line is queued. Like `replying_to`, everything
+    /// else goes where the connection's writer sends it.
+    pub(super) fn answering_flow(&self, flow: super::request_flow::ReplyFlow) -> Self {
+        Self { reply_flow: flow, ..self.clone() }
+    }
+
     /// The connection's writer, answering no framed request.
     pub(super) fn connection_writer(&self) -> Self {
-        Self { reply: None, ..self.clone() }
+        Self { reply: None, reply_flow: Default::default(), ..self.clone() }
     }
 
     /// The framed request this writer answers.
@@ -269,6 +282,7 @@ impl MessageWriter {
     /// `text`, projected already, as the framed request's reply, if this
     /// writer answers one that has none yet; else as a control line.
     fn send_framed_reply(&self, text: Arc<BudgetedText>, ok: bool) -> std::io::Result<()> {
+        self.reply_flow.reply_queued(0);
         match self.reply.as_ref().filter(|call| call.claim_reply()) {
             Some(call) => {
                 let header = call.reply_header(ok, text.len()).map_err(|bad| {
@@ -561,8 +575,9 @@ impl MessageWriter {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self.render_service.serialize_control(value).and_then(|text| {
-            self.sink
-                .send_control(self.project_api_revision(self.project_conversation_tabs(text)?)?)
+            let text = self.project_api_revision(self.project_conversation_tabs(text)?)?;
+            self.reply_flow.reply_queued(0);
+            self.sink.send_control(text)
         });
         if result.is_err() {
             self.close();

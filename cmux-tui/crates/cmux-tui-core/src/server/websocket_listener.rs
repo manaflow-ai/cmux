@@ -449,7 +449,7 @@ fn handle_websocket_connection_with_permit(
                 let parses = JsonParseScope::enter(&ipc, IpcTransport::Lines);
                 let keep_open =
                     match hello.observe(&mux, client, &text, client_hello::Peer::unknown) {
-                        Some(reply) => writer.send_control(&reply).is_ok(),
+                        Some(reply) => request_flow::send_reader_reply(&writer, &reply),
                         None => {
                             reader_class.before_line(&mux, client, hello.is_closed());
                             handle_connection_frame_at(

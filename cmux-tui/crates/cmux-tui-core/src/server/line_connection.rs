@@ -314,7 +314,7 @@ pub(super) fn serve_connection(
             Some(refusal) => {
                 // A refused line still counts as a line: the window closes.
                 hello.close();
-                writer.send_control(&refusal).is_ok()
+                request_flow::send_reader_reply(&writer, &refusal)
             }
             None => {
                 let peer = || client_hello::Peer {
@@ -322,7 +322,7 @@ pub(super) fn serve_connection(
                     token: input.stream.peer_token(),
                 };
                 match hello.observe(&mux, client, &line, peer) {
-                    Some(reply) => writer.send_control(&reply).is_ok(),
+                    Some(reply) => request_flow::send_reader_reply(&writer, &reply),
                     None => {
                         reader_class.before_line(&mux, client, hello.is_closed());
                         handle_connection_frame_at(

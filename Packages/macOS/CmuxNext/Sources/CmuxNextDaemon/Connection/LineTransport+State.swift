@@ -2,9 +2,9 @@ import Darwin
 import Foundation
 
 extension LineTransport {
-    /// What the transport's one lock guards: ids, waiters, deadlines, the close, and the stream-0 routing.
+    /// What the transport's one lock guards: waiters, deadlines, the close, and the stream-0 routing. Request ids
+    /// come from the transport's trace runtime (``TraceRuntime/nextRequestID()``).
     struct State {
-        var nextID: UInt64 = 1
         /// Requests waiting for their reply, by id and in send order.
         var pending = PendingRequests()
         /// Reply deadlines of the pending requests that have one, earliest first.

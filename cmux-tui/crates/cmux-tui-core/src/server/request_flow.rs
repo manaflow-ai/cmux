@@ -16,8 +16,22 @@
 //! (`scripts/cmux-next/trace.py` `request_flow_summary`). An id that is not a
 //! u64 (a JSON number, or the decimal string of a v2 envelope) has no flow,
 //! and neither has a connection whose peer pid is unknown.
+//!
+//! The daemon's flow-out is written before its reply is queued, never after:
+//! the writer thread can send the reply, and the client stamp its flow-in,
+//! before the handler returns. A request's [`ReplyFlow`] is written once, by
+//! whichever comes first: the request's span (`RequestSpan::reply`), the
+//! writer that answers it (`MessageWriter::answering_flow`, as Mojo's
+//! responder knows its one reply, `ResponderThunk`), or the reader that
+//! answers a line itself ([`send_reader_reply`]).
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use cmux_trace::{trace_flow_in, trace_flow_out};
 use serde_json::Value;
+
+use super::MessageWriter;
 
 /// The per-connection start of every request flow: the FNV-1a state after the
 /// peer's pid. `None` when the peer's pid is unknown (a WebSocket, a remote
@@ -54,6 +68,51 @@ impl RequestFlowSeed {
     pub(super) fn flow_of(self, id: u64) -> u64 {
         self.0.map_or(0, |seed| fnv1a(seed, id, 8))
     }
+}
+
+/// The flow of one request whose reply is still to come: its flow-out is
+/// written once, by the first holder that queues the reply. Empty without a
+/// flow, or while the daemon category is off when the request arrives (then
+/// neither its flow-in nor its flow-out is written).
+#[derive(Clone, Debug, Default)]
+pub(super) struct ReplyFlow(Option<Arc<AtomicU64>>);
+
+impl ReplyFlow {
+    /// The flow of a request that arrives now: its flow-in is written.
+    pub(super) fn arrived(flow: u64) -> Self {
+        if flow == 0 || !cmux_trace::enabled(cmux_trace::category::DAEMON) {
+            return Self::default();
+        }
+        trace_flow_in!(daemon, "daemon.request", flow);
+        Self(Some(Arc::new(AtomicU64::new(flow))))
+    }
+
+    /// Whether the request has a flow-out still to write.
+    pub(super) fn is_pending(&self) -> bool {
+        self.0.as_ref().is_some_and(|cell| cell.load(Ordering::Relaxed) != 0)
+    }
+
+    /// Writes the flow-out (with `arg0`) unless a holder wrote it already.
+    /// Call it before the reply is queued.
+    pub(super) fn reply_queued(&self, arg0: u64) {
+        let Some(cell) = &self.0 else { return };
+        if cell.load(Ordering::Relaxed) == 0 {
+            return;
+        }
+        let flow = cell.swap(0, Ordering::Relaxed);
+        if flow != 0 {
+            trace_flow_out!(daemon, "daemon.request", flow, arg0);
+        }
+    }
+}
+
+/// Sends `reply`, which the connection's reader writes itself (a
+/// `client-hello` answer, a page relay's or an admission's refusal), as its
+/// line's flow: a flow-in, then the flow-out before the reply is queued. The
+/// reply carries the line's `id`.
+pub(super) fn send_reader_reply(writer: &MessageWriter, reply: &Value) -> bool {
+    ReplyFlow::arrived(writer.request_flows.flow(reply.get("id"))).reply_queued(0);
+    writer.send_control(reply).is_ok()
 }
 
 /// FNV-1a 64 from `state` over the low `bytes` bytes of `value`, little-endian.
