@@ -460,6 +460,8 @@ impl Hub {
         let Some(generation) = wanted.start else { return };
         let hub = self.clone();
         tokio::spawn(async move {
+            #[cfg(debug_assertions)]
+            hub.start_blip_seam().await;
             // MDM's off as this pooled start begins: its one read, which every check of the start
             // takes, at completion too (reviews 73, 75 and 77 of #23322). Read before any pool lock
             // (review 76).
@@ -686,6 +688,8 @@ impl Hub {
                 }
                 Take::Miss => return None,
                 Take::Warming(mut settled) => {
+                    #[cfg(debug_assertions)]
+                    crate::hub::full_access_bound::CLAIM_WAITING.notify_one();
                     // A start that hangs never holds a user's session/new
                     // longer than a cold start would roughly take.
                     match tokio::time::timeout(CLAIM_WAIT, settled.changed()).await {

@@ -105,6 +105,8 @@ impl Daemon {
             .env("ACPMUX_TEST_POOL_CLAIM_REPORT_FILE", self.home.join("claim-report"))
             // MDM's off comes and goes once, right after a pooled start read it: `off-blip`.
             .env("ACPMUX_TEST_OFF_BLIP_FILE", self.home.join("off-blip"))
+            // The same once a chat's claim waits on a pooled start, before it reads the off.
+            .env("ACPMUX_TEST_POOL_START_BLIP_FILE", self.home.join("start-blip"))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -704,6 +706,40 @@ async fn a_pinned_prewarm_holds_an_off_that_came_and_went_as_it_began() {
     assert!(
         !fakeb_ready(&warmed),
         "a profile pinning full access was prewarmed though MDM's off came and went: {warmed}"
+    );
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 121): a chat whose claim waits on a
+/// starting pooled agent that comes up in full access does not take it when MDM's off came and
+/// went while it waited, before the pooled start began.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_access_pooled_start_a_claim_waited_on_through_an_mdm_off_is_not_taken() {
+    let mut fakeb = profile("b");
+    fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
+    fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
+    let daemon = Daemon::with_fakeb("fawarm", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    std::fs::write(home.join("start-blip"), "").unwrap();
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home})).await;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let status = rpc.call("_acpmux/status", json!({})).await;
+        let warming = status["pool"]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["harness"] == "fakeb" && e["state"] == "warming");
+        if warming {
+            break;
+        }
+        assert!(Instant::now() < deadline, "fakeb never started warming: {status}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (session, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(
+        !taken(&daemon, &session),
+        "a chat took a pooled agent in full access its claim waited on through MDM's off"
     );
 }
 
