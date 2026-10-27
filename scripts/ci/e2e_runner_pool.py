@@ -565,6 +565,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--test-filter", default=None, help="the workflow's test_filter input")
     parser.add_argument("--owned-ui", default="", help=f"vars.{OWNED_UI_VARIABLE}")
     parser.add_argument("--retry-of", help="print the pool a re-run of this label takes, and nothing else")
+    parser.add_argument("--wait-owned", action="store_true",
+                        help="an auto pick with nothing free waits on the owned fleet (ci.yml's rule)")
     args = parser.parse_args(argv)
 
     # Auto choices use the shared live rule. Explicit labels retain the
@@ -581,13 +583,16 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         repository = values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or ""
         head = values.get("HEAD_REPO") or values.get("GITHUB_REPOSITORY") or ""
         fork = values.get("FORK_PULL_REQUEST") == "true" or head != repository
-        # Minis first, as ci.yml's pick: with no owned Mac free and no free,
-        # moving Blacksmith slot, a same-repository run waits on the fleet
-        # (the rescue watches it), never on a stalled Blacksmith queue.
+        # --wait-owned (cmux-next-dev-daily.yml's verify placement, which the
+        # owned-pool rescue watches on attempt 1): minis first, as ci.yml's
+        # pick. With no owned Mac free and no free, moving Blacksmith slot, a
+        # same-repository run waits on the fleet, never on a stalled
+        # Blacksmith queue. Other callers keep the old pick.
         choice = simple_pool_picker.pick(simple_pool_picker.observe(
             token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
             repository=repository, jobs=1, env=values, fork=fork,
-            wait_owned=not fork and simple_pool_picker.wait_on_owned(values, head=head, repository=repository)))
+            wait_owned=args.wait_owned and not fork
+            and simple_pool_picker.wait_on_owned(values, head=head, repository=repository)))
         print(choice.label or args.variable or SMALL_RUNNER)
         return 0
     if args.retry_of is not None:
