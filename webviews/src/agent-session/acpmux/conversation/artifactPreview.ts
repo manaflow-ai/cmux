@@ -61,6 +61,11 @@ export function documentName(artifact: Artifact): string {
     .trim();
 }
 
+/** Prefer a document's own title, then the filename recorded by its completed write. */
+export function artifactFileName(artifact: Artifact): string {
+  return documentName(artifact) || artifact.path?.split(/[\\/]/).pop() || "";
+}
+
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" };
 
 /// Opens a fence in the side panel; unset where the page has none (a gallery, a test).
