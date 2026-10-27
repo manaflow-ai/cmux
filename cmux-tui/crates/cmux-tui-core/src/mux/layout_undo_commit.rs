@@ -7,6 +7,7 @@
 //! the commit re-checks the token against the state it commits on.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// How many times a confirmed layout undo retries a resource revision conflict
 /// caused by unrelated commits before it reports the undo as stale.
@@ -27,10 +28,16 @@ impl Mux {
             let expected_resource_revision = if !confirmed_close {
                 None
             } else {
-                Some(self.workspace_registry.lock().unwrap().resource_topology_snapshot()?.revision)
+                Some(
+                    self.workspace_registry
+                        .lock()
+                        .recover_poison()
+                        .resource_topology_snapshot()?
+                        .revision,
+                )
             };
             #[cfg(test)]
-            if let Some(hook) = self.layout_undo_before_commit.lock().unwrap().clone() {
+            if let Some(hook) = self.layout_undo_before_commit.lock().recover_poison().clone() {
                 hook();
             }
             let result = self.commit_resource_topology_operation(

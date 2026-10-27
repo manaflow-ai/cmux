@@ -3,6 +3,7 @@
 //! workspaces.
 
 use super::*;
+use crate::panic_free::{JsonFields, RecoverPoison};
 
 impl Mux {
     pub(crate) fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
@@ -130,7 +131,9 @@ impl Mux {
         commit: &ResourcePatchCommit,
     ) -> anyhow::Result<Arc<Surface>> {
         let tab_id = TabPublicId::parse(
-            commit.result["tab_id"]
+            commit
+                .result
+                .field("tab_id")
                 .as_str()
                 .context("created resource result omitted its tab id")?
                 .to_string(),
@@ -154,12 +157,12 @@ impl Mux {
         expected_revision: Option<u64>,
         prepare: impl FnOnce(&mut State, &WorkspaceRegistry) -> anyhow::Result<ResourceMutationPlan>,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(replay) = registry.replay_resource_patch(mutation, operation, fingerprint)? {
             return Ok(replay);
         }
 
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         // Prepare and stage run before the durable commit, so subscribers
         // see a tab's new session path only once that commit succeeds.
         let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {
@@ -173,7 +176,7 @@ impl Mux {
             .and_then(|()| {
                 #[cfg(test)]
                 {
-                    *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
+                    *self.resource_mutation_metrics.lock().recover_poison() = Some(plan.metrics);
                 }
                 registry.commit_resource_patch_with_workspace_ledger(
                     mutation,
@@ -253,8 +256,12 @@ impl Mux {
             _ => return None,
         };
         workspace_revision?;
-        let index = state.workspaces.iter().position(|workspace| workspace.key == workspace_key)?;
-        let workspace = state.workspaces[index].id;
+        let (index, workspace) = state
+            .workspaces
+            .iter()
+            .enumerate()
+            .find(|(_, workspace)| workspace.key == workspace_key)?;
+        let workspace = workspace.id;
         let decorations = self.tree_decorations_in_state(state);
         let entity = crate::server::tree_entity_json(state, &decorations, kind, workspace)?;
         Some(TreeDelta {
@@ -454,7 +461,7 @@ impl Mux {
             "name": name,
         });
         if let Some(name_authority) = authority.fingerprint() {
-            fingerprint["name_authority"] = name_authority;
+            fingerprint.insert("name_authority", name_authority);
         }
         self.commit_resource_mutation_plan(
             mutation,
@@ -474,19 +481,28 @@ impl Mux {
                 let target = resolved
                     .path
                     .workspace
-                    .expect("workspace target resolution returns a workspace");
-                let slot =
-                    resolved.workspace.expect("workspace target resolution returns a live slot");
+                    .context("workspace target resolution returned no workspace")?;
+                let slot = resolved
+                    .workspace
+                    .context("workspace target resolution returned no live slot")?;
                 let index = state
                     .workspace_index(slot)
                     .with_context(|| format!("workspace {target} has no live slot"))?;
                 #[cfg(test)]
                 if let Some(hook) =
-                    self.resource_rename_after_selector_resolution.lock().unwrap().clone()
+                    self.resource_rename_after_selector_resolution.lock().recover_poison().clone()
                 {
                     hook(&target);
                 }
-                let name = name.unwrap_or_else(|| state.workspaces[index].name.clone());
+                let name = match name {
+                    Some(name) => name,
+                    None => state
+                        .workspaces
+                        .get(index)
+                        .with_context(|| format!("workspace {target} has no live slot"))?
+                        .name
+                        .clone(),
+                };
                 self.workspace_rename_plan(state, registry, &target, index, name, &authority)
             },
         )
@@ -674,9 +690,10 @@ impl Mux {
                 let target = resolved
                     .path
                     .workspace
-                    .expect("workspace target resolution returns a workspace");
-                let slot =
-                    resolved.workspace.expect("workspace target resolution returns a live slot");
+                    .context("workspace target resolution returned no workspace")?;
+                let slot = resolved
+                    .workspace
+                    .context("workspace target resolution returned no live slot")?;
                 let old_index = state
                     .workspace_index(slot)
                     .with_context(|| format!("workspace {target} has no live slot"))?;
@@ -684,19 +701,20 @@ impl Mux {
                 let changed = new_index != old_index;
                 let active_slot =
                     state.workspaces.get(state.active_workspace).map(|workspace| workspace.id);
-                let mut order = state
+                let workspace = state
                     .workspaces
-                    .iter()
-                    .map(|workspace| workspace.public_id.clone())
-                    .collect::<Vec<_>>();
+                    .get(old_index)
+                    .with_context(|| format!("workspace {target} has no live slot"))?;
+                let mut ordered = state.workspaces.iter().collect::<Vec<_>>();
                 if changed {
-                    let moved = order.remove(old_index);
-                    order.insert(new_index, moved);
+                    let moved = ordered.remove(old_index);
+                    ordered.insert(new_index, moved);
                 }
+                let order =
+                    ordered.iter().map(|workspace| workspace.public_id.clone()).collect::<Vec<_>>();
                 let changes = if changed {
                     vec![ResourceChange::SetWorkspaceOrder { workspace_ids: order.clone() }]
                 } else {
-                    let workspace = &state.workspaces[old_index];
                     vec![ResourceChange::UpsertWorkspace {
                         workspace: RegistryWorkspace {
                             id: workspace.id,
@@ -720,19 +738,14 @@ impl Mux {
                     "changed": changed,
                 });
                 let deltas = Value::Array(
-                    order
+                    ordered
                         .iter()
                         .enumerate()
-                        .map(|(position, workspace_id)| {
-                            let workspace = state
-                                .workspaces
-                                .iter()
-                                .find(|workspace| &workspace.public_id == workspace_id)
-                                .expect("workspace order was built from live workspaces");
+                        .map(|(position, workspace)| {
                             workspace_resource_upsert(
                                 position,
                                 registry.session_id().as_str(),
-                                workspace_id,
+                                &workspace.public_id,
                                 &workspace.name,
                                 (workspace.name_source, workspace.name_revision),
                                 position,
@@ -742,18 +755,13 @@ impl Mux {
                         .collect(),
                 );
                 let order_entries = usize::from(changed) * order.len();
-                let projection = self.registry_projection(state);
-                let desired = order
-                    .iter()
-                    .map(|workspace_id| {
-                        projection
-                            .iter()
-                            .find(|workspace| &workspace.public_id == workspace_id)
-                            .expect("workspace order was built from live workspaces")
-                            .clone()
-                    })
-                    .collect::<Vec<_>>();
-                let workspace_key = state.workspaces[old_index].key.clone();
+                // The projection is in state order, one row per workspace.
+                let mut desired = self.registry_projection(state);
+                if changed {
+                    let moved = desired.remove(old_index);
+                    desired.insert(new_index, moved);
+                }
+                let workspace_key = workspace.key.clone();
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch { changes },
                     result.clone(),

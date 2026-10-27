@@ -184,7 +184,7 @@ impl TabMembership {
         }
         let mut changes = Vec::new();
         for (pane, before) in &self.panes {
-            let after = after[pane];
+            let Some(after) = after.get(pane).copied() else { return Changes::Resync };
             if before == after {
                 continue;
             }
@@ -258,11 +258,12 @@ fn pane_changes(
 /// The one tab whose move turns `before` into `after` (same tabs), if one
 /// move explains the reorder.
 fn single_relocation(before: &[SurfaceId], after: &[SurfaceId]) -> Option<SurfaceId> {
-    let first = before.iter().zip(after).position(|(left, right)| left != right)?;
+    let (first_before, first_after) =
+        before.iter().zip(after).find(|(left, right)| left != right)?;
     fn without(tabs: &[SurfaceId], tab: SurfaceId) -> impl Iterator<Item = SurfaceId> + '_ {
         tabs.iter().copied().filter(move |candidate| *candidate != tab)
     }
-    [before[first], after[first]]
+    [*first_before, *first_after]
         .into_iter()
         .find(|tab| without(before, *tab).eq(without(after, *tab)))
 }

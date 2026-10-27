@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// The slot `restore_resource_state` allocated for a persisted resource id.
+fn restored_slot<K, V>(slots: &HashMap<K, V>, id: &K) -> anyhow::Result<V>
+where
+    K: Eq + std::hash::Hash + fmt::Display,
+    V: Copy,
+{
+    slots.get(id).copied().ok_or_else(|| anyhow::anyhow!("persisted resource {id} has no slot"))
+}
+
 pub(super) fn expected_panes_by_screen(
     panes: &[RegistryPane],
 ) -> HashMap<ScreenPublicId, HashSet<PanePublicId>> {
@@ -123,7 +132,7 @@ pub(super) fn restore_resource_state(
                 anyhow::bail!("tab {} has inconsistent persisted content metadata", tab.public_id)
             }
         };
-        let slot = tab_slots[&tab.public_id];
+        let slot = restored_slot(&tab_slots, &tab.public_id)?;
         let identity = TabResourceIdentity::new(tab.public_id.clone(), tab.content_id.clone());
         anyhow::ensure!(
             indexes.tabs.insert(tab.public_id.clone(), slot).is_none(),
@@ -146,9 +155,12 @@ pub(super) fn restore_resource_state(
 
     let mut panes = HashMap::new();
     for pane in &topology.panes {
-        let id = pane_slots[&pane.public_id];
+        let id = restored_slot(&pane_slots, &pane.public_id)?;
         let pane_tabs = tabs_by_pane.get(&pane.public_id).map(Vec::as_slice).unwrap_or_default();
-        let tabs = pane_tabs.iter().map(|tab| tab_slots[&tab.public_id]).collect::<Vec<_>>();
+        let tabs = pane_tabs
+            .iter()
+            .map(|tab| restored_slot(&tab_slots, &tab.public_id))
+            .collect::<anyhow::Result<Vec<_>>>()?;
         let active_tab = match pane.active_tab.as_ref() {
             Some(active) => {
                 pane_tabs.iter().position(|tab| &tab.public_id == active).ok_or_else(|| {
@@ -180,7 +192,7 @@ pub(super) fn restore_resource_state(
             .ok_or_else(|| anyhow::anyhow!("pane {} has unknown screen", pane.public_id))?;
         indexes.pane_screen.insert(id, screen);
         for tab in pane_tabs {
-            indexes.tab_pane.insert(tab_slots[&tab.public_id], id);
+            indexes.tab_pane.insert(restored_slot(&tab_slots, &tab.public_id)?, id);
         }
     }
 
@@ -192,7 +204,7 @@ pub(super) fn restore_resource_state(
         let expected_panes =
             panes_by_screen.get(&screen.public_id).unwrap_or(&empty_expected_panes);
         crate::workspace_registry::validate_registry_screen_projection(screen, expected_panes)?;
-        let id = screen_slots[&screen.public_id];
+        let id = restored_slot(&screen_slots, &screen.public_id)?;
         let root =
             restore_layout_node(&screen.layout, &pane_slots, &mut split_slots, &mut allocate)?;
         let active_pane = *pane_slots.get(&screen.active_pane).ok_or_else(|| {
@@ -231,13 +243,11 @@ pub(super) fn restore_resource_state(
             &mut split_slots,
             &mut allocate,
         )?;
-        indexes.screen_workspace.insert(
-            id,
-            workspaces[*workspace_index_by_public.get(&screen.workspace_id).ok_or_else(|| {
-                anyhow::anyhow!("screen {} has unknown workspace", screen.public_id)
-            })?]
-            .id,
-        );
+        let workspace = workspace_index_by_public
+            .get(&screen.workspace_id)
+            .and_then(|index| workspaces.get(*index))
+            .ok_or_else(|| anyhow::anyhow!("screen {} has unknown workspace", screen.public_id))?;
+        indexes.screen_workspace.insert(id, workspace.id);
         let restored_screen = Screen {
             id,
             public_id: screen.public_id.clone(),
@@ -264,9 +274,11 @@ pub(super) fn restore_resource_state(
     }
     for (workspace_id, mut screens) in screens_by_workspace {
         screens.sort_by_key(|(position, _)| *position);
-        let workspace_index = workspace_index_by_public[&workspace_id];
-        workspaces[workspace_index].screens =
-            screens.into_iter().map(|(_, screen)| screen).collect();
+        let workspace = workspace_index_by_public
+            .get(&workspace_id)
+            .and_then(|index| workspaces.get_mut(*index))
+            .ok_or_else(|| anyhow::anyhow!("screens name unknown workspace {workspace_id}"))?;
+        workspace.screens = screens.into_iter().map(|(_, screen)| screen).collect();
     }
     let mut active_screens = HashMap::new();
     for (workspace, active) in topology.active_screens {
@@ -281,7 +293,10 @@ pub(super) fn restore_resource_state(
         "active-screen metadata does not exactly cover the live workspaces"
     );
     for workspace in &mut workspaces {
-        workspace.active_screen = match active_screens[&workspace.public_id].as_ref() {
+        let active = active_screens.get(&workspace.public_id).ok_or_else(|| {
+            anyhow::anyhow!("workspace {} has no active-screen metadata", workspace.public_id)
+        })?;
+        workspace.active_screen = match active.as_ref() {
             Some(active) => {
                 workspace.screens.iter().position(|screen| &screen.public_id == active).ok_or_else(
                     || {

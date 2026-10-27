@@ -1,6 +1,7 @@
 //! Mux lifecycle: side-table purges on close, shutdown and journal finalization, server readiness, daemon handoff and shutdown requests, surface options and machine usage.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// How long shutdown waits for the work items it waits for: block items (one
 /// short save each) and started skip items (short disk reads).
@@ -14,7 +15,7 @@ impl Mux {
     #[track_caller]
     pub(super) fn purge_surface_side_tables(&self, surface: SurfaceId) {
         let lifecycle = self.lock_client_sizing_lifecycle();
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         sizing.surfaces.remove(&surface);
         sizing.report_order.retain(|(reported_surface, _), _| *reported_surface != surface);
         sizing.policies.remove(&surface);
@@ -78,17 +79,17 @@ impl Mux {
     #[track_caller]
     pub(super) fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
         let pending_cleanup = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             registry.purge_agent_hook_pending_for_terminal(terminal_id)
         };
         if pending_cleanup.is_err() {
             self.report_internal_diagnostic("terminal agent hook cleanup deferred");
         }
         // The registry guard is dropped before acquiring the fence guard.
-        self.agent_hook_fences.lock().unwrap().remove(terminal_id);
-        self.agent_records.lock().unwrap().remove(terminal_id);
-        self.agent_presence.lock().unwrap().remove(terminal_id);
-        self.agent_prompts.lock().unwrap().forget(terminal_id);
+        self.agent_hook_fences.lock().recover_poison().remove(terminal_id);
+        self.agent_records.lock().recover_poison().remove(terminal_id);
+        self.agent_presence.lock().recover_poison().remove(terminal_id);
+        self.agent_prompts.lock().recover_poison().forget(terminal_id);
         self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
         // yet, so a closed terminal retires its roster entry explicitly.
@@ -96,17 +97,18 @@ impl Mux {
         // the roster lock is released before the registry lock per the
         // host's lock-ordering rule.
         let retired = {
-            let mut host = self.agent_roster.lock().unwrap();
+            let mut host = self.agent_roster.lock().recover_poison();
             let retired = host.roster.retire_terminal(terminal_id.as_str());
             retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
         };
         if let Some((cursor, snapshot)) = retired
-            && let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
-                cursor,
-                &snapshot,
-            )
+            && let Err(error) =
+                self.workspace_registry.lock().recover_poison().put_journal_reducer_state(
+                    crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                    crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                    cursor,
+                    &snapshot,
+                )
         {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
@@ -117,14 +119,14 @@ impl Mux {
     #[track_caller]
     pub(super) fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) {
         if let Some(runtime_id) = runtime.terminal_runtime_id() {
-            self.reserved_in_process_terminals.lock().unwrap().remove(&runtime_id);
-            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-            let mut pending = self.pending_cell_pixels.lock().unwrap();
+            self.reserved_in_process_terminals.lock().recover_poison().remove(&runtime_id);
+            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().recover_poison();
+            let mut pending = self.pending_cell_pixels.lock().recover_poison();
             if let Some(update) = pending.as_mut() {
                 update.failures.remove(&runtime_id);
                 if update.failures.is_empty() {
                     let target = update.target;
-                    *self.cell_pixels.lock().unwrap() = target;
+                    *self.cell_pixels.lock().recover_poison() = target;
                     *pending = None;
                 }
             }
@@ -171,7 +173,7 @@ impl Mux {
         }
         self.finalize_terminal_journal("shutdown", screen_checkpoint);
         self.journal_kernel.shutdown();
-        if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
+        if let Some(runtime) = self.browser_runtime.lock().recover_poison().take() {
             runtime.shutdown();
         }
     }
@@ -329,7 +331,7 @@ impl Mux {
         self.browser_providers.wake_waiters();
         // The journal hook dispatcher waits on the shared journal.
         self.journal_kernel.wake_waiters();
-        if let Some(waker) = self.daemon_shutdown_waker.lock().unwrap().as_ref() {
+        if let Some(waker) = self.daemon_shutdown_waker.lock().recover_poison().as_ref() {
             waker();
         }
     }
@@ -337,7 +339,7 @@ impl Mux {
     /// Install the callback that `request_daemon_shutdown` runs after it
     /// sets the flag (the headless owner loop's wake).
     pub fn set_daemon_shutdown_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
-        *self.daemon_shutdown_waker.lock().unwrap() = Some(Box::new(waker));
+        *self.daemon_shutdown_waker.lock().recover_poison() = Some(Box::new(waker));
     }
 
     pub fn daemon_shutdown_requested(&self) -> bool {
@@ -346,21 +348,21 @@ impl Mux {
 
     /// Update options used for future surface/browser launches.
     pub fn update_surface_options(&self, update: impl FnOnce(&mut SurfaceOptions)) {
-        let mut options = self.surface_options.lock().unwrap();
+        let mut options = self.surface_options.lock().recover_poison();
         update(&mut options);
     }
 
     /// The latest machine-level model spend readout, or `None` when the
     /// daemon has no usable readout.
     pub fn machine_usage(&self) -> Option<MachineUsage> {
-        self.machine_usage.lock().unwrap().clone()
+        self.machine_usage.lock().recover_poison().clone()
     }
 
     /// Replace the machine-level spend readout. Subscribers are told only
     /// when the readout actually changed, so a steady poll stays silent.
     pub fn set_machine_usage(&self, usage: Option<MachineUsage>) {
         {
-            let mut current = self.machine_usage.lock().unwrap();
+            let mut current = self.machine_usage.lock().recover_poison();
             if *current == usage {
                 return;
             }

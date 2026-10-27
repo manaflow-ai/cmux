@@ -341,6 +341,12 @@ fn cmux_next_git_head_reads_branches_worktrees_and_detached_heads() {
         .unwrap();
     assert_eq!(read_git_head(&worktree), Some(GitHead { name: "0123456".into(), detached: true }));
     assert_eq!(read_git_head(&root.join("gitdirs")), None);
+    // A HEAD file is outside input: a short or non-hex detached head names
+    // no commit, and a multi-byte one never splits a character.
+    for head in ["012345\n", "0123456789abcdeé\n", "éééé0123456\n"] {
+        std::fs::write(worktree_git.join("HEAD"), head).unwrap();
+        assert_eq!(read_git_head(&worktree), None, "{head:?}");
+    }
 
     let mux = Mux::new_for_test("git-heads", SurfaceOptions::default());
     let nested_path = nested.to_string_lossy().into_owned();
