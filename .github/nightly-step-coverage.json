@@ -94,6 +94,8 @@
         "Upload dSYMs to Sentry": {"nightly_only": "uploads dSYMs with Sentry token"},
         "Archive unsigned nightly app": {"plumbing": true},
         "Look up the nightly app compiled on the same inputs": {"nightly_only": "reuses only records of nightly-next push runs; a pull request never reads or writes them (tests/test_nightly_release_product_reuse.py)"},
+        "Stop when the run can no longer publish (before the compile)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly build stops once its run cannot publish"},
+        "Stop when the run can no longer publish (before the upload)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly build stops once its run cannot publish"},
         "Pack the nightly app for reuse": {"nightly_only": "records the nightly-next products for a later nightly-next build; a pull request never records one"},
         "Finish the dSYM upload to Sentry": {"nightly_only": "finishes Sentry dSYM upload (token)"},
         "Bundle the OptChat Chief and the iPhone host": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly helper builds beside the Release build", "note": "joins the background Chief and iPhone host builds and runs bundle-optchat-chief.sh and bundle-mobile-host.sh on the Release app; tests/test_nightly_helpers_beside_release_build.py runs the join on fixtures"},

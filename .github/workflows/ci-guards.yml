@@ -1330,6 +1330,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_budget_wait.py
 
+      - name: Validate the nightly build stops once its run cannot publish
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_stop_if_publish_doomed.py
+
       - name: Validate the nightly-next tick re-runs a cancelled tip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_cancelled_tip.py
