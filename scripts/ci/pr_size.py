@@ -26,6 +26,7 @@ import json
 import os
 import re
 import sys
+import dataclasses
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -158,11 +159,17 @@ def main(argv: list[str] | None = None) -> int:
     event = json.loads(args.event.read_text(encoding="utf-8"))
     pull = event.get("pull_request") or {}
     result = measure(parse_files(args.files.read_text(encoding="utf-8")), pull.get("body"), limit, globs)
+    # GitHub's files list stops at 3000 files. A list it cut can hide counted lines, so such a pull
+    # request is over the limit: one that big needs its `Size:` line anyway.
+    changed = pull.get("changed_files")
+    truncated = isinstance(changed, int) and changed > len(result.files)
+    if truncated and not result.over:
+        result = dataclasses.replace(result, counted=max(result.counted, result.limit + 1))
     command, summary = report(result)
     print(command)
-    if pull.get("changed_files", 0) > len(result.files):
+    if truncated:
         print(f"::notice title=PR size::the files list stops at {len(result.files)} of "
-              f"{pull['changed_files']} files; the count covers those")
+              f"{changed} files; the pull request counts as over the limit")
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as handle:

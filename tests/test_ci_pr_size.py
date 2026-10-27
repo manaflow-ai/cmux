@@ -123,11 +123,12 @@ def jsonl(*rows: tuple[int, int, str]) -> str:
 
 
 class MeasureTests(unittest.TestCase):
-    def run_main(self, files: str, body: str | None) -> tuple[int, str]:
+    def run_main(self, files: str, body: str | None, changed_files: int | None = None) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / "files.tsv").write_text(files, encoding="utf-8")
-            (directory / "event.json").write_text(json.dumps({"pull_request": {"body": body}}), encoding="utf-8")
+            pull = {"body": body} if changed_files is None else {"body": body, "changed_files": changed_files}
+            (directory / "event.json").write_text(json.dumps({"pull_request": pull}), encoding="utf-8")
             summary = directory / "summary.md"
             stdout = io.StringIO()
             env = {"GITHUB_STEP_SUMMARY": str(summary)}
@@ -191,6 +192,17 @@ class MeasureTests(unittest.TestCase):
         code, out = self.run_main(jsonl((400, 400, "src/a.swift")), None)
         self.assertEqual(code, 0)
         self.assertNotIn("::error", out)
+
+    def test_a_cut_off_files_list_counts_as_over(self) -> None:
+        # GitHub's list stops at 3000 files: what it left out could be counted lines.
+        files = jsonl((10, 0, "src/a.swift"))
+        code, out = self.run_main(files, "Why.", changed_files=3500)
+        self.assertEqual(code, pr_size.OVER)
+        self.assertIn("counts as over the limit", out)
+        code, _ = self.run_main(files, "Size: tree-wide generated move", changed_files=3500)
+        self.assertEqual(code, 0)
+        code, _ = self.run_main(files, "Why.", changed_files=1)
+        self.assertEqual(code, 0)
 
     def test_exactly_the_limit_passes(self) -> None:
         result = pr_size.measure([("a.py", 800)], None, LIMIT, GLOBS)
