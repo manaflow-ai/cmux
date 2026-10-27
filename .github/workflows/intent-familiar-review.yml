@@ -1,4 +1,4 @@
-name: Familiar intent review warning
+name: Familiar intent review warning (advisory)
 
 # This is advisory. It runs from the trusted base copy so a pull request cannot
 # change the warning policy, and it never fails a check or requests changes.

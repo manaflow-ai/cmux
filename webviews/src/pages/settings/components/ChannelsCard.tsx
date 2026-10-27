@@ -166,6 +166,23 @@ export function ChannelsCard() {
           </div>
         </div>
       )}
+      {/* Other machines that cannot update in place or whose update failed: one row, never a toast each. */}
+      {state.machines && state.machines.lines.length > 0 && (
+        <div className="rows" data-channel-machines="">
+          <div className="row">
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-title">{state.machines.title}</div>
+                {state.machines.lines.map((line) => (
+                  <div key={line} className="row-help selectable" data-channel-machine="">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Only the picked channel's way back: a read for an earlier pick never offers its button. */}
       {state.switch && (shown === undefined || state.switch.ring === shown) && (
         <SwitchRow key={`${state.switch.ring}:${state.switch.build}`} way={state.switch} />
