@@ -1,7 +1,7 @@
 // An update's relaunch is a quit: the host asks every chat page `pane.wakeState` (within a second)
 // before the process ends. The page waits there for the typed draft to reach acpmux, so the last
 // keystroke is never a write still on its way when the app goes.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   draftWriteLimits,
   forgetQueuedDraft,
@@ -46,6 +46,13 @@ function installWriter(): { landed: Write[]; release: () => void } {
   currentWriter = writer;
   return writer;
 }
+
+beforeEach(async () => {
+  // The queue is module-wide: drafts another test file typed with no writer installed are still
+  // queued. acpmux takes them at once here, so each test starts from an empty queue.
+  scope.window = { cmuxAcpmuxActions: { "chat.writeDraft": async () => undefined } };
+  await settlePendingDraftWrites();
+});
 
 afterEach(async () => {
   // Answer every write a test left waiting, so no later test inherits a drain or a web-swap hold.
