@@ -86,11 +86,10 @@ final class AgentPageChats {
             }
             guard services.settings?.snapshot.previewFeatures == true else { return AgentPaneReply.failure(code: "labs_off", message: "labs_off") }
             guard services.cloud.isSignedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
-            // The send, its create's retry and its waits stay with the team and account it began with.
-            let user = services.cloud.auth.user?.id
+            // The send, its create's retry and its waits stay with the team it began with (and the
+            // create's retry with its account: CloudAPIClient.runSandbox).
             let api = services.cloud.api.pinningTeam(await services.cloud.api.currentTeam())
-            let sameAccount: @Sendable () async -> Bool = { @MainActor [weak services] in services?.cloud.auth.user?.id == user }
-            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key, sameAccount: sameAccount) },
+            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key) },
                                                 code: AgentPageChats.sandboxCode)
         }
     }
