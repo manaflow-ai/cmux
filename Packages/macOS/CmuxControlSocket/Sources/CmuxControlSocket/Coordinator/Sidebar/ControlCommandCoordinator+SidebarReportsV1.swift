@@ -354,7 +354,7 @@ extension ControlCommandCoordinator {
             }
         }
         if acknowledgmentRequested {
-            return "ERROR: --ack requires an explicit surface scope"
+            return "ERROR: missing-surface-scope"
         }
 
         let tabArg = parsed.options["tab"]

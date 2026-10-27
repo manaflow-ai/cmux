@@ -31,10 +31,20 @@ def run_shell(socket_path: Path, body: str) -> subprocess.Popen[str]:
     return subprocess.Popen(
         ["/bin/zsh", "-f", "-c", f"source {str(SOURCE)!r}\n{body}"],
         env=env,
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
+
+
+def finish_shell(shell: subprocess.Popen[str], thread: threading.Thread) -> tuple[str, str]:
+    thread.join(timeout=8)
+    if thread.is_alive():
+        shell.kill()
+        shell.communicate(timeout=3)
+        raise AssertionError("Socket scenario did not finish")
+    return shell.communicate(input="\n", timeout=3)
 
 
 def serve(
@@ -90,10 +100,9 @@ def check_late_listener_retries_once(root: Path) -> None:
         path,
         "_cmux_report_shell_activity_state prompt\n"
         "_cmux_report_shell_activity_state prompt\n"
-        "sleep 1",
+        "read -r _",
     )
-    _, stderr = shell.communicate(timeout=3)
-    thread.join(timeout=4)
+    _, stderr = finish_shell(shell, thread)
     assert shell.returncode == 0, stderr
     assert received == [f"report_shell_state prompt --tab={TAB_ID} --panel={PANEL_ID} --ack --terminal-lifecycle-id={LIFECYCLE_ID}"], received
     print("PASS late listener: one prompt delivered after initial connection failures")
@@ -113,10 +122,9 @@ def check_running_cancels_prompt_retries(root: Path) -> None:
     assert ready.wait(timeout=2)
     shell = run_shell(
         path,
-        "_cmux_report_shell_activity_state prompt\nsleep 0.1\n_cmux_report_shell_activity_state running\nsleep 1",
+        "_cmux_report_shell_activity_state prompt\nsleep 0.1\n_cmux_report_shell_activity_state running\nread -r _",
     )
-    _, stderr = shell.communicate(timeout=3)
-    thread.join(timeout=4)
+    _, stderr = finish_shell(shell, thread)
     assert shell.returncode == 0, stderr
     assert received == [f"report_shell_state running --tab={TAB_ID} --panel={PANEL_ID} --ack --terminal-lifecycle-id={LIFECYCLE_ID}"], received
     print("PASS running cancels pending prompt retries")
@@ -136,11 +144,10 @@ _cmux_zsh_job_table_saturated() {
 }
 _cmux_report_shell_activity_state prompt
 _cmux_report_shell_activity_state prompt
-sleep 1
+read -r _
 """
     shell = run_shell(path, body)
-    _, stderr = shell.communicate(timeout=3)
-    thread.join(timeout=4)
+    _, stderr = finish_shell(shell, thread)
     assert shell.returncode == 0, stderr
     assert len(received) == 1 and received[0].startswith("report_shell_state prompt ") and " --ack " in received[0], received
     print("PASS job saturation leaves readiness eligible for retry")
@@ -158,9 +165,8 @@ def check_application_rejection_retries_until_ack(root: Path) -> None:
     )
     thread.start()
     assert ready.wait(timeout=2)
-    shell = run_shell(path, "_cmux_report_shell_activity_state prompt\nsleep 1")
-    _, stderr = shell.communicate(timeout=3)
-    thread.join(timeout=4)
+    shell = run_shell(path, "_cmux_report_shell_activity_state prompt\nread -r _")
+    _, stderr = finish_shell(shell, thread)
     assert shell.returncode == 0, stderr
     assert len(received) == 2 and all(" --ack " in line for line in received), received
     print("PASS application rejection is retried until accepted")
@@ -200,9 +206,8 @@ def check_already_current_ack_stops_retries(root: Path) -> None:
     )
     thread.start()
     assert ready.wait(timeout=2)
-    shell = run_shell(path, "_cmux_report_shell_activity_state prompt\nsleep 1")
-    _, stderr = shell.communicate(timeout=3)
-    thread.join(timeout=4)
+    shell = run_shell(path, "_cmux_report_shell_activity_state prompt\nread -r _")
+    _, stderr = finish_shell(shell, thread)
     assert shell.returncode == 0, stderr
     assert len(received) == 1 and " --ack " in received[0], received
     print("PASS accepted duplicate stops retries")

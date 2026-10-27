@@ -229,6 +229,19 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(response == "ERROR: not-accepted")
     }
 
+    @Test func acknowledgedShellStateRequiresExplicitScope() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "report_shell_state",
+            args: "prompt --ack"
+        )
+
+        #expect(response == "ERROR: missing-surface-scope")
+        #expect(context.shellStateCall == nil)
+    }
+
     @Test func acknowledgedDuplicateShellStateIsAlreadyCurrent() {
         let context = FakeSidebarV1ControlCommandContext()
         context.shellStateAcknowledgement = "ACK:already-current"
