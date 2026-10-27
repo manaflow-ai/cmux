@@ -1253,6 +1253,35 @@ mod tests {
         );
     }
 
+    /// Review 2 of #26055, round 2: a log read kept while the host records could be read
+    /// (`left_host_read`) does not outlast them. Once the host's own record cannot be read, the
+    /// host counts as full access; while the records cannot be read at all, its log is read again.
+    #[tokio::test]
+    async fn a_kept_left_host_read_does_not_outlast_readable_records() {
+        use super::super::hosts::HostRecords;
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        hub.append(&chat, "mux", "host_started", json!({}));
+        let ids = std::collections::HashSet::from([chat.id.clone()]);
+        let readable = HostRecords { live: ids.clone(), unreadable: Default::default() };
+        assert!(
+            !hub.runs_full_access_by_records(&chat, Some(&readable)),
+            "a log that asks read as full access"
+        );
+        let unreadable = HostRecords { live: ids.clone(), unreadable: ids };
+        assert!(
+            hub.runs_full_access_by_records(&chat, Some(&unreadable)),
+            "a kept read hid a host whose record cannot be read now"
+        );
+        let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": chat.meta().agent_session_id,
+            "update": {"sessionUpdate": "current_mode_update", "currentModeId": "full-access"}}});
+        hub.append(&chat, "in", "current_mode_update", update);
+        assert!(
+            hub.runs_full_access_by_records(&chat, None),
+            "a kept read hid the host's later full access while the records could not be read"
+        );
+    }
+
     /// A hub with two open chats on a stand-in agent that fails over to itself with
     /// `FAKE_FALLBACK=1`; a cut turn goes on after 1 s.
     async fn two_chats() -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
