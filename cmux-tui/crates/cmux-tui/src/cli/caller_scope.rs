@@ -60,26 +60,36 @@ pub(in crate::cli) fn apply(
     focus: Option<&Value>,
 ) {
     let mut place = caller;
+    // The levels this call filled from the focus.
+    let mut from_focus = [false; LEVELS.len()];
     for (index, (field, prefix)) in LEVELS.into_iter().enumerate() {
         let Some(value) = params.get(field).and_then(Value::as_str).map(str::to_owned) else {
             continue;
         };
         if value == FOCUSED {
             // The person's place only below parents that are in it: a
-            // focused pane is never sent under another workspace. A level
-            // the focus does not name (the app reports no screen) passes.
+            // focused pane is never sent under another workspace or screen.
+            // A level the focus does not name (the app reports no screen)
+            // passes only as a `focused` this call sent as `current`, under
+            // the focused workspace.
             let parents_focused = |focus: &&Value| {
-                LEVELS[..index].iter().all(|(above, prefix)| {
-                    let (Some(parent), Some(own)) = (
-                        params.get(*above).and_then(Value::as_str),
-                        focus.get(*above).and_then(Value::as_str),
-                    ) else {
+                let named = |level: usize| {
+                    let (above, prefix) = LEVELS[level];
+                    let parent = params.get(above).and_then(Value::as_str)?;
+                    let own = focus.get(above).and_then(Value::as_str)?;
+                    Some(names_object(parent, prefix, own))
+                };
+                (0..index).all(|level| {
+                    let Some(parent) = params.get(LEVELS[level].0).and_then(Value::as_str) else {
                         return true;
                     };
-                    names_object(parent, prefix, own)
+                    named(level).unwrap_or_else(|| {
+                        from_focus[level] && parent == CURRENT && named(0) == Some(true)
+                    })
                 })
             };
             place = focus.filter(parents_focused);
+            from_focus[index] = true;
         } else if value != CURRENT {
             let names = |own: &str| names_object(&value, prefix, own);
             place =
@@ -156,6 +166,21 @@ mod tests {
         assert_eq!(
             place(json!({"workspace": "focused", "screen": "focused", "pane": "focused"})),
             json!({"workspace": "ws_front", "screen": "current", "pane": "pane_front"})
+        );
+        // A screen the focus does not name, other than the implied focused
+        // one: the daemon's active pane under it, never the focused pane.
+        assert_eq!(
+            place(json!({"screen": "current", "pane": "focused"})),
+            json!({"screen": "screen_own", "pane": "current"})
+        );
+        assert_eq!(
+            place(json!({"workspace": "ws_front", "screen": "screen_x", "pane": "focused"})),
+            json!({"workspace": "ws_front", "screen": "screen_x", "pane": "current"})
+        );
+        assert_eq!(
+            place(json!({"screen": "focused", "pane": "focused"})),
+            json!({"screen": "current", "pane": "current"}),
+            "no workspace to check the focused pane against"
         );
         // No caller: an unresolved `current` workspace may not be the
         // focused one, so the pane is its active one.
