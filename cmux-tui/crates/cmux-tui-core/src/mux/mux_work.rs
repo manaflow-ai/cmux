@@ -8,8 +8,9 @@
 //! `PostTaskAndReplyWithResult`). [`MuxWork`] holds the mux's weak
 //! reference that those items get.
 
+use cmux_threads::sync::Mutex;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, OnceLock, PoisonError, Weak};
 
 use cmux_threads::work::{Lane, Priority, Refused, Shutdown};
 
@@ -25,6 +26,11 @@ pub(crate) struct MuxWork {
 impl MuxWork {
     pub(super) fn bind(&self, mux: Weak<Mux>) {
         let _ = self.mux.set(mux);
+    }
+
+    /// The owning mux, for a caller that holds it only by reference.
+    pub(super) fn owner(&self) -> Option<Arc<Mux>> {
+        self.mux.get()?.upgrade()
     }
 }
 

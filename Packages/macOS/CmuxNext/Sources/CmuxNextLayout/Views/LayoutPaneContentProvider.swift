@@ -100,6 +100,9 @@ final class LayoutViewContext {
     /// Windows above this one that pass divider hover through: the app's
     /// click-catching panels over page windows (`DividerMouseCatchers`).
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
+    /// Where the root hears its window's key changes (`LayoutRootView.observeKeyWindow()`): the
+    /// app's one ``WindowEvents`` per window; tests pass their own on their own center.
+    var hoverWindowEvents: @MainActor (NSWindow) -> WindowEvents = { WindowEvents.of($0) }
     /// The windows' frame-aligned pointer input for divider drags (``LayoutRootView/dragFrameInput``);
     /// nil: each drag event moves the divider at once.
     var dragFrameInput: FrameInputCoalescers?
