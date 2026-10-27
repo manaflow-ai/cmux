@@ -66,7 +66,7 @@ afterEach(() => vi.restoreAllMocks())
 type Schedule = { scheduleId: string; cron: string; destination: string; body: string; isPaused: boolean; retries: number; createdAt: number; method: string }
 const fakeQStash = () => {
   const schedules = new Map<string, Schedule>()
-  const created: Array<{ headers: Headers; destination: string }> = []
+  const created: Array<{ headers: Headers; destination: string; body: string }> = []
   const deleted: Array<string> = []
   const batches: Array<Array<{ destination: string; headers: Record<string, string>; body: string }>> = []
   const auth: Array<string | null> = []
@@ -79,8 +79,9 @@ const fakeQStash = () => {
     const create = url.pathname.match(/^\/v2\/schedules\/(https?:.+)$/)
     if (create && req.method === "POST") {
       const id = req.headers.get("upstash-schedule-id") ?? `scd_${crypto.randomUUID()}`
-      created.push({ headers: req.headers, destination: decodeURIComponent(create[1]!) })
-      schedules.set(id, { scheduleId: id, cron: req.headers.get("upstash-cron") ?? "", destination: decodeURIComponent(create[1]!), body: await req.text(), isPaused: false, retries: Number(req.headers.get("upstash-retries") ?? 3), createdAt: Date.now(), method: "POST" })
+      const body = await req.text()
+      created.push({ headers: req.headers, destination: decodeURIComponent(create[1]!), body })
+      schedules.set(id, { scheduleId: id, cron: req.headers.get("upstash-cron") ?? "", destination: decodeURIComponent(create[1]!), body, isPaused: false, retries: Number(req.headers.get("upstash-retries") ?? 3), createdAt: Date.now(), method: "POST" })
       return Response.json({ scheduleId: id })
     }
     if (url.pathname === "/v2/schedules" && req.method === "GET") return Response.json([...schedules.values()])
@@ -197,7 +198,9 @@ describe("Chief jobs on Upstash Workflow", { timeout: 90_000 }, () => {
     expect(q.created[0]!.headers.get("upstash-cron")).toBe("CRON_TZ=America/Los_Angeles 15 19 * * *")
     expect(q.created[0]!.headers.get("upstash-retries")).toBe("5")
     expect(job.id).toMatch(new RegExp(`^cj-${a.chief.id.replace(/[^A-Za-z0-9]/g, "")}-[0-9a-f]{20}$`))
-    const body = JSON.parse(q.schedules.get(job.id)?.body ?? "{}") as UpstashJob
+    expect(q.created[0]!.headers.get("upstash-schedule-id")).toBe(job.id)
+    // The schedule as made (rm below has already deleted it from the fake).
+    const body = JSON.parse(q.created[0]!.body) as UpstashJob
     expect(body).toEqual({ v: 1, job: job.id, chief: a.chief.id, conversation: a.chief.main_conversation, owner: a.user, name: "PR summary", prompt: "Summarize today's cmux-next PRs.", trigger: "cron" })
     expect(q.auth.every((h) => h === "Bearer qstash-test-token-not-real")).toBe(true)
     // ls shows only its own; run triggers one workflow run of the same job; rm reaches only its own.
