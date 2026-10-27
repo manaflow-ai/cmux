@@ -233,7 +233,7 @@ final class NotificationCenterService {
         endViewHolds()
         guard let press = clickedTab(in: window, at: location) else { return }
         if left, press.onStrip, let window {
-            beginStripPress(tab: press.tab, at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
+            beginStripPress(tab: press.tab, in: window, at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
             return
         }
         interacted(.click, tabID: press.tab, in: window)
