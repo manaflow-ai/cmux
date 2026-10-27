@@ -51,6 +51,8 @@ it committed it, so the next read on the connection sees it), kill and restart o
 kill of the terminal holder (below), advance_clock (`oracle-advance-clock {ms}` of task p15-oracle-185),
 and waitFor on session.events (each event re-reads the facet; no sleeps). cli, mcp, action.run, key and
 tui.key belong to the other drivers.
+A resource.call with expect outcome `any` (a walk move of gen_walks.py) passes with ok or a typed error, and what
+it gave is the `reply` facet of its settled checkpoint, so a differential run compares it like any facet.
 
 Invariant I6 (no orphan processes or sockets). Each case runs in its own worker process (`case-worker`),
 which on Linux is a child subreaper (prctl PR_SET_CHILD_SUBREAPER): a process the case starts stays in
@@ -79,6 +81,16 @@ it every PTY master. A case with a holder kill by ABRT arms the terminal host's 
 the host panics and aborts itself, so its panic hook writes the crash record that the daemon's line names.
 A worker that does not wait on the seam (the holder, or a host started after the first one) gets SIGABRT.
 
+Invariant I16 (the daemon panic log is empty at teardown). A session refuses a binary without the lock-rank
+checker of cmux-tui-core/src/lock_rank.rs (invariants.lock_ranks_compiled_in): it builds only with debug
+assertions, which the oracle profile keeps, so no case runs on a build that hides a lock-order bug. A case
+refuses an environment whose owner or acpmux panic log would resolve outside its state root
+(`panic_log_dirs`, the daemons' own resolution), so it reads its own panics and no other case's. After the
+worker (every case process has exited, a panic during shutdown included) and before the root is removed,
+the session reads every panic log under the root (invariants.read_panic_log): each line fails a passing case
+with its message and location, and a Crash or Timeout keeps its status and gains the panic text, which
+usually says why the daemon died. A traced case's trace gets the lines as `teardown.panicLog`.
+
 Chrome reference (chromium/src):
 - base/test/launcher/test_launcher.cc: each test child runs in its own process group and the launcher
   kills what remains of that group when the test ends (KillSpawnedTestProcesses), so a leaked process
@@ -86,6 +98,9 @@ Chrome reference (chromium/src):
   stands in for the group here.
 - chrome/test/base/in_process_browser_test.cc: a fresh temporary user data dir per test
   (temp_user_data_dir_), the per-case state root's model.
+- base/task/common/checked_lock_impl.cc: CheckedLock's acquisition-order DCHECKs, kept in an optimized build by
+  dcheck_always_on, as [profile.oracle] keeps lock_rank.rs; third_party/blink/tools/blinkpy/web_tests/port/
+  driver.py fails a test on the content shell's crash output even when its text output matched (I16).
 - content/public/test/browser_test_utils.h CrashTab and RenderProcessHostWatcher: a test crashes a
   child on purpose, inside ScopedAllowRendererCrashes, and waits for the browser to see the exit
   before it checks what the browser shows; the holder kill waits for the daemon's record the same way.
@@ -148,6 +163,7 @@ for _path in (str(HERE), str(SDK)):
 import check_snapshot_schema  # noqa: E402 - sibling of this file (capture rules of the daemon facet)
 import hermetic_env  # noqa: E402 - sibling of this file (p15-oracle-200), the only place env is built
 from invariants import TRACE_SCHEMA, first_difference  # noqa: E402 - JSON-typed equality, a bool never equals a number
+from invariants import lock_ranks_compiled_in, panic_message, read_panic_log  # noqa: E402 - invariant I16
 from case_values import MISSING, decode_pointer, predicate_holds, resolve_pointer, without_pointers  # noqa: E402,F401 - shared with driver_app_v0.py
 import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
 from cmux._protocol import ProtocolConnection  # noqa: E402
@@ -174,6 +190,10 @@ FACETS = (
     "invariants", "switches",
 )
 DEFAULT_FACETS = ("daemon",)
+# expect outcome `any` (case-v1, a walk move of gen_walks.py, p15-oracle-098): the step passes with ok or a typed error,
+# and what it gave is the `reply` facet of its settled checkpoint, compared like any facet.
+ANY_OUTCOME = "any"
+REPLY_FACET = "reply"
 # The build receipt linux_run.sh writes beside the binary it built (cmux-oracle-build-v1, with the full sha).
 BUILD_RECEIPT = "build.json"
 # The daemon product's only facet; the rest come from the app (driver_app.py) or later daemon tasks.
@@ -302,8 +322,9 @@ def restore_preview_at(facet: Any, command: Callable[..., Mapping[str, Any]],
 def case_trace(case_id: str, steps: Sequence[Mapping[str, Any]],
                captures: Sequence["Capture"]) -> Optional[Dict[str, Any]]:
     """The `cmux.oracle.trace/v1` document (invariants.py) of the case's steps that captured: their raw
-    checkpoints and restore previews, for `invariants.py check`. Replies, layout counters and the teardown
-    are not in it yet. None when no step captured."""
+    checkpoints and restore previews, for `invariants.py check`; the session adds the teardown's panicLog
+    (apply_panic_log). Replies, layout counters and the rest of the teardown are not in it yet. None when no
+    step captured."""
     by_step: Dict[str, Dict[str, Any]] = {}
     for capture in captures:
         record = by_step.setdefault(capture.step, {"checkpoints": {}, "restorePreviews": {}})
@@ -458,6 +479,55 @@ def stable_token(text: str) -> str:
 
 def host_platform() -> str:
     return "linux" if sys.platform.startswith("linux") else "mac"
+
+
+def panic_log_dirs(case_env: hermetic_env.CaseEnv) -> List[Path]:
+    """Where the case's daemon processes write their panic logs, resolved as their Rust code does: the owner
+    beside its sessions dir (diagnostics/owner_panic_log.rs over workspace_state_dir, which the case's state dir
+    sets), acpmux in ACPMUX_HOME, else HOME/.acpmux (acpmux config.rs home)."""
+    acpmux = case_env.env.get("ACPMUX_HOME")
+    return [case_env.state_dir.parent, Path(acpmux) if acpmux else case_env.home / ".acpmux"]
+
+
+def panic_logs_outside(case_env: hermetic_env.CaseEnv, root: Path) -> Optional[str]:
+    """None when both panic logs of the case resolve under its root, else why not (I16 reads only the root)."""
+    base = os.path.abspath(root)
+    outside = [str(d) for d in panic_log_dirs(case_env) if os.path.commonpath([base, os.path.abspath(d)]) != base]
+    return f"panic logs would land outside the case root {root}: {', '.join(outside)}" if outside else None
+
+
+def require_lock_ranks(binary: str) -> None:
+    """Refuses a cmux-tui built without the lock-rank checker (debug assertions off), as a session refusal."""
+    try:
+        present = lock_ranks_compiled_in(Path(binary))
+    except OSError as error:
+        raise ValueError(f"cannot read --binary {binary}: {error}") from None
+    if not present:
+        raise ValueError(f"--binary {binary} has no lock-rank checker (built without debug assertions), so I16 "
+                         "cannot see a lock-order bug: build it with scripts/cmux-next/oracle/linux_run.sh build "
+                         "(--profile oracle) or a debug build")
+
+
+def apply_panic_log(result: Dict[str, Any], root: Path) -> None:
+    """Invariant I16 on a finished case's result, from the panic logs under its root: each line fails a Pass with
+    its message and location; a Crash or Timeout keeps its status and gains the text."""
+    try:
+        log = read_panic_log(root)
+    except OSError as error:
+        if result.get("status") == "Pass":
+            result["status"] = "Crash"
+        result["message"] = "; ".join(filter(None, [result.get("message"),
+                                                    f"I16 not checked: cannot read the panic logs: {error}"]))
+        return
+    trace = result.get("trace")
+    if isinstance(trace, dict):
+        trace["teardown"] = {**(trace.get("teardown") or {}), "panicLog": log}
+    if not log:
+        return
+    result["panic_log"] = log
+    if result.get("status") == "Pass":
+        result["status"] = "Failure"
+    result["message"] = "; ".join(filter(None, [result.get("message"), *(f"I16 {panic_message(e)}" for e in log)]))
 
 
 def case_environment(paths: CasePaths, seed: str, isolation: hermetic_env.Isolation,
@@ -1050,6 +1120,7 @@ class CaseReads:
         data = reply.get("data")
         if isinstance(data, dict):
             self.rename(data.get("session"))
+            self.rename_panic_log(data.get("panicLog"))
         return reply
 
     def operation(self, operation: str, params: Mapping[str, Any]) -> Any:
@@ -1062,6 +1133,14 @@ class CaseReads:
         info = snapshot.get("session") if isinstance(snapshot, dict) else None
         if isinstance(info, dict) and info.get("name") == self.case_session:
             info["name"] = SESSION_NAME
+
+    def rename_panic_log(self, panic_log: Any) -> None:
+        """The owner names its panic log by the session (owner_panic_log.rs: `owner-panics-<session>.jsonl`), so
+        the facet shows the fixture's name there too; two runs of one case then give the same path."""
+        name = f"owner-panics-{self.case_session}."
+        path = panic_log.get("path") if isinstance(panic_log, dict) else None
+        if isinstance(path, str) and name in path:
+            panic_log["path"] = path.replace(name, f"owner-panics-{SESSION_NAME}.")
 
 
 def encode_selector(kind: str, value: Any) -> str:
@@ -1109,6 +1188,17 @@ def resolve_refs(value: Any, replies: Mapping[str, Any]) -> Any:
     if isinstance(value, dict):
         return {key: resolve_refs(item, replies) for key, item in value.items()}
     return value
+
+
+def reply_facet(kind: str, detail: Any) -> Dict[str, Any]:
+    """The reply facet of a step with an any outcome: ok with its mutation receipt's replayed flag, or the typed
+    error code. The reply's value is left out: the daemon facet beside it holds the objects it names."""
+    if kind == "error":
+        return {"outcome": "error", "error": detail}
+    out: Dict[str, Any] = {"outcome": "ok"}
+    if isinstance(detail, dict) and isinstance(detail.get("replayed"), bool):
+        out["replayed"] = detail["replayed"]
+    return out
 
 
 def not_comparable(reason: str, task: Optional[str] = None) -> Dict[str, str]:
@@ -1178,6 +1268,8 @@ class Capture:
 @dataclass
 class CaseState:
     replies: Dict[str, Any] = field(default_factory=dict)
+    # The reply facet of each step with an any outcome, by step id.
+    reply_facets: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     captures: List[Capture] = field(default_factory=list)
     exits: List[DaemonExit] = field(default_factory=list)
     killed_by: Optional[str] = None
@@ -1229,6 +1321,9 @@ class CaseRun:
         problems: List[str] = []
         try:
             try:
+                refusal = panic_logs_outside(self.case_env, self.paths.root)
+                if refusal:
+                    raise CaseError("Crash", f"I16: {refusal}", "setup")
                 self.case_env.prepare()
                 if self.abort_seam:
                     os.mkfifo(self.paths.abort_trigger, 0o600)
@@ -1281,6 +1376,10 @@ class CaseRun:
         self.check_alive(step_id)
         checkpoints = step.get("checkpoint") or ["settled"]
         facets = tuple((step.get("args") or {}).get("facets") or FACETS) if op == "snapshot" else DEFAULT_FACETS
+        any_outcome = (step.get("expect") or {}).get("outcome") == ANY_OUTCOME
+        if any_outcome and "settled" not in checkpoints:
+            raise CaseError("Crash", "an any outcome is the reply facet of the step's settled checkpoint; its "
+                                     "checkpoint list needs settled", step_id)
         if "before" in checkpoints:
             self.capture(index, step_id, "before", facets)
         waiter = Waiter(self, step) if step.get("waitFor") else None
@@ -1293,7 +1392,7 @@ class CaseRun:
             if waiter is not None:
                 waiter.close()
         if "settled" in checkpoints:
-            self.capture(index, step_id, "settled", facets)
+            self.capture(index, step_id, "settled", facets + (REPLY_FACET,) if any_outcome else facets)
 
     def check_alive(self, step: str) -> None:
         """A daemon that exited while nobody killed it is a Crash at the step that finds it."""
@@ -1548,7 +1647,13 @@ class CaseRun:
             return
         step_id = step["id"]
         kind, detail = outcome
-        if expect["outcome"] != kind:
+        if expect["outcome"] == ANY_OUTCOME:
+            if step["op"] != "resource.call":
+                raise CaseError("Crash", f"an any outcome is a resource.call's, not a {step['op']} step's", step_id)
+            self.state.reply_facets[step_id] = reply_facet(kind, detail)
+            if kind == "error":
+                return
+        elif expect["outcome"] != kind:
             got = f"error {detail}" if kind == "error" else "ok"
             raise CaseError("Failure", f"expected {expect['outcome']}"
                                        f"{' ' + expect['error'] if 'error' in expect else ''}, got {got}", step_id)
@@ -1596,6 +1701,8 @@ class CaseRun:
         for name in names:
             if name == "daemon":
                 out[name] = self.daemon_facet(step)
+            elif name == REPLY_FACET and step in self.state.reply_facets:
+                out[name] = self.state.reply_facets[step]
             else:
                 out[name] = not_comparable(f"the daemon product has no {name} facet", FACET_TASKS.get(name))
         return out
@@ -1836,6 +1943,7 @@ class DaemonSession:
             raise ValueError("the daemon driver needs --binary (the cmux-tui that linux_run.sh build prints)")
         if not os.access(str(binary), os.X_OK):
             raise ValueError(f"--binary {binary} is not an executable")
+        require_lock_ranks(str(binary))
         if session_ctx.get("switches"):
             raise ValueError("switch arms reach the daemon in p15-oracle-049; this driver runs the default arms")
         if session_ctx.get("facets") not in (None, "v0", "v1"):
@@ -1869,6 +1977,7 @@ class DaemonSession:
             return {"status": error.status, "message": error.message, "checkpoints": []}
         scale = float(case_ctx.get("timeout_multiplier") or 1)
         result, finished = self.run_worker(case, {**case_ctx, "state_root": str(paths.root)}, scale)
+        apply_panic_log(result, paths.root)
         proof = prove_clean(paths, result.pop("sockets", ()), finished, self.scan, EXIT_S * scale)
         if proof.problems:
             result["message"] = "; ".join(filter(None, [result.get("message"), *proof.problems]))

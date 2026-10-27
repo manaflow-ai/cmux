@@ -78,6 +78,7 @@ use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 use crate::journal_kernel::JournalDocument;
 use crate::model::{Screen, State};
 use crate::mux::ClientSizingIdentity;
+use crate::panic_free::JsonFields;
 use crate::platform::{self, transport};
 #[cfg(test)]
 use crate::resource::BrowserPublicId;
@@ -122,6 +123,10 @@ pub use browser_runtime::BROWSER_RUNTIME_CAPABILITY;
 mod window_title;
 use window_title::sanitize_window_title;
 pub use window_title::window_title_osc;
+/// `debug-panic` (p09-observability task 101): debug and `--features bench` builds only.
+#[cfg(any(debug_assertions, feature = "bench"))]
+#[path = "server/debug_crash_inject.rs"]
+mod debug_crash_inject;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
 /// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
@@ -151,6 +156,7 @@ pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
+pub use client_hello::{daemon_features, install_daemon_features};
 mod command_args;
 mod frame_dispatch;
 #[cfg(unix)]
@@ -164,6 +170,7 @@ mod orphan_shutdown;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
+mod pending_streams;
 mod renderer_grant;
 use line_connection::{
     handle_connection_with_permit, serve_line_connection, spawn_connection_reader,
@@ -240,6 +247,7 @@ mod responses;
 mod rows;
 mod screen_json;
 mod server_stats;
+pub(crate) use server_stats::{DIAGNOSTIC_SITES_CAPABILITY, forward_diagnostic_sites};
 mod session_stream;
 mod split_kind;
 mod split_respawn;
@@ -2362,7 +2370,7 @@ use render_service::{
 use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
 
 mod message_writer;
-use message_writer::{MessageSink, MessageWriter, OutboundStream};
+use message_writer::{MessageSink, MessageWriter, OutboundStream, RoomWaker};
 
 mod request_watchdog;
 #[cfg(unix)]
@@ -2376,6 +2384,9 @@ pub(crate) use request_watchdog::{
 };
 
 mod connection_scheduler;
+mod sequenced_pool;
+pub(crate) use sequenced_pool::SequencedPool;
+mod stream_lanes;
 #[cfg(test)]
 use connection_scheduler::ConnectionSurfaceState;
 use connection_scheduler::{
@@ -2481,6 +2492,7 @@ use resource_connection::{
 };
 
 mod connection_frame;
+mod request_hang_watch;
 mod request_head;
 mod request_spans;
 mod request_wait;
@@ -2517,7 +2529,7 @@ fn node_json(
                 "b": node_json(b, active_pane, split_ids),
             });
             if let Some(public_id) = split_ids.get(id) {
-                value["split_id"] = json!(public_id);
+                value.insert("split_id", json!(public_id));
             }
             value
         }
@@ -2629,9 +2641,9 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
-    workspaces["registry_id"] = json!(registry_id);
-    workspaces["generation"] = json!(generation);
-    workspaces["terminal_revision"] = json!(mux.terminal_registry_revision()?);
+    workspaces.insert("registry_id", json!(registry_id));
+    workspaces.insert("generation", json!(generation));
+    workspaces.insert("terminal_revision", json!(mux.terminal_registry_revision()?));
     Ok(workspaces)
 }
 

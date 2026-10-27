@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
@@ -7,6 +8,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
+import CmuxNextHomeEngine
 import CmuxNextInput
 import CmuxNextIPC
 import CmuxNextLaunch
@@ -18,6 +20,7 @@ import CmuxNextTerminal
 import CmuxNextCompat
 import CmuxNextTrace
 import CmuxNextWakeups
+import CmuxNextWebUpdates
 
 /// Entry point called from the Xcode target's `App/main.swift`.
 public struct CmuxNextApp {
@@ -42,6 +45,10 @@ public struct CmuxNextApp {
         // CMUX_NEXT_GLOBAL_JOB_CENSUS=1 (startup-queue.py globaljobs): every task that starts on the cooperative pool
         // until startup completes (p08-startup-082), its hook in before the launch starts tasks.
         let globalJobs = GlobalJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
+        // CMUX_NEXT_ARM_CENSUS=1 (startup-queue.py arms): each timer, deadline and folder watch armed until startup
+        // completes, with its first fire (p08-startup-085).
+        let armCensus = WakeupLedger.shared.armCensus
+        armCensus.start(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
         #endif
         // Before any socket or pipe exists (ChildSignalDefaults); the open-file limit before CefInitialize
         // (OpenFileLimit: launchd's 256 stopped the app at 80-100 Chromium tabs).
@@ -58,8 +65,9 @@ public struct CmuxNextApp {
         // ghostty_init while the process still has one thread: its locale setup may setenv LANG and setlocale
         // (Ghostty's internal_os.ensureLocale, src/os/locale.zig), which must not race another thread's environ read.
         GhosttyRuntime.initializeLibrary()
-        // Pure launch work (action catalog, symbols, displays) overlaps AppKit's start.
-        LaunchWarmup.start()
+        // Pure launch work (action catalog, symbols, displays) overlaps AppKit's start; the registry takes the catalog.
+        let actionCatalog = ActionCatalogLaunch()
+        LaunchWarmup.start(catalog: actionCatalog)
         DebugTimings.markLaunch("main.warmup_started")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
         let hangWatch = TraceRuntime.shared.hangWatch
@@ -67,13 +75,14 @@ public struct CmuxNextApp {
         let mainBoard = MainTaskBoard()
         // The launch's file reads run on these lanes, never on the main thread (p08-startup 033).
         let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink, inputTurns: mainBoard)
-        // Idle and best-effort lane work waits for startup complete, 3 s at most (Chrome's BeginBestEffortFence); the order made on it lowers it.
+        // Idle and best-effort lane work waits for the reveal (Chrome's BeginBestEffortFence; p06-scheduler-204); the order made on it lowers it.
         let fence = LaunchOrder.BestEffortFence(raisingOn: work)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
         // Shells get the launch limit back. Path lookups only: the stores at these paths read and create on first use.
         var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
+        environment.actionCatalog = actionCatalog
         #if DEBUG || CMUX_BENCH_HOOKS
         environment.mainJobCensus = mainJobs
         environment.globalJobCensus = globalJobs
@@ -82,8 +91,17 @@ public struct CmuxNextApp {
         TypingLatencyProbe.shared.startFlows(launchEnvironment: ProcessInfo.processInfo.environment)
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
-        environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
+        let homeCaches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        environment.homeCachesDirectory = homeCaches
+        // The Home list's caches of this build's Chief owner, read on the files lane while AppKit starts (p08-startup-076).
+        environment.homeListRead = HomeListLaunchRead.start(owner: ChiefHome.resolve(tag: environment.tag).session, caches: homeCaches, on: work)
+        // The app's acpmux, resolved once on the system lane: its signature check reads this app's signing team
+        // (SigningTeamInstall) and hashes the binary. Main-thread users take the landed answer (QuitAgents.environment).
+        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        let processVariables = ProcessInfo.processInfo.environment, build = environment.build
+        environment.appAcpmux = LaunchRead(on: work, mayBlock: .system) {
+            AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: processVariables)
+        }
         DebugTimings.markLaunch("main.app_environment")
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting. Where each chat
@@ -118,6 +136,11 @@ public struct CmuxNextApp {
                                                              in: ledgerThenSettings)
         // The saved sidebars, before the settings read: the launch window's first frame draws them (p08-startup-075).
         environment.sidebarSnapshot = environment.sidebarSnapshotFile?.startLaunchRead(in: ledgerThenSettings)
+        // This Mac's install id, after the feature choices (the launch's features do not wait for it) and after the run marker
+        // and saved sidebars, before the settings read: the windows built when that lands find it read (p08-startup-076).
+        let cloudPaths = CloudPaths.standard(bundleID: Bundle.main.bundleIdentifier)
+        let deviceID = LaunchRead(in: ledgerThenSettings, dropped: .failure(.notReadYet)) { cloudPaths.deviceIDResult() }
+        environment.cloudDeviceID = CloudDeviceIDSource(paths: cloudPaths) { deviceID.value }
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
@@ -129,6 +152,8 @@ public struct CmuxNextApp {
         environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
         environment.windowPictures = WindowPictureStore(state: state, work: work)  // the windows' (p08-startup-057)
         relaunchWake.begin(on: work)
+        // The kept web update's state and digest (NIGHTLY): pages wait for it, never main (p08-startup-077).
+        environment.webUpdates = WebUpdates.startLaunchRead(on: work)
         // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
         // in memory before them, never read on the thread that asks first (p02-threads-122).
         BrowserSourceRegistryInstall.shared.load(on: work)
@@ -142,35 +167,51 @@ public struct CmuxNextApp {
         BackdropVideoPlayers.shared.lanes = work
         // The launch's feature values, once, before the first feature read (the daemon connect's).
         let features = AppServices.launchFeatures(environment)
+        // What every hello tells the local daemon, which outlives this app (p12-perf-process-150).
+        environment.daemonFeatureHello = DaemonFeatureHello(hash: features.daemonValuesHash, values: Dictionary(
+            features.daemonValues.map { ($0.name, $0.isEnabled) }, uniquingKeysWith: { _, last in last }))
         // `debug.daemon.wire`'s counters, each schema method timed; nil in a release build unless the
         // person opted in to field data.
         let wireStats = DaemonWireStats.forBuild(fieldData: features.isEnabled(.ipcMethodLatencyFieldData),
                                                  methods: MethodTable.schema.methods.map { .init(id: $0.id.rawValue, name: $0.name) })
-        // The daemon connect overlaps AppKit's start (off the main thread).
-        let prestart = DaemonService.prestart(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                                              resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
-                                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                                              resolvesShellIntegration: environment.resolvesShellIntegration,
-                                              echoesPlacementShift: SidebarMirror.isLinked, wireStats: wireStats,
-                                              hangWatch: hangWatch)
-        DebugTimings.markLaunch("main.prestart")
-        // The daemon's launch snapshot, read and decoded on the files lane; the daemon's start applies it (p08-startup-074).
-        // A read quit drops before it started ends as `.missing`, so nothing waits for it.
-        let snapshot = prestart.map { (session: $0.launcher.configuration.session, state: $0.launcher.configuration.stateDirectory) }
-        environment.launchSnapshot = snapshot.map { snapshot in
+        // The daemon connect overlaps AppKit's start, all of it on the system lane: this app's signature first
+        // (the launcher's install key needs the Team ID), then the launcher and its first attempt. The daemon's
+        // launch snapshot is read and decoded on the files lane from there, once the launcher names its session;
+        // the daemon's start applies it (p08-startup-074). A read quit drops before it started ends as `.missing`,
+        // so nothing waits for it.
+        let launch = environment.launch, terminalEnvironment = environment.terminalEnvironment
+        let resolvedTerminalEnvironment = environment.resolvedTerminalEnvironment()
+        let terminalEnvironmentProvider = environment.terminalEnvironmentProvider()
+        let resolvesShellIntegration = environment.resolvesShellIntegration, echoesPlacementShift = SidebarMirror.isLinked
+        let featureHello = environment.daemonFeatureHello
+        let daemonStart = LaunchRead<DaemonLaunchStart>(on: work, mayBlock: .system) {
+            let start = DaemonService.launchStart(work: work, launch: launch, terminalEnvironment: terminalEnvironment,
+                                                  resolvedTerminalEnvironment: resolvedTerminalEnvironment,
+                                                  terminalEnvironmentProvider: terminalEnvironmentProvider,
+                                                  resolvesShellIntegration: resolvesShellIntegration,
+                                                  echoesPlacementShift: echoesPlacementShift, wireStats: wireStats, hangWatch: hangWatch,
+                                                  featureHello: featureHello)
+            guard let names = start.snapshotNames else { return start }
             let read = LaunchRead(on: work, dropped: LaunchSnapshot.Found.missing) {
-                LaunchSnapshot.find(session: snapshot.session, stateDirectory: snapshot.state)
+                LaunchSnapshot.find(session: names.session, stateDirectory: names.stateDirectory)
             }
-            return LaunchSnapshotPrefetch(session: snapshot.session, ended: { read.value }, finished: { await read.finished() })
+            return start.reading(LaunchSnapshotPrefetch(session: names.session, ended: { read.value }, finished: { await read.finished() }))
         }
+        DebugTimings.markLaunch("main.prestart")
         // The front window's picture for the first frame, read and decoded on the files lane (p08-startup-058);
         // which window is front comes from the launch snapshot, read there only when a picture was saved.
         if features.isEnabled(.savedWindowPicture) {
-            let launchSnapshot = environment.launchSnapshot
+            let build = environment.launch.build
             environment.windowPictures?.prefetchFront({
-                guard let snapshot else { return nil }
+                // The daemon's launch step when it has landed, else this build's daemon names read here by the
+                // launcher's rule (DaemonLauncher.appNames): the picture's read never waits for the system lane.
+                let landed = daemonStart.value
+                let names: (session: String, stateDirectory: URL?)? = if let landed { landed.snapshotNames } else {
+                    DaemonLauncher.appNames(build: build)
+                }
+                guard let names else { return nil }
                 // The snapshot's read when it has ended, else read here: the picture's read never waits for it.
-                let found = launchSnapshot?.found ?? LaunchSnapshot.find(session: snapshot.session, stateDirectory: snapshot.state)
+                let found = landed?.launchSnapshot?.found ?? LaunchSnapshot.find(session: names.session, stateDirectory: names.stateDirectory)
                 // The window `LaunchSnapshotWindow.showSaved` builds, by the same rule (WindowStateDocument.frontWindow).
                 return found.snapshot?.frontWindow.map {
                     WindowPictureStore.FrontWindow(window: $0.id, profile: ($0.profile ?? .defaultProfile).rawValue)
@@ -199,10 +240,11 @@ public struct CmuxNextApp {
         #if DEBUG || CMUX_BENCH_HOOKS
         mainJobs?.freeze(after: order.startup)
         globalJobs?.freeze(after: order.startup)
+        armCensus.close(after: order.startup)
         #endif
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)
         if let pictures = environment.windowPictures { order.startup.whenComplete { _ in pictures.dropFront() } } // decoded pictures are large
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats, features: features,
+        let delegate = AppDelegate(environment: environment, daemonStart: daemonStart, wireStats: wireStats, features: features,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, terminalFrames, relaunchWake))
         DebugTimings.markLaunch("main.delegate")

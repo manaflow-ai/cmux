@@ -240,13 +240,13 @@ impl Handoffs {
     /// Load every record under `dir`; `None` keeps them in memory only.
     pub(crate) fn open(dir: Option<PathBuf>) -> Self {
         let mut records = HashMap::new();
-        if let Some(rd) = dir.as_ref().and_then(|d| std::fs::read_dir(d).ok()) {
+        if let Some(rd) = dir.as_ref().and_then(|d| cmux_blocking::fs::read_dir(d).ok()) {
             for entry in rd.flatten() {
                 let path = entry.path();
                 if path.extension().and_then(|e| e.to_str()) != Some("json") {
                     continue;
                 }
-                match std::fs::read_to_string(&path)
+                match cmux_blocking::fs::read_to_string(&path)
                     .map_err(anyhow::Error::from)
                     .and_then(|t| serde_json::from_str::<Record>(&t).map_err(Into::into))
                 {
@@ -301,7 +301,12 @@ impl Handoffs {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::DirBuilderExt;
-                    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+                    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+                    cmux_blocking::scoped_blocking_call(
+                        "fs::create_dir_with",
+                        cmux_blocking::BlockingKind::Fs,
+                        || std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir),
+                    )?;
                 }
                 #[cfg(windows)]
                 crate::owner_only::create_dir_all(dir)?;

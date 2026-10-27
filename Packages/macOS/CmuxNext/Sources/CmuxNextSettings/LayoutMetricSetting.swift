@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 import CoreGraphics
 
 /// The `appearance.metrics.<name>` keys the schema lists besides the interface size (which has its

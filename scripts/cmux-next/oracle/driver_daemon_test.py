@@ -30,6 +30,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import driver_daemon as d  # noqa: E402
+import invariants  # noqa: E402
 
 BINARY = os.environ.get("CMUX_ORACLE_DAEMON_BINARY", "")
 # netns (unshare -rn, the default) or none on a host that refuses unprivileged user namespaces.
@@ -174,6 +175,58 @@ class ExpectTests(unittest.TestCase):
         with self.assertRaises(d.CaseError) as caught:
             self.check({"outcome": "ok", "result": "$step:gone#"}, {}, {})
         self.assertEqual(caught.exception.status, "Crash")
+
+
+class CaseReadsTests(unittest.TestCase):
+    def test_the_case_session_name_becomes_the_fixtures_in_the_session_and_the_panic_log(self):
+        """Every case runs as oracle-<token of its root>: a facet that kept it would differ on each run."""
+        class Raw:
+            def request(self, cmd):
+                return {"ok": True, "data": {
+                    "session": {"session": {"name": "oracle-abc123"}},
+                    "panicLog": {"bytes": 0, "path": "/tmp/o/x/y/state/owner-panics-oracle-abc123.jsonl"}}}
+
+        daemon = object.__new__(d.Daemon)
+        daemon.raw = Raw()
+        data = d.CaseReads(daemon, "oracle-abc123", 1.0).command(d.ORACLE_STATE)["data"]
+        self.assertEqual(data["session"]["session"]["name"], d.SESSION_NAME)
+        self.assertEqual(data["panicLog"]["path"], f"/tmp/o/x/y/state/owner-panics-{d.SESSION_NAME}.jsonl")
+
+
+class AnyOutcomeTests(unittest.TestCase):
+    """case-v1 outcome any (a walk move, p15-oracle-098): either outcome passes and becomes the reply facet."""
+
+    def run_expect(self, outcome, op="resource.call"):
+        run = object.__new__(d.CaseRun)
+        run.state = d.CaseState()
+        run.check_expect({"id": "m01", "op": op, "expect": {"outcome": "any", "receipt": "mutation_result"}}, outcome)
+        return run
+
+    def test_ok_and_typed_error_both_pass_and_are_recorded(self):
+        receipt = {"value": {}, "generation": "g", "revision": "1", "replayed": True}
+        self.assertEqual(self.run_expect(("ok", receipt)).state.reply_facets["m01"], {"outcome": "ok", "replayed": True})
+        self.assertEqual(self.run_expect(("error", "resource.not_found")).state.reply_facets["m01"],
+                         {"outcome": "error", "error": "resource.not_found"})
+
+    def test_an_ok_reply_must_still_be_the_named_receipt(self):
+        with self.assertRaises(d.CaseError) as caught:
+            self.run_expect(("ok", {"value": {}}))
+        self.assertEqual(caught.exception.status, "Failure")
+
+    def test_only_a_resource_call_has_an_any_outcome(self):
+        with self.assertRaises(d.CaseError) as caught:
+            self.run_expect(("ok", {}), op="restart")
+        self.assertEqual(caught.exception.status, "Crash")
+
+    def test_the_reply_facet_validates_against_the_snapshot_schema(self):
+        import normalize
+
+        doc = json.loads(d.SCHEMA.read_text(encoding="utf-8"))
+        reply = doc["properties"]["facets"]["properties"][d.REPLY_FACET]["oneOf"][0]
+        for value in (d.reply_facet("ok", {"replayed": False}), d.reply_facet("error", "validation.invalid"),
+                      d.reply_facet("ok", {})):
+            self.assertEqual(normalize.validate(value, reply), [], value)
+        self.assertNotEqual(normalize.validate({"outcome": "error", "error": "Bad"}, reply), [])
 
 
 class PredicateTests(unittest.TestCase):
@@ -480,10 +533,91 @@ class SchemaTests(unittest.TestCase):
         """oracle.py passes no snapshot_schema, so `oracle.py run --product daemon` needs normalize.py to load
         its own default schema. Red while schemas/oracle/snapshot-v1.schema.json uses keywords normalize.py
         refuses (the p15-oracle-011/013 agreement)."""
-        try:
-            d.open_session({"binary": sys.executable, "run_id": "schema-test"})
-        except ValueError as error:
-            self.fail(str(error)[:3000])
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                d.open_session({"binary": str(oracle_build(Path(tmp))), "run_id": "schema-test"})
+            except ValueError as error:
+                self.fail(str(error)[:3000])
+
+
+def oracle_build(folder: Path, lock_ranks: bool = True) -> Path:
+    """An executable that passes for a cmux-tui with (or without) the lock-rank checker compiled in."""
+    binary = folder / "cmux-tui"
+    marker = invariants.LOCK_RANK_PANIC_PREFIX.encode() if lock_ranks else b""
+    binary.write_bytes(b"#!/bin/sh\nexit 0\n# " + marker + b"\n")
+    binary.chmod(0o755)
+    return binary
+
+
+def panic_line(message: str, location: str) -> str:
+    """A cmux-panic-log record (cmux-tui/crates/cmux-panic-log/src/lib.rs)."""
+    return json.dumps({"session": "oracle", "owner_pid": 1, "message": message, "location": location,
+                       "thread": "main", "at_ms": 1, "test": False, "backtrace": ""}) + "\n"
+
+
+class PanicLogTests(unittest.TestCase):
+    """Invariant I16 (p15-oracle-236): lock ranks compiled in, panic logs in the case root, a panic fails the case."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "c00001"
+        self.root.mkdir()
+        self.isolation = d.hermetic_env.Isolation("none", (), "test")
+
+    def test_a_session_refuses_a_binary_without_the_lock_rank_checker(self):
+        with self.assertRaisesRegex(ValueError, "no lock-rank checker"):
+            d.open_session({"binary": str(oracle_build(Path(self.tmp.name), lock_ranks=False)), "run_id": "i16"})
+        with self.assertRaisesRegex(ValueError, "cannot read --binary"):
+            d.require_lock_ranks(str(Path(self.tmp.name) / "missing"))
+        d.require_lock_ranks(str(oracle_build(Path(self.tmp.name))))
+
+    def test_the_hermetic_case_env_keeps_both_panic_logs_in_the_case_root(self):
+        case_env = d.case_environment(d.CasePaths(self.root), "seed", self.isolation)
+        self.assertEqual(d.panic_log_dirs(case_env), [self.root, self.root / "home" / ".acpmux"])
+        self.assertIsNone(d.panic_logs_outside(case_env, self.root))
+        shared = Path(self.tmp.name) / "shared-acpmux"
+        leaky = d.hermetic_env.daemon_case(self.root, self.isolation, extra={"ACPMUX_HOME": str(shared)})
+        self.assertIn(str(shared), d.panic_logs_outside(leaky, self.root) or "")
+
+    def test_a_panic_fails_a_passing_case_with_its_message_and_location(self):
+        result = {"status": "Pass", "message": "", "checkpoints": [], "trace": {"steps": []}}
+        d.apply_panic_log(result, self.root)
+        self.assertEqual(result["status"], "Pass")
+        self.assertEqual(result["trace"]["teardown"], {"panicLog": []})
+        (self.root / "owner-panics-oracle-abc123.jsonl").write_text(
+            panic_line("called `Option::unwrap()` on a `None` value", "crates/cmux-tui/src/main.rs:9:5"))
+        d.apply_panic_log(result, self.root)
+        self.assertEqual(result["status"], "Failure")
+        self.assertEqual(result["message"], "I16 panic at crates/cmux-tui/src/main.rs:9:5: called `Option::unwrap()` "
+                                            "on a `None` value (thread 'main', owner-panics-oracle-abc123.jsonl:1)")
+        self.assertEqual([e["location"] for e in result["trace"]["teardown"]["panicLog"]],
+                         ["crates/cmux-tui/src/main.rs:9:5"])
+
+    def test_a_crash_keeps_its_status_and_gains_the_panic_text(self):
+        (self.root / "owner-panics-oracle.jsonl").write_text(
+            panic_line("lock order violation: acquiring mux.state (MuxState) while this thread holds pty.term",
+                       "crates/cmux-tui-core/src/mux.rs:301:28"))
+        result = {"status": "Crash", "message": "the daemon exited before it was ready", "step": "setup"}
+        d.apply_panic_log(result, self.root)
+        self.assertEqual((result["status"], result["step"]), ("Crash", "setup"))
+        self.assertTrue(result["message"].startswith("the daemon exited before it was ready; I16 lock-rank panic at "
+                                                     "crates/cmux-tui-core/src/mux.rs:301:28: "), result["message"])
+
+    def test_the_session_reads_the_root_before_removing_it(self):
+        class PanickingWorker(d.DaemonSession):
+            def __init__(self):  # noqa: D107 - the worker is stubbed
+                self.scan = lambda: {}
+                self.session_ctx = {"run_id": "i16"}
+
+            def run_worker(self, case, case_ctx, scale):
+                Path(case_ctx["state_root"], "owner-panics-oracle.jsonl").write_text(panic_line("boom", "a.rs:1:1"))
+                return {"status": "Pass", "message": "", "checkpoints": [], "sockets": []}, True
+
+        result = PanickingWorker().run_case({"id": "c", "suite": "s"}, {"state_root": str(self.root / "case")})
+        self.assertEqual(result["status"], "Failure")
+        self.assertIn("I16 panic at a.rs:1:1: boom", result["message"])
+        self.assertFalse((self.root / "case").exists())
 
 
 class RestorePreviewTraceTests(unittest.TestCase):
@@ -669,6 +803,25 @@ class LiveTests(unittest.TestCase):
                      for key in ("workspaces", "screens", "panes", "tabs")} for cp in result["checkpoints"]]
 
         self.assertEqual(json.dumps(layouts(first), sort_keys=True), json.dumps(layouts(second), sort_keys=True))
+
+    def test_a_generated_walk_passes_and_each_move_has_its_reply_facet(self):
+        """gen_walks.py (p15-oracle-098): every call move's settled checkpoint has the reply facet, ok or a
+        typed error, and two runs of the walk give the same reply facets."""
+        import gen_walks
+
+        table = gen_walks.load_move_table(gen_walks.DEFAULT_CORPUS, gen_walks.DEFAULT_SOURCE, "daemon")
+        case = gen_walks.generate_walk(table, 0, 12)
+        moves = [s["id"] for s in case["steps"] if (s.get("expect") or {}).get("outcome") == d.ANY_OUTCOME]
+
+        def replies(result):
+            self.assertEqual(result["status"], "Pass", result["message"])
+            return {cp["step"]: cp["snapshot"]["facets"].get(d.REPLY_FACET) for cp in result["checkpoints"]
+                    if cp["checkpoint"] == "settled" and cp["step"] in moves}
+
+        first, second = replies(self.run_case(copy.deepcopy(case))), replies(self.run_case(copy.deepcopy(case)))
+        self.assertEqual(sorted(first), sorted(moves))
+        self.assertTrue(all(value["outcome"] in ("ok", "error") for value in first.values()), first)
+        self.assertEqual(first, second)
 
     def test_killed_daemon_terminals_are_ended_at_teardown(self):
         case = example_case()

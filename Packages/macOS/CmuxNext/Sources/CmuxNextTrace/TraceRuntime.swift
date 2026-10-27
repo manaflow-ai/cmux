@@ -43,6 +43,8 @@ public final class TraceRuntime: Sendable {
     let requestedFlags = Atomic<UInt64>(0)
     /// The ``KeyTimingHold`` bits that hold the keystroke-timing gate closed; the gate is open at 0.
     let keyTimingHoldBits = Atomic<UInt64>(0)
+    /// Who hears each change of ``categoryMask`` (``observeCategories(_:)``).
+    let categoryObservers = ObserverSlots<UInt64>(capacity: 4)
     /// The records the `write` methods let through their category gate while no ring is attached, so a
     /// test's runtime with no ring can see the gate.
     let stubRecordCount = Atomic<UInt64>(0)
@@ -287,6 +289,12 @@ extension TraceRuntime {
         case chromiumHost = 6
         /// The `cmux` CLI.
         case cli = 7
+        /// acpmux's `__agent-host`, one per harness.
+        case agentHost = 8
+        /// `cmux-app-host`, one sandboxed VM per app.
+        case appHost = 9
+        /// `cmux-browser-host serve`, the agent browser runtime.
+        case browserHost = 10
     }
 
     /// What a record marks: the record's phase byte, Chrome's ASCII `TRACE_EVENT_PHASE_*` codes

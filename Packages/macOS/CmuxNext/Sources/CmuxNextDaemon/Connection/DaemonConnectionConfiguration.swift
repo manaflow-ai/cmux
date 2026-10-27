@@ -11,11 +11,18 @@ public struct DaemonConnectionConfiguration: Sendable {
     public var retry: RetryPolicy
     /// A connection that stays up this long resets the reconnect backoff.
     public var healthyAfter: Duration
-    /// The connection asks the daemon this often whether it still answers;
-    /// `heartbeatMisses` unanswered asks in a row close it (`.disconnected`,
-    /// then reconnect). A bridged connection always asks (a lost server: the
-    /// link itself waits 10 min); a local one only with `localHeartbeat`.
+    /// After this long with nothing from the daemon, while a window shows or a
+    /// request waits, the connection asks it whether it still answers (and
+    /// waits this long for the answer); `heartbeatMisses` unanswered asks in a
+    /// row close it (`.disconnected`, then reconnect). A bridged connection
+    /// always asks (a lost server: the link itself waits 10 min); a local one
+    /// only with `localHeartbeat` (``ConnectionHeartbeat``).
     public var heartbeat: Duration = .seconds(15)
+    /// The silence that asks while no window shows and no request waits, for a
+    /// connection that carries a notification stream (a bridge: a server lost
+    /// over a closed lid must still be found); nil asks nothing then. Other
+    /// connections ask nothing while hidden and once when a window shows.
+    public var hiddenHeartbeat: Duration? = .seconds(60)
     public var heartbeatMisses = 2
     /// Heartbeat a local daemon too: an owner stopped (SIGSTOP) or wedged
     /// keeps its socket open, so no EOF ends the connection (cx-jniyz.4).
@@ -65,6 +72,13 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// `daemon.line` scope, never its `read(2)` wait). The App's composition root sets it to its
     /// ``HangWatch``; nil (the default) watches nothing.
     public var hangWatch: (any HangWatchScoping)?
+    /// The framed IPC upgrades the handshake asks for (``DaemonWireUpgrades``); none by default, so the
+    /// connection speaks JSON lines whatever the daemon offers.
+    public var wireUpgrades = DaemonWireUpgrades.none
+    /// Echoes `diagnostic-sites-v1`, so the daemon pushes its first-seen blocking, inversion and slow-request
+    /// sites as `server-diagnostic-site` events; the connection hands each to ``DaemonConnection/diagnosticSites``.
+    /// Only the app's control connection to its local daemon sets it (`DaemonService.localConfiguration`).
+    public var reportsDiagnosticSites = false
     /// Told each time the connection's quiet-handoff gate parks a wait (a test seam; the default ignores it).
     var handoffWaits: @Sendable (QuietHandoffGate.Wait) -> Void = { _ in }
 
@@ -110,9 +124,12 @@ public struct ClientHelloIdentity: Sendable {
     /// Nil: role main only (the daemon may still verify the app by its
     /// code signature).
     public var installKey: FrontendInstallKey?
+    /// The app's daemon features, sent in each hello (p12-perf-process-150); nil sends none.
+    public var features: DaemonFeatureHello?
 
-    public init(installKey: FrontendInstallKey?) {
+    public init(installKey: FrontendInstallKey?, features: DaemonFeatureHello? = nil) {
         self.installKey = installKey
+        self.features = features
     }
 }
 
@@ -122,5 +139,6 @@ extension DaemonConnectionConfiguration {
         DaemonCapability.handshakeCapabilities(advertisedCapabilities,
                                                  resolvesShellIntegration: resolvesShellIntegration,
                                                  echoesPlacementShift: echoesPlacementShift)
+            + (reportsDiagnosticSites ? [DaemonCapability.diagnosticSites.rawValue] : [])
     }
 }

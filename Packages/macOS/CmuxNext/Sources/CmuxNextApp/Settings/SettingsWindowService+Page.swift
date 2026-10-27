@@ -21,6 +21,8 @@ extension SettingsWindowService {
         return [
             // The Development category (dev_only) shows only in DEV builds.
             "dev_build": .bool(DevTools.isDebugBuild),
+            // Rows and choices this Mac leaves out now (Energy Saver's row and its On Battery).
+            "availability": services.settingsAvailability.json,
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map(Self.machineRow)),
             // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
@@ -52,7 +54,8 @@ extension SettingsWindowService {
             "ghostty_diagnostics": ghosttyDiagnostics.diagnostics.map { .array($0.map(GhosttyDiagnosticsControl.json)) } ?? .null,
             // Experimental > Feature Flags (feature featureFlagsCard): the socket's `features.list` and the next launch's choices.
             "features": services.features.isEnabled(.featureFlagsCard)
-                ? FeatureFlagsPage.report(services.features, tunables: TunableStore.shared)
+                ? FeatureFlagsPage.report(services.features, tunables: TunableStore.shared,
+                                          daemon: services.environment.daemonFeatureHello)
                     .labsJSON(nextLocal: services.featureLocalOverrides.next) : .null,
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,

@@ -11,6 +11,7 @@ mod clear_history_tests;
 mod clipboard_read;
 mod cold_scrollback;
 mod colors;
+mod directory_publication;
 #[cfg(unix)]
 mod echo_flow;
 mod hosted;
@@ -19,6 +20,7 @@ mod lifecycle;
 #[cfg(unix)]
 mod local_resize_order;
 mod lock_order;
+mod poisoned_locks;
 #[cfg(unix)]
 mod read_loop;
 mod render_geometry;
@@ -26,10 +28,13 @@ mod render_geometry;
 mod resize_audit;
 #[cfg(unix)]
 mod resize_conformance;
+#[cfg(unix)]
+mod resize_sequence;
 mod stream_progress;
 use base64::Engine as _;
 use std::sync::mpsc::sync_channel;
 
+use super::spawn::LocalEnd;
 use super::*;
 use crate::MuxEvent;
 

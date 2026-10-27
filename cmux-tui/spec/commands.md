@@ -583,8 +583,8 @@ reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
 sections: `resource_projection`, `write_path`, `request_path_io`,
-`slow_requests`, `requests`, `ipc`, `lock_classes` and `ipc_methods`;
-unknown names are ignored.
+`slow_requests`, `requests`, `ipc`, `lock_classes`, `ipc_methods` and
+`hangs`; unknown names are ignored.
 
 `lock_classes` reports wait and hold by class on the three locks that admit by
 class: the workspace registry, the registry connection (first acquisitions) and
@@ -665,7 +665,11 @@ object{
   ipc_methods?:array<object{
     method:string, id:uint16|null, trace_id:uint16, class:string,
     latency_us:percentiles, handler_us:percentiles, lock_wait_us:percentiles
-  }>
+  }>,
+  hangs?:object{
+    over_250ms:uint64,
+    records:array<object{sequence:uint64, span:string, duration_ms:uint64}>
+  }
 }
 kind_count = object{kind:string,messages:uint64,bytes:uint64}
 parse_count = object{requests:uint64,json_parses:uint64,json_parses_per_request:float64}
@@ -747,6 +751,17 @@ an echo item, scope named after its thread) once to the owner's hang log
 whose own loop pass ran past 100 ms reports it on its link (HANG_REPORT): one
 `holder-loop` line with `stack_error` `other-process`.
 `hangs` counts those lines, over every kind of scope.
+The `hangs` section counts every scope that watcher watches (all the kinds
+above; a holder's reported loop passes are not this process's) once it has
+been busy 250 ms, whatever its hang tier: `over_250ms` is the count since
+daemon start and is never reset, and `records` keeps the newest 64, oldest
+first, each with its `sequence` (1 for the first hang; a reader takes the
+records past the last sequence it saw), its `span` (`<scope>:<method>`, such
+as `mux-conn:workspace.create` or `journal-writer:commit-batch`) and its
+`duration_ms` (the final duration once it ended, how long it had run while it
+still runs). This is the report half of Chrome's HangWatcher: report only,
+never a kill. The perf lab's `daemon.hangs_over_250ms` is the growth of
+`over_250ms` over a measured window.
 With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
 `slow-request` line with the method as its mark.
 `requests` adds `request_latency_us` and `dispatch_queue_us`, over every
@@ -1156,6 +1171,35 @@ Errors: `oracle state requires a trusted local connection`,
 session has no journal file to read), `bad request: ...`, and the reducer's
 errors (a gap in the journal, an unknown reducer version).
 
+### debug-panic
+
+| Field | Value |
+| --- | --- |
+| name | `debug-panic` |
+| status | implemented in debug builds and `--features bench` builds only |
+| since | protocol 12, no capability |
+
+Makes this daemon crash on purpose, for the crash matrix
+(`plans/cmux-next/chrome-parity/p09-observability.md`, task 101). A release
+daemon has no such command and answers `bad request: unknown variant`.
+Trusted local connections only; WebSocket and remote relay clients are
+refused before anything runs. acpmux has the same injector as
+`_acpmux/debug_panic {kind}`, on its local unix socket only.
+
+Params: `kind` (required string): `panic` (a Rust panic on the thread
+`debug-crash-inject`; the owner's panic log records it and the daemon keeps
+running), `abort` (SIGABRT) or `segv` (a store to an unmapped address,
+SIGSEGV). No other field.
+
+Result: `object{kind:string, pid:uint64}`, sent once the crash thread has
+started. For `abort` and `segv` the process may end before the reply is
+written.
+
+Errors: `debug-panic requires a trusted local connection`,
+`bad request: debug-panic kind must be panic, abort or segv`,
+`bad request: debug-panic takes no field ...`,
+`debug-panic could not start its thread: ...`.
+
 ### trace-start, trace-stop, trace-status
 
 | Field | Value |
@@ -1299,6 +1343,7 @@ Params:
 | `role` | `string` | required | `main` (the app's own connection) or `page_relay` (relays a page's requests) |
 | `install_id` | `string` | optional | 1-128 characters of `A-Z a-z 0-9 _ -`; with role `main` it asks for a nonce (step 2 proves it) |
 | `page` | `string` or null | optional | role `page_relay` only (`page-router-v1`): the page the relay serves |
+| `features` | `object{hash?:string, values:object<string,bool>}` or null | optional | role `main` only: the app's values of its `daemon` and `both` features (at most 512) |
 
 Step 2 sends `install_id` and `proof` (both required strings). Other members
 are ignored. spec/sdk-schema.json types both steps as one command whose
@@ -1321,12 +1366,29 @@ daemon refuses origin `user` (`origin.forbidden`, `apps.origin_forbidden`), the
 client shows the refusal and never sends the same request again with another
 origin. A daemon without this field allows no client to assume `user`.
 
+Features (p12-perf-process 3.9): the daemon outlives the app, so the app's
+`main` connection sends its daemon features in every hello. `hash` is FNV-1a
+64 over `name=1\n` (or `=0\n`) for each feature in registry order, as 16 hex
+digits; when it equals the daemon's, nothing is compared. Otherwise the reply's
+`features: object{hash, applied:[string], pending:[object{name, app:bool,
+daemon:bool}]}` says what the daemon did. For a verified app (the code
+signature at step 1, or the install-key proof, then reported again in step 2's
+result) an off for a `process=daemon` kill switch applies at once and is
+listed in `applied`; it stays off until the daemon restarts. Every other
+difference, a `both` feature's included, is `pending`: the daemon keeps its
+own value for its session, and the app runs each pending `both` feature with
+the daemon's value too (fixed by the hello of the connection it attaches), so
+no feature is read from two sources. Names the
+daemon does not declare are ignored. The daemon reads no file and fetches
+nothing for it. The member is left out before the daemon resolved its own
+features.
+
 Errors (`error_code`; none changes state, and each closes the hello window):
 
 | Code | When |
 | --- | --- |
 | `client_hello.local_only` | the connection is not a local Unix socket connection |
-| `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed |
+| `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed; `{field: "features"}`: features malformed or not on role `main` |
 | `client_hello.window_closed` | after any other line, after two `identify` lines, or a second `client-hello` |
 | `client_hello.refused` | step 2 with a wrong or missing proof or install id (the connection stays unverified) |
 

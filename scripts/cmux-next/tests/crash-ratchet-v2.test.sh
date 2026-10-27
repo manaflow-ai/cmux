@@ -11,7 +11,7 @@
 #    spell its selector (PointerHover's `mouseEntered(with:)` was exported as
 #    `mouseEnteredWith:` and AppKit raised "unrecognized selector");
 #  - dynamic_dispatch: string selectors and KVC by string key are counted;
-#  - invariant_check / dump_will_be_check: Invariant API sites need an allowlist entry.
+#  - invariant_check / dump_will_be_check: report-only (p10-stability-199); the CI compare never judges them.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
@@ -372,32 +372,25 @@ if out="$(ratchet)"; then fail "an array or Data index, or an inferred read, pas
 g reset -q
 reset
 
-# 20. The Invariant API (p10-stability-099): with invariant_check and dump_will_be_check banned, a
-#    check or dumpWillBeCheck site passes only with an allowlist entry (an inline crash-allow does not
-#    waive it); notFatalUntil is not a class, and a doc comment that names a call never counts.
+# 20. The Invariant API (p10-stability-099, 199): invariant_check and dump_will_be_check are report-only, so the CI
+#    compare passes a check or dumpWillBeCheck site with no crash-allowlist entry, even when the allowlist names the
+#    classes as banned (an unknown class bans nothing); --report counts each once. notFatalUntil is not a class, and a
+#    doc comment that names a call never counts. guardrails.py's local-only invariant-site rule judges the sites.
 cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
 {"banned": ["swift.as_bang", "swift.objc_selector", "swift.invariant_check", "swift.dump_will_be_check"], "allow": []}
 JSON
 cat > "$app/Sources/M/A.swift" <<'SWIFT'
 /// Invariant.check(a, "doc") in a doc comment.
 Invariant.notFatalUntil(ok, "tab-in-workspace", build: 100)
-Invariant.check(ok, "persisted-order") // crash-allow: an inline escape does not waive a ban
+Invariant.check(ok, "persisted-order")
 Invariant.dumpWillBeCheck(ok, "cache-coherent")
 SWIFT
 g add -A
-if out="$(ratchet)"; then fail "an unlisted Invariant.check or dumpWillBeCheck passed: $out"; fi
-[[ "$out" == *"banned invariant_check in Packages/macOS/CmuxNext/Sources/M/A.swift: 1 hit(s)"* ]] \
-    || fail "the check site is not reported once: $out"
-[[ "$out" == *"banned dump_will_be_check in Packages/macOS/CmuxNext/Sources/M/A.swift: 1 hit(s)"* ]] \
-    || fail "the dumpWillBeCheck site is not reported once: $out"
-cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
-{"banned": ["swift.as_bang", "swift.objc_selector", "swift.invariant_check", "swift.dump_will_be_check"],
- "allow": [{"path": "Packages/macOS/CmuxNext/Sources/M/A.swift", "class": "swift.invariant_check", "count": 1,
-            "reason": "fixture: going on would write a corrupt order file", "reviewer": "crash-lead"},
-           {"path": "Packages/macOS/CmuxNext/Sources/M/A.swift", "class": "swift.dump_will_be_check", "count": 1,
-            "reason": "fixture: the cache rebuilds", "reviewer": "crash-lead"}]}
-JSON
-out="$(ratchet)" || fail "allowlisted Invariant sites did not pass: $out"
+out="$(ratchet)" || fail "the CI compare judged an Invariant site: $out"
+out="$(python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --report invariant_check,dump_will_be_check)" \
+    || fail "--report invariant_check,dump_will_be_check failed: $out"
+counts="$(printf '%s' "$out" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["invariant_check"]["total"], d["dump_will_be_check"]["total"])')"
+[[ "$counts" == "1 1" ]] || fail "the Invariant sites are not reported once each: $out"
 g reset -q
 reset
 
@@ -483,6 +476,208 @@ out="$(report trap_api)" || fail "--report trap_api failed: $out"
 printf 'guard !other.isEmpty else { return }\nlet b = queue.removeFirst()\n' > "$app/Sources/M/A.swift"
 out="$(report trap_api)" || fail "--report trap_api failed: $out"
 [[ "$(hits trap_api M <<<"$out")" == 1 ]] || fail "another collection's guard exempted a removal: $out"
+# 21b. (p10-stability-098) validated counts and longer guards: a count shown non-negative (a literal comparison, a
+#      guard above in scope, a `let` of a safe count, a `max` assignment, a type constant, a C constant, base64
+#      padding, a ternary of literals, sums and products of those) and a removal behind a guard whose else block
+#      runs several lines, or bounded by its receiver's count, do not count; the same shapes with a value that may
+#      be negative still do.
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+enum Sizes {
+    static let words = 8
+    static let bytes = words * 4
+}
+func a(n: Int, keyLength: Int, side: Int, value: String, t: T, ipv6: Bool) {
+    guard keyLength >= 1, keyLength <= 1024 else {
+        return
+    }
+    let one = 1
+    let two = 2
+    let three = 3
+    var key = [UInt8](repeating: 0, count: keyLength)
+    let b = n > 0 ? Array(repeating: 0, count: n) : []
+    let cols = max(1, t.columns)
+    let c = [CGFloat](repeating: 16, count: cols)
+    let d = [UInt8](repeating: 0, count: Sizes.bytes)
+    let e = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
+    let f = String(repeating: "=", count: (4 - value.count % 4) % 4)
+    let g = [UInt8](repeating: 0, count: ipv6 ? 16 : 4)
+    let h = [UInt8](repeating: 0, count: cols * cols * 4)
+    let w = max(0, side), hh = max(0, t.height)
+    let i = [UInt32](repeating: 0, count: w * hh)
+}
+func next() -> Int? {
+    guard let first = items.first else {
+        idle()
+        return nil
+    }
+    // the guard above holds here
+    items.removeFirst()
+    transcript.removeFirst(transcript.count / 4)
+    scalars.removeLast(min(scalars.count, 64))
+    return first
+}
+SWIFT
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api <<<"$out")" == 0 ]] || fail "a validated count or a longer guard counted as trap_api: $out"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+enum Sizes {
+    static let words = other - 1
+}
+func a(n: Int, side: Int, value: String, t: T, ipv6: Bool) {
+    if n > 0 {
+        a()
+        b()
+        c()
+    }
+    let a = Array(repeating: 0, count: n)
+    let cols = t.columns - 1
+    let c = [CGFloat](repeating: 16, count: cols)
+    let d = [UInt8](repeating: 0, count: Sizes.words)
+    let f = String(repeating: "=", count: 4 - remainder)
+    let g = [UInt8](repeating: 0, count: ipv6 ? n : 4)
+    let w = max(0, side), hh = t.height
+    let i = [UInt32](repeating: 0, count: w * hh)
+}
+func next() -> Int? {
+    guard let first = other.first else {
+        idle()
+        return nil
+    }
+    items.removeFirst()
+    transcript.removeFirst(other.count / 4)
+    scalars.removeLast(min(scalars.count, n))
+    return first
+}
+SWIFT
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api M <<<"$out")" == 9 ]] || fail "an unvalidated count or an unguarded removal was missed (want 9): $out"
+# 21c. (p10-stability-098) a check that does not hold at the call proves nothing: each shape counts once. A
+#      comparison in the false branch of a ternary, in an `if` block that closed before the call or in its `else`,
+#      in a `||`; a `let` or a `guard` in another function; a C constant that is not a size; a clamp the value then
+#      leaves (`max(0, x) - 10`); a clamp of `self.width` for a count of the parameter `width`; a reassignment, an
+#      inout use or a later turn of a loop after the check; a closure parameter of the same name.
+trap_shape() {
+    local shape="$1"
+    cat > "$app/Sources/M/A.swift"
+    out="$(report trap_api)" || fail "--report trap_api failed: $out"
+    [[ "$(hits trap_api M <<<"$out")" == 1 ]] || fail "a negative count passed as validated ($shape): $out"
+}
+trap_shape "the ternary's false branch" <<'SWIFT'
+func f(n: Int) {
+    let a = n > 0 ? [] : Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "an if block closed before the call" <<'SWIFT'
+func f(n: Int) {
+    if n > 0 { log() }
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "the else of the check's if" <<'SWIFT'
+func f(n: Int) {
+    if n > 0 {
+        log()
+    } else {
+        let a = Array(repeating: 0, count: n)
+    }
+}
+SWIFT
+trap_shape "a disjunction in the guard" <<'SWIFT'
+func f(s: String, n: Int) {
+    guard s.isEmpty || n > 0 else { return }
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a && under a || in the guard" <<'SWIFT'
+func f(s: String, n: Int) {
+    guard n > 0 && s.isEmpty || other else { return }
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a let in another function" <<'SWIFT'
+func g() {
+    let n = 4
+    use(n)
+}
+func f(n: Int) {
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a guard in another function" <<'SWIFT'
+func g(n: Int) {
+    guard n >= 0 else { return }
+    use(n)
+}
+func f(n: Int) {
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "a C constant that is not a size" <<'SWIFT'
+func f() {
+    let a = Array(repeating: 0, count: Int(INT_MIN))
+}
+SWIFT
+trap_shape "a clamp the value then leaves" <<'SWIFT'
+func f(x: Int) {
+    var m = max(0, x) - 10
+    let a = Array(repeating: 0, count: m)
+}
+SWIFT
+trap_shape "self.width clamped, the parameter width counted" <<'SWIFT'
+init(width: Int) {
+    self.width = max(0, width)
+    self.cells = Array(repeating: 0, count: width)
+}
+SWIFT
+trap_shape "a reassignment after the guard" <<'SWIFT'
+func f(n: Int) {
+    var n = n
+    guard n >= 0 else { return }
+    n -= 5
+    let a = Array(repeating: 0, count: n)
+}
+SWIFT
+trap_shape "an inout use after the binding" <<'SWIFT'
+func f() {
+    var size = 0
+    query(&size)
+    let a = [UInt8](repeating: 0, count: size)
+}
+SWIFT
+trap_shape "a later turn of a loop" <<'SWIFT'
+func f() {
+    var room = 64
+    for _ in 0 ..< 2 {
+        let a = [Int32](repeating: 0, count: room)
+        room = needed()
+    }
+}
+SWIFT
+trap_shape "a closure parameter of the same name" <<'SWIFT'
+func f(n: Int) {
+    guard n >= 0 else { return }
+    let all = sizes.map { n in Array(repeating: 0, count: n) }
+}
+SWIFT
+# ... and the same checks where they hold do not count.
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+init(width: Int, s: String, n: Int, x: Int) {
+    self.width = max(0, width)
+    self.cells = Array(repeating: 0, count: self.width)
+    guard s.isEmpty && n >= 0 else {
+        return
+    }
+    let a = Array(repeating: 0, count: n)
+    var m = max(0, x)
+    let b = Array(repeating: 0, count: m)
+    let c = [CChar](repeating: 0, count: Int(PATH_MAX))
+    if x > 0, s.isEmpty {
+        let d = Array(repeating: 0, count: x)
+    }
+}
+SWIFT
+out="$(report trap_api)" || fail "--report trap_api failed: $out"
+[[ "$(hits trap_api <<<"$out")" == 0 ]] || fail "a check that holds at the call did not validate its count: $out"
 g reset -q
 reset
 
@@ -556,6 +751,136 @@ out="$(ratchet)" || fail "the CI compare read the report baseline: $out"
 python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --update-baseline >/dev/null || true
 cmp -s "$ci" "$tmp/ci-before.json" || fail "--update-baseline wrote a report row into crash-safety-baseline.json: $(cat "$ci")"
 rm -f "$tmp/ci-before.json" "$rb"
+reset
+
+# 24. --classify (p10-stability-205, Q21): every hit gets exactly one trap class, input or invariant, and the
+#     rule that gave it. Input: a decode entry point (Swift parse*, Rust decode*), its same-file callees, a body
+#     that reads file bytes, a `// trap-class: input` mark. Invariant: an `INVARIANT:` reason (Rust) or no rule.
+#     A string or a block comment never declares a function, and a bad mark is an error (exit 1).
+cp "$here/trap-classes.json" "$tmp/scripts/cmux-next/"
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+func parseHeader(_ text: String) -> Int {
+    let n = Int(text.count)
+    return width(n)
+}
+func width(_ n: Int) -> Int {
+    rows[n + 1]
+}
+func layout() -> Int {
+    let s = "func parseFake() { width(1) }"
+    /* func parseFake() {
+       width(2) } */
+    return rows[k + 1]
+}
+func load(path: URL) -> Int {
+    let data = try? Data(contentsOf: path)
+    return cells[m + 1]
+}
+func marked() -> Int {
+    // trap-class: input the count comes from a peer frame
+    return cells[m + 2]
+}
+SWIFT
+cat > "$tmp/cmux-tui/crates/x/src/lib.rs" <<'RUST'
+pub fn decode_frame(text: &str) -> usize {
+    let n: usize = text.parse().unwrap();
+    width(n)
+}
+fn width(n: usize) -> usize {
+    Some(n).expect("width")
+}
+pub fn layout() -> usize {
+    let s = "fn decode_fake() { width(1) }";
+    Some(1).unwrap()
+}
+pub fn checked() -> usize {
+    // INVARIANT: the table is built with one row
+    Some(2).expect("one row")
+}
+RUST
+g add -A
+classify() { python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --classify; }
+out="$(classify)" || fail "--classify failed on good marks: $out"
+summary="$(python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+for h in d["hits"]:
+    print(h["path"].split("/")[-1], h["line"], h["kind"], h["class"], h["rule"].split(" ")[0])
+print("classes", d["classes"]["input"], d["classes"]["invariant"], sum(h["hits"] for h in d["hits"]))
+' <<<"$out")"
+expect() { [[ "$summary" == *"$1"* ]] || fail "--classify: expected '$1' in: $summary"; }
+expect "F.swift 2 int_conversion input entry:parseHeader"
+expect "F.swift 6 index_subscript input callee:width"
+expect "F.swift 12 index_subscript invariant default"
+expect "F.swift 16 index_subscript input bytes:load"
+expect "F.swift 20 index_subscript input annotation"
+expect "lib.rs 2 unwrap input entry:decode_frame"
+expect "lib.rs 6 expect input callee:width"
+expect "lib.rs 10 unwrap invariant default"
+expect "lib.rs 14 expect invariant invariant-reason"
+# Nine hits, each in exactly one class.
+expect "classes 6 3 9"
+# --report's classes classify too.
+printf 'func parseX() async { await withCheckedContinuation { c in c.resume() } }\nfunc idle() async { await withCheckedContinuation { c in c.resume() } }\n' > "$shared/Sources/MessagesLabHome/F.swift"
+g add -A
+out="$(python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" --report raw_continuation --classify)" \
+  || fail "--report raw_continuation --classify failed: $out"
+[[ "$(python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print(d["classes"])' <<<"$out")" == "{'input': 1, 'invariant': 1}" ]] \
+  || fail "--report --classify did not class one input and one invariant continuation: $out"
+# The trap classes of --report (task 092) classify over the scope --report counts them in: index_subscript and
+# int_conversion over the index modules, or every module with --all-modules; trap_api over every package. Every hit
+# --report counts has exactly one class (Q09: --report trap_api,index_subscript,int_conversion --all-modules --classify).
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+func parseRow(_ text: String) -> Int {
+    let n = UInt8(text.count)
+    return rows[Int(n)]
+}
+func layout() -> Int {
+    queue.removeFirst()
+    return cells[j]
+}
+SWIFT
+printf 'func idle() -> Int {\n    return cells[k]\n}\n' > "$shared/Sources/MessagesLabHome/F.swift"
+g add -A
+crash() { python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" "$@"; }
+rows() { python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+for h in d["hits"]:
+    print(h["path"].split("/")[-1], h["line"], h["kind"], h["hits"], h["class"], h["rule"].split(" ")[0])
+print("classes", d["classes"]["input"], d["classes"]["invariant"])
+'; }
+out="$(crash --report index_subscript,int_conversion --classify)" || fail "--report index_subscript,int_conversion --classify failed: $out"
+summary="$(rows <<<"$out")"
+[[ "$summary" == $'F.swift 2 index_subscript 1 invariant default\nclasses 0 1' ]] \
+    || fail "--classify without --all-modules left the index modules: $summary"
+out="$(crash --report index_subscript,int_conversion --all-modules --classify)" \
+    || fail "--report index_subscript,int_conversion --all-modules --classify failed: $out"
+summary="$(rows <<<"$out")"
+expect "A.swift 2 int_conversion 1 input entry:parseRow"
+expect "A.swift 3 index_subscript 1 input entry:parseRow"
+expect "A.swift 3 int_conversion 1 input entry:parseRow"
+expect "A.swift 7 index_subscript 1 invariant default"
+expect "F.swift 2 index_subscript 1 invariant default"
+expect "classes 3 2"
+out="$(crash --report trap_api,index_subscript,int_conversion --all-modules --classify)" \
+    || fail "the Q09 command failed: $out"
+summary="$(rows <<<"$out")"
+expect "A.swift 6 trap_api 1 invariant default"
+counted="$(crash --report trap_api,index_subscript,int_conversion --all-modules \
+    | python3 -c 'import json, sys; print(sum(row["total"] for row in json.load(sys.stdin).values()))')"
+[[ "$summary" == *"classes 3 3"* && "$counted" == 6 ]] \
+    || fail "--classify does not give each of --report's $counted hits exactly one class: $summary"
+if out="$(crash --report trap_api --classify --update-report-baseline 2>&1)"; then
+    fail "--classify wrote the report baseline: $out"
+fi
+if out="$(crash --classify --all-modules 2>&1)"; then fail "--all-modules without --report was accepted: $out"; fi
+# A mark without a class or a reason is an error.
+printf 'func f() -> Int {\n    // trap-class: maybe\n    return rows[k + 1]\n}\n' > "$shared/Sources/MessagesLabHome/F.swift"
+g add -A
+if out="$(classify 2>&1)"; then fail "a trap-class mark without a class passed: $out"; fi
+[[ "$out" == *"F.swift:2: a \`// trap-class:\` mark needs input or invariant and a reason"* ]] || fail "the bad mark is not named: $out"
+g reset -q
 reset
 
 echo "crash-ratchet-v2.test.sh: ok"

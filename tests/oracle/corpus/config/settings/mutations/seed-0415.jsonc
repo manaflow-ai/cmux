@@ -1,0 +1,27 @@
+{
+  "sidebar": {
+    "workspaceRow": {
+      "terminal": {
+        "lastActivity": false
+      }
+    },
+  },
+  "diff": {
+    "groupByKind": 1
+  },
+  "appearance": {
+    "surfaces": {
+      "browserChrome": {
+        "opacity": 1,
+      },
+    },
+  },
+  "editor": {
+    "insertFinalNewline": false,
+  },
+  "ui": {
+    "animations": {
+      "enabled": 1,
+    }
+  }
+}

@@ -124,6 +124,7 @@ public final class ControlSocketServer: Sendable {
     typealias BindCall = @Sendable (Int32, UnixSocketAddress) -> Int32
     private let acceptCall: AcceptCall
     let bindCall: BindCall
+    // timer-class-allow: off main: the accept retry runs on the server's queue
     private let acceptRetry = DemandTimer(owner: "ControlSocketServer.acceptRetry")
     /// Puts the socket file back when something deletes it (``ControlSocketPathWatch``).
     private let pathWatch = Mutex<[ControlSocketPathWatch]>([])
