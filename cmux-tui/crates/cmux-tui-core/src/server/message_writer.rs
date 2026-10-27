@@ -13,6 +13,7 @@ use super::BudgetedText;
 use super::RenderService;
 use super::VtStateMessage;
 use super::api_revision_wire;
+use super::attach_streams::AttachStreamAdmission;
 use super::attach_streams::AttachStreamError;
 use super::attach_streams::ClientStreamId;
 use super::attach_streams::StreamEndReason;
@@ -100,8 +101,13 @@ pub(super) trait MessageSink: Send + Sync {
     }
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
     /// Takes `stream`'s client-minted id on this connection until its
-    /// terminal is queued (attach-streams-v1).
-    fn claim_client_stream(&self, _stream: &OutboundStream) -> Result<(), AttachStreamError> {
+    /// terminal is queued (attach-streams-v1), within the connection's and
+    /// `admission`'s daemon-wide caps.
+    fn claim_client_stream(
+        &self,
+        _stream: &OutboundStream,
+        _admission: &Arc<AttachStreamAdmission>,
+    ) -> Result<(), AttachStreamError> {
         Err(AttachStreamError::Unsupported)
     }
     /// The open stream holding client-minted `id` on this connection.
@@ -266,15 +272,21 @@ impl MessageWriter {
     /// The stream of a view whose id the client minted (attach-streams-v1):
     /// its items carry `"stream": id`, its overflow terminal is
     /// `stream-end{overflow}`, and `id` is this connection's until
-    /// `end_client_stream` or that overflow queues its terminal.
-    pub(super) fn start_client_stream(&self, id: ClientStreamId) -> anyhow::Result<OutboundStream> {
+    /// `end_client_stream` or that overflow queues its terminal. An id past
+    /// the connection's or `admission`'s daemon-wide cap is refused and
+    /// changes nothing (attach_streams.rs, "Caps").
+    pub(super) fn start_client_stream(
+        &self,
+        id: ClientStreamId,
+        admission: &Arc<AttachStreamAdmission>,
+    ) -> anyhow::Result<OutboundStream> {
         let overflow = self
             .render_service
             .serialize_control(&stream_end_json(id, StreamEndReason::Overflow))?;
         let mut stream =
             OutboundStream::new(self.next_stream_id.fetch_add(1, Ordering::Relaxed), overflow);
         stream.client_stream = Some(id);
-        self.sink.claim_client_stream(&stream)?;
+        self.sink.claim_client_stream(&stream, admission)?;
         Ok(stream)
     }
 

@@ -8798,7 +8798,9 @@ A connection granted `attach-streams-v1` (offered by `identify`, echoed in
 send `stream:uint16`, an id the client mints for this view; without the
 grant it is `streams_not_granted`. Every item of the view then carries `stream`, and
 `stream-end` is its last item; an id whose `stream-end` is not queued yet is
-refused with `stream_in_use`. A failure after the id was taken queues
+refused with `stream_in_use`. Past 4096 open streams on the connection or
+16384 in the daemon the open is refused with `stream_capacity` or
+`server_stream_capacity`, and nothing else changes. A failure after the id was taken queues
 `stream-end{reason:"attach_failed"}` before the error reply. See
 [events.md](events.md#attach-streams) and `cancel-stream`.
 

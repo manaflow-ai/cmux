@@ -2330,6 +2330,11 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// Open client-minted attach streams (attach-streams-v1) one connection may
+/// hold, and the daemon across its connections; past either only the open
+/// fails (server/attach_streams.rs).
+const ATTACH_STREAMS_PER_CLIENT_CAPACITY: usize = 4096;
+const ATTACH_STREAMS_SERVER_CAPACITY: usize = ATTACH_STREAMS_PER_CLIENT_CAPACITY * 4;
 
 mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;

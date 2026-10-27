@@ -18,7 +18,19 @@
 //! `NotifyPeerEndpointClosed`). Here the id table lives in the connection's
 //! outbound queue state, so queuing `stream-end` and freeing the id are one
 //! step under the lock that already orders the stream's items.
+//!
+//! Caps: a connection holds at most [`ATTACH_STREAMS_PER_CLIENT_CAPACITY`]
+//! open ids and the daemon at most [`ATTACH_STREAMS_SERVER_CAPACITY`]. Past
+//! either, only the open is refused (`stream_capacity`,
+//! `server_stream_capacity`); the connection and its open streams are
+//! unchanged. HTTP/2 does the same: a stream past
+//! SETTINGS_MAX_CONCURRENT_STREAMS is a stream error, not a connection error
+//! (RFC 9113 section 5.1.2; chromium net/spdy/spdy_session.cc
+//! `max_concurrent_streams_`), and a pool-wide bound sits over the per-group
+//! one (net/socket/client_socket_pool_manager.cc).
 
+use super::ATTACH_STREAMS_PER_CLIENT_CAPACITY;
+use super::ATTACH_STREAMS_SERVER_CAPACITY;
 use super::MessageWriter;
 use super::OutboundStream;
 use super::capabilities::IpcCapability;
@@ -28,6 +40,8 @@ use serde_json::Value;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 /// `stream` on `attach-surface` and the view requests, `stream-end`, and
 /// `cancel-stream`: a framed IPC grant (server/capabilities.rs), so a
@@ -75,6 +89,12 @@ pub(super) fn stream_end_json(stream: ClientStreamId, reason: StreamEndReason) -
 pub(super) enum AttachStreamError {
     /// `attach-surface` named an id whose `stream-end` is not queued yet.
     InUse(ClientStreamId),
+    /// The connection already holds `ATTACH_STREAMS_PER_CLIENT_CAPACITY`
+    /// open streams.
+    ConnectionCapacity,
+    /// The daemon already holds `ATTACH_STREAMS_SERVER_CAPACITY` open
+    /// streams across its connections.
+    ServerCapacity,
     /// A view request named an id with no open stream on this connection.
     Unknown(ClientStreamId),
     /// The stream is open but views another surface.
@@ -94,6 +114,8 @@ impl AttachStreamError {
     pub(super) fn code(self) -> &'static str {
         match self {
             Self::InUse(_) => "stream_in_use",
+            Self::ConnectionCapacity => "stream_capacity",
+            Self::ServerCapacity => "server_stream_capacity",
             Self::Unknown(_) => "unknown_stream",
             Self::SurfaceMismatch { .. } => "stream_surface_mismatch",
             Self::LeaseMismatch(_) => "stream_lease_mismatch",
@@ -109,6 +131,16 @@ impl std::fmt::Display for AttachStreamError {
         formatter.write_str(self.code())?;
         match self {
             Self::InUse(stream) => write!(formatter, ": stream {} is open", stream.0),
+            Self::ConnectionCapacity => write!(
+                formatter,
+                ": this connection holds {ATTACH_STREAMS_PER_CLIENT_CAPACITY} open streams"
+            ),
+            Self::ServerCapacity => {
+                write!(
+                    formatter,
+                    ": the daemon holds {ATTACH_STREAMS_SERVER_CAPACITY} open streams"
+                )
+            }
             Self::Unknown(stream) => write!(formatter, ": no open stream {}", stream.0),
             Self::SurfaceMismatch { stream, surface } => {
                 write!(formatter, ": stream {} does not view surface {surface}", stream.0)
@@ -127,33 +159,83 @@ impl std::fmt::Display for AttachStreamError {
 
 impl std::error::Error for AttachStreamError {}
 
+/// The daemon-wide count of open client-minted streams, shared by every
+/// connection's [`ClientStreams`]: one atomic, no lock.
+pub(crate) struct AttachStreamAdmission {
+    open: AtomicUsize,
+    capacity: usize,
+}
+
+impl AttachStreamAdmission {
+    pub(super) fn new(capacity: usize) -> Arc<Self> {
+        Arc::new(Self { open: AtomicUsize::new(0), capacity })
+    }
+
+    /// One open stream's place under the daemon cap, held until it drops.
+    pub(super) fn try_reserve(self: &Arc<Self>) -> Result<AttachStreamPermit, AttachStreamError> {
+        self.open
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |open| {
+                (open < self.capacity).then_some(open + 1)
+            })
+            .map(|_| AttachStreamPermit { admission: self.clone() })
+            .map_err(|_| AttachStreamError::ServerCapacity)
+    }
+
+    #[cfg(test)]
+    pub(super) fn open(&self) -> usize {
+        self.open.load(Ordering::Acquire)
+    }
+}
+
+/// An open client-minted stream's place under the daemon cap.
+pub(super) struct AttachStreamPermit {
+    admission: Arc<AttachStreamAdmission>,
+}
+
+impl Drop for AttachStreamPermit {
+    fn drop(&mut self) {
+        self.admission.open.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// The client-minted ids a connection holds, each until its stream's
 /// terminal is queued. Kept in the connection's outbound queue state.
 #[derive(Default)]
 pub(super) struct ClientStreams {
-    open: HashMap<ClientStreamId, OutboundStream>,
+    open: HashMap<ClientStreamId, (OutboundStream, AttachStreamPermit)>,
 }
 
 impl ClientStreams {
-    pub(super) fn claim(&mut self, stream: &OutboundStream) -> Result<(), AttachStreamError> {
+    /// Takes `stream`'s id. An id still open, a connection at its cap and a
+    /// daemon at its cap are refused, in that order, and change nothing.
+    pub(super) fn claim(
+        &mut self,
+        stream: &OutboundStream,
+        admission: &Arc<AttachStreamAdmission>,
+    ) -> Result<(), AttachStreamError> {
         let Some(id) = stream.client_stream else { return Ok(()) };
         if self.open.contains_key(&id) {
             return Err(AttachStreamError::InUse(id));
         }
-        self.open.insert(id, stream.clone());
+        if self.open.len() >= ATTACH_STREAMS_PER_CLIENT_CAPACITY {
+            return Err(AttachStreamError::ConnectionCapacity);
+        }
+        let permit = admission.try_reserve()?;
+        self.open.insert(id, (stream.clone(), permit));
         Ok(())
     }
 
-    /// Frees `stream`'s id; an id a newer stream holds stays.
+    /// Frees `stream`'s id and its place under the daemon cap; an id a newer
+    /// stream holds stays.
     pub(super) fn release(&mut self, stream: &OutboundStream) {
         let Some(id) = stream.client_stream else { return };
-        if self.open.get(&id).is_some_and(|open| open.id == stream.id) {
+        if self.open.get(&id).is_some_and(|(open, _)| open.id == stream.id) {
             self.open.remove(&id);
         }
     }
 
     pub(super) fn get(&self, id: ClientStreamId) -> Option<OutboundStream> {
-        self.open.get(&id).cloned()
+        self.open.get(&id).map(|(stream, _)| stream.clone())
     }
 
     pub(super) fn clear(&mut self) {
@@ -255,3 +337,7 @@ pub(super) fn cancel_stream(
 #[cfg(test)]
 #[path = "attach_streams_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "attach_stream_caps_tests.rs"]
+mod stream_caps;

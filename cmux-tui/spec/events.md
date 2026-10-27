@@ -1770,6 +1770,12 @@ message of the endpoint (chromium
 - `attach-surface {stream}` takes a `uint16` id the client chose. An id
   whose `stream-end` is not queued yet is refused with `stream_in_use`; the
   open stream and the connection are unchanged.
+- A connection holds at most 4096 open streams and the daemon at most 16384
+  across its connections. An open past either is refused with
+  `stream_capacity` (this connection) or `server_stream_capacity` (the
+  daemon); only that open fails, with no `stream-end`, and the connection
+  and its open streams are unchanged. An id is counted until its
+  `stream-end` is queued.
 - Every item of the view carries `"stream": id` as its first member: the
   READY (`vt-state`, `snapshot`, `render-state` or `browser-state`) before the
   reply, then output, resizes, notifications, `detached`, and `stream-end`.

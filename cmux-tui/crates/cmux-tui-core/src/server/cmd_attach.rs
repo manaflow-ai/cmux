@@ -266,9 +266,11 @@ pub(super) fn attach_surface(
         );
     };
     // attach-streams-v1: the id is this connection's from here until its
-    // `stream-end`; a failed attach ends it before its error reply.
+    // `stream-end`; a failed attach ends it before its error reply. An id
+    // past the connection or daemon cap fails only this open.
     super::attach_streams::require_grant(mux, client)?;
-    let outbound_stream = writer.start_client_stream(stream)?;
+    let outbound_stream =
+        writer.start_client_stream(stream, &mux.control_clients.attach_stream_admission)?;
     let attached = if snapshot_attach {
         snapshot.attach(mux, client, surface, writer, initial_size, outbound_stream.clone())
     } else {
