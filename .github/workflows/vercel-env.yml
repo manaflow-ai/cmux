@@ -8,6 +8,10 @@ name: Vercel env (cmux.com)
 # - Values: never an input (inputs are logged). Each value is a GitHub secret
 #   of the same name in the vercel-env-production environment, which also
 #   holds VERCEL_TOKEN, so only a reviewer-approved run on main reaches either.
+#   GitHub falls back to a repository or organization secret of the same name
+#   when the environment lacks one; keep these names out of those scopes (the
+#   job token cannot list secrets, so the workflow cannot check this itself).
+#   GitHub stores no empty secret: to clear a variable, run remove.
 # - Effect: Vercel applies env changes to new deployments only. The next main
 #   deploy picks the change up; redeploy from the Vercel dashboard to apply it
 #   sooner. This workflow does not deploy.
@@ -46,7 +50,10 @@ jobs:
   apply:
     # Only trusted main code runs with the Vercel token.
     if: ${{ github.ref == 'refs/heads/main' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Pinned, not vars.LINUX_RUNNER: a repository variable changes without a
+    # pull request, and this job holds the Vercel token.
+    # A fork has no Blacksmith runners (and no environment or token).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     environment: vercel-env-production
     permissions:

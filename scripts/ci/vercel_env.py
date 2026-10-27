@@ -32,7 +32,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 import urllib.error
 import urllib.parse
@@ -60,18 +59,6 @@ def register_secret(value: str | None) -> None:
     _SECRETS.append(value)
     # A multi-line value is masked line by line too, so no fragment survives.
     _SECRETS.extend(line for line in value.splitlines() if len(line.strip()) >= 4)
-
-
-ERROR_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
-
-
-def error_code(value: object) -> str:
-    """A provider error code if it looks like an identifier, else a fixed word.
-
-    Provider messages are never printed: one may quote the request, and a
-    truncated or escaped copy of the value would get past redact().
-    """
-    return value if isinstance(value, str) and ERROR_CODE.match(value) else "error"
 
 
 def redact(text: object) -> str:
@@ -126,8 +113,8 @@ def plan(envs: list[dict[str, Any]], name: str, target: str, action: str, secret
         raise Refused(
             f"{name} for {target} shares one entry with {', '.join(others)}; run remove for {target} first, then set"
         )
-    if secret and entry.get("type") != SENSITIVE:
-        raise Refused(f"{name} is a secret but its {target} entry is {entry.get('type')}; run remove for {target} first, then set")
+    if entry.get("type") != want:
+        raise Refused(f"{name} must be {want} but its {target} entry is {entry.get('type')}; run remove for {target} first, then set")
     return {"op": "update", "id": entry["id"], "previousUpdatedAt": entry.get("updatedAt"), "outcome": "updated"}
 
 
@@ -143,8 +130,9 @@ def verify(envs: list[dict[str, Any]], name: str, target: str, action: str, secr
     entry = found[0]
     if targets_of(entry) != [target]:
         raise Refused(f"{name} entry covers {targets_of(entry)} after set, expected only {target}")
-    if secret and entry.get("type") != SENSITIVE:
-        raise Refused(f"{name} was written as {entry.get('type')}, expected {SENSITIVE}")
+    want = SENSITIVE if secret else ENCRYPTED
+    if entry.get("type") != want:
+        raise Refused(f"{name} was written as {entry.get('type')}, expected {want}")
     if step["op"] == "update":
         before, after = step.get("previousUpdatedAt"), entry.get("updatedAt")
         if before is not None and (after is None or after <= before):
@@ -167,13 +155,9 @@ def http_request(token: str, team_id: str) -> Request:
             with urllib.request.urlopen(req, timeout=30) as response:
                 raw = response.read()
         except urllib.error.HTTPError as error:
-            # Status and Vercel's error code only; never its message or the request.
-            try:
-                detail = json.loads(error.read() or b"{}").get("error") or {}
-            except (ValueError, AttributeError):
-                detail = {}
-            code = error_code(detail.get("code") if isinstance(detail, dict) else None)
-            raise Refused(f"Vercel {method} {path.split('?')[0]} returned HTTP {error.code} ({code})") from None
+            # The status only. Vercel's body is never read: its message or code
+            # may echo the value, and a partial copy would get past redact().
+            raise Refused(f"Vercel {method} {path.split('?')[0]} returned HTTP {error.code}") from None
         except urllib.error.URLError as error:
             raise Refused(f"Vercel {method} {path.split('?')[0]} failed: {type(error.reason).__name__}") from None
         return json.loads(raw) if raw else {}
@@ -201,8 +185,7 @@ def apply(request: Request, project_id: str, name: str, target: str, value: str 
     if op == "create":
         result = request("POST", f"/v10/projects/{project_id}/env", {"key": name, "value": value, "type": step["type"], "target": [target]})
         if result.get("failed"):
-            codes = [error_code(((f or {}).get("error") or {}).get("code")) for f in result["failed"]]
-            raise Refused(f"Vercel refused to create {name}: {', '.join(codes)}")
+            raise Refused(f"Vercel refused to create {name} ({len(result['failed'])} failed)")
     elif op == "update":
         request("PATCH", f"/v9/projects/{project_id}/env/{step['id']}", {"value": value})
     elif op == "narrow":
@@ -272,7 +255,10 @@ def run(args: argparse.Namespace, env: dict[str, str], request: Request | None =
     if not token:
         raise Refused(f"VERCEL_TOKEN is not set in the {allow['environment']} environment")
     if args.action == "set" and not value:
-        raise Refused(f"secret {args.name} is empty or missing in the {allow['environment']} environment")
+        # GitHub stores no empty secret, so empty means missing. A variable
+        # whose empty value means something (CMUX_RUN_SANDBOX_USER_IDS: nobody)
+        # gets that meaning from remove: unset reads as empty at runtime.
+        raise Refused(f"secret {args.name} is missing in the {allow['environment']} environment (to clear a variable, run remove)")
 
     project = allow["project"]
     request = request or http_request(token, project["teamId"])

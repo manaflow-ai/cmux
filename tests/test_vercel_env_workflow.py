@@ -87,8 +87,11 @@ class WorkflowMatchesAllowlist(unittest.TestCase):
         self.assertEqual(self.job["environment"], self.allow["environment"])
         self.assertEqual(self.job["permissions"], {"contents": "read", "actions": "read"})
         self.assertEqual(self.job["if"], "${{ github.ref == 'refs/heads/main' }}")
-        self.assertNotRegex(self.job["runs-on"], r"(?i)mac")
-        self.assertIn("blacksmith-", self.job["runs-on"])
+        self.assertEqual(
+            self.job["runs-on"],
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}",
+            "no repository variable may move this job",
+        )
         self.assertIs(self.doc["concurrency"]["cancel-in-progress"], False)
         names = [s.get("name") for s in self.job["steps"]]
         self.assertLess(names.index("Refuse an unprotected environment"), names.index("Apply and verify"))
@@ -147,9 +150,13 @@ class Planner(unittest.TestCase):
         with self.assertRaisesRegex(vercel_env.Refused, "remove for production first"):
             vercel_env.plan([env(self.N, ["production", "preview"])], self.N, "production", "set", False)
 
-    def test_secret_over_readable_entry_is_refused(self) -> None:
-        with self.assertRaisesRegex(vercel_env.Refused, "is a secret"):
+    def test_entry_of_the_wrong_type_is_refused(self) -> None:
+        with self.assertRaisesRegex(vercel_env.Refused, "must be sensitive"):
             vercel_env.plan([env(self.N, "production", type_="encrypted")], self.N, "production", "set", True)
+        with self.assertRaisesRegex(vercel_env.Refused, "must be encrypted"):
+            vercel_env.plan([env(self.N, "production", type_="sensitive")], self.N, "production", "set", False)
+        with self.assertRaisesRegex(vercel_env.Refused, "expected encrypted"):
+            vercel_env.verify([env(self.N, ["production"], type_="plain")], self.N, "production", "set", False, {"op": "create"})
 
     def test_remove(self) -> None:
         self.assertEqual(vercel_env.plan([], self.N, "production", "remove", True)["op"], "none")
@@ -244,6 +251,12 @@ class ScriptNeverPrintsTheValue(unittest.TestCase):
         self.assertIn("***", text)
         self.assert_clean(text)
 
+    def test_missing_secret_points_at_remove(self) -> None:
+        with mock.patch.object(self, "VALUE", ""):
+            code, text = self.run_script(["--name", "CMUX_RUN_SANDBOX_USER_IDS", "--target", "production", "--action", "set"], lambda *_: {"envs": []})
+        self.assertEqual(code, 1)
+        self.assertIn("to clear a variable, run remove", text)
+
 
 class HttpErrorsPrintNoProviderText(unittest.TestCase):
     """The real request function, fed a Vercel error that echoes the value."""
@@ -266,10 +279,7 @@ class HttpErrorsPrintNoProviderText(unittest.TestCase):
             with self.subTest(body=str(body)[:60]), mock.patch("urllib.request.urlopen", side_effect=error):
                 with self.assertRaises(vercel_env.Refused) as caught:
                     request("POST", "/v10/projects/p/env", {"value": value})
-                message = str(caught.exception)
-                self.assertRegex(message, r"returned HTTP 400 \((bad_request|error)\)$")
-                self.assertNotIn("vvvv", message)
-                self.assertNotIn("tail", message)
+                self.assertEqual(str(caught.exception), "Vercel POST /v10/projects/p/env returned HTTP 400")
 
     def test_unexpected_exceptions_print_only_their_class(self) -> None:
         err = io.StringIO()
