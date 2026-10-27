@@ -39,9 +39,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// The group headers' summary card body, reused group to group.
     private var groupBody: GroupHoverCardView?
     private var bodyID: HoverTargetID?
-    /// Ticks the shown card's running times once a second (one-shot, re-armed by each tick);
-    /// idle while no live card shows, so a quiet sidebar wakes nothing.
-    private let ticker = DemandTimer(owner: "sidebar.hover-card.elapsed")
+    /// One deadline for the shown card's next running-time change, re-armed by each tick and each
+    /// content change; idle while no live card shows, so a quiet sidebar wakes nothing.
+    private let ticker: DemandTimer
     /// The user's customization (`cmux.hovercard/1`); the App injects it.
     var customization: (any SidebarCustomization)?
     /// A workspace's history of prompts, waits and finished turns (u3320); the App injects it.
@@ -51,8 +51,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// The shown card's custom content and its workspace; released when the card hides or moves.
     private var custom: (id: WorkspaceID, content: any SidebarCustomContent)?
 
-    init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
+    init(coordinator: HoverCardCoordinator = HoverCardCoordinator(), ticker: DemandTimer = DemandTimer(owner: "sidebar.hover-card.elapsed")) {
         self.coordinator = coordinator
+        self.ticker = ticker
         #if DEBUG
         HoverCardGallery.register("sidebar") { WorkspaceHoverCardGallery.cards() }
         #endif
@@ -218,13 +219,13 @@ final class WorkspaceHoverCardController: HoverCardSource {
     }
 
     /// Arms one deadline for a shown running time's next change (no periodic tick), stops it otherwise.
+    /// Each call replaces the pending one: new content (a command just started) changes text sooner.
     private func updateTicker() {
         // A group's summary card has no running time: only a workspace card ticks. wall-clock: a model Date.
         guard let id = bodyID, workspaceID(id) != nil, let body, let delay = body.nextTickDelay(now: Date()) else {
             ticker.cancel()
             return
         }
-        guard !ticker.isScheduled else { return }
         ticker.scheduleOnMain(after: delay) { [weak self] in self?.tickShownCard() }
     }
 
@@ -422,7 +423,7 @@ final class WorkspaceHoverCardView: NSView {
         return (activityWord != nil && content.activitySince != nil) || content.facts.contains { $0.since != nil }
     }
 
-    /// Rewrites the running times for `now` (once a second while the card shows). True when a
+    /// Rewrites the running times for `now` (at each deadline while the card shows). True when a
     /// text got longer or shorter, so the panel measures the card again.
     @discardableResult
     func tick(now: Date) -> Bool {
