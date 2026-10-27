@@ -365,7 +365,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
-/// An action's `path` or `out` argument as the app must read it: a relative
+/// An action's `path`, `out` or `cwd` argument as the app must read it: a relative
 /// path names a folder or file of the caller's working directory, and the app
 /// runs elsewhere, so it is made absolute here (`.` parts dropped). An
 /// absolute path, `~/…`, `-` (stdout: `cmux window screenshot --out -`), or a
@@ -517,8 +517,9 @@ pub(super) fn run_action(
             }
             _ => {
                 let key = argument_name(&name);
-                // A file of the caller's working directory, for an app that runs elsewhere.
-                let file = matches!(key.as_str(), "path" | "out" | "bootstrapScript");
+                // A file or folder of the caller's working directory, for an app that runs elsewhere.
+                let file = matches!(key.as_str(), "path" | "out" | "bootstrapScript")
+                    || (key == "cwd" && cwd_is_callers(action));
                 let value = if file { caller_path(value) } else { value };
                 arguments.insert(key, value);
             }
@@ -534,6 +535,18 @@ pub(super) fn run_action(
         timeout: Some(if wait { waiting_run_timeout(action) } else { READ_TIMEOUT }),
         pick: None,
     })
+}
+
+/// Whether an action's `cwd` names a folder of the caller's machine. A remote,
+/// cloud or agent action's `cwd` is a folder on the machine it runs on
+/// (`cmux open-remote HOST --cwd .`, `cmux cloud start-session --cwd src`), so it
+/// is sent as typed. `action` is a CLI name (`open-remote`) or an action id
+/// (`remote.openRemote`).
+fn cwd_is_callers(action: &str) -> bool {
+    let first = action.split([' ', '.']).next().unwrap_or_default();
+    !(matches!(first, "remote" | "open-remote" | "cloud" | "agent")
+        || first.starts_with("cloud")
+        || action == "palette.newAgentChat")
 }
 
 pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
