@@ -272,11 +272,17 @@ draw() {
   r=1
   while [ $r -le $rows ]; do printf '\033[%d;1Hr%d %dx%d' $r $r $cols $rows; r=$((r+1)); done
   printf '\033[?2026l'
-  stty size > "$dir/drawn.tmp"; mv "$dir/drawn.tmp" "$dir/drawn"
+  echo "$rows $cols" > "$dir/drawn.tmp"; mv "$dir/drawn.tmp" "$dir/drawn"
 }
-trap draw WINCH
+# The handler only flags the resize: a full-screen program redraws from its
+# main loop, so a SIGWINCH during a redraw never lets an older redraw finish last.
+resized=0
+trap 'resized=1' WINCH
 draw
-while [ ! -e "$dir/quit" ]; do sleep 0.02; done
+while [ ! -e "$dir/quit" ]; do
+  if [ $resized = 1 ]; then resized=0; draw; fi
+  sleep 0.02
+done
 printf '\033[?1049l'
 printf 'left-alt\n'
 while :; do sleep 1; done
