@@ -37,6 +37,9 @@ private func cmuxTestGhosttyMouseScrollReset()
 @_silgen_name("cmux_test_ghostty_mouse_scroll_call_count")
 private func cmuxTestGhosttyMouseScrollCallCount() -> UInt32
 
+@_silgen_name("cmux_test_ghostty_mouse_scroll_last_x")
+private func cmuxTestGhosttyMouseScrollLastX() -> Double
+
 @_silgen_name("cmux_test_ghostty_mouse_scroll_last_y")
 private func cmuxTestGhosttyMouseScrollLastY() -> Double
 
@@ -371,7 +374,8 @@ struct TerminalSurfaceExplicitInputTests {
         fixture.surface.mobileScroll(deltaLines: -2, col: 0, row: 0)
 
         #expect(cmuxTestGhosttyMouseScrollCallCount() == 1)
-        #expect(cmuxTestGhosttyMouseScrollLastMods() & 1 == 1)
+        #expect(cmuxTestGhosttyMouseScrollLastMods() == 1)
+        #expect(cmuxTestGhosttyMouseScrollLastX() == 0)
         #expect(cmuxTestGhosttyMouseScrollLastY() == -2 * 32)
     }
 
