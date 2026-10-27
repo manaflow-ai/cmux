@@ -285,13 +285,6 @@ test('an older RC line that fails after a newer line published is resolved by th
   // The newer line's next close knows its line and resolves it.
   assert.deepEqual(await publish(github, sha('4'), 'rc/v0.65.3', rc), [1]);
 });
-  github.rest.repos.getReleaseByTag = async () => ({ data: { body: `<!-- cmux-published-sha: ${sha('4')} -->` } });
-  assert.equal(await fail(github, sha('2'), 'rc/v0.65.2', { ...rc, releaseTag: 'rc' }), null);
-  assert.equal(issues.length, 0);
-  // The newer line's own later failure is an incident.
-  github.rest.repos.getReleaseByTag = async () => ({ data: { body: `<!-- cmux-published-sha: ${sha('2')} -->` } });
-  assert.equal(await fail(github, sha('4'), 'rc/v0.65.3', { ...rc, releaseTag: 'rc' }), 1);
-});
 
 test('open duplicates left by older code are each resolved on their own', async () => {
   const { github, issues } = fakeGitHub({ parents: MAIN, labelExists: true });
