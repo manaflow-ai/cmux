@@ -32,9 +32,10 @@ let draftWriteSequence = 0;
 let flushingDraftWrites = false;
 // The drain running now (while `flushingDraftWrites`), so a quit can wait for it (settlePendingDraftWrites).
 let draftDrain: Promise<void> | undefined;
-// The newest text handed to acpmux's queue and not yet saved, by session: a quit compares the
-// editor's value with it. An entry goes once acpmux holds that text or its composer leaves the
-// session (forgetQueuedDraft), so the map holds only drafts still on their way.
+// The newest text this page handed to acpmux, by session: a quit compares the editor's value with
+// it, so text acpmux already holds is not written again over another pane's newer edit. An entry
+// goes when its composer leaves the chat or closes (forgetQueuedDraft), or the draft is cleared, so
+// the map holds at most one entry per open composer.
 const lastQueuedDraft = new Map<string, string>();
 const pendingDraftWrites = new Map<string, { sessionId: string; text: string; sequence: number }>();
 // WEB-SWAP: a web update's reload waits until acpmux holds every draft (pages/shared/webSwap.ts):
@@ -52,10 +53,27 @@ const noop = () => undefined;
 /** How long one draft write may go unanswered before it counts as failed (tests shorten it). */
 export const draftWriteLimits = { timeoutMs: 5_000 };
 
-// A write that timed out may still reach acpmux later. Nothing newer goes through the same
-// connection until it answers, so that late write can never land over a newer draft or a clear.
-// A new connection (a replaced action) drops it: its request went with the old one.
-let unansweredWrite: { action: DraftAction; settled: Promise<unknown> } | undefined;
+// A write that timed out may still land later, over a newer draft or a clear. Writes keep going
+// (a write that never answers holds nothing up); when a late one answers, the newest text sent for
+// its session since then goes again, so the newest still lands last. An entry goes once every
+// timed-out write of its session has answered.
+const lateWrites = new Map<string, { outstanding: number; newer?: string }>();
+
+function writeTimedOut(sessionId: string, text: string, sent: Promise<unknown>): void {
+  const late = lateWrites.get(sessionId) ?? { outstanding: 0 };
+  late.outstanding += 1;
+  lateWrites.set(sessionId, late);
+  void Promise.resolve(sent)
+    .then(noop, noop)
+    .then(() => {
+      late.outstanding -= 1;
+      if (!late.outstanding) lateWrites.delete(sessionId);
+      const newer = late.newer;
+      if (newer === undefined || newer === text || pendingDraftWrites.has(sessionId)) return;
+      pendingDraftWrites.set(sessionId, { sessionId, text: newer, sequence: ++draftWriteSequence });
+      flushPendingDraftWrites();
+    });
+}
 
 /** `write`, or a rejection once it has gone unanswered for `draftWriteLimits.timeoutMs`. */
 function answeredInTime(write: Promise<unknown>): Promise<unknown> {
@@ -118,17 +136,6 @@ async function flushDraftWrites(): Promise<void> {
     while (pendingDraftWrites.size) {
       const action = pageDraftAction("chat.writeDraft");
       if (!action) break;
-      if (unansweredWrite && unansweredWrite.action !== action) unansweredWrite = undefined;
-      if (unansweredWrite) {
-        try {
-          await answeredInTime(unansweredWrite.settled);
-          unansweredWrite = undefined;
-        } catch {
-          // Still unanswered: what is queued stays queued, and the next try waits again.
-          break;
-        }
-        continue;
-      }
       const next = pendingDraftWrites.entries().next().value as
         | [string, { sessionId: string; text: string; sequence: number }]
         | undefined;
@@ -138,16 +145,12 @@ async function flushDraftWrites(): Promise<void> {
       let sent: Promise<unknown> | undefined;
       try {
         sent = action({ sessionId: write.sessionId, text: write.text });
+        const late = lateWrites.get(sessionId);
+        if (late) late.newer = write.text;
         // A write that never answers would keep this drain, and the web-swap hold, forever.
         await answeredInTime(sent);
-        // acpmux holds it: a quit has nothing to compare with until the next keystroke.
-        if (!pendingDraftWrites.has(sessionId) && lastQueuedDraft.get(sessionId) === write.text) {
-          lastQueuedDraft.delete(sessionId);
-        }
       } catch (error) {
-        if (error === WRITE_TIMED_OUT && sent) {
-          unansweredWrite = { action, settled: Promise.resolve(sent).then(noop, noop) };
-        }
+        if (error === WRITE_TIMED_OUT && sent) writeTimedOut(sessionId, write.text, sent);
         // A disconnect can invalidate the action while it is in flight, or it never answers. Keep
         // the newest value for the next try, while preserving a later keystroke already in the queue.
         const current = pendingDraftWrites.get(sessionId);
@@ -183,7 +186,7 @@ export function settlePendingDraftWrites(): Promise<void> {
   return pendingDraftWrites.size || flushingDraftWrites ? drainDraftWrites() : Promise.resolve();
 }
 
-/** The newest text queued for `sessionId`'s acpmux draft and not yet saved, or undefined when none is. */
+/** The newest text this page queued for `sessionId`'s acpmux draft, or undefined when none is kept. */
 export function lastQueuedDraftText(sessionId: string): string | undefined {
   return lastQueuedDraft.get(sessionId);
 }

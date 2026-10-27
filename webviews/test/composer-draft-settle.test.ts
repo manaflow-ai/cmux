@@ -173,59 +173,77 @@ test("a draft write that never answers fails after its timeout, and the web-swap
   // Without the timeout this drain, and with it the web-update hold, would never end.
   await settlePendingDraftWrites();
   expect(hasPendingDraftWrite("timeout-a")).toBe(true);
-  // The ask retries: its drain waits for the unanswered write before it sends the queued one.
-  expect(composerHold()).toBe("composer.draft-unsaved");
-  writer.release(); // acpmux answers the first write
-  await tick();
-  writer.release(); // and the retry
+  expect(composerHold()).toBe("composer.draft-unsaved"); // and it sends the queued text again
+  writer.release(); // acpmux answers both
   await settlePendingDraftWrites();
   expect(hasPendingDraftWrite("timeout-a")).toBe(false);
   expect(composerHold()).toBeNull();
   expect(writer.landed.map((write) => write.text)).toEqual(["stuck", "stuck"]);
 });
 
-test("a write that timed out and answers late never lands over a newer draft", async () => {
+/** A writer whose writes land only when `land(i)` is called, in any order. */
+function orderedWriter(): { landed: string[]; land: (index: number) => void } {
+  const landed: string[] = [];
+  const writes: (() => void)[] = [];
+  scope.window = {
+    cmuxAcpmuxActions: {
+      "chat.writeDraft": (params: Record<string, unknown>) =>
+        new Promise<void>((resolve) => {
+          writes.push(() => {
+            landed.push(String(params.text));
+            resolve();
+          });
+        }),
+    },
+  };
+  return { landed, land: (index) => writes[index]?.() };
+}
+
+test("a write that timed out and lands after a newer one is followed by the newer text again", async () => {
   draftWriteLimits.timeoutMs = 20;
-  const writer = installWriter();
+  const writer = orderedWriter();
   writePersistedDraft("late-a", "old");
   await settlePendingDraftWrites(); // "old" times out, still on its way
-  writePersistedDraft("late-a", ""); // the person cleared the prompt
-  await settlePendingDraftWrites(); // nothing newer is sent while "old" may still land
-  expect(writer.landed).toEqual([]);
-  expect(hasPendingDraftWrite("late-a")).toBe(true);
-  writer.release(); // "old" lands late
+  writePersistedDraft("late-a", ""); // the person cleared the prompt: sent at once
+  const cleared = settlePendingDraftWrites();
+  writer.land(1); // the clear lands
+  await cleared;
+  writer.land(0); // then "old" lands late, over it
   await tick();
-  const settled = settlePendingDraftWrites();
-  await tick();
-  writer.release(); // then the clear, last
-  await settled;
-  expect(writer.landed.map((write) => write.text)).toEqual(["old", ""]);
+  const healed = settlePendingDraftWrites();
+  writer.land(2); // the clear goes again, last
+  await healed;
+  expect(writer.landed).toEqual(["", "old", ""]);
+  expect(hasPendingDraftWrite("late-a")).toBe(false);
 });
 
-test("a new connection does not wait for the old connection's unanswered write", async () => {
+test("a write that never answers on a live connection holds no later write", async () => {
   draftWriteLimits.timeoutMs = 20;
-  installWriter();
-  writePersistedDraft("late-b", "old");
-  await settlePendingDraftWrites(); // times out on the first connection
-  const writer = installWriter(); // a reconnect installs new actions
-  const settled = settlePendingDraftWrites();
-  await tick();
-  writer.release();
-  await settled;
-  expect(writer.landed.map((write) => write.text)).toEqual(["old"]);
-  expect(hasPendingDraftWrite("late-b")).toBe(false);
+  const landed: string[] = [];
+  let calls = 0;
+  scope.window = {
+    cmuxAcpmuxActions: {
+      "chat.writeDraft": (params: Record<string, unknown>) =>
+        calls++ === 0 ? new Promise(() => undefined) : Promise.resolve().then(() => void landed.push(String(params.text))),
+    },
+  };
+  writePersistedDraft("hung-a", "one");
+  await settlePendingDraftWrites(); // never answers: times out
+  writePersistedDraft("hung-a", "two");
+  await settlePendingDraftWrites();
+  expect(landed).toEqual(["two"]);
+  expect(hasPendingDraftWrite("hung-a")).toBe(false);
+  expect(composerHold()).toBeNull();
 });
 
-test("a saved draft leaves the quit's comparison; a newer text stays until it lands too", async () => {
+test("a saved draft stays the quit's comparison until its composer leaves the chat", async () => {
   const writer = installWriter();
   writePersistedDraft("saved-a", "one");
-  await tick();
-  writePersistedDraft("saved-a", "two");
-  writer.release(); // "one" lands while "two" waits
-  await tick();
-  expect(lastQueuedDraftText("saved-a")).toBe("two");
   writer.release();
   await settlePendingDraftWrites();
+  // A quit must not write it again: another pane may have changed the draft since.
+  expect(lastQueuedDraftText("saved-a")).toBe("one");
+  forgetQueuedDraft("saved-a");
   expect(lastQueuedDraftText("saved-a")).toBeUndefined();
 });
 
