@@ -41,9 +41,9 @@ struct CloudNewWorkspaceTests {
     @Test func onSendsAPersonsNewWorkspaceToANewMachineWithItsWorkingCopy() throws {
         let (root, nested) = try Self.project()
         let plan = try #require(Self.plan(Self.settings(inCloud: true), cwd: nested))
-        #expect(plan.folder?.root == root, "the whole working copy is copied, not only the nested folder")
-        #expect(plan.folder?.subpath == "src/ui", "the workspace opens where the person was")
-        #expect(plan.workspaceName == "app")
+        let folder = try #require(plan.resolvedFolder())
+        #expect(folder.root == root, "the whole working copy is copied, not only the nested folder")
+        #expect(folder.subpath == "src/ui", "the workspace opens where the person was")
     }
 
     /// A folder outside any git working copy (`/Users`, `~/Downloads`, a disk) is never copied:
@@ -51,20 +51,20 @@ struct CloudNewWorkspaceTests {
     @Test func aPlainFolderOutsideGitIsNotCopied() throws {
         let plain = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-new-ws-\(UUID().uuidString)/Downloads").path
         try FileManager.default.createDirectory(atPath: plain + "/big", withIntermediateDirectories: true)
-        #expect(try #require(Self.plan(Self.settings(inCloud: true), cwd: plain + "/big")).folder == nil)
+        #expect(try #require(Self.plan(Self.settings(inCloud: true), cwd: plain + "/big")).resolvedFolder() == nil)
     }
 
     @Test func emptyFolderStartsWithNothingCopied() throws {
         let (_, nested) = try Self.project()
         let plan = try #require(Self.plan(Self.settings(inCloud: true, folder: "empty"), cwd: nested))
-        #expect(plan.folder == nil)
-        #expect(plan.workspaceName == nil)
+        #expect(plan.source == nil)
+        #expect(plan.resolvedFolder() == nil)
     }
 
     @Test func aHomeFolderOrNoFolderStartsEmptyInsteadOfCopyingIt() throws {
         let on = Self.settings(inCloud: true)
-        #expect(try #require(Self.plan(on, cwd: NSHomeDirectory())).folder == nil, "a home folder is never copied to a machine")
-        #expect(try #require(Self.plan(on, cwd: nil)).folder == nil)
+        #expect(try #require(Self.plan(on, cwd: NSHomeDirectory())).resolvedFolder() == nil, "a home folder is never copied to a machine")
+        #expect(try #require(Self.plan(on, cwd: nil)).resolvedFolder() == nil)
     }
 
     @Test func scriptsANamedMachineAndACommandAreNotRerouted() throws {
@@ -77,7 +77,7 @@ struct CloudNewWorkspaceTests {
     /// No bundled CLI, or the app server link: the machine starts empty rather than fail after it exists.
     @Test func anAppThatCannotCopyStartsTheMachineEmpty() throws {
         let (_, nested) = try Self.project()
-        #expect(try #require(Self.plan(Self.settings(inCloud: true), cwd: nested, canCopy: false)).folder == nil)
+        #expect(try #require(Self.plan(Self.settings(inCloud: true), cwd: nested, canCopy: false)).source == nil)
     }
 
     /// The copy goes to the image's work user's `~/work`; an older image without that user refuses

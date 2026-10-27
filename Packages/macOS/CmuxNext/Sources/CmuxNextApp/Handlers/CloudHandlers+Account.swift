@@ -302,7 +302,8 @@ extension CloudHandlers {
             let name = session.machine.title
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
             var cwd: String?
-            if let folder = plan.folder, let binary = cloud.move.cli {
+            let folder = await plan.folder(work: services.work)
+            if let folder, let binary = cloud.move.cli {
                 guard let socket = await connection.endpoint?.socketPath else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
                 let cli = CloudMoveCLI(binary: binary, timeout: cloud.move.timeout)
                 do {
@@ -319,7 +320,7 @@ extension CloudHandlers {
                 }
             }
             let key = WorkspaceKey.generate()
-            try await WorkspaceCreation.createWithFirstTab(key, name: plan.workspaceName, on: connection, repair: session.emptyWorkspaces) { _ = try await connection.createTerminal(in: $0.key, cwd: cwd) }
+            try await WorkspaceCreation.createWithFirstTab(key, name: folder.map { URL(fileURLWithPath: $0.root).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await connection.createTerminal(in: $0.key, cwd: cwd) }
             return key.rawValue
         }
         return true

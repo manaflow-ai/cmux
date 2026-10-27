@@ -1,12 +1,14 @@
+import CmuxNextCompat
+public import CmuxNextWakeups
 import Foundation
 
 /// Where the Cloud toggle (#26062, `cloud.newWorkspacesInCloud`) sends a person's New Workspace:
-/// nil keeps it on this Mac; otherwise a new Cloud machine of its own, starting in ``folder``
-/// copied there, or in the machine's empty work folder when ``folder`` is nil.
+/// nil keeps it on this Mac; otherwise a new Cloud machine of its own, starting in the person's
+/// folder copied there (``folder(work:)``), or in the machine's empty work folder.
+/// Deciding reads no disk, so it fits the New Workspace action's turn; the folder is resolved later.
 public nonisolated struct CloudNewWorkspacePlan: Sendable, Equatable {
-    /// The folder copied to the new machine (the working copy around the person's folder); nil
-    /// starts in the machine's own empty folder.
-    public let folder: CloudMoveFolder?
+    /// The person's folder when Current Folder applies; nil starts in the machine's own empty folder.
+    public let source: String?
 
     /// What one copy of a folder answered (`cmux link sync push`'s JSON line).
     public struct CopyAnswer: Sendable, Equatable {
@@ -35,20 +37,22 @@ public nonisolated struct CloudNewWorkspacePlan: Sendable, Equatable {
     ///   - namesMachineOrCommand: The run names a machine (it opens there) or a command (it runs here).
     public init?(inCloud: Bool, inheritsFolder: Bool, cwd: String?, byPerson: Bool, namesMachineOrCommand: Bool) {
         guard inCloud, byPerson, !namesMachineOrCommand else { return nil }
-        // Only a git working copy is copied: a plain folder (`/Users`, `~/Downloads`, a disk) could hold
-        // anything, the home folder included. Anything else starts in the machine's empty folder.
-        folder = inheritsFolder ? cwd.flatMap(CloudMoveFolder.init(chat:)).flatMap { Self.isWorkingCopy($0) ? $0 : nil } : nil
+        source = inheritsFolder ? cwd : nil
     }
 
-    /// Whether `folder` is a git working copy's top folder, and not the home folder or the disk's root
-    /// (a dotfiles repository at home).
-    static func isWorkingCopy(_ folder: CloudMoveFolder) -> Bool {
-        !folder.isTooBroad && FileManager.default.fileExists(atPath: (folder.root as NSString).appendingPathComponent(".git"))
+    /// The folder copied to the machine, read on `work`'s files lane (never the main thread).
+    public func folder(work: BackgroundWork) async -> CloudMoveFolder? {
+        guard source != nil else { return nil }
+        return (try? await work.run(.userBlocking, mayBlock: .files) { resolvedFolder() }) ?? nil
     }
 
-    /// The new workspace's name: the copied folder's, else none (the daemon names it).
-    public var workspaceName: String? {
-        folder.map { URL(fileURLWithPath: $0.root).lastPathComponent }
+    /// The git working copy around ``source``, read from disk now. Only a working copy is copied: a
+    /// plain folder (`/Users`, `~/Downloads`, a disk) could hold anything, the home folder included,
+    /// and neither the home folder (a dotfiles repository) nor the disk's root is ever copied.
+    public func resolvedFolder() -> CloudMoveFolder? {
+        guard let folder = source.flatMap(CloudMoveFolder.init(chat:)), !folder.isTooBroad,
+              FileManager.checked.fileExists(atPath: (folder.root as NSString).appendingPathComponent(".git")) else { return nil }
+        return folder
     }
 
     /// Copies `folder` under the first of `workRoots` the machine lets it write (an image without
