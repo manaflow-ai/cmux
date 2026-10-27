@@ -338,20 +338,24 @@ for (const [id, label] of [
   });
 }
 
-test("duplicate configured names use readable launch suffixes", async () => {
-  const catalog = [
-    { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
-    { id: "claude-work", name: "Work", family: "claude", models: [] },
-    { id: "claude-sr", name: "Work", family: "claude", models: [] },
-  ] as Snapshot["catalog"];
-  const { switched } = await mount(0, undefined, "claude", catalog);
-  await open();
-  expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toEqual(
-    expect.arrayContaining(["Work (work)", "Work (sr)"]),
-  );
-  await showTab("Work (sr)");
-  expect(switched).toEqual(["claude-sr"]);
-});
+for (const [first, second, secondSuffix] of [
+  ["claude-work", "claude-sr", "sr"],
+  ["work", "personal", "personal"],
+])
+  test(`duplicate configured names distinguish ${first} and ${second}`, async () => {
+    const catalog = [
+      { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+      { id: first!, name: "Work", family: "claude", models: [] },
+      { id: second!, name: "Work", family: "claude", models: [] },
+    ] as Snapshot["catalog"];
+    const { switched } = await mount(0, undefined, "claude", catalog);
+    await open();
+    expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toEqual(
+      expect.arrayContaining(["Work (work)", `Work (${secondSuffix})`]),
+    );
+    await showTab(`Work (${secondSuffix})`);
+    expect(switched).toEqual([second]);
+  });
 
 test("familyProfiles lists every global profile of the running profile's family", async () => {
   const { familyProfiles } = await import("../src/agent-session/acpmux/pickerProfiles");
