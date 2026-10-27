@@ -897,6 +897,13 @@ class BrowserRuntimeStopResult:
 
 
 @dataclass(frozen=True)
+class CancelStreamResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/CancelStreamResult'
+    outcome: Literal['applied', 'ended']
+    stream: int
+
+
+@dataclass(frozen=True)
 class CellPixelFailure:
     __cmux_schema_path__: ClassVar[str] = 'types/CellPixelFailure'
     surface: Id
@@ -3539,6 +3546,7 @@ class AttachSurfaceRequest:
     snapshot_images: Union[bool, MissingType] = field(default=MISSING)
     snapshot_local_history: Union[bool, MissingType] = field(default=MISSING)
     snapshot_version: Union[int, None, MissingType] = field(default=MISSING)
+    stream: Union[int, None, MissingType] = field(default=MISSING)
     viewer_backlog_bytes: Union[int, None, MissingType] = field(default=MISSING)
 
 
@@ -3699,6 +3707,12 @@ class BrowserWheelGuardedRequest:
 class CancelRequestRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cancel-request/request'
     target: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
+class CancelStreamRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cancel-stream/request'
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -4713,6 +4727,7 @@ class DetachAttachedViewRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/detach-attached-view/request'
     surface: Id
     lease: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[int, None, MissingType] = field(default=MISSING)
     view: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -5652,6 +5667,7 @@ class ReleaseAttachedViewSizeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/release-attached-view-size/request'
     surface: Id
     lease: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[int, None, MissingType] = field(default=MISSING)
     view: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -5786,6 +5802,7 @@ class ResizeAttachedViewRequest:
     rows: int
     identity: Union[SizingIdentity, None, MissingType] = field(default=MISSING)
     lease: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[int, None, MissingType] = field(default=MISSING)
     view: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -6223,6 +6240,7 @@ class SnapshotRequestRequest:
     have: Union[SnapshotRequestHave, None, MissingType] = field(default=MISSING)
     reason: Union[str, None, MissingType] = field(default=MISSING)
     request_id: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -7335,6 +7353,15 @@ class StatusEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class StreamEndEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/stream-end/payload'
+    event: Literal['stream-end']
+    reason: Literal['canceled', 'detached', 'overflow', 'attach_failed']
+    stream: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class SurfaceExitedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/surface-exited/payload'
     surface: Id
@@ -7629,7 +7656,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, LoopbackClosedEvent, LoopbackCreditEvent, LoopbackDataEvent, LoopbackEofEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScriptLogEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, LoopbackClosedEvent, LoopbackCreditEvent, LoopbackDataEvent, LoopbackEofEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScriptLogEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, StreamEndEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -7742,6 +7769,7 @@ __all__ = [
     'BrowserRuntimeStartResult',
     'BrowserRuntimeStatusResult',
     'BrowserRuntimeStopResult',
+    'CancelStreamResult',
     'CellPixelFailure',
     'CellPixelResize',
     'CellPixelSurface',
@@ -8044,6 +8072,7 @@ __all__ = [
     'BrowserWheelRequest',
     'BrowserWheelGuardedRequest',
     'CancelRequestRequest',
+    'CancelStreamRequest',
     'ChiefInspectRequest',
     'ChiefInspectResult',
     'ClearHistoryRequest',
@@ -8457,6 +8486,7 @@ __all__ = [
     'SettingsChangedEvent',
     'SizeStateEvent',
     'StatusEvent',
+    'StreamEndEvent',
     'SurfaceExitedEvent',
     'SurfaceOutputEvent',
     'SurfaceResizeFailedEvent',

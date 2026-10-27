@@ -178,7 +178,7 @@ extension MockTasksSource {
             TaskLabelItem(id: "lbl_ios", name: "ios", color: 4),
             TaskLabelItem(id: "lbl_perf", name: "perf", color: 3),
         ]
-        let category = Dictionary(uniqueKeysWithValues: statuses.map { ($0.id, $0.category) })
+        let category = Dictionary(statuses.map { ($0.id, $0.category) }, uniquingKeysWith: { first, _ in first })
         let lawrence = TaskPrincipal(user: "usr_lawrence")
         let austin = TaskPrincipal(user: "usr_austin")
         let claude = TaskAgent(principal: "agt_claude-lawrence", harness: "claude", onBehalfOf: "usr_lawrence")
