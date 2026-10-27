@@ -41,10 +41,10 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_PATH="${1%/}"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-cmux-helper.entitlements}"
 R="${CMUX_SIGNER:?CMUX_SIGNER names the signer binary}"
-# The signer reads every RCODESIGN_* environment variable as its own config,
-# so one the job or the runner image sets would fail every call. Scrub them
-# before any call.
-while IFS= read -r name; do unset "$name"; done < <(compgen -e | grep '^RCODESIGN_' || true)
+# Every signer call goes through run_signer, which keeps RCODESIGN_* variables
+# (the signer's own configuration) out of its environment.
+# shellcheck source=signer-env.sh
+source "$(dirname "${BASH_SOURCE[0]}")/signer-env.sh"
 [[ -d "$APP_PATH/Contents" ]] || { echo "error: app bundle not found at $APP_PATH" >&2; exit 1; }
 [[ -f "$2" && -f "$HELPER_ENTITLEMENTS" ]] || { echo "error: entitlements file missing" >&2; exit 1; }
 [[ "${CMUX_SIGN_MODE:-all}" == all && -z "${CMUX_NEXT_CEF_ON_DEMAND:-}" ]] ||
@@ -226,7 +226,7 @@ if [[ -d "$ssh_dir" ]]; then
   signed=()
   for payload in "$ssh_dir"/*; do
     [[ ! -L "$payload" && -n "${is_macho[${payload#"$APP_PATH/"}]:-}" ]] || continue
-    "$R" sign "${identity_args[@]}" --code-signature-flags runtime \
+    run_signer "$R" sign "${identity_args[@]}" --code-signature-flags runtime \
       --entitlements-xml-file "$HELPER_ENTITLEMENTS" "$payload" > "$work/log" 2>&1 || { tail -20 "$work/log" >&2; exit 1; }
     signed+=("${payload##*/}")
   done
@@ -301,7 +301,7 @@ done
 # A component signed without entitlements gets an empty set only when its
 # current signature has some (the signer would keep them). A failed probe fails.
 for rel in "${!clear[@]}"; do
-  info="$("$R" print-signature-info --config-file /dev/null "$APP_PATH/$rel" 2>"$work/log")" ||
+  info="$(run_signer "$R" print-signature-info --config-file /dev/null "$APP_PATH/$rel" 2>"$work/log")" ||
     { tail -5 "$work/log" >&2; echo "error: print-signature-info failed for $rel" >&2; exit 1; }
   if grep -q '^ *entitlements_plist:' <<<"$info"; then
     echo "==> clearing inherited entitlements of $rel"
@@ -324,12 +324,12 @@ for rel in "${machos[@]}"; do
   [[ "$rel" == Contents/Resources/bin/cmux-tui-ssh/* ]] || args+=(--code-signature-flags "$rel:runtime")
 done
 echo "==> signing ${APP_PATH##*/}: ${#machos[@]} Mach-O files, ${#ent[@]} with scoped entitlements"
-"$R" sign "${identity_args[@]}" "${args[@]}" ${excludes[@]+"${excludes[@]}"} "$APP_PATH" > "$work/log" 2>&1 ||
+run_signer "$R" sign "${identity_args[@]}" "${args[@]}" ${excludes[@]+"${excludes[@]}"} "$APP_PATH" > "$work/log" 2>&1 ||
   { tail -40 "$work/log" >&2; echo "error: signing failed" >&2; exit 1; }
 
 bad=0
 for rel in "${machos[@]}"; do
-  "$R" verify --config-file /dev/null "$APP_PATH/$rel" > "$work/log" 2>&1 ||
+  run_signer "$R" verify --config-file /dev/null "$APP_PATH/$rel" > "$work/log" 2>&1 ||
     { bad=$((bad + 1)); echo "error: signature check failed for $rel" >&2; tail -5 "$work/log" >&2; }
 done
 echo "==> signature check: $(( ${#machos[@]} - bad ))/${#machos[@]} Mach-O files OK"
