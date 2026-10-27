@@ -6,18 +6,21 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import { subscribePageStreams } from "../shared/pageStreams";
 import table from "./generated/strings.json";
 import { MockPasswordsProvider, sampleData, shippingData } from "./mockProvider";
 import { PasswordsPage } from "./PasswordsPage";
-import { PasswordsStore } from "./store";
+import { PASSWORDS_PAGE, PasswordsStore } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
 import { focusSearchField } from "../shared/searchField";
 
 export function mountPasswordsPage(root: HTMLElement, client: PageClient | null = defaultClient()): PasswordsStore {
+  const state = openPageState(client, PASSWORDS_PAGE);
   const store = new PasswordsStore(client);
+  state.keep(() => store.pageInputs());
   // The app's key dispatcher sends page commands (Cmd-F is `find`); the page never reads chords.
   if (client) {
     void subscribePageStreams(client, {

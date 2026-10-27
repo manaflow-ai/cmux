@@ -17,7 +17,7 @@ struct ChatDraftAttachmentsTests {
 
     /// A page's call on a provider given `store` by init, as each agent pane's is (nil keeps no chips).
     static func call(_ method: String, _ params: [String: JSONValue], store: AgentPaneDraftAttachments?) async throws -> JSONValue {
-        let provider = AgentPageProvider(chatStores: AgentPaneChatStores(scrollAnchors: nil, draftAttachments: store)) { _ in nil }
+        let provider = AgentPageProvider(chatStores: AgentPaneChatStores(scrollAnchors: nil, draftAttachments: store), mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         return try await provider.call(AgentPageOps.namespace + method, params: .object(params), context: context)
     }
 

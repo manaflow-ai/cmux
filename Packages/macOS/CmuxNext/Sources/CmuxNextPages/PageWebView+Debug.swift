@@ -132,11 +132,13 @@ extension PageWebView {
 
     /// Moves the mouse onto the center of the first element matching `selector` (scrolled into
     /// view), so the page gets hover with no AppKit pointer: a capture slot's window never
-    /// activates, and macOS sends an inactive window no mouse moves. Chromium gets a trusted
-    /// DevTools `mouseMoved` (real `:hover`, `mouseenter`); WebKit gets page-script `mouseover`,
-    /// `mouseenter` and `mousemove` (React's `onMouseEnter` listens to `mouseover`, so it runs, but
-    /// `:hover` styles do not apply). Scrolling the element into view also scrolls its scrollers.
-    /// `{hovered, native, x, y, width, height}` in CSS pixels; `{hovered: false}` when nothing matches or another
+    /// activates, and macOS sends an inactive window no mouse moves. Chromium gets a trusted move
+    /// (real `:hover`, `mouseenter`): the engine's native move (``PageChromiumPage/sendMouseMove(at:)``),
+    /// which attaches no DevTools agent, or DevTools `mouseMoved` on a fork without it. WebKit gets
+    /// page-script `mouseover`, `mouseenter` and `mousemove` (React's `onMouseEnter` listens to
+    /// `mouseover`, so it runs, but `:hover` styles do not apply). Scrolling the element into view also
+    /// scrolls its scrollers. `{hovered, native, delivered, x, y, width, height}` in CSS pixels (`delivered`:
+    /// ``PageDebugInputPath``, Chromium only); `{hovered: false}` when nothing matches or another
     /// element (an overlay, a clipping scroller) is at the element's center.
     public func debugHover(_ selector: String) async -> JSONValue {
         let script = """
@@ -158,21 +160,30 @@ extension PageWebView {
               case .object(let point)? = try? JSONValue.parse(Data(text.utf8)),
               case .number(let x)? = point["x"], case .number(let y)? = point["y"] else { return ["hovered": false] }
         guard point["hit"] == true else { return ["hovered": false, "error": "another element is at its center"] }
+        var delivered: PageDebugInputPath?
         if let page {
-            // DevTools input is in the viewport's CSS pixels, as `getBoundingClientRect` gives them:
-            // Chromium scales it by the browser zoom, the embedding frame's CSS zoom and the pinch
-            // scale itself (`InputHandler::ScaleFactor`). scripts/cmux-next/page-hover-zoom-live.py checks it at
-            // UI scales 0.85 to 1.5.
-            guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
-                "type": "mouseMoved", "x": x, "y": y, "button": "none", "buttons": 0, "modifiers": 0,
-            ])) != nil else { return ["hovered": false, "error": "mouse move failed"] }
-            // Only a hover the page now reports counts, so a move that missed never reads as one.
-            let check = "const el = document.querySelector(selector); return !!el && el.matches(':hover');"
-            guard await callPageFunction(check, arguments: ["selector": selector]) as? Bool == true else {
+            // The engine's native move (view points: the page's CSS pixels times its zoom), which attaches
+            // no DevTools agent; DevTools input only on a fork without it.
+            if page.sendMouseMove(at: CGPoint(x: x * pageZoom, y: y * pageZoom)) {
+                delivered = .native
+            } else {
+                // DevTools input is in the viewport's CSS pixels, as `getBoundingClientRect` gives them:
+                // Chromium scales it by the browser zoom, the embedding frame's CSS zoom and the pinch
+                // scale itself (`InputHandler::ScaleFactor`). scripts/cmux-next/page-hover-zoom-live.py checks it at
+                // UI scales 0.85 to 1.5.
+                guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
+                    "type": "mouseMoved", "x": x, "y": y, "button": "none", "buttons": 0, "modifiers": 0,
+                ])) != nil else { return ["hovered": false, "error": "mouse move failed"] }
+                delivered = .devtools
+            }
+            // Only a hover the page now reports counts, so a move that missed never reads as one. A native
+            // move is posted with the page's other input, so the check waits for it to reach the element.
+            guard await callPageFunction(Self.hoverCheck, arguments: ["selector": selector]) as? Bool == true else {
                 return ["hovered": false, "error": "the element is not hovered after the move"]
             }
         }
         var hovered: [String: JSONValue] = ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y)]
+        if let delivered { hovered["delivered"] = .string(delivered.rawValue) }
         // The element's size, for a caller checking the point against it; it never decides the hover.
         if case .number(let width)? = point["w"], case .number(let height)? = point["h"] {
             hovered["width"] = .number(width)
@@ -180,6 +191,27 @@ extension PageWebView {
         }
         return .object(hovered)
     }
+
+    /// Whether the element matching `selector` is hovered, waiting up to a second for the pointer's next
+    /// event on it when it is not yet.
+    private static let hoverCheck = """
+        const el = document.querySelector(selector);
+        if (!el) { return false; }
+        if (!el.matches(':hover')) {
+          await new Promise((resolve) => {
+            const done = () => {
+              clearTimeout(timer);
+              el.removeEventListener('pointerover', done);
+              el.removeEventListener('mousemove', done);
+              setTimeout(resolve, 0);
+            };
+            const timer = setTimeout(done, 1000);
+            el.addEventListener('pointerover', done);
+            el.addEventListener('mousemove', done);
+          });
+        }
+        return el.matches(':hover');
+        """
 
     /// This page's fields of a `debug.webui` row (``WebUICensus``): what the host knows of the
     /// page's state and what reached it while hidden.
@@ -257,18 +289,23 @@ extension PageWebView {
     public var debugPageZoom: Double { pageZoom }
 
     /// A left click at `x`,`y` (CSS pixels, as `getBoundingClientRect` gives them) on a Chromium
-    /// page: a trusted DevTools press and release, as a person's click, also in a window that never
-    /// activates (a capture slot), where no AppKit click reaches the page. False on a WebKit page,
-    /// which the caller clicks with AppKit events, or when DevTools refuses either half.
-    public func debugPress(x: Double, y: Double) async -> Bool {
-        guard let page = chromiumSession?.page else { return false }
+    /// page, as a person's click, also in a window that never activates (a capture slot), where no
+    /// AppKit click reaches the page: the engine's native click (``PageChromiumPage/sendClick(at:)``),
+    /// which attaches no DevTools agent; a trusted DevTools press and release on a fork without it.
+    ///
+    /// - Returns: The path that delivered the click; nil on a WebKit page, which the caller clicks with
+    ///   AppKit events, or when DevTools refuses either half.
+    public func debugPress(x: Double, y: Double) async -> PageDebugInputPath? {
+        guard let page = chromiumSession?.page else { return nil }
+        // The native click takes view points: the page's CSS pixels times its zoom (``debugPageZoom``).
+        if page.sendClick(at: CGPoint(x: x * pageZoom, y: y * pageZoom)) { return .native }
         for type in ["mousePressed", "mouseReleased"] {
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
                 "type": type, "x": x, "y": y, "button": "left", "buttons": type == "mousePressed" ? 1 : 0,
                 "clickCount": 1, "modifiers": 0,
-            ])) != nil else { return false }
+            ])) != nil else { return nil }
         }
-        return true
+        return .devtools
     }
 
     /// Every element matching `selector` in document order: its `data-*` attributes, classes and
@@ -297,13 +334,12 @@ extension PageWebView {
         return inserted as? Bool == true
     }
 
-    /// Writes the page as WebKit rendered it to `url` as PNG.
+    /// Writes the page as its engine rendered it to `url` as PNG (Chromium: its surface copy,
+    /// ``chromiumPictureData(of:devToolsParams:)``).
     public func debugSnapshot(to url: URL) async -> Bool {
         if awaitsFirstShow { return false } // nothing drawn yet
-        if let page = chromiumSession?.page {
-            guard let json = try? await page.devTools("Page.captureScreenshot", params: ["format": "png"]),
-                  let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,
-                  let png = Data(base64Encoded: base64) else { return false }
+        if let session = chromiumSession {
+            guard let png = await chromiumPictureData(of: session, devToolsParams: ["format": "png"]) else { return false }
             return (try? png.write(to: url)) != nil
         }
         guard let webView = webKitPieces?.view else { return false } // a Chromium page on its way drew nothing
@@ -343,5 +379,14 @@ extension PageWebView {
         typealias SetEnabled = @convention(c) (AnyObject, Selector, Bool) -> Void
         unsafeBitCast(method_getImplementation(method), to: SetEnabled.self)(webView, selector, false)
     }
+}
+
+/// How a debug input reached a Chromium page (``PageWebView/debugPress(x:y:)``, ``PageWebView/debugHover(_:)``):
+/// `debug.agent_pane click`'s and `debug.page hover`'s `delivered`.
+public nonisolated enum PageDebugInputPath: String, Sendable {
+    /// The engine's native input (the fork's `SendMouseClickEvent` or `SendMouseMoveEvent` wrapper): no DevTools agent.
+    case native
+    /// DevTools `Input.dispatchMouseEvent`, on a fork without the native path: it attaches an agent.
+    case devtools
 }
 #endif

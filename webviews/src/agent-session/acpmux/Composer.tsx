@@ -63,6 +63,7 @@ import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { useComposerChrome } from "./composerChrome";
+import { usePageDraft } from "./pageKeep";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useComposerSettings } from "./composerSettings";
@@ -653,6 +654,8 @@ export function Composer({
   }, [sessionId, text, draft]);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
   useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
+  // An unsent prompt, shell command or chip keeps the hidden page from being discarded (pageKeep.ts).
+  usePageDraft(Boolean(text.trim() || shellText.trim() || attachments.length || pending.length));
   // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
   // chips kept with the chat (composerDraft.ts, keptAttachments.ts), nothing being sent, read or
   // dictated, no shell mode (pages/shared/webSwap.ts).

@@ -29,6 +29,8 @@ struct PendingHostClose {
     step: HostCloseStep,
     identity: Option<TerminalHostIdentity>,
     host_root: Option<PathBuf>,
+    /// The mux, for a record cleanup retry when the host does not exit.
+    owner: Weak<Mux>,
 }
 
 #[cfg(any(unix, windows))]
@@ -168,6 +170,7 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
                 (close.identity.as_ref(), close.host_root.as_ref())
             {
                 terminate_discovered_terminal_host_in(
+                    &close.owner,
                     root,
                     &identity.terminal_id,
                     Some(&identity.incarnation),
@@ -191,7 +194,7 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
 
 #[cfg(any(unix, windows))]
 fn finish_host_close(close: PendingHostClose) {
-    let PendingHostClose { runtime, step, identity, host_root } = close;
+    let PendingHostClose { runtime, step, identity, host_root, owner } = close;
     let HostCloseStep::Await(termination, deadline) = step else {
         unreachable!("only a signaled host close is awaited");
     };
@@ -212,6 +215,7 @@ fn finish_host_close(close: PendingHostClose) {
     runtime.kill();
     if !acknowledged && let (Some(identity), Some(root)) = (identity, host_root) {
         terminate_discovered_terminal_host_in(
+            &owner,
             &root,
             &identity.terminal_id,
             Some(&identity.incarnation),
@@ -248,6 +252,7 @@ impl Mux {
                 step: HostCloseStep::Signal,
                 identity,
                 host_root,
+                owner: self.work_owner(),
             });
         }
         #[cfg(not(any(unix, windows)))]
@@ -275,6 +280,7 @@ impl Mux {
                     step: HostCloseStep::Signal,
                     identity,
                     host_root: host_root.clone(),
+                    owner: self.work_owner(),
                 });
             }
         }

@@ -33,9 +33,18 @@ public final class PageHostPool {
 
     let policy: Policy
     let options: PageEngineOptions
+    /// The page host's shared WebKit processes (``WebUIHost/processGroups``): a page that joins one never
+    /// takes the spare (``spareServes(_:options:)``). Nil: every pooled page may.
+    let processGroups: WebProcessGroups?
     let activity: () -> UInt64
     let isTrackingMenu: () -> Bool
-    let timer: DemandTimer
+    /// The idle deadline of the next spare build: background work on the app's deadline scheduler, so a spare
+    /// nobody sees waits behind input and every visible task (Chrome's kBestEffort,
+    /// content/browser/scheduler/browser_task_queues.h).
+    let timer: MainDeadline
+    /// The pool's deadline scheduler: each step of a build runs in the body of one background task of its
+    /// ``MainDeadlineScheduler/work`` (``step(_:_:)``), and the spare page it makes runs its own deadlines on it.
+    let deadlines: MainDeadlineScheduler
     let parking = PageHostParking()
     var spare: PageWebView?
     var spareReady = false
@@ -69,19 +78,25 @@ public final class PageHostPool {
         init(_ view: PageWebView) { self.view = view }
     }
 
-    /// - Parameter memory: the app's memory coordinator (a test passes one over a source it drives);
-    ///   the pool registers its spare with it at once.
+    /// - Parameters:
+    ///   - memory: the app's memory coordinator (a test passes one over a source it drives); the pool registers
+    ///     its spare with it at once.
+    ///   - deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`): the build's idle deadline
+    ///     and its steps run on it as background work. A test leaves the default, its own.
+    ///   - processGroups: The page host's shared WebKit processes (``processGroups``); nil: none.
     public init(memory: any MemoryConsumerRegistry, policy: Policy = Policy(), options: PageEngineOptions = .standard,
-                clock: any Clock<Duration> = ContinuousClock(),
+                deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
                 isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking },
-                hoverFrameInput: FrameInputCoalescers? = nil) {
+                hoverFrameInput: FrameInputCoalescers? = nil, processGroups: WebProcessGroups? = nil) {
         self.hoverFrameInput = hoverFrameInput
+        self.processGroups = processGroups
         self.policy = policy
         self.options = options
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
-        timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
+        timer = MainDeadline(owner: "PageHostPool.build", workClass: .background, scheduler: deadlines)
+        self.deadlines = deadlines
         spareMemory = SpareMemoryConsumer(
             name: "page-host-spare", registry: memory, spares: { [weak self] in self?.spare == nil ? 0 : 1 },
             drop: { [weak self] in self?.dropSpare() }, refill: { [weak self] in self?.refillSpare() })
@@ -100,15 +115,28 @@ public final class PageHostPool {
     }
     public var hostCount: Int { (spare == nil ? 0 : 1) + claimedHosts.count }
 
+    /// Whether the spare may serve `descriptor` opened with `options`: a pooled page that joins no
+    /// shared WebKit process. The spare has a data store and a process of its own, so a page of a
+    /// process group (``WebProcessGroups/membership(of:options:)``: History and Cloud with
+    /// `webKitPageProcessGroups`) opens through ``WebUIHost/open(_:)`` and joins its group's process.
+    /// Chromium does the same: a site's existing process-per-site renderer is reused before the spare
+    /// is taken (`RenderProcessHostImpl::GetProcessHostForSiteInstance`,
+    /// content/browser/renderer_host/render_process_host_impl.cc).
+    func spareServes(_ descriptor: PageDescriptor, options: PageEngineOptions) -> Bool {
+        PageServedHosts.pooledDescriptors.contains(descriptor)
+            && processGroups?.membership(of: descriptor, options: options) == nil
+    }
+
     /// Claims the ready spare in this main-actor turn. A nil result means the caller should open
-    /// the page with its ordinary initializer while the next spare continues warming.
+    /// the page with its ordinary initializer while the next spare continues warming; a page that
+    /// joins a process group always gets nil (``spareServes(_:options:)``).
     @discardableResult
     public func claim(_ descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
                       documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                       surface: SurfaceKind? = nil,
                       dynamicResources: (any PageDynamicResourceSource)? = nil, window: NSWindow?,
                       focus: Bool = true) -> PageWebView? {
-        guard PageServedHosts.pooledDescriptors.contains(descriptor) else { return nil }
+        guard spareServes(descriptor, options: options) else { return nil }
         // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
         let decision = PageWebView.engineDecision(for: descriptor, options: options)
         guard decision.engine == .webKit else { return nil }
@@ -151,6 +179,7 @@ public final class PageHostPool {
             park(host, in: content)
             spare = host
             spareReady = false
+            // main-hop-allow: resetPooledPage is the parked page's main-actor async reset (its script runs in the page); the task only marks the spare ready after it
             Task { @MainActor [weak self, weak host] in
                 await host?.resetPooledPage()
                 guard let self, let host, self.spare === host else { return }
@@ -166,12 +195,13 @@ public final class PageHostPool {
     /// Whether an open of Settings, History or Cloud shows in WebKit now, so a spare could serve it: the engine
     /// decision ``claim(_:routes:route:documentAttributes:options:surface:dynamicResources:window:focus:)`` takes,
     /// with no side effect (it arms no web-override watch). With Chromium as their engine a spare is a WebKit
-    /// page no open takes.
+    /// page no open takes; a page that joins a process group never takes it (``spareServes(_:options:)``).
     ///
     /// - Parameter hosting: The app's Chromium page maker (`WebUIHost.chromium`); nil for WebKit only.
     public func servesOpens(hosting: (any PageChromiumHosting)?) -> Bool {
         PageServedHosts.pooledDescriptors.contains { page in
-            PageWebView.engineDecisionNow(for: page, options: options, hosting: hosting).engine == .webKit
+            spareServes(page, options: options)
+                && PageWebView.engineDecisionNow(for: page, options: options, hosting: hosting).engine == .webKit
         }
     }
 

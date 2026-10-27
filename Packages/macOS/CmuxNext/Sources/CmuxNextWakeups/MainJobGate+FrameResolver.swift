@@ -18,18 +18,18 @@ struct HopFrameResolver {
     }
 
     /// The image that calls the MainJobGate hook: `swift_task_enqueueMainExecutor`.
-    static let concurrencyRuntime = "libswift_Concurrency.dylib"
+    static let concurrencyRuntime = MainJobRing.concurrencyRuntimeImage
 
     /// The frames a main-actor job's enqueue passes through between the hook and the code that
     /// enqueued it, never its site: the Swift concurrency runtime, the Swift core library,
-    /// libdispatch and its Swift overlay, and the thread start below a worker's stack.
-    static let runtimeImages: Set<String> = [concurrencyRuntime, "libswiftCore.dylib", "libdispatch.dylib",
-                                             "libswiftDispatch.dylib", "libsystem_pthread.dylib"]
+    /// libdispatch and its Swift overlay, and the thread start below a worker's stack. The
+    /// launch's main-job census names its enqueuers by the same table.
+    static let runtimeImages = MainJobRing.enqueueRuntimeImages
 
     /// The mangled prefixes of the `Task` and `MainActor` members the compiler emits into the
     /// caller's image (`Task.init`, `MainActor.run`): not inlined in a DEBUG build, they would name
     /// every `Task { }` of a module as one site.
-    static let runtimeSymbolPrefixes = ["$sScT", "$sScM"]
+    static let runtimeSymbolPrefixes = MainJobRing.enqueueRuntimeSymbolPrefixes
 
     /// The frames a run-loop callout passes through between CFRunLoop's callout trampoline and the
     /// code it calls: the runtime images, Core Foundation, Foundation (`__NSFireTimer`) and the

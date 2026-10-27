@@ -167,7 +167,7 @@ NO_RECEIPT = ("no app reply carries the ActionEffect kind yet (driver_app.py); t
 SETUP_NO_RECEIPT = "a setup step: the case checks the action under test, not its setup"
 RESTORE_NO_RECEIPT = "a restore step: it puts back what the action under test changed"
 # case-v1 $defs/keystroke.
-KEYSTROKE = re.compile(r"^((cmd|ctrl|opt|alt|shift|fn)\+)*([a-z0-9]|[-=\[\];',./`\\]|plus|f[1-9]|f1[0-9]|return|escape|"
+KEYSTROKE = re.compile(r"^((cmd|ctrl|opt|alt|shift|fn)\+)*([a-z0-9]|[-=\[\];:',./`\\]|plus|f[1-9]|f1[0-9]|return|escape|"
                        r"tab|space|backspace|delete|left|right|up|down|home|end|pageup|pagedown)$")
 # The sweep's debug.key modifier names -> case-v1's.
 MODIFIER_OF = {"cmd": "cmd", "shift": "shift", "option": "opt", "control": "ctrl"}
