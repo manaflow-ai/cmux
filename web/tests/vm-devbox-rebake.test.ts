@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   REBAKE_SLUG_PREFIX,
   pruneSelection,
@@ -70,7 +71,7 @@ describe("settledAwaiting", () => {
 describe("awaiting-rebake.json", () => {
   test("parses, and the rebake workflow bakes from the sources it watches", () => {
     readDevboxAwaitingRebake();
-    const workflow = readFileSync(path.join(import.meta.dir, "../../.github/workflows/cloud-devbox-image-rebake.yml"), "utf8");
+    const workflow = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../../.github/workflows/cloud-devbox-image-rebake.yml"), "utf8");
     for (const watched of ["web/services/vms/images/devbox/**", "web/scripts/build-devbox-freestyle.ts", "web/scripts/devbox-image-common.ts"]) {
       expect(workflow).toContain(`- ${watched}`);
     }
