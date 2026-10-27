@@ -1,15 +1,15 @@
-name: Familiar intent review warning
+name: Familiar intent review warning (advisory)
 
 # This is advisory. It runs from the trusted base copy so a pull request cannot
 # change the warning policy, and it never fails a check or requests changes.
+# Its GitHub API steps continue on error: an API error (the installation's rate
+# limit, 2026-10-26, 27 of 30 runs) is no red on the pull request.
 on:
   pull_request_target:
     branches: [feat-cmux-next]
     types: [opened, reopened, synchronize, ready_for_review]
 
-permissions:
-  contents: read
-  pull-requests: write
+permissions: {}
 
 concurrency:
   group: familiar-intent-review-${{ github.event.pull_request.number }}
@@ -20,6 +20,9 @@ jobs:
     # pull_request_target runs for outside authors too: an ephemeral runner only.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write # the advisory comment
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -29,6 +32,8 @@ jobs:
             scripts/ci/intent_familiar_warning.py
 
       - name: Read the pull-request patch
+        id: read
+        continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           FILES_JSON: ${{ runner.temp }}/intent-files.json
@@ -51,6 +56,7 @@ jobs:
 
       - name: Detect familiar intent changes
         id: detect
+        if: steps.read.outcome == 'success'
         env:
           FILES_JSON: ${{ runner.temp }}/intent-files.json
           BODY_FILE: ${{ runner.temp }}/intent-body.md
@@ -62,6 +68,8 @@ jobs:
             --output "$RESULT_JSON"
 
       - name: Warn CodeRabbit and cubic reviewers
+        if: steps.detect.outcome == 'success'
+        continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RESULT_JSON: ${{ runner.temp }}/intent-result.json

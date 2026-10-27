@@ -27,6 +27,13 @@ nonisolated enum CatalogArgument {
                        kind: .string, isRequired: false)
     }
 
+    /// A cmux Cloud team of the signed-in account, by id (Team Picker): the palette lists the teams
+    /// and marks the current one.
+    static var cloudTeam: ActionArgument {
+        ActionArgument(name: "team", title: String(localized: "argument.team", defaultValue: "Team", bundle: .module), kind: .string,
+                       suggestions: ActionSuggestions(source: ActionSuggestions.cloudTeams, pinned: []))
+    }
+
     static var nameString: ActionArgument {
         ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string)
     }
@@ -123,6 +130,14 @@ nonisolated enum CatalogArgument {
                        isRequired: false)
     }
 
+    /// `cloud new-terminal-on-machine --workspace <id>`: a workspace on the Cloud machine's own
+    /// daemon (the `workspace_id` an earlier run answered). Plain text: `.target(.workspace)`
+    /// resolves this Mac's workspaces, not a Cloud machine's.
+    static var cloudWorkspaceString: ActionArgument {
+        ActionArgument(name: "workspace", title: String(localized: "argument.workspace", defaultValue: "Workspace", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var contentsString: ActionArgument {
         ActionArgument(name: "contents", title: String(localized: "argument.contents", defaultValue: "Contents", bundle: .module), kind: .string)
     }
@@ -149,6 +164,44 @@ nonisolated enum CatalogArgument {
 
     static var sizeChoice: ActionArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
+    }
+
+    /// `cloud new-machine --size small|medium|large|xlarge`: plain text, not a choice, so New Cloud
+    /// Machine stays one menu item and one palette row (a choice argument becomes a submenu).
+    static var newMachineSizeString: ActionArgument {
+        ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .string, isRequired: false)
+    }
+
+    /// `cloud new-machine --persistent`: the new machine's idle auto-pause is Off from its create.
+    static var persistentBool: ActionArgument {
+        ActionArgument(name: "persistent", title: String(localized: "argument.persistent", defaultValue: "Persistent", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
+
+    /// `cloud new-machine --bootstrap none|lane` (with `--bootstrap-script FILE`): the setup the
+    /// new machine runs; `lane` also gives it its lane host name (leo-workspace machines/lane-vms.md).
+    static var bootstrapString: ActionArgument {
+        ActionArgument(name: "bootstrap", title: String(localized: "argument.bootstrap", defaultValue: "Bootstrap", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// The bootstrap script file on this Mac (the CLI makes a relative path absolute).
+    static var bootstrapScriptString: ActionArgument {
+        ActionArgument(name: "bootstrapScript", title: String(localized: "argument.bootstrapScript", defaultValue: "Bootstrap Script", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// The idle auto-pause choice (`cloudSetIdlePause`): Off, or the minutes
+    /// of idle after which cmux Cloud pauses the machine. The server
+    /// (`web/services/vms/idlePause.ts`) takes exactly these values.
+    static var idlePauseChoice: ActionArgument {
+        ActionArgument(name: "minutes", title: String(localized: "argument.idlePause", defaultValue: "Pause When Idle", bundle: .module), kind: .enumeration([
+            ActionEnumCase(value: "off", title: String(localized: "argument.value.idlePauseOff", defaultValue: "Off", bundle: .module)),
+            ActionEnumCase(value: "15", title: String(localized: "argument.value.idlePause15", defaultValue: "After 15 Minutes", bundle: .module)),
+            ActionEnumCase(value: "30", title: String(localized: "argument.value.idlePause30", defaultValue: "After 30 Minutes", bundle: .module)),
+            ActionEnumCase(value: "60", title: String(localized: "argument.value.idlePause60", defaultValue: "After 1 Hour", bundle: .module)),
+            ActionEnumCase(value: "120", title: String(localized: "argument.value.idlePause120", defaultValue: "After 2 Hours", bundle: .module)),
+        ]))
     }
 
     static var settingString: ActionArgument {

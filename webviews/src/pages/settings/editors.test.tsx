@@ -31,6 +31,8 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("select") && has("option", choices + (row.default === null ? 1 : 0)) ? null : "no menu";
     case "choice_or_number":
       return has('option[value="__custom__"]') ? null : "no Custom… choice";
+    case "choice_or_url":
+      return has('option[value="__address__"]') ? null : "no Self-Hosted Server… choice";
     case "number":
       return has('input[type="range"]') && has("input.number") ? null : "no slider + field";
     case "color":
@@ -61,14 +63,17 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "number_list":
       return has("input.token-input") ? null : "no number token field";
     case "string_map":
-      return "a kind the cmux-next page never renders";
+      return has("[data-string-map]") && has("input[data-map-new-key]") ? null : "no key and value list";
   }
 }
 
 describe("editors", () => {
-  test("every schema row renders the editor for its kind", async () => {
-    const failures: string[] = [];
-    for (const category of categories) {
+  // One test per Settings page, so each renders one page well inside the default timeout: one
+  // test over every page went past 5 s on a loaded CI runner, and its act() left running failed
+  // every test after it.
+  for (const category of categories)
+    test(`every schema row renders the editor for its kind: ${category.id}`, async () => {
+      const failures: string[] = [];
       page = await renderPage({ path: `/settings/${category.id}` });
       for (const row of category.groups.flatMap((group) => group.rows)) {
         // The Theme section draws appearance.theme as its theme picker.
@@ -88,10 +93,16 @@ describe("editors", () => {
             failures.push(`${row.key}: no art picker`);
           continue;
         }
-        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet, None) and home.chiefPetMascot (its grid).
+        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet) and home.chiefPetMascot (its grid).
         if (row.key === "home.chiefPetEnabled" || row.key === "home.chiefPetMascot") {
-          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="none"]'))
+          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="orb"]'))
             failures.push(`${row.key}: no Chief Pet card`);
+          continue;
+        }
+        // The Machines card draws appearance.machineColors as a color well on each machine's row.
+        if (row.key === "appearance.machineColors") {
+          if (!page.container.querySelector('[data-card="machines"] [data-machine-color] input[type="color"]'))
+            failures.push(`${row.key}: no machine color well`);
           continue;
         }
         // The density card draws appearance.density and the custom density keys (SectionView).
@@ -99,9 +110,8 @@ describe("editors", () => {
           if (!page.container.querySelector('[data-card="density"]')) failures.push(`${row.key}: no density card`);
           continue;
         }
-        // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row;
-        // the page has no editor for any string_map (browser.siteEngines is edited in cmux.json).
-        if (row.key === "appearance.themeEdits" || row.kind === "string_map") {
+        // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row.
+        if (row.key === "appearance.themeEdits") {
           if (page.container.querySelector(`[data-row-key="${row.key}"]`)) failures.push(`${row.key}: drawn as a row`);
           continue;
         }
@@ -111,9 +121,8 @@ describe("editors", () => {
       }
       page.unmount();
       page = null;
-    }
-    expect(failures).toEqual([]);
-  });
+      expect(failures).toEqual([]);
+    });
 
   test("the window material is a material choice, never a radius slider", async () => {
     page = await renderPage({ path: "/settings/appearance" });
@@ -318,6 +327,19 @@ describe("editors", () => {
     const theme = rowElement(page.container, "appearance.theme");
     expect(theme.querySelector("button.domain-button")).toBeNull();
     expect(theme.querySelector("input.text")).not.toBeNull();
+  });
+
+  test("the font list opens on a click in the first moments after the page loads", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    const now = performance.now;
+    performance.now = () => 50;
+    try {
+      const button = rowElement(page.container, "terminal.fontFamily").querySelector("button.domain-button")!;
+      await click(button);
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+    } finally {
+      performance.now = now;
+    }
   });
 
   test("a diagnostic shows an inline notice and a warning badge", async () => {

@@ -75,7 +75,7 @@ struct PinnedPageTests {
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         defer { for controller in services.windows.controllers { controller.window?.close() } }

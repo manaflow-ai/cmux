@@ -198,13 +198,14 @@ export function withShellRows(rows: AcpmuxRow[], runs: readonly ShellRun[]): Acp
 }
 
 /// `rows` with each of `extra` (rows the page adds) before the first chat row that came later.
+/// A running turn's status line drawn as its last row (`below`, conversation/turns.ts) stays last.
 /// The same array when there are none.
 export function insertByTime(rows: AcpmuxRow[], extra: AcpmuxRow[]): AcpmuxRow[] {
   if (extra.length === 0) return rows;
   const added = new Set(extra.map((row) => row.id));
   const out = [...rows];
   for (const row of [...extra].sort((a, b) => a.at - b.at)) {
-    const at = out.findIndex((item) => !added.has(item.id) && item.at > row.at);
+    const at = out.findIndex((item) => !added.has(item.id) && (item.below === true || item.at > row.at));
     if (at < 0) out.push(row);
     else out.splice(at, 0, row);
   }

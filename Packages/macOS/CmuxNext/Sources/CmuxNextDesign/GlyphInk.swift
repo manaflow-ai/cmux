@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// One foreground for every glyph on a surface (cx-qno.22, Lawrence
 /// 2026-10-11: the group header's more dots read paler than its chevron).

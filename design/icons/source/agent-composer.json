@@ -256,6 +256,15 @@
    ]
   },
   {
+   "name": "composer.steer",
+   "meaning": "Steer: send a queued message into the running turn now (the queued row's Steer, as ChatGPT and Codex draw it).",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 4.5v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10l4 4-4 4'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 4.5v6a3.5 3.5 0 0 0 3.5 3.5h9.5M14.5 10l4 4-4 4'/></svg>",
+   "alts": [],
+   "note": "Arrow only, a turn to the right (↪); the button supplies its Steer label.",
+   "replaces": []
+  },
+  {
    "name": "computeruse.click",
    "meaning": "Computer-use click (activity rows), clear on click.",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M10 4.5v2M4.5 10h2M6.25 6.25l1.4 1.4M13.75 6.25l-1.4 1.4'/><path d='M10 10l9.5 3.75 -4 1.5 -1.5 4Z'/></svg>",

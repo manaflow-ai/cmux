@@ -1,5 +1,6 @@
-"""The defaults guard: a pull request that changes what everyone gets by default fails until a
-call owner other than its author approves its head (Leo 2026-10-13).
+"""The defaults guard: a pull request that changes what everyone gets by default fails until an
+independent review receipt ships its head, or a call owner other than its author approves it
+(Leo 2026-10-13, 2026-10-21). A new setting that defaults to off passes on its own.
 
 Each test builds a small repository with the guard copied in (the trusted base checkout the
 workflow runs from), commits a base and a head, and runs `defaults_guard.py check` as the
@@ -95,11 +96,14 @@ class DefaultsGuardTests(unittest.TestCase):
         self.repo.git("checkout", "-q", self.base)  # the workflow runs the base's guard and owners
         return head
 
-    def check(self, head, reviews=(), author=AUTHOR):
+    def check(self, head, reviews=(), author=AUTHOR, comments=()):
         pull = {"author": {"login": author}, "headRefOid": head, "merged": False,
                 "reviews": {"nodes": [{"author": {"login": who}, "state": state, "commit": {"oid": oid}}
                                       for who, state, oid in reviews]},
-                "comments": {"nodes": []}}
+                "comments": {"nodes": [{"databaseId": n, "body": body, "createdAt": at,
+                                        "authorAssociation": association,
+                                        "author": {"login": AUTHOR, "__typename": kind}}
+                                       for n, (body, at, association, kind) in enumerate(comments)]}}
         path = self.repo.root.parent / f"{self.repo.root.name}-pull.json"
         path.write_text(json.dumps(pull), encoding="utf-8")
         summary = self.repo.root.parent / f"{self.repo.root.name}-summary.md"
@@ -184,16 +188,16 @@ class DefaultsGuardTests(unittest.TestCase):
     def test_no_review_fails_and_the_summary_says_who_must_approve(self):
         result = self.check(self.changed_head())
         self.assertEqual(result.returncode, 1)
-        self.assertIn("Needs a call", result.summary)
+        self.assertIn("Needs a review", result.summary)
         self.assertIn("@lawrencecchen or @austinywang", result.summary)
-        self.assertNotIn("@teamleaderleo", result.summary.split("Needs a call")[1].split("\n")[0])
+        self.assertNotIn("@teamleaderleo", result.summary.split("Needs a review")[1].split("\n")[0])
 
     def test_a_call_owner_approving_the_head_passes_and_the_changes_stay_listed(self):
         head = self.changed_head()
         result = self.check(head, reviews=[("lawrencecchen", "APPROVED", head)])
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("::warning title=Default changed::DEFAULTS setting.sidebar.numbering", result.stdout)
-        self.assertIn("Approved on this commit by @lawrencecchen", result.summary)
+        self.assertIn("Signed off on this commit by @lawrencecchen", result.summary)
 
     def test_the_author_approving_never_passes_even_as_a_call_owner(self):
         head = self.changed_head()
@@ -300,6 +304,90 @@ class DefaultsGuardTests(unittest.TestCase):
         # Judged as a change that needs the call, not only as a stale file.
         self.assertIn("::warning title=Default changed::DEFAULTS key.toggleEditor", result.stdout)
 
+    # An independent review receipt on the head passes any change (Leo 2026-10-21).
+
+    def receipt(self, text, at="2026-10-21T10:00:00Z", association="MEMBER", kind="User"):
+        return (text, at, association, kind)
+
+    def test_a_ship_receipt_on_the_head_passes_without_a_teammate(self):
+        head = self.changed_head()
+        result = self.check(head, comments=[self.receipt(f"Review (subagent, correctness first): SHIP at {head}\n\nok")])
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Signed off on this commit by `review (subagent, correctness first)`", result.summary)
+
+    def test_a_ship_receipt_posted_as_a_review_body_passes(self):
+        head = self.changed_head()
+        pull = {"author": {"login": AUTHOR}, "headRefOid": head, "merged": False, "comments": {"nodes": []},
+                "reviews": {"nodes": [{"author": {"login": AUTHOR, "__typename": "User"}, "authorAssociation": "MEMBER",
+                                       "state": "COMMENTED", "submittedAt": "2026-10-21T10:00:00Z",
+                                       "body": f"Review (subagent): SHIP at {head}", "commit": {"oid": head}}]}}
+        path = self.repo.root.parent / f"{self.repo.root.name}-review-pull.json"
+        path.write_text(json.dumps(pull), encoding="utf-8")
+        result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path))
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_a_receipt_for_another_commit_or_a_short_sha_does_not_pass(self):
+        head = self.changed_head()
+        for text in (f"Review (subagent): SHIP at {self.base}", f"Review (subagent): SHIP at {head[:12]}"):
+            result = self.check(head, comments=[self.receipt(text)])
+            self.assertEqual(result.returncode, 1, text)
+            self.assertIn("Needs a review", result.summary)
+
+    def test_a_later_block_beats_an_earlier_ship(self):
+        head = self.changed_head()
+        result = self.check(head, comments=[
+            self.receipt(f"Review (subagent): SHIP at {head}", at="2026-10-21T10:00:00Z"),
+            self.receipt(f"Review (second subagent): BLOCK at {head}", at="2026-10-21T11:00:00Z")])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("BLOCK from `review (second subagent)`", result.summary)
+        later = self.check(head, comments=[
+            self.receipt(f"Review (subagent): BLOCK at {head}", at="2026-10-21T10:00:00Z"),
+            self.receipt(f"Review (subagent): SHIP at {head}", at="2026-10-21T11:00:00Z")])
+        self.assertEqual(later.returncode, 0, later.stdout)
+
+    def test_a_self_review_an_outsider_or_a_bot_does_not_pass(self):
+        head = self.changed_head()
+        for receipt in (self.receipt(f"Review (self): SHIP at {head}"),
+                        self.receipt(f"Review (subagent): SHIP at {head}", association="CONTRIBUTOR"),
+                        self.receipt(f"Review (subagent): SHIP at {head}", kind="Bot")):
+            self.assertEqual(self.check(head, comments=[receipt]).returncode, 1, receipt)
+
+    def test_a_receipt_below_the_first_line_does_not_pass(self):
+        head = self.changed_head()
+        result = self.check(head, comments=[self.receipt(f"Thanks!\nReview (subagent): SHIP at {head}")])
+        self.assertEqual(result.returncode, 1, result.stdout)
+
+    # A new setting whose default is off keeps what everyone had before it existed.
+
+    def test_an_added_setting_that_defaults_off_passes_without_a_review(self):
+        for default in (False, None, "off", "never", ""):
+            settings = [*BASE_SETTINGS, {"key": "sidebar.newThing", "default": default}]
+            result = self.check(self.head(settings=settings))
+            self.assertEqual(result.returncode, 0, f"{default!r}: {result.stdout}")
+            self.assertIn("DEFAULTS setting.sidebar.newThing", result.stdout)
+            self.assertIn("passes on its own", result.summary)
+
+    def test_an_added_setting_that_defaults_on_needs_a_review(self):
+        for default in (True, "ask", "every-merge"):
+            settings = [*BASE_SETTINGS, {"key": "sidebar.newThing", "default": default}]
+            head = self.head(settings=settings)
+            self.assertEqual(self.check(head).returncode, 1, default)
+            shipped = self.check(head, comments=[self.receipt(f"Review (subagent): SHIP at {head}")])
+            self.assertEqual(shipped.returncode, 0, shipped.stdout)
+
+    def test_an_off_default_on_an_existing_setting_or_a_new_flag_is_not_exempt(self):
+        settings = [{"key": "terminal.showJumpToBottomButton", "default": None}, BASE_SETTINGS[1]]
+        self.assertEqual(self.check(self.head(settings=settings)).returncode, 1)
+        flags = FLAGS + "enum Other {\n    static let newThingEnabled = false\n}\n"
+        self.assertEqual(self.check(self.head(flags=flags)).returncode, 1)
+
+    def test_a_free_new_setting_beside_a_real_change_still_needs_a_review(self):
+        settings = [BASE_SETTINGS[0], {"key": "sidebar.numbering", "default": "workspacesOnly"},
+                    {"key": "sidebar.newThing", "default": False}]
+        result = self.check(self.head(settings=settings))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("1 default(s) changed", result.stdout)
+
     def test_check_fresh_still_finds_a_stale_snapshot(self):
         """No CI check runs check-fresh any more (the snapshot is stale between a merge and the base
         autofix's commit); it stays the command that says the snapshot needs regenerating."""
@@ -313,13 +401,9 @@ class DefaultsGuardTests(unittest.TestCase):
 
 SETTINGS_SOURCES = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
 EXPORTER_TESTS = "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests"
-STAMP = "schemas/settings-export/settings-schema.sources.sha256"
-
-
 def stamp_for(root):
-    """The stamp SettingsSchemaExportTests writes: one `sha256  path` entry per exporter input, in
-    UTF-8 path order, a blank line between entries so two pull requests that edit different
-    sources change lines git merges apart (#21946)."""
+    """The source stamp: one `sha256  path` entry per exporter input, in UTF-8 path order, a blank
+    line between entries."""
     import hashlib
     paths = [f"{EXPORTER_TESTS}/ManagedPreferencesManifestTests.swift", f"{EXPORTER_TESTS}/SettingsSchemaExportTests.swift"]
     paths += [file.relative_to(root).as_posix() for file in (root / SETTINGS_SOURCES).rglob("*")
@@ -328,8 +412,10 @@ def stamp_for(root):
     return "\n\n".join(f"{hashlib.sha256((root / path).read_bytes()).hexdigest()}  {path}" for path in paths) + "\n"
 
 
-class SettingsExportStampTests(unittest.TestCase):
-    """`check-fresh` and the settings export stamp (schemas/settings-export/settings-schema.sources.sha256)."""
+class SettingsSourceStampTests(unittest.TestCase):
+    """`source-stamp`: the settings exports' source stamp, derived for any commit and never
+    committed (Leo 2026-10-21). A committed copy changed in every pull request that touched a
+    settings source and conflicted on nearly every base move (#22674)."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -339,87 +425,45 @@ class SettingsExportStampTests(unittest.TestCase):
         self.repo.write(".github/defaults-call-owners.json", json.dumps(OWNERS))
         self.repo.sources(BASE_ACTIONS, BASE_SETTINGS)
         self.repo.write(f"{EXPORTER_TESTS}/ManagedPreferencesManifestTests.swift", "// manifest\n")
-        self.repo.write(f"{EXPORTER_TESTS}/SettingsSchemaExportTests.swift", f"// writes {STAMP.rsplit('/', 1)[1]}\n")
+        self.repo.write(f"{EXPORTER_TESTS}/SettingsSchemaExportTests.swift", "// schema export\n")
         for name in ("Alpha.swift", "Beta.swift", "Gamma.swift", "Localizable.xcstrings"):
             self.repo.write(f"{SETTINGS_SOURCES}/{name}", f"// {name}\n")
         self.repo.write(f"{SETTINGS_SOURCES}/README.md", "not an input\n")
-        self.export()
         self.repo.commit("base")
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def export(self):
-        self.repo.write(STAMP, stamp_for(self.repo.root))
+    def test_source_stamp_has_one_entry_per_exporter_input(self):
+        result = self.repo.guard("source-stamp")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, stamp_for(self.repo.root))
+        self.assertEqual(len(result.stdout.split("\n\n")), 6)
 
-    def fresh(self, *args):
-        return self.repo.guard("check-fresh", *args)
-
-    def test_a_stamp_of_every_input_is_fresh(self):
-        result = self.fresh()
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(len(self.repo.root.joinpath(STAMP).read_text().split("\n\n")), 6)
-
-    def test_an_edited_source_is_stale_and_named(self):
-        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, edited\n")
-        result = self.fresh()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("settings exports are stale", result.stdout)
-        self.assertIn(f"{SETTINGS_SOURCES}/Beta.swift", result.stdout)
-        self.assertNotIn("Alpha.swift", result.stdout)
-
-    def test_an_added_or_removed_source_is_stale_and_named(self):
-        self.repo.write(f"{SETTINGS_SOURCES}/Delta.swift", "// delta\n")
-        (self.repo.root / SETTINGS_SOURCES / "Gamma.swift").unlink()
-        result = self.fresh()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("Delta.swift", result.stdout)
-        self.assertIn("Gamma.swift", result.stdout)
-
-    def test_a_one_digest_stamp_from_before_the_manifest_is_stale(self):
-        self.repo.write(STAMP, "a01b76447321b7bdf25b78a05bd9a7e530b92e767537d604bae476d7084a7bde\n")
-        result = self.fresh()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("settings exports are stale", result.stdout)
-
-    def merge_two_branches(self):
-        for branch, name in (("one", "Alpha.swift"), ("two", "Gamma.swift")):
-            self.repo.git("checkout", "-q", "-b", branch, "main")
-            self.repo.write(f"{SETTINGS_SOURCES}/{name}", f"// {name}, edited on {branch}\n")
-            self.export()
-            self.repo.commit(branch, snapshot=False)
-        self.repo.git("checkout", "-q", "one")
-        self.repo.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-edit", "two")
-
-    def test_a_clone_with_the_merge_drivers_keeps_one_stamp_so_check_fresh_fails(self):
-        """A line-merged stamp would match the merged sources while settings-schema.json and docs/mdm
-        (cmux-generated-v1: one side's copy) miss the other branch's rows, so check-fresh would pass
-        on stale exports. With the repository's drivers (the bots, a lane's local merge) the stamp
-        keeps one side too, and check-fresh names the other side's source until the exports are
-        regenerated. GitHub ignores drivers: there the stamp merges by line and the base autofix
-        regenerates the exports, which it does whenever CmuxNextSettings changed."""
-        self.repo.write(".gitattributes", (ROOT / ".gitattributes").read_text(encoding="utf-8"))
-        self.repo.commit("attributes", snapshot=False)
-        self.repo.git("config", "merge.cmux-generated-v1.driver", "true")
-        self.merge_two_branches()
-        result = self.fresh()
-        self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn("Gamma.swift", result.stdout)
-
-    def test_two_branches_editing_different_sources_merge_by_line_without_drivers(self):
-        """GitHub's view (no drivers): the two stamps merge cleanly, so neither pull request shows a
-        conflict, and the merged stamp is the merged sources'."""
-        self.merge_two_branches()
-        self.assertEqual(self.repo.root.joinpath(STAMP).read_text(), stamp_for(self.repo.root))
-
-    def test_check_fresh_reads_a_commit_as_it_reads_a_checkout(self):
+    def test_source_stamp_prints_the_stamp_a_ref_s_sources_give(self):
+        """base-autofix-push.sh lands settings exports past a settings-area move only when the tip's
+        sources give the stamp of the commit the exports were made at; this is the stamp it compares."""
         head = self.repo.git("rev-parse", "HEAD")
-        self.assertEqual(self.fresh("--ref", head).returncode, 0)
+        result = self.repo.guard("source-stamp", "--ref", head)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, stamp_for(self.repo.root))
+        self.repo.write(f"{SETTINGS_SOURCES}/README.md", "still not an input\n")
+        notes = self.repo.commit("a note beside the sources", snapshot=False)
+        self.assertEqual(self.repo.guard("source-stamp", "--ref", notes).stdout, result.stdout)
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, edited\n")
+        edited = self.repo.commit("a source edit", snapshot=False)
+        self.assertNotEqual(self.repo.guard("source-stamp", "--ref", edited).stdout, result.stdout)
+
+    def test_check_fresh_reads_no_stamp(self):
+        """The exports are checked against a fresh export (cmux-next.yml's generated files job), so a
+        settings source edit is not check-fresh's to judge."""
         self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited\n")
-        stale = self.repo.commit("stale", snapshot=False)
-        result = self.fresh("--ref", stale)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("Alpha.swift", result.stdout)
+        result = self.repo.guard("check-fresh")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("stamp", result.stdout)
+
+    def test_check_stamp_is_gone(self):
+        self.assertEqual(self.repo.guard("check-stamp").returncode, 2)
 
 
 if __name__ == "__main__":

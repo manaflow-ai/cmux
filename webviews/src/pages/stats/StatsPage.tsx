@@ -114,6 +114,7 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
               <div
                 key={cell.day}
                 className="stats-day"
+                // tooltip-allow: the day shows a short label; the tooltip is its date and working time
                 title={`${formatDay(cell.day!, language)} · ${duration(cell.workingMs)}`}
               >
                 <div className={`stats-heat stats-heat-${cell.level}`} />

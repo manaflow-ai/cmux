@@ -353,7 +353,7 @@ body,
   z-index: var(--layer-raised);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 90ms ease-out;
+  transition: opacity var(--cmux-motion-quick) ease-out;
 }
 .hc-msg:hover .hc-msg-actions,
 .hc-msg:focus-within .hc-msg-actions,
@@ -661,7 +661,7 @@ body,
 }
 @media (prefers-reduced-motion: no-preference) {
   .hc-thread {
-    animation: hc-thread-in 140ms ease-out;
+    animation: hc-thread-in var(--cmux-motion-micro) ease-out;
   }
 }
 @keyframes hc-thread-in {

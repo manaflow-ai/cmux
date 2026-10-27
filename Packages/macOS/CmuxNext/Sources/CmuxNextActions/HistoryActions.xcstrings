@@ -3805,128 +3805,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح عنصر السجل"
+            "state": "translated",
+            "value": "فتح عنصر السجل…"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Otvori stavku historije"
+            "state": "translated",
+            "value": "Otvori stavku historije…"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn historikelement"
+            "state": "translated",
+            "value": "Åbn historikelement…"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Verlaufseintrag öffnen"
+            "state": "translated",
+            "value": "Verlaufseintrag öffnen…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open History Entry"
+            "value": "Open History Entry…"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir entrada del historial"
+            "state": "translated",
+            "value": "Abrir entrada del historial…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrir l’entrée de l’historique"
+            "state": "translated",
+            "value": "Ouvrir l’entrée de l’historique…"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri voce della cronologia"
+            "state": "translated",
+            "value": "Apri voce della cronologia…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "履歴の項目を開く"
+            "value": "履歴の項目を開く…"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បើកធាតុប្រវត្តិ"
+            "state": "translated",
+            "value": "បើកធាតុប្រវត្តិ…"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "기록 항목 열기"
+            "state": "translated",
+            "value": "기록 항목 열기…"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne loggoppføring"
+            "state": "translated",
+            "value": "Åpne loggoppføring…"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Otwórz wpis historii"
+            "state": "translated",
+            "value": "Otwórz wpis historii…"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir item do histórico"
+            "state": "translated",
+            "value": "Abrir item do histórico…"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Открыть запись истории"
+            "state": "translated",
+            "value": "Открыть запись истории…"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดรายการประวัติ"
+            "state": "translated",
+            "value": "เปิดรายการประวัติ…"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Geçmiş öğesini aç"
+            "state": "translated",
+            "value": "Geçmiş öğesini aç…"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкрити запис історії"
+            "state": "translated",
+            "value": "Відкрити запис історії…"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mở mục lịch sử"
+            "state": "translated",
+            "value": "Mở mục lịch sử…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "打开历史记录项"
+            "state": "translated",
+            "value": "打开历史记录项…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "開啟歷史記錄項目"
+            "state": "translated",
+            "value": "開啟歷史記錄項目…"
           }
         }
       }

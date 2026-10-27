@@ -41,6 +41,9 @@ pub(super) enum ServerAction {
     Stop {
         force: bool,
         end_terminals: bool,
+        /// How long to wait for an owner that still restores its session
+        /// (`--restore-wait-seconds`, default `local_owner::RESTORE_DEADLINE`).
+        restore_wait: Duration,
     },
     ReloadConfig,
     /// cx-ossub: rewrite the session's registry into a compact file with
@@ -138,6 +141,19 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             websocket,
             global.output,
         );
+    }
+    if let ServerAction::Stop { force, end_terminals, restore_wait } = plan.action {
+        let stop = StopWait {
+            socket: &socket,
+            socket_is_derived,
+            session: expected_session.as_deref(),
+            limit: restore_wait,
+            retry_flags: (force, end_terminals),
+            output: global.output,
+        };
+        if let Err(exit_code) = stop.wait_for_restore() {
+            return exit_code;
+        }
     }
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
@@ -337,7 +353,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 global.output,
             )
         }
-        ServerAction::Stop { force, end_terminals } => {
+        ServerAction::Stop { force, end_terminals, .. } => {
             if end_terminals
                 && !identity["capabilities"]
                     .as_array()
@@ -431,6 +447,243 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 global.output,
             )
         }
+    }
+}
+
+/// What a stop knows of an owner that is not ready yet.
+#[derive(Clone, Copy)]
+enum RestorePhase {
+    /// The owner holds the connection unanswered: it restores its session
+    /// (registry, terminal hosts), or it is too busy to answer.
+    Restoring,
+    /// The owner answered `lifecycle_ready: false` (its pid when it said):
+    /// it restored and finishes its startup, and refuses `shutdown-daemon`.
+    Starting(Option<u64>),
+}
+
+impl RestorePhase {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Restoring => "restoring",
+            Self::Starting(_) => "starting",
+        }
+    }
+
+    fn starting(self) -> bool {
+        matches!(self, Self::Starting(_))
+    }
+
+    fn pid(self) -> Option<u64> {
+        match self {
+            Self::Restoring => None,
+            Self::Starting(pid) => pid,
+        }
+    }
+}
+
+/// `server stop`'s wait for an owner that is still restoring.
+///
+/// Since d674e3164cc (cx-n3bs) an owner binds its socket before it restores
+/// its session and holds every connection unanswered until the restore
+/// ends; then `identify` says `lifecycle_ready: false` until its startup
+/// ends, and `shutdown-daemon` is refused until then. A stop that met such
+/// an owner used to give up after its 10 s identify deadline (or at once on
+/// `lifecycle_ready: false`), so a stop during a slow restore never stopped
+/// the owner. The stop now waits up to `limit`: by default the 2 minutes
+/// `server ensure` gives a live owner's restore (`RESTORE_DEADLINE`, the
+/// restore's own bound on the client side), so a stop never gives up on an
+/// owner an ensure would still wait for.
+struct StopWait<'a> {
+    socket: &'a std::path::Path,
+    socket_is_derived: bool,
+    session: Option<&'a str>,
+    limit: Duration,
+    /// `--force` and `--end-terminals`, repeated in the retry command.
+    retry_flags: (bool, bool),
+    output: OutputMode,
+}
+
+/// How long one read waits before the stop checks its bound and its
+/// progress report again.
+const STOP_WAIT_SLICE: Duration = Duration::from_secs(1);
+
+/// The pause before a stop asks an owner that said `lifecycle_ready: false`
+/// again. The socket has no readiness event for a client that did not start
+/// the owner (`local_owner` polls the same way), so the stop re-asks.
+const STOP_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+impl StopWait<'_> {
+    /// Returns once the owner on the socket is ready (or gone, or answers
+    /// in a way the lifecycle exchange reports itself); `Err` with the exit
+    /// code once it printed why the stop gives up.
+    fn wait_for_restore(&self) -> Result<(), i32> {
+        let started = Instant::now();
+        let deadline = started + self.limit;
+        let mut reported: Option<Instant> = None;
+        let mut connects = 0_u32;
+        'connect: loop {
+            connects += 1;
+            if connects > 1 {
+                // A connection closed under the wait: past the bound, or for
+                // an owner that keeps closing, the lifecycle exchange reports
+                // what the socket does now.
+                if Instant::now() >= deadline {
+                    return Ok(());
+                }
+                std::thread::sleep(STOP_POLL_INTERVAL);
+            }
+            let Ok(stream) =
+                cmux_tui_core::server::connect_session_socket(self.socket, self.socket_is_derived)
+            else {
+                // Absent or unreachable: the lifecycle exchange reports it.
+                return Ok(());
+            };
+            let mut connection = BufReader::new(stream);
+            let mut id = 0_u64;
+            loop {
+                id += 1;
+                let request = json!({"id": format!("stop-wait-{id}"), "cmd": "identify"});
+                let sent = writeln!(connection.get_mut(), "{request}")
+                    .and_then(|()| connection.get_mut().flush());
+                if sent.is_err() {
+                    // A parked connection the owner dropped (its park cap)
+                    // or an owner that exited: ask again on a new one.
+                    continue 'connect;
+                }
+                let phase = loop {
+                    let slice = deadline.max(Instant::now() + STOP_POLL_INTERVAL);
+                    let slice = slice.min(Instant::now() + STOP_WAIT_SLICE);
+                    match read_reply(&mut connection, &request["id"], slice) {
+                        Ok(identity) => match identity.get("lifecycle_ready") {
+                            Some(Value::Bool(false)) => {
+                                break RestorePhase::Starting(
+                                    identity.get("pid").and_then(Value::as_u64),
+                                );
+                            }
+                            _ => return Ok(()),
+                        },
+                        Err(ExchangeError::Timeout) => {}
+                        Err(ExchangeError::Closed | ExchangeError::Transport) => {
+                            continue 'connect;
+                        }
+                        // A refused or malformed identify: the lifecycle
+                        // exchange reports it with its own codes.
+                        Err(_) => return Ok(()),
+                    }
+                    self.report(RestorePhase::Restoring, started, &mut reported);
+                    if Instant::now() >= deadline {
+                        return Err(self.give_up(RestorePhase::Restoring, started));
+                    }
+                };
+                self.report(phase, started, &mut reported);
+                if Instant::now() >= deadline {
+                    return Err(self.give_up(phase, started));
+                }
+                std::thread::sleep(STOP_POLL_INTERVAL);
+            }
+        }
+    }
+
+    /// One progress line on stderr once the wait passes a slice, then one
+    /// per `local_owner::PROGRESS_INTERVAL` (a quick owner start is silent).
+    fn report(&self, phase: RestorePhase, started: Instant, reported: &mut Option<Instant>) {
+        let now = Instant::now();
+        let waited = now.duration_since(started);
+        let due = match *reported {
+            None => waited >= STOP_WAIT_SLICE,
+            Some(last) => {
+                now.duration_since(last) + STOP_POLL_INTERVAL
+                    >= crate::local_owner::PROGRESS_INTERVAL
+            }
+        };
+        if !due {
+            return;
+        }
+        *reported = Some(now);
+        let message = crate::localization::catalog().local_server.stop_waiting(
+            phase.starting(),
+            waited.as_secs(),
+            self.limit.as_secs(),
+        );
+        let mut stderr = std::io::stderr().lock();
+        let _ = match self.output {
+            OutputMode::Quiet => return,
+            OutputMode::Json | OutputMode::JsonLines => writeln!(
+                stderr,
+                "{}",
+                json!({
+                    "progress": "restoring",
+                    "session": self.session,
+                    "phase": phase.name(),
+                    "pid": phase.pid(),
+                    "waited_ms": u64::try_from(waited.as_millis()).unwrap_or(u64::MAX),
+                    "message": message,
+                })
+            ),
+            OutputMode::Human => writeln!(stderr, "{message}"),
+        };
+    }
+
+    /// Prints why the stop gives up (`server.stop_restoring`, retryable)
+    /// and the command that retries with a longer wait; the exit code.
+    fn give_up(&self, phase: RestorePhase, started: Instant) -> i32 {
+        let waited = started.elapsed();
+        let longer = (self.limit * 2).max(crate::local_owner::RESTORE_DEADLINE);
+        let mut retry =
+            super::fix_command::stop_daemon(&super::fix_command::this_cli(), self.socket);
+        let (force, end_terminals) = self.retry_flags;
+        if force {
+            retry.push_str(" --force");
+        }
+        if end_terminals {
+            retry.push_str(" --end-terminals");
+        }
+        retry.push_str(&format!(" --restore-wait-seconds {}", longer.as_secs().min(3600)));
+        let message = crate::localization::catalog().local_server.stop_gave_up(
+            phase.starting(),
+            waited.as_secs(),
+            &retry,
+        );
+        super::wire::print_local_error(
+            &json!({
+                "code": "server.stop_restoring",
+                "message": message,
+                "details": {
+                    "reason": "restoring",
+                    "phase": phase.name(),
+                    "pid": phase.pid(),
+                    "session": self.session,
+                    "waited_ms": u64::try_from(waited.as_millis()).unwrap_or(u64::MAX),
+                    "retry": retry,
+                },
+                "retryable": true,
+            }),
+            self.output,
+            3,
+        )
+    }
+}
+
+/// The reply to the request `id` on `connection`, skipping events and
+/// other replies, before `deadline`.
+fn read_reply(
+    connection: &mut BufReader<Box<dyn transport::Stream>>,
+    id: &Value,
+    deadline: Instant,
+) -> Result<Value, ExchangeError> {
+    loop {
+        let Some(response) = read_response(connection, deadline)? else {
+            return Err(ExchangeError::Closed);
+        };
+        if response.get("event").is_some() || &response["id"] != id {
+            continue;
+        }
+        if response["ok"] == true {
+            return Ok(response.get("data").cloned().unwrap_or(Value::Null));
+        }
+        let error =
+            response.get("error").and_then(Value::as_str).unwrap_or("request rejected").to_string();
+        return Err(ExchangeError::Rejected(error));
     }
 }
 

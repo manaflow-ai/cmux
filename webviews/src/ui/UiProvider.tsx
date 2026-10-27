@@ -5,6 +5,7 @@
 import { createContext, use, type ReactNode } from "react";
 import type { PopupHost } from "./popupHost";
 import { DirectionProvider } from "@base-ui/react/direction-provider";
+import { isRtlLanguage } from "../pages/shared/i18n";
 
 export type UiDirection = "ltr" | "rtl";
 
@@ -25,12 +26,9 @@ const UiContext = createContext<UiContextValue>({
   popupHost: null,
 });
 
-/** Right-to-left languages among the pages' locales (Apple localization codes or BCP 47 tags). */
-const RTL_LANGUAGES = new Set(["ar", "fa", "he", "ur"]);
-
 /** The text direction of `language` ("ar", "en", "zh-Hans", ...). */
 export function languageDirection(language: string): UiDirection {
-  return RTL_LANGUAGES.has(language.split(/[-_]/)[0].toLowerCase()) ? "rtl" : "ltr";
+  return isRtlLanguage(language) ? "rtl" : "ltr";
 }
 
 export interface UiProviderProps {

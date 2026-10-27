@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextSettings
 import CmuxNextSidebar
 
 // Sidebar intents -> daemon commands, applied optimistically to the
@@ -52,7 +53,8 @@ extension SidebarBridge {
             // A placeholder row is no workspace: never claimed or shown.
             guard !model.isPlaceholder(id) else { return }
             model.apply(intent)
-            services.windows.show(workspaceID: id.rawValue, in: state)
+            // A pick in this window's sidebar shows here, also a workspace another window lists.
+            services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
         case let .selectTab(_, tab):
             _ = services.revealTab(tab.rawValue)
         case .moveTab:
@@ -70,9 +72,9 @@ extension SidebarBridge {
         case .close(let ids):
             // The row's close button is an entrypoint of `closeWorkspace`,
             // so it asks the same confirmation and ends the terminals too.
-            for id in ids {
-                services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue))
-            }
+            // Several selected rows (Cmd-W, the row menu's Close, Delete) close as one batch.
+            if ids.count > 1 { return WorkspaceSelectionClose.close(ids.map(\.rawValue), in: state, services) }
+            for id in ids { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue)) }
         case .newWorkspace(let machine, let group):
             // A double-click in a group's empty part, or its "+": the end of that group.
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
@@ -94,11 +96,9 @@ extension SidebarBridge {
             if !organizationQueue.hold(intent, local: services.machines.local) { refuseOrganization() }
         case .closeGroup(let group):
             let members = (model.group(group)?.workspaces ?? []).compactMap { services.machines.workspace(id: $0.id.rawValue) }
-                .compactMap { workspace, daemon in workspace.key.map { (daemon, $0, WorkspaceClose.closing(workspace, on: daemon)) } }
             model.apply(intent)
-            for (daemon, key, terminals) in members {
-                command("close-workspace", on: daemon) { c in try await WorkspaceClose.close(key, terminals: terminals, on: c) }
-            }
+            // One gesture, one closed group per daemon: one Reopen Closed brings the group's workspaces back.
+            WorkspaceClose.close(members) { daemon, label, body in command(label, on: daemon, body) }
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:
@@ -113,13 +113,14 @@ extension SidebarBridge {
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
         case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
-             .hideNowPlayingCard:
+             .hideNowPlayingCard, .addItems:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
         case .toggleWorkspaceAudio(let id):
-            // The row's speaker runs the workspace menu's, palette's and CLI's action.
-            _ = services.registry.perform(BrowserTabAudio.workspaceToggleActionID,
-                                          invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user))
+            // The row's speaker runs the workspace menu's, palette's and CLI's action, on its row alone.
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user)
+            invocation.closesRowOnly = true
+            _ = services.registry.perform(BrowserTabAudio.workspaceToggleActionID, invocation: invocation)
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):
@@ -137,7 +138,7 @@ extension SidebarBridge {
     /// without `workspace-pin-v1` keeps the row where it was.
     private func sendPinned(_ ids: [SidebarWorkspaceID], _ pinned: Bool) {
         for (daemon, key) in keys(ids) {
-            guard daemon.supports(DaemonCapabilities.shared.workspacePin) else {
+            guard daemon.supports(DaemonCapabilities.workspacePin) else {
                 resync()
                 continue
             }
@@ -173,6 +174,8 @@ extension SidebarBridge {
         var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                      hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces)
+        sections = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)
+            .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         rows.show(sections)

@@ -29,6 +29,9 @@ struct LinkOpenPlacement<Pane: Equatable> {
         /// the daemon opens it in a new column right of the dock (`pinned-dock-alone-v1`), so the
         /// dock never holds the tab, not even for the moment a split or column move would take.
         case besideDock(Pane)
+        /// Main pane layout (``MainPaneLayout``), from an agent chat alone on its screen: the tab opens
+        /// unselected in this pane, then the chat docks left and the tab's pane stays on its right.
+        case dockChat(Pane)
     }
 
     var setting: LinkPlacement

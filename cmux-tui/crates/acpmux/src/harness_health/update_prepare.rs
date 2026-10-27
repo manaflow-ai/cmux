@@ -60,6 +60,15 @@ fn revalidated_argv(row: &HarnessHealth, cli: &str, home: &Path) -> Option<Vec<S
             return None;
         }
         argv[0] = manager;
+    } else if row.channel == channel::Channel::Bun {
+        let manager = argv.len().checked_sub(4)?;
+        if fresh.argv.len() != argv.len()
+            || fresh.argv.get(..manager) != argv.get(..manager)
+            || fresh.argv.get(manager + 1..) != argv.get(manager + 1..)
+        {
+            return None;
+        }
+        argv = channel::bun::pin_manager(&argv, crate::config::which)?;
     } else if fresh.argv != argv {
         return None;
     }

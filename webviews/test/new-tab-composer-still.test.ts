@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -72,6 +73,7 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
           if (message.method === "initialize")
             result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
           else if (message.method === "_acpmux/watch") {
+            // fixed-wait: the chat list arriving late is the state under test, not a wait for one
             await Bun.sleep(LIST_DELAY);
             result = { sessions };
           } else if (message.method === "_acpmux/sessions") result = { sessions: [] };
@@ -94,10 +96,14 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
     await daemon?.stop(true);
   });
 
+  /// Each page's chat list arriving (see load).
+  const listed = new WeakMap<Page, Promise<void>>();
+
   /// A New Tab page as a new workspace opens one (no folder of its own), recording the composer
   /// card's rect and the field's top and left edge, labelled with the step that was running.
   async function load(name: string, template: string, height: number): Promise<Page> {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 1000, height } });
+    await installPaintedFrames(page);
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     const context = { kind: "agent", hotkeys: {}, home: HOME, projects: [ATLAS], host: "cosmic-gray", template };
     await page.addInitScript(
@@ -107,11 +113,15 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
         };
         w.__cmuxNewTabContext = context;
         const later = (ms: number, value: unknown) =>
+          // fixed-wait: the stand-in host answers late on purpose; the composer must hold through it
           new Promise((resolve) => setTimeout(() => resolve({ ok: true, value }), ms));
         const answer = (request: { method: string }): unknown => {
           switch (request.method) {
             case "ready":
-              setTimeout(() => w.cmuxAcpmuxBridge?.applyDeviceChats?.(device), 350);
+              setTimeout(() => {
+                w.cmuxAcpmuxBridge?.applyDeviceChats?.(device);
+                w.__deviceChats = true;
+              }, 350);
               return later(300, {
                 protocolVersion: 1,
                 transport: "acpmux-websocket",
@@ -157,18 +167,52 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
           characterData: true,
           attributes: true,
         });
-        const frame = () => {
-          read();
-          requestAnimationFrame(frame);
-        };
-        requestAnimationFrame(frame);
+        window.cmuxAfterPaint(read);
       },
       { endpoint, context, device },
+    );
+    // The page has the chat list once the daemon's watch answer (the list of sessions) reaches it.
+    listed.set(
+      page,
+      new Promise((resolve) =>
+        page.on("websocket", (socket) =>
+          socket.on("framereceived", (frame) => {
+            if (String(frame.payload).includes('"sessions":[{')) resolve();
+          }),
+        ),
+      ),
     );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     return page;
   }
+
+  /// Resolves once the page holds still: 10 painted frames with no DOM change and nothing animating,
+  /// the Now Playing player's ticking progress aside (120 frames at most).
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      const ticking = (node: Node | null | undefined) =>
+        (node instanceof Element ? node : node?.parentElement)?.closest(".nt-player") != null;
+      let changed = true;
+      const observer = new MutationObserver((records) => {
+        if (records.some((record) => !ticking(record.target))) changed = true;
+      });
+      observer.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+      for (let held = 0, frames = 0; held < 10 && frames < 120; frames += 1) {
+        await window.cmuxPaintFrame();
+        const moving = document
+          .getAnimations()
+          .some(
+            (animation) =>
+              animation.playState === "running" &&
+              Number.isFinite(animation.effect?.getComputedTiming().endTime) &&
+              !(animation.effect instanceof KeyframeEffect && ticking(animation.effect.target)),
+          );
+        held = changed || moving ? 0 : held + 1;
+        changed = false;
+      }
+      observer.disconnect();
+    });
 
   const step = (page: Page, name: string) => page.evaluate((name) => Object.assign(window, { __step: name }), name);
 
@@ -176,12 +220,14 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
   async function walk(page: Page) {
     await step(page, "loading");
     await page.locator(".nt-field").waitFor({ timeout: 30_000 });
-    await page.waitForTimeout(LIST_DELAY + 1_500);
+    // The chats and the device chats arrive.
+    await listed.get(page);
+    await page.waitForFunction(() => (window as unknown as { __deviceChats?: boolean }).__deviceChats === true);
     await step(page, "typing");
     await page.locator(".nt-field").click();
     await page.keyboard.type("how do I fix the build");
     await page.locator(".nt-popover .nt-row").first().waitFor({ timeout: 10_000 });
-    await page.waitForTimeout(300);
+    await settled(page);
     await step(page, "attachment");
     const data = await page.evaluateHandle(async () => {
       const canvas = document.createElement("canvas");
@@ -201,7 +247,7 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
         data,
       );
     await page.locator(".nt-box .acpmux-attachments .acpmux-attachment-image").waitFor({ timeout: 10_000 });
-    await page.waitForTimeout(300);
+    await settled(page);
     await step(page, "now playing");
     await page.evaluate(() =>
       (
@@ -220,10 +266,10 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
       }),
     );
     await page.locator(".nt-player").waitFor({ timeout: 10_000 });
-    await page.waitForTimeout(300);
+    await settled(page);
     await step(page, "long draft");
     await page.keyboard.type(" and then".repeat(30));
-    await page.waitForTimeout(500);
+    await settled(page);
     return page.evaluate(() => (window as unknown as { __rects: string[] }).__rects);
   }
 

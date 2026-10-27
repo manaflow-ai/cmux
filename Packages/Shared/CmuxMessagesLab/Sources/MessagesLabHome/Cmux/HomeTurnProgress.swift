@@ -34,7 +34,7 @@ struct HomeTurnProgress: Equatable {
     /// Lines the owner sends for its own writing, not a step of the turn's work.
     static let notSteps: Set<String> = ["Thinking", "Writing the reply", "Working"]
     /// Most characters a narration row keeps.
-    static let narrationLimit = 72
+    static var narrationLimit: Int { String.thoughtHeadlineLimit }
 
     init(summary: String?, narration: String?, current: String) {
         self.summary = summary
@@ -54,7 +54,8 @@ struct HomeTurnProgress: Equatable {
         }
         let finished = steps.filter { $0.end != nil }.map(\.line).filter { !Self.notSteps.contains($0) }
         let summary = Self.summary(finished)
-        var narration = style == .narrated ? thought.flatMap(Self.headline) : nil
+        // `thought` is already the headline (the live book publishes `String.thoughtHeadline`).
+        var narration = style == .narrated ? thought : nil
         var current = line
         if let told = narration, activity.line == "Thinking" {
             // Thinking now: its headline is the running row, not a second row over "Thinking".
@@ -85,7 +86,7 @@ struct HomeTurnProgress: Equatable {
 
     /// The finished steps in one row: each kind with two or more steps by its fold label (the agent
     /// chat's words: "Ran 3 commands", "Read 2 files"), in the order the turn first did it; a single
-    /// other step by its own line, several as "N steps" ("N more steps" after a fold); then "›",
+    /// other step by its own line, several not at all; then "›",
     /// since a click on the line lists every step. Nil before any step finished.
     static func summary(_ finished: [String]) -> String? {
         guard !finished.isEmpty else { return nil }
@@ -108,10 +109,9 @@ struct HomeTurnProgress: Equatable {
         }
         if rest.count == 1, let only = rest.first {
             parts.append(only)
-        } else if rest.count > 1 {
-            parts.append(parts.isEmpty ? CmuxStrings.turnSteps(rest.count) : CmuxStrings.turnMoreSteps(rest.count))
         }
-        return parts.joined(separator: " · ") + " ›"
+        // Several generic steps are never counted ("3 steps"): the chevron alone opens the list.
+        return parts.isEmpty ? "›" : parts.joined(separator: " · ") + " ›"
     }
 
     static func foldLabel(_ kind: Kind, _ count: Int) -> String? {
@@ -126,38 +126,6 @@ struct HomeTurnProgress: Equatable {
 
     // MARK: Narration
 
-    /// A thought's headline: its last bold heading line ("**Checking the tests**", how Claude and
-    /// Codex title their reasoning summaries), else its last sentence, as plain text of at most
-    /// ``narrationLimit`` characters. Nil for a thought with no words.
-    static func headline(_ thought: String) -> String? {
-        let lines = thought.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        let heading = lines.last { $0.count > 4 && $0.hasPrefix("**") && $0.hasSuffix("**") }
-        let raw: String
-        if let heading {
-            raw = String(heading.dropFirst(2).dropLast(2))
-        } else if let last = lines.last {
-            raw = lastSentence(last)
-        } else {
-            return nil
-        }
-        let plain = raw.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "*_#> ").union(.whitespaces))
-        guard !plain.isEmpty else { return nil }
-        guard plain.count > narrationLimit else { return plain }
-        return String(plain.prefix(narrationLimit - 1)).trimmingCharacters(in: .whitespaces) + "…"
-    }
-
-    /// The last sentence of `line` (after its last ". ", "! " or "? "), or the line.
-    static func lastSentence(_ line: String) -> String {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        let body = trimmed.last.map { ".!?".contains($0) } == true ? String(trimmed.dropLast()) : trimmed
-        // After the last ". ", then the last "! " after it, then the last "? ": after the last end of any kind.
-        var rest = body
-        for end in [". ", "! ", "? "] {
-            if let range = rest.range(of: end, options: .backwards) { rest = String(rest.suffix(from: range.upperBound)) }
-        }
-        let sentence = rest.trimmingCharacters(in: .whitespaces)
-        return sentence.isEmpty ? trimmed : sentence
-    }
+    /// A thought's headline (`String.thoughtHeadline`): the store already publishes it this way.
+    static func headline(_ thought: String) -> String? { thought.thoughtHeadline }
 }

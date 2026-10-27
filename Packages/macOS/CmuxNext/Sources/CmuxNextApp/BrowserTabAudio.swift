@@ -65,16 +65,26 @@ enum BrowserTabAudio {
     }
 
     /// `workspace.toggleAudioMute` (the sidebar row's speaker): mutes the
-    /// workspace's tabs that play sound, or unmutes its muted tabs
-    /// (`SidebarWorkspaceAudio.change(for:)`).
-    static func toggleWorkspace(_ workspace: WorkspaceModel, cache: TabContentCache) throws {
-        let pages = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { page($0.id, in: cache) }
+    /// workspaces' tabs that play sound, or unmutes their muted tabs
+    /// (`SidebarWorkspaceAudio.change(for:)`); several selected rows change as one, as Chrome's Mute Tabs.
+    static func toggleWorkspaces(_ workspaces: [WorkspaceModel], cache: TabContentCache) throws {
+        let pages = pages(of: workspaces, cache: cache)
         guard let shown = SidebarWorkspaceAudio.merge(pages.map { rowAudio($0.state) }) else {
             throw ActionFailure(message: RefusalStrings.workspaceHasNoAudio)
         }
         for page in pages {
             if let muted = shown.change(for: rowAudio(page.state)) { page.setAudioMuted(muted) }
         }
+    }
+
+    /// What the workspaces' speakers show together: playing when one plays sound, else muted
+    /// when one is muted, else nil (what ``toggleWorkspaces(_:cache:)`` changes).
+    static func audio(of workspaces: [WorkspaceModel], cache: TabContentCache) -> SidebarWorkspaceAudio? {
+        SidebarWorkspaceAudio.merge(pages(of: workspaces, cache: cache).map { rowAudio($0.state) })
+    }
+
+    private static func pages(of workspaces: [WorkspaceModel], cache: TabContentCache) -> [Page] {
+        workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap { page($0.id, in: cache) }
     }
 
     /// The tab menu's row reads as the change it makes ("Mute Tab" or

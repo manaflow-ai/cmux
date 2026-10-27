@@ -3,14 +3,6 @@ import type { Project } from "./ProjectChooser";
 import { GLYPHS } from "./projectGlyphs";
 import { useProjectIcon } from "./projectIcon";
 
-const BADGE_COLORS = [
-  "var(--agent-ansi-4, #58a6ff)",
-  "var(--agent-ansi-5, #bf7af0)",
-  "var(--agent-ansi-6, #f2c94c)",
-  "var(--agent-ansi-2, #32d74b)",
-  "var(--agent-ansi-3, #ff9f0a)",
-] as const;
-
 /// A deliberately small visual cue derived only from the project identity we already have.
 /// Remote projects keep the host/peer distinction visible; home and local folders stay quiet.
 export type ProjectKind = "remote" | "home" | "local";
@@ -21,22 +13,12 @@ export function projectKind(project: Pick<Project, "cwd" | "peer" | "host">): Pr
   return cwd === "" || cwd === "/" || cwd === "~" ? "home" : "local";
 }
 
-/// The letters and their color. Both come from the repository's name when the project has one, so
-/// every worktree of a repository wears the same tile, and the color stays the same across launches.
-function projectBadge(project: Project): { label: string; color: string } {
-  const name = (project.repo?.name ?? project.label).trim();
-  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  const label = (words.length > 1 ? words.map((word) => word[0]).join("") : name).slice(0, 2);
-  let hash = 0;
-  for (const character of name.toLowerCase()) hash = (hash * 31 + character.charCodeAt(0)) | 0;
-  return { label: (label || "?").toUpperCase(), color: BADGE_COLORS[Math.abs(hash) % BADGE_COLORS.length]! };
-}
-
-/// The project's own icon when the host finds one on this Mac (projectIcon.ts: a file in the
-/// folder or its repository, else the GitHub owner's avatar), else its language's glyph, else its
-/// letters; an icon WebKit cannot draw falls back to the glyph or the letters too.
+/// The project's own icon when the host finds one on this Mac (projectIcon.ts: its GitHub owner's
+/// avatar, else an icon file in the folder or its repository), else its framework's or language's
+/// mark, else a plain folder; an icon WebKit cannot draw falls back to the mark or the folder too.
+/// Never letters and never a corner dot (Leo 2026-10-21: "do the icons/favicons/heuristics for icons
+/// apply here yet?"; no dots on the rows).
 export function ProjectBadge({ project }: { project: Project }) {
-  const badge = projectBadge(project);
   const kind = projectKind(project);
   const icon = useProjectIcon(kind === "local" ? project.cwd : undefined);
   const [broken, setBroken] = useState<string | undefined>();
@@ -45,21 +27,41 @@ export function ProjectBadge({ project }: { project: Project }) {
   return (
     <span
       className="acpmux-project-badge"
-      style={{ "--acpmux-project-badge": glyph?.color ?? badge.color } as CSSProperties}
+      style={glyph ? ({ "--acpmux-project-badge": glyph.color } as CSSProperties) : undefined}
       data-project-kind={kind}
       data-project-icon={shown ? "" : undefined}
       data-project-glyph={glyph ? icon.glyph : undefined}
+      data-project-folder={!shown && !glyph ? "" : undefined}
       aria-hidden="true"
     >
       {shown ? (
         <img src={shown} alt="" draggable={false} onError={() => setBroken(shown)} />
       ) : glyph ? (
-        <svg width={14} height={14} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          {glyph.mark}
+        <svg width={14} height={14} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d={glyph.path} />
         </svg>
       ) : (
-        badge.label
+        <FolderMark />
       )}
     </span>
+  );
+}
+
+/// The folder a project with no icon and no mark draws, in the muted text color (the trigger's own).
+function FolderMark() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.25}
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M1.9 4.6c0-.8.6-1.4 1.4-1.4h2.6l1.5 1.6h5.3c.8 0 1.4.6 1.4 1.4v5.6c0 .8-.6 1.4-1.4 1.4H3.3c-.8 0-1.4-.6-1.4-1.4Z" />
+    </svg>
   );
 }

@@ -1,9 +1,11 @@
 public import QuartzCore
+public import CmuxNextDesignTokens
 
 extension MotionTunables {
     /// Default length of a color change before cmux.json applies (`appearance.colorTransition.duration`,
     /// whose own default is the same 200 ms; schemas/settings/source/color-transition.json). The
-    /// user's setting replaces it; nothing retunes it at run time.
+    /// user's setting replaces it; nothing retunes it at run time. A user setting, so it stays off
+    /// the motion scale until the setting's default moves with it.
     public nonisolated static let colorTransitionDefaultDuration: TimeInterval = 0.2
 }
 

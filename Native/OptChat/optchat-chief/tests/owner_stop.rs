@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use cmux_conversation::Op;
 use common::*;
+use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::brain::Input;
 use optchat_chief::state::{HostState, StateFile, SubStatus};
 use optchat_chief::subagents::{Spawner, SubagentSettings};
@@ -245,6 +246,125 @@ fn a_stopped_subagent_frees_its_slot_even_when_its_turn_never_ends() {
     assert_ne!(status(&h, "a2"), SubStatus::Queued, "a2 got a1's slot");
 }
 
+/// "Stop all agents" (the menu item, or Option-Stop) as the host's control
+/// socket sends it: chief.stop {all: true}.
+fn stop_all(h: &mut Harness) -> serde_json::Value {
+    let (reply, answer) = channel();
+    h.brain.step(Input::StopAll { reply });
+    answer.try_recv().expect("chief.stop {all} answers at once")
+}
+
+/// The coordinator 2026-10-20: a plain Stop ends only the Chief's turn;
+/// "Stop all agents" is its own explicit action. It stops the turn and
+/// every subagent at work or queued, ends their background processes, and
+/// names them so the undo toast can list them and offer Restart.
+#[test]
+fn stop_all_stops_every_subagent_and_names_them() {
+    let mut h = Harness::new(default_script());
+    h.brain.set_max_live(Some(1));
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["one".into(), "two".into()], None)
+    })
+    .unwrap();
+    assert!(spawned.contains("a2: queued"), "{spawned}");
+    assert_eq!(status(&h, "a1"), SubStatus::Running);
+
+    let answer = stop_all(&mut h);
+    assert_eq!(
+        answer["subagents"],
+        serde_json::json!(["a1", "a2"]),
+        "{answer}"
+    );
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.cancels.len(), 1, "a1's turn is cancelled");
+    assert_eq!(
+        inner.killed_processes, inner.cancels,
+        "with its background processes"
+    );
+    drop(inner);
+    assert_ne!(status(&h, "a2"), SubStatus::Queued, "a2 never starts");
+}
+
+/// Restart on the undo toast brings back what "Stop all agents" stopped:
+/// each one goes on (a started one in its own session, told to continue; a
+/// queued one queued again with its task).
+#[test]
+fn restart_brings_back_the_subagents_stop_all_stopped() {
+    let mut h = Harness::new(default_script());
+    h.brain.set_max_live(Some(1));
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["one".into(), "two".into()], None)
+    })
+    .unwrap();
+    assert!(spawned.contains("a2: queued"), "{spawned}");
+    let stopped = stop_all(&mut h);
+    let names: Vec<String> = serde_json::from_value(stopped["subagents"].clone()).unwrap();
+    // a1's cancelled turn ends: acpmux reports its session idle.
+    let a1_session = h
+        .brain
+        .state()
+        .sub("a1")
+        .and_then(|(_, s)| s.session_id.clone())
+        .expect("a1's session");
+    h.brain.step(Input::from(AgentEvent::SessionChanged(
+        serde_json::from_value(serde_json::json!({
+            "sessionId": a1_session, "name": "a1", "status": "idle", "harness": "claude",
+        }))
+        .unwrap(),
+    )));
+    run(&mut h, || ());
+    let prompts_before = h.agents.inner.lock().unwrap().prompts.len();
+
+    let (reply, answer) = channel();
+    h.brain.step(Input::RestartSubagents { names, reply });
+    let answer = answer
+        .try_recv()
+        .expect("chief.stop {restart} answers at once");
+    assert_eq!(
+        answer["restarted"],
+        serde_json::json!(["a1", "a2"]),
+        "{answer}"
+    );
+    run(&mut h, || ());
+    for id in ["a1", "a2"] {
+        let sub = h.brain.state().sub(id).expect(id).1.clone();
+        assert!(!sub.cancelled, "{id} is no longer cancelled");
+        assert!(
+            matches!(
+                sub.status,
+                SubStatus::Queued | SubStatus::Starting | SubStatus::Running
+            ),
+            "{id} is at work or queued again: {:?}",
+            sub.status
+        );
+    }
+    let told = h.agents.inner.lock().unwrap().prompts[prompts_before..]
+        .iter()
+        .any(|blocks| {
+            serde_json::to_string(blocks)
+                .unwrap()
+                .contains("Continue from where you stopped")
+        });
+    assert!(told, "a1 is told to continue in its own session");
+
+    // A second Restart (the toast pressed twice) leaves them as they are.
+    let (reply, answer) = channel();
+    h.brain.step(Input::RestartSubagents {
+        names: vec!["a1".into(), "a2".into()],
+        reply,
+    });
+    let again = answer.try_recv().expect("answers at once");
+    assert_eq!(again["restarted"], serde_json::json!([]), "{again}");
+}
+
 /// The subagent's turn ("build the thing") never ends; the Chief's turn ends
 /// with `chief_reply`, or never ends when it is None.
 fn chief_and_endless_subagent(chief_reply: Option<&'static str>) -> Script {
@@ -303,6 +423,16 @@ fn the_chiefs_stop_tool_leaves_subagents_at_work_running() {
     while h.agents.inner.lock().unwrap().prompts.len() <= prompts {
         h.step();
     }
+    // A person's message gets words before stop (eval_replies.rs).
+    let sp = spawner(&h);
+    run(&mut h, move || {
+        sp.send(optchat_chief::tools::SendCall {
+            text: Some("On it.".into()),
+            attachments: Vec::new(),
+            reply_to: None,
+        })
+    })
+    .expect("send answers");
     let sp = spawner(&h);
     let answer = run(&mut h, move || sp.stop_turn()).expect("stop answers");
     assert!(answer.starts_with("outcome: done"), "{answer}");

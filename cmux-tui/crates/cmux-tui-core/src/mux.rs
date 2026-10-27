@@ -239,8 +239,10 @@ mod notification_types;
 mod notifications;
 pub use notification_types::{
     NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
-    NotificationSource, ResourceNotification, SurfaceNotification,
+    NotificationPost, NotificationPoster, NotificationSource, ResourceNotification,
+    SurfaceNotification,
 };
+pub(crate) use notifications::NotificationClearScope;
 mod notification_level;
 pub use notification_level::NotificationLevel;
 mod pairing_requests;
@@ -297,7 +299,7 @@ mod terminal_create;
 mod terminal_defaults;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
-use terminal_lifecycle_commit::commit_terminal_lifecycle;
+use terminal_lifecycle_commit::{commit_terminal_lifecycle, commit_terminals_adopting};
 mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
@@ -310,6 +312,7 @@ mod terminal_rehost;
 mod terminal_relaunch;
 pub(crate) mod terminal_respawn;
 mod terminal_sizing;
+pub(crate) use terminal_sizing::host_policy;
 mod terminal_work;
 mod topology_result;
 mod tree_close;
@@ -339,7 +342,8 @@ pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_te
 pub use layout_ratio_error::LayoutRatioError;
 pub(crate) use pinned_columns::{
     LONE_DOCK_NEIGHBOR_WIDTH, ensure_pane_takes_tabs, ensure_pinned_columns_kept,
-    lone_pinned_dock_taking_no_tabs, pane_in_lone_pinned_column, pinned_columns,
+    ensure_pinned_tabs_not_closed, lone_pinned_dock_taking_no_tabs, pane_in_lone_pinned_column,
+    pinned_columns, pinned_dock_tabs,
 };
 pub use presentation::{
     PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,
@@ -461,7 +465,9 @@ const MAX_PENDING_DIAGNOSTICS: usize = 8;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
-const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
+/// How long a closed terminal's host gets to end its programs (SIGHUP, grace,
+/// SIGTERM, grace, SIGKILL) and publish its exit.
+const TERMINAL_HOST_CLOSE_WAIT: Duration = crate::terminal_host_runtime::HOST_TERMINATE_WAIT;
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
@@ -635,6 +641,9 @@ pub struct Mux {
     /// pruned: only after a create commits, and only for ids the committed receipts no longer
     /// retain, so a failed create cannot orphan marks the next restart would rebuild.
     notification_read_prunes: Mutex<Vec<NotificationPublicId>>,
+    /// The event number and poster of each ledger row this run posted
+    /// (`notification_post`), dropped with the row.
+    notification_posts: Mutex<HashMap<NotificationPublicId, NotificationPost>>,
     /// The local feed owner's items (mux/feed_local.rs). Lock order: this, then
     /// `workspace_registry`, then `state`; never take it while holding either.
     feed_local: Mutex<cmux_feed_core::Feed>,
@@ -690,6 +699,17 @@ pub struct Mux {
     agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Notified when an id leaves `terminal_adoptions` (its adoption ended).
+    terminal_adoption_ended: Condvar,
+    /// Terminals a request waits on (`wait_for_terminal_adoption`): their
+    /// adoption starts without waiting for the owner to say ready.
+    terminal_adoptions_now: Mutex<HashSet<String>>,
+    /// Restored tab names, by tab slot, for terminals that adopt after the
+    /// start: the surface takes its tab's name when it arrives. A leaf lock.
+    restored_tab_names: Mutex<HashMap<SurfaceId, String>>,
+    /// Lets a start's adoption threads go before the owner says ready: a
+    /// creation the crash interrupted waits on its host's adoption.
+    startup_adoptions_released: AtomicBool,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.

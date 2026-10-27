@@ -55,6 +55,9 @@ url = next(a for a in args if a.startswith("http")).split("?")[0]
 log = os.environ["FAKE_LOG"]
 open(log, "a").write(url + "\n")
 out = args[args.index("-o") + 1] if "-o" in args else None
+if "/actions/runs/" in url and url.endswith("/jobs"):
+    print(json.dumps({"jobs": json.loads(os.environ.get("FAKE_DAEMON_JOBS", "[]"))}))
+    sys.exit(0)
 if "/actions/runs/" in url:
     if os.environ["FAKE_SOURCE_STATUS"] == "fail":
         sys.exit(22)
@@ -86,7 +89,7 @@ elif not out:
 """
 
 
-def run_preflight(source_status, source_run="77", marker="0", event="push", branch="feat-cmux-next"):
+def run_preflight(source_status, source_run="77", marker="0", event="push", branch="feat-cmux-next", daemon_jobs="[]"):
     """tree-preflight's inspect step for a next-batch push whose tree is published."""
     steps = jobs()["tree-preflight"]["steps"]
     script = next(step["run"] for step in steps if step.get("id") == "inspect")
@@ -106,7 +109,8 @@ def run_preflight(source_status, source_run="77", marker="0", event="push", bran
                    SERVER_URL="https://github.invalid", API_URL="https://api.github.invalid", RUN_ID="5",
                    GITHUB_RUN_ID="5", GH_TOKEN="x", GITHUB_OUTPUT=output, RUNNER_TEMP=tmp, FAKE_LOG=log,
                    FAKE_SOURCE_STATUS=source_status, FAKE_SOURCE_RUN=source_run, FAKE_MARKER=marker,
-                   FAKE_SOURCE_EVENT=event, FAKE_SOURCE_BRANCH=branch)
+                   FAKE_SOURCE_EVENT=event, FAKE_SOURCE_BRANCH=branch, FAKE_DAEMON_JOBS=daemon_jobs,
+                   DAEMON_POOL="glaeda-side-light-xcode-26.6")
         result = subprocess.run(["bash", "-e", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
         values = dict(line.split("=", 1) for line in open(output).read().splitlines() if "=" in line)
         return result, values, open(log).read()
@@ -141,6 +145,11 @@ def check_preflight_retest():
                f"{why}: daemon_tested {got!r}, want {want!r} (exit {result.returncode}: {result.stderr.strip()[-300:]})")
         if marker == "1" or run == "5":
             _check("/actions/runs/" not in log, f"{why}: no run lookup")
+    # 2026-10-21: the active publisher's daemon-test job sat queued on a label
+    # the pool variable no longer names, and every later push deferred to it.
+    result, values, log = run_preflight("in_progress", daemon_jobs='[{"name": "cmux_next_ daemon tests (macOS)", "status": "queued", "conclusion": null, "created_at": "2026-10-21T05:43:00Z", "labels": ["glaeda-side-std-xcode-26.6"]}]')
+    _check(result.returncode == 0 and values.get("daemon_tested") == "false",
+           f"a feat-cmux-next publisher whose daemon tests are stuck: re-tested ({values.get('daemon_tested')!r}, {result.stderr.strip()[-300:]})")
 
 
 def run_policy(event, ref, message):

@@ -2,8 +2,9 @@
 
 /// Background installs (``UpdateController/installsUpdatesInBackground``): no prompt is ever
 /// published. A found update is accepted at once so Sparkle downloads it, and Sparkle's
-/// ready-to-install reply is held as "Restart to Complete Update" until the host installs.
-/// Sparkle still installs a held update when the app quits on its own.
+/// ready-to-install reply is held as "Restart to Complete Update" until the host installs, or
+/// handed to the relaunch gate when the host's idle-install policy is enabled. Sparkle still
+/// installs a held update when the app quits on its own.
 extension UpdateDriver {
     func acceptInBackground(_ available: UpdateState.UpdateAvailable) {
         log.append("background install: accepting \(available.appcastItem.displayVersionString)")
@@ -16,13 +17,22 @@ extension UpdateDriver {
     }
 
     func stageInBackground(_ reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
-        log.append("background install: staged, waiting for the user")
         stagedInstall = { reply(.install) }
         stagedCancel = { reply(.skip) }
         if installsWhenStaged {
+            log.append("background install: staged, installing for the user's click")
             installStaged()
             return
         }
+        if installsWhenIdle {
+            if actionDelegate?.updaterPrepareAutomaticInstall() ?? true {
+                log.append("background install: staged, waiting for a safe idle relaunch")
+                installStaged(automatic: true)
+                return
+            }
+            log.append("background install: the host declined the automatic install")
+        }
+        log.append("background install: staged, waiting for the user")
         setState(.installing(.init(
             isAutoUpdate: true,
             retryTerminatingApplication: { [weak self] in _ = self?.installStaged() },
@@ -31,10 +41,13 @@ extension UpdateDriver {
     }
 
     /// The staged update, or nil when nothing waits for the user: this driver's held download,
-    /// else the one Sparkle's silent driver staged while its install still waits.
+    /// the update whose relaunch the gate holds, else the one Sparkle's silent driver staged
+    /// while its install still waits.
     var stagedItem: SUAppcastItem? {
         if stagedInstall != nil { return backgroundItem }
-        guard case .installing(let installing) = model.state, installing.isAutoUpdate else { return nil }
+        guard case .installing(let installing) = model.state else { return nil }
+        if installing.relaunchBlockers != nil { return heldRelaunchItem }
+        guard installing.isAutoUpdate else { return nil }
         return quitInstallItem
     }
 
@@ -48,16 +61,18 @@ extension UpdateDriver {
     }
 
     /// Sends the held install reply once; Sparkle installs and relaunches. False when this driver
-    /// holds no staged update.
+    /// holds no staged update. `automatic` marks an idle-policy install nobody clicked, whose
+    /// relaunch also waits for quiet input and a confirmed daemon mirror.
     @discardableResult
-    func installStaged() -> Bool {
+    func installStaged(automatic: Bool = false) -> Bool {
         guard let install = stagedInstall else { return false }
-        log.append("background install: installing staged update")
+        log.append("background install: installing staged update (automatic=\(automatic))")
         stagedInstall = nil
         stagedCancel = nil
         installsWhenStaged = false
         backgroundItem = nil
         setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+        relaunchIsAutomatic = automatic
         install()
         return true
     }

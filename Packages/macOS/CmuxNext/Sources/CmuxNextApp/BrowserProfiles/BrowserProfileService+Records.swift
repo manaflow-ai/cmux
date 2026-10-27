@@ -15,13 +15,36 @@ extension BrowserProfileService {
 
     var daemonServesRecords: Bool {
         let home = services.machines.local
-        return home.supports(DaemonCapabilities.shared.browserProfiles) && home.store.personal.isLoaded
+        return home.supports(DaemonCapability.browserProfiles.rawValue) && home.store.personal.isLoaded
     }
 
     static func record(from snapshot: BrowserProfileSnapshot) -> BrowserProfileRecord {
         BrowserProfileRecord(id: snapshot.id, name: snapshot.name, color: snapshot.color, icon: snapshot.icon, position: snapshot.index,
-                             source: snapshot.source)
+                             source: snapshot.source, proxy: snapshot.proxy.flatMap(Self.proxy(from:)))
     }
+
+    /// The engine proxy of a record's proxy; nil for a scheme this app does not know.
+    static func proxy(from snapshot: BrowserProfileSnapshot.Proxy) -> BrowserProfileProxy? {
+        BrowserProfileProxy.Scheme(rawValue: snapshot.scheme).map {
+            BrowserProfileProxy(scheme: $0, host: snapshot.host, port: snapshot.port, bypass: snapshot.bypass)
+        }
+    }
+
+    /// Gives both engines each profile's proxy (#24432); a profile without one goes direct.
+    /// A record whose proxy this app cannot read keeps its pages off the direct path.
+    func applyProxies() {
+        guard usesDaemonRecords else { return }
+        let webKit = services.cache.webKit.profileStore, cef = services.cache.cef
+        for snapshot in services.machines.local.store.personal.browserProfiles {
+            guard let profile = BrowserProfileRecord.engineProfile(for: snapshot.id) else { continue }
+            let proxy = snapshot.proxy.map { Self.proxy(from: $0) ?? Self.unreadableProxy }
+            webKit.setProxy(proxy, for: profile)
+            cef.setProxy(proxy, for: profile)
+        }
+    }
+
+    /// Stands in for a proxy of an unknown scheme: the discard port, so nothing goes direct.
+    static let unreadableProxy = BrowserProfileProxy(scheme: .http, host: "127.0.0.1", port: 9)
 
     // MARK: Edits
 
@@ -91,6 +114,7 @@ extension BrowserProfileService {
                 _ = records
                 if serves, !book.recordsMigrated { await migrateRecordsToDaemon() }
                 refreshPresentation()
+                applyProxies()
             }
         }
     }

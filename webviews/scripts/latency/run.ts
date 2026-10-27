@@ -24,6 +24,7 @@ import { chromium, webkit, type BrowserType } from "playwright";
 import { PAGES } from "../../test/latency/actions";
 import { BUDGET_120HZ, BUDGET_60HZ, measureAction, type ActionResult } from "../../test/latency/measure";
 import { installLatencyProbe } from "../../test/latency/probe";
+import { installPaintedFrames } from "../../test/support/paintedFrames";
 
 const webviews = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
@@ -147,6 +148,7 @@ try {
       page.setDefaultTimeout(5000);
       page.on("pageerror", (error) => console.warn(`latency: ${engineName} ${spec.name}: ${error.message}`));
       await page.addInitScript(installLatencyProbe);
+      await installPaintedFrames(page);
       if (cpuThrottle > 1 && engineName === "chromium") {
         const cdp = await context.newCDPSession(page);
         await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuThrottle });
