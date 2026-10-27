@@ -52,7 +52,8 @@ struct AttentionBannerTests {
         let first = Self.item(key, at: 1_000)
         shared.items = [first]
         let service = NotificationCenterService()
-        service.desktopPostingEnabled = false
+        service.preferences.desktop = .always
+        service.preferences.sound = "none"
         service.attentionMarksChanged([])
         service.attentionMarksChanged(shared.items)
         #expect(shown.isEmpty, "a mark and its banner move nothing")
@@ -69,6 +70,27 @@ struct AttentionBannerTests {
         #expect(service.showAttention(banner: NotificationCenterService.attentionBannerID(Self.item(key, at: 2_000))))
         #expect(shown == [key], "a cleared mark's banner went to the tab")
         #expect(!service.showAttention(banner: "cmux-notification-3"), "other banners keep their own path")
+    }
+
+    @Test(arguments: [false, true])
+    func aSuppressedRequestCannotAuthorizeShow(postingDisabled: Bool) {
+        _ = NSApplication.shared
+        let shared = AgentPaneAttentionTabs.shared
+        let (items, onOpen) = (shared.items, shared.onOpen)
+        defer { shared.items = items; shared.onOpen = onOpen }
+        var shown: [String] = []
+        shared.onOpen = { id in shown.append(id); return true }
+        let live = Self.item(AttentionTabsWatch.key(machine: "local", tab: "tab_1"), at: 1_000)
+        shared.items = [live]
+        let service = NotificationCenterService()
+        service.desktopPostingEnabled = !postingDisabled
+        service.preferences.desktop = postingDisabled ? .always : .never
+        service.preferences.sound = "none"
+        service.attentionMarksChanged([])
+        service.attentionMarksChanged([live])
+        #expect(service.desktop.posted.isEmpty)
+        #expect(service.showAttention(banner: NotificationCenterService.attentionBannerID(live)))
+        #expect(shown.isEmpty, "a request that posted no banner authorized Show")
     }
 
     /// A banner left in Notification Center by an earlier launch, whose request is still the tab's
