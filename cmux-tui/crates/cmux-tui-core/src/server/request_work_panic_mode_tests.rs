@@ -100,7 +100,9 @@ fn a_v2_workspace_create_is_answered_in_panic_mode() {
 fn a_conversation_create_is_answered_in_panic_mode() {
     let served = Served::new("conversation-create");
     let request = json!({"id": 1, "cmd": "conversation-create", "idempotency_key": "panic-mode-1",
-                         "title": "panic mode", "participants": []});
+        "title": "panic mode", "participants": [
+            {"id": "user_local", "kind": "human", "display_name": "Me"},
+            {"id": "agent_mux", "kind": "agent", "display_name": "mux", "agent_class": "mux"}]});
     let reply = served.ask(&request).unwrap();
     assert_eq!(reply["ok"], true, "{reply}");
 }

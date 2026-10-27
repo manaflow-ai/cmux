@@ -83,12 +83,13 @@ fn a_request_thread_disallows_blocking_and_records_the_site() {
     assert!(cmux_threads::snapshot().iter().all(|row| row.name != NAME), "the row leaves");
 }
 
-/// A connection's queued requests run on `mux-control-dispatch`, a
-/// UserInitiated request thread that disallows blocking: the registry read
-/// `list-workspaces` makes there is a recorded `sqlite` site in server.rs
-/// (`list_workspaces_reply`).
+/// A connection's queued requests are dequeued by `mux-control-dispatch`, a
+/// UserInitiated request thread that disallows blocking, and run on the
+/// connection's request sequence (a System-lane work item), so the registry
+/// read `list-workspaces` makes (server.rs `list_workspaces_reply`) is no
+/// blocking site on the request thread.
 #[test]
-fn the_connection_dispatcher_is_a_request_thread_that_records_its_blocking() {
+fn the_connection_dispatcher_hands_its_requests_to_the_work_lane() {
     let mux =
         crate::Mux::new_for_test("request-threads-dispatch", crate::SurfaceOptions::default());
     let outbound = Arc::new(BoundedOutbound::default());
@@ -104,9 +105,10 @@ fn the_connection_dispatcher_is_a_request_thread_that_records_its_blocking() {
     scheduler.finish_and_wait();
     let reply: Value = serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap();
     assert_eq!(reply["ok"], true, "{reply}");
-    assert!(
-        site_count("src/server.rs", BlockingKind::Sqlite) > before,
-        "list-workspaces on mux-control-dispatch records no sqlite site"
+    assert_eq!(
+        site_count("src/server.rs", BlockingKind::Sqlite),
+        before,
+        "list-workspaces read the registry on a thread that disallows blocking"
     );
 }
 
@@ -205,12 +207,12 @@ fn read_reply(websocket: &mut WebSocket<TcpStream>, id: &Value) -> Value {
 }
 
 /// The WebSocket listener: the accept loop, the connection thread, its writer
-/// and an events writer run at UserInitiated. The connection thread runs a v2
-/// resource line itself and disallows blocking: the registry read of
-/// `workspace.list` there is a recorded `sqlite` site under resource_router/
-/// (topology/workspace_order.rs).
+/// and an events writer run at UserInitiated. The connection thread
+/// disallows blocking and hands a v2 resource line to the connection's
+/// request sequence, so the registry read of `workspace.list` (under
+/// resource_router/) is no blocking site on it.
 #[test]
-fn websocket_threads_are_user_initiated_and_the_connection_records_its_blocking() {
+fn websocket_threads_are_user_initiated_and_the_connection_hands_off_its_blocking() {
     const TOKEN: &str = "request-threads-token";
     let mux = crate::Mux::new_for_test("request-threads-ws", crate::SurfaceOptions::default());
     let server =
@@ -239,9 +241,10 @@ fn websocket_threads_are_user_initiated_and_the_connection_records_its_blocking(
     );
     let list = read_reply(&mut websocket, &json!("list"));
     assert_eq!(list["ok"], true, "{list}");
-    assert!(
-        site_count("src/resource_router/", BlockingKind::Sqlite) > before,
-        "workspace.list on mux-ws-conn records no sqlite site"
+    assert_eq!(
+        site_count("src/resource_router/", BlockingKind::Sqlite),
+        before,
+        "workspace.list read the registry on a thread that disallows blocking"
     );
 
     assert_declared("mux-ws-conn", ThreadQos::UserInitiated);

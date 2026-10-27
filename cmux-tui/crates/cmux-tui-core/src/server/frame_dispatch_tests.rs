@@ -190,7 +190,8 @@ impl Client {
 
     /// The daemon closes at once, and says why.
     fn closed_with(mut self, refusal: CallRefusal) {
-        assert!(self.next().is_none(), "the daemon answered a bad message");
+        let next = self.next();
+        assert!(next.is_none(), "the daemon answered a bad message: {next:?}");
         assert_eq!(self.finish(), ConnectionEnd::BadMessage(ConnectionBadMessage::Call(refusal)));
     }
 }

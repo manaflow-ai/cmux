@@ -96,6 +96,10 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) dispatcher_started: bool,
     pub(super) dispatcher_done: bool,
     pub(super) closed: bool,
+    /// A dequeued request runs on the connection's request sequence: the
+    /// dispatcher dequeues nothing else until it ends, so the requests keep
+    /// the order and the one-at-a-time of an inline dispatcher.
+    pub(super) request_in_flight: bool,
 }
 
 /// Set when a connection's request scheduler closes. Request handlers that
@@ -160,6 +164,10 @@ pub(super) struct ConnectionSurfaceScheduler {
     /// The connection's client class, set by its registry record; the
     /// dispatcher rests at it (connection_qos.rs).
     pub(super) class: Arc<ConnectionClassCell>,
+    /// Where the connection's requests run, one at a time and in order
+    /// (`Mux::post_connection_request`): the dispatcher's and the reader's
+    /// threads disallow blocking, and a request may block.
+    pub(super) requests: Arc<crate::mux::mux_work::Sequence>,
 }
 
 impl Default for ConnectionSurfaceScheduler {
@@ -194,6 +202,7 @@ impl ConnectionSurfaceScheduler {
             connection_permit: Mutex::new(connection_permit),
             creations: terminal_create::ConnectionCreations::default(),
             class: Arc::default(),
+            requests: Arc::default(),
         }
     }
 
@@ -334,6 +343,9 @@ impl ConnectionSurfaceScheduler {
     }
 
     pub(super) fn next_runnable_index(state: &ConnectionSurfaceState) -> Option<usize> {
+        if state.request_in_flight {
+            return None;
+        }
         if state.active_clear_surfaces.is_empty() {
             return (!state.requests.is_empty()).then_some(0);
         }
@@ -367,7 +379,7 @@ impl ConnectionSurfaceScheduler {
                 }
                 return Some(pending);
             }
-            if state.closed && state.requests.is_empty() {
+            if state.closed && state.requests.is_empty() && !state.request_in_flight {
                 state.dispatcher_done = true;
                 self.changed.notify_all();
                 return None;
@@ -626,12 +638,96 @@ fn run_connection_surface_dispatcher(
                 scheduler.close();
                 return;
             }
-        } else if !run_pending_request(&scheduler, &mux, client, pending, &writer) {
+        } else if !scheduler.run_on_requests(&mux, client, pending, &writer) {
             scheduler.close();
             return;
         }
     }
     scheduler.close();
+}
+
+impl ConnectionSurfaceScheduler {
+    /// Waits until the connection's request sequence is idle (tests that
+    /// read a reply right after handing a line over).
+    #[cfg(test)]
+    pub(super) fn wait_requests_idle(&self) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !self.requests.is_idle() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// Runs `pending` on the connection's request sequence, not on the
+    /// dispatcher: a request's handler may read and commit SQLite, read
+    /// files and wait on a terminal host, which the dispatcher (blocking
+    /// disallowed) may not. The dispatcher dequeues nothing else until the
+    /// request ends ([`ConnectionSurfaceState::request_in_flight`]); its
+    /// wait for that is its idle wait for its next request. A request whose
+    /// handler panics ends its connection, as the dispatcher's own panic
+    /// does. `false` when the request could not be queued (shutdown began):
+    /// it is answered and the connection closes.
+    fn run_on_requests(
+        self: &Arc<Self>,
+        mux: &Arc<Mux>,
+        client: u64,
+        pending: PendingSurfaceRequest,
+        writer: &MessageWriter,
+    ) -> bool {
+        self.state.lock().recover_poison().request_in_flight = true;
+        let priority = pending.cause.work_priority();
+        let mut queued = QueuedRequest {
+            scheduler: self.clone(),
+            writer: writer.clone(),
+            pending: Some(pending),
+        };
+        let item_mux = mux.clone();
+        mux.post_connection_request(&self.requests, priority, move || {
+            let Some(pending) = queued.pending.take() else { return };
+            // The connection closed while the request waited for its turn:
+            // like the requests close() clears from the queue, it is dropped
+            // unanswered (nothing more is sent on a closing connection).
+            if queued.scheduler.cancelled.is_cancelled() {
+                return;
+            }
+            if !run_pending_request(&queued.scheduler, &item_mux, client, pending, &queued.writer) {
+                queued.scheduler.close();
+            }
+        })
+        .is_ok()
+    }
+}
+
+/// A request on the connection's request sequence. However it ends (run,
+/// panicked, or dropped unrun when shutdown refused it) the dispatcher may
+/// dequeue again; dropped unrun it is answered, and a panic ends its
+/// connection so its client is never left waiting. Only locks that recover
+/// from poison are taken here, so it is safe while unwinding.
+struct QueuedRequest {
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+    writer: MessageWriter,
+    pending: Option<PendingSurfaceRequest>,
+}
+
+impl Drop for QueuedRequest {
+    fn drop(&mut self) {
+        if let Some(pending) = self.pending.take() {
+            let reply = pending.reply_writer(&self.writer);
+            let _ = send_request_error(
+                &reply,
+                pending.request.id.clone(),
+                "the daemon is shutting down; request was not executed",
+            );
+            self.scheduler.close();
+        }
+        if std::thread::panicking() {
+            self.scheduler.close();
+            self.writer.close();
+        }
+        let mut state = self.scheduler.state.lock().recover_poison();
+        state.request_in_flight = false;
+        drop(state);
+        self.scheduler.changed.notify_all();
+    }
 }
 
 #[cfg(test)]

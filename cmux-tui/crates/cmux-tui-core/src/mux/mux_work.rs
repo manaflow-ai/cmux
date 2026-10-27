@@ -77,12 +77,52 @@ impl Mux {
         lane: Lane,
         body: impl FnOnce(&Weak<Mux>) + Send + 'static,
     ) -> Result<(), Refused> {
-        if !sequence.push(Box::new(body)) {
+        self.post_sequenced(sequence, priority, lane, Shutdown::SkipOnShutdown, Box::new(body))
+    }
+
+    /// Queues one request of a connection on that connection's `sequence`
+    /// (`server::connection_scheduler`): its requests run one at a time, in
+    /// the order the connection's threads hand them over, on the System
+    /// lane at `priority`, each inside [`cmux_threads::work::will_block`]
+    /// as [`Mux::post_request_wait`]'s items are (a request may wait on a
+    /// terminal host or a child process). A connection's reader and its
+    /// dispatcher disallow blocking (p02-threads 210, 211), so a request's
+    /// SQLite, file and process work runs here, as Chrome's IO thread only
+    /// routes a message and a task runner that may block runs it
+    /// (content/browser/browser_thread_impl.cc, base/task/task_traits.h).
+    /// Shutdown never waits for a request (one of them is the shutdown
+    /// request). A refused or dropped drain drops the queued bodies, which
+    /// answer their requests as they drop.
+    pub(crate) fn post_connection_request(
+        &self,
+        sequence: &Arc<Sequence>,
+        priority: Priority,
+        body: impl FnOnce() + Send + 'static,
+    ) -> Result<(), Refused> {
+        let body = move |_: &Weak<Mux>| cmux_threads::work::will_block(body);
+        self.post_sequenced(
+            sequence,
+            priority,
+            Lane::System,
+            Shutdown::ContinueOnShutdown,
+            Box::new(body),
+        )
+    }
+
+    fn post_sequenced(
+        &self,
+        sequence: &Arc<Sequence>,
+        priority: Priority,
+        lane: Lane,
+        shutdown: Shutdown,
+        body: SequencedItem,
+    ) -> Result<(), Refused> {
+        if !sequence.push(body) {
             return Ok(());
         }
         let drain = SequenceDrain { sequence: Arc::clone(sequence), finished: false };
         // A refused post drops `drain`, which drops the queued bodies.
-        self.post_mux_work(priority, lane, Shutdown::SkipOnShutdown, move |mux| drain.run(mux))
+        self.post_mux_work(priority, lane, shutdown, move |mux| drain.run(mux))
     }
 }
 
@@ -318,6 +358,13 @@ impl Sequence {
         let item = queue.items.pop_front();
         queue.draining = item.is_some();
         item
+    }
+
+    /// Whether nothing is queued or running (tests wait for it).
+    #[cfg(test)]
+    pub(crate) fn is_idle(&self) -> bool {
+        let queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+        queue.items.is_empty() && !queue.draining
     }
 
     /// Ends a drain that stopped early; the caller drops the queued items

@@ -49,7 +49,7 @@ impl Conn {
             watched: None,
         };
         let parses = LineParses::enter();
-        dispatch_line(&line);
+        dispatch_line(&line, RequestHead::parse(message));
         let count = parses.count();
         drop(parses);
         scheduler.finish_and_wait();

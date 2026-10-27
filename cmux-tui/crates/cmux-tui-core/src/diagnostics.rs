@@ -26,8 +26,8 @@ mod ipc;
 pub(crate) use ipc::note_json_parse;
 pub use ipc::{
     CountedWrite, IpcKindSnapshot, IpcParseSnapshot, IpcParsesSnapshot, IpcSnapshot, IpcStats,
-    IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseScope, OpenStream,
-    WRITE_STALL_THRESHOLD,
+    IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseHandoff, JsonParseScope,
+    OpenStream, WRITE_STALL_THRESHOLD,
 };
 mod owner_panic_log;
 #[cfg(debug_assertions)]
