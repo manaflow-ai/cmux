@@ -42,6 +42,8 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
             manifest, resolved = package / "Package.swift", package / "Package.resolved"
             manifest.write_text("manifest v1")
             resolved.write_text("resolved v1")
+            sdk = root / "vendor/stack-auth-swift-sdk-prerelease"
+            sdk.mkdir(parents=True)
             tools = root / "bin"
             tools.mkdir()
             swift = tools / "swift"
@@ -74,8 +76,6 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
             self.assertNotEqual(changed, before)
             resolved.write_text("resolved v2")
             self.assertNotEqual(key(), changed)
-            sdk = root / "vendor/stack-auth-swift-sdk-prerelease"
-            sdk.mkdir(parents=True)
             sdk_manifest = sdk / "Package.swift"
             sdk_manifest.write_text("SDK manifest v1")
             sdk_key = key()
