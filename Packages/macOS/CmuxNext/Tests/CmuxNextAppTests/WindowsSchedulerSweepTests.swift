@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextWakeups

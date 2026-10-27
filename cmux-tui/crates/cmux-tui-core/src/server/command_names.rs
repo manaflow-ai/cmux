@@ -477,6 +477,7 @@ command_table! {
     ClientFocus => "client-focus", Topology;
     Subscribe => "subscribe", Other;
     AttachSurface => "attach-surface", Other;
+    CancelStream => "cancel-stream", TerminalIo;
     SnapshotRequest => "snapshot-request", Other;
     TerminalHistory => "terminal-history", TerminalIo;
     TerminalReadRange => "terminal-read-range", TerminalIo;

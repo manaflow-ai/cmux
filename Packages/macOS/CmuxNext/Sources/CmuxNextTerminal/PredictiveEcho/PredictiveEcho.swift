@@ -207,6 +207,7 @@ nonisolated struct PredictiveEcho: Sendable {
         case .waiting:
             break
         case let .settled(count, credited):
+            guard count > 0, count <= pending.count else { rollback(); return }
             let oldest = first.typedAt
             let newest = pending[count - 1]
             pending.removeFirst(count)
