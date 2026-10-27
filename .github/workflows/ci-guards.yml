@@ -85,6 +85,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: A red runner guard check cannot skip or excuse another
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_ci_guard_check_isolation.py
+
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
