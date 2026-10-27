@@ -210,8 +210,9 @@ export class SettingsStore {
       // A machine's update failing while Updates shows (its toast's Details opens it) shows in
       // the Channels card's row at once, in every channel's read.
       this.listen("cmux.settings.channels.machines.changed", (machines) =>
-        this.queryClient.setQueriesData<ChannelsState | null>({ queryKey: [...settingsKeys.all, "channels"] }, (state) =>
-          state ? { ...state, machines } : state,
+        this.queryClient.setQueriesData<ChannelsState | null>(
+          { queryKey: [...settingsKeys.all, "channels"] },
+          (state) => (state ? { ...state, machines } : state),
         ),
       ),
       this.listen("cmux.page.command", (event) => {

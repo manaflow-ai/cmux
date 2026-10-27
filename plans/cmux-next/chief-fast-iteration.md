@@ -114,6 +114,34 @@ These cases are too easy to show a change in this form: they pass at 99%. Next, 
 sets: messages that Lawrence corrected (the regex finds about 10% of dispatches), rules
 taught more than 100 messages before the request, and a fresh draw of seeds.
 
+## Steer deadline, scratch test (Oct 27)
+
+The question: a person's message that arrives while a turn runs is steered in, and when
+Claude Code has not read it within 3 s (`STEER_DEADLINE`), the host interrupts the turn,
+mid-tool. Is `OPTCHAT_STEER_DEADLINE_SECONDS=0` (wait for the next tool boundary) better?
+Two scratch Chiefs (installed nightly host, default engine, same prompt), one per setting.
+Live Chiefs untouched. Per trial: message A asks for a 25 s foreground command
+(`python3 -c "time.sleep(25)"`), message B asks a sum 8 s later. 5 trials each.
+
+| | 3 s (today) | 0 (next tool boundary) |
+| --- | --- | --- |
+| B answered | 4/5, in 9-10 s (one 79 s), one not in 150 s | 5/5, in 24-33 s (p50 26 s) |
+| A finished | 1/5 (115 s) | 5/5 (32-41 s, p50 34 s) |
+| Turns interrupted mid-tool | 5/5 | 1/5 (A still finished) |
+| Chief's reason for a lost A | "the foreground command was rejected" (4/5, false: the host's own interrupt killed it) | none needed |
+
+A first run with `sleep 25` did not reach the steer path: Claude Code refuses a foreground
+sleep, so Chief ran it in the background and ended the turn. It still showed the follow-through
+gap: "I'll post what it prints when it finishes" in 10 of 10 trials, kept 1 time; with the 3 s
+deadline the interrupt also killed 2 background jobs.
+
+Reading: 3 s answers the quick question about 15 s sooner, and loses the running work
+nearly every time, with a false explanation. A middle way to test next, with no host message
+(the host's "Chief is busy" receipt was removed on Lawrence's word, "no fake messages"): wait
+for the next tool boundary, and interrupt only a tool call that is still running after a
+longer limit (for example 30 s). n=5 per setting, one model: not enough to change the
+default alone.
+
 ## Next
 
 1. A `chief-replay` runner that runs each replay above with one command against a scratch home and

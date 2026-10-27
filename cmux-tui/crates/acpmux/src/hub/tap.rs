@@ -80,6 +80,8 @@ impl Hub {
     pub(super) fn session_tap(self: &Arc<Self>, session: &Arc<Session>) -> crate::agent::Tap {
         let tap_session = session.clone();
         let tap_hub = self.clone();
+        // The epoch its reports count in (`FloorState::report_epoch`).
+        let report_epoch = session.floor.report_epoch.load(Ordering::SeqCst);
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
@@ -96,6 +98,15 @@ impl Hub {
                 && method == crate::rpc::method::SESSION_UPDATE
             {
                 tap_hub.note_tool_update(&tap_session, &p["update"]);
+                // Counted before it is logged, so no check waits for the inbound loop to apply
+                // it (review 69 of #23322).
+                if super::full_access_bound::own_full_access_report(&tap_session, p) {
+                    // Under the meta lock the view reads it under (`FullAccessView::of_session`).
+                    let _m = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    if tap_session.floor.report_epoch.load(Ordering::SeqCst) == report_epoch {
+                        tap_session.floor.unapplied_full_access.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
             }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
@@ -160,16 +171,11 @@ impl Hub {
                             // show it (`subagent_retry.rs`).
                             tap_hub.observe_task_line(&tap_session, line);
                         }
-                        // Raw stream-json line; translated messages follow.
-                        return tap_hub
-                            .append_logged(
-                                &tap_session,
-                                "in",
-                                &kind,
-                                params.clone().unwrap_or(Value::Null),
-                                host_seq,
-                            )
-                            .1;
+                        // Raw stream-json line; translated messages follow. Claude's echo of a
+                        // prompt (`--replay-user-messages`) carries its model-sized copies.
+                        let mut line = params.clone().unwrap_or(Value::Null);
+                        crate::model_copies::scrub_logged(&mut line);
+                        return tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
                         if let Some(su) = params
@@ -192,14 +198,10 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, params })
                     if method == "claude.stdin" =>
                 {
+                    let mut line = params.clone().unwrap_or(Value::Null);
+                    crate::model_copies::scrub_logged(&mut line);
                     return tap_hub
-                        .append_logged(
-                            &tap_session,
-                            "out",
-                            "claude.stdin",
-                            params.clone().unwrap_or(Value::Null),
-                            host_seq,
-                        )
+                        .append_logged(&tap_session, "out", "claude.stdin", line, host_seq)
                         .1;
                 }
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
@@ -209,6 +211,8 @@ impl Hub {
             // parent (`crate::subagents`); they are not the session's own
             // message stream.
             let mut value = msg.to_value();
+            // Less the model-sized image copies acpmux wrote to the agent, and any echo of them.
+            crate::model_copies::scrub_logged(&mut value);
             // The agent's own display line on its ask is neither logged nor shown
             // (`permissions/display.rs`): only acpmux writes the line a person reads.
             if d == "in"
