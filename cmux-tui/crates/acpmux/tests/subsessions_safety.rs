@@ -565,6 +565,39 @@ async fn a_family_prompt_from_an_agent_after_a_web_turn_runs_as_a_web_turn() {
     assert_eq!(app.turn_controls(&child).await, ["web"]);
 }
 
+/// An agent a remote device drives never sends files with a message: `send_message` asks the
+/// daemon before it reads any path (`attachCheck`), and a send that carries files anyway, inline
+/// or by upload reference, is refused before the daemon reads or resolves them.
+#[tokio::test]
+async fn an_agent_a_web_turn_drove_cannot_send_files_with_a_message() {
+    let s = Scratch::new("webattach");
+    let own = s.dir("own");
+    let (hub, parent) = web_family(&s, &own).await;
+    let mut app = Client::new(&hub);
+    let mut p = Client::as_session(&hub, &parent).await;
+    let child = p.ok(START, json!({"prompt": "echo child"})).await;
+    let child = child["sessionId"].as_str().unwrap().to_owned();
+    app.wait_ready(&child).await;
+
+    let inline = acpmux::attach::block("secret.txt", b"from the agent's machine");
+    let send = json!({"sessionId": child, "text": "see this", "attachments": [inline]});
+    let e = p.refused(SEND, send).await;
+    assert_eq!(e["data"]["reason"], "attach.remote", "{e}");
+    let upload = uuid::Uuid::now_v7().to_string();
+    let by_ref = json!({"type": "resource_link", "name": "secret.txt",
+        "uri": format!("acpmux-upload:{upload}"),
+        "_meta": {"acpmux": {"upload": {"uploadId": upload, "fileName": "secret.txt"}}}});
+    let send = json!({"sessionId": child, "text": "see this", "attachments": [by_ref]});
+    let e = p.refused(SEND, send).await;
+    assert_eq!(e["data"]["reason"], "attach.remote", "{e}");
+    let check = json!({"sessionId": child, "text": "", "attachCheck": true});
+    let e = p.refused(SEND, check).await;
+    assert_eq!(e["data"]["reason"], "attach.remote", "{e}");
+    let events = app.events(&child).await;
+    let sent: Vec<_> = events.iter().filter(|e| e["kind"] == "user_message").collect();
+    assert_eq!(sent.len(), 1, "only its start prompt reached the child: {sent:?}");
+}
+
 #[tokio::test]
 async fn a_family_prompt_never_clears_its_receivers_web_floor() {
     let s = Scratch::new("webfloor");
