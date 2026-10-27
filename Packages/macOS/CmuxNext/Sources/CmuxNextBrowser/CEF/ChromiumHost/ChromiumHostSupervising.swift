@@ -19,6 +19,16 @@ public protocol ChromiumHostSupervising: AnyObject {
     /// goes with it, as Chrome's browser drops a dead GPU process's state when
     /// `GpuProcessHost::OnProcessCrashed` runs (content/browser/gpu/gpu_process_host.cc).
     func observeHostEnds(_ ended: @escaping @MainActor () -> Void)
+
+    /// The host whose wire is `attachment` said hello (its Chromium context is initialized, CONTEXT_INITIALIZED).
+    /// Only after it does an end count as a crash of the restart budget; a host that dies before it could not start,
+    /// as Chrome's GPU process that failed to initialize (`did_fail_initialize_`, content/browser/gpu/gpu_process_host.cc).
+    func hostSaidHello(_ attachment: ChromiumHostAttachment)
+}
+
+extension ChromiumHostSupervising {
+    /// A supervisor with no restart budget does not tell its hosts apart by their hello.
+    public func hostSaidHello(_ attachment: ChromiumHostAttachment) {}
 }
 
 /// One host's wire, as the supervisor hands it to the runtime.

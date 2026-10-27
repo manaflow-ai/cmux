@@ -86,6 +86,7 @@ import Testing
         #expect(wrote == 1 && got == 1)
         #expect(byte == 42)
 
+        rig.supervisor.hostSaidHello(attachment)
         let pid = try #require(rig.supervisor.hostPID)
         #expect(kill(pid, SIGKILL) == 0)
         rig.reports.untilEnds(1)
@@ -101,10 +102,47 @@ import Testing
         let next = try await rig.supervisor.attachment()
         defer { Darwin.close(next.controlFD) }
         #expect(rig.supervisor.hostsStarted == 2)
+        rig.supervisor.hostSaidHello(next)
         let running = try #require(rig.supervisor.hostPID)
         #expect(kill(running, SIGKILL) == 0)
         rig.reports.untilEnds(2)
         #expect(rig.reports.reported.map(\.exit.reason) == [.killed, .killed])
+    }
+
+    /// p01-process-081/083: a host SIGKILLed before its hello (Chromium never initialized) could not start: it spends
+    /// none of the crash budget, its pages do not come back, and no host starts again, as Chrome does not relaunch a
+    /// GPU process that failed to initialize.
+    @Test func aHostKilledBeforeItsHelloCannotStartAndSpendsNoCrash() async throws {
+        let spawner = EndingSpawner()
+        let supervisor = ChromiumHostSupervisor(spawner: spawner, policy: ChromiumHostRestartPolicy(clock: ManualClock()),
+                                                restoresPages: true)
+        let seen = Restores()
+        supervisor.onHostEnded = { [weak supervisor] _ in seen.values.append(supervisor?.lastEndRestoresPages ?? false) }
+        _ = try await supervisor.attachment()
+        let killed = ChromiumHostExit(signal: SIGKILL, status: nil)
+
+        spawner.end(try #require(supervisor.hostPID), killed)
+
+        #expect(seen.values == [false], "a host that never started brought its pages back")
+        #expect(supervisor.policy.recentCrashes == 0, "an end before the hello spent the crash budget")
+        let reason = ChromiumHostCannotStart(exit: killed).description
+        #expect(supervisor.startFailure == reason)
+        await #expect(throws: ChromiumHostAttachError.cannotStart(reason)) { _ = try await supervisor.attachment() }
+        #expect(supervisor.hostsStarted == 1)
+    }
+
+    /// A hello names its host by the wire: one of a host that is no longer the running one marks nothing.
+    @Test func aHelloOfAnotherWireDoesNotMarkTheRunningHost() async throws {
+        let spawner = EndingSpawner()
+        let supervisor = ChromiumHostSupervisor(spawner: spawner, policy: ChromiumHostRestartPolicy(clock: ManualClock()),
+                                                restoresPages: true)
+        _ = try await supervisor.attachment()
+        supervisor.hostSaidHello(ChromiumHostAttachment(controlFD: 99, remoteShim: URL(filePath: "/elsewhere"), frameworkLocales: []))
+
+        spawner.end(try #require(supervisor.hostPID), ChromiumHostExit(signal: SIGSEGV, status: nil))
+
+        #expect(supervisor.startFailure != nil)
+        #expect(supervisor.policy.recentCrashes == 0)
     }
 
     @Test func aCleanExitReportsNothing() async throws {
@@ -172,7 +210,7 @@ import Testing
         supervisor.onHostEnded = { [weak supervisor] _ in seen.values.append(supervisor?.lastEndRestoresPages ?? false) }
         for minute in minutes {
             clock.advance(by: .seconds(minute * 60) - clock.now.offset)
-            _ = try await supervisor.attachment()
+            supervisor.hostSaidHello(try await supervisor.attachment())
             spawner.end(try #require(supervisor.hostPID), ChromiumHostExit(signal: SIGSEGV, status: nil))
         }
         return seen.values

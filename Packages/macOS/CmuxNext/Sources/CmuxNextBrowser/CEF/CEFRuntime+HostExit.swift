@@ -49,26 +49,33 @@ extension CEFRuntime {
     /// one when it shows. Nothing reaches the dead host's wire. A host that cannot start leaves the
     /// sad tab.
     func reloadAfterHostRestart(_ tab: CEFTab) {
-        Self.restartHost(self, thenReload: tab)
+        Self.restartHost(self, then: tab, reloads: true)
+    }
+
+    /// `tab` was sent to a new address while its host restore waited for the next host (``CEFTab/hostRestoreNavigated()``):
+    /// once that host is attached, a shown `tab` gets its browser there with that address, a hidden one when it shows.
+    func createAfterHostRestart(_ tab: CEFTab) {
+        Self.restartHost(self, then: tab, reloads: false)
     }
 
     /// The restart waits off the main actor: the start and the reload each run on main as the runtime's own
     /// calls, and the main thread holds nothing while the supervisor starts the host.
-    private nonisolated static func restartHost(_ runtime: CEFRuntime, thenReload tab: CEFTab) {
-        // task-owner: one per Reload of a sad tab; the shared attach (CEFHostStart) owns the restart, and quit fails it
+    private nonisolated static func restartHost(_ runtime: CEFRuntime, then tab: CEFTab, reloads: Bool) {
+        // task-owner: one per Reload of a sad tab, or per navigation of a page a host restore waited for; the shared
+        // attach (CEFHostStart) owns the restart, and quit fails it
         Task { [weak runtime, weak tab] in
             guard let runtime else { return }
             do { try await runtime.start(layout: nil, trigger: "hostRestart") } catch { return }
             guard let tab else { return }
-            await runtime.reloadOnRestartedHost(tab)
+            await runtime.resumeOnRestartedHost(tab, reloads: reloads)
         }
     }
 
-    /// The new host is attached: `tab` loads its page there, and gets a browser now when it is shown. A page a
-    /// restore brings back (``restorePagesOnNextHost(_:reading:)``) comes back that way, with its history.
-    private func reloadOnRestartedHost(_ tab: CEFTab) {
+    /// The new host is attached: `tab` loads its page there (again when `reloads`), and gets a browser now when it is
+    /// shown. A page a restore brings back (``restorePagesOnNextHost(_:reading:)``) comes back that way, with its history.
+    private func resumeOnRestartedHost(_ tab: CEFTab, reloads: Bool) {
         guard !tab.isClosed, !awaitsHostRestart, hostStart?.pageRestores.phase(of: tab) == nil else { return }
-        tab.reload()
+        if reloads { tab.reload() }
         tab.host.recreateShown(tab)
     }
 

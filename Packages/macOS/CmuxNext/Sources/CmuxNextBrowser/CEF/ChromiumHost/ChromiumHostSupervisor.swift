@@ -17,7 +17,8 @@ import Darwin
 ///   crash state the host's pages show (``ChromiumHostExit/pageExit``: nothing for a clean exit). The next
 ///   ``attachment()`` starts a new host, as Chrome's `BrowserGpuChannelHostFactory` establishes a new channel after
 ///   the GPU process died (content/browser/gpu/browser_gpu_channel_host_factory.cc). A host that could not start
-///   (``ChromiumHostExit/startFailure``) is not started again: a new one would fail the same way.
+///   (``ChromiumHostExit/startFailure``, or an end before its hello, ``hostSaidHello(_:)``) is not started again: a new
+///   one would fail the same way.
 /// - Restart: each crash spends Chrome's GPU crash budget (``ChromiumHostRestartPolicy``, task 081). With
 ///   `restoresPages` (feature `chromiumHostRestoreTabs`, task 083) a crash within it sets ``lastEndRestoresPages``,
 ///   and the runtime starts the next host at once and brings back every tab from its saved history.
@@ -42,11 +43,15 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     private struct Host {
         let pid: pid_t
         let generation: UInt64
+        /// The wire handed out for it: ``hostSaidHello(_:)`` names the host by it.
+        let attachment: ChromiumHostAttachment
+        /// It said hello (``hostSaidHello(_:)``); an end before that is a host that could not start.
+        var saidHello = false
     }
 
     private let spawner: any ChromiumHostSpawning
     /// Chrome's GPU crash budget, spent by each crash of a host this supervisor started.
-    private var policy: ChromiumHostRestartPolicy
+    private(set) var policy: ChromiumHostRestartPolicy
     /// A crash within the budget restores the host's pages on the next host (feature `chromiumHostRestoreTabs`).
     private let restoresPages: Bool
     private var host: Host?
@@ -86,7 +91,7 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         defer { starting = false }
         let spawned = try await spawner.spawn()
         generation &+= 1
-        let started = Host(pid: spawned.pid, generation: generation)
+        let started = Host(pid: spawned.pid, generation: generation, attachment: spawned.attachment)
         host = started
         hostsStarted += 1
         watch(started)
@@ -95,6 +100,11 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
 
     public func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {
         endObservers.append(ended)
+    }
+
+    public func hostSaidHello(_ attachment: ChromiumHostAttachment) {
+        guard host?.attachment == attachment else { return }
+        host?.saidHello = true
     }
 
     /// Waits for `started` to end off the main thread, then handles the end on it.
@@ -110,14 +120,15 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         spawner.reap(ended.pid)
         exits.append(exit.description)
         // A superseded host's end was handled when it was superseded.
-        guard host?.generation == ended.generation else { return }
+        guard let current = host, current.generation == ended.generation else { return }
         host = nil
         if let failure = exit.startFailure { startFailure = failure }
         endObservers.forEach { $0() }
         guard !isQuitting(), let pageExit = exit.pageExit else { return }
-        // A host that dies before its hello fails its attach (CEFHostStart) with no page on it, so every end
-        // with pages comes from a host that said hello; a start failure (kExit*) still cannot start.
-        let decision = policy.hostEnded(exit, saidHello: true, cause: .crash)
+        // A host that died before its hello, or with a start failure (kExit*), could not start: it spends no crash,
+        // and no host starts again (a new one would die the same way).
+        let decision = policy.hostEnded(exit, saidHello: current.saidHello, cause: .crash)
+        if case .cannotStart(let reason) = decision { startFailure = reason.description }
         lastEndRestoresPages = restoresPages && decision == .restart
         onHostEnded?(pageExit)
     }

@@ -26,6 +26,9 @@ extension CEFTab {
     /// The page waits for its saved navigation and the next host: no browser is made for it until then.
     var awaitsHostRestore: Bool { runtime.hostStart?.pageRestores.blocksCreation(of: self) == true }
 
+    /// A host restore will bring the page back (``CEFHostPageRestores/Phase``).
+    var hasHostRestore: Bool { runtime.hostStart?.pageRestores.phase(of: self) != nil }
+
     /// The host ended with this page and the next one starts now (restore `generation`). True when the page comes
     /// back on it: it waits with its crash page and makes no browser until then. A page showing a form's result (a
     /// POST) does not come back on its own, shown or hidden: the form is never sent again without the person, so it
@@ -56,6 +59,16 @@ extension CEFTab {
         guard let restores = runtime.hostStart?.pageRestores, restores.phase(of: self) == .waitsForShow else { return }
         restores.set(nil, for: self)
         if browserID == nil { startHostRestore() }
+    }
+
+    /// The page was sent somewhere else before its restore loaded it (``load(_:)``, from the person, a script, the CLI or
+    /// MCP): the restore ends and the new address loads, as a navigation of a restored background tab replaces its
+    /// pending restore in Chrome. A page still waiting for the next host gets its browser there, now when shown.
+    func hostRestoreNavigated() {
+        guard let restores = runtime.hostStart?.pageRestores, let phase = restores.phase(of: self) else { return }
+        restores.set(nil, for: self)
+        pendingRestore = nil
+        if case .reading = phase { runtime.createAfterHostRestart(self) }
     }
 
     /// The next host did not start: the page keeps its crash page and reloads when it shows, as without a restore.
