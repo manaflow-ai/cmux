@@ -177,6 +177,7 @@ import Testing
             samples.append(Self.onScreen(session))
             try await Task.sleep(for: .milliseconds(4))
         }
+        try #require(samples.last == .text, "OSC 11 reveal showed no text within 2s: \(samples)")
         let until = ContinuousClock.now.advanced(by: .milliseconds(500))
         while ContinuousClock.now < until {
             samples.append(Self.onScreen(session))
