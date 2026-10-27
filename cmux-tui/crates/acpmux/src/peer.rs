@@ -18,6 +18,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 #[path = "peer_health.rs"]
 mod health;
+#[path = "peer_keepalive.rs"]
+pub(crate) mod keepalive;
 
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -559,19 +561,17 @@ impl Peer {
             Ok::<(), RpcError>(())
         });
 
-        // Keepalive: a ping each interval; any frame is an answer. A peer
-        // silent for the whole budget, or one that stops reading so a send
-        // cannot go out, is dropped and reconnected; one interval of silence
-        // only marks it degraded.
+        // Keepalive: a ping after each interval without a frame; any frame is
+        // an answer (`peer_keepalive.rs`). A peer silent for the whole budget,
+        // or one that stops reading so a send cannot go out, is dropped and
+        // reconnected; one interval of silence only marks it degraded.
         let timings = self.timings;
         let budget = timings.silence_budget();
-        let mut ping = tokio::time::interval_at(
-            tokio::time::Instant::now() + timings.ping_every,
-            timings.ping_every,
-        );
-        ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        let mut last_frame = tokio::time::Instant::now();
-        let mut ticks: u64 = 0;
+        let mut ping = keepalive::SilenceDeadline::new(timings.ping_every);
+        // The health ask rides on the link's own wakeups (a ping or a frame),
+        // at most once per HEALTH_EVERY intervals; it has no timer.
+        let health_every = timings.ping_every * health::HEALTH_EVERY;
+        let mut health_asked = tokio::time::Instant::now();
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
         let result = loop {
@@ -583,8 +583,7 @@ impl Peer {
                 _ = &mut handshake_deadline, if !self.link().is_ready() => {
                     break Err(format!("handshake timed out after {}s", timings.handshake.as_secs()));
                 }
-                _ = ping.tick() => {
-                    let silent = last_frame.elapsed();
+                silent = ping.due() => {
                     if silent >= budget {
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
                     }
@@ -596,16 +595,15 @@ impl Peer {
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(stopped_reading(budget)),
                     }
-                    ticks += 1;
-                    if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
-                        self.refresh_health();
-                    }
+                    ping.pinged();
+                    self.health_if_due(&mut health_asked, health_every);
                 }
                 frame = source.next() => {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
-                    last_frame = tokio::time::Instant::now();
+                    ping.heard();
                     self.with_link(|l| l.heard(crate::store::now_ms()));
+                    self.health_if_due(&mut health_asked, health_every);
                     let text = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => t.to_string(),
                         tokio_tungstenite::tungstenite::Message::Close(_) => break Err("peer closed the connection".to_owned()),

@@ -227,11 +227,10 @@ async fn serve(
         .await
         .map_err(|e| Ended::Failed(e.to_string()))?;
     // Keepalive: the Cloud answers "ping" with "pong" without waking its object;
-    // no pong for KEEPALIVE_DEAD means the path is gone, so reconnect.
+    // no pong for KEEPALIVE_DEAD means the path is gone, so reconnect. A ping
+    // goes out only after KEEPALIVE without a frame from the Cloud.
     *connected = true;
-    let mut keepalive = tokio::time::interval(KEEPALIVE);
-    keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut last_pong = tokio::time::Instant::now();
+    let mut keepalive = crate::peer::keepalive::SilenceDeadline::new(KEEPALIVE);
     // The monotonic clock stops while a VM is paused; the wall clock does not.
     let mut suspend = tokio::time::interval(SUSPEND_CHECK);
     suspend.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -246,13 +245,14 @@ async fn serve(
                     return Err(Ended::Resumed);
                 }
             }
-            _ = keepalive.tick() => {
-                if last_pong.elapsed() > KEEPALIVE_DEAD {
+            silent = keepalive.due() => {
+                if silent > KEEPALIVE_DEAD {
                     return Err(Ended::Failed("no keepalive answer".into()));
                 }
                 if let Err(e) = sink.send(Ws::Text("ping".into())).await {
                     return Err(Ended::Failed(e.to_string()));
                 }
+                keepalive.pinged();
             }
             frame = out_rx.recv() => {
                 let Some(frame) = frame else { return Ok(()) };
@@ -263,6 +263,9 @@ async fn serve(
                 }
             }
             msg = source.next() => {
+                if matches!(msg, Some(Ok(_))) {
+                    keepalive.heard();
+                }
                 match msg {
                     None => return Err(Ended::Failed("socket closed".into())),
                     Some(Err(e)) => return Err(Ended::Failed(e.to_string())),
@@ -271,9 +274,8 @@ async fn serve(
                         return if CLOSE_REVOKED.contains(&code) { Err(Ended::Revoked(code)) } else { Err(Ended::Failed(format!("closed {code}"))) };
                     }
                     Some(Ok(Ws::Ping(p))) => { let _ = sink.send(Ws::Pong(p)).await; }
-                    Some(Ok(Ws::Text(t))) if t.as_str() == "pong" => last_pong = tokio::time::Instant::now(),
+                    Some(Ok(Ws::Text(t))) if t.as_str() == "pong" => {}
                     Some(Ok(Ws::Text(t))) => {
-                        last_pong = tokio::time::Instant::now();
                         on_frame(cfg, agents, out_tx, approvals, t.as_str());
                     }
                     Some(Ok(_)) => {}
