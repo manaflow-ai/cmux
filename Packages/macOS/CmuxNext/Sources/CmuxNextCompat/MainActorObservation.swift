@@ -111,5 +111,7 @@ public final class MainActorObservation {
     }
 }
 
-/// The lifetime a waiting delivery checks (``MainActorObservation``).
-private final class Alive {}
+/// The lifetime a waiting delivery checks (``MainActorObservation``). It holds no state, only its
+/// identity for the weak references the deliveries keep, so it is `Sendable`: the main-actor
+/// handlers capture it without sending a non-Sendable value into the main actor's region.
+private final class Alive: Sendable {}
