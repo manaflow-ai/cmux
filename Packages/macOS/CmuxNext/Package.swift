@@ -1588,6 +1588,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
+                // SystemCrashReportTests plants a Rust ring and scans the forwarded black box with the hang
+                // reports' PrivacyLeakScanner (p09-observability-097).
+                "CmuxNextTrace",
+                "CmuxNextHangReports",
             ],
             swiftSettings: daemonSwiftSettings
         ),

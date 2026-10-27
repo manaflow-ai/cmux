@@ -4,17 +4,20 @@ import CmuxNextCompat
 import os
 
 /// Sends the crash reports macOS writes for this app's helper processes
-/// (cmux-tui daemon and hosts, acpmux, Chromium helpers) to Sentry.
+/// (cmux-tui daemon and hosts, the holder, acpmux, Chromium helpers) to Sentry.
 ///
 /// Decision (cx-urd.58): the Rust daemons carry no Sentry SDK. They run
 /// headless and outlive the app, so they have no consent state of their
 /// own, and the SDK would bring an HTTP and TLS stack into the daemon. A
 /// native crash in any process already produces a macOS crash report; the
-/// app, which owns consent, forwards the reports of binaries inside its own
-/// bundle once each, with frames Sentry symbolicates from the nightly's
-/// debug files. Reports written before the first forwarder run are never
-/// sent. The app's own crashes are Sentry's (in-process), so its executable
-/// is skipped.
+/// app, which owns consent, forwards the reports of its helpers once each,
+/// with frames Sentry symbolicates from the nightly's debug files: the
+/// binaries inside its own bundle, and the terminal host and holder copies
+/// the daemon runs from the host-exe root (``SystemCrashReport/helperOrigin(in:)``).
+/// A Rust process's report carries its crash keys and black box
+/// (``RustCrashArtifacts``). Reports written before the first forwarder run
+/// are never sent. The app's own crashes are Sentry's (in-process), so its
+/// executable is skipped.
 public final class SystemCrashForwarder: Sendable {
     /// Where macOS writes the current user's crash reports.
     public static let standardDirectory = FileManager.default.homeDirectoryForCurrentUser
@@ -34,27 +37,45 @@ public final class SystemCrashForwarder: Sendable {
 
     private let directory: URL
     private let stateFile: URL
-    private let bundlePath: String
-    private let mainExecutable: String?
+    private let roots: SystemCrashReport.HelperRoots
+    /// Where the Rust processes' black boxes and crash-key pages are; nil: no extras.
+    private let artifacts: RustCrashArtifacts?
     /// False when crash reports are off this launch: reports are marked done
     /// without being sent, so turning reports on later never sends crashes
     /// from a time they were off.
     private let sends: Bool
-    private let capture: @Sendable (Event) -> Void
+    private let capture: @Sendable (Event, [Attachment]) -> Void
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.crash-forwarder", qos: .utility)
     private let watcher = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
 
+    /// - Parameters:
+    ///   - hostExeRoot: The root of the daemon's host and holder copies
+    ///     (``SystemCrashReport/HelperRoots/standardHostExeRoot(environment:home:)``); nil forwards bundle binaries only.
+    ///   - artifacts: Where the Rust processes' black boxes and crash-key pages are; nil attaches none. The
+    ///     default reads this app's folders and attaches no black box (no hang-reports opt-in passed).
+    ///   - capture: Sends an event with its attachments.
     public init(directory: URL = SystemCrashForwarder.standardDirectory, stateFile: URL, bundlePath: String,
-                mainExecutable: String?, sends: Bool = true,
-                // A clean scope: the app's breadcrumbs and contexts do not describe a helper's crash.
-                capture: @escaping @Sendable (Event) -> Void = { SentrySDK.capture(event: $0, scope: Scope()) }) {
+                mainExecutable: String?,
+                hostExeRoot: String? = SystemCrashReport.HelperRoots.standardHostExeRoot(),
+                artifacts: RustCrashArtifacts? = RustCrashArtifacts.app(bundleID: Bundle.main.bundleIdentifier,
+                                                                        blackboxOptIn: { false }),
+                sends: Bool = true,
+                capture: @escaping @Sendable (Event, [Attachment]) -> Void = { SystemCrashForwarder.sendToSentry($0, attachments: $1) }) {
         self.directory = directory
         self.stateFile = stateFile
-        self.bundlePath = bundlePath
-        self.mainExecutable = mainExecutable
+        roots = SystemCrashReport.HelperRoots(bundlePath: bundlePath, mainExecutable: mainExecutable, hostExeRoot: hostExeRoot)
+        self.artifacts = artifacts
         self.sends = sends
         self.capture = capture
+    }
+
+    /// Sends `event` with `attachments` in a clean scope: the app's breadcrumbs and contexts do not describe a
+    /// helper's crash.
+    public static func sendToSentry(_ event: Event, attachments: [Attachment]) {
+        let scope = Scope()
+        for attachment in attachments { scope.addAttachment(attachment) }
+        SentrySDK.capture(event: event, scope: scope)
     }
 
     /// Sends every helper report written since the last run, now and each
@@ -88,6 +109,7 @@ public final class SystemCrashForwarder: Sendable {
         }
         var sent: [URL] = []
         var changed = false
+        let roots = sends && !candidates.isEmpty ? self.roots.resolvingHostExeRoot() : self.roots
         for candidate in candidates.sorted(by: { $0.time < $1.time }) {
             // Reports are off: never read, only marked done.
             let contents: SystemCrashReport.Contents = !sends ? .other
@@ -97,10 +119,17 @@ public final class SystemCrashForwarder: Sendable {
                 // Still being written: retried at the next folder event or launch.
                 if changed { save(state) }
                 return sent
-            case .crash(let report) where report.isHelper(ofBundle: bundlePath, mainExecutable: mainExecutable):
-                capture(SystemCrashEvent(report: report).event())
+            case .crash(let report):
+                guard let origin = report.helperOrigin(in: roots) else { break }
+                var extras = artifacts?.extras(for: report) ?? SystemCrashEvent.Extras()
+                extras.origin = origin
+                let crash = SystemCrashEvent(report: report, extras: extras)
+                capture(crash.event(), crash.attachments())
                 sent.append(candidate.url)
-                logger.info("forwarded crash report process=\(report.processName, privacy: .public)")
+                logger.info("""
+                    forwarded crash report process=\(report.processName, privacy: .public) \
+                    origin=\(origin.rawValue, privacy: .public)
+                    """)
             default:
                 break
             }
