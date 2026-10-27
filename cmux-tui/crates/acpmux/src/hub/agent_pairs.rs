@@ -57,6 +57,7 @@
 //! `agent.pairCap` / `agent.pairWindow` set the cap.
 
 use super::*;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
 #[path = "agent_pair_progress.rs"]
@@ -677,9 +678,10 @@ impl Hub {
             else {
                 return;
             };
-            tokio::spawn(async move {
+            let canceller = hub.clone();
+            hub.supervise("acpmux.hub.pair-interrupt", Fatal, ShutdownBehavior::Skip, async move {
                 if to.turn().is_some_and(|t| t.turn_id == turn_id)
-                    && let Err(e) = hub.cancel(&to).await
+                    && let Err(e) = canceller.cancel(&to).await
                 {
                     tracing::warn!(session = %to.id, "interrupt: {}", e.message);
                 }
@@ -751,7 +753,7 @@ impl Hub {
         let keys = std::mem::take(&mut self.pairs_state().restored_drains);
         for key in keys {
             let hub = self.clone();
-            tokio::spawn(async move {
+            self.supervise("acpmux.hub.pair-drain", Fatal, ShutdownBehavior::Skip, async move {
                 hub.wait_startup().await;
                 hub.drain_pair(key).await;
             });
@@ -820,7 +822,9 @@ impl Hub {
                 self.append(&s, "mux", "agent_pair_resumed", note(&a));
             }
             let hub = self.clone();
-            tokio::spawn(async move { hub.drain_pair((a, b)).await });
+            self.supervise("acpmux.hub.pair-drain", Fatal, ShutdownBehavior::Skip, async move {
+                hub.drain_pair((a, b)).await
+            });
         }
         (pairs, delivered)
     }
@@ -877,7 +881,7 @@ impl Hub {
             let hub = self.clone();
             let (blocks, client, steer) = (h.blocks.clone(), h.client.clone(), false);
             let target = session.clone();
-            tokio::spawn(async move {
+            self.supervise("acpmux.hub.pair-release", Fatal, ShutdownBehavior::Skip, async move {
                 let done = hub.prompt_with(&target, blocks, &client, steer, opts).await;
                 let _ = tx.send(done.map(|_| ()));
             });

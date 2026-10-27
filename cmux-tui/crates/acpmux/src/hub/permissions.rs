@@ -2,6 +2,7 @@
 
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
+use crate::supervised::{Fatal, ShutdownBehavior};
 
 impl Hub {
     // ------------------------------------------------------------- inbound
@@ -30,7 +31,7 @@ impl Hub {
                     // of its own.
                     let ask = (m == method::SESSION_REQUEST_PERMISSION)
                         .then(|| super::permission_groups::AskInFlight::new(&session));
-                    tokio::spawn(async move {
+                    self.supervise("acpmux.hub.agent-request", Fatal, ShutdownBehavior::Skip, async move {
                         hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
                     });
                 }

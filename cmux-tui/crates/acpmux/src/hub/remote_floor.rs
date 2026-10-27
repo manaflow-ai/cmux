@@ -27,6 +27,7 @@
 //! always") ends Web control (`web_control.rs`).
 
 use super::*;
+use crate::supervised::{Fatal, ShutdownBehavior};
 
 /// The remote floor's marks on a session.
 #[derive(Default)]
@@ -129,17 +130,24 @@ impl Hub {
         else {
             return;
         };
-        let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
-        rt.spawn(async move {
-            let child = s.child.lock().await.clone();
-            // Only the turn the floor cancelled, never a newer one.
-            if s.turn().map(|t| t.turn_id) != Some(turn.turn_id) {
-                return;
-            }
-            if let (Some(c), Some(sid)) = (child, s.meta().agent_session_id) {
-                let _ = c.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await;
-            }
-        });
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        self.supervise(
+            "acpmux.hub.remote-floor-cancel",
+            Fatal,
+            ShutdownBehavior::Skip,
+            async move {
+                let child = s.child.lock().await.clone();
+                // Only the turn the floor cancelled, never a newer one.
+                if s.turn().map(|t| t.turn_id) != Some(turn.turn_id) {
+                    return;
+                }
+                if let (Some(c), Some(sid)) = (child, s.meta().agent_session_id) {
+                    let _ = c.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await;
+                }
+            },
+        );
     }
 }
 

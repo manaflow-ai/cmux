@@ -87,6 +87,7 @@ mod stalled_turn;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
+mod session_tmp;
 mod shutdown;
 mod spawn;
 mod start_defaults;
@@ -95,6 +96,7 @@ mod start_mode_state;
 mod startup;
 mod steer_end;
 mod stream;
+mod supervision;
 mod tags;
 mod tap;
 mod titles;
@@ -163,6 +165,7 @@ use crate::mailbox::Mailbox;
 use crate::rpc::{Id, Message, RpcError, method};
 use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
+use crate::supervised::{Fatal, ShutdownBehavior};
 use anyhow::Result;
 use serde_json::{Value, json};
 
@@ -331,6 +334,8 @@ pub(super) struct StreamState {
 
 pub struct Hub {
     pub config: RwLock<Config>,
+    /// The process's supervisor: every hub task runs under it (`crate::supervised`).
+    pub(crate) supervisor: crate::supervised::Supervisor,
     pub(super) store: Arc<dyn Store>,
     /// Writes session records off the request path (`meta_writer.rs`).
     pub(super) meta_writer: meta_writer::MetaWriter,
@@ -480,15 +485,27 @@ impl Hub {
     /// A daemon's hub: only the session list is read before it answers. The chat
     /// logs (their tails, queues and unsettled turns) load in `load_logs`, after
     /// the ready line (2026-10-20: reading 3.9 GB of logs first took 26.8 s).
-    pub fn new_deferred(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, true)
+    pub fn new_deferred(
+        config: Config,
+        store: Box<dyn Store>,
+        mailbox: Mailbox,
+        supervisor: crate::supervised::Supervisor,
+    ) -> Arc<Self> {
+        Self::build(config, store, mailbox, true, supervisor)
     }
 
+    /// A hub outside a daemon: its supervisor is [`crate::supervised::embedded`].
     pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, false)
+        Self::build(config, store, mailbox, false, crate::supervised::embedded())
     }
 
-    fn build(config: Config, store: Box<dyn Store>, mailbox: Mailbox, deferred: bool) -> Arc<Self> {
+    fn build(
+        config: Config,
+        store: Box<dyn Store>,
+        mailbox: Mailbox,
+        deferred: bool,
+        supervisor: crate::supervised::Supervisor,
+    ) -> Arc<Self> {
         let (events, _) = broadcast::channel(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
@@ -497,8 +514,9 @@ impl Hub {
         let store: Arc<dyn Store> = Arc::from(store);
         let hub = Arc::new(Self {
             config: RwLock::new(config),
-            meta_writer: meta_writer::MetaWriter::start(store.clone()),
-            config_writer: Default::default(),
+            meta_writer: meta_writer::MetaWriter::start(store.clone(), &supervisor),
+            config_writer: config_writer::ConfigWriter::start(&supervisor),
+            supervisor,
             store,
             mailbox,
             forum: std::sync::OnceLock::new(),
@@ -579,7 +597,9 @@ impl Hub {
         }
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
-            tokio::spawn(async move { h.peer_notice_loop().await });
+            hub.supervise("acpmux.hub.peer-notices", Fatal, ShutdownBehavior::Skip, async move {
+                h.peer_notice_loop().await
+            });
             hub.watch_transfers();
             hub.watch_titles();
             hub.watch_orphans();
@@ -1214,36 +1234,6 @@ impl Hub {
             (meta.clone(), self.meta_writer.next_version())
         };
         self.meta_writer.queue(&*self.store, meta, version, session.purged.clone());
-    }
-
-    /// Lists the temporary folders of sessions this daemon no longer has
-    /// (`agent/session_tmp.rs`) and removes them on a thread of their own.
-    /// The daemon calls it before its socket serves, so no session starts
-    /// between the list and the store it is checked against.
-    #[cfg(unix)]
-    pub fn sweep_session_tmp(&self) {
-        let metas = match self.store.list() {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("session tmp sweep skipped, the store did not list: {e}");
-                return;
-            }
-        };
-        let known: std::collections::HashSet<&str> = metas.iter().map(|m| m.id.as_str()).collect();
-        let closed: std::collections::HashSet<&str> = metas
-            .iter()
-            .filter(|m| m.status == SessionStatus::Closed)
-            .map(|m| m.id.as_str())
-            .collect();
-        // A session whose record did not list still has its folder.
-        let stored =
-            |id: &str| known.contains(id) || self.store.session_dir(id).is_some_and(|d| d.exists());
-        let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
-        if stale.is_empty() {
-            return;
-        }
-        tracing::info!(count = stale.len(), "removing temporary folders of forgotten sessions");
-        std::thread::spawn(move || crate::agent::session_tmp::remove_all(&stale));
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {

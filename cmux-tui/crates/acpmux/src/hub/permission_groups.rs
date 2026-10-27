@@ -1,6 +1,7 @@
 //! Session-local permission batches. One lock owns membership, chat grants,
 //! callbacks and receipts, so a decision cannot approve an unseen member.
 use super::*;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -266,44 +267,50 @@ impl Hub {
     ) {
         let hub = self.clone();
         let session = session.clone();
-        tokio::spawn(async move {
-            // Use the group's actual opening instant, not timer-task scheduling.
-            let deadline = {
-                let state = session.permissions.lock().unwrap();
-                state.groups.iter().find(|g| g.id == id).map(|g| g.opened + WINDOW)
-            };
-            let Some(deadline) = deadline else { return };
-            tokio::time::sleep_until(deadline.into()).await;
-            // A request the agent sent with this group's first may still be
-            // on its way here: it joins before the group is shown. Each one
-            // lands within its own request task (no wait on a person); the
-            // bound keeps a request task that is stuck (a re-adopted host
-            // that stopped reading) from holding the group back.
-            let _ = tokio::time::timeout(LANDING_BOUND, async {
-                loop {
-                    let landed = session.asks_landed.notified();
-                    tokio::pin!(landed);
-                    landed.as_mut().enable();
-                    if session.asks_in_flight.load(Ordering::SeqCst) == 0 {
-                        break;
+        self.supervise(
+            "acpmux.hub.permission-group-timer",
+            Fatal,
+            ShutdownBehavior::Skip,
+            async move {
+                // Use the group's actual opening instant, not timer-task scheduling.
+                let deadline = {
+                    let state = session.permissions.lock().unwrap();
+                    state.groups.iter().find(|g| g.id == id).map(|g| g.opened + WINDOW)
+                };
+                let Some(deadline) = deadline else { return };
+                tokio::time::sleep_until(deadline.into()).await;
+                // A request the agent sent with this group's first may still be
+                // on its way here: it joins before the group is shown. Each one
+                // lands within its own request task (no wait on a person); the
+                // bound keeps a request task that is stuck (a re-adopted host
+                // that stopped reading) from holding the group back.
+                let _ = tokio::time::timeout(LANDING_BOUND, async {
+                    loop {
+                        let landed = session.asks_landed.notified();
+                        tokio::pin!(landed);
+                        landed.as_mut().enable();
+                        if session.asks_in_flight.load(Ordering::SeqCst) == 0 {
+                            break;
+                        }
+                        landed.await;
                     }
-                    landed.await;
+                })
+                .await;
+                let mut state = session.permissions.lock().unwrap();
+                if let Some(g) =
+                    state.groups.iter_mut().find(|g| g.id == id && g.state == "collecting")
+                {
+                    g.state = "pending";
+                    g.revision += 1;
+                    hub.append(
+                        &session,
+                        "mux",
+                        "permission_group",
+                        json!({"group":g.value(&session.id)}),
+                    );
                 }
-            })
-            .await;
-            let mut state = session.permissions.lock().unwrap();
-            if let Some(g) = state.groups.iter_mut().find(|g| g.id == id && g.state == "collecting")
-            {
-                g.state = "pending";
-                g.revision += 1;
-                hub.append(
-                    &session,
-                    "mux",
-                    "permission_group",
-                    json!({"group":g.value(&session.id)}),
-                );
-            }
-        });
+            },
+        );
     }
 
     pub async fn respond_permission_group(

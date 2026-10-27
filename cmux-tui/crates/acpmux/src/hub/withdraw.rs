@@ -25,6 +25,7 @@
 //! `withdraw.origin_refused`), and a peer's session is never forwarded one.
 
 use super::super::*;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -372,7 +373,7 @@ impl Hub {
             ..PromptOptions::default()
         };
         let (hub, chat) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.supervise("acpmux.hub.withdraw-notice", Fatal, ShutdownBehavior::Skip, async move {
             let blocks = vec![json!({"type": "text", "text": text})];
             if let Err(e) = hub.prompt_with(&chat, blocks, "acpmux", steer, opts).await {
                 tracing::warn!(session = %chat.id, "withdraw notice: {}", e.message);

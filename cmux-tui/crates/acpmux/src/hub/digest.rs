@@ -46,6 +46,7 @@
 
 use super::queue::{Answer, PromptRun, QueuedPrompt};
 use super::*;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use std::sync::atomic::Ordering;
 
 /// Text one turn of agent messages takes at most (the first message always goes in whole).
@@ -196,7 +197,7 @@ impl Hub {
             .collect();
         let Some(retries) = held.iter().map(|(_, n)| *n).max() else { return };
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.supervise("acpmux.hub.held-retry", Fatal, ShutdownBehavior::Skip, async move {
             let delays = hub.config.read().await.auto_resume_delays_ms.clone();
             let delays = delays
                 .filter(|d| !d.is_empty())

@@ -10,6 +10,7 @@
 //! latest prompt (`wants_title`). A harness title, then or later, always wins.
 
 use super::*;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -184,7 +185,7 @@ impl Hub {
     pub(super) fn watch_titles(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.supervise("acpmux.hub.title-watch", Fatal, ShutdownBehavior::Skip, async move {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
@@ -260,7 +261,7 @@ impl Hub {
 
     fn spawn_title_request(self: &Arc<Self>, session: Arc<Session>, request: String) {
         let hub = self.clone();
-        tokio::spawn(async move {
+        self.supervise("acpmux.hub.title-request", Fatal, ShutdownBehavior::Skip, async move {
             // Let a harness's own session-info title and a manual rename win before spending a
             // completion. This is also the debounce between the prompt placeholder and the model.
             tokio::time::sleep(Duration::from_millis(50)).await;

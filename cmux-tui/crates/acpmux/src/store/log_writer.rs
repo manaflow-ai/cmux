@@ -23,6 +23,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
+use crate::supervised::{Fatal, OwnedThread, ShutdownBehavior, Supervisor};
+
 /// What of one session's log is on disk: every record up to `written` is, and `queued` is the
 /// last record handed to the writer. Nothing is pending when they are equal.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -86,11 +88,12 @@ struct Shared {
 
 pub(super) struct LogWriter {
     shared: Arc<Shared>,
-    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    thread: Mutex<Option<OwnedThread>>,
 }
 
 impl LogWriter {
-    pub(super) fn start(root: PathBuf, segment_bytes: u64) -> Self {
+    /// Starts the writer thread under `supervisor`.
+    pub(super) fn start(root: PathBuf, segment_bytes: u64, supervisor: &Supervisor) -> Self {
         let shared = Arc::new(Shared {
             state: Mutex::new(State::default()),
             work: Condvar::new(),
@@ -104,15 +107,19 @@ impl LogWriter {
             }),
         });
         let worker = shared.clone();
-        let thread = std::thread::Builder::new()
-            .name("acpmux-log-writer".into())
-            .spawn(move || run(&worker))
-            .map_err(|e| {
-                tracing::error!(
-                    "the event log writer did not start; logs are written in place: {e}"
-                )
-            })
-            .ok();
+        // A panic in the thread leaves its queue half-written and every `flush` waiting:
+        // Fatal. Continue on shutdown: the owner's drop writes what is queued and joins it.
+        let thread = crate::supervised::owned_thread(
+            supervisor,
+            "acpmux-log-writer",
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || run(&worker),
+        )
+        .map_err(|e| {
+            tracing::error!("the event log writer did not start; logs are written in place: {e}")
+        })
+        .ok();
         Self { shared, thread: Mutex::new(thread) }
     }
 
@@ -212,7 +219,7 @@ impl Drop for LogWriter {
         lock(&self.shared.state).stop = true;
         self.shared.work.notify_one();
         if let Some(thread) = lock(&self.thread).take() {
-            let _ = thread.join();
+            thread.join();
         }
     }
 }
@@ -365,7 +372,7 @@ mod tests {
     #[test]
     fn appends_to_more_logs_than_stay_open_are_all_written_in_order() {
         let dir = root("many");
-        let writer = LogWriter::start(dir.clone(), 1 << 20);
+        let writer = LogWriter::start(dir.clone(), 1 << 20, &crate::supervised::embedded());
         let sessions = OPEN_LOGS + 16;
         for seq in 1..=5 {
             for s in 0..sessions {
@@ -388,7 +395,7 @@ mod tests {
     #[test]
     fn progress_covers_a_record_only_once_it_is_written() {
         let dir = root("progress");
-        let writer = LogWriter::start(dir.clone(), 1 << 20);
+        let writer = LogWriter::start(dir.clone(), 1 << 20, &crate::supervised::embedded());
         let rx = writer.progress("s");
         assert!(rx.borrow().covers(0), "nothing appended: nothing pending");
         // Hold the files so the thread cannot write yet.
@@ -406,7 +413,7 @@ mod tests {
     #[test]
     fn a_forgotten_session_writes_nothing_more() {
         let dir = root("forget");
-        let writer = LogWriter::start(dir.clone(), 1 << 20);
+        let writer = LogWriter::start(dir.clone(), 1 << 20, &crate::supervised::embedded());
         writer.append("s", line(1), 1).unwrap();
         writer.settle("s");
         let files = lock(&writer.shared.files);

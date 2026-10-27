@@ -1,6 +1,7 @@
 //! Owns pooled host startup, initialization, and discard lifecycle.
 
 use super::*;
+use crate::supervised::{Fatal, ShutdownBehavior};
 
 impl Hub {
     /// Start one hidden session for `spec` under a fresh reserved id: its
@@ -100,7 +101,7 @@ impl Hub {
             anyhow::bail!("the daemon is stopping");
         }
         let (tap, slot) = holding_tap();
-        let (inbound, target) = holding_inbound();
+        let (inbound, target) = holding_inbound(&self.supervisor);
         let attach =
             ChildAgent::attach_hosted(&draft.harness, record.clone(), 0, Vec::new(), inbound, tap);
         let attached = tokio::time::timeout(START_BUDGET, attach)
@@ -166,9 +167,11 @@ impl Hub {
     pub(super) fn pool_discard(&self, entries: Vec<Pooled>) {
         // Also called from a drop (`ClaimGuard`): without a runtime the
         // next daemon's sweep ends the host.
-        let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
         for p in entries {
-            rt.spawn(end_pooled(p));
+            self.supervise("acpmux.hub.pool-end", Fatal, ShutdownBehavior::Skip, end_pooled(p));
         }
     }
 }

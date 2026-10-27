@@ -38,6 +38,7 @@
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, HostRecord, Liveness};
+use crate::supervised::{Fatal, ShutdownBehavior};
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
@@ -425,7 +426,7 @@ impl Hub {
         self.start_pool_reaper();
         let Some(generation) = wanted.start else { return };
         let hub = self.clone();
-        tokio::spawn(async move {
+        self.supervise("acpmux.hub.pool-start", Fatal, ShutdownBehavior::Skip, async move {
             match hub.spawn_pooled(&spec).await {
                 Ok(p) => {
                     let id = p.session_id.clone();
@@ -515,8 +516,13 @@ impl Hub {
                 tracing::info!(harness = %key.harness, "an unused claimed session went back to the pool");
                 // Park it again and check the cap, as for a new entry.
                 let hub = self.clone();
-                if let Ok(rt) = tokio::runtime::Handle::try_current() {
-                    rt.spawn(async move { hub.pool_after_ready().await });
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    self.supervise(
+                        "acpmux.hub.pool-after-ready",
+                        Fatal,
+                        ShutdownBehavior::Skip,
+                        async move { hub.pool_after_ready().await },
+                    );
                 }
             }
         }
@@ -629,7 +635,7 @@ impl Hub {
         mut p: Pooled,
     ) -> anyhow::Result<Arc<ChildAgent>> {
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
-            tokio::spawn(end_pooled(p));
+            self.supervise("acpmux.hub.pool-end", Fatal, ShutdownBehavior::Skip, end_pooled(p));
             return Err(e);
         }
         self.forget_adopted_caller(&session.id);
@@ -662,7 +668,9 @@ impl Hub {
         if let Some(rx) = session.inbound_rx.lock().await.take() {
             let hub = self.clone();
             let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
+            self.supervise("acpmux.hub.inbound", Fatal, ShutdownBehavior::Skip, async move {
+                hub.inbound_loop(s, rx).await
+            });
         }
         let init = &p.init;
         let steering =
@@ -719,7 +727,7 @@ impl Hub {
         let Some((harness, preset)) = previous else { return };
         let hub = self.clone();
         let cwd = m.cwd;
-        tokio::spawn(async move {
+        self.supervise("acpmux.hub.pool-last-used", Fatal, ShutdownBehavior::Skip, async move {
             match hub.pool_spec(Some(harness), preset, cwd).await {
                 Ok(spec) => hub.pool_want(Role::LastUsed, spec).await,
                 Err(e) => tracing::debug!("last-used harness not poolable: {}", e.message),
@@ -799,7 +807,7 @@ impl Hub {
             return;
         }
         let hub = self.clone();
-        tokio::spawn(async move {
+        self.supervise("acpmux.hub.pool-reaper", Fatal, ShutdownBehavior::Skip, async move {
             loop {
                 let shut = AtomicBool::new(false);
                 let stopped = async {
@@ -821,15 +829,25 @@ impl Hub {
                     |expired| {
                         tracing::info!(count = expired.len(), "idle pooled sessions exit");
                         for p in expired {
-                            tokio::spawn(end_pooled(p));
+                            hub.supervise(
+                                "acpmux.hub.pool-end",
+                                Fatal,
+                                ShutdownBehavior::Skip,
+                                end_pooled(p),
+                            );
                         }
                     },
                     RSS_TICK,
                     || {
                         // An idle harness grows (opencode does): measure
                         // again and keep the pool under its cap.
-                        let hub = hub.clone();
-                        tokio::spawn(async move { hub.pool_after_ready().await });
+                        let measured = hub.clone();
+                        hub.supervise(
+                            "acpmux.hub.pool-after-ready",
+                            Fatal,
+                            ShutdownBehavior::Skip,
+                            async move { measured.pool_after_ready().await },
+                        );
                     },
                 )
                 .await;

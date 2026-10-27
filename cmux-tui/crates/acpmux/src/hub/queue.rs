@@ -7,6 +7,7 @@
 
 use super::subsession_runs::{TurnGuard, WaitMark};
 use super::*;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use std::sync::atomic::Ordering;
 
 // A prompt dequeued for a turn that never started goes back at the head (`restore_queue`).
@@ -891,7 +892,7 @@ impl Hub {
             for q in restored {
                 let hub = self.clone();
                 let session = session.clone();
-                tokio::spawn(async move {
+                self.supervise("acpmux.hub.queue-resume", Fatal, ShutdownBehavior::Skip, async move {
                     // After the login env and the catalog reload: its harness may need them.
                     hub.wait_startup().await;
                     let opts = PromptOptions {

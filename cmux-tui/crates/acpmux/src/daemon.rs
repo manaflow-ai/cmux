@@ -4,6 +4,7 @@
 use crate::client::Client;
 use crate::config::{Config, home, socket_path};
 use crate::hub::Hub;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::sync::Arc;
@@ -55,12 +56,15 @@ const TEST_PANIC_ENV: &str = "ACPMUX_TEST_PANIC";
 const TEST_PANIC_THREAD: &str = "acpmux-panic-test";
 
 /// Install the panic log hook; the previous hook (stderr, so `daemon.log`) still runs.
-fn install_panic_log() {
+/// Returns the daemon's supervisor: a fatal supervised failure adds its line to the same
+/// log and ends the daemon (`crate::supervised`).
+fn install_panic_log() -> crate::supervised::Supervisor {
     let mut fields = cmux_panic_log::Fields::new();
     fields.insert("process".into(), "acpmux".into());
     fields.insert("pid".into(), std::process::id().into());
     fields.insert("version".into(), env!("CARGO_PKG_VERSION").into());
     let path = panic_log_path();
+    let supervisor = crate::supervised::process_supervisor(Some(path.clone()), fields.clone());
     cmux_panic_log::install_with_opener(
         move || {
             crate::config::private_state_append(&path)
@@ -75,11 +79,13 @@ fn install_panic_log() {
         reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
     )]
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
+        // supervise-allow: debug-only trigger whose unsupervised panic line is what tests/panic_log.rs checks.
         let _ = std::thread::Builder::new()
             .name(TEST_PANIC_THREAD.into())
             // crash-allow: debug-only test trigger for the acpmux panic log
             .spawn(|| panic!("acpmux test panic"));
     }
+    supervisor
 }
 
 /// The debug test trigger's thread; its line carries `"test": true`.
@@ -132,7 +138,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // State holds tokens, prompts and tool output. Older builds created the
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
-    install_panic_log();
+    let supervisor = install_panic_log();
     #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
     poll_watch_lab::install();
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
@@ -176,7 +182,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
         ensure_router();
     }
-    let store = crate::store::open(&config.store, &home())?;
+    let store = crate::store::open_supervised(&config.store, &home(), &supervisor)?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
     // The token is mandatory (plans/cmux-next/identity.md section 4): a saved
@@ -296,7 +302,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
     // Only the session list before the ready line; the chat logs load right after it.
-    let hub = Hub::new_deferred(config, store, mailbox);
+    let hub = Hub::new_deferred(config, store, mailbox, supervisor);
     // The kernel's memory pressure reaches the hub's consumers (`memory.rs`),
     // with the `memoryAcpmuxPressure` feature on.
     hub.memory().watch_if_enabled();
@@ -474,8 +480,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
     {
-        let hub = hub.clone();
-        tokio::spawn(async move {
+        let startup = hub.clone();
+        hub.supervise("acpmux.daemon.startup", Fatal, ShutdownBehavior::Skip, async move {
+            let hub = startup;
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
             // load, as a large log store does, so integration tests can ask in that
             // window. Bounded; release builds have no seam.
@@ -503,7 +510,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
         });
     }
-    tokio::spawn(notify::notify_loop(hub.clone()));
+    hub.supervise(
+        "acpmux.daemon.notify",
+        Fatal,
+        ShutdownBehavior::Skip,
+        notify::notify_loop(hub.clone()),
+    );
 
     let shutdown = async {
         #[cfg(unix)]
@@ -542,6 +554,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             usize::MAX
         }
     };
+    // The agents are stopped: no supervised task runs again, and a failure from here on
+    // ends its task, not the daemon. Off the runtime: shutdown waits for Block workers.
+    let supervisor = hub.supervisor().clone();
+    if let Ok(report) = tokio::task::spawn_blocking(move || supervisor.shutdown()).await
+        && !report.late.is_empty()
+    {
+        tracing::warn!(late = ?report.late, "supervised workers missed their shutdown deadline");
+    }
     // After the agents: their model streams go through the router.
     let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;
     let _ = std::fs::remove_file(home().join("daemon.pid"));

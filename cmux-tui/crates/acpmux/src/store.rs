@@ -599,10 +599,23 @@ pub trait Store: Send + Sync {
     }
 }
 
+/// The store of a process with no supervisor of its own (tests, one-shot commands):
+/// [`crate::supervised::embedded`].
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
+    open_supervised(config, root, &crate::supervised::embedded())
+}
+
+/// The store; its writer thread runs under `supervisor` (the daemon's).
+pub fn open_supervised(
+    config: &StoreConfig,
+    root: &Path,
+    supervisor: &crate::supervised::Supervisor,
+) -> Result<Box<dyn Store>> {
     Ok(match config.mode {
         StoreMode::Memory => Box::new(MemoryStore::default()),
-        StoreMode::Local => Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?),
+        StoreMode::Local => {
+            Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes, supervisor)?)
+        }
     })
 }
 
@@ -701,10 +714,15 @@ pub struct LocalStore {
 const OPEN_LOGS: usize = 64;
 
 impl LocalStore {
-    pub fn new(root: PathBuf, segment_bytes: u64) -> Result<Self> {
+    pub fn new(
+        root: PathBuf,
+        segment_bytes: u64,
+        supervisor: &crate::supervised::Supervisor,
+    ) -> Result<Self> {
         crate::config::private_state_dir(&root)
             .with_context(|| format!("create private store {}", root.display()))?;
-        let log = log_writer::LogWriter::start(root.clone(), segment_bytes.max(64 * 1024));
+        let log =
+            log_writer::LogWriter::start(root.clone(), segment_bytes.max(64 * 1024), supervisor);
         Ok(Self { root, log })
     }
 
@@ -1291,7 +1309,8 @@ mod permission_tests {
             std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o644)).unwrap();
         }
 
-        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        let store =
+            LocalStore::new(root.clone(), 64 * 1024, &crate::supervised::embedded()).unwrap();
         let _ = store.list().unwrap();
         store
             .append(
@@ -1327,7 +1346,7 @@ mod permission_tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("linked-session")).unwrap();
-        let store = LocalStore::new(root, 64 * 1024).unwrap();
+        let store = LocalStore::new(root, 64 * 1024, &crate::supervised::embedded()).unwrap();
         assert!(store.list().is_err());
     }
 
@@ -1342,7 +1361,7 @@ mod permission_tests {
             .status()
             .unwrap();
         assert!(status.success());
-        assert!(LocalStore::new(root, 64 * 1024).is_err());
+        assert!(LocalStore::new(root, 64 * 1024, &crate::supervised::embedded()).is_err());
     }
 }
 

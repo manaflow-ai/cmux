@@ -5,6 +5,7 @@
 //! stays. Idle: now. A running turn: after it ends, or now after a cancel.
 
 use super::*;
+use crate::supervised::{Fatal, ShutdownBehavior};
 
 use crate::{route_account, routes};
 
@@ -282,7 +283,7 @@ impl Hub {
         session.route_switch.store(true, Ordering::SeqCst);
         let hub = self.clone();
         let session = session.clone();
-        tokio::spawn(async move {
+        self.supervise("acpmux.hub.route-restart", Fatal, ShutdownBehavior::Skip, async move {
             let _turn = session.turn_lock.lock().await;
             if session.turn().is_none()
                 && session.pending_permissions().is_empty()
@@ -353,7 +354,7 @@ impl Hub {
         let route = routes::find(dir.as_deref(), &id).ok()?;
         if routes::auto_probe_allowed(&id) {
             let (hub, s, r, st) = (self.clone(), session.clone(), route.clone(), state.clone());
-            tokio::spawn(async move {
+            self.supervise("acpmux.hub.route-probe", Fatal, ShutdownBehavior::Skip, async move {
                 let probe = routes::probe(&r, &st).await;
                 hub.append(&s, "mux", "route_probe", probe);
             });
