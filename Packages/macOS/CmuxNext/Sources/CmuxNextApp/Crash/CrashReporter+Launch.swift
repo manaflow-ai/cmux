@@ -46,8 +46,11 @@ extension CrashReporter {
 /// (`LaunchSignposts.Interval.sentryStart`).
 struct AppCrashReporting: Sendable {
     let reporter: CrashReporter
-    /// Nil outside the app process. With reports off it only marks reports done.
+    /// Nil outside the app process. With reports off it only marks reports done. It starts at the hang-reports
+    /// controller's first decision (``hangReportsDecided(_:)``), so no pass sends a black box before it.
     let forwarder: SystemCrashForwarder?
+    /// Whether the forwarder's Rust crashes carry their black box; nil outside the app process.
+    let blackboxConsent: RustBlackBoxConsent?
     /// The app's cmux-tui owner's panic log (cx-urd.59); nil outside the app process.
     let ownerPanics: OwnerPanicForwarder?
     /// The app's acpmux daemon's panic log (`$ACPMUX_HOME/panics.jsonl`); nil outside the app
@@ -66,6 +69,7 @@ struct AppCrashReporting: Sendable {
             // No Sentry in this process: the running build still decides when a notFatalUntil site traps.
             InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
             forwarder = nil
+            blackboxConsent = nil
             ownerPanics = nil
             acpmuxPanics = nil
             return
@@ -77,22 +81,26 @@ struct AppCrashReporting: Sendable {
         InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
         if let features { reporter.setFeatures(features) }
         afterStartup.schedule { [reporter = self.reporter] in reporter.resumeAfterStartup() }
-        // A Rust crash's black box goes only with the hang-reports consent the app's own crash event reads (079).
-        let consentKey = HangReportsController.consentKey
-        let rings = HangReportsController.ringFolders(bundleID: environment.launch.bundleID,
-                                                      environment: ProcessInfo.processInfo.environment)
+        // A Rust crash's black box goes only while hang reports are on in effect (079's opt-in).
+        let blackboxConsent = RustBlackBoxConsent(consentRecorded: { [key = HangReportsController.consentKey] in
+            UserDefaults.standard.object(forKey: key) is Date
+        })
+        let processEnvironment = ProcessInfo.processInfo.environment
+        let rings = HangReportsController.ringFolders(bundleID: environment.launch.bundleID, environment: processEnvironment)
         let forwarder = SystemCrashForwarder(
             stateFile: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
                 .appending(path: "crash-forwarder.json"),
             bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath,
+            hostExeRoot: Self.hostExeRoot(environment: processEnvironment),
             ownRustBinaries: SystemCrashForwarder.ownRustBinaries(
                 bundledBin: Bundle.main.resourceURL?.appending(path: "bin", directoryHint: .isDirectory),
-                daemonOverride: ProcessInfo.processInfo.environment[DaemonLauncher.binaryOverrideKey]),
+                daemonOverride: processEnvironment[DaemonLauncher.binaryOverrideKey]),
+            release: reporter.policy.release,
             artifacts: RustCrashArtifacts(directories: rings.directories, holderSockets: rings.holderSockets,
-                                          blackboxOptIn: { UserDefaults.standard.object(forKey: consentKey) is Date }),
+                                          blackboxOptIn: { blackboxConsent.allows }),
             sends: sends)
-        forwarder.start()
         self.forwarder = forwarder
+        self.blackboxConsent = blackboxConsent
         let ownerPanics = OwnerPanicForwarder(
             log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory),
                                          session: environment.daemonSession),
@@ -115,6 +123,22 @@ struct AppCrashReporting: Sendable {
             acpmuxPanics = nil
         }
         Self.installLayoutPassGuard(reporter: reporter)
+    }
+
+    /// The hang-reports controller's decision, at its first and each later one: whether a Rust crash's black box may
+    /// go. The first one starts the forwarder.
+    func hangReportsDecided(_ on: Bool) {
+        guard let blackboxConsent, blackboxConsent.decide(on) else { return }
+        forwarder?.start()
+    }
+
+    /// The root the app's daemon copies its hosts and holder under: the daemon's `CMUX_TUI_HOST_EXE_DIR`, which
+    /// the app's launch knob `CMUX_NEXT_TUI_HOST_EXE_DIR` sets (``DaemonDiagnosticKnobs``), else the default.
+    /// The app's own `CMUX_TUI_HOST_EXE_DIR` is stripped at its launch and never reaches the daemon.
+    static func hostExeRoot(environment: [String: String],
+                            home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String {
+        SystemCrashReport.HelperRoots.standardHostExeRoot(
+            environment: DaemonDiagnosticKnobs(processEnvironment: environment).daemonEnvironment, home: home)
     }
 
     /// How Sentry starts and when the part it pauses resumes. Off (the standard start): nothing is paused,

@@ -1249,6 +1249,13 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:21", "kind": "use", "cond": "", "release": true}
       ]
     },
+    "CMUX_NEXT_TUI_HOST_EXE_DIR": {
+      "class": "releaseConfig",
+      "note": "Forwarded to the daemon as CMUX_TUI_HOST_EXE_DIR (the root of its host and holder copies); the crash forwarder reads the same root.",
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:24", "kind": "use", "cond": "", "release": true}
+      ]
+    },
     "CMUX_NEXT_TUI_TERMINAL_HOST_MODEL": {
       "class": "releasePerfPath",
       "note": "Forwarded to the daemon as CMUX_TUI_TERMINAL_HOST_MODEL (terminal holder mode).",
@@ -1487,6 +1494,15 @@
       "note": "Forwarded to the daemon from CMUX_NEXT_TUI_DEBUG_SPANS.",
       "sites": [
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:21", "kind": "use", "cond": "", "release": true}
+      ]
+    },
+    "CMUX_TUI_HOST_EXE_DIR": {
+      "class": "childEnv",
+      "note": "The daemon's host-exe root, set from CMUX_NEXT_TUI_HOST_EXE_DIR; the crash forwarder reads it from that daemon environment, not the app's.",
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/SystemCrashReport.swift:158", "kind": "constant", "cond": "", "release": true},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/SystemCrashReport.swift:179", "kind": "via hostExeRootVariable", "cond": "", "release": true},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonDiagnosticKnobs.swift:24", "kind": "use", "cond": "", "release": true}
       ]
     },
     "CMUX_TUI_HOST_NOFILE_SOFT": {

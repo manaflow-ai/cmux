@@ -14,10 +14,13 @@ public nonisolated struct SystemCrashEvent: Sendable {
     public struct Extras: Sendable, Equatable {
         /// Where the binary ran from (tag `process_origin`).
         public var origin: SystemCrashReport.HelperOrigin?
-        /// Whether the crashed image is one of this app's own binaries (tag `process_build`: `this` or `other`).
-        /// A host-exe copy an earlier build made keeps running after an update, and the app that runs now forwards
-        /// its crash; nil when not checked (a bundle binary is always this build's).
+        /// Whether the crashed image is one of the binaries this app runs now (tag `process_build`: `this`, or
+        /// `other` for an earlier build of this app whose host-exe copy kept running after an update); nil when not
+        /// checked (a bundle binary is always this build's).
         public var fromThisBuild: Bool?
+        /// The Sentry release of the build whose binary crashed (`cmux-next@<version>+<build>`); nil: the SDK's,
+        /// this app's own.
+        public var release: String?
         /// The build version the crashed process wrote in its crash-key page (tag `process_build_version`).
         public var buildVersion: String?
         /// The process kind its black box or crash-key page names (`daemon`, `terminal-host`, `holder`,
@@ -30,10 +33,12 @@ public nonisolated struct SystemCrashEvent: Sendable {
         public var crashKeys: [String: String]
 
         /// Extras from their parts.
-        public init(origin: SystemCrashReport.HelperOrigin? = nil, fromThisBuild: Bool? = nil, buildVersion: String? = nil,
+        public init(origin: SystemCrashReport.HelperOrigin? = nil, fromThisBuild: Bool? = nil,
+                    release: String? = nil, buildVersion: String? = nil,
                     processRole: String? = nil, blackbox: String? = nil, crashKeys: [String: String] = [:]) {
             self.origin = origin
             self.fromThisBuild = fromThisBuild
+            self.release = release
             self.buildVersion = buildVersion
             self.processRole = processRole
             self.blackbox = blackbox
@@ -61,6 +66,8 @@ public nonisolated struct SystemCrashEvent: Sendable {
     public func event() -> Event {
         let event = Event(level: .fatal)
         event.platform = "cocoa"
+        // The SDK puts its own release only on an event that has none (SentryClient prepareEvent).
+        if let release = extras.release { event.releaseName = release }
         var exceptions: [Exception] = []
         if !report.exceptionFrames.isEmpty {
             // The Objective-C throw stack goes first: Sentry lists the

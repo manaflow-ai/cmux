@@ -171,9 +171,10 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
             self.hostExeRoot = hostExeRoot
         }
 
-        /// The host-exe root the daemon uses: ``hostExeRootVariable`` when set, else
+        /// The host-exe root the daemon uses: ``hostExeRootVariable`` in the daemon's `environment` (the app passes
+        /// `DaemonDiagnosticKnobs.daemonEnvironment`: its own launch strips the daemon's name) when set, else
         /// `~/Library/Application Support/cmux-tui/host-exe` (cmux-tui-platform `host_exe/macos.rs`, `root()`).
-        public static func standardHostExeRoot(environment: [String: String] = ProcessInfo.processInfo.environment,
+        public static func standardHostExeRoot(environment: [String: String],
                                                home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String {
             if let root = environment[hostExeRootVariable], !root.isEmpty { return root }
             return home.appending(path: "Library/Application Support/cmux-tui/host-exe").path(percentEncoded: false)

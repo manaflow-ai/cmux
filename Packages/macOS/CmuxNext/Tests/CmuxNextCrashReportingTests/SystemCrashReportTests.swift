@@ -17,6 +17,9 @@ import Testing
     static let sha = String(repeating: "0f9a", count: 16)
     static let uuid = "3f0c9e43-7a61-3c8e-9c1a-2b7f5d0e9a11"
     static let uuidBytes: [UInt8] = [0x3F, 0x0C, 0x9E, 0x43, 0x7A, 0x61, 0x3C, 0x8E, 0x9C, 0x1A, 0x2B, 0x7F, 0x5D, 0x0E, 0x9A, 0x11]
+    /// Another build's image.
+    static let otherUUID = "8a1b2c3d-4e5f-3a6b-9c7d-8e9f0a1b2c3d"
+    static let otherBytes: [UInt8] = [0x8A, 0x1B, 0x2C, 0x3D, 0x4E, 0x5F, 0x3A, 0x6B, 0x9C, 0x7D, 0x8E, 0x9F, 0x0A, 0x1B, 0x2C, 0x3D]
     static let incident = "0B8D4A51-6C9E-4F0F-8F53-3C2D7B4F9E20"
     static let pid: UInt32 = 4_242
     /// The process start the planted files' headers name (2023-11-14 22:13:20 UTC) and the report's `procLaunch`
@@ -148,42 +151,87 @@ import Testing
         #expect(log.entries().isEmpty)
     }
 
-    /// Holders and hosts keep running the copy an earlier build made after an app update, and that build is gone:
-    /// the app that runs now forwards the copy's crash, with its ring and keys, tagged as another build's. The
-    /// event id is the incident, so two apps that forward one report make one event.
-    @Test func anotherBuildsHostExeCopyIsForwardedAndTagged() throws {
+    /// Every cmux app on the Mac (stable, nightly, each tagged DEV build) shares the host-exe root: a copy whose image
+    /// this app never ran is another app's daemon's, and goes out only with that app's consent and release.
+    @Test func anotherAppsHostExeCopyIsNotForwarded() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let otherUUID = "8a1b2c3d-4e5f-3a6b-9c7d-8e9f0a1b2c3d"
-        let otherBytes = try #require(RustCrashArtifacts.uuidBytes(otherUUID))
-        try Self.plantRing(.holder, pid: Self.pid, buildUUID: otherBytes, in: fixture.traceFolder)
-        try Self.keyPage(role: 3, uuid: otherBytes, terminalCount: 2, extra: [8: Self.word("0.0.9")])
-            .write(to: fixture.traceFolder.appending(path: "holder-\(Self.pid).crashkeys"))
+        try Self.plantRing(.holder, pid: Self.pid, buildUUID: Self.otherBytes, in: fixture.traceFolder)
         let log = CaptureLog()
-        let forwarder = fixture.forwarder(log: log, optIn: true)
+        let forwarder = fixture.forwarder(log: log, optIn: true, release: "cmux-next@1.1+101")
         let now = Date()
         forwarder.forwardNew(now: now)
-        try fixture.writeReport("other.ips", try Self.ips(path: fixture.copyPath("cmux-holder"), uuid: otherUUID),
+        try fixture.writeReport("other.ips", try Self.ips(path: fixture.copyPath("cmux-holder"), uuid: Self.otherUUID),
                                 modified: now + 10)
         try fixture.writeReport("own.ips", try Self.ips(path: fixture.copyPath("cmux-tui-host"), pid: Self.pid + 1),
                                 modified: now + 11)
-        #expect(forwarder.forwardNew(now: now + 20).map(\.lastPathComponent) == ["other.ips", "own.ips"])
+        #expect(forwarder.forwardNew(now: now + 20).map(\.lastPathComponent) == ["own.ips"])
+        let captured = log.entries()
+        try #require(captured.count == 1)
+        #expect(captured[0].tags["process_build"] == "this")
+        #expect(captured[0].release == "cmux-next@1.1+101")
+
+        try fixture.writeReport("other-later.ips", try Self.ips(path: fixture.copyPath("cmux-holder"), uuid: Self.otherUUID),
+                                modified: now + 30)
+        #expect(forwarder.forwardNew(now: now + 40).isEmpty, "another app's report is done, never sent")
+        let noBinaries = fixture.forwarder(log: log, optIn: true, ownRustBinaries: [], state: "state-empty.json")
+        noBinaries.forwardNew(now: now + 45)
+        try fixture.writeReport("own-later.ips", try Self.ips(path: fixture.copyPath("cmux-holder")), modified: now + 50)
+        #expect(noBinaries.forwardNew(now: now + 60).isEmpty, "an app that ran no image of the copy's sends none")
+        #expect(log.entries().count == 1)
+    }
+
+    /// Holders and hosts keep running the copy an earlier build made after an app update (pty-holder.md), and that
+    /// build is gone: the next launch knows the copy's image from the earlier launch's state and forwards its crash
+    /// with its ring and keys, tagged as the earlier build's and with that build's release.
+    @Test func anEarlierLaunchsCopyIsForwardedWithItsRelease() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let log = CaptureLog()
+        let now = Date()
+        fixture.forwarder(log: log, optIn: true, release: "cmux-next@1.0+100").forwardNew(now: now)
+        // The update: this app's binaries are a new build now.
+        for binary in SystemCrashForwarder.rustBinaries(in: [fixture.bin]) {
+            try Data(Self.machO(uuid: Self.otherBytes)).write(to: binary)
+        }
+        try Self.plantRing(.holder, pid: Self.pid, buildUUID: Self.uuidBytes, in: fixture.traceFolder)
+        try Self.keyPage(role: 3, terminalCount: 2, extra: [8: Self.word("0.0.9")])
+            .write(to: fixture.traceFolder.appending(path: "holder-\(Self.pid).crashkeys"))
+        let updated = fixture.forwarder(log: log, optIn: true, release: "cmux-next@1.1+101")
+        try fixture.writeReport("earlier.ips", try Self.ips(path: fixture.copyPath("cmux-holder")), modified: now + 10)
+        try fixture.writeReport("new.ips", try Self.ips(path: fixture.copyPath("cmux-tui-host"), pid: Self.pid + 1,
+                                                        uuid: Self.otherUUID), modified: now + 11)
+        #expect(updated.forwardNew(now: now + 20).map(\.lastPathComponent) == ["earlier.ips", "new.ips"])
         let captured = log.entries()
         try #require(captured.count == 2)
         #expect(captured[0].tags["process_build"] == "other")
+        #expect(captured[0].release == "cmux-next@1.0+100", "the earlier build's release, not the one that sends")
         #expect(captured[0].tags["process_build_version"] == "0.0.9")
         #expect(captured[0].tags["process_role"] == "holder")
         #expect(captured[0].tags["crash_key.terminal_count"] == "2")
         #expect(captured[0].attachments.map(\.name) == ["blackbox.txt"])
         #expect(captured[1].tags["process_build"] == "this")
-        #expect(captured[0].eventID == captured[1].eventID, "one incident is one event, whichever app sends it")
+        #expect(captured[1].release == "cmux-next@1.1+101")
+    }
 
-        let noBinaries = fixture.forwarder(log: log, optIn: true, ownRustBinaries: [], state: "state-empty.json")
-        noBinaries.forwardNew(now: now + 25)
-        try fixture.writeReport("own-later.ips", try Self.ips(path: fixture.copyPath("cmux-holder")), modified: now + 30)
-        #expect(noBinaries.forwardNew(now: now + 40).map(\.lastPathComponent) == ["own-later.ips"],
-                "with no binaries of its own the app still forwards every copy")
-        #expect(log.entries().last?.tags["process_build"] == "other")
+    @Test func theOwnImageListKeepsTheNewestLaunches() {
+        var state = SystemCrashForwarder.State(watermark: 0, sentAtWatermark: [])
+        let first = MachOImageUUIDs(uuids: [Self.uuidBytes])
+        let added = state.remember(first, release: "a")
+        let again = state.remember(first, release: "a")
+        #expect(added)
+        #expect(!again, "the same launch again changes nothing")
+        #expect(state.ownImage(Self.uuid)?.release == "a")
+        let newRelease = state.remember(first, release: "b")
+        #expect(newRelease)
+        #expect(state.ownImages?.count == 1, "one entry per image, with the newest launch's release")
+        #expect(state.ownImage(Self.uuid)?.release == "b")
+        for index in 0 ..< SystemCrashForwarder.maxOwnImages {
+            _ = state.remember(MachOImageUUIDs(uuids: [[UInt8](repeating: UInt8(index), count: 16)]), release: "c")
+        }
+        #expect(state.ownImages?.count == SystemCrashForwarder.maxOwnImages)
+        #expect(state.ownImage(Self.uuid) == nil, "the oldest image goes first")
+        #expect(state.ownImage(nil) == nil)
     }
 
     @Test func theOwnBinariesAreTheBundlesAndADevDaemonsFolder() {
@@ -222,6 +270,28 @@ import Testing
                 "a reused pid or another build never lends its files")
         let otherPID = try Self.report(path: fixture.copyPath("cmux-tui-host"), pid: Self.pid + 1)
         #expect(fixture.artifacts(optIn: true).extras(for: otherPID) == SystemCrashEvent.Extras())
+    }
+
+    /// The setting turned off with a file edit while cmux was not running leaves the consent record: the launch's
+    /// first forwarder pass must not take it for an opt-in. Only the hang-reports controller's decision that reports
+    /// are on, with the record still there, lets the black box go.
+    @Test func aConsentRecordWithTheSettingOffAttachesNoBlackBox() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try Self.plantRing(.holder, pid: Self.pid, buildUUID: Self.uuidBytes, in: fixture.traceFolder)
+        let recorded = ConsentRecord()
+        let consent = RustBlackBoxConsent(consentRecorded: { recorded.exists.load(ordering: .relaxed) })
+        let artifacts = RustCrashArtifacts(directories: [fixture.traceFolder], blackboxOptIn: { consent.allows })
+        let report = try Self.report(path: fixture.copyPath("cmux-holder"))
+
+        #expect(artifacts.extras(for: report).processRole == "holder", "the ring is found")
+        #expect(artifacts.extras(for: report).blackbox == nil, "no decision yet: no black box")
+        #expect(consent.decide(false), "the first decision starts the forwarder")
+        #expect(artifacts.extras(for: report).blackbox == nil, "a consent record with reports off sends nothing")
+        #expect(!consent.decide(true), "a later decision does not start it again")
+        #expect(artifacts.extras(for: report).blackbox == "1000 holder holder.spawn I 7 0\n")
+        recorded.exists.store(false, ordering: .relaxed)
+        #expect(artifacts.extras(for: report).blackbox == nil, "the record removed while cmux runs")
     }
 
     /// The report is read at the next launch, maybe hours later: a later process of the same build and role that
@@ -472,13 +542,13 @@ import Testing
             RustCrashArtifacts(directories: [traceFolder], holderSockets: holderSockets, blackboxOptIn: { optIn })
         }
 
-        func forwarder(log: CaptureLog, optIn: Bool, ownRustBinaries: [URL]? = nil,
+        func forwarder(log: CaptureLog, optIn: Bool, ownRustBinaries: [URL]? = nil, release: String? = nil,
                        state: String = "state.json") -> SystemCrashForwarder {
             SystemCrashForwarder(directory: reports, stateFile: root.appending(path: state),
                                  bundlePath: SystemCrashReportTests.bundle, mainExecutable: SystemCrashReportTests.mainExecutable,
                                  hostExeRoot: hostExe.path(percentEncoded: false),
                                  ownRustBinaries: ownRustBinaries ?? SystemCrashForwarder.rustBinaries(in: [bin]),
-                                 artifacts: artifacts(optIn: optIn),
+                                 release: release, artifacts: artifacts(optIn: optIn),
                                  capture: { event, attachments in log.append(event, attachments) })
         }
 
@@ -501,15 +571,21 @@ import Testing
         }
 
         var tags: [String: String]
+        var release: String?
         var eventID: String
         var attachments: [File]
+    }
+
+    /// This Mac's consent record, as the forwarder's queue reads it.
+    final class ConsentRecord: Sendable {
+        let exists = Atomic<Bool>(true)
     }
 
     final class CaptureLog: Sendable {
         private let captured = Mutex<[Captured]>([])
 
         func append(_ event: Event, _ attachments: [Attachment]) {
-            let entry = Captured(tags: event.tags ?? [:], eventID: event.eventId.sentryIdString,
+            let entry = Captured(tags: event.tags ?? [:], release: event.releaseName, eventID: event.eventId.sentryIdString,
                                  attachments: attachments.map { Captured.File(name: $0.filename, data: $0.data ?? Data()) })
             captured.withLock { $0.append(entry) }
         }
