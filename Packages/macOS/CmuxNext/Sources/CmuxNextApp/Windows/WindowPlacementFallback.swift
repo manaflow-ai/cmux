@@ -23,8 +23,9 @@ enum WindowPlacementFallback {
 
     /// Stable id of the display showing `screen` (survives reconnects).
     static func displayID(of screen: NSScreen) -> String? {
+        // SAFETY: CGDisplayCreateUUIDFromDisplayID follows the Create rule (+1), which takeRetainedValue balances.
         guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
-              let uuid = CGDisplayCreateUUIDFromDisplayID(number.uint32Value)?.takeRetainedValue() else { return nil }
+              let uuid = unsafe CGDisplayCreateUUIDFromDisplayID(number.uint32Value)?.takeRetainedValue() else { return nil }
         return CFUUIDCreateString(nil, uuid) as String?
     }
 }

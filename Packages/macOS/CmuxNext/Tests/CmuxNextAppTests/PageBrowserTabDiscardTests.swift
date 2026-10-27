@@ -274,7 +274,7 @@ import Testing
             events = stream.stream
             eventSink = stream.continuation
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry())
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
             services.cache.hibernation = hibernation
             hibernation.discardsAppPages = discardsAppPages
             let sink = eventSink

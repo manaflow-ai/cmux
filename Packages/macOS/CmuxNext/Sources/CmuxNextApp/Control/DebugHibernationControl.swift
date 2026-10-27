@@ -16,7 +16,7 @@ import CmuxNextSettings
 @MainActor
 enum DebugHibernationControl {
     static func methods(_ services: AppServices) -> [ControlMethod] {
-        let memory = DebugMemoryControl(services: services)
+        let memory = DebugMemoryControl(services: services, budget: .forThisMac(gpuResidentAvailable: services.cache.gpuResidency != nil))
         #if DEBUG || CMUX_BENCH_HOOKS
         return [memory.method, pressureMethod(services, history: memory.history, histograms: memory.histograms)]
         #else

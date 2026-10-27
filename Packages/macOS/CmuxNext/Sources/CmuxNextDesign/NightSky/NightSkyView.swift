@@ -1,6 +1,7 @@
 public import AppKit
 import QuartzCore
 import CmuxNextDesignTokens
+import CmuxNextWakeups
 
 /// Sleepy Mode's night sky: 90 twinkling stars and three Zs rising from the moon's corner, as
 /// Core Animation layers whose loops run in the render server.
@@ -15,7 +16,8 @@ import CmuxNextDesignTokens
 /// canvas: a star's opacity follows `0.35 + 0.65 * (0.5 + 0.5 * sin(1.3 t + phase))`, and each Z
 /// rises 90 points over 3 s, drifting right and wobbling, from 18 to 36 points while it fades.
 /// Both loops are ambient: they ask the render server for 30 frames a second when the panes
-/// gate paces loops (``MotionPolicy/pacesLoops``).
+/// gate paces loops (``MotionPolicy/pacesLoops``). They run through ``LoopVisibility``: off while the
+/// sky is out of its window, hidden, or its window is occluded, and back in phase when it shows.
 ///
 /// ```swift
 /// let sky = NightSkyView()
@@ -28,6 +30,8 @@ public final class NightSkyView: NSView {
     }
 
     private let root = CALayer()
+    private let loopVisibility = LoopVisibility("nightSky")
+    private var loopNode: VisibilityNode { loopVisibility.node }
     private var stars: [CALayer] = []
     private var zs: [CATextLayer] = []
     private var builtSize: CGSize = .zero
@@ -72,6 +76,21 @@ public final class NightSkyView: NSView {
         if bounds.size != builtSize { rebuild() }
     }
 
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        loopVisibility.place(in: window)
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        loopNode.set(.hidden)
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        loopNode.set(.visible)
+    }
+
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         let scale = window?.backingScaleFactor ?? 2
@@ -82,7 +101,6 @@ public final class NightSkyView: NSView {
     private func rebuild() {
         let size = bounds.size
         builtSize = size
-        let policy = Motion.panes.policy
         var seed: UInt64 = 0x5EED
         func next() -> Double {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
@@ -95,8 +113,11 @@ public final class NightSkyView: NSView {
             star.frame = CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2)
             star.cornerRadius = radius
             star.opacity = Float(Self.starAlpha(time: 0, phase: phase))
-            star.removeAllAnimations()
-            if loops { star.add(Self.twinkle(phase: phase, policy), forKey: "twinkle") }
+            if loops {
+                loopVisibility.attach(star, key: Self.twinkleKey) { Self.twinkle(phase: phase, Motion.panes.policy) }
+            } else {
+                loopVisibility.detach(star, key: Self.twinkleKey)
+            }
         }
         let origin = CGPoint(x: size.width / 2 + 60, y: size.height / 2 + 150)
         for (index, z) in zs.enumerated() {
@@ -104,13 +125,18 @@ public final class NightSkyView: NSView {
             z.position = Self.zPoint(origin: origin, progress: start)
             z.opacity = Float(1 - start)
             z.setAffineTransform(Self.zScale(progress: start))
-            z.removeAllAnimations()
-            if loops { z.add(Self.rise(origin: origin, offset: start * Self.risePeriod, policy), forKey: "rise") }
+            if loops {
+                loopVisibility.attach(z, key: Self.riseKey) { Self.rise(origin: origin, offset: start * Self.risePeriod, Motion.panes.policy) }
+            } else {
+                loopVisibility.detach(z, key: Self.riseKey)
+            }
         }
     }
 
     // MARK: The scene's look
 
+    static let twinkleKey = "twinkle"
+    static let riseKey = "rise"
     private static let starCount = 90
     private static let zCount = 3
     private static let zText = "z"

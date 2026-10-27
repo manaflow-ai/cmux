@@ -14,7 +14,7 @@ import Foundation
 /// answered from the ask's own `exists` or `shareable`. Each chat's granted folders are copied
 /// again every ``CloudMoveSetup/accessSync``, and Bring Back Local ends its grants
 /// (``CloudAccessRevokes``). The polling stops with no moved chat and nothing to revoke; a move
-/// starts it again.
+/// starts it again. Each pause is stretched by the Energy Saver's ``EnergyPolicy/pollStretch``.
 ///
 /// The ask's text comes from the machine (its path and reason); the card names the machine, not
 /// the chat, as the asker, since the session an ask names is the machine's claim. Only asks of the
@@ -26,8 +26,17 @@ final class CloudAccessAsks {
     /// The longest a machine whose triage fails waits, and how long one without access requests waits.
     private static let longestBackoff: Duration = .seconds(120), unavailableBackoff: Duration = .seconds(600)
 
-    /// The triage round in flight; nil between rounds.
-    private var round: Task<Void, Never>?
+    /// The triage round in flight, awaited off main; nil between rounds.
+    private var round: Task<Void, any Error>?
+    /// Where a round is awaited (off main), where its end runs and what stretches its pause; set by the first start.
+    private var rounds: Rounds?
+    private struct Rounds {
+        let work: BackgroundWork
+        let mainWork: MainWorkScheduler
+        let energy: EnergyPolicySource
+    }
+    /// The answers running, by request: what each card showed and its tab, for the answer's end.
+    private var answeringAsks: [String: (ask: CloudAccessAsk, tab: String)] = [:]
     /// The next round, after the last one's pause (``CloudMoveSetup/accessPoll``, or a machine's backoff): a
     /// ``MainDeadline`` started again from its own round (Chromium's `OneShotTimer`, base/timer/timer.h), not a
     /// sleeping loop. Made on the first start.
@@ -50,36 +59,43 @@ final class CloudAccessAsks {
     /// Starts polling unless it runs; it stops with no moved chat and nothing to revoke, and with this object or `services`.
     /// The machine pushes no access request, so a round runs only while a moved chat or a revoke waits.
     func start(services: AppServices) {
-        startRounds(deadlines: services.mainDeadlines) { [weak self, weak services] in await self?.poll(services) }
+        startRounds(deadlines: services.mainDeadlines, work: services.work, energy: services.mainWork.energy) { [weak self, weak services] in
+            await self?.poll(services)
+        }
     }
 
     /// Runs a round of `poll` now unless one runs or waits for its pause. Each round answers how long to wait
-    /// before the next, nil to stop until the next start.
-    func startRounds(deadlines: MainDeadlineScheduler, poll: @escaping @MainActor @Sendable () async -> Duration?) {
+    /// before the next (times `energy`'s poll stretch), nil to stop until the next start. The round is awaited
+    /// on `work`, and its end is one background task on the deadlines' scheduler.
+    func startRounds(deadlines: MainDeadlineScheduler, work: BackgroundWork, energy: EnergyPolicySource,
+                     poll: @escaping @MainActor @Sendable () async -> Duration?) {
         guard round == nil, nextRound?.isScheduled != true else { return }
         nextRound = nextRound ?? MainDeadline(owner: "CloudAccessAsks.triage", workClass: .background, scheduler: deadlines)
+        rounds = Rounds(work: work, mainWork: deadlines.work, energy: energy)
         runRound(poll)
     }
 
-    /// A round runs now (tests).
+    /// A round runs now, until its end task ran (tests run frames until it is false, instead of wall time).
     var isTriaging: Bool { round != nil }
     /// The next round waits for its pause (tests).
     var isTriageScheduled: Bool { nextRound?.isScheduled == true }
 
-    /// Returns once the round in flight, if any, has ended (tests await it instead of wall time).
-    func triageSettled() async {
-        await round?.value
+    private func runRound(_ poll: @escaping @MainActor @Sendable () async -> Duration?) {
+        guard let rounds else { return }
+        let mainWork = rounds.mainWork
+        // task-owner: one triage round; the next one starts from nextRound after its pause. R-hop: the round is
+        // awaited off main; its end is one background task, posted and not awaited (nobody waits on a triage, and
+        // a launch still holds background work).
+        round = rounds.work.task(.bestEffort) { [weak self] in
+            let pause = await poll()
+            mainWork.postFromAnyThread(.background, owner: "CloudAccessAsks.roundEnded") { [weak self] in self?.roundEnded(pause, poll) }
+        }
     }
 
-    private func runRound(_ poll: @escaping @MainActor @Sendable () async -> Duration?) {
-        // task-owner: one triage round; the next one starts from nextRound after its pause
-        round = Task { [weak self] in
-            let pause = await poll()
-            guard let self else { return }
-            round = nil
-            guard let pause else { return }
-            nextRound?.schedule(after: pause) { [weak self] in self?.runRound(poll) }
-        }
+    private func roundEnded(_ pause: Duration?, _ poll: @escaping @MainActor @Sendable () async -> Duration?) {
+        round = nil
+        guard let pause, let energy = rounds?.energy else { return }
+        nextRound?.schedule(after: pause * energy.policy.pollStretch) { [weak self] in self?.runRound(poll) }
     }
 
     /// Bring Back Local moved chat `session` off machine `machineID`: its grants there end, now
@@ -88,11 +104,12 @@ final class CloudAccessAsks {
         revokes.add(CloudAccessRevokes.Chat(machineID: machineID, session: session))
         start(services: services)
         guard let binary = services.cloud.move.cli else { return }
-        let revokes = revokes
-        // task-owner: one revoke round; CloudAccessRevokes keeps what is left for the next triage round
-        Task { @MainActor [weak services] in
+        let revokes = revokes, cli = CloudAccessCLI(binary: binary)
+        // task-owner: one revoke round; CloudAccessRevokes keeps what is left for the next triage round.
+        // R-hop: awaited off main; the CLI runs off main, the revokes' bookkeeping on it.
+        services.work.task(.bestEffort) { [weak services] in
             guard let services else { return }
-            await revokes.run(CloudAccessCLI(binary: binary), services: services)
+            await revokes.run(cli, services: services)
         }
     }
 
@@ -218,32 +235,44 @@ final class CloudAccessAsks {
         answering.insert(id)
         revokes.answerStarted(chat)
         asks[tab]?.removeAll { $0.card == card }
+        answeringAsks[id] = (ask, tab)
         render(services: services)
-        let logger = services.cloud.logger
-        // task-owner: one person's answer, bounded by the CLI's timeout; `answering` tracks it
-        Task { @MainActor [weak self, weak services] in
+        let cli = CloudAccessCLI(binary: binary), mainWork = services.mainWork
+        let socket = ask.socket, machine = ask.machineID, session = ask.session, root = ask.remoteRoot
+        // task-owner: one person's answer, bounded by the CLI's timeout; `answering` tracks it. R-hop: the CLI runs
+        // off main at the priority of a person's click; its end is one userBlocking task (the rest of the person's action).
+        services.work.task(.userBlocking) { [weak self, weak services] in
             let answer: CloudAccessCLI.Answer
             do {
-                answer = try await CloudAccessCLI(binary: binary).answer(socket: ask.socket, machine: ask.machineID, session: ask.session,
-                                                                         request: id, remoteRoot: ask.remoteRoot, how: how)
+                answer = try await cli.answer(socket: socket, machine: machine, session: session, request: id, remoteRoot: root, how: how)
             } catch {
                 answer = CloudAccessCLI.Answer(ok: false, error: String(describing: error))
             }
-            guard let self else { return }
-            answering.remove(id)
-            answered[id] = triages
-            // The chat came back while this ran: what it may have granted is revoked again.
-            let live = services.map { Self.isLive(ask, services: $0) } ?? false
-            revokes.answerEnded(chat, live: live)
-            if !live, let services { chatBroughtBack(machineID: chat.machineID, session: chat.session, services: services) }
-            // A changed or gone request: the next triage shows it again as it is now, if it still waits.
-            guard !answer.ok, answer.errorCode != "request_changed", answer.errorCode != "request_gone" else { return }
-            logger.error("cloud access answer: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")
-            var failed = ask
-            failed.failure = CloudAccessCard.failure(answer.errorCode, ask)
-            failures[tab, default: []].append(failed)
-            if let services { render(services: services) }
+            mainWork.postFromAnyThread(.userBlocking, owner: "CloudAccessAsks.answered") { [weak self, weak services] in
+                self?.answerEnded(id, answer, services: services)
+            }
         }
+    }
+
+    /// The answer to request `id` ended: its chat's grants are revoked again when the chat left the
+    /// machine meanwhile, and a failure shows on the card it answered.
+    private func answerEnded(_ id: String, _ answer: CloudAccessCLI.Answer, services: AppServices?) {
+        guard let entry = answeringAsks.removeValue(forKey: id) else { return }
+        let ask = entry.ask, tab = entry.tab
+        let chat = CloudAccessRevokes.Chat(machineID: ask.machineID, session: ask.session)
+        answering.remove(id)
+        answered[id] = triages
+        // The chat came back while this ran: what it may have granted is revoked again.
+        let live = services.map { Self.isLive(ask, services: $0) } ?? false
+        revokes.answerEnded(chat, live: live)
+        if !live, let services { chatBroughtBack(machineID: chat.machineID, session: chat.session, services: services) }
+        // A changed or gone request: the next triage shows it again as it is now, if it still waits.
+        guard !answer.ok, answer.errorCode != "request_changed", answer.errorCode != "request_gone" else { return }
+        services?.cloud.logger.error("cloud access answer: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")
+        var failed = ask
+        failed.failure = CloudAccessCard.failure(answer.errorCode, ask)
+        failures[tab, default: []].append(failed)
+        if let services { render(services: services) }
     }
 
     /// The tab of moved chat `chat` on `machine`: the one bound to its session through its `registry:` host.

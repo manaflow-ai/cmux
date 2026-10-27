@@ -289,12 +289,15 @@ SIGNPOST_CALLS = (
 SIGNPOST_RECEIVER = r"(?:\bSignposter(?:\.[a-z]\w*)?|\b\w*[sS]ignposter|\bposter|\btrace|\bruntime)\??\s*"
 
 # An emit: a call above on a signpost receiver with the case first (`.begin(.x`, `.begin(SignpostName.x`,
-# across lines), the os_signpost static name (`SignpostName.x.staticName`), or a typed binding a call
-# takes later (`let name: SignpostName = .x`). A `case .x:` in a switch over the catalog is not an emit.
+# across lines), the os_signpost static name (`SignpostName.x.staticName`), a typed binding a call
+# takes later (`let name: SignpostName = .x`), or the name an emitter is made with, its `signpost:`
+# argument (`SwitchFrameTimer(owner: "debug.workspace_switch", signpost: SignpostName.switchWorkspace)`
+# begins and ends that interval on every switch). A `case .x:` in a switch over the catalog is not an emit.
 SIGNPOST_EMIT = re.compile(
     SIGNPOST_RECEIVER + r"\.(?:%s)\(\s*(?:SignpostName)?\.(\w+)\b" % "|".join(SIGNPOST_CALLS)
     + r"|\bSignpostName\.(\w+)\.staticName\b"
-    + r"|:\s*SignpostName\??\s*=\s*(?:SignpostName)?\.(\w+)\b")
+    + r"|:\s*SignpostName\??\s*=\s*(?:SignpostName)?\.(\w+)\b"
+    + r"|\bsignpost:\s*(?:SignpostName)?\.(\w+)\b")
 
 
 def signpost_cases(root: str = ROOT) -> list[str]:
@@ -375,6 +378,9 @@ _EXTRA_SWITCHES_OPTION = ("an optional extra Chromium switch the person passes f
 DEBUG_ONLY_BY_DESIGN = {
     ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench_renderer_sharing.py"): "--cef-switches: " + _EXTRA_SWITCHES_OPTION,
     ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench_memory.py"): "--cef-switches: " + _EXTRA_SWITCHES_OPTION,
+    ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench-webui.py"):
+        "--page-code-cache: p13-webui-052's spike arm, an engine no build ships; both arms run the same Debug build, "
+        "and a run whose renderers lack the switch is refused",
     ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench_power.py"): "an --env example in its help text only",
     ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/browser-idle-cost-live.py"): "an --env example in its help text only",
     ("CMUX_NEXT_CHROMIUM_HOST_SWITCHES", "scripts/cmux-next/chromium-host-bench.py"):

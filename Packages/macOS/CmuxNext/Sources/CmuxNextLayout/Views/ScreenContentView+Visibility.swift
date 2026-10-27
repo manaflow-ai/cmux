@@ -56,7 +56,8 @@ extension ScreenContentView {
     // MARK: Visibility and hit testing
 
     /// Panes whose sweep (``displayedSweeps()``) meets the viewport. During a fling on the render server, the
-    /// panes it shows on its way to rest too: the strip's viewport is swept over the fling's whole way.
+    /// panes it shows on its way to rest too: the strip's viewport is swept over the fling's whole way, and a pane
+    /// a row or scroll area fling carries over that fling's whole way (``scrollerFlingReach(of:)``).
     func visiblePanes() -> Set<PaneID> { visiblePanes(displayedSweeps()) }
 
     /// ``visiblePanes()`` for the sweeps of one pass.
@@ -84,12 +85,14 @@ extension ScreenContentView {
     /// The whole way each pane goes from now to its rest, in local coordinates: its rest with every camera at its
     /// rest, grown by how far each spring that moves it still reaches (``RectExcursion``): its CPU frame spring,
     /// the render-server springs of its plan (``renderTracks``) and the cameras that carry it (the strip's, its row
-    /// column's, its scroll area's). Velocity and bounce carry a spring past its rest; the sweep holds that too,
-    /// so no frame on the way shows a pane outside it.
+    /// column's, its scroll area's, and the row or scroll area flings on the render server, ``scrollerFlingReach(of:)``).
+    /// Velocity and bounce carry a spring past its rest; the sweep holds that too, so no frame on the way shows a pane
+    /// outside it.
     func displayedSweeps() -> [PaneID: CGRect] {
         let policy = Motion.panes.policy, now = renderClockTime
         let camera = cameraSpring(policy: policy), areaSpring = policy.spring(.scroll)
         let strip = isUserScrolling ? Excursion.zero : camera.excursion(of: scrollState.spring).negated
+        let scrollersFling = scrollerContainers.values.contains { $0.fling != nil }
         var sweeps: [PaneID: CGRect] = [:]
         for (pane, frame) in paneFrames {
             let scrolls = geometry.scrolls(pane: pane)
@@ -101,6 +104,10 @@ extension ScreenContentView {
             if scrolls { reach.x.add(strip) }
             if let area, !area.isGestureActive { reach.x.add(areaSpring.excursion(of: area.spring).negated) }
             if let row, !row.isGestureActive { reach.y.add(camera.excursion(of: row.spring).negated) }
+            if scrollersFling, let fling = scrollerFlingReach(of: pane) {
+                reach.x.add(fling.x)
+                reach.y.add(fling.y)
+            }
             sweeps[pane] = reach.sweep(around: rest)
         }
         return sweeps

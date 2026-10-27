@@ -1,102 +1,58 @@
-//! Runtime builders that tell this crate what each thread does.
+//! Runtime builders that tell this crate what each thread does. They build
+//! on [`cmux_threads::tokio`], so every runtime thread is also named,
+//! registered and at the runtime's QoS.
 
 use std::future::Future;
-use std::sync::Arc;
 
+use cmux_threads::ThreadQos;
+use cmux_threads::tokio::{Flavor, builder_with};
 use tokio::runtime::{Builder, Runtime};
 
 use crate::{Role, RoleScope, set_role};
 
-type Hook = Arc<dyn Fn() + Send + Sync + 'static>;
-
 /// Thread hooks for [`multi_thread_with`]. Tokio keeps one hook of each kind,
-/// and this crate needs the start and unpark hooks, so other programs
-/// (thread registration, hang watch) pass theirs here, not to the builder.
-/// Each runs after this crate's own.
-#[derive(Clone, Default)]
-pub struct ThreadHooks {
-    start: Option<Hook>,
-    stop: Option<Hook>,
-    park: Option<Hook>,
-    unpark: Option<Hook>,
-}
+/// and this crate needs the start and unpark hooks, so other programs (hang
+/// watch) pass theirs here, not to the builder. Each runs after this crate's
+/// own.
+pub use cmux_threads::tokio::ThreadHooks;
 
-impl ThreadHooks {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Tokio's `on_thread_start`: every runtime thread, workers and
-    /// blocking-pool threads alike.
-    pub fn on_thread_start(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
-        self.start = Some(Arc::new(hook));
-        self
-    }
-
-    /// Tokio's `on_thread_stop`.
-    pub fn on_thread_stop(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
-        self.stop = Some(Arc::new(hook));
-        self
-    }
-
-    /// Tokio's `on_thread_park`: a scheduler worker about to park.
-    pub fn on_thread_park(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
-        self.park = Some(Arc::new(hook));
-        self
-    }
-
-    /// Tokio's `on_thread_unpark`: a scheduler worker that unparked.
-    pub fn on_thread_unpark(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
-        self.unpark = Some(Arc::new(hook));
-        self
-    }
-}
-
-fn run(hook: Option<&Hook>) {
-    if let Some(hook) = hook {
-        hook();
-    }
-}
-
-/// `Builder::new_multi_thread().enable_all()` whose blocking wrappers are
-/// compensated with `block_in_place`. Do not set thread hooks on the returned
-/// builder (that replaces this crate's); use [`multi_thread_with`].
-pub fn multi_thread() -> Builder {
-    multi_thread_with(ThreadHooks::new())
+/// A multi_thread runtime builder with every driver enabled, threads named
+/// `name` at `qos` ([`cmux_threads::tokio::builder`]), whose blocking
+/// wrappers are compensated with `block_in_place`. Do not set thread hooks on
+/// the returned builder (that replaces this crate's); use
+/// [`multi_thread_with`].
+pub fn multi_thread(name: impl Into<String>, qos: ThreadQos) -> Builder {
+    multi_thread_with(name, qos, ThreadHooks::new())
 }
 
 /// [`multi_thread`] that also runs `hooks`.
-pub fn multi_thread_with(hooks: ThreadHooks) -> Builder {
-    let ThreadHooks { start, stop, park, unpark } = hooks;
-    let mut builder = Builder::new_multi_thread();
-    builder
-        .enable_all()
-        .on_thread_start(move || {
-            set_role(Role::RuntimeThread);
-            run(start.as_ref());
-        })
-        .on_thread_stop(move || run(stop.as_ref()))
-        .on_thread_park(move || run(park.as_ref()))
-        .on_thread_unpark(move || {
-            // Tokio calls this only from a scheduler worker, never from a
-            // blocking-pool closure.
-            set_role(Role::Worker);
-            run(unpark.as_ref());
-        });
-    // Lab builds also watch every task poll ([`crate::poll_watch`]).
-    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+pub fn multi_thread_with(name: impl Into<String>, qos: ThreadQos, hooks: ThreadHooks) -> Builder {
+    let roles = ThreadHooks::new()
+        .on_thread_start(|| set_role(Role::RuntimeThread))
+        // Tokio calls this only from a scheduler worker, never from a
+        // blocking-pool closure.
+        .on_thread_unpark(|| set_role(Role::Worker));
+    lab_instrumented(builder_with(name, qos, Flavor::MultiThread, roles.then(hooks)))
+}
+
+/// A current_thread runtime builder with every driver enabled, its blocking
+/// pool named `name` at `qos`. Its tasks run on the thread that calls
+/// [`block_on`]. Lab builds also watch every task poll
+/// ([`crate::poll_watch`]).
+pub fn current_thread(name: impl Into<String>, qos: ThreadQos) -> Builder {
+    lab_instrumented(builder_with(name, qos, Flavor::CurrentThread, ThreadHooks::new()))
+}
+
+/// Lab builds watch every task poll of `builder`'s runtime
+/// ([`crate::poll_watch`]); other builds return it as is.
+#[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+fn lab_instrumented(mut builder: Builder) -> Builder {
     crate::poll_watch::PollWatch::lab().instrument(&mut builder);
     builder
 }
 
-/// `Builder::new_current_thread().enable_all()`. Its tasks run on the thread
-/// that calls [`block_on`]. Lab builds also watch every task poll
-/// ([`crate::poll_watch`]).
-pub fn current_thread() -> Builder {
-    let mut builder = Builder::new_current_thread();
-    builder.enable_all();
-    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
-    crate::poll_watch::PollWatch::lab().instrument(&mut builder);
+#[cfg(not(all(tokio_unstable, feature = "cmux-stability")))]
+fn lab_instrumented(builder: Builder) -> Builder {
     builder
 }
 

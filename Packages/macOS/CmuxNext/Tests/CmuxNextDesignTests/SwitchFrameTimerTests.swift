@@ -16,8 +16,8 @@ struct SwitchFrameTimerTests {
     private let key = "window-1"
 
     /// A runtime with only the `switch` category on (or every category off) that keeps its records.
-    private func runtime(switchOn: Bool = true) -> (TraceRuntime, SwitchRecordLog) {
-        let log = SwitchRecordLog()
+    private func runtime(switchOn: Bool = true) -> (TraceRuntime, TraceRecordLog) {
+        let log = TraceRecordLog()
         let runtime = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { log.append($0) })
         runtime.setCategoryMask(switchOn ? 1 << UInt64(SignpostCategory.switch.traceBit) : 0)
         return (runtime, log)
@@ -167,17 +167,6 @@ struct SwitchFrameTimerTests {
         #expect(ringMs >= apply, "the ring pair ends after the switch showed: \(row)")
         #expect(row["signpost_missed"] == nil, "a polling turn's exit is a committed boundary: \(row)")
     }
-}
-
-/// The records a test runtime's stub writes, in order.
-private nonisolated final class SwitchRecordLog: Sendable {
-    private let state = Mutex<[TraceRuntime.StubRecord]>([])
-
-    func append(_ record: TraceRuntime.StubRecord) { state.withLock { $0.append(record) } }
-
-    var records: [TraceRuntime.StubRecord] { state.withLock { $0 } }
-
-    var phases: [TraceRuntime.Phase] { records.map(\.phase) }
 }
 
 @MainActor

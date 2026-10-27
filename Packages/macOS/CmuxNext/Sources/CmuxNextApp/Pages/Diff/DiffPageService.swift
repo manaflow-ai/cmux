@@ -317,15 +317,13 @@ final class DiffPageService: InternalPageProvider {
     /// read its path): a dropped file opens its folder. The page reloads to
     /// show the repository.
     static func folderDrop(provider: DiffPageProvider, page: PageWebView) -> PageFileDrop {
+        // The page keeps its `fileDrop` reason until the open returns (PageFileDrop.take).
         PageFileDrop(accepts: { [weak provider] url in url.isFileURL && provider?.isPicking == true }, open: { [weak provider, weak page] url in
             let folder = url.hasDirectoryPath ? url : url.deletingLastPathComponent()
-            // task-owner: one open of the dropped folder; ends when the tab shows it or refuses it
-            Task {
-                guard let provider, (try? await provider.open(folder: folder, source: .default)) != nil else {
-                    return NSSound.beep()
-                }
-                page?.reload()
+            guard let provider, (try? await provider.open(folder: folder, source: .default)) != nil else {
+                return NSSound.beep()
             }
+            page?.reload()
         })
     }
 

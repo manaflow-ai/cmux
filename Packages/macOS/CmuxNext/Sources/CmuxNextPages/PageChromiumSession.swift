@@ -8,19 +8,26 @@ final class PageChromiumSession {
     let bridge: ChromiumPageHostBridge
     /// The app's lanes (``PageChromiumHosting/work``): the page's large replies are decoded on them.
     let work: BackgroundWork
-    /// Cancelled when the page reaches the host or the session ends.
-    let deadline: DemandTimer
+    /// Cancelled when the page reaches the host or the session ends. A person waits on the page it falls back for,
+    /// so it is visible work at its due time (flexible), never held for a hidden node.
+    let deadline: MainDeadline
+    /// The page's "Page unresponsive" card (``PageChromiumEvent/unresponsive``).
+    let hang: PageHangNotice
 
-    init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, work: BackgroundWork, clock: any Clock<Duration>) {
+    /// - Parameter deadlines: The page's deadline scheduler for its fallback (``PageWebView/chromiumDeadlines``).
+    init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, work: BackgroundWork, deadlines: MainDeadlineScheduler,
+         hang: PageHangNotice) {
         self.page = page
         self.bridge = bridge
         self.work = work
-        deadline = DemandTimer(owner: "page.chromium.deadline", clock: clock)
+        self.hang = hang
+        deadline = MainDeadline(owner: "page.chromium.deadline", workClass: .visible, alignment: .flexible, scheduler: deadlines)
     }
 
-    /// Stops the bridge and closes the page. Idempotent.
+    /// Stops the bridge, takes the hang card down and closes the page. Idempotent.
     func end() {
         deadline.cancel()
+        hang.end()
         bridge.uninstall()
         page.onEvent = nil
         page.resources = nil

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import Foundation
 import CmuxNextWakeups
 
@@ -17,6 +18,12 @@ final class CEFPaneHost {
 
     enum WindowState: Equatable {
         case none
+        /// Host mode: the first tab waits for the host's verdict on its profile's proxy before the window
+        /// is asked for (`awaitProfileProxy`); later tabs join the wait as they join `creating`.
+        case awaitingProfileProxy
+        /// The profile's first tab waits for its built-in extensions before the window is asked for
+        /// (`CEFPaneHost+BuiltInExtensions`); later tabs join the wait as they join `creating`.
+        case awaitingExtensions
         case creating(request: Int32)
         case live(window: Int32)
     }
@@ -25,7 +32,7 @@ final class CEFPaneHost {
     /// Tabs of this host, in creation order.
     private(set) var tabs: [CEFTab] = []
     /// The tab whose creation created the window.
-    private var windowTab: CEFTab?
+    var windowTab: CEFTab?
     /// The tab currently shown in `hostView`.
     private(set) weak var visibleTab: CEFTab?
     /// The browser this host last made Chromium's active tab (its own
@@ -57,6 +64,8 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
+        // A popup host's page window hosts or attaches only on a fork that does it for popups (`CEFLayerHosting.Fork`).
+        hostView.layerHosting.widget = isPopupHost ? .popup : .page
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
@@ -87,8 +96,10 @@ final class CEFPaneHost {
     }
 
     var isCreatingWindow: Bool {
-        if case .creating = window { return true }
-        return false
+        switch window {
+        case .creating, .awaitingProfileProxy, .awaitingExtensions: true
+        case .none, .live: false
+        }
     }
 
     var isLive: Bool {
@@ -106,6 +117,15 @@ final class CEFPaneHost {
     private var hostVisibilityPending = false
     /// Tabs shown before their browser existed, created once the frame committed (`createAfterCommit`).
     private(set) var deferredCreations: [WeakCEFTab] = []
+    /// Host mode: the view this pane's page shows in, made by the first window the pane asks for
+    /// (`pageParent`). It names the page's parent view on the wire and shows the Core Animation
+    /// context id the host gives for it (``ChromiumHostPageView/show(contextID:)``).
+    var hostedPageView: ChromiumHostPageView?
+    /// Host mode: each browser's last page cursor (`CEFPaneHost+Cursor`).
+    var pageCursors: [Int32: CEFPageCursor] = [:]
+    /// Host mode: tabs whose window waits for the host's answer on their machine store's proxy
+    /// (`createAfterMachineProxy`).
+    var machineProxyWaits: Set<ObjectIdentifier> = []
 
     /// The host view's visibility is derived: hidden unless the shown tab is
     /// not concealed. A conceal queues one pass for the end of this run-loop
@@ -116,12 +136,8 @@ final class CEFPaneHost {
     func setNeedsHostVisibility() {
         guard !hostVisibilityPending else { return }
         hostVisibilityPending = true
-        let main = CFRunLoopGetMain()
-        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            // main-proof: a CFRunLoopGetMain() block runs on the main thread
-            MainActor.assumeIsolated { self?.applyHostVisibility() }
-        }
-        CFRunLoopWakeUp(main)
+        // input-hop-allow: the pass must run in this run-loop pass's blocks, before Core Animation commits its frame; a classed post can land after the commit and show the page window hidden for one frame of a tab switch.
+        MainRunLoopBlock.perform { [weak self] in self?.applyHostVisibility() }
     }
 
     private func applyHostVisibility() {
@@ -146,6 +162,7 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = tab.isContentHidden
         visibleTab = tab
+        suggestionsFollowShownBrowser(tab.browserID)
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !isPopupHost { runtime.lastShownHost = self }
@@ -153,12 +170,18 @@ final class CEFPaneHost {
         // A tab shown before its browser exists (a new tab, a hibernated one waking) gets it once
         // this turn's frame is committed: building or joining a Chromium window holds the main
         // thread (`create_window`, `tab_add`), and the tab's toolbar and themed page area must be
-        // on screen in the frame of the key that asked for it (PL-cef-tab: < 10 ms).
-        if tab.browserID == nil, !tab.awaitsWindowMove { return createAfterCommit(tab) }
+        // on screen in the frame of the key that asked for it (PL-cef-tab: < 10 ms). A host that
+        // maps cmux's minted ids takes both as posts, so the tab asks for its browser in the key's turn.
+        if tab.browserID == nil, !tab.awaitsWindowMove {
+            return createsBrowsersAtOnce ? create(tab) : createAfterCommit(tab)
+        }
         ensureCreated(tab)
         if tab.awaitsWindowMove {
             // Still in its opener's window: activating it there would show
-            // it in the opener's pane. It moves into this host's window.
+            // it in the opener's pane. It moves into this host's window. A
+            // page tab moved to a pane with no window gets one after the
+            // frame commits, as a new tab does (PL-cef-tab).
+            if !isPopupHost, !createsBrowsersAtOnce, case .none = window { return createAfterCommit(tab) }
             ensureOwnWindow(for: tab)
         } else {
             showBrowser(of: tab)
@@ -178,7 +201,9 @@ final class CEFPaneHost {
     func conceal(_ tab: CEFTab) {
         lifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
         guard visibleTab === tab else { return }
+        hostedPageView?.exclusiveAccess.showing(nil) // a hidden page's fullscreen and locks end, as Chrome's (task 229)
         visibleTab = nil
+        suggestionsFollowShownBrowser(nil)
     }
 
     // MARK: Creation
@@ -193,25 +218,45 @@ final class CEFPaneHost {
         AfterFrameCommit().run { [weak self] in self?.createDeferred() }
     }
 
-    /// Makes the browsers of the tabs shown before theirs existed (the observer of `createAfterCommit`; tests call it).
+    /// Makes the browsers of the tabs shown before theirs existed, and the window of a moved tab still in another
+    /// window (`ensureOwnWindow`): the observer of `createAfterCommit`; tests call it.
     func createDeferred() {
         let waiting = deferredCreations.compactMap(\.tab)
         deferredCreations.removeAll()
         for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) {
-            // Joined a live window while still shown (`tab_add` activated it and returned the browser):
-            // present's page-shown and geometry steps, which it skipped for a tab with no browser.
-            // A window still being built shows its shown tab in `windowCreated`.
-            if ensureCreated(tab), visibleTab === tab, !tab.awaitsWindowMove { showBrowser(of: tab, activate: false) }
+            if tab.awaitsWindowMove { ensureOwnWindow(for: tab) } else { create(tab) }
         }
+    }
+
+    /// Starts `tab`'s browser now. Joined a live window while still shown (`tab_add` activated it
+    /// and returned the browser): present's page-shown and geometry steps, which it skipped for a
+    /// tab with no browser. A window still being built shows its shown tab in `windowCreated`.
+    private func create(_ tab: CEFTab) {
+        if ensureCreated(tab), visibleTab === tab, !tab.awaitsWindowMove { showBrowser(of: tab, activate: false) }
     }
 
     /// Starts `tab`'s browser: a new Chromium window, or a tab of this host's live or coming one.
     /// True when it joined the live window as Chromium's active tab (`tab_add` with activate).
+    /// `machineProxyApplied`: the host already said the tab's machine store proxy is stored
+    /// (`createAfterMachineProxy`), so a new window does not ask again.
     @discardableResult
-    func ensureCreated(_ tab: CEFTab) -> Bool {
-        guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
+    func ensureCreated(_ tab: CEFTab, machineProxyApplied: Bool = false) -> Bool {
+        guard tab.browserID == nil, !tab.isCreationPending, !tab.awaitsHostRestore, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
         switch window {
         case .none:
+            // A browser profile's own proxy (#24432), before the first request:
+            // a page the shim cannot proxy never opens (fail closed).
+            if tab.machineStore == nil, !key.offTheRecord, key.machineKey == nil {
+                switch runtime.applyProfileProxy(key.profile) {
+                case .open: break
+                case .refused:
+                    tab.creationFailed()
+                    return false
+                case .waiting:
+                    awaitProfileProxy(first: tab)
+                    return false
+                }
+            }
             let request = runtime.makeRequestToken()
             let size = Self.creationSize(for: hostView.bounds.size)
             // A host no pane has laid out (a background tab an agent drives, a
@@ -223,24 +268,25 @@ final class CEFPaneHost {
                 // An in-memory profile: no directory, released when the
                 // incognito session ends.
                 runtime.offTheRecordContexts[key.profile, default: []].insert(contextKey)
-            } else {
-                // CEF refuses a request context whose cache directory is missing.
+            } else if !createsBrowsersAtOnce {
+                // CEF refuses a request context whose cache directory is missing. A host that maps
+                // cmux's ids makes it itself, off this thread (the shim's RequestContextFor).
                 try? FileManager.default.createDirectory(at: URL(filePath: contextKey), withIntermediateDirectories: true)
             }
             // A remote-localhost store: its context must use the proxy before
-            // its first request, or localhost would reach this Mac.
-            if let store = tab.machineStore,
-               shim.setContextProxy(contextKey, Int32(store.proxyPort)) != 1
-                || shim.contextProxyState(contextKey) < 0 {
-                tab.creationFailed()
-                return false
+            // its first request, or localhost would reach this Mac (fail closed).
+            if let store = tab.machineStore, !machineProxyApplied {
+                switch machineProxyGate(tab, store, contextKey: contextKey) {
+                case .open: break
+                case .refused:
+                    tab.creationFailed()
+                    return false
+                case .waiting:
+                    return false
+                }
             }
-            // A browser profile's own proxy (#24432), also before the first
-            // request: a page the shim cannot proxy never opens (fail closed).
-            if tab.machineStore == nil, !key.offTheRecord, key.machineKey == nil, !runtime.applyProfileProxy(key.profile) {
-                tab.creationFailed()
-                return false
-            }
+            // After the proxy gates: the extensions' first requests use the profile's proxy.
+            guard builtInExtensionsReady(for: tab) else { return false }
             tab.isCreationPending = true
             windowTab = tab
             window = .creating(request: request)
@@ -248,6 +294,7 @@ final class CEFPaneHost {
             // The first frame takes this pane's theme scope (room,
             // workspace), which may differ from the app theme.
             shim.setBackgroundColor(PageBackground.themeARGB(in: hostView))
+            runtime.chatStage(.cefWindowCreate, pane: key.pane.rawValue)
             #if DEBUG || CMUX_BENCH_HOOKS
             ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
             #endif
@@ -256,12 +303,17 @@ final class CEFPaneHost {
             placeholderHasNoRenderer = quietsPlaceholder && placeholder === tab && runtime.spareWindow.rendererlessPlaceholders
                 && shim.placeholderSupported() == 1
             let rendererless = placeholderHasNoRenderer
+            let spare = quietsPlaceholder && placeholder === tab
+            let hostMode = runtime.hostStart != nil
+            let createTrace = runtime.spareWindow.createTrace
+            let view = pageParent()
             let create = {
                 CEFStartSteps.shared.createWindow {
-                    let view = Unmanaged.passUnretained(self.hostView).toOpaque()
                     let width = max(size.width, 1).clampedInt32, height = max(size.height, 1).clampedInt32
-                    return rendererless ? shim.createPlaceholderWindow(request, view, width, height, contextKey)
-                        : shim.createWindow(request, view, width, height, initialURL, contextKey)
+                    return createTrace.create(request: request, spare: spare, profile: self.key.profile, hostMode: hostMode) {
+                        rendererless ? shim.createPlaceholderWindow(request, view, width, height, contextKey)
+                            : shim.createWindow(request, view, width, height, initialURL, contextKey)
+                    }
                 }
             }
             #if DEBUG || CMUX_BENCH_HOOKS
@@ -278,8 +330,8 @@ final class CEFPaneHost {
                 runtime.spareWindow.noteWindowBuilt(for: key)
             }
             return false
-        case .creating:
-            // Joins the window once it exists (windowCreated).
+        case .awaitingProfileProxy, .awaitingExtensions, .creating:
+            // Joins the window once it exists (windowCreated), or the proxy or extensions wait.
             tab.isCreationPending = true
             return false
         case .live:
@@ -295,6 +347,8 @@ final class CEFPaneHost {
             window = .none
             return false
         }
+        // `tab_add` navigates in the call: the profile's built-in extensions are in first.
+        guard builtInExtensionsReady(for: tab) else { return false }
         tab.isCreationPending = true
         runtime.tabBeingAdded = tab
         let activates = visibleTab === tab
@@ -321,6 +375,7 @@ final class CEFPaneHost {
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else {
             return lateWindowCreated(browser: browser, request: request)
         }
+        runtime.chatStage(.cefWindowCreated, pane: key.pane.rawValue)
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.cefWindowCreated, chromiumPane: key.pane.rawValue)
         runtime.benchMarks.point("cef.window_created")
@@ -329,7 +384,12 @@ final class CEFPaneHost {
         window = .live(window: windowID)
         lastActivated = browser
         runtime.register(tab, browser: browser)
-        hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion))
+        hostView.layerHosting.switchCommit.hiddenFrames = runtime.hiddenFrames
+        // In host mode the page shows in `hostedPageView`, from the context the host gives; the
+        // fork's layer hosting of a page window over `hostView` is in process only.
+        hostView.layerHosting.pageWindowCreated(
+            browser: browser, fork: isHostMode ? nil : CEFLayerHosting.Fork(runtime: runtime))
+        if isHostMode { showHostedContext(of: browser) }
         // Tabs shown or created while the window was being built. The window's first tab is its
         // active one until a shown tab joins it as active (`tab_add` with activate).
         var active = tab
@@ -353,7 +413,7 @@ final class CEFPaneHost {
         if tabs.contains(where: \.awaitsWindowMove) {
             // Never inside OnAfterCreated (Chromium's tab insertion): moving
             // a tab between tab strips there would re-enter it.
-            Task { @MainActor [weak self] in self?.movePopupsIn() }
+            endOfTurn { [weak self] in self?.movePopupsIn() }
         }
     }
 
@@ -371,7 +431,8 @@ final class CEFPaneHost {
         endOfTurn { [weak self] in self?.recreateWindow(for: waiting) }
     }
 
-    private func recreateWindow(for waiting: [CEFTab]) {
+    /// Asks for a window for `waiting`, the shown tab first (after a late window or a proxy verdict).
+    func recreateWindow(for waiting: [CEFTab]) {
         let open = waiting.filter { tab in !tab.isClosed && tabs.contains(where: { $0 === tab }) }
         // The first creates the window; the rest join it when it comes up (`windowCreated`). A
         // window that came up since (a tab shown meanwhile) takes them now, as `createDeferred` does.
@@ -382,37 +443,15 @@ final class CEFPaneHost {
         if case .none = window, let popup = tabs.first(where: \.awaitsWindowMove) { ensureOwnWindow(for: popup) }
     }
 
-    /// A tab Chromium opened in this window (target=_blank, window.open,
-    /// chrome.tabs.create, a window request the fork placed here). It is
-    /// handed to the host app through the opener's delegate as `.adoptTab`,
-    /// which keeps `window.opener`.
-    /// A `.popup` becomes a floating panel page with its own window
-    /// (`adoptPopup`); `bounds` are its window features.
-    func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab, bounds: CGRect? = nil) {
-        // The spare window has no pane to announce it to: the tab that takes it adopts it.
-        if isSpare { return runtime.spareWindow.park(browser, in: self, disposition: disposition, bounds: bounds) }
-        let opener = visibleTab ?? tabs.last
-        if disposition == .popup { return adoptPopup(browser: browser, bounds: bounds, opener: opener) }
-        let tab = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
-        // Same window, same store: a popup of a remote machine's localhost
-        // page keeps its store and navigation guard.
-        tab.machineStore = opener?.machineStore
-        tab.navigationGuard = opener?.navigationGuard ?? .none
-        tab.isCreationPending = true
-        add(tab)
-        runtime.register(tab, browser: browser)
-        // Opened by a page: past a new tab's first paint (PageBackground), and
-        // Chromium, not us, drives its document, so its page area is its own.
-        tab.reachedFirstRealPage(settled: true)
-        tab.inheritDelegates(from: opener)
-        opener?.emit(.adoptTab(tab, disposition))
-    }
-
     func removed(_ tab: CEFTab) {
+        // A closed page's fullscreen zoom, locks and hidden cursor end with it (task 229); a moved one exits its own.
+        if tab.isClosed || tab.browserID == nil { tab.contentFullscreenEnded() }
+        if visibleTab === tab { hostedPageView?.exclusiveAccess.showing(nil) }
         tabs.removeAll { $0 === tab }
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }
         if placeholder === tab { placeholder = nil }
+        suggestionsFollowShownBrowser(visibleTab?.browserID)
         // The resize deadline addresses the page window through a live browser of it.
         hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.
@@ -420,6 +459,7 @@ final class CEFPaneHost {
         if tabs.isEmpty {
             window = .none
             hostView.layerHosting.stop()
+            hostedPageView?.show(contextID: 0)
             hostView.removeFromSuperview()
             runtime.hostEmptied(self)
         }

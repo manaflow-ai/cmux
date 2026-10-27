@@ -15,7 +15,7 @@ extension AppServices {
         var controller = fallback
         if let workspaceID {
             let value = windows.registry.value
-            let owner = value.owner(of: workspaceID).flatMap { value.window($0)?.isOpen == true ? windows.controller(for: $0) : nil }
+            let owner = value.owner(of: workspaceID).flatMap { value.window($0)?.isOpen == true ? windows.controllerBuildingIfWaiting(for: $0) : nil }
             if reveal.showsWorkspace {
                 if let owner {
                     windows.select(workspaceID, in: owner.state)
@@ -33,9 +33,9 @@ extension AppServices {
     func landingWindow(tab: String, workspaceID: String?) -> WindowController? {
         let value = windows.registry.value
         if let workspaceID, let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true {
-            return windows.controller(for: owner)
+            return windows.controllerBuildingIfWaiting(for: owner)
         }
-        return self.workspaceID(ofTab: tab).flatMap { value.owner(of: $0) }.flatMap(windows.controller(for:))
+        return self.workspaceID(ofTab: tab).flatMap { value.owner(of: $0) }.flatMap(windows.controllerBuildingIfWaiting(for:))
     }
 
     /// The reveal for a move an action started (palette, menu, key, CLI):

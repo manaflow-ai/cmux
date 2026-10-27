@@ -22,29 +22,33 @@ extension ScreenContentView {
     /// too: `motion.renderServer` on, not a canvas (its camera is this view's bounds).
     var dividersInStripContainer: Bool { context.rendersMotionOnServer() && !isCanvas }
 
-    /// Where the divider `kind` sits: the strip container for a strip divider while `inContainer`.
+    /// Where the divider `kind` sits: the strip container for a strip divider while `inContainer`, in the
+    /// container of its row or scroll area there (``scrollerContainer(of:)``).
     func dividerParent(for kind: DividerHandleView.Kind, inContainer: Bool) -> NSView {
-        inContainer && scrolls(kind) ? stripContainer : self
+        guard inContainer, scrolls(kind) else { return self }
+        return scrollerContainer(of: kind) ?? stripContainer
     }
 
-    /// The pan translation the layout's model holds for `view` (0 outside the strip container): what
-    /// shows of it while the finger is down. During a fling the render server shows more
-    /// (`StripClipContainerView.shown`).
-    func panTranslation(of view: NSView) -> CGFloat { view.superview === stripContainer ? stripContainer.translation : 0 }
-
-    /// `view`'s frame where it is placed in this view's coordinates, the pan translation included.
-    func placedFrame(of view: NSView) -> CGRect { view.frame.offsetBy(dx: panTranslation(of: view), dy: 0) }
+    /// `view`'s frame where it is placed in this view's coordinates, the pan translations included
+    /// (``panTranslation(of:)``: the model's, what shows while the finger is down; during a fling the
+    /// render server shows more, `StripClipContainerView.shown`).
+    func placedFrame(of view: NSView) -> CGRect {
+        let moved = panTranslation(of: view)
+        return view.frame.offsetBy(dx: moved.dx, dy: moved.dy)
+    }
 
     // MARK: The pan
 
     /// The container can carry this screen's pan: the strip's dividers are in it with its hosts, and
-    /// nothing reads the strip's geometry from frames while it shows moved. Not with a scroll area (an
-    /// area's window clips its hosts in the camera's coordinates), a zoom (it lifts the container),
+    /// nothing reads the strip's geometry from frames while it shows moved. Not with a scroll area whose
+    /// hosts are clipped one by one (a mask in the camera's coordinates; with its own container,
+    /// `ScrollerPanContainerView`, the clip moves with the strip), a zoom (it lifts the container),
     /// a docked column (the rings' dock covers stay where the dock is, which the rings' plane would move
     /// from), floating panes (the window's shade cuts the cards from frames) or content in child windows
     /// (a Chromium page window is placed from its host's frame).
     var pansOnContainer: Bool {
-        stripDividersInContainer && geometry.isColumns && geometry.dock.isEmpty && baseGeometry.scrollAreas.isEmpty
+        stripDividersInContainer && geometry.isColumns && geometry.dock.isEmpty
+            && baseGeometry.scrollAreas.keys.allSatisfy { scrollerContainer(.area($0)) != nil }
             && zoomMotion.pane == nil && !stripContainer.isLifted && !context.style.floatingPanes
             && !context.childWindowContentShows()
     }
@@ -53,15 +57,24 @@ extension ScreenContentView {
     /// container, else the camera's resting value).
     var layoutOffset: CGFloat { panBase ?? scrollState.spring.value }
 
+    /// The camera offset the strip container shows: during a resampled pan on it, the offset its last
+    /// frame showed (``ColumnScrollState/presentedPan``), else the camera. Every presentation reads
+    /// this, so a frame's spring step never puts the real offset back over the resampled one.
+    var shownCameraOffset: CGFloat {
+        guard scrollState.resamplesPan, panBase != nil, let pan = scrollState.presentedPan else { return scrollState.spring.value }
+        return pan
+    }
+
     /// Shows a pan event on the strip container: its translation (and its rings' plane's) moves to the
-    /// camera; the pan's first event takes the offset the views are laid out at as its base. No display
-    /// frame and no overlay sync is asked for: the rings move with the translation, and nothing else the
-    /// overlay sync places moves. Returns false when the container cannot carry it (``pansOnContainer``).
+    /// camera it shows (``shownCameraOffset``); the pan's first event takes the offset the views are
+    /// laid out at as its base. No display frame and no overlay sync is asked for: the rings move with
+    /// the translation, and nothing else the overlay sync places moves.
+    /// Returns false when the container cannot carry it (``pansOnContainer``).
     func presentPanOnContainer() -> Bool { // perf-hot: 0.3ms motion-frame
         guard pansOnContainer else { return false }
         let base = panBase ?? laidOutStripOffset
         panBase = base
-        stripContainer.setTranslation(geometry.viewShift(offset: scrollState.spring.value) - geometry.viewShift(offset: base))
+        stripContainer.setTranslation(geometry.viewShift(offset: shownCameraOffset) - geometry.viewShift(offset: base))
         updateScrollbar()
         if !userMotionActive {
             userMotionActive = true
@@ -72,13 +85,14 @@ extension ScreenContentView {
 
     /// Ends a pan on the container at the gesture's end with a fling on the render server: the
     /// camera rests on the fling's target, the views lay out there once, and the translation (of the
-    /// container and its rings' plane) springs from where the strip shows to zero with the release velocity.
+    /// container and its rings' plane) springs from where the strip shows (a resampled pan shows a little
+    /// behind the camera) to zero with the release velocity.
     /// Returns false, changing nothing, when the spring would not animate here; the CPU steps it then.
     func startPanFling() -> Bool {
         let spring = Motion.panes.renderSpring(.scroll)
-        guard spring.animates(StripClipContainerView.translationKeyPath, in: stripContainer) else { return false }
+        guard spring.animates(StripClipContainerView.translationKey.path, in: stripContainer) else { return false }
         let camera = scrollState.spring
-        let displacement = geometry.viewShift(offset: camera.value) - geometry.viewShift(offset: camera.target)
+        let displacement = stripContainer.translation + geometry.viewShift(offset: layoutOffset) - geometry.viewShift(offset: camera.target)
         scrollState.spring.snap()
         panBase = nil
         // The fling first: the layout pass below then leaves the translation to it.
@@ -122,19 +136,22 @@ extension ScreenContentView {
     /// committed geometry, and a press there cancels a fling (`content/browser/renderer_host/input/
     /// fling_controller.cc`); here the fling goes on from where it shows on the CPU
     /// (``takeCameraFromServer()``), which moves the frames, so the strip still rests on a snap point.
+    /// A row or scroll area pan on its container lands with it (``landScrollerPans()``).
     func landStripWhereItShows() {
-        guard stripContainer.showsMoved else { return }
+        guard showsPanMoved else { return }
         takeCameraFromServer()
         panBase = nil
+        landScrollerPans()
         applyPresentation()
     }
 
-    /// The fling rested: the views are already there. What waits for the landing runs now: the
-    /// leading column report, the end of the user motion, divider hover, the overlay and a frame for
-    /// the visibility of where it landed.
-    func panFlingLanded() {
-        reportLeadingColumn()
-        if userMotionActive, !isGesturing, renderSpringsInFlight == 0 {
+    /// A fling rested: the views are already there. What waits for the landing runs now: the leading
+    /// column report (`strip`: the strip's fling, not a row's or scroll area's), the end of the user
+    /// motion once no fling runs, divider hover, the overlay and a frame for the visibility of where it
+    /// landed.
+    func panFlingLanded(strip: Bool = true) {
+        if strip { reportLeadingColumn() }
+        if userMotionActive, !isGesturing, renderSpringsInFlight == 0, !panFlingsInFlight {
             userMotionActive = false
             if !hasMotion { context.userMotionEnded() }
         }
@@ -143,11 +160,14 @@ extension ScreenContentView {
         context.requestFrames()
     }
 
-    /// Lands a fling at once (the workspace hides): the views are at its target already.
+    /// Lands every fling at once (the workspace hides): the views are at their targets already.
     func finishPanFling() {
-        guard stripContainer.fling != nil else { return }
-        stripContainer.setTranslation(0)
-        panFlingLanded()
+        let strip = stripContainer.fling != nil
+        let scrollers = scrollerContainers.values.filter { $0.fling != nil }
+        guard strip || !scrollers.isEmpty else { return }
+        if strip { stripContainer.setTranslation(0) }
+        for container in scrollers { container.setTranslation(.zero) }
+        panFlingLanded(strip: strip)
     }
 
     // MARK: Visibility

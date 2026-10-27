@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 
 use super::scan::refused;
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::{mutation_result, resource_operation_error};
 use crate::workspace_registry::{ResourcePatch, WorkspaceMutation};
@@ -82,12 +83,12 @@ pub(in crate::git_ops) fn prior(
     fingerprint: &Value,
 ) -> Result<Option<Value>, ResourceError> {
     let Some(stored) = committed(mux, key, operation)? else { return Ok(None) };
-    let bound = |field: &str| stored.fingerprint[field] != fingerprint[field];
+    let bound = |field: &str| stored.fingerprint.field(field) != fingerprint.field(field);
     if stored.operation == operation && (bound("repository_id") || bound("worktree_id")) {
         let message = "the key was first used for another repository or worktree";
         let extra = json!({
-            "repository_id": stored.fingerprint["repository_id"],
-            "worktree_id": stored.fingerprint["worktree_id"],
+            "repository_id": stored.fingerprint.field("repository_id"),
+            "worktree_id": stored.fingerprint.field("worktree_id"),
         });
         return Err(refused(operation, "repository_changed", message, extra));
     }
@@ -114,9 +115,9 @@ pub(super) fn created(
     const CREATE: &str = "git.checkpoint.create";
     let Some(stored) = committed(mux, key, "git.checkpoint.get")? else { return Ok(None) };
     let same = stored.operation == CREATE
-        && stored.fingerprint["repository_id"] == identity.repository_id
-        && stored.fingerprint["worktree_id"] == identity.worktree_id;
-    Ok(same.then(|| stored.result["checkpoint_id"].as_str().map(str::to_string)).flatten())
+        && stored.fingerprint.field("repository_id") == identity.repository_id
+        && stored.fingerprint.field("worktree_id") == identity.worktree_id;
+    Ok(same.then(|| stored.result.field("checkpoint_id").as_str().map(str::to_string)).flatten())
 }
 
 /// Commits `value` as the mutation's result at a new resource revision and

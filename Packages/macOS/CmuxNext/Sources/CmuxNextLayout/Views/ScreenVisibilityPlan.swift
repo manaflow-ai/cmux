@@ -21,6 +21,8 @@ nonisolated struct ScreenVisibilityPlan: Equatable {
     var areas: [SplitID: CGFloat]
     var inFlight: Bool
     var flinging: Bool
+    /// A row or scroll area fling runs on the render server (p04-input-050): the sweep holds its whole way.
+    var scrollersFlinging: Bool
 }
 
 extension ScreenVisibilityPlan {
@@ -30,7 +32,8 @@ extension ScreenVisibilityPlan {
                   strip: screen.isUserScrolling ? nil : screen.restStripShift,
                   rows: screen.rowScrolls.compactMapValues { $0.state.isGestureActive ? nil : $0.state.spring.target },
                   areas: screen.areaScrolls.compactMapValues { $0.state.isGestureActive ? nil : $0.state.spring.target },
-                  inFlight: Self.inFlight(screen), flinging: screen.stripContainer.fling != nil)
+                  inFlight: Self.inFlight(screen), flinging: screen.stripContainer.fling != nil,
+                  scrollersFlinging: Self.scrollersFlinging(screen))
     }
 
     /// Whether `screen`'s plan now is this one: `==` with ``init(_:)``'s plan, without building it (a display frame
@@ -38,7 +41,8 @@ extension ScreenVisibilityPlan {
     @MainActor func matches(_ screen: ScreenContentView) -> Bool { // perf-hot: 4ms motion-frame
         guard view == ObjectIdentifier(screen), layoutPass == screen.reconcilePasses, bounds == screen.bounds,
               strip == (screen.isUserScrolling ? nil : screen.restStripShift),
-              flinging == (screen.stripContainer.fling != nil) else { return false }
+              flinging == (screen.stripContainer.fling != nil),
+              scrollersFlinging == Self.scrollersFlinging(screen) else { return false }
         var rowCount = 0
         for (id, scroll) in screen.rowScrolls where !scroll.state.isGestureActive {
             guard rows[id] == scroll.state.spring.target else { return false }
@@ -50,6 +54,10 @@ extension ScreenVisibilityPlan {
             areaCount += 1
         }
         return rowCount == rows.count && areaCount == areas.count && inFlight == Self.inFlight(screen)
+    }
+
+    @MainActor private static func scrollersFlinging(_ screen: ScreenContentView) -> Bool {
+        screen.scrollerContainers.values.contains { $0.fling != nil }
     }
 
     @MainActor private static func inFlight(_ screen: ScreenContentView) -> Bool {

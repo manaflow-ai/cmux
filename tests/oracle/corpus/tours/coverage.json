@@ -1,0 +1,293 @@
+{
+  "generator": "scripts/cmux-next/oracle/gen_tours.py",
+  "suite": "tours",
+  "task": "p15-oracle-091",
+  "tours": "scripts/cmux-next/media/tours",
+  "total": 23,
+  "covered": 22,
+  "excluded": {
+    "host-pressure": "the tour launches with the feature hostPressure on (schemas/features/features.d/hostPressure.json ships off), and case-v1 has no launch-feature field: driver_app.py launches every feature at its default, so each step would record the feature-off app as the golden host-pressure tour"
+  },
+  "missing": [],
+  "verdicts": "not run",
+  "cases": 22,
+  "steps": {
+    "waitFor": 128,
+    "settle": 78
+  },
+  "by_tour": {
+    "agent-pane": {
+      "tour": "scripts/cmux-next/media/tours/agent-pane.json",
+      "case": "tours/agent-pane",
+      "tour_steps": 3,
+      "waitFor": 0,
+      "settle": 1,
+      "dropped": {
+        "02-open-agent-chat": "`cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build",
+        "03-queue-a-second-chat": "`cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build"
+      },
+      "rewritten": {},
+      "steps": 1
+    },
+    "app-store-feature-gaps": {
+      "tour": "scripts/cmux-next/media/tours/app-store-feature-gaps.json",
+      "case": "tours/app-store-feature-gaps",
+      "tour_steps": 7,
+      "waitFor": 3,
+      "settle": 3,
+      "dropped": {
+        "04-new-terminal-added-to-the-sidebar-its-ca": "tour.py optional (the sidebar.item.add flag name may differ): its outcome on the bench build is not known, and a case step expects one outcome"
+      },
+      "rewritten": {},
+      "steps": 6
+    },
+    "app-store-features": {
+      "tour": "scripts/cmux-next/media/tours/app-store-features.json",
+      "case": "tours/app-store-features",
+      "tour_steps": 8,
+      "waitFor": 5,
+      "settle": 3,
+      "dropped": {},
+      "rewritten": {},
+      "steps": 8
+    },
+    "chief-settings": {
+      "tour": "scripts/cmux-next/media/tours/chief-settings.json",
+      "case": "tours/chief-settings",
+      "tour_steps": 6,
+      "waitFor": 0,
+      "settle": 3,
+      "dropped": {
+        "02-home-with-the-chief-its-front-page-while": "tour.py optional (the Chief's daemon may not start on this runner): its outcome on the bench build is not known, and a case step expects one outcome",
+        "05-chief-settings-under-the-name-pill": "tour.py optional (the settings open only over a Chief conversation): its outcome on the bench build is not known, and a case step expects one outcome",
+        "06-closed-again": "tour.py optional (the settings open only over a Chief conversation): its outcome on the bench build is not known, and a case step expects one outcome"
+      },
+      "rewritten": {},
+      "steps": 3
+    },
+    "core": {
+      "tour": "scripts/cmux-next/media/tours/core.json",
+      "case": "tours/core",
+      "tour_steps": 20,
+      "waitFor": 14,
+      "settle": 2,
+      "dropped": {
+        "08-browser-tab": "driver_app.py fails a fixture.web case as a Crash (no loopback web fixture yet), so a step that opens a $WEB page waits until driver_app serves webfixture.py",
+        "12-notifications-panel": "tour.py optional (the notifications panel is not ported yet): its outcome on the bench build is not known, and a case step expects one outcome",
+        "13-agent-chat": "`cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build",
+        "20-profile-menu": "tour.py optional (the menu shot needs a screen capture route): its outcome on the bench build is not known, and a case step expects one outcome"
+      },
+      "rewritten": {
+        "03-type-in-the-terminal": "the screen is the command's output alone: it starts with clear, sets its title last and holds the shell, so no prompt races the snapshot; the step waits on that title",
+        "04-a-command-reports-progress-tab-loading-s": "the shell holds the progress state by reading stdin, not by a timed wait; the screen is the command's output alone: it starts with clear, sets its title last and holds the shell, so no prompt races the snapshot; the step waits on that title",
+        "15-agent-starts": "the agent state holds until a later step writes a line, not for 8 timed seconds; each state then sets its title, and the shell reads stdin",
+        "17-the-agent-finishes-done-mark-in-the-spin": "the tour waited 8 timed seconds for the agent to finish; this line ends the agent's wait, so the done state follows the step, not a clock"
+      },
+      "steps": 16
+    },
+    "glass": {
+      "tour": "scripts/cmux-next/media/tours/glass.json",
+      "case": "tours/glass",
+      "tour_steps": 14,
+      "waitFor": 12,
+      "settle": 1,
+      "dropped": {
+        "05-agent-chat-beside-the-terminal": "`cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build"
+      },
+      "rewritten": {
+        "03-terminal-text-and-ansi-colors-over-art": "the screen is the command's output alone: it starts with clear, sets its title last and holds the shell, so no prompt races the snapshot; the step waits on that title"
+      },
+      "steps": 15
+    },
+    "home": {
+      "tour": "scripts/cmux-next/media/tours/home.json",
+      "case": "tours/home",
+      "tour_steps": 27,
+      "waitFor": 0,
+      "settle": 26,
+      "dropped": {
+        "02-go-to-home": "tour.py optional (Home needs its page in this build): its outcome on the bench build is not known, and a case step expects one outcome"
+      },
+      "rewritten": {},
+      "steps": 26
+    },
+    "hover-card": {
+      "tour": "scripts/cmux-next/media/tours/hover-card.json",
+      "case": "tours/hover-card",
+      "tour_steps": 12,
+      "waitFor": 8,
+      "settle": 4,
+      "dropped": {},
+      "rewritten": {},
+      "steps": 13
+    },
+    "launch-themes": {
+      "tour": "scripts/cmux-next/media/tours/launch-themes.json",
+      "case": "tours/launch-themes",
+      "tour_steps": 13,
+      "waitFor": 10,
+      "settle": 2,
+      "dropped": {
+        "07-agent-chat-beside-the-terminal": "`cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build"
+      },
+      "rewritten": {
+        "05-a-shell-in-app": "host output (uname, the macOS app list) differs by host and OS; a golden baseline needs fixed text; the screen is the command's output alone: it starts with clear, sets its title last and holds the shell, so no prompt races the snapshot; the step waits on that title"
+      },
+      "steps": 13
+    },
+    "launch-wallpapers": {
+      "tour": "scripts/cmux-next/media/tours/launch-wallpapers.json",
+      "case": "tours/launch-wallpapers",
+      "tour_steps": 14,
+      "waitFor": 11,
+      "settle": 2,
+      "dropped": {
+        "07-agent-chat-beside-the-terminal": "`cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build"
+      },
+      "rewritten": {
+        "05-a-shell-in-app": "host output (uname, the macOS app list) differs by host and OS; a golden baseline needs fixed text; the screen is the command's output alone: it starts with clear, sets its title last and holds the shell, so no prompt races the snapshot; the step waits on that title"
+      },
+      "steps": 15
+    },
+    "main-pane": {
+      "tour": "scripts/cmux-next/media/tours/main-pane.json",
+      "case": "tours/main-pane",
+      "tour_steps": 13,
+      "waitFor": 1,
+      "settle": 1,
+      "dropped": {
+        "03-an-agent-chat-docks-left-the-terminal-si": "`cmux agent new-chat` is no CLI verb (cmux-tui cli/command.rs parse_agent sends it to agent_focus, a usage error), so the step fails on every build",
+        "04-focus-the-terminal-column": "it acts on the chat column the dropped agent new-chat step opens",
+        "05-closing-the-right-column-gives-the-chat": "tour.py optional (closing the terminal asked to confirm): its outcome on the bench build is not known, and a case step expects one outcome",
+        "06-focus-the-chat": "it acts on the chat column the dropped agent new-chat step opens",
+        "07-a-link-clicked-in-the-lone-chat-the-chat": "debug.terminal.links: CmuxNextApp/DebugTerminalLinks.swift registers it in DEBUG builds only, and the tours suite runs the bench build",
+        "08-focus-the-chat-again": "it acts on the column a dropped debug.terminal.links step opens",
+        "09-a-second-link-opens-as-a-tab-in-the-same": "debug.terminal.links: CmuxNextApp/DebugTerminalLinks.swift registers it in DEBUG builds only, and the tours suite runs the bench build",
+        "10-closing-the-right-column-again-the-chat": "it acts on the column a dropped debug.terminal.links step opens",
+        "11-main-pane-off-debug-override-a-link-from": "it only sets up the dropped debug.terminal.links step after it",
+        "12-focus-the-chat": "it only sets up the dropped debug.terminal.links step after it",
+        "13-with-main-pane-off-the-link-is-a-tab-in": "debug.terminal.links: CmuxNextApp/DebugTerminalLinks.swift registers it in DEBUG builds only, and the tours suite runs the bench build"
+      },
+      "rewritten": {},
+      "steps": 3
+    },
+    "new-message": {
+      "tour": "scripts/cmux-next/media/tours/new-message.json",
+      "case": "tours/new-message",
+      "tour_steps": 5,
+      "waitFor": 0,
+      "settle": 3,
+      "dropped": {
+        "02-go-to-home": "tour.py optional (the Chief's daemon may not start on this runner): its outcome on the bench build is not known, and a case step expects one outcome",
+        "03-new-message-the-chiefs-listed-under-to-b": "tour.py optional (New Message needs the Home page in this build): its outcome on the bench build is not known, and a case step expects one outcome"
+      },
+      "rewritten": {},
+      "steps": 3
+    },
+    "new-tab": {
+      "tour": "scripts/cmux-next/media/tours/new-tab.json",
+      "case": "tours/new-tab",
+      "tour_steps": 4,
+      "waitFor": 3,
+      "settle": 1,
+      "dropped": {},
+      "rewritten": {},
+      "steps": 4
+    },
+    "now-playing": {
+      "tour": "scripts/cmux-next/media/tours/now-playing.json",
+      "case": "tours/now-playing",
+      "tour_steps": 9,
+      "waitFor": 5,
+      "settle": 4,
+      "dropped": {},
+      "rewritten": {},
+      "steps": 9
+    },
+    "pinned-tabs": {
+      "tour": "scripts/cmux-next/media/tours/pinned-tabs.json",
+      "case": "tours/pinned-tabs",
+      "tour_steps": 10,
+      "waitFor": 8,
+      "settle": 1,
+      "dropped": {
+        "05-browser-tab-four-tabs": "driver_app.py fails a fixture.web case as a Crash (no loopback web fixture yet), so a step that opens a $WEB page waits until driver_app serves webfixture.py"
+      },
+      "rewritten": {},
+      "steps": 9
+    },
+    "rail-card-bottom": {
+      "tour": "scripts/cmux-next/media/tours/rail-card-bottom.json",
+      "case": "tours/rail-card-bottom",
+      "tour_steps": 16,
+      "waitFor": 13,
+      "settle": 3,
+      "dropped": {},
+      "rewritten": {},
+      "steps": 17
+    },
+    "rail-card-middle": {
+      "tour": "scripts/cmux-next/media/tours/rail-card-middle.json",
+      "case": "tours/rail-card-middle",
+      "tour_steps": 16,
+      "waitFor": 13,
+      "settle": 3,
+      "dropped": {},
+      "rewritten": {},
+      "steps": 17
+    },
+    "rail-card-top": {
+      "tour": "scripts/cmux-next/media/tours/rail-card-top.json",
+      "case": "tours/rail-card-top",
+      "tour_steps": 16,
+      "waitFor": 13,
+      "settle": 3,
+      "dropped": {},
+      "rewritten": {},
+      "steps": 17
+    },
+    "sidebar-edit-mode": {
+      "tour": "scripts/cmux-next/media/tours/sidebar-edit-mode.json",
+      "case": "tours/sidebar-edit-mode",
+      "tour_steps": 6,
+      "waitFor": 1,
+      "settle": 5,
+      "dropped": {},
+      "rewritten": {},
+      "steps": 6
+    },
+    "sidebar-footer": {
+      "tour": "scripts/cmux-next/media/tours/sidebar-footer.json",
+      "case": "tours/sidebar-footer",
+      "tour_steps": 4,
+      "waitFor": 3,
+      "settle": 1,
+      "dropped": {},
+      "rewritten": {},
+      "steps": 4
+    },
+    "sidebar-view-toggles": {
+      "tour": "scripts/cmux-next/media/tours/sidebar-view-toggles.json",
+      "case": "tours/sidebar-view-toggles",
+      "tour_steps": 7,
+      "waitFor": 4,
+      "settle": 3,
+      "dropped": {},
+      "rewritten": {},
+      "steps": 7
+    },
+    "update-card": {
+      "tour": "scripts/cmux-next/media/tours/update-card.json",
+      "case": "tours/update-card",
+      "tour_steps": 6,
+      "waitFor": 1,
+      "settle": 3,
+      "dropped": {
+        "03-hovering-the-card-what-s-new-in-nightly": "debug.update_surfaces: CmuxNextApp/Control/AppControl+Updates.swift registers it in DEBUG builds only, and the tours suite runs the bench build",
+        "05-the-popup-again-in-the-light-theme": "debug.update_surfaces: CmuxNextApp/Control/AppControl+Updates.swift registers it in DEBUG builds only, and the tours suite runs the bench build"
+      },
+      "rewritten": {},
+      "steps": 4
+    }
+  }
+}

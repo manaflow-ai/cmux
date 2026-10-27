@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@preconcurrency import Sparkle
 @testable import CmuxUpdater
 
 /// Tests for the install watchdog's decision logic in ``InstallWatchdog``.
@@ -15,7 +14,7 @@ import Testing
     private let watchdog = InstallWatchdog(clock: SystemUpdateClock(), timeout: installWatchdogTimeout)
 
     private func updateAvailable(_ version: String = "0.64.16") -> UpdateState {
-        let item = SUAppcastItem(dictionary: [
+        let item = UpdateAppcastItem(dictionary: [
             "title": "cmux \(version)",
             "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": [
@@ -24,14 +23,14 @@ import Testing
                 "sparkle:version": version,
                 "sparkle:shortVersionString": version,
             ],
-        ]) ?? SUAppcastItem.empty()
+        ]) ?? UpdateAppcastItem.empty()
         return .updateAvailable(.init(appcastItem: item, reply: { _ in }))
     }
 
     private var everyState: [UpdateState] {
         [
             .idle,
-            .permissionRequest(.init(request: SPUUpdatePermissionRequest(systemProfile: []), reply: { _ in })),
+            .permissionRequest(.init(reply: { _ in })),
             .preparingCheck(.init(cancel: {})),
             .checking(.init(cancel: {})),
             updateAvailable(),
@@ -160,7 +159,7 @@ import Testing
         #expect(stableURL.absoluteString.contains("latest/download"))
 
         // Sparkle's own install failures route by channel the same way.
-        let sparkleInstallFailure = NSError(domain: SUSparkleErrorDomain, code: 4005)
+        let sparkleInstallFailure = NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 4005)
         let sparkleNightlyURL = try #require(recovery.url(for: sparkleInstallFailure, feedURLString: nightlyFeed))
         #expect(sparkleNightlyURL.absoluteString.hasSuffix("/releases/download/nightly/cmux-nightly-macos-arm64.dmg"))
 
@@ -178,7 +177,7 @@ import Testing
         let armURL = try #require(UpdateManualDownloadRecovery(hostArchitecture: .arm64).url(for: didNotStart, feedURLString: rcFeed))
         #expect(armURL.absoluteString == "https://github.com/manaflow-ai/cmux/releases/download/rc/cmux-rc-macos-arm64.dmg")
 
-        let sparkleInstallFailure = NSError(domain: SUSparkleErrorDomain, code: 4005)
+        let sparkleInstallFailure = NSError(domain: UpdateStateModel.sparkleErrorDomain, code: 4005)
         let intelURL = try #require(UpdateManualDownloadRecovery(hostArchitecture: .x86_64).url(for: sparkleInstallFailure, feedURLString: rcFeed))
         #expect(intelURL.absoluteString == "https://github.com/manaflow-ai/cmux/releases/download/rc/cmux-rc-macos-x86_64.dmg")
         #expect(!intelURL.absoluteString.contains("latest/download"))

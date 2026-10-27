@@ -79,7 +79,8 @@ public final class MacScreenPane {
     nonisolated public static let defaultHiddenGrace: Duration = .seconds(20)
     private let inputSink: MacScreenInputSink?
     private var visible = false
-    private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
+    /// Ends the session ``hiddenGrace`` after the tab hid (`background`, nobody waits); nil without a session.
+    private let hideTimer: MainDeadline?
     /// The session's phase and stall (``observePhase(_:on:)``).
     private var phaseWatch: FrameObservation<StreamState>?
     private struct StreamState: Equatable {
@@ -97,6 +98,8 @@ public final class MacScreenPane {
         let session = ScreenSession(title: name, preferences: preferences, signaling: { [weak viewer] in viewer?.takeSignaling() })
         session.reconnectLimit = 0
         model = MacScreenPaneModel(session: session, name: name, gate: .open, hub: viewer)
+        hideTimer = MainDeadline(owner: "mac-screen.hidden-grace", workClass: .background, alignment: .whenHidden(node),
+                                 scheduler: viewer.deadlines)
         let sink = MacScreenInputSink(session: session)
         inputSink = sink
         view = MacScreenPaneView(model: model, node: node, on: mainWork)
@@ -119,6 +122,7 @@ public final class MacScreenPane {
     public init(unsupportedLinkIn node: VisibilityNode, on mainWork: MainWorkScheduler) {
         model = MacScreenPaneModel(session: nil, name: L.t("macScreen.tab.homeTitle", "Mac Screen"), gate: .unsupported)
         inputSink = nil
+        hideTimer = nil
         view = MacScreenPaneView(model: model, node: node, on: mainWork)
         view.chrome.actions.openHome = { [weak self] in self?.handlers.openHome() }
         view.chrome.actions.closeTab = { [weak self] in self?.handlers.closeTab() }
@@ -212,7 +216,7 @@ public final class MacScreenPane {
 
     /// The tab is shown: a device tab with a scope waiting asks the hub.
     public func resume() {
-        hideTimer.cancel()
+        hideTimer?.cancel()
         guard !visible else { return }
         visible = true
         if let hub = model.hub {
@@ -231,7 +235,7 @@ public final class MacScreenPane {
         guard visible else { return }
         visible = false
         view.input.releaseKeyboard()
-        hideTimer.schedule(after: hiddenGrace) { @MainActor [weak self] in
+        hideTimer?.schedule(after: hiddenGrace) { [weak self] in
             guard let self, !visible else { return }
             model.hub?.endForHiddenTab()
         }
@@ -239,7 +243,7 @@ public final class MacScreenPane {
 
     /// The tab closed: end the session now.
     public func close() {
-        hideTimer.cancel()
+        hideTimer?.cancel()
         visible = false
         if let hub = model.hub, hub.phase != .idle {
             // The hub hears why first, then the stream closes.

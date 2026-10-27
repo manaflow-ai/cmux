@@ -116,3 +116,60 @@ fn a_head_with_a_bare_line_break_or_control_byte_is_malformed() {
         assert!(peer.answered.is_empty());
     }
 }
+
+/// A page names its shared chunks by `cmux-page://cmux.shared/` (the app's
+/// shared origin, build-pages.mjs); a browser on the listener gets the same
+/// chunks at `/pages/_shared/`, in pages and scripts only, with the
+/// Content-Length of what it receives.
+#[test]
+fn a_page_gets_its_shared_chunks_at_the_listeners_shared_path() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-page-files-shared-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("history")).unwrap();
+    std::fs::create_dir_all(root.join("_shared")).unwrap();
+    std::fs::write(
+        root.join("history/index.html"),
+        "<link rel=\"modulepreload\" href=\"cmux-page://cmux.shared/react-1.js\" />",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("history/app-H.js"),
+        "import\"cmux-page://cmux.shared/react-1.js\";import(\"cmux-page://cmux.shared/lazy-2.js\");",
+    )
+    .unwrap();
+    std::fs::write(root.join("_shared/react-1.js"), "export const React = 1;").unwrap();
+    std::fs::write(root.join("history/data.json"), "\"cmux-page://cmux.shared/x.js\"").unwrap();
+
+    let policy = cmux_local_auth::ListenerPolicy::loopback(7777);
+    let get = |target: &str| {
+        let head = format!("GET {target} HTTP/1.1\r\nHost: 127.0.0.1:7777\r\n\r\n");
+        let (_, head) = read_request_head(&mut Peer::sending(head.as_bytes())).unwrap();
+        String::from_utf8(respond(&head, &policy, Some(&root))).unwrap()
+    };
+    let body = |reply: &str| reply.split_once("\r\n\r\n").unwrap().1.to_owned();
+    let length = |reply: &str| {
+        reply
+            .lines()
+            .find_map(|line| line.strip_prefix("Content-Length: "))
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap()
+    };
+
+    let page = get("/pages/history/");
+    assert_eq!(body(&page), "<link rel=\"modulepreload\" href=\"/pages/_shared/react-1.js\" />");
+    assert_eq!(length(&page), body(&page).len());
+    let script = get("/pages/history/app-H.js");
+    assert_eq!(
+        body(&script),
+        "import\"/pages/_shared/react-1.js\";import(\"/pages/_shared/lazy-2.js\");"
+    );
+    assert_eq!(length(&script), body(&script).len());
+    assert_eq!(body(&get("/pages/_shared/react-1.js")), "export const React = 1;");
+    assert_eq!(body(&get("/pages/history/data.json")), "\"cmux-page://cmux.shared/x.js\"");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

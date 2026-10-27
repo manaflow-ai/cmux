@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextApps
 import CmuxNextPalette
+import CmuxNextWakeups
 import Foundation
 
 /// `app.command.run`: runs a command an app contributes (a catalog op of the
@@ -92,13 +93,26 @@ enum AppCommandPalette {
     @MainActor static func run(_ entry: Entry, services: AppServices, origin: ActionOrigin, arguments: AppJSON = .object([:])) -> ActionWork {
         let client = services.apps.client
         let appOrigin = AppOrigin(rawValue: origin.rawValue) ?? .script
-        return Task { @MainActor in
+        let app = entry.app.id, op = entry.command.op
+        return run(origin: origin, on: services.mainWork) { () async throws(AppsClientError) in
+            _ = try await client.run(app: app, op: op, args: arguments, origin: appOrigin)
+        }
+    }
+
+    /// R-hop: `request` is awaited off main; its result is made in one task of the caller's class: the rest of a
+    /// person's action (`userBlocking`), else automation (an agent, the CLI or another app asked).
+    @MainActor static func run(origin: ActionOrigin, on mainWork: MainWorkScheduler,
+                               _ request: @escaping @Sendable () async throws(AppsClientError) -> Void) -> ActionWork {
+        let workClass: BudgetedWorkClass = origin == .user ? .userBlocking : .automation
+        return Task { @concurrent in
+            let failure: AppsClientError?
             do throws(AppsClientError) {
-                _ = try await client.run(app: entry.app.id, op: entry.command.op, args: arguments, origin: appOrigin)
-                return nil
+                try await request()
+                failure = nil
             } catch {
-                return ActionWorkFailure(error.description)
+                failure = error
             }
+            return await mainWork.apply(workClass, owner: "app.command.run") { failure.map { ActionWorkFailure($0.description) } }
         }
     }
 }

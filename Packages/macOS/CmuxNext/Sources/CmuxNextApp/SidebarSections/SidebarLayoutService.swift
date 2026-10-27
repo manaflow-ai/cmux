@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
@@ -39,8 +40,18 @@ final class SidebarLayoutService {
     @ObservationIgnored private let prototypeEnabled: @MainActor () -> Bool
     @ObservationIgnored let remote: (any SidebarLayoutRemote)?
     @ObservationIgnored private let onRefused: @MainActor (String) -> Void
-    @ObservationIgnored private var observation: Task<Void, Never>?
-    @ObservationIgnored private var legacyObservation: Task<Void, Never>?
+    /// The main-thread scheduler the owner's follow flushes on.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
+    /// Starts each owner call at a stated priority.
+    @ObservationIgnored private let work: BackgroundWork
+    @ObservationIgnored private var observation: ServiceObservation<OwnerState>?
+    @ObservationIgnored private var legacyObservation: ServiceObservation<[LegacyPins]>?
+    /// What the follow reads of the owner: whether it is reachable, and its personal state's change token. Not
+    /// Equatable on purpose: a reconnect inside one turn reads the same values and must still fetch and resend.
+    private struct OwnerState {
+        var available: Bool
+        var changeToken: UInt64
+    }
     /// The owner's layout has been read once (migrations plan against it).
     @ObservationIgnored private var fetched = false
     /// The sections migration went out this session (at most once, so an
@@ -55,41 +66,45 @@ final class SidebarLayoutService {
     static let recentsOfferedKey = "cmux.next.sidebar.recentsOffered"
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar-layout")
 
-    init(remote: (any SidebarLayoutRemote)? = nil, onRefused: @escaping @MainActor (String) -> Void = { _ in },
+    /// - Parameters:
+    ///   - remote: The layout's owner (the home daemon), nil for none.
+    ///   - mainWork: The app's main-thread scheduler the owner's follow flushes on.
+    ///   - work: Starts the owner calls at a stated priority.
+    ///   - onRefused: Shows an owner's refusal.
+    ///   - prototypeEnabled: DEV's in-memory prototype.
+    ///   - recentsOffered: Where this Mac records that it offered Recents.
+    init(remote: (any SidebarLayoutRemote)? = nil, mainWork: MainWorkScheduler, work: BackgroundWork,
+         onRefused: @escaping @MainActor (String) -> Void = { _ in },
          prototypeEnabled: @escaping @MainActor () -> Bool = {
              DevTools.isEnabled && SidebarSectionTunables.localPrototype.override == true
          }, recentsOffered: UserDefaults = .standard) {
         self.remote = remote
+        self.mainWork = mainWork
+        self.work = work
         self.onRefused = onRefused
         self.prototypeEnabled = prototypeEnabled
         self.recentsOffered = recentsOffered
     }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-            legacyObservation?.cancel()
-        }
-    }
-
     /// Follows the owner: fetch when it becomes reachable and after each
-    /// personal change, and resend intents a disconnect interrupted.
+    /// personal change, and resend intents a disconnect interrupted. Service observations: they write the
+    /// mirror and send intents whether or not a sidebar shows.
     func start() {
         guard let remote, observation == nil else { return }
-        // task-owner: the service (cancelled in deinit); event-driven (Observation)
-        observation = Task { [weak self] in
-            for await (available, _) in ObservationStream({ (remote.isAvailable, remote.changeToken) }) {
-                guard let self, available else { continue }
-                self.refresh()
-                self.resendInterrupted()
-            }
+        // `visible`: every window's sidebar draws the layout.
+        observation = ServiceObservation(.visible, owner: "SidebarLayout.owner", on: mainWork) {
+            OwnerState(available: remote.isAvailable, changeToken: remote.changeToken)
+        } apply: { [weak self] state in
+            guard let self, state.available else { return }
+            refresh()
+            resendInterrupted()
         }
-        // task-owner: the service (cancelled in deinit); event-driven (Observation).
-        // A session tree that loads, or a legacy pin that changes, re-runs the one-time pin move.
-        legacyObservation = Task { [weak self] in
-            for await _ in ObservationStream({ remote.legacyPins }) { self?.migrateIfNeeded() }
+        // A session tree that loads, or a legacy pin that changes, re-runs the one-time pin move. `background`:
+        // a one-time move nobody waits on.
+        legacyObservation = ServiceObservation(.background, owner: "SidebarLayout.legacyPins", on: mainWork) {
+            remote.legacyPins
+        } apply: { [weak self] _ in
+            self?.migrateIfNeeded()
         }
     }
 
@@ -127,21 +142,31 @@ final class SidebarLayoutService {
 
     private func dispatch(_ key: String, _ op: SidebarLayoutOp) {
         guard let remote else { return }
-        // task-owner: one sidebar_layout.update; settles its intent
-        Task { [weak self] in
-            do {
-                let confirmed = try await remote.update(op, key: key)
-                self?.settle(key, confirmed: confirmed)
-            } catch {
+        let mainWork = mainWork
+        // task-owner: one sidebar_layout.update, awaited off main (recipe R-hop). Its reply settles an edit that
+        // already shows: the rest of the person's action, one userBlocking task (p06-scheduler.md rule 2).
+        work.task(.userBlocking) { @concurrent [weak self] in
+            let reply: Result<SidebarLayoutDocument, any Error>
+            do { reply = .success(try await remote.update(op, key: key)) } catch { reply = .failure(error) }
+            await mainWork.apply(.userBlocking, owner: "SidebarLayout.settle") { [weak self] in
                 guard let self else { return }
-                if isDisconnect(error) {
-                    self.markInterrupted(key)
-                } else {
-                    self.settle(key, confirmed: nil)
-                    Self.logger.info("sidebar layout: refused \(String(describing: op), privacy: .public): \(String(describing: error), privacy: .public)")
-                    self.onRefused(RefusalStrings.describe(error))
-                }
+                self.settleReply(key, op, reply)
             }
+        }
+    }
+
+    /// The owner's reply to intent `key`: settled, kept first in the log for the reconnect (a disconnect), or
+    /// refused (settled with nothing, and the refusal shown).
+    private func settleReply(_ key: String, _ op: SidebarLayoutOp, _ reply: Result<SidebarLayoutDocument, any Error>) {
+        switch reply {
+        case .success(let confirmed):
+            settle(key, confirmed: confirmed)
+        case .failure(let error) where isDisconnect(error):
+            markInterrupted(key)
+        case .failure(let error):
+            settle(key, confirmed: nil)
+            Self.logger.info("sidebar layout: refused \(String(describing: op), privacy: .public): \(String(describing: error), privacy: .public)")
+            onRefused(RefusalStrings.describe(error))
         }
     }
 
@@ -173,14 +198,23 @@ final class SidebarLayoutService {
     /// Fetches the owner's layout.
     func refresh() {
         guard let remote else { return }
-        // task-owner: one sidebar_layout.get
-        Task { [weak self] in
+        let mainWork = mainWork
+        // task-owner: one sidebar_layout.get, awaited off main (recipe R-hop); what it read shows in one visible task.
+        work.task(.userVisible) { @concurrent [weak self] in
             guard let confirmed = try? await remote.get() else { return }
-            self?.fetched = true
-            self?.adopt(confirmed)
-            self?.recompute()
-            self?.migrateIfNeeded()
+            await mainWork.apply(.visible, owner: "SidebarLayout.fetch") { [weak self] in
+                guard let self else { return }
+                self.adoptFetched(confirmed)
+            }
         }
+    }
+
+    /// The owner's layout, read: the mirror moves to it and the migrations plan against it.
+    private func adoptFetched(_ confirmed: SidebarLayoutDocument) {
+        fetched = true
+        adopt(confirmed)
+        recompute()
+        migrateIfNeeded()
     }
 
     /// A stored layout that still equals the window rail's default (Leo,

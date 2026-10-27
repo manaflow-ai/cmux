@@ -22,18 +22,24 @@ cx-wcej). After every step it reads `debug.layers` and fails when:
 
 The app crashing (AppKit layout-pass exception) fails the run too.
 
+The app launches and stops through bench_launch.BenchApp (the bench env, an
+empty cmux.json, a fresh saved session for the tag, the tag's daemons ended
+at the stop). The run is also written as cmux-perf-result/v1 in OUT_DIR
+(story layout-loop-stress: `layout_loop.max_in_one_turn` per step and
+`layout_loop.failures`; drag_layout_bench_report.py).
+
 Usage: layout-loop-stress-live.py TAG APP OUT_DIR
+       layout-loop-stress-live.py --app APP --tag TAG --out OUT_DIR   (the perf-lab story runner)
 Exit 0 = all steps clean. Writes OUT_DIR/layout-loop-stress.json.
 """
-import json, os, pwd, signal, socket, subprocess, sys, tempfile, time
+import argparse, json, os, socket, subprocess, sys
 
-TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
-BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-ACPMUX = os.path.join(APP, "Contents/Resources/bin/acpmux")
-SOCKET = "/tmp/cmux-debug-%s.sock" % TAG
-ACCOUNT_HOME = pwd.getpwuid(os.getuid()).pw_dir
-ACPMUX_HOME = os.path.join(ACCOUNT_HOME, ".cmux/chief/isolated", TAG, "acpmux")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
+import drag_layout_bench_report as report  # noqa: E402
+from bench_launch import BenchApp, LaunchError  # noqa: E402
+from new_tab_bench_report import record_all  # noqa: E402
+
+SOCKET = None  # the launched app's control socket (main)
 RESIZE_STEPS = 50
 # Panes: SPLITS actions cycle newColumn, splitRight, splitDown (columns,
 # splits and rows); LAYOUT_STRESS_SPLITS raises it for a many-pane run.
@@ -44,8 +50,33 @@ PALETTE_QUERY = "google.c"
 # Down past the floor, up past the ceiling, back down, then reset.
 SCALE_WALK = (("appearance.uiScale.decrease", 4), ("appearance.uiScale.increase", 14),
               ("appearance.uiScale.decrease", 14), ("appearance.uiScale.reset", 1))
-os.makedirs(OUT, exist_ok=True)
 LAST_PASSES = {}
+
+
+def parse(argv=None):
+    parser = argparse.ArgumentParser(usage="%(prog)s TAG APP OUT_DIR | --app APP [--tag TAG] --out OUT_DIR")
+    parser.add_argument("positional", nargs="*", metavar="TAG APP OUT_DIR", help="the older positional form")
+    parser.add_argument("--app", help="the tagged app bundle")
+    parser.add_argument("--tag")  # the story runner passes it; the bundle carries the tag
+    parser.add_argument("--out")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    opts = parser.parse_args(argv)
+    if opts.positional:
+        if len(opts.positional) != 3 or opts.app or opts.out:
+            parser.error("give TAG APP OUT_DIR, or --app and --out")
+        opts.tag, opts.app, opts.out = opts.positional
+    if not opts.app or not opts.out:
+        parser.error("name the app and the output folder")
+    return opts
+
+
+def app_args(words):
+    """LAYOUT_STRESS_APP_ARGS: `-Key Value` launch arguments for this process only (for example
+    "-AppleShowScrollBars Always": legacy scrollers, as with a mouse), passed through BenchApp(args=...)."""
+    if len(words) % 2 or not all(w.startswith("-") for w in words[::2]):
+        sys.exit("LAYOUT_STRESS_APP_ARGS is `-Key Value` pairs, got %r" % " ".join(words))
+    return words
 
 
 def rpc(method, params=None, timeout=30):
@@ -224,110 +255,100 @@ def palette_phase(app, results):
     return failures
 
 
-def quit_end_sessions():
-    reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
-    if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
-        reply = rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
-    return reply
-
-
-if os.path.exists(SOCKET):
-    sys.exit("%s exists: pick a fresh tag" % SOCKET)
-scratch = tempfile.mkdtemp(prefix="layout-loop-stress-")
-open(os.path.join(scratch, "cmux.json"), "w").write("{}")
-open(os.path.join(scratch, "ghostty"), "w").write("")
-env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-       "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
-       "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
-log = open(os.path.join(OUT, "app-%s.log" % TAG), "a")
-# LAYOUT_STRESS_APP_ARGS: extra launch arguments for this process only,
-# e.g. "-AppleShowScrollBars Always" (legacy scrollers, as with a mouse).
-app = subprocess.Popen([BINARY] + os.environ.get("LAYOUT_STRESS_APP_ARGS", "").split(), env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-print("launched pid %d" % app.pid, flush=True)
-results, failures = [], []
-try:
-    deadline = time.time() + 180
-    wins = None
-    while time.time() < deadline and app.poll() is None:
-        if os.path.exists(SOCKET):
-            wins = (rpc("debug.windows") or {}).get("windows")
-            if wins:
+def stress(app, results):
+    """The steps after launch (actions, palette, resizes, scale walk); returns the failures."""
+    failures = []
+    rpc("debug.layers", {"reset_layout_passes": True})
+    failures += check("launch", app, results)
+    steps = [("splitBrowserRight", "action")] + [
+        (("newColumn" if i % 3 == 0 else "splitRight" if i % 3 == 1 else "splitDown"), "action") for i in range(SPLITS)]
+    steps.insert(8, ("toggleSidebar", "action"))
+    steps.insert(15, ("toggleSidebar", "action"))
+    for name, _ in steps:
+        reply = rpc("action.run", {"id": name})
+        error = reply.get("error") if isinstance(reply, dict) else None
+        # "unavailable" is the product's own refusal (no room to split):
+        # a normal outcome at small pane sizes, not a fault.
+        if error and not (isinstance(error, dict) and error.get("code") == "unavailable"):
+            failures.append("action %s failed: %s" % (name, json.dumps(reply)[:200]))
+        failures += check("action %s -> %s" % (name, json.dumps(reply)[:80]), app, results)
+        if app.poll() is not None:
+            break
+    failures += palette_phase(app, results)
+    frame = rpc("debug.window_frame", {}) or {}
+    base = frame.get("frame") or [40, 40, 1400, 900]
+    x, y, w, h = [float(v) for v in (base if isinstance(base, list) else [40, 40, 1400, 900])]
+    for i in range(RESIZE_STEPS):
+        if app.poll() is not None:
+            break
+        dw = (i % 10) * 37 - 160
+        dh = ((i * 7) % 10) * 23 - 100
+        target = [x, y, max(700, w + dw), max(500, h + dh)]
+        rpc("debug.window_frame", {"frame": target})
+        failures += check("resize %d %s" % (i, target), app, results)
+        if i == 25:
+            rpc("action.run", {"id": "toggleSidebar"})
+            failures += check("toggleSidebar mid-resize", app, results)
+    for action, count in SCALE_WALK:
+        for i in range(count):
+            if app.poll() is not None:
                 break
-        time.sleep(0.5)  # launch wait only (no runtime sync)
-    if not wins:
-        failures.append("no window within 180 s")
-    else:
-        rpc("debug.layers", {"reset_layout_passes": True})
-        failures += check("launch", app, results)
-        steps = [("splitBrowserRight", "action")] + [
-            (("newColumn" if i % 3 == 0 else "splitRight" if i % 3 == 1 else "splitDown"), "action") for i in range(SPLITS)]
-        steps.insert(8, ("toggleSidebar", "action"))
-        steps.insert(15, ("toggleSidebar", "action"))
-        for name, _ in steps:
-            reply = rpc("action.run", {"id": name})
+            reply = rpc("action.run", {"id": action})
             error = reply.get("error") if isinstance(reply, dict) else None
-            # "unavailable" is the product's own refusal (no room to split):
-            # a normal outcome at small pane sizes, not a fault.
             if error and not (isinstance(error, dict) and error.get("code") == "unavailable"):
-                failures.append("action %s failed: %s" % (name, json.dumps(reply)[:200]))
-            failures += check("action %s -> %s" % (name, json.dumps(reply)[:80]), app, results)
-            if app.poll() is not None:
-                break
-        failures += palette_phase(app, results)
-        frame = rpc("debug.window_frame", {}) or {}
-        base = frame.get("frame") or [40, 40, 1400, 900]
-        x, y, w, h = [float(v) for v in (base if isinstance(base, list) else [40, 40, 1400, 900])]
-        for i in range(RESIZE_STEPS):
-            if app.poll() is not None:
-                break
-            dw = (i % 10) * 37 - 160
-            dh = ((i * 7) % 10) * 23 - 100
-            target = [x, y, max(700, w + dw), max(500, h + dh)]
-            rpc("debug.window_frame", {"frame": target})
-            failures += check("resize %d %s" % (i, target), app, results)
-            if i == 25:
-                rpc("action.run", {"id": "toggleSidebar"})
-                failures += check("toggleSidebar mid-resize", app, results)
-        for action, count in SCALE_WALK:
-            for i in range(count):
-                if app.poll() is not None:
-                    break
-                reply = rpc("action.run", {"id": action})
-                error = reply.get("error") if isinstance(reply, dict) else None
-                if error and not (isinstance(error, dict) and error.get("code") == "unavailable"):
-                    failures.append("action %s failed: %s" % (action, json.dumps(reply)[:200]))
-                failures += check("%s %d" % (action, i + 1), app, results)
-        rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "after-stress.png")}, timeout=60)
-finally:
-    print("quit:", json.dumps(quit_end_sessions())[:200], flush=True)
-    try:
-        app.wait(timeout=30)
-    except subprocess.TimeoutExpired:
-        os.kill(app.pid, signal.SIGKILL)
-    subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**os.environ, "ACPMUX_HOME": ACPMUX_HOME,
-                   "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}, capture_output=True, timeout=30)
-    subprocess.run([CLI, "server", "stop", "--session", "cmux-app-%s" % TAG, "--end-terminals"],
-                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+                failures.append("action %s failed: %s" % (action, json.dumps(reply)[:200]))
+            failures += check("%s %d" % (action, i + 1), app, results)
+    return failures
 
-# The browser split must have moved a plane into the overlay panel (the
-# path the deferral and the ancestor-move resync change); a run that never
-# left the root proves nothing about it.
-# The guard counts inside -[NSWindow layoutIfNeeded]; a run that counted
-# nothing means that bracket never fired (the proof would be empty).
-if results and not LAST_PASSES.get("max_in_one_turn"):
-    failures.append("the guard counted no layout inside a window layout (layoutIfNeeded bracket never fired)")
-if results and not any("overlay_panel" in r["placement"] for r in results):
-    failures.append("no step ran with the plane in the overlay panel (browser page window never showed)")
-summary = {"tag": TAG, "steps": len(results), "failures": failures,
-           "max_in_one_turn": max([r["max_in_one_turn"] for r in results] or [0]),
-           "rings_checked": sum(r["rings"] for r in results), "layout_passes": LAST_PASSES, "results": results}
-json.dump(summary, open(os.path.join(OUT, "layout-loop-stress.json"), "w"), indent=1)
-print("steps=%d rings_checked=%d max_in_one_turn=%d (%s in %s) failures=%d" % (
-    summary["steps"], summary["rings_checked"], summary["max_in_one_turn"], LAST_PASSES.get("max_view_class"),
-    LAST_PASSES.get("max_window_class"), len(failures)), flush=True)
-for entry in (LAST_PASSES.get("top_classes") or [])[:12]:
-    print("passes %6d %s" % (entry.get("passes", 0), entry.get("view_class")), flush=True)
-for f in failures[:40]:
-    print("FAIL " + f, flush=True)
-sys.exit(0 if not failures and results else 1)
+
+def main(argv=None):
+    global SOCKET
+    opts = parse(argv)
+    os.makedirs(opts.out, exist_ok=True)
+    launcher = BenchApp(opts.app, out=opts.out, config={}, window=(40, 40, 1400, 900), screen="last",
+                        build_config=opts.build_config,
+                        args=app_args(os.environ.get("LAYOUT_STRESS_APP_ARGS", "").split()))
+    tag = launcher.tag
+    results, failures = [], []
+    try:
+        try:
+            launcher.launch(timeout=180)  # ready once debug.windows lists a window
+        except LaunchError as error:  # its reason is printed; the run is a failure with a report
+            failures.append("no window within 180 s: %s" % error)
+        else:
+            SOCKET = launcher.socket
+            print("launched pid %d" % launcher.process.pid, flush=True)
+            failures += stress(launcher.process, results)
+            rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "after-stress.png")}, timeout=60)
+    finally:
+        launcher.stop()  # debug.quit end-sessions, then only this tag's processes and daemons (tag_teardown.py)
+
+    # The browser split must have moved a plane into the overlay panel (the
+    # path the deferral and the ancestor-move resync change); a run that never
+    # left the root proves nothing about it.
+    # The guard counts inside -[NSWindow layoutIfNeeded]; a run that counted
+    # nothing means that bracket never fired (the proof would be empty).
+    if results and not LAST_PASSES.get("max_in_one_turn"):
+        failures.append("the guard counted no layout inside a window layout (layoutIfNeeded bracket never fired)")
+    if results and not any("overlay_panel" in r["placement"] for r in results):
+        failures.append("no step ran with the plane in the overlay panel (browser page window never showed)")
+    summary = {"tag": tag, "steps": len(results), "failures": failures,
+               "max_in_one_turn": max([r["max_in_one_turn"] for r in results] or [0]),
+               "rings_checked": sum(r["rings"] for r in results), "layout_passes": LAST_PASSES, "results": results}
+    with open(os.path.join(opts.out, "layout-loop-stress.json"), "w") as f:
+        json.dump(summary, f, indent=1)
+    print("steps=%d rings_checked=%d max_in_one_turn=%d (%s in %s) failures=%d" % (
+        summary["steps"], summary["rings_checked"], summary["max_in_one_turn"], LAST_PASSES.get("max_view_class"),
+        LAST_PASSES.get("max_window_class"), len(failures)), flush=True)
+    for entry in (LAST_PASSES.get("top_classes") or [])[:12]:
+        print("passes %6d %s" % (entry.get("passes", 0), entry.get("view_class")), flush=True)
+    for f in failures[:40]:
+        print("FAIL " + f, flush=True)
+    for key, where in record_all(launcher, report.layout_loop_series(results, failures)).items():
+        if not where.startswith("not recorded"):
+            print("result-v1 %s: %s" % (key, where), flush=True)
+    return 0 if not failures and results else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
