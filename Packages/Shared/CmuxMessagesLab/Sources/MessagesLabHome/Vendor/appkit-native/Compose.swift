@@ -40,6 +40,9 @@ final class FieldTextView: NSTextView {
     var onPress: (NSEvent) -> Void = { _ in }
     /// The release of that press (the mouse-up that ended the text view's tracking).
     var onRelease: (NSEvent) -> Void = { _ in }
+    /// cmux: runs the text view's own key handling (the input method call) inside the host's text input
+    /// stage, which stamps it in the key's latency slot. Nil: the key handling runs alone.
+    var textInputScope: (@MainActor (() -> Void) -> Void)?
     override func mouseDown(with event: NSEvent) {
         pickerAnchor = nil  // cmux
         onPress(event)
@@ -83,7 +86,7 @@ final class FieldTextView: NSTextView {
         pickerAnchor = nil  // cmux
         defer { if Self.caretLog { Self.log("key done") } }
         // Marked text (IME composition) owns Return and Esc.
-        if hasMarkedText() { super.keyDown(with: event); return }
+        if hasMarkedText() { interpret(event); return }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.keyCode == 36 || event.keyCode == 76 {
             if flags.contains(.option) || flags.contains(.shift) { insertText("\n", replacementRange: selectedRange()); return }
@@ -92,7 +95,13 @@ final class FieldTextView: NSTextView {
         // cmux: Ctrl+J (keyCode 38) is a newline, as in a terminal.
         if event.keyCode == 38, flags == .control { insertText("\n", replacementRange: selectedRange()); return }
         if event.keyCode == 53 { onEscape(); return }
-        super.keyDown(with: event)
+        interpret(event)
+    }
+
+    /// cmux: the text view's key handling, inside ``textInputScope`` when the host gave one.
+    private func interpret(_ event: NSEvent) {
+        guard let textInputScope else { return super.keyDown(with: event) }
+        textInputScope { super.keyDown(with: event) }
     }
 
     // MARK: Caret (UIKit's, as Messages draws it)

@@ -34,6 +34,8 @@ final class OmnibarFieldEditor: NSTextView {
     private var kind: OmnibarState.EditKind = .insert
     /// The key down this editor is handling: the field's `doCommandBy` reads Return's modifiers from it.
     private(set) var handlingKeyDown: NSEvent?
+    /// Stamps a key's input method call in its latency slot (``TextInputStage``), from the window the editor joined.
+    private var textInputStage: TextInputStage?
 
     convenience init() {
         self.init(frame: .zero)
@@ -127,7 +129,15 @@ final class OmnibarFieldEditor: NSTextView {
            sink?.fieldEditorKey(.deleteSuggestion) == true {
             return
         }
-        handling(event) { super.keyDown(with: event) }
+        handling(event) {
+            guard let textInputStage else { return super.keyDown(with: event) }
+            textInputStage.interpreting { super.keyDown(with: event) }
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        textInputStage = (window as? TextInputStageHosting)?.textInputStage
     }
 
     /// Runs `body` (AppKit's key handling) with `event` as ``handlingKeyDown``.

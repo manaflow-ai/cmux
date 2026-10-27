@@ -1,5 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
+import CmuxNextInput
 import CmuxNextWakeups
 import GhosttyNextKit
 
@@ -126,12 +127,13 @@ extension TerminalSurfaceView {
 
     /// Runs `translated` through the input methods for the key down `event`, which is
     /// ``interpretingKeyDown`` meanwhile (upstream reads AppKit's current event, which a key the App
-    /// routes itself is not).
+    /// routes itself is not). The call is the key's text input stage (``TextInputStage``).
     func interpret(_ event: NSEvent, as translated: NSEvent) {
         let outer = interpretingKeyDown
         interpretingKeyDown = event
         defer { interpretingKeyDown = outer }
-        interpretKeyEvents([translated])
+        guard let textInputStage else { return interpretKeyEvents([translated]) }
+        textInputStage.interpreting { interpretKeyEvents([translated]) }
     }
 
     // MARK: Sending

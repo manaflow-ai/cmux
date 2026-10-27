@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextTerminalGeometry
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -128,6 +129,8 @@ public final class TerminalSurfaceView: NSView {
     var lastPerformKeyEventTimestamp: TimeInterval?
     /// The key down `keyDown` runs through `interpretKeyEvents`, which `doCommand` re-sends.
     var interpretingKeyDown: NSEvent?
+    /// Stamps the key's input method call in its latency slot (``TextInputStage``), from the window it joined.
+    var textInputStage: TextInputStage?
     /// Where `doCommand` re-sends a chord no one claimed: the app's dispatch (a test records it).
     var resendKey: @MainActor (NSEvent) -> Void = { NSApp.sendEvent($0) }
     var previousPressureStage = 0
@@ -274,6 +277,7 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        textInputStage = (window as? TextInputStageHosting)?.textInputStage
         syncWindowState()
     }
 

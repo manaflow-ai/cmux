@@ -11,7 +11,8 @@ public import CmuxNextInputCore
 /// synthetic input (`SyntheticInput`, `debug.key`, `debug.mouse`) is labelled
 /// ``CmuxNextInputCore/InputEntrypoint/automation`` so the person's histograms leave it out. Key presses and scrolls
 /// also carry the older `key.frame` and `key.scroll_frame` intervals (``InputFrameInterval``), so `sendEvent` has one
-/// classification and one commit boundary per turn for all three.
+/// classification and one commit boundary per turn for all three. While a key press's slot is in dispatch, its text
+/// view's input method call stamps `textInputStart` and `textInputEnd` through ``textInput`` (p04-input-101).
 ///
 /// A slot's frame update comes from what AppKit holds for the commit once the dispatch returned (views marked for
 /// display or layout, in the event's window or the window that presents it) or the layout taking the scroll (it
@@ -40,10 +41,14 @@ public final class InputLatencyDispatch {
         public let window: NSWindow?
         /// The event's own window (a page, a popover, a panel).
         public let eventWindow: NSWindow?
+        /// A key down's slot: the key down whose dispatch this one runs inside, which ``textInput`` goes back to.
+        let outerKeyDown: InputLatencyToken?
     }
 
     /// The tracker the slots open in.
     public let tracker: InputLatencyTracker
+    /// Stamps the text input call of the key down in dispatch (``TextInputStage``).
+    public let textInput: TextInputStage
     private let classifier: InputTargetClassifier
     private let frameInterval: FrameInterval
     private let windowChanged: WindowChanged
@@ -68,6 +73,7 @@ public final class InputLatencyDispatch {
                 frameInterval: @escaping FrameInterval = InputLatencyDispatch.screenFrameInterval,
                 windowChanged: @escaping WindowChanged = InputLatencyDispatch.windowHasPendingDisplay) {
         self.tracker = tracker
+        textInput = TextInputStage(tracker: tracker)
         self.classifier = classifier
         self.frameInterval = frameInterval
         self.windowChanged = windowChanged
@@ -138,7 +144,9 @@ public final class InputLatencyDispatch {
             }
         }
         guard let token else { return nil }
-        return Slot(token: token, kind: kind, target: target, window: presenting, eventWindow: window)
+        let outerKeyDown = kind == .keyPress ? textInput.keyDownDispatchBegan(token) : nil
+        return Slot(token: token, kind: kind, target: target, window: presenting, eventWindow: window,
+                    outerKeyDown: outerKeyDown)
     }
 
     /// Finishes `slot` after its event's dispatch returned.
@@ -150,6 +158,7 @@ public final class InputLatencyDispatch {
     // perf-hot: 0.2us key-dispatch
     public func didDispatch(_ slot: Slot, layoutTookScroll: Bool) {
         tracker.endDispatch(slot.token)
+        if slot.kind == .keyPress { textInput.keyDownDispatchEnded(restoring: slot.outerKeyDown) }
         if layoutTookScroll, slot.target != .layout {
             tracker.setTarget(slot.token, .layout)
             scrollTarget = .layout

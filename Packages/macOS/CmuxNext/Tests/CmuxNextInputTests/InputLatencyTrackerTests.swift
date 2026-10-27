@@ -427,6 +427,7 @@ import Testing
         let clock: PresentationClock
         let window: NSWindow
         let tracker: InputLatencyTracker
+        let textInput: TextInputStage
         let closed: Counter
         private let keepAlive: CFRunLoopTimer
         private let timestamp: TimeInterval
@@ -453,6 +454,7 @@ import Testing
                     closed.value += 1
                 },
                 batchSink: nil, now: InputLatencyTracker.uptimeNanos)
+            textInput = TextInputStage(tracker: tracker)
             // The far-future timer only keeps the private mode non-empty, so a turn runs its observers.
             keepAlive = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 3_600, 0, 0, 0) { _ in }
             CFRunLoopAddTimer(CFRunLoopGetMain(), keepAlive, Self.mode)
@@ -470,8 +472,10 @@ import Testing
                 let target: InputTarget = index.isMultiple(of: 2) ? .textView : .terminal
                 guard let token = tracker.begin(kind: .keyPress, target: target, entrypoint: .person,
                                                 eventTimestamp: timestamp, window: window) else { continue }
-                tracker.mark(token, .textInputStart)
+                let outer = textInput.keyDownDispatchBegan(token)
+                textInput.interpreting {}
                 tracker.endDispatch(token)
+                textInput.keyDownDispatchEnded(restoring: outer)
                 if target == .terminal { tracker.mark(token, .contentSubmitted) }
             }
             turnAndFrame()
@@ -491,7 +495,7 @@ import Testing
         }
     }
 
-    /// The per-event path (begin, marks, the dispatch end, the turn's commit through the real observer, the real
+    /// The per-event path (begin, the text input stage's two marks, the dispatch end, the turn's commit through the real observer, the real
     /// PresentationClock's resolve at the next frame, the close and the trace point) adds no allocation per event or
     /// per turn to the loop that runs it: compared with the same turns and frames with no input.
     @Test("Tracking an event allocates nothing with the real commit observer and PresentationClock")

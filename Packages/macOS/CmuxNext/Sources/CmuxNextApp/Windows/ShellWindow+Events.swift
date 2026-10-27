@@ -82,6 +82,12 @@ extension ShellWindow: InputTapHosting {
     var inputTap: InputEventTap? { (windowController as? WindowController)?.services.inputTap }
 }
 
+/// Its terminals and omnibar field editor time their input method calls in the key's latency slot
+/// (`TextInputStage`), read when they join the window.
+extension ShellWindow: TextInputStageHosting {
+    var textInputStage: TextInputStage? { (windowController as? WindowController)?.services.inputLatency.textInput }
+}
+
 /// Overlays draw in the window's own top layer while no page child window shows (feature `overlayTopLayer`,
 /// p03-rendering-052), read when the overlay host is made. A modal there keeps the keys it had in the panel:
 /// the window routes keys as a panel over itself while ``overlayHasKeyboard`` holds (`KeyRouter.focus(for:)`),

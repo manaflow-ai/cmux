@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextInput
 import CmuxNextWakeups
 
 /// New Message as a page, as in Messages (Lawrence 2026-10-19: "it makes a
@@ -212,6 +213,7 @@ final class HomeNewMessageView: NSView {
         let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id,
                                             openPanel: services.openPanel, mainWork: services.mainWork, deadlines: services.mainDeadlines)
         view.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
+        view.composerTextInputScope = services.inputLatency.textInput.interpreting
         // The first message is text: attachments go once the conversation exists (they upload to it).
         view.attachmentPreparer = nil
         view.setAccessibilityIdentifier("cmux.home.newMessage.composer")

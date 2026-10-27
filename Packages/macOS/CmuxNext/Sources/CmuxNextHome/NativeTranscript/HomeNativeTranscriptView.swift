@@ -295,6 +295,13 @@ public final class HomeNativeTranscriptView: NSView {
         set { transcript.composerSpellCheckingEnabled = newValue }
     }
 
+    /// Runs the message box's key handling (its input method call) so the host times it in the key's latency
+    /// slot (the App's `TextInputStage`). Nil: the key handling runs alone.
+    public var composerTextInputScope: (@MainActor (() -> Void) -> Void)? {
+        get { transcript.composerTextInputScope }
+        set { transcript.composerTextInputScope = newValue }
+    }
+
     public override func becomeFirstResponder() -> Bool {
         window?.makeFirstResponder(primaryInput) ?? false
     }

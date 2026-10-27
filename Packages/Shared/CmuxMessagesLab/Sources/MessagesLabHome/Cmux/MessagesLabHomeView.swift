@@ -85,6 +85,7 @@ public final class MessagesLabHomeView: NSView {
             compose.textView.view.setSpellCheckingEnabled(composerSpellCheckingEnabled)
             appliedComposerSpellChecking = composerSpellCheckingEnabled
         }
+        applyComposerTextInputScope()
         if !warmed, window != nil, controller.demo != nil {
             warmed = true
             // MessagesLab warms the first send's one-time costs at idle after
@@ -128,6 +129,20 @@ public final class MessagesLabHomeView: NSView {
             guard composerSpellCheckingEnabled != oldValue else { return }
             controller.demo?.compose.textView.view.setSpellCheckingEnabled(composerSpellCheckingEnabled)
         }
+    }
+
+    /// Runs the composer's key handling (its input method call), so the host times it in the key's latency
+    /// slot. Nil: the key handling runs alone.
+    public var composerTextInputScope: (@MainActor (() -> Void) -> Void)? {
+        didSet { scopedComposerField = nil; applyComposerTextInputScope() }
+    }
+    /// The composer field ``composerTextInputScope`` was given to (a new field gets it at the next layout).
+    private weak var scopedComposerField: FieldTextView?
+
+    private func applyComposerTextInputScope() {
+        guard let field = controller.demo?.compose.textView.view, field !== scopedComposerField else { return }
+        field.textInputScope = composerTextInputScope
+        scopedComposerField = field
     }
 
     /// How the Chief's running indicator reads (``HomeTurnProgressStyle``), asked at each of its ticks:
