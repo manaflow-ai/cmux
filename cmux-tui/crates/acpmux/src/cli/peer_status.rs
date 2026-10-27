@@ -197,16 +197,21 @@ fn gb(bytes: u64) -> String {
 }
 
 /// `acpmux host vm-host`'s line for an `_acpmux/vm_host` reply:
-/// `this machine: vmHost on (a VM cmux created: on by default)`.
+/// `this machine: vmHost off (a VM cmux created: sandboxed until …)`.
 pub fn vm_host_line(name: Option<&str>, v: &Value) -> String {
     let who = name.unwrap_or("this machine");
-    let state = if v["vmHost"] == true { "on" } else { "off" };
-    let why = match (v["configured"].as_bool(), v["cmuxVm"] == true) {
-        (Some(false), _) => "turned off in its config",
-        (Some(true), true) => "on in its config",
-        (Some(true), false) => "on in its config; not a VM cmux created",
-        (None, true) => "a VM cmux created: on by default",
-        (None, false) => "not a VM cmux created",
+    let on = v["vmHost"] == true;
+    let state = if on { "on" } else { "off" };
+    let why = match (on, v["configured"].as_bool(), v["cmuxVm"] == true) {
+        (_, Some(false), _) => "turned off in its config",
+        (false, _, true) => {
+            "a VM cmux created: sandboxed until an attested source says it is a dedicated agent VM"
+        }
+        (false, _, false) => "not a VM cmux created",
+        // A daemon from before `hub/vm_host.rs` failed closed reads its own marker and config.
+        (true, Some(true), true) => "on in its config",
+        (true, Some(true), false) => "on in its config; not a VM cmux created",
+        (true, None, _) => "a VM cmux created: on by default",
     };
     format!("{who}: vmHost {state} ({why})")
 }
@@ -225,6 +230,11 @@ mod tests {
         assert_eq!(
             super::vm_host_line(Some("cloud-a"), &v),
             "cloud-a: vmHost off (turned off in its config)"
+        );
+        let v = json!({"vmHost": false, "cmuxVm": true, "configured": null});
+        assert_eq!(
+            super::vm_host_line(None, &v),
+            "this machine: vmHost off (a VM cmux created: sandboxed until an attested source says it is a dedicated agent VM)"
         );
     }
 
