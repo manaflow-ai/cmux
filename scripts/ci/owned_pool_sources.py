@@ -161,7 +161,12 @@ def policy_variables(source: str) -> frozenset[str]:
     if function is None:
         raise ValueError(f"{POLICY_SCRIPT} has no drifted_runner_variables()")
     names: set[str] = set()
-    for node in ast.walk(function):
+    # Only the dispatch picks a shape check: an `if`/`elif` whose whole test is
+    # `name == X` or `name in X`. A comparison joined to a value test (the
+    # hosted-Mac ban: `name in NO_HOSTED_MAC_VARIABLES and HOSTED_MAC_LABEL...`)
+    # filters values in any variable and names no owned-pool switch.
+    for branch in ast.walk(function):
+        node = branch.test if isinstance(branch, ast.If) else None
         if not (isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) and node.left.id == "name"):
             continue
         for operator, right in zip(node.ops, node.comparators):
