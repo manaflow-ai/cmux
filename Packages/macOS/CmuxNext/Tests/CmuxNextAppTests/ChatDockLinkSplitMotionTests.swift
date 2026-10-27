@@ -36,6 +36,7 @@ struct ChatDockLinkSplitMotionTests {
     final class Panes: LayoutPaneContentProvider {
         let content: Content
         private(set) var page: CEFHostView?
+        private(set) var chromiumPage: FakeChromiumPage?
         private(set) var terminal: TerminalSession?
         private(set) var chat: AgentPaneView?
         private var hosting: FakeChromiumHosting?
@@ -64,6 +65,7 @@ struct ChatDockLinkSplitMotionTests {
             case .chat:
                 let hosting = FakeChromiumHosting()
                 hosting.onMade = { [weak self] made in
+                    self?.chromiumPage = made
                     let page = CEFHostView(frame: made.contentView.bounds)
                     page.autoresizingMask = [.width, .height]
                     made.contentView.addSubview(page)
@@ -479,9 +481,13 @@ struct ChatDockLinkSplitMotionTests {
         let screen = Screen(.chat)
         defer { screen.close() }
         let chat = try #require(screen.provider.chat)
-        let deadline = Date().addingTimeInterval(10)
-        while chat.chromiumPage == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         let page = try #require(chat.page, "the production AgentPaneView did not attach PageWebView")
+        let start = try #require(page.chromiumStart, "the PageWebView did not start Chromium")
+        await start.value
+        try #require(chat.chromiumPage != nil, "the test host could not produce a Chromium page")
+        let chromium = try #require(screen.provider.chromiumPage, "the fake Chromium host made no page")
+        let installedNavigation = try #require(page.onNavigate, "AgentPaneView did not install onNavigate")
+        try #require(page.onOpenExternal, "AgentPaneView did not install onOpenExternal")
 
         // AgentPaneView's initializer installs openURL to call LinkRouter with the source view.
         // Observe that production route without replacing it or manufacturing pane placement.
@@ -491,6 +497,8 @@ struct ChatDockLinkSplitMotionTests {
         let savedOpenInCmux = router.openInCmux
         var openedURL: URL?
         var openedSource: String?
+        var openCount = 0
+        var firstOpen: CheckedContinuation<Void, Never>?
         defer {
             router.routing = savedRouting
             router.sourceTab = savedSourceTab
@@ -499,26 +507,54 @@ struct ChatDockLinkSplitMotionTests {
         router.routing = { .fallback }
         router.sourceTab = { view in view === chat || view.isDescendant(of: chat) ? Self.anchor.rawValue : nil }
         router.openInCmux = { url, _, source in
+            openCount += 1
             openedURL = url
             openedSource = source
+            firstOpen?.resume()
+            firstOpen = nil
         }
         let url = URL(string: "https://example.com/native-pane")!
 
+        #expect(installedNavigation(PageNavigation(url: url, userClicked: true, mainFrame: true)) == .openExternal,
+                "the installed PageWebView host did not classify the clicked external link")
         chat.model.transport.gestures.record(click: true)
-        let policy = page.onNavigate?(PageNavigation(url: url, userClicked: true, mainFrame: true))
-        #expect(policy == .openExternal, "the installed PageWebView host did not route the clicked external link")
-        page.onOpenExternal?(url)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            firstOpen = continuation
+            chromium.onEvent?(.devTools(Self.navigationBindingCall(url: url)))
+        }
 
         #expect(openedURL == url, "the installed AgentPaneView.openURL did not reach LinkRouter")
         #expect(openedSource == Self.anchor.rawValue,
                 "the installed AgentPaneView.openURL lost the clicked pane source")
+        #expect(openCount == 1, "the installed external-link callback did not route exactly once")
         #expect(!chat.model.transport.gestures.consume(),
                 "the installed external-link callback bypassed the navigation seam's gesture gate")
+        chat.model.transport.gestures.record(click: true)
         #expect(AgentPaneNavigation.handle(
             url: url, source: chat.source, userClicked: true, mainFrame: true,
             modifiers: [], gestures: chat.model.transport.gestures,
             open: chat.openURL
         ) == .cancel, "a clicked external link must cancel the page navigation")
+        #expect(openCount == 2, "the production cancellation path did not dispatch through openURL")
+
+    }
+
+    private static func navigationBindingCall(url: URL) -> String {
+        let payload: [String: Any] = [
+            "name": PageChromiumDocumentScripts.navigateHandler,
+            "body": ["url": url.absoluteString],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let payloadText = String(data: data, encoding: .utf8),
+              let event = try? JSONSerialization.data(withJSONObject: [
+                  "method": "Runtime.bindingCalled",
+                  "params": [
+                      "name": ChromiumPageHostBridge.bindingName,
+                      "payload": payloadText,
+                      "executionContextId": 9,
+                  ],
+              ]) else { return "" }
+        return String(data: event, encoding: .utf8) ?? ""
     }
 
     private func openRightSplit(_ kind: Content) async throws {
