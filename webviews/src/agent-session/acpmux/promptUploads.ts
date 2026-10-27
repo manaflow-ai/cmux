@@ -126,6 +126,11 @@ export async function preparePromptUploads({
         tokenCache.delete(key);
         pending = undefined;
       }
+      if (pending && !inFlight.has(pending.token)) {
+        const blob = blobRegistry().get(pending.token)!;
+        releasePromptUploadBlob(pending.token);
+        pending = { ...pending, token: registerPromptUploadBlob(blob) };
+      }
       const token = pending?.token ?? registerPromptUploadBlob(base64ToBlob(source, mimeType));
       if (attachment) tokenOwners.set(token, attachment.id);
       tokenCache.set(key, { token, source, fileName, mimeType, size });
