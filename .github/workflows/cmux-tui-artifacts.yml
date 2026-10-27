@@ -1304,9 +1304,15 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
+          # Only a final 200 counts: a 3xx alone (no --location) or an error
+          # page must not skip the tests, since publish-tree-tested would then
+          # write the marker for an untested tree.
           has_marker() { # <key>
-            curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
-              "https://files.cmux.com/cmux-tui/tree/$1/daemon-tests.json?daemon-tests=$RUN_ID-$GITHUB_RUN_ATTEMPT"
+            local code
+            code="$(curl --head --silent --location --proto '=https' --connect-timeout 5 --max-time 15 \
+              -o /dev/null -w '%{http_code}' \
+              "https://files.cmux.com/cmux-tui/tree/$1/daemon-tests.json?daemon-tests=$RUN_ID-$GITHUB_RUN_ATTEMPT" 2>/dev/null)" || code=""
+            [[ "$code" == 200 ]]
           }
           if [[ "$KEY" =~ ^[0-9a-f]{40}$ ]] && has_marker "$KEY" \
              && { [[ -z "$LEGACY_KEY" || "$LEGACY_KEY" == "$KEY" ]] || has_marker "$LEGACY_KEY"; }; then
