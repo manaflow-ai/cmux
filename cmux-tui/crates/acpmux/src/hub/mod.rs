@@ -38,6 +38,7 @@ mod health_view;
 mod idle;
 mod launch_roots;
 mod launchers;
+pub mod lineage;
 mod live_models;
 mod locate;
 pub mod media_handles;
@@ -50,6 +51,8 @@ pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod hosts;
 mod lifecycle;
 mod log_load;
+mod retention;
+pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
 pub(crate) use log_load::AdoptionReady;
 mod model_options;
@@ -115,8 +118,6 @@ pub mod approvers;
 mod own_host;
 mod peer_cache;
 mod peer_lease;
-// The store and the hub's taps come in the next PRs (cmuxterm-hq#4381); until then only tests use it.
-#[allow(dead_code)]
 pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
 mod peers;
@@ -137,6 +138,7 @@ mod remote_floor;
 pub(crate) mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+pub mod vm_host;
 pub(crate) use start_gate::host_label;
 mod subsession_answer;
 mod subsession_guard;
@@ -374,6 +376,9 @@ pub struct Hub {
     /// started (`peer_lease.rs`); never saved. Lock order: this, then
     /// `peers`; never `peers` first.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    /// Each peer session's events as this daemon saw them, kept on disk
+    /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
+    pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
@@ -406,6 +411,8 @@ pub struct Hub {
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
+    /// A log retention pass runs (`hub/retention.rs`): one at a time per hub.
+    pub(super) retention_running: Arc<AtomicBool>,
     pub(super) handoffs: handoff::Handoffs,
     /// New agents run under agent hosts (`enable_agent_hosts`).
     pub(super) agent_hosts: AtomicBool,
@@ -441,6 +448,8 @@ pub struct Hub {
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
     /// The `sandbox-exec` remote chains run Claude Code under (`remote_sandbox.rs`).
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
+    /// Where `vm_host.rs` reads the creation marker (`/`; a folder in tests).
+    pub(super) vm_marker_root: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
@@ -535,6 +544,9 @@ impl Hub {
         // after a restart, before the app pushes again (`start_mode_state.rs`).
         let start_mode_state =
             start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
+        // Beside the peer caches, in the home they are in; a memory store keeps neither.
+        let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
@@ -551,6 +563,7 @@ impl Hub {
             remote_sessions: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
+            peer_snapshots,
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             known_models: StdMutex::new(HashMap::new()),
@@ -564,6 +577,7 @@ impl Hub {
             catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
+            retention_running: Arc::new(AtomicBool::new(false)),
             handoffs,
             agent_hosts: AtomicBool::new(false),
             shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
@@ -581,6 +595,7 @@ impl Hub {
             web_modes: StdMutex::new(Default::default()),
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
+            vm_marker_root: StdMutex::new(PathBuf::from("/")),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             start_mode_state,
@@ -841,6 +856,7 @@ impl Hub {
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
+            status_writes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
@@ -863,6 +879,7 @@ impl Hub {
             harness_turn: AtomicBool::new(false),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         });
         // Found by its tags from now on (`permissions/display.rs`).
@@ -1256,6 +1273,15 @@ impl Hub {
     /// `reopen` is the stop count a reopen is for ([`Self::reopen`]), checked under the meta lock,
     /// which `kill`'s close takes after it counts the stop.
     fn write_status(&self, session: &Session, status: SessionStatus, reopen: Option<u64>) -> bool {
+        // From before the status is set to after it is logged.
+        session.status_writes.fetch_add(1, Ordering::SeqCst);
+        struct Done<'a>(&'a AtomicU64);
+        impl Drop for Done<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        let _done = Done(&session.status_writes);
         let (was, link) = {
             let mut m = session.meta.lock().unwrap();
             let was = m.status;
@@ -1266,7 +1292,12 @@ impl Hub {
                 return false;
             }
             m.status = status;
-            m.updated_at = now_ms();
+            // Only a change dates the chat: stopping a closed chat again logs nothing and leaves
+            // it as old as it was, or a chat stopped every day would never be old enough for log
+            // retention (`retention.rs`) and would move up the lists that sort by it.
+            if was != status {
+                m.updated_at = now_ms();
+            }
             // The parent's slot follows the status under the same lock, so
             // concurrent status writes and the index never disagree (the
             // index is a leaf lock, `subsessions.rs`).

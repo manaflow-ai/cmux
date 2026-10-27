@@ -313,6 +313,34 @@ pub struct SessionMeta {
     /// or by an ancestor within its budget; unset fields inherit.
     #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
     pub subsession_limits: SubsessionLimits,
+    /// The session whose agent started this one, recorded once at creation from
+    /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
+    /// shell, or its `start_session` tool. `None` for a session a person or
+    /// the app started (a root), and for one saved before lineage existed.
+    /// Never copied to a fork or a moved-in session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<Lineage>,
+    /// The log holds a subagent entry with a retry waiting or in flight that no later entry
+    /// cleared yet (`hub/subagent_retry.rs`): the next load clears it, as the restart dropped
+    /// that retry. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub subagent_retry_open: bool,
+}
+
+/// Where a session sits in the tree of sessions that started each other
+/// (`hub/lineage.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Lineage {
+    /// The session whose agent started it.
+    pub parent: String,
+    /// The root of its tree: the first ancestor no agent started.
+    pub root: String,
+    /// 1 for a child of a root, 2 for a grandchild, and so on.
+    pub depth: u32,
+    /// The parent's tool call that started it, when acpmux could tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 /// A sub-session's place in its family (`hub/subsessions.rs`).
@@ -590,6 +618,11 @@ pub trait Store: Send + Sync {
     fn close_log(&self, _id: &str) {}
     /// Retention (`store/compact.rs`): the log's last `seq` when it was last compacted.
     fn compacted_seq(&self, _id: &str) -> Option<u64> {
+        None
+    }
+    /// Retention: when the log was last written, in ms, from its newest segment. None: the store
+    /// keeps no log on disk, or the chat has none.
+    fn log_written_at(&self, _id: &str) -> Option<u64> {
         None
     }
     /// Reads the log and, unless a dry run, writes its compacted segments beside it. None: the
@@ -1270,6 +1303,10 @@ impl Store for LocalStore {
 
     fn compacted_seq(&self, id: &str) -> Option<u64> {
         LocalStore::compacted_seq(self, id)
+    }
+
+    fn log_written_at(&self, id: &str) -> Option<u64> {
+        LocalStore::log_written_at(self, id)
     }
 
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {

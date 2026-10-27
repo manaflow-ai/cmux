@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 499,
+  "count": 510,
   "sections": [
     {
       "id": "general",
@@ -88,6 +88,14 @@
           "help": "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs.",
           "kind": "toggle",
           "default": false,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.scrollToBottomOnSend",
+          "title": "Scroll to Bottom When I Send",
+          "help": "When off, sending while you are reading up keeps your place and shows new messages below.",
+          "kind": "toggle",
+          "default": true,
           "group": "Agent Chat"
         },
         {
@@ -203,6 +211,19 @@
           "range": {
             "min": 1,
             "max": 100,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "agents.subsessions.maxRunning",
+          "title": "Running Sub-sessions per Session",
+          "help": "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
+          "kind": "number",
+          "default": 16,
+          "group": "Sub-sessions",
+          "range": {
+            "min": 1,
+            "max": 1000,
             "unit": "count"
           }
         },
@@ -3224,6 +3245,14 @@
           ]
         },
         {
+          "key": "sidebar.noFade",
+          "title": "Show Whole Sidebar Without Fade",
+          "help": "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.nowPlaying.enabled",
           "title": "Show Now Playing",
           "help": "A player for what is playing, at the bottom of the sidebar.",
@@ -3367,7 +3396,7 @@
           "title": "Show Workspace Tabs",
           "help": "Lists tabs beneath each workspace in the sidebar.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Sidebar"
         },
         {
@@ -5291,6 +5320,85 @@
           "kind": "sound",
           "default": "default",
           "group": "Banners and Sound"
+        },
+        {
+          "key": "notifications.sounds.cooldownSeconds",
+          "title": "Burst Cooldown",
+          "help": "Many notifications at once sound once. An agent asking for input still sounds. 0 turns it off.",
+          "kind": "number",
+          "default": 1.5,
+          "group": "Sounds",
+          "range": {
+            "min": 0,
+            "max": 60,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "notifications.sounds.events.bell",
+          "title": "Terminal Notification",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.error",
+          "title": "Error",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.finished",
+          "title": "Agent Finished",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.message",
+          "title": "cmux notify Message",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.needsInput",
+          "title": "Agent Needs Input",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.volume",
+          "title": "Volume",
+          "help": "Sounds cmux plays itself. A banner's default sound follows the system alert volume.",
+          "kind": "number",
+          "default": 1,
+          "group": "Sounds",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "notifications.sounds.when",
+          "title": "Play Sounds",
+          "help": "",
+          "kind": "choice",
+          "default": "unlessViewed",
+          "group": "Sounds",
+          "values": [
+            "unlessViewed",
+            "whenInactive",
+            "always"
+          ]
         },
         {
           "key": "notifications.sources.agent.dismissal",

@@ -475,6 +475,8 @@ pub enum Command {
     #[command(hide = true)]
     Reload,
     #[command(hide = true)]
+    Retention(RetentionArgs),
+    #[command(hide = true)]
     Status {
         #[arg(long)]
         show_token: bool,
@@ -601,6 +603,21 @@ pub enum HarnessCmd {
         /// installed program, else npx, else uvx).
         #[arg(long, conflicts_with_all = ["command", "example"])]
         registry: bool,
+        /// The icon cmux shows for it: one emoji, an SF Symbol name (hammer.fill), an agent
+        /// mark (claude, goose, ...) or an .svg/.png file. Default: the mark of the agent its
+        /// command runs, else a monogram.
+        #[arg(long)]
+        icon: Option<String>,
+    },
+    /// Show or set the icon cmux shows for one of your harnesses: one emoji, an SF Symbol
+    /// name (hammer.fill), an agent mark (claude, goose, ...) or an .svg/.png file (copied
+    /// next to the profile). With no VALUE, prints the icon cmux shows now and why.
+    Icon {
+        id: String,
+        value: Option<String>,
+        /// Remove the icon line: cmux picks the icon again.
+        #[arg(long, conflicts_with = "value")]
+        clear: bool,
     },
     /// Sign in to a harness with its own ACP sign-in (or `claude auth login`
     /// for Claude Code). `--status` checks it; `--list` shows the methods.
@@ -896,6 +913,9 @@ pub enum DaemonCmd {
     Harnesses,
     /// Reload catalog configuration without stopping sessions.
     Reload,
+    /// Compact the event logs of chats closed for longer than `store.closedLogDays` (default
+    /// 14): their raw harness lines and long tool output go, their messages stay.
+    Retention(RetentionArgs),
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
     /// Every model id each harness declares or reports (`provider/model` for OpenCode and pi).
@@ -904,6 +924,22 @@ pub enum DaemonCmd {
         #[arg(long)]
         refresh: bool,
     },
+}
+
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct RetentionArgs {
+    /// Only report the chats and bytes a pass would compact; change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Keep every old log segment under this folder (`<folder>/<chat id>/<pass>/events/`).
+    #[arg(long)]
+    pub archive: Option<PathBuf>,
+    /// Chats closed for longer than this many days, instead of the setting.
+    #[arg(long)]
+    pub older_than_days: Option<u32>,
+    /// One chat only (name or id).
+    #[arg(long)]
+    pub only: Option<String>,
 }
 
 #[derive(Args)]
@@ -1068,6 +1104,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Config { show_token } => Command::Config { show_token },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
+            DaemonCmd::Retention(args) => Command::Retention(args),
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
@@ -1307,6 +1344,19 @@ mod help_contract_tests {
             }
         }
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
+    }
+
+    /// `host vm-host [NAME] [on|off]`: the state is on or off only.
+    #[test]
+    fn host_vm_host_takes_a_machine_and_on_or_off() {
+        for argv in [
+            &["acpmux", "host", "vm-host"][..],
+            &["acpmux", "host", "vm-host", "on"][..],
+            &["acpmux", "host", "vm-host", "cloud-a", "off"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
+        assert!(Cli::try_parse_from(["acpmux", "host", "vm-host", "cloud-a", "maybe"]).is_err());
     }
 
     /// `host hold` changes a hold only for a named machine: a flag alone is refused, not

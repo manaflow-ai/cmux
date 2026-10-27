@@ -8,11 +8,21 @@ nonisolated extension ReleaseNotes {
         public var author: String?
         /// The pull request number in manaflow-ai/cmux.
         public var pr: Int?
+        /// True when every file the commit touches is CI or tooling (release-notes.py
+        /// `tooling_only`): the page and the Updated card leave it out whatever its subject says.
+        /// Nil in notes published before the flag.
+        public var isInternal: Bool?
 
-        public init(title: String, author: String? = nil, pr: Int? = nil) {
+        enum CodingKeys: String, CodingKey {
+            case title, author, pr
+            case isInternal = "internal"
+        }
+
+        public init(title: String, author: String? = nil, pr: Int? = nil, isInternal: Bool? = nil) {
             self.title = title
             self.author = author
             self.pr = pr
+            self.isInternal = isInternal
         }
 
         /// A commit subject: "Title (#1234)" gives the title and PR 1234;

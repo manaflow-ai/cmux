@@ -131,3 +131,89 @@ test("the card names the app's acpmux daemon's build and whether it is up to dat
   expect(card(none.container)!.querySelector("[data-channel-daemon]")).toBeNull();
   none.unmount();
 });
+
+test("the card lists the machines that cannot update in place or failed to, in one row, as the host says", async () => {
+  const lines = [
+    "lofty-lemon-stoat runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there.",
+    "Couldn't update build-box: Bootstrap failed: 125",
+  ];
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, machines: { title: "Other machines", lines } };
+    },
+  });
+  await settle();
+  const rows = card(page.container)!.querySelectorAll<HTMLElement>("[data-channel-machines]");
+  expect(rows.length).toBe(1);
+  expect(rows[0]!.textContent).toContain("Other machines");
+  expect([...rows[0]!.querySelectorAll("[data-channel-machine]")].map((line) => line.textContent)).toEqual(lines);
+  page.unmount();
+  // None to list: no row.
+  const none = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, machines: null };
+    },
+  });
+  await settle();
+  expect(card(none.container)!.querySelector("[data-channel-machines]")).toBeNull();
+  none.unmount();
+});
+
+test("a machine failing while the card shows joins its row at once, without a re-read", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, machines: null };
+    },
+  });
+  await settle();
+  expect(card(page.container)!.querySelector("[data-channel-machines]")).toBeNull();
+  const line = "Couldn't update build-box: Bootstrap failed: 125";
+  await run(() => page.provider.setMachines({ title: "Other machines", lines: [line] }));
+  const lines = [...card(page.container)!.querySelectorAll("[data-channel-machine]")].map((node) => node.textContent);
+  expect(lines).toEqual([line]);
+  await run(() => page.provider.setMachines(null));
+  expect(card(page.container)!.querySelector("[data-channel-machines]")).toBeNull();
+  page.unmount();
+});
+
+test("a machine too old to update in place has one Update button, which asks the host for that machine", async () => {
+  const tooOld = "tidy-yellow-tern runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there.";
+  const failed = "Couldn't update build-box: Bootstrap failed: 125";
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = {
+        ...mockChannels,
+        machines: { title: "Other machines", lines: [tooOld, failed], updates: ["cloud:vm-9c96", null], updateLabel: "Update" },
+      };
+    },
+  });
+  await settle();
+  const buttons = [...card(page.container)!.querySelectorAll<HTMLButtonElement>("[data-channel-update-machine]")];
+  expect(buttons.map((button) => [button.dataset.channelUpdateMachine, button.textContent])).toEqual([["cloud:vm-9c96", "Update"]]);
+  await run(() => buttons[0]!.click());
+  await settle();
+  expect(page.provider.updatedMachines).toEqual(["cloud:vm-9c96"]);
+  // The app's push: the machine is updating, so its line says so and has no button.
+  const updating = "Updating tidy-yellow-tern to this Mac's build…";
+  await run(() => page.provider.setMachines({ title: "Other machines", lines: [updating, failed], updates: [null, null], updateLabel: "Update" }));
+  expect([...card(page.container)!.querySelectorAll("[data-channel-machine]")].map((node) => node.textContent)).toEqual([updating, failed]);
+  expect(card(page.container)!.querySelector("[data-channel-update-machine]")).toBeNull();
+  page.unmount();
+});
+
+test("an app that offers no Update button shows the lines only", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, machines: { title: "Other machines", lines: ["Couldn't update build-box: disk full"] } };
+    },
+  });
+  await settle();
+  expect(card(page.container)!.querySelectorAll("[data-channel-machine]").length).toBe(1);
+  expect(card(page.container)!.querySelector("[data-channel-update-machine]")).toBeNull();
+  page.unmount();
+});

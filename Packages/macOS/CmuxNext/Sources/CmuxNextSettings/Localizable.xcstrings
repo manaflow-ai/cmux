@@ -84673,6 +84673,268 @@
         }
       }
     },
+    "settings.agentPane.scrollToBottomOnSend": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التمرير إلى الأسفل عند الإرسال"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beim Senden nach unten scrollen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scroll to Bottom When I Send"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desplazarse al final al enviar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faire défiler jusqu’en bas lors de l’envoi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信時に最下部へスクロール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보낼 때 맨 아래로 스크롤"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomjeri na dno pri slanju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rul til bunden ved afsendelse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scorri in fondo quando invio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រំកិលទៅបាតពេលខ្ញុំផ្ញើ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rull til bunnen når jeg sender"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewiń na dół podczas wysyłania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolar para o fim ao enviar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручивать вниз при отправке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลื่อนไปด้านล่างเมื่อส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderdiğimde alta kaydır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручувати донизу під час надсилання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộn xuống cuối khi tôi gửi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "发送时滚动到底部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "傳送時捲動到底部"
+          }
+        }
+      }
+    },
+    "settings.agentPane.scrollToBottomOnSend.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند إيقافه، يحافظ الإرسال على موضعك أثناء القراءة إلى الأعلى ويعرض الرسائل الجديدة أدناه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn deaktiviert, bleibt beim Senden beim Lesen weiter oben deine Position erhalten und neue Nachrichten erscheinen darunter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "When off, sending while you are reading up keeps your place and shows new messages below."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactivado, al enviar se conserva tu posición mientras lees más arriba y se muestran debajo los mensajes nuevos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé, l’envoi conserve votre position quand vous lisez plus haut et affiche les nouveaux messages en dessous."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフにすると、上を読んでいる間に送信しても位置を維持し、新しいメッセージを下に表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끄면 위쪽을 읽는 동안 메시지를 보내도 현재 위치가 유지되고 새 메시지가 아래에 표시됩니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada je isključeno, slanje dok čitate iznad zadržava vaš položaj i prikazuje nove poruke ispod."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når den er slået fra, bevarer afsendelse din placering, mens du læser oppe, og viser nye beskeder nedenunder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se disattivato, l'invio mentre leggi più in alto mantiene la tua posizione e mostra i nuovi messaggi sotto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលបិទ ការផ្ញើពេលអ្នកកំពុងអានខាងលើនឹងរក្សាទីតាំងរបស់អ្នក ហើយបង្ហាញសារថ្មីខាងក្រោម។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når den er av, beholder sending plasseringen mens du leser oppover, og nye meldinger vises nedenfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po wyłączeniu wysłanie wiadomości podczas czytania wyżej zachowuje pozycję i pokazuje nowe wiadomości poniżej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando desativado, enviar enquanto você lê acima mantém sua posição e mostra novas mensagens abaixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Если выключено, отправка во время чтения выше сохраняет позицию и показывает новые сообщения ниже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อปิด การส่งข้อความขณะอ่านด้านบนจะรักษาตำแหน่งของคุณและแสดงข้อความใหม่ด้านล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalıyken, yukarıda okurken gönderim konumunuzu korur ve yeni mesajları aşağıda gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Якщо вимкнено, надсилання під час читання вище зберігає позицію та показує нові повідомлення нижче."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi tắt, gửi tin nhắn khi đang đọc ở trên sẽ giữ nguyên vị trí và hiển thị tin nhắn mới bên dưới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭时，在向上阅读时发送消息会保留当前位置，并在下方显示新消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉時，在向上閱讀期間傳送訊息會保留目前位置，並在下方顯示新訊息。"
+          }
+        }
+      }
+    },
     "settings.agentPane.showContextUsage": {
       "extractionState": "manual",
       "localizations": {
@@ -118924,6 +119186,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "一個工作階段可同時開啟的子工作階段數量上限。關閉一個子工作階段會空出它的位置。"
+          }
+        }
+      }
+    },
+    "settings.agents.subsessions.maxRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running Sub-sessions per Session"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجلسات الفرعية العاملة لكل جلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokrenute podsesije po sesiji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kørende undersessioner pr. session"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laufende Untersitzungen pro Sitzung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subsesiones en ejecución por sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-sessions en cours par session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sottosessioni in esecuzione per sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションごとの実行中のサブセッション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វគ្គរងដែលកំពុងដំណើរការក្នុងមួយវគ្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션당 실행 중인 하위 세션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kjørende underøkter per økt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Działające podsesje na sesję"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subsessões em execução por sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работающих вложенных сеансов на сеанс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชันย่อยที่ทำงานอยู่ต่อเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum başına çalışan alt oturum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущених вкладених сеансів на сеанс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số phiên con chạy cùng lúc mỗi phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个会话同时运行的子会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個工作階段同時執行的子工作階段"
+          }
+        }
+      }
+    },
+    "settings.agents.subsessions.maxRunning.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصى عدد من الجلسات الفرعية التي تشغّلها جلسة واحدة في الوقت نفسه. تنتظر الجلسات الأخرى دورها وتبدأ عندما تنتهي الجلسات العاملة. لا تتوقف الجلسات العاملة أبدًا عند خفض هذا العدد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najveći broj podsesija koje jedna sesija pokreće u isto vrijeme. Ostale čekaju na red i pokreću se kad pokrenute završe. Pokrenute se nikad ne zaustavljaju kad smanjite broj."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det største antal undersessioner, én session kører på samme tid. Flere venter på tur og starter, når kørende afslutter. Kørende stoppes aldrig, når du sænker tallet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die höchste Zahl an Untersitzungen, die eine Sitzung gleichzeitig ausführt. Weitere warten und starten, sobald laufende fertig sind. Laufende werden nie gestoppt, wenn du den Wert senkst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El número máximo de subsesiones que una sesión ejecuta a la vez. Las demás esperan su turno y empiezan cuando terminan las que están en ejecución. Al bajarlo, las que están en ejecución nunca se detienen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nombre maximal de sous-sessions qu’une session exécute en même temps. Les autres attendent leur tour et démarrent quand celles en cours se terminent. Baisser ce nombre n’arrête jamais celles en cours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il numero massimo di sottosessioni che una sessione esegue contemporaneamente. Le altre aspettano il loro turno e partono quando quelle in esecuzione finiscono. Abbassarlo non ferma mai quelle in esecuzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つのセッションが同時に実行するサブセッションの最大数です。それ以上は順番を待ち、実行中のものが終わると開始します。値を下げても実行中のものは停止しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនវគ្គរងច្រើនបំផុតដែលវគ្គមួយដំណើរការក្នុងពេលតែមួយ។ វគ្គផ្សេងទៀតរង់ចាំវេន ហើយចាប់ផ្ដើមនៅពេលវគ្គដែលកំពុងដំណើរការបញ្ចប់។ វគ្គដែលកំពុងដំណើរការមិនដែលត្រូវបានបញ្ឈប់ទេ នៅពេលអ្នកបន្ថយវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 세션이 동시에 실행하는 하위 세션의 최대 개수입니다. 나머지는 차례를 기다렸다가 실행 중인 세션이 끝나면 시작됩니다. 값을 낮춰도 실행 중인 세션은 멈추지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det største antallet underøkter én økt kjører samtidig. Flere venter på tur og starter når kjørende blir ferdige. Kjørende stoppes aldri når du senker tallet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Największa liczba podsesji, które jedna sesja uruchamia jednocześnie. Kolejne czekają na swoją kolej i startują, gdy działające się skończą. Zmniejszenie wartości nigdy nie zatrzymuje działających."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O número máximo de subsessões que uma sessão executa ao mesmo tempo. As demais aguardam a vez e começam quando as em execução terminam. Reduzir o valor nunca interrompe as que estão em execução."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наибольшее число вложенных сеансов, которые один сеанс выполняет одновременно. Остальные ждут своей очереди и запускаются, когда работающие завершатся. При уменьшении значения работающие сеансы не останавливаются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนเซสชันย่อยสูงสุดที่เซสชันหนึ่งทำงานพร้อมกัน ส่วนที่เกินจะรอคิวและเริ่มเมื่อเซสชันที่ทำงานอยู่เสร็จ การลดค่านี้จะไม่หยุดเซสชันที่ทำงานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir oturumun aynı anda çalıştırdığı en fazla alt oturum sayısı. Fazlası sırasını bekler ve çalışanlar bittikçe başlar. Değeri düşürdüğünüzde çalışanlar asla durdurulmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найбільша кількість вкладених сеансів, які один сеанс виконує одночасно. Решта чекають своєї черги й запускаються, коли запущені завершаться. Якщо зменшити значення, запущені сеанси не зупиняються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số phiên con tối đa mà một phiên chạy cùng lúc. Các phiên khác chờ đến lượt và bắt đầu khi phiên đang chạy kết thúc. Giảm giá trị này không bao giờ dừng các phiên đang chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个会话同时运行的子会话数量上限。超出的子会话排队等待，在运行中的子会话结束后开始。调低此值不会停止正在运行的子会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個工作階段同時執行的子工作階段數量上限。超出的子工作階段排隊等候，在執行中的子工作階段結束後開始。調低此值不會停止正在執行的子工作階段。"
           }
         }
       }
@@ -174615,6 +175139,3886 @@
             "value": "標籤頁"
           }
         }
+      }
+    },
+    "settings.group.sounds": {
+      "comment": "Settings > Notifications: the group of notification sound rows",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأصوات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvukovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Töne"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sounds"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonidos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suoni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サウンド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사운드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dźwięki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聲音"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.sameAsSound": {
+      "comment": "Settings > Notifications > Sounds: an event row left unset uses the Sound row",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مثل الصوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isto kao zvuk"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samme som lyd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie Ton"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same as Sound"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igual que Sonido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comme Son"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Come Suono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サウンドと同じ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដូចសំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사운드와 동일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samme som lyd"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jak dźwięk"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igual a Som"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как звук"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เหมือนเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesle aynı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як звук"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giống Âm thanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "与声音相同"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "與聲音相同"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.event.finished": {
+      "comment": "Settings > Notifications > Sounds: the sound when an agent finishes its turn",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انتهى الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent završio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Finished"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agente terminó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent terminé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agente terminato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារបានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent zakończył"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agente concluiu"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент закончил"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์ทำเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan bitirdi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент завершив"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent đã xong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理完成"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.event.needsInput": {
+      "comment": "Settings > Notifications > Sounds: the sound when an agent asks for permission or input",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الوكيل يحتاج إلى إدخال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentu treba unos"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent har brug for input"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent braucht Eingabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Needs Input"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El agente necesita una respuesta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'agent attend une réponse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'agente richiede input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの入力待ち"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារត្រូវការការបញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 입력 필요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent trenger svar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent czeka na odpowiedź"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agente precisa de resposta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агенту нужен ответ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์ต้องการคำตอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan yanıt bekliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агенту потрібна відповідь"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent cần phản hồi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体需要输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理需要輸入"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.event.error": {
+      "comment": "Settings > Notifications > Sounds: the sound of an error notification",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خطأ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Greška"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fejl"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fehler"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Error"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erreur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Errore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エラー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំហុស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "오류"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Feil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Błąd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ошибка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อผิดพลาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hata"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помилка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "错误"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "錯誤"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.event.bell": {
+      "comment": "Settings > Notifications > Sounds: the sound of a terminal program's own notification (OSC 9, 777, 99)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إشعار الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obavještenje terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminalnotifikation"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal-Mitteilung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Notification"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notificación de terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notification du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notifica del terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルの通知"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជូនដំណឹងពីទែមីណាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 알림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminalvarsel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Powiadomienie terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notificação do terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уведомление терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแจ้งเตือนจากเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal bildirimi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сповіщення термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thông báo từ terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機通知"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.event.message": {
+      "comment": "Settings > Notifications > Sounds: the sound of a cmux notify message (keep 'cmux notify' as is)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رسالة cmux notify"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poruka cmux notify"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux notify-besked"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux notify-Nachricht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux notify Message"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mensaje de cmux notify"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Message cmux notify"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Messaggio cmux notify"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux notify のメッセージ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សារ cmux notify"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux notify 메시지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux notify-melding"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wiadomość cmux notify"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mensagem do cmux notify"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сообщение cmux notify"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อความ cmux notify"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux notify iletisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повідомлення cmux notify"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tin nhắn cmux notify"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux notify 消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux notify 訊息"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.volume": {
+      "comment": "Settings > Notifications > Sounds: master volume of notification sounds",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مستوى الصوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jačina zvuka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lydstyrke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lautstärke"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volumen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volume"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volume"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "音量"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្រិតសំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음량"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volum"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Głośność"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volume"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Громкость"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระดับเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses düzeyi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Гучність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm lượng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "音量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "音量"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.volume.help": {
+      "comment": "Settings > Notifications > Sounds > Volume: help text",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأصوات التي يشغّلها cmux بنفسه. يتبع الصوت الافتراضي للإشعار مستوى صوت التنبيهات في النظام."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvukovi koje cmux sam reproducira. Zadani zvuk obavještenja prati sistemsku jačinu upozorenja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyde, som cmux selv afspiller. En notifikations standardlyd følger systemets lydstyrke for advarsler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Töne, die cmux selbst abspielt. Der Standardton eines Banners folgt der Warnton-Lautstärke des Systems."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sounds cmux plays itself. A banner's default sound follows the system alert volume."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonidos que reproduce cmux. El sonido predeterminado de un aviso sigue el volumen de alertas del sistema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons joués par cmux lui-même. Le son par défaut d'une bannière suit le volume des alertes du système."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suoni riprodotti da cmux. Il suono predefinito di un banner segue il volume degli avvisi di sistema."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux が自分で鳴らすサウンドの音量です。バナーのデフォルトサウンドはシステムの通知音量に従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងដែល cmux ចាក់ដោយខ្លួនឯង។ សំឡេងលំនាំដើមនៃបដាធ្វើតាមកម្រិតសំឡេងការជូនដំណឹងរបស់ប្រព័ន្ធ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 직접 재생하는 사운드입니다. 배너의 기본 사운드는 시스템 알림 음량을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyder cmux spiller selv. Standardlyden til et varsel følger systemets varselvolum."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dźwięki odtwarzane przez cmux. Domyślny dźwięk banera używa systemowej głośności alertów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons que o cmux toca sozinho. O som padrão de um banner segue o volume de alertas do sistema."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки, которые cmux воспроизводит сам. Стандартный звук баннера следует системной громкости предупреждений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงที่ cmux เล่นเอง เสียงเริ่มต้นของแบนเนอร์จะใช้ระดับเสียงการแจ้งเตือนของระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'ın kendisinin çaldığı sesler. Bir bildirimin varsayılan sesi sistem uyarı ses düzeyini izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки, які cmux відтворює сам. Стандартний звук банера відповідає системній гучності сповіщень."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh do cmux tự phát. Âm thanh mặc định của biểu ngữ theo âm lượng cảnh báo của hệ thống."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自己播放的声音。横幅的默认声音遵循系统提醒音量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自行播放的聲音。橫幅的預設聲音會依照系統提示音量。"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.when": {
+      "comment": "Settings > Notifications > Sounds: when notification sounds play",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تشغيل الأصوات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproduciraj zvukove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afspil lyde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Töne abspielen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play Sounds"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproducir sonidos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jouer les sons"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riproduci suoni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サウンドを鳴らす"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាក់សំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사운드 재생"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spill av lyder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odtwarzaj dźwięki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tocar sons"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Воспроизводить звуки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เล่นเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesleri çal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відтворювати звуки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phát âm thanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "播放声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "播放聲音"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.when.unlessViewed": {
+      "comment": "Settings > Notifications > Sounds > Play Sounds: unless the notifying pane is the one in front",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إلا إذا كانت اللوحة في المقدمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Osim ako je panel u prvom planu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Medmindre ruden er forrest"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Außer wenn der Bereich vorne ist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unless the Pane Is in Front"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salvo si el panel está al frente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sauf si le panneau est au premier plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tranne se il riquadro è in primo piano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペインが前面にあるとき以外"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លើកលែងតែផ្ទាំងនៅខាងមុខ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "창이 맨 앞에 있을 때 제외"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unntatt når ruten er foran"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chyba że panel jest na wierzchu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Exceto se o painel estiver à frente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кроме случая, когда панель на переднем плане"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยกเว้นเมื่อแผงอยู่ด้านหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölme öndeyse hariç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Крім випадку, коли панель на передньому плані"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trừ khi ô đang ở phía trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "除非窗格在最前面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "除非窗格在最前面"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.when.whenInactive": {
+      "comment": "Settings > Notifications > Sounds > Play Sounds: only while cmux is not the active app",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فقط عندما يكون cmux غير نشط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo kada cmux nije aktivan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun når cmux er inaktiv"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur wenn cmux inaktiv ist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only When cmux Is Inactive"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo cuando cmux está inactivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seulement quand cmux est inactif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo quando cmux non è attivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux が非アクティブのときのみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តែពេល cmux មិនសកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 비활성일 때만"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare når cmux er inaktiv"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko gdy cmux jest nieaktywny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só quando o cmux estiver inativo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только когда cmux неактивен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เฉพาะเมื่อ cmux ไม่ได้ใช้งานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca cmux etkin değilken"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише коли cmux неактивний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ khi cmux không hoạt động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅当 cmux 未激活时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅在 cmux 非使用中時"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.when.always": {
+      "comment": "Settings > Notifications > Sounds > Play Sounds: every time",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "دائمًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uvijek"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Immer"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siempre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sempre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "常に"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជានិច្ច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "항상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alltid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zawsze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sempre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всегда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทุกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her zaman"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завжди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luôn luôn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "始终"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一律"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.cooldown": {
+      "comment": "Settings > Notifications > Sounds: minimum time between two notification sounds in a burst",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فترة التهدئة للدفعات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pauza između zvukova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pause mellem lyde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pause bei Häufung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Burst Cooldown"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausa entre ráfagas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Délai entre rafales"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausa tra raffiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連続時の間隔"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលសម្រាកពេលមានច្រើន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연속 알림 간격"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pause ved mange varsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przerwa przy serii"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intervalo em rajadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пауза при серии"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ช่วงพักเมื่อมีหลายรายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seri bekleme süresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пауза при серії"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thời gian chờ khi dồn dập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "连发冷却"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連發冷卻"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.cooldown.help": {
+      "comment": "Settings > Notifications > Sounds > Burst Cooldown: help text",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تصدر الإشعارات الكثيرة في وقت واحد صوتًا واحدًا. يصدر الوكيل الذي يطلب إدخالًا صوتًا دائمًا. القيمة 0 توقف ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mnogo obavještenja odjednom oglasi se jednom. Agent koji traži unos se i dalje oglašava. 0 isključuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mange notifikationer på én gang lyder én gang. En agent, der beder om input, lyder stadig. 0 slår det fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viele Mitteilungen auf einmal ertönen einmal. Ein Agent, der eine Eingabe braucht, ertönt trotzdem. 0 schaltet es aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Many notifications at once sound once. An agent asking for input still sounds. 0 turns it off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muchas notificaciones a la vez suenan una vez. Un agente que pide una respuesta sigue sonando. 0 lo desactiva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plusieurs notifications simultanées sonnent une seule fois. Un agent qui attend une réponse sonne quand même. 0 désactive."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Molte notifiche insieme suonano una volta. Un agente che chiede input suona comunque. 0 lo disattiva."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "同時に届いた多数の通知は1回だけ鳴ります。入力を求めるエージェントは常に鳴ります。0 でオフになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជូនដំណឹងច្រើនក្នុងពេលតែមួយបន្លឺសំឡេងតែម្ដង។ ភ្នាក់ងារដែលសុំការបញ្ចូលនៅតែបន្លឺសំឡេង។ 0 បិទវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "동시에 온 여러 알림은 한 번만 울립니다. 입력을 요청하는 에이전트는 계속 울립니다. 0이면 끕니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mange varsler samtidig lyder én gang. En agent som ber om svar lyder fortsatt. 0 slår det av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wiele powiadomień naraz odtwarza dźwięk raz. Agent proszący o odpowiedź nadal wydaje dźwięk. 0 wyłącza."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muitas notificações ao mesmo tempo tocam uma vez. Um agente pedindo resposta ainda toca. 0 desativa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Много уведомлений сразу звучат один раз. Агент, которому нужен ответ, всё равно звучит. 0 отключает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแจ้งเตือนหลายรายการพร้อมกันจะดังครั้งเดียว เอเจนต์ที่ขอคำตอบยังคงดัง 0 คือปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aynı anda gelen çok sayıda bildirim bir kez ses çıkarır. Yanıt isteyen bir ajan yine ses çıkarır. 0 kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Багато сповіщень одночасно звучать один раз. Агент, якому потрібна відповідь, однаково звучить. 0 вимикає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhiều thông báo cùng lúc chỉ phát âm thanh một lần. Agent cần phản hồi vẫn phát âm thanh. 0 để tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "同时到达的多条通知只响一次。请求输入的智能体仍会响。0 表示关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "同時到達的多則通知只響一次。要求輸入的代理仍會響。0 表示關閉。"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.workspaces": {
+      "comment": "Settings > Notifications > Sounds: per-workspace sound rules (hidden row; searchable name)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أصوات مساحة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvukovi radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbejdsområdelyde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereich-Töne"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Sounds"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonidos del espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons de l'espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suoni dello spazio di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペースのサウンド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងតំបន់ការងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크스페이스 사운드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeidsområdelyder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dźwięki obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons do espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки рабочей области"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงของเวิร์กสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanı sesleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作区声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作區聲音"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.workspaces.help": {
+      "comment": "Settings > Notifications > Sounds > Workspace Sounds: help text",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أصوات لكل معرّف مساحة عمل. اضبطها من قائمة مساحة العمل في الشريط الجانبي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvukovi po ID-u radnog prostora. Postavite ih iz menija radnog prostora u bočnoj traci."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyde pr. arbejdsområde-id. Angiv dem i arbejdsområdets menu i sidepanelet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Töne pro Arbeitsbereich-ID. Im Menü des Arbeitsbereichs in der Seitenleiste festlegen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sounds per workspace id. Set one from the workspace's sidebar menu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonidos por id de espacio de trabajo. Configúralos desde su menú en la barra lateral."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons par id d'espace de travail. À régler depuis son menu dans la barre latérale."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suoni per id dello spazio di lavoro. Impostali dal suo menu nella barra laterale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペース ID ごとのサウンドです。サイドバーのワークスペースのメニューから設定します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងតាម id តំបន់ការងារ។ កំណត់ពីម៉ឺនុយតំបន់ការងារក្នុងរបារចំហៀង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크스페이스 ID별 사운드입니다. 사이드바의 워크스페이스 메뉴에서 설정합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyder per arbeidsområde-id. Angi fra arbeidsområdets meny i sidepanelet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dźwięki według id obszaru roboczego. Ustaw w jego menu na pasku bocznym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons por id de espaço de trabalho. Defina no menu dele na barra lateral."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки по id рабочей области. Задаются в её меню на боковой панели."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงตาม id ของเวิร์กสเปซ ตั้งค่าได้จากเมนูของเวิร์กสเปซในแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanı kimliğine göre sesler. Kenar çubuğundaki menüsünden ayarlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки за id робочого простору. Задаються в його меню на бічній панелі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh theo id không gian làm việc. Đặt từ menu của nó trên thanh bên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按工作区 ID 设置的声音。在侧边栏的工作区菜单中设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "依工作區 ID 設定的聲音。在側邊欄的工作區選單中設定。"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.groups": {
+      "comment": "Settings > Notifications > Sounds: per-group sound rules (hidden row; searchable name)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أصوات المجموعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvukovi grupe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppelyde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppentöne"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Sounds"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonidos del grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons du groupe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suoni del gruppo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループのサウンド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹 사운드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppelyder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dźwięki grupy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons do grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки группы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงของกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grup sesleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки групи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分组声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組聲音"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.groups.help": {
+      "comment": "Settings > Notifications > Sounds > Group Sounds: help text",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أصوات لكل معرّف مجموعة أو اسمها. اضبطها من قائمة المجموعة في الشريط الجانبي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvukovi po ID-u ili nazivu grupe. Postavite ih iz menija grupe u bočnoj traci."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyde pr. gruppe-id eller navn. Angiv dem i gruppens menu i sidepanelet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Töne pro Gruppen-ID oder -Name. Im Menü der Gruppe in der Seitenleiste festlegen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sounds per group id or name. Set one from the group's sidebar menu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonidos por id o nombre de grupo. Configúralos desde su menú en la barra lateral."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons par id ou nom de groupe. À régler depuis son menu dans la barre latérale."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suoni per id o nome del gruppo. Impostali dal suo menu nella barra laterale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループ ID または名前ごとのサウンドです。サイドバーのグループのメニューから設定します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងតាម id ឬឈ្មោះក្រុម។ កំណត់ពីម៉ឺនុយក្រុមក្នុងរបារចំហៀង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹 ID 또는 이름별 사운드입니다. 사이드바의 그룹 메뉴에서 설정합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyder per gruppe-id eller navn. Angi fra gruppens meny i sidepanelet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dźwięki według id lub nazwy grupy. Ustaw w jej menu na pasku bocznym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons por id ou nome do grupo. Defina no menu dele na barra lateral."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки по id или имени группы. Задаются в её меню на боковой панели."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงตาม id หรือชื่อของกลุ่ม ตั้งค่าได้จากเมนูของกลุ่มในแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grup kimliğine veya adına göre sesler. Kenar çubuğundaki menüsünden ayarlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки за id або назвою групи. Задаються в її меню на бічній панелі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh theo id hoặc tên nhóm. Đặt từ menu của nhóm trên thanh bên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按分组 ID 或名称设置的声音。在侧边栏的分组菜单中设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "依群組 ID 或名稱設定的聲音。在側邊欄的群組選單中設定。"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.agents": {
+      "comment": "Settings > Notifications > Sounds: per-agent-kind sound rules (hidden row; searchable name)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أصوات الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvukovi agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentlyde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten-Töne"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Sounds"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonidos de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons des agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suoni degli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントのサウンド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 사운드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentlyder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dźwięki agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons dos agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan sesleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh agent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理聲音"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.agents.help": {
+      "comment": "Settings > Notifications > Sounds > Agent Sounds: help text (keep claude and codex as is)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أصوات لكل نوع وكيل، مثل claude أو codex."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvukovi po vrsti agenta, npr. claude ili codex."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyde pr. agenttype, f.eks. claude eller codex."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Töne pro Agentenart, etwa claude oder codex."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sounds per agent kind, such as claude or codex."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonidos por tipo de agente, como claude o codex."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons par type d'agent, comme claude ou codex."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suoni per tipo di agente, come claude o codex."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "claude や codex など、エージェントの種類ごとのサウンドです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងតាមប្រភេទភ្នាក់ងារ ដូចជា claude ឬ codex។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "claude, codex 같은 에이전트 종류별 사운드입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyder per agenttype, som claude eller codex."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dźwięki według rodzaju agenta, np. claude lub codex."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sons por tipo de agente, como claude ou codex."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки по типу агента, например claude или codex."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงตามชนิดของเอเจนต์ เช่น claude หรือ codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "claude veya codex gibi ajan türüne göre sesler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки за типом агента, наприклад claude або codex."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh theo loại agent, như claude hoặc codex."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按智能体类型设置的声音，例如 claude 或 codex。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "依代理類型設定的聲音，例如 claude 或 codex。"
+          }
+        }
+      }
+    },
+    "notifications.sound.choose.message": {
+      "comment": "Open panel message when choosing a notification sound file; keep ~/Library/Sounds as is",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر صوتًا للإشعارات. ينسخه cmux إلى ~/Library/Sounds."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberite zvuk za obavještenja. cmux ga kopira u ~/Library/Sounds."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg en lyd til notifikationer. cmux kopierer den til ~/Library/Sounds."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle einen Ton für Mitteilungen. cmux kopiert ihn nach ~/Library/Sounds."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a sound for notifications. cmux copies it to ~/Library/Sounds."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige un sonido para las notificaciones. cmux lo copia a ~/Library/Sounds."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisissez un son pour les notifications. cmux le copie dans ~/Library/Sounds."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli un suono per le notifiche. cmux lo copia in ~/Library/Sounds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "通知のサウンドを選択してください。cmux が ~/Library/Sounds にコピーします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសសំឡេងសម្រាប់ការជូនដំណឹង។ cmux ចម្លងវាទៅ ~/Library/Sounds។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알림 사운드를 선택하세요. cmux가 ~/Library/Sounds에 복사합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg en lyd for varsler. cmux kopierer den til ~/Library/Sounds."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz dźwięk powiadomień. cmux skopiuje go do ~/Library/Sounds."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolha um som para as notificações. O cmux o copia para ~/Library/Sounds."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выберите звук для уведомлений. cmux скопирует его в ~/Library/Sounds."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกเสียงสำหรับการแจ้งเตือน cmux จะคัดลอกไปที่ ~/Library/Sounds"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildirimler için bir ses seçin. cmux onu ~/Library/Sounds konumuna kopyalar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виберіть звук для сповіщень. cmux скопіює його до ~/Library/Sounds."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn âm thanh cho thông báo. cmux sẽ sao chép vào ~/Library/Sounds."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择通知声音。cmux 会将其复制到 ~/Library/Sounds。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇通知聲音。cmux 會將其拷貝到 ~/Library/Sounds。"
+          }
+        }
+      }
+    },
+    "notifications.sound.choose.prompt": {
+      "comment": "Open panel button that picks the notification sound file",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام الصوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristi zvuk"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brug lyd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ton verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Sound"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar sonido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utiliser ce son"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa suono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このサウンドを使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើសំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사운드 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk lyd"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Użyj dźwięku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar som"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Использовать звук"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้เสียงนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesi kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Використати звук"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng âm thanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用聲音"
+          }
+        }
+      }
+    },
+    "notifications.sound.refusal.importFailed": {
+      "comment": "Refusal when copying a notification sound failed: %@ is the file name; keep ~/Library/Sounds as is",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر نسخ %@ إلى ~/Library/Sounds."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće kopirati %@ u ~/Library/Sounds."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke kopiere %@ til ~/Library/Sounds."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ konnte nicht nach ~/Library/Sounds kopiert werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not copy %@ to ~/Library/Sounds."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo copiar %@ a ~/Library/Sounds."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de copier %@ dans ~/Library/Sounds."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile copiare %@ in ~/Library/Sounds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ を ~/Library/Sounds にコピーできませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចចម្លង %@ ទៅ ~/Library/Sounds បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@을(를) ~/Library/Sounds에 복사할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke kopiere %@ til ~/Library/Sounds."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można skopiować %@ do ~/Library/Sounds."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível copiar %@ para ~/Library/Sounds."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось скопировать %@ в ~/Library/Sounds."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอก %@ ไปที่ ~/Library/Sounds ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@, ~/Library/Sounds konumuna kopyalanamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося скопіювати %@ до ~/Library/Sounds."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể sao chép %@ vào ~/Library/Sounds."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法将 %@ 复制到 ~/Library/Sounds。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法將 %@ 拷貝到 ~/Library/Sounds。"
+          }
+        }
+      }
+    },
+    "notifications.sound.refusal.needsSound": {
+      "comment": "Refusal of a notification sound action without a sound; keep sound=Glass as is",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدّد صوتًا أو مستوى صوت أو ملفًا، مثل sound=Glass."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedite zvuk, jačinu ili datoteku, npr. sound=Glass."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv en lyd, en lydstyrke eller en fil, f.eks. sound=Glass."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenne einen Ton, eine Lautstärke oder eine Datei, etwa sound=Glass."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name a sound, a volume or a file, for example sound=Glass."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica un sonido, un volumen o un archivo, por ejemplo sound=Glass."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indiquez un son, un volume ou un fichier, par exemple sound=Glass."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica un suono, un volume o un file, ad esempio sound=Glass."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サウンド、音量、ファイルのいずれかを指定してください (例: sound=Glass)。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ឈ្មោះសំឡេង កម្រិតសំឡេង ឬឯកសារ ឧទាហរណ៍ sound=Glass។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사운드, 음량 또는 파일을 지정하세요(예: sound=Glass)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi en lyd, et volum eller en fil, for eksempel sound=Glass."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podaj dźwięk, głośność lub plik, np. sound=Glass."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Informe um som, um volume ou um arquivo, por exemplo sound=Glass."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите звук, громкость или файл, например sound=Glass."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุเสียง ระดับเสียง หรือไฟล์ เช่น sound=Glass"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ses, ses düzeyi veya dosya belirtin, örneğin sound=Glass."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкажіть звук, гучність або файл, наприклад sound=Glass."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nêu âm thanh, âm lượng hoặc tệp, ví dụ sound=Glass."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请指定声音、音量或文件，例如 sound=Glass。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請指定聲音、音量或檔案，例如 sound=Glass。"
+          }
+        }
+      }
+    },
+    "notifications.sound.refusal.noAgent": {
+      "comment": "Refusal of Notification Sound for Agent without an agent; keep agent=claude as is",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدّد نوع الوكيل، مثل agent=claude."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedite vrstu agenta, npr. agent=claude."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv agenttypen, f.eks. agent=claude."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenne die Agentenart, etwa agent=claude."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the agent kind, for example agent=claude."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica el tipo de agente, por ejemplo agent=claude."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indiquez le type d'agent, par exemple agent=claude."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica il tipo di agente, ad esempio agent=claude."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの種類を指定してください (例: agent=claude)。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ឈ្មោះប្រភេទភ្នាក់ងារ ឧទាហរណ៍ agent=claude។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 종류를 지정하세요(예: agent=claude)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi agenttypen, for eksempel agent=claude."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podaj rodzaj agenta, np. agent=claude."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Informe o tipo de agente, por exemplo agent=claude."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите тип агента, например agent=claude."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุชนิดของเอเจนต์ เช่น agent=claude"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan türünü belirtin, örneğin agent=claude."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкажіть тип агента, наприклад agent=claude."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nêu loại agent, ví dụ agent=claude."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请指定智能体类型，例如 agent=claude。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請指定代理類型，例如 agent=claude。"
+          }
+        }
+      }
+    },
+    "notifications.sound.refusal.noEvent": {
+      "comment": "Refusal of Notification Sound for Event without an event; keep the event names as is",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدّد الحدث: finished أو needsInput أو error أو bell أو message."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedite događaj: finished, needsInput, error, bell ili message."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv hændelsen: finished, needsInput, error, bell eller message."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenne das Ereignis: finished, needsInput, error, bell oder message."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the event: finished, needsInput, error, bell or message."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica el evento: finished, needsInput, error, bell o message."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indiquez l'événement : finished, needsInput, error, bell ou message."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica l'evento: finished, needsInput, error, bell o message."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "イベントを指定してください: finished、needsInput、error、bell、message。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ឈ្មោះព្រឹត្តិការណ៍៖ finished, needsInput, error, bell ឬ message។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이벤트를 지정하세요: finished, needsInput, error, bell, message."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi hendelsen: finished, needsInput, error, bell eller message."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podaj zdarzenie: finished, needsInput, error, bell lub message."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Informe o evento: finished, needsInput, error, bell ou message."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите событие: finished, needsInput, error, bell или message."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุเหตุการณ์: finished, needsInput, error, bell หรือ message"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Olayı belirtin: finished, needsInput, error, bell veya message."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкажіть подію: finished, needsInput, error, bell або message."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nêu sự kiện: finished, needsInput, error, bell hoặc message."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请指定事件：finished、needsInput、error、bell 或 message。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請指定事件：finished、needsInput、error、bell 或 message。"
+          }
+        }
+      }
+    },
+    "notifications.sound.refusal.silent": {
+      "comment": "Preview Notification Sound refused: the workspace's notifications are muted at some level",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تصدر الإشعارات هنا صوتًا: مستوى أعلى يكتمها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obavještenja ovdje nemaju zvuk: viši nivo ih utišava."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notifikationer her har ingen lyd: et niveau over slår dem fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mitteilungen hier spielen keinen Ton: eine höhere Ebene schaltet sie stumm."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications here play no sound: a level above mutes them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las notificaciones aquí no suenan: un nivel superior las silencia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les notifications ici ne jouent aucun son : un niveau supérieur les coupe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le notifiche qui non hanno suono: un livello superiore le silenzia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ここでの通知はサウンドを鳴らしません。上位のレベルでミュートされています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជូនដំណឹងនៅទីនេះមិនបន្លឺសំឡេងទេ៖ កម្រិតខាងលើបិទសំឡេងវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기의 알림은 사운드가 없습니다. 상위 수준에서 음소거되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsler her spiller ingen lyd: et nivå over demper dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Powiadomienia tutaj nie odtwarzają dźwięku: wyższy poziom je wycisza."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As notificações aqui não tocam som: um nível acima as silencia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уведомления здесь без звука: его отключает уровень выше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแจ้งเตือนที่นี่ไม่มีเสียง: ระดับที่สูงกว่าปิดเสียงไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buradaki bildirimler ses çalmıyor: üst bir düzey onları sessize alıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сповіщення тут без звуку: його вимикає рівень вище."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thông báo ở đây không phát âm thanh: một cấp phía trên đã tắt tiếng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此处的通知不播放声音：上层级已将其静音。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此處的通知不播放聲音：上層級已將其靜音。"
+          }
+        }
+      }
+    },
+    "notifications.sound.refusal.unsupported": {
+      "comment": "Refusal when importing a notification sound: %@ is the file name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ليس ملف صوت يمكن لـ cmux تشغيله (AIFF أو CAF أو WAV أو MP3 أو M4A)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nije zvučna datoteka koju cmux može reproducirati (AIFF, CAF, WAV, MP3 ili M4A)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke en lydfil, cmux kan afspille (AIFF, CAF, WAV, MP3 eller M4A)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist keine Audiodatei, die cmux abspielen kann (AIFF, CAF, WAV, MP3 oder M4A)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not a sound file cmux can play (AIFF, CAF, WAV, MP3 or M4A)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ no es un archivo de sonido que cmux pueda reproducir (AIFF, CAF, WAV, MP3 o M4A)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ n'est pas un fichier son que cmux peut lire (AIFF, CAF, WAV, MP3 ou M4A)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ non è un file audio che cmux può riprodurre (AIFF, CAF, WAV, MP3 o M4A)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ は cmux で再生できるサウンドファイルではありません (AIFF、CAF、WAV、MP3、M4A)。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ មិនមែនជាឯកសារសំឡេងដែល cmux អាចចាក់បានទេ (AIFF, CAF, WAV, MP3 ឬ M4A)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@은(는) cmux가 재생할 수 있는 사운드 파일이 아닙니다(AIFF, CAF, WAV, MP3, M4A)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke en lydfil cmux kan spille av (AIFF, CAF, WAV, MP3 eller M4A)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nie jest plikiem dźwiękowym, który cmux może odtworzyć (AIFF, CAF, WAV, MP3 lub M4A)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ não é um arquivo de som que o cmux possa tocar (AIFF, CAF, WAV, MP3 ou M4A)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ — не звуковой файл, который cmux может воспроизвести (AIFF, CAF, WAV, MP3 или M4A)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ไม่ใช่ไฟล์เสียงที่ cmux เล่นได้ (AIFF, CAF, WAV, MP3 หรือ M4A)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@, cmux'ın çalabileceği bir ses dosyası değil (AIFF, CAF, WAV, MP3 veya M4A)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ — не звуковий файл, який cmux може відтворити (AIFF, CAF, WAV, MP3 або M4A)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ không phải tệp âm thanh cmux phát được (AIFF, CAF, WAV, MP3 hoặc M4A)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 不是 cmux 能播放的声音文件（AIFF、CAF、WAV、MP3 或 M4A）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 不是 cmux 能播放的聲音檔案（AIFF、CAF、WAV、MP3 或 M4A）。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.noFade": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار الشريط الجانبي كاملا دون تلاشٍ"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži cijelu bočnu traku bez prelaza"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis hele sidepanelet uden udtoning"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Gesamte Seitenleiste ohne Verblassen zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Show Whole Sidebar Without Fade"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar toda la barra lateral sin desvanecimiento"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher toute la barre latérale sans fondu"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra tutta la barra laterale senza sfumatura"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーを全体表示（フェードなし）"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញរបារចំហៀងទាំងមូលដោយគ្មានការស្រអាប់"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "페이드 없이 사이드바 전체 표시"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis hele sidepanelet uten uttoning"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokaż cały pasek boczny bez zanikania"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar a barra lateral inteira sem desvanecimento"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать всю боковую панель без затемнения"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงแถบด้านข้างทั้งหมดโดยไม่มีการจางหาย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunu solma olmadan tam göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати всю бічну панель без затухання"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị toàn bộ thanh bên, không mờ dần"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无渐隐显示整个侧边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無漸隱顯示整個側邊欄"}}
+      }
+    },
+    "settings.sidebar.noFade.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تتوقف حواف الشريط الجانبي عن التلاشي ويظهر القائمة كاملة. كما يُخفي شريط الملف الشخصي والبحث في الأسفل. عند الإيقاف، تتلاشى الحواف ويظهر الشريط."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Ivice bočne trake prestaju da blijede i cijela lista se prikazuje. Takođe skriva donju traku profila i pretrage. Isključeno: ivice blijede, a traka se prikazuje."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sidepanelets kanter holder op med at tone ud, og hele listen vises. Den skjuler også den nederste profil- og søgelinje. Fra: kanterne toner ud, og linjen vises."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Kanten der Seitenleiste verblassen nicht mehr, und die ganze Liste wird angezeigt. Außerdem wird die untere Profil- und Suchleiste ausgeblendet. Aus: Die Kanten verblassen, und die Leiste wird angezeigt."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Los bordes de la barra lateral dejan de desvanecerse y se muestra toda la lista. También oculta la barra inferior de perfil y búsqueda. Desactivado: los bordes se desvanecen y la barra se muestra."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Les bords de la barre latérale ne s'estompent plus et toute la liste s'affiche. La barre inférieure du profil et de la recherche est masquée. Désactivé : les bords s'estompent et la barre s'affiche."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "I bordi della barra laterale non sfumano più e appare tutta la lista. Nasconde anche la barra inferiore di profilo e ricerca. Disattivato: i bordi sfumano e la barra è visibile."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの端がフェードせず、リスト全体が表示されます。下部のプロフィールと検索バーも非表示になります。オフの場合は端がフェードし、バーが表示されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គែមរបារចំហៀងឈប់ស្រអាប់ ហើយបញ្ជីទាំងមូលត្រូវបានបង្ហាញ។ វាក៏លាក់របារប្រវត្តិរូប និងស្វែងរកនៅខាងក្រោមផងដែរ។ បិទ៖ គែមស្រអាប់ ហើយរបារត្រូវបានបង្ហាញ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 가장자리가 흐려지지 않고 목록 전체가 표시됩니다. 아래쪽 프로필 및 검색 막대도 숨겨집니다. 끄면 가장자리가 흐려지고 막대가 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kantene på sidepanelet slutter å tones ut, og hele listen vises. Den skjuler også den nederste profil- og søkelinjen. Av: kantene tones ut, og linjen vises."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Krawędzie paska bocznego przestają zanikać i widać całą listę. Ukrywa też dolny pasek profilu i wyszukiwania. Wyłączone: krawędzie zanikają, a pasek jest widoczny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "As bordas da barra lateral deixam de desvanecer e a lista inteira aparece. Também oculta a barra inferior de perfil e busca. Desligado: as bordas desvanecem e a barra aparece."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Края боковой панели перестают затемняться, и весь список отображается. Также скрывается нижняя панель профиля и поиска. Выключено: края затемняются, панель видна."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขอบแถบด้านข้างจะไม่จางหายและแสดงรายการทั้งหมด ยังซ่อนแถบโปรไฟล์และค้นหาด้านล่างด้วย ปิดอยู่: ขอบจะจางและแถบจะแสดง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunun kenarları solmaz ve listenin tamamı görünür. Alttaki profil ve arama çubuğunu da gizler. Kapalıyken kenarlar solar ve çubuk görünür."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Краї бічної панелі перестають затухати, і показується весь список. Також приховується нижня панель профілю і пошуку. Вимкнено: краї затухають, панель видно."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Mép thanh bên không còn mờ dần và toàn bộ danh sách hiển thị. Thanh hồ sơ và tìm kiếm ở dưới cũng bị ẩn. Tắt: mép mờ dần và thanh hiển thị."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏边缘不再渐隐，整个列表全部显示。同时隐藏底部的个人资料和搜索栏。关闭时边缘渐隐，并显示该栏。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄邊緣不再漸隱，整個列表全部顯示。同時隱藏底部的個人資料和搜尋列。關閉時邊緣漸隱，並顯示該列。"}}
       }
     }
   },
