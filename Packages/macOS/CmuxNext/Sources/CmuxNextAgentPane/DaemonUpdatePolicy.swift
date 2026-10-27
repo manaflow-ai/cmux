@@ -117,6 +117,11 @@ public actor DaemonUpdatePolicy {
     /// Targets done in this run (a final outcome, also one the ledger could not keep) or left for the
     /// next launch (no binary, still busy after 6 hours): id to bundled hash.
     private var settled: [String: String] = [:]
+    /// The last value offered of each target, by id: what ``retry(_:)`` queues again.
+    private var offered: [String: any DaemonUpdateTarget] = [:]
+    /// Targets the person asked to update again (``retry(_:)``) whose turn has not come: neither the
+    /// ledger nor this run's memory holds them back.
+    private var retried: Set<String> = []
 
     public init(_ dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -146,6 +151,20 @@ public actor DaemonUpdatePolicy {
         enqueue(target, urgent: await target.urgent)
     }
 
+    /// The person's "Update" on a machine of Settings > Updates' "Other machines" row: target `id`
+    /// (offered in this run) is queued again and updated at its turn, also when it could not update
+    /// in place before or its update failed on this build. False when no target of that id was
+    /// offered in this run, or `agent.updatePeers` is off.
+    @discardableResult
+    public func retry(_ id: String) -> Bool {
+        guard dependencies.enabled(), let target = offered[id] else { return false }
+        // Updating now already: nothing to ask again.
+        guard running != id else { return true }
+        retried.insert(id)
+        enqueue(target, urgent: false)
+        return true
+    }
+
     /// Offers every target of ``Dependencies/targets`` and returns when the queue is empty: each
     /// target done, left for the next launch, or the toggle turned off.
     public func run() async {
@@ -169,7 +188,9 @@ public actor DaemonUpdatePolicy {
     }
 
     private func enqueue(_ target: any DaemonUpdateTarget, urgent: Bool) {
-        guard dependencies.enabled(), running != target.id else { return }
+        guard dependencies.enabled() else { return }
+        offered[target.id] = target
+        guard running != target.id else { return }
         let now = elapsed()
         if let index = queue.firstIndex(where: { $0.target.id == target.id }) {
             queue[index].target = target
@@ -249,6 +270,13 @@ public actor DaemonUpdatePolicy {
     private func attempt(_ pending: Pending, local: DaemonBuildCommit, ledger: inout DaemonUpdateLedger) async -> Pending? {
         let deps = dependencies
         let target = pending.target
+        // The person asked for this one: what the ledger and this run remember of it goes.
+        if retried.remove(target.id) != nil {
+            ledger.cannotUpdate?[target.id] = nil
+            ledger.targets[target.id] = nil
+            settled[target.id] = nil
+            write(ledger)
+        }
         // Before the run's own memory (`settled`): a machine reinstalled since it said it cannot
         // update is asked again at its next offer, in this run too.
         if let known = ledger.cannotUpdate?[target.id] {
