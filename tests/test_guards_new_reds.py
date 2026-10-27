@@ -134,14 +134,6 @@ class OneCheckCannotMaskAnother(unittest.TestCase):
     def test_the_separators_agree(self):
         self.assertIn(f'CHECK_SEPARATOR = "{run_ci_guards.CHECK_SEPARATOR}"', SCRIPT.read_text(encoding="utf-8"))
 
-    def test_every_runner_check_goes_through_run_check(self):
-        source = RUNNER_GUARD.read_text(encoding="utf-8")
-        bare = re.findall(r"^(check_[a-z0-9_]+)(?: .*)?$", source, re.M)
-        self.assertEqual(bare, [], "call these as `run_check NAME` so a red one cannot skip or hide the rest")
-        defined = set(re.findall(r"^(check_[a-z0-9_]+)\(\) \{", source, re.M))
-        called = set(re.findall(r"^run_check (check_[a-z0-9_]+)", source, re.M))
-        self.assertEqual(defined - called, set(), "defined but never run")
-
 
 if __name__ == "__main__":
     unittest.main()

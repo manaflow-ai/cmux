@@ -98,6 +98,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: A red runner guard check cannot skip or excuse another
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_ci_guard_check_isolation.py
+
       - name: Validate workflow files stay under GitHub's size limit
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_workflow_file_size.py

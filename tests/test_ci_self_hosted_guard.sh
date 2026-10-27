@@ -25,21 +25,31 @@ CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
 # each reports under its own name: one red check can neither skip nor hide
 # another. With CMUX_GUARD_CHECK_RESULTS set, each outcome is appended there
 # as "<passed 0|1><TAB><check>" lines; run_ci_guards.py reports them as
-# separate checks, so guards_new_reds.py compares them one by one and a check
-# red on the base cannot mask a different check red on the change
-# (tests/test_guards_new_reds.py).
+# separate checks, so guards_new_reds.py compares them one by one. Each failed
+# check and each of its FAIL lines is also an "error:" line, which
+# base_red_excuse.py compares with the base's: a check red on the base cannot
+# mask a different check red on the change (tests/test_guards_new_reds.py,
+# tests/test_ci_guard_check_isolation.py).
 FAILED_CHECKS=()
 run_check() {
-  local label="$*" rc
+  local label="$*" rc out line
   label="${label//$ROOT_DIR\//}"
+  out="$(mktemp)"
   set +e
-  ( set -e; "$@" )
+  ( set -e; "$@" ) > "$out" 2>&1
   rc=$?
   set -e
+  cat "$out"
   if [ "$rc" -ne 0 ]; then
     FAILED_CHECKS+=("$label")
-    echo "FAILED CHECK: $label"
+    # Plain "error:" lines, no annotation: base_red_excuse.py compares a red step's error lines with
+    # the base's, so each failing check and each of its findings must already fail there to be excused.
+    while IFS= read -r line; do
+      case "$line" in FAIL:*) echo "error: $label: $line" ;; esac
+    done < "$out"
+    echo "error: runner guard check failed: $label"
   fi
+  rm -f "$out"
   if [ -n "${CMUX_GUARD_CHECK_RESULTS:-}" ]; then
     printf '%s\t%s\n' "$([ "$rc" -eq 0 ] && echo 1 || echo 0)" "$label" >> "$CMUX_GUARD_CHECK_RESULTS"
   fi
