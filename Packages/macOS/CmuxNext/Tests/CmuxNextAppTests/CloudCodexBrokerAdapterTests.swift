@@ -126,6 +126,29 @@ done
         await restarted.shutdown()
     }
 
+    @Test func coalescesConcurrentFirstLoginAndDeviceCodePresentation() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        let gate = CloudCodexBrokerTests.Gate()
+        var prompts = 0
+        let present: @MainActor @Sendable (CloudCodexLoginPrompt) async -> Bool = { _ in
+            prompts += 1
+            await gate.pause()
+            return true
+        }
+        let first = Task { try await adapter.run(machineID: "one", scope: scope, confirmed: true, presentDeviceCode: present) }
+        let second = Task { try await adapter.run(machineID: "two", scope: scope, confirmed: true, presentDeviceCode: present) }
+        await gate.entered()
+        #expect(prompts == 1)
+        await gate.open()
+        try await first.value
+        try await second.value
+        await adapter.shutdown()
+    }
+
     @Test func taskCancellationRevokesPreviouslyDeliveredAccessWithUncancelledTransport() async throws {
         let (root, launch) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -230,6 +253,7 @@ done
         await replacement.shutdown()
         #expect(await files.read("vm", CloudCodexBroker.modePath) == Data("team\n".utf8))
         #expect(await files.read("vm", CloudCodexBroker.accessPath) == nil)
+        #expect(replacement.pendingCleanup.isEmpty)
     }
 
     @Test func confirmedDeletionReleasesFailedCleanupForFutureVMs() async throws {
@@ -252,6 +276,48 @@ done
         try await adapter.run(machineID: "new", scope: scope, confirmed: true) { _ in true }
         #expect(await files.read("new", CloudCodexBroker.accessPath) != nil)
         await adapter.shutdown()
+    }
+
+    @Test func successfulRetirementRetryClearsItsCleanupWarning() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        await files.pause()
+        adapter.setAvailable(false)
+        adapter.setAvailable(true)
+        await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) {
+            try await adapter.run(machineID: "new", scope: scope, confirmed: true) { _ in true }
+        }
+        #expect(adapter.pendingCleanup.contains("vm"))
+        await files.resume()
+        try await adapter.run(machineID: "new", scope: scope, confirmed: true) { _ in true }
+        #expect(adapter.pendingCleanup.isEmpty)
+        await adapter.shutdown()
+    }
+
+    @Test func quitCleanupIsParallelAndBoundedWhenTransportDoesNotAnswer() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await adapter.run(machineID: "one", scope: scope, confirmed: true) { _ in true }
+        try await adapter.run(machineID: "two", scope: scope, confirmed: true) { _ in true }
+        let gate = CloudCodexBrokerTests.Gate()
+        await files.blockNextRemoval(gate)
+        let clock = ContinuousClock()
+        let start = clock.now
+        await adapter.shutdown()
+        #expect(start.duration(to: clock.now) < .seconds(6))
+        #expect(adapter.pendingCleanup.count == 1)
+        let one = await files.read("one", CloudCodexBroker.accessPath)
+        let two = await files.read("two", CloudCodexBroker.accessPath)
+        let remaining = [one, two]
+        #expect(remaining.compactMap { $0 }.count == 1)
+        await gate.open()
     }
 
     @Test func scopeSwitchCancelsPendingPromptWithoutDelivery() async throws {
