@@ -26,6 +26,14 @@ final class ManualTestClock: Clock, @unchecked Sendable {
     /// `withTaskCancellationHandler` handler can run first).
     private var cancelledSleeperIDs: Set<UUID> = []
     private var parkWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var recordedTolerances: [Duration?] = []
+
+    /// The tolerance each sleep asked for, in call order: the window the kernel may fold its wake into.
+    var sleepTolerances: [Duration?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedTolerances
+    }
 
     var now: Instant {
         lock.lock()
@@ -36,6 +44,7 @@ final class ManualTestClock: Clock, @unchecked Sendable {
     var minimumResolution: Duration { .zero }
 
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        record(tolerance: tolerance)
         let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
@@ -110,6 +119,12 @@ final class ManualTestClock: Clock, @unchecked Sendable {
         for sleeper in due.sorted(by: { $0.deadline < $1.deadline }) {
             sleeper.continuation.resume()
         }
+    }
+
+    private func record(tolerance: Duration?) {
+        lock.lock()
+        recordedTolerances.append(tolerance)
+        lock.unlock()
     }
 
     private func takeSatisfiedParkWaitersLocked() -> [CheckedContinuation<Void, Never>] {

@@ -96,6 +96,26 @@ import Testing
         #expect(scope?.teamID == Self.team.id)
     }
 
+    /// The first 2 s backoff may end 200 ms late, so its wake can share one the kernel already has.
+    @Test func recoveryBackoffSleepsWithLeeway() async {
+        let watchdog = failAfterDeadline(.seconds(60)) { "team-scope recovery never scheduled a retry" }
+        defer { watchdog.cancel() }
+        let clock = ManualTestClock()
+        let client = FakeAuthClient(access: "access", refresh: "refresh", user: Self.user)
+        await client.setTeams([Self.team])
+        await client.setThrowOnListTeams(URLError(.notConnectedToInternet))
+        let coordinator = makeCoordinator(client: client, clock: clock)
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
+
+        let firstDelay = AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: 0)
+        #expect(firstDelay == .seconds(2))
+        #expect(clock.sleepTolerances.contains(.milliseconds(200)))
+        coordinator.cancelTeamScopeRecovery()
+    }
+
     @Test func recoveryKeepsRetryingWhileTeamFetchFails() async {
         let watchdog = failAfterDeadline(.seconds(60)) { "team-scope recovery never scheduled a retry" }
         defer { watchdog.cancel() }
