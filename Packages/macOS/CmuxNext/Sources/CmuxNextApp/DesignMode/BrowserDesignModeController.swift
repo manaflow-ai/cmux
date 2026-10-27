@@ -126,10 +126,11 @@ final class BrowserDesignModeController {
         }
     }
 
-    /// Where cards become files for the Home composer; each card's folder goes once Home has its
-    /// copy (``HomeNativeTranscriptView/attachmentsReady()``), the rest at quit.
+    /// Where cards become files for the Home composer, in this launch's own folder; each card's folder
+    /// goes once Home has its copy (``HomeNativeTranscriptView/attachmentsReady()``), the rest at quit.
     nonisolated static let tempFiles = BrowserDesignModeTempFiles(
-        root: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-design-mode", isDirectory: true))
+        base: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-design-mode", isDirectory: true),
+        launch: UUID().uuidString)
 
     /// Gives the Home composer `card` as files, through its own intake (as a drop), replacing what an
     /// earlier version of the card added, then removes the files once the draft holds Home's copies.

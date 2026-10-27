@@ -131,9 +131,9 @@ public final class ActionBudgetReporter: Sendable {
         .object([
             "effect_bound": JSONValue(registry.effectBoundCount),
             "untyped_bound": JSONValue(registry.legacyBoundCount),
-            "waiting_runs": .object(Dictionary(uniqueKeysWithValues: registry.waitingRuns.map { id, reasons in
-                (id.rawValue, JSONValue.object(Dictionary(uniqueKeysWithValues: reasons.map { ($0.key.rawValue, JSONValue($0.value)) })))
-            })),
+            "waiting_runs": .object(Dictionary(registry.waitingRuns.map { id, reasons in
+                (id.rawValue, JSONValue.object(Dictionary(reasons.map { ($0.key.rawValue, JSONValue($0.value)) }, uniquingKeysWith: { first, _ in first })))
+            }, uniquingKeysWith: { first, _ in first })),
         ])
     }
 }

@@ -188,12 +188,24 @@ public final class DemandTimer: Sendable {
             let generation = state.generation
             let token = queue.insert(owner: owner, at: deadline, window: window) { [weak self] in
                 guard let self, self.take(generation) else { return }
-                action()
+                self.fire(action)
             }
             state.pending = .queued(token)
             return old
         }
         drop(dropped)
+    }
+
+    /// Runs a main-actor deadline's action. In a launch the main-job census armed (Debug and bench builds,
+    /// p08-startup-080) the fire is timed as a `timer` job named by ``owner``, since its stack shows only the queue.
+    @MainActor private func fire(_ action: @MainActor () -> Void) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let ring = MainJobRing.installed(),
+           let slot = ring.recordEnqueue(.timer, priority: MainJobRing.currentPriority, label: owner) {
+            return ring.run(slot: slot) { action() }
+        }
+        #endif
+        action()
     }
 
     /// Cancels a superseded sleep or drops a superseded queue entry. Called with no lock held: dropping an

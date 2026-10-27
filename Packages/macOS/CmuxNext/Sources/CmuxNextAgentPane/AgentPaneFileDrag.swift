@@ -54,6 +54,9 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
         let (item, pasteboard) = firstItem(file, at: point, in: view)
         let session = view.beginDraggingSession(with: [item], event: event, source: self)
         // task-owner: the drag's lane reads; it ends with them, and a drag that ended meanwhile ignores the result
+        // main-hop-allow: the person's drag, userBlocking (p06 rule 2): contents(of:) reads on the files and system
+        // lanes, off main; its one resume sets the image of the running NSDraggingSession, which is main-only and not
+        // Sendable, so no posted task can take it
         Task { [weak view] in
             let contents = await self.contents(of: file)
             pasteboard.image = pasteboard.image ?? contents.image

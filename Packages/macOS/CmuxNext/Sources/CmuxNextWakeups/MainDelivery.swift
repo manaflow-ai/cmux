@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Runs main-actor work from a callback whose thread the caller does not
@@ -23,9 +24,19 @@ public struct MainDelivery: Sendable {
             // main-proof: guarded by Thread.isMainThread above
             MainActor.assumeIsolated(work)
         } else {
+            let work = Self.censused(work)
             // main-hop-allow: the delivery primitive's own off-main path
             // main-proof: DispatchQueue.main runs its blocks on the main thread
             DispatchQueue.main.async { MainActor.assumeIsolated(work) }
         }
+    }
+
+    /// `work`, timed by the launch's main-job census when one is armed (Debug and bench builds; p08-startup-080).
+    private static func censused(_ work: @escaping @MainActor @Sendable () -> Void) -> @MainActor @Sendable () -> Void {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        return MainJobRing.installed()?.timed(work) ?? work
+        #else
+        return work
+        #endif
     }
 }

@@ -69,6 +69,9 @@ final class BlockingViolationTable: Sendable {
     private let mainCounters = BlockingSiteCounters(capacity: BlockingViolationTable.siteLimit)
     private let ring: BlockingPendingRing
     private let mainOverflow = UnsafeAtomic<Int>.create(0)
+    /// How many ``resetCounts()`` finished: stored after the zeroing, so a reader that loads it first sees the
+    /// zeroed counters whenever it sees the new value.
+    private let resets = UnsafeAtomic<Int>.create(0)
     private let pool = BlockingOffMainSites(siteLimit: BlockingViolationTable.siteLimit,
                                             pendingLimit: BlockingViolationTable.pendingLimit)
     /// The ``BlockingKind/wrongLane`` sites: seams in items of BackgroundWork's `.cpu` lane.
@@ -137,6 +140,7 @@ final class BlockingViolationTable: Sendable {
         wake.cancel()
         wake.activate()  // a source that never ran must be activated to be released
         mainOverflow.destroy()
+        resets.destroy()
     }
 
     /// Lets a table made with `startsDrain: false` drain.
@@ -463,11 +467,15 @@ final class BlockingViolationTable: Sendable {
         }
     }
 
+    /// How many ``resetCounts()`` finished (load it before the sites it is read with).
+    var resetCount: Int { resets.load(ordering: .acquiring) }
+
     func resetCounts() {
         mainCounters.reset()
         pool.counters.reset()
         cpuLane.counters.reset()
         laneSync.counters.reset()
+        resets.wrappingIncrement(ordering: .releasing)
     }
 }
 #endif

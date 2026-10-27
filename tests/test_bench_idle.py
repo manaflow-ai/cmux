@@ -22,6 +22,10 @@
    (not measured fails) and covered-window fails unless the covered window's family was occluded. Their launch
    turns the feature on as a Labs local choice (bench_launch.write_local_features keeps the file's other choices)
    with the user's draw of occluded windows.
+9. hidden-printing (p03-rendering-088) opens --printing-terminals terminals with focus, sends PRINT_LOOP to each
+   new daemon tab by its own `tab:<id>` target (never the selected tab), then a new workspace with focus hides
+   them; a refused step, a tab that never appears or a printing workspace that still shows skips it; it runs
+   last, and its result is reported, never judged.
 
 No app, no build, no macOS tool. Not on CI (Lawrence 2026-10-23: no new CI tests; lane = "manual"): run
 python3 -I tests/test_bench_idle.py after changing bench_idle.py, bench_launch.py's order check or
@@ -73,10 +77,52 @@ class FakeControl:
         return self.call("action.run", params, timeout=timeout)
 
 
+class FakeSession:
+    """An app session for hidden-printing: snapshot.get's topology changes as the actions run. newSurface adds a
+    terminal tab to the shown workspace (first a provisional one with no `terminal` id when `provisional_first`),
+    newTab adds a workspace and shows it unless `new_workspace_shows` is False; `refuse` names an action that
+    fails."""
+
+    def __init__(self, creates_tabs=True, provisional_first=False, new_workspace_shows=True, refuse=None):
+        self.creates_tabs, self.provisional_first = creates_tabs, provisional_first
+        self.new_workspace_shows, self.refuse = new_workspace_shows, refuse
+        self.workspaces = {"ws_1": [{"id": "tab_launch", "kind": "terminal", "terminal": "term_launch",
+                                     "selected": True}]}
+        self.shown = "ws_1"
+        self.made = []
+
+    def control(self):
+        return FakeControl({"action.run": self.run, "snapshot.get": lambda _params: {"result": {"topology": self.topology()}}})
+
+    def run(self, params):
+        name = params["action"]
+        if name == self.refuse:
+            return {"ok": False, "error": {"code": "no_terminal"}}
+        if name == "newSurface" and self.creates_tabs:
+            tabs = self.workspaces[self.shown]
+            if self.provisional_first:
+                tabs.append({"id": "tab_provisional", "kind": "terminal", "terminal": None})
+                self.provisional_first = False
+            tab = f"tab_{len(self.made) + 1}"
+            tabs.append({"id": tab, "kind": "terminal", "terminal": f"term_{len(self.made) + 1}"})
+            self.made.append(tab)
+        elif name == "newTab":
+            workspace = f"ws_{len(self.workspaces) + 1}"
+            self.workspaces[workspace] = []
+            if self.new_workspace_shows:
+                self.shown = workspace
+        return {"result": {}}
+
+    def topology(self):
+        return {"windows": [{"id": "win_1", "workspace": self.shown}],
+                "workspaces": [{"id": workspace, "screens": [{"panes": [{"id": f"pane_{workspace}", "tabs": tabs}]}]}
+                               for workspace, tabs in self.workspaces.items()]}
+
+
 def args_for(**overrides):
     values = dict(max_cpu=0.5, max_wakeups=5, max_host_cpu=0.2, max_host_wakeups=2, max_helper_cpu=1.0,
                   max_mixed_wakeups=1.0, max_main_wakeups=0.5, hidden_tabs=10, hidden_terminals=5, url="http://x/p",
-                  mixed_ready=False, has_layout_counters=True)
+                  mixed_ready=False, has_layout_counters=True, printing_terminals=10)
     values.update(overrides)
     namespace = argparse.Namespace(**values)
     namespace.next_url = lambda: namespace.url
@@ -278,6 +324,58 @@ class ScenarioTests(unittest.TestCase):
             skipped = bi.prepare("mixed-hidden-visible", control, args_for(hidden_tabs=1), 7, "/b.app")
         self.assertEqual(skipped, "the main window is still minimized or hidden 15 s after showMainWindow")
         self.assertEqual(actions_of(control), ["showMainWindow"])
+
+    def test_hidden_printing_prints_in_each_new_tab_by_its_own_target(self):
+        session = FakeSession()
+        control = session.control()
+        self.assertIsNone(bi.prepare("hidden-printing", control, args_for(printing_terminals=3), 7, "/b.app"))
+        self.assertEqual(actions_of(control), ["newSurface", "terminal.sendText"] * 3 + ["newTab"])
+        sends = [params for _, params in control.calls if params.get("action") == "terminal.sendText"]
+        self.assertEqual([params["args"]["text"] for params in sends], [bi.PRINT_LOOP] * 3)
+        targets = [params.get("target") for params in sends]
+        # Each loop goes to a distinct tab the bench made, never the launch tab that was selected before.
+        self.assertEqual(targets, [f"tab:{tab}" for tab in session.made])
+        self.assertEqual(len(set(targets)), 3)
+        self.assertNotIn("tab:tab_launch", targets)
+        self.assertTrue(all(params.get("focus") is False for params in sends))
+        creates = [params for _, params in control.calls if params.get("action") in ("newSurface", "newTab")]
+        self.assertTrue(all(params.get("focus") is True for params in creates))
+        self.assertEqual(session.shown, "ws_2")
+
+    def test_a_provisional_tab_is_not_a_print_target(self):
+        session = FakeSession(provisional_first=True)
+        control = session.control()
+        self.assertIsNone(bi.prepare("hidden-printing", control, args_for(printing_terminals=1), 7, "/b.app"))
+        targets = [params.get("target") for _, params in control.calls if params.get("action") == "terminal.sendText"]
+        self.assertEqual(targets, [f"tab:{session.made[0]}"])
+
+    def test_a_terminal_that_never_appears_skips_hidden_printing(self):
+        session = FakeSession(creates_tabs=False)
+        with mock.patch.object(bi, "wait_for", side_effect=lambda condition, _limit: condition()):
+            skipped = bi.prepare("hidden-printing", session.control(), args_for(), 7, "/b.app")
+        self.assertEqual(skipped, "printing terminal 1: no new terminal tab in 15 s")
+
+    def test_a_printing_workspace_that_still_shows_skips_hidden_printing(self):
+        session = FakeSession(new_workspace_shows=False)
+        with mock.patch.object(bi, "wait_for", side_effect=lambda condition, _limit: condition()):
+            skipped = bi.prepare("hidden-printing", session.control(), args_for(printing_terminals=1), 7, "/b.app")
+        self.assertEqual(skipped, "the printing workspace still shows 15 s after newTab")
+
+    def test_a_refused_print_skips_hidden_printing(self):
+        session = FakeSession(refuse="terminal.sendText")
+        skipped = bi.prepare("hidden-printing", session.control(), args_for(), 7, "/b.app")
+        self.assertEqual(skipped, "printing terminal 1: terminal.sendText: {'code': 'no_terminal'}")
+
+    def test_hidden_printing_runs_last(self):
+        self.assertIsNone(bi.scenario_order_error(["terminals", "minimized", "hidden-printing"]))
+        self.assertEqual(bi.scenario_order_error(["hidden-printing", "minimized"]),
+                         "hidden-printing runs last (its terminals keep printing)")
+        self.assertEqual(bi.scenario_order_error(["tabs-10", "terminals"]), "tabs-10 runs alone (--scenarios tabs-10)")
+        self.assertIsNone(bi.scenario_order_error(["tabs-10"]))
+
+    def test_hidden_printing_is_reported_not_judged(self):
+        busy = {"processes": [row("app", 400.0, cpu=30.0), row("daemon", 90.0, cpu=5.0, pid=2)]}
+        self.assertEqual(bi.criteria("hidden-printing", busy, args_for()), [])
 
     def test_main_window_shown(self):
         self.assertTrue(bi.main_window_shown(FakeControl({"debug.window_list": [SHOWN]})))
