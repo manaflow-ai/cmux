@@ -167,7 +167,8 @@ impl Hub {
                 }
             }
             "tool_call" | "tool_call_update" => {
-                super::pull_requests::absorb(session, update, &mut m)
+                super::pull_requests::absorb(session, update, &mut m);
+                super::lineage::note_tool_call(session, update);
             }
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),

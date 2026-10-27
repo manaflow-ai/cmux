@@ -48,6 +48,21 @@ import Testing
         #expect(DaemonUpdateLedger.read(directory, build: "fedcba987").targets.isEmpty)
     }
 
+    /// A machine that cannot update in place is kept across builds; a ledger written before that
+    /// field still reads (it is no unreadable ledger that blocks every target).
+    @Test func theLedgerKeepsCannotUpdateAcrossBuildsAndReadsAnOlderFile() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("daemon-update-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(#"{"build":"abc123def","targets":{"cloud:vm-1":"failed"}}"#.utf8).write(to: DaemonUpdateLedger.file(in: directory))
+        #expect(DaemonUpdateLedger.read(directory, build: "abc123def") == DaemonUpdateLedger(build: "abc123def", targets: ["cloud:vm-1": "failed"]))
+        let tooOld = DaemonUpdateLedger.CannotUpdate(build: "0123456ff", reason: "too old to update in place")
+        try DaemonUpdateLedger(build: "abc123def", targets: ["cloud:vm-1": "unsupported"], cannotUpdate: ["cloud:vm-1": tooOld]).write(directory)
+        let next = DaemonUpdateLedger.read(directory, build: "fedcba987")
+        #expect(next.targets.isEmpty)
+        #expect(next.cannotUpdate == ["cloud:vm-1": tooOld])
+    }
+
     /// A ledger file that is there but cannot be decoded may have held a rollback of this build:
     /// it blocks every target on this build (never retried), and the next build starts empty.
     @Test func anUnreadableLedgerBlocksItsBuildNotTheNext() throws {
@@ -103,7 +118,7 @@ import Testing
                                       state: .failed(reason: "disk full", rolledBack: false), notify: true))
         #expect(shown.count == 1)
         #expect(shown.first?.contains("cmux16") == true && shown.first?.contains("disk full") == true)
-        #expect(DaemonUpdateBoard.noticeToast([DaemonUpdateEvent(id: "x", displayName: "x", state: .updating, notify: true)]) == nil)
+        #expect(DaemonUpdateBoard.noticeToast([DaemonUpdateEvent(id: "x", displayName: "x", state: .updating, notify: true)], details: true) == nil)
     }
 
     /// Leo's screen: three toasts stacked over the chat list and composer, one per machine (a
@@ -117,6 +132,7 @@ import Testing
         var shown: [DaemonUpdateBoard.Notice] = []
         func board() async -> DaemonUpdateBoard {
             let board = DaemonUpdateBoard(closedNoticeFile: file)
+            board.openDetails = {}
             board.showNotice = { shown.append($0); return nil }
             await board.settled()
             return board
@@ -139,6 +155,7 @@ import Testing
         #expect(grouped.detail?.components(separatedBy: "\n").count == 3)
         #expect(grouped.detail?.contains("Bootstrap failed: 125") == true)
         #expect(grouped.duration == CmuxToast.untilClosed)
+        #expect(grouped.action != nil, "no Details button")
 
         // Closed: no toast for this build again, in this run or after a relaunch.
         shown.last?.closed()
@@ -176,6 +193,39 @@ import Testing
         later.apply(failed(build: "fedcba987"))
         await later.settled()
         #expect(shown.count == 1)
+    }
+
+    /// A machine too old to update in place is no failure: never a toast, and Settings > Updates
+    /// lists it in one row with the failures, each machine once.
+    @Test @MainActor func aMachineThatCannotUpdateHasNoToastAndOneSettingsLine() {
+        let board = DaemonUpdateBoard()
+        var shown: [String] = []
+        board.showNotice = { shown.append($0.toast.message); return nil }
+        #expect(board.otherMachines == nil)
+        let tooOld = "lofty-lemon-stoat runs a cmux too old to update in place. Its chats and terminals keep working."
+        board.apply(DaemonUpdateEvent(id: "cloud:a", displayName: "lofty-lemon-stoat", state: .cannotUpdate(reason: tooOld), notify: true))
+        board.apply(DaemonUpdateEvent(id: "cloud:a", displayName: "lofty-lemon-stoat", state: .cannotUpdate(reason: tooOld)))
+        #expect(shown.isEmpty, "a toast for a machine that cannot update in place")
+        #expect(board.detail(id: "cloud:a") == tooOld)
+        board.apply(DaemonUpdateEvent(id: "acpmux-peer:build-box", displayName: "build-box", sshHost: "build-box",
+                                      state: .failed(reason: "disk full", rolledBack: false), notify: true, build: "abc123def"))
+        #expect(shown.count == 1 && shown.first?.contains("lofty-lemon-stoat") == false)
+        let machines = board.otherMachines
+        #expect(machines?.lines.count == 2)
+        #expect(machines?.lines.first == tooOld)
+        #expect(machines?.lines.last?.contains("build-box") == true)
+        // Updated since: off the list.
+        board.apply(DaemonUpdateEvent(id: "acpmux-peer:build-box", displayName: "build-box", state: .updated(build: "abc123def")))
+        #expect(board.otherMachines?.lines == [tooOld])
+    }
+
+    /// Details opens Settings > Updates when the app gives a way there; none without.
+    @Test func theGroupedToastHasDetailsOnlyWithSomewhereToGo() throws {
+        let event = DaemonUpdateEvent(id: "acpmux-peer:build-box", displayName: "build-box",
+                                      state: .failed(reason: "disk full", rolledBack: false), notify: true)
+        #expect(DaemonUpdateBoard.noticeToast([event], details: true)?.action != nil)
+        #expect(DaemonUpdateBoard.noticeToast([event], details: false)?.action == nil)
+        #expect(DaemonUpdateBoard.noticeToast([event], details: false)?.id == DaemonUpdateBoard.noticeID)
     }
 
     /// Only the person closes the notice for the build. Its window closing (the toast center ends

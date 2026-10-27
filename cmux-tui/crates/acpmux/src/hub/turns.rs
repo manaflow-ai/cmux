@@ -324,7 +324,8 @@ impl Hub {
         }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
-        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, turn) {
+        let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
+        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
