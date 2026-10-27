@@ -229,7 +229,10 @@ def main():
                 why = no_answer_evidence(app, ls_env, tag, sock, a.out)
             except Exception as error:  # noqa: BLE001
                 why = f"no evidence ({type(error).__name__}: {redact(str(error))[:200]})"
-            note(f"- Mac app: no answer on its control socket in 180 s; {why}")
+            try:
+                note(f"- Mac app: no answer on its control socket in 180 s; {why}")
+            except OSError:
+                pass
             raise SystemExit("the Mac app never answered on its control socket")
         teardown.remember()
         note(f"- Mac app {mac_bundle}: pid {app.pid}, control socket in {time.monotonic() - t0:.0f} s")
@@ -416,8 +419,10 @@ def no_answer_evidence(app, ls_env, tag, sock, out):
              save("mac-app-unified.log", run(["/usr/bin/log", "show", "--last", "5m", "--style", "compact",
                                               "--predicate", f"processID == {app.pid}"], 60))]
     debug_log = ls_env.get("CMUX_DEBUG_LOG") or f"/tmp/cmux-debug-{tag}.log"
-    if os.path.exists(debug_log):
-        files.append(save("mac-debug-log-tail.txt", open(debug_log, errors="replace").read(), 200))
+    if os.path.isfile(debug_log):
+        with open(debug_log, "rb") as f:  # only its last 256 KiB: the tail is what shows where launch stopped
+            f.seek(max(0, os.fstat(f.fileno()).st_size - (256 << 10)))
+            files.append(save("mac-debug-log-tail.txt", f.read().decode(errors="replace"), 200))
     return f"{facts}; {', '.join(files)}"
 
 
