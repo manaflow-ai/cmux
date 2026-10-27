@@ -123,6 +123,7 @@ private nonisolated func controlError(_ error: Error) -> ControlError {
     case SessionTransferService.Failure.chatFolderMissing: "unavailable"
     case SessionTransferService.Failure.chatInChats: "unavailable"
     case SessionTransferService.Failure.sourceAgentsStopped: "unavailable"
+    case SessionTransferService.Failure.terminalBusy: "unavailable"
     default: "internal_error"
     }
     return ControlError(code: code, message: SessionTransferService.message(for: error))
