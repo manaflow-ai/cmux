@@ -121,8 +121,9 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugHints.report(services.windowHints, menus: services.menuTracking, params: call.params))
             },
-            .mainActor("debug.page_host_pool") { [weak services] call in
-                .value(DebugPageHostPool.handle(call.params, services: services))
+            // The Settings, History and Cloud preload in the preload slot (p13-webui-045); `action`: `drop`, `preload`.
+            .mainActor("debug.page_preload") { [weak services] call in
+                .value(services?.pagePreloads.debugReport(action: call.params["action"]?.stringValue) ?? .null)
             },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md); `deactivate` backgrounds the app first.
             .mainActor("debug.focus") { [weak services] call in
@@ -164,6 +165,11 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
                 return .value(DebugLayers.report(services: services, params: call.params))
+            },
+            // Overlay reorders per event cycle (p01-process-223); `reset: true` starts the counts over first.
+            .mainActor("debug.overlay") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugLayers.overlay(services: services, params: call.params))
             },
             // The one hover card: machine phase, card window, timer, monitor.
             // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).

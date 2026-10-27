@@ -47,8 +47,9 @@ public struct MotionPath {
 
         init(_ function: CAMediaTimingFunction) {
             var p1 = [Float](repeating: 0, count: 2), p2 = [Float](repeating: 0, count: 2)
-            function.getControlPoint(at: 1, values: &p1)
-            function.getControlPoint(at: 2, values: &p2)
+            // SAFETY: getControlPoint writes the point's two Floats into the two-element array, lent for the call.
+            unsafe function.getControlPoint(at: 1, values: &p1)
+            unsafe function.getControlPoint(at: 2, values: &p2)
             (x1, y1, x2, y2) = (Double(p1[0]), Double(p1[1]), Double(p2[0]), Double(p2[1]))
         }
     }

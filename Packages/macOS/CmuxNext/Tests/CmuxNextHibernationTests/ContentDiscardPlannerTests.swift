@@ -21,7 +21,7 @@ import Testing
     @Test func protectedContentNeverGoesForTheTimeoutOrPressureButGoesWhenThePersonAsks() {
         var pinned = page()
         pinned.isPinned = true
-        for reason in [DiscardReason.proactive, .urgent] {
+        for reason in [DiscardReason.proactive, .urgent, .crashedSubframe] {
             let eligibility = planner.eligibility(of: pinned, setting: setting, for: reason)
             #expect(eligibility.result == .protected)
             #expect(eligibility.reason == .pinned)
@@ -78,7 +78,7 @@ import Testing
         for (reason, apply) in facts {
             var candidate = page(kind: .terminalSurface)
             apply(&candidate)
-            for discard in [DiscardReason.proactive, .urgent, .frozenWithGrowingMemory] {
+            for discard in [DiscardReason.proactive, .urgent, .frozenWithGrowingMemory, .crashedSubframe] {
                 let eligibility = planner.eligibility(of: candidate, setting: setting, for: discard)
                 #expect(eligibility.result == .protected, "\(reason) at \(discard)")
                 #expect(eligibility.reason == reason)
