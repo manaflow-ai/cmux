@@ -164,13 +164,7 @@ impl Child {
             #[cfg(target_os = "linux")]
             Inner::Std(child) => match exit_event_within(child.id(), limit) {
                 Ok(()) => {}
-                // Before Linux 5.3, or a seccomp profile that denies it.
-                Err(error)
-                    if matches!(
-                        error.raw_os_error(),
-                        Some(libc::ENOSYS) | Some(libc::EPERM) | Some(libc::EACCES)
-                    ) =>
-                {
+                Err(error) if pidfd_unavailable(&error) => {
                     let waiter = match self.exit_waiter.take() {
                         Some(waiter) => waiter,
                         None => spawn_exit_waiter(child.id())?,
@@ -192,6 +186,113 @@ impl Child {
         }
         self.try_wait()
     }
+}
+
+/// A descriptor that turns readable once a child of this process has ended,
+/// without reaping it: an exit event a reactor (tokio's `AsyncFd`) waits on
+/// with no timer and no wakeup until then. macOS: a kqueue holding an
+/// `EVFILT_PROC` `NOTE_EXIT` registration; Linux: a pidfd, or where
+/// `pidfd_open` is missing or denied the pipe of a thread blocked in
+/// `waitid(WNOWAIT)`. A child that had already ended gives a pipe at its end
+/// (readable at once). Chromium watches a child's exit the same way
+/// (`base/process/kill_mac.cc`, kqueue `NOTE_EXIT`).
+#[cfg(unix)]
+#[derive(Debug)]
+pub struct ExitEvent(std::os::fd::OwnedFd);
+
+#[cfg(unix)]
+impl ExitEvent {
+    /// The exit event of `pid`, which must be a child of this process that
+    /// is not reaped yet (so the pid cannot name a reused process). Open it
+    /// right after the spawn, before anything can wait on the child.
+    pub fn open(pid: u32) -> io::Result<Self> {
+        open_exit_event(pid).map(Self)
+    }
+}
+
+#[cfg(unix)]
+impl std::os::fd::AsRawFd for ExitEvent {
+    fn as_raw_fd(&self) -> std::os::fd::RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+#[cfg(unix)]
+impl std::os::fd::AsFd for ExitEvent {
+    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        self.0.as_fd()
+    }
+}
+
+/// A descriptor that is readable at once: the read end of a pipe whose write
+/// end is closed.
+#[cfg(target_vendor = "apple")]
+fn already_ended() -> io::Result<std::os::fd::OwnedFd> {
+    let (reader, _writer) = io::pipe()?;
+    Ok(reader.into())
+}
+
+/// macOS: a kqueue with `NOTE_EXIT` of `pid` registered; it turns readable
+/// when the event is pending. A child that already exited (a zombie: the
+/// registration fails with ESRCH) gives [`already_ended`].
+#[cfg(target_vendor = "apple")]
+fn open_exit_event(pid: u32) -> io::Result<std::os::fd::OwnedFd> {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    let pid = libc::pid_t::try_from(pid).map_err(|_| io::Error::from_raw_os_error(libc::ESRCH))?;
+    // SAFETY: kqueue returns a new descriptor or -1.
+    let queue = unsafe { libc::kqueue() };
+    if queue < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a new descriptor this function owns.
+    let queue = unsafe { OwnedFd::from_raw_fd(queue) };
+    let change = libc::kevent {
+        ident: pid as libc::uintptr_t,
+        filter: libc::EVFILT_PROC,
+        flags: libc::EV_ADD | libc::EV_ONESHOT,
+        fflags: libc::NOTE_EXIT,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    };
+    loop {
+        // SAFETY: one change in and no event slots: kevent only registers,
+        // and reports a failed registration as its own error.
+        let n = unsafe {
+            libc::kevent(queue.as_raw_fd(), &change, 1, std::ptr::null_mut(), 0, std::ptr::null())
+        };
+        if n >= 0 {
+            return Ok(queue);
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::ESRCH) => return already_ended(),
+            Some(libc::EINTR) => {}
+            _ => return Err(error),
+        }
+    }
+}
+
+/// Linux: a pidfd (readable once the process ended), or where `pidfd_open`
+/// is missing (before 5.3) or denied (seccomp) the [`spawn_exit_waiter`] pipe.
+#[cfg(target_os = "linux")]
+fn open_exit_event(pid: u32) -> io::Result<std::os::fd::OwnedFd> {
+    match open_pidfd(pid) {
+        Ok(pidfd) => Ok(pidfd),
+        Err(error) if pidfd_unavailable(&error) => spawn_exit_waiter(pid),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(all(unix, not(target_vendor = "apple"), not(target_os = "linux")))]
+fn open_exit_event(_pid: u32) -> io::Result<std::os::fd::OwnedFd> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "exit event"))
+}
+
+/// `pidfd_open` failed because the kernel lacks it (before Linux 5.3) or a
+/// seccomp profile denies it: the `waitid` thread stands in.
+#[cfg(target_os = "linux")]
+fn pidfd_unavailable(error: &io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(libc::ENOSYS) | Some(libc::EPERM) | Some(libc::EACCES))
 }
 
 /// `waitpid(pid, flags)`, retried on EINTR: `None` when `WNOHANG` found the
@@ -302,15 +403,22 @@ fn spawn_exit_waiter(pid: u32) -> io::Result<std::os::fd::OwnedFd> {
 /// Block until `pid` exits or `limit` passes (a pidfd, `poll`).
 #[cfg(target_os = "linux")]
 fn exit_event_within(pid: u32, limit: Duration) -> io::Result<()> {
+    readable_within(&open_pidfd(pid)?, limit)
+}
+
+/// `pidfd_open(pid, 0)`: a descriptor that turns readable when `pid` ends.
+#[cfg(target_os = "linux")]
+fn open_pidfd(pid: u32) -> io::Result<std::os::fd::OwnedFd> {
     use std::os::fd::{FromRawFd, OwnedFd};
+    let pid = libc::pid_t::try_from(pid).map_err(|_| io::Error::from_raw_os_error(libc::ESRCH))?;
     // SAFETY: pidfd_open returns a new descriptor or -1.
-    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
     if raw < 0 {
         return Err(io::Error::last_os_error());
     }
+    let raw = libc::c_int::try_from(raw).map_err(|_| io::Error::from_raw_os_error(libc::EBADF))?;
     // SAFETY: a new descriptor this function owns.
-    let pidfd = unsafe { OwnedFd::from_raw_fd(raw as libc::c_int) };
-    readable_within(&pidfd, limit)
+    Ok(unsafe { OwnedFd::from_raw_fd(raw) })
 }
 
 /// Block until `fd` is readable (or hung up) or `limit` passes (`poll`).
@@ -368,5 +476,53 @@ mod exit_wait_fallback {
         super::readable_within(&waiter, Duration::from_secs(30)).unwrap();
         assert!(started.elapsed() < Duration::from_secs(5), "waited for an exited child");
         assert!(child.try_wait().unwrap().expect("exited").success());
+    }
+}
+
+#[cfg(all(test, any(target_vendor = "apple", target_os = "linux")))]
+mod exit_event {
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    use std::time::{Duration, Instant};
+
+    use super::ExitEvent;
+    use crate::{Command, Stdio};
+
+    /// Whether `event` turns readable within `limit` (`poll`).
+    fn readable(event: &ExitEvent, limit: Duration) -> bool {
+        let mut poll = libc::pollfd { fd: event.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        let millis = libc::c_int::try_from(limit.as_millis()).unwrap();
+        // SAFETY: one live pollfd.
+        let n = unsafe { libc::poll(&mut poll, 1, millis) };
+        assert!(n >= 0, "poll: {}", std::io::Error::last_os_error());
+        n == 1
+    }
+
+    /// A running child's event stays quiet; its exit makes it readable at
+    /// once, and the child is still the caller's to reap.
+    #[test]
+    fn turns_readable_at_the_exit_and_leaves_the_child_unreaped() {
+        let mut child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let event = ExitEvent::open(child.id()).unwrap();
+        assert!(!readable(&event, Duration::from_millis(200)), "readable while the child runs");
+        child.kill().unwrap();
+        let started = Instant::now();
+        assert!(readable(&event, Duration::from_secs(30)), "missed the exit");
+        assert!(started.elapsed() < Duration::from_secs(5), "late exit event");
+        assert!(child.try_wait().unwrap().is_some(), "the child was not left to reap");
+    }
+
+    /// A child that ended before its event was opened (a zombie) is seen at once.
+    #[test]
+    fn a_child_that_already_ended_is_readable_at_once() {
+        let mut child =
+            Command::new("/bin/sh").args(["-c", "exit 3"]).stdout(Stdio::piped()).spawn().unwrap();
+        // Its stdout reaches its end as it exits.
+        let mut rest = Vec::new();
+        child.stdout.take().unwrap().read_to_end(&mut rest).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let event = ExitEvent::open(child.id()).unwrap();
+        assert!(readable(&event, Duration::from_secs(5)), "an ended child's event is quiet");
+        assert_eq!(child.try_wait().unwrap().and_then(|s| s.code()), Some(3));
     }
 }

@@ -53,6 +53,8 @@ mod stdio;
 mod tests;
 
 pub use child::Child;
+#[cfg(unix)]
+pub use child::ExitEvent;
 pub use command::Command;
 pub use std::process::{ExitStatus, Output};
 pub use stdio::Stdio;

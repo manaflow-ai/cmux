@@ -16,6 +16,8 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
+mod leader_exit;
+use leader_exit::{LeaderExit, drain_end};
 #[cfg(unix)]
 pub(crate) mod session_tmp;
 pub(crate) use command::{
@@ -172,14 +174,6 @@ pub enum Attached {
 /// How long `kill` lets the agent's process group exit after SIGTERM.
 const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
 
-/// Windows: how often the reader checks that the agent process is still running. Unix
-/// readers wake on SIGCHLD instead (`LeaderExit`), so an idle agent costs no wakeup.
-#[cfg(windows)]
-const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
-
-/// How long the reader keeps draining stdout after the agent process exits.
-const LEADER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
-
 /// Bounded stderr drain after stdout closes, before failing pending requests.
 const STDERR_DRAIN: std::time::Duration = std::time::Duration::from_secs(1);
 
@@ -298,6 +292,8 @@ impl ChildAgent {
             }
         };
         let pid = child.id();
+        // Opened now, while nothing can have reaped the leader.
+        let mut leader_exit = LeaderExit::watch(&child);
         let stdin = child.stdin.take().context("agent stdin")?;
         let stdout = child.stdout.take().context("agent stdout")?;
         let stderr = child.stderr.take().context("agent stderr")?;
@@ -358,34 +354,28 @@ impl ChildAgent {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 // The leader can exit while a descendant still holds stdout
-                // open; watch it so its exit is reported regardless.
-                let mut leader_exit = LeaderExit::new();
+                // open; its exit event ends the read regardless.
                 let mut leader_gone: Option<tokio::time::Instant> = None;
                 loop {
                     let next = tokio::select! {
                         next = lines.next_line() => next,
-                        () = leader_exit.next(leader_gone) => {
-                            if let Some(at) = leader_gone {
-                                // Give buffered output a moment, then stop reading.
-                                if at.elapsed() >= LEADER_DRAIN {
-                                    break;
+                        () = leader_exit.ended(), if leader_gone.is_none() => {
+                            leader_gone = Some(tokio::time::Instant::now());
+                            // Stop what the agent left running so the pipe closes.
+                            #[cfg(unix)]
+                            if let Some(pg) = agent_for_exit.pid.and_then(|p| i32::try_from(p).ok()) {
+                                // SAFETY: killpg takes no pointers; `pg` is the
+                                // group this agent leads (process_group(0) at spawn).
+                                unsafe {
+                                    libc::killpg(pg, libc::SIGKILL);
                                 }
-                            } else if !agent_for_exit.is_alive().await {
-                                leader_gone = Some(tokio::time::Instant::now());
-                                // Stop what the agent left running so the pipe closes.
-                                #[cfg(unix)]
-                                if let Some(pg) = agent_for_exit.pid {
-                                    // SAFETY: killpg takes no pointers; `pg` is the
-                                    // group this agent leads (process_group(0) at spawn).
-                                    unsafe {
-                                        libc::killpg(pg as i32, libc::SIGKILL);
-                                    }
-                                }
-                                #[cfg(windows)]
-                                agent_for_exit.kill_job();
                             }
+                            #[cfg(windows)]
+                            agent_for_exit.kill_job();
                             continue;
                         }
+                        // Give buffered output a moment, then stop reading.
+                        () = drain_end(leader_gone) => break,
                     };
                     let line = match next {
                         Ok(Some(l)) => l,
@@ -1157,54 +1147,6 @@ impl ChildAgent {
                 Some(ticket)
             }
         }
-    }
-}
-
-/// When a direct agent's reader checks whether its leader process still runs: on Unix at each
-/// SIGCHLD (any child of the daemon ended; tokio hands every listener each one) and once at the
-/// start, so a leader that ended before the listener existed is seen; on Windows every
-/// `LEADER_CHECK`. Once the leader is gone, at the end of the [`LEADER_DRAIN`] window.
-struct LeaderExit {
-    #[cfg(unix)]
-    child: Option<tokio::signal::unix::Signal>,
-    first: bool,
-    #[cfg(windows)]
-    tick: tokio::time::Interval,
-}
-
-impl LeaderExit {
-    fn new() -> Self {
-        Self {
-            #[cfg(unix)]
-            child: tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
-                .map_err(|e| tracing::warn!("no SIGCHLD listener for an agent reader: {e}"))
-                .ok(),
-            first: true,
-            #[cfg(windows)]
-            tick: tokio::time::interval(LEADER_CHECK),
-        }
-    }
-
-    /// The next moment to check; `gone` is when the leader was seen gone.
-    async fn next(&mut self, gone: Option<tokio::time::Instant>) {
-        if let Some(at) = gone {
-            tokio::time::sleep_until(at + LEADER_DRAIN).await;
-            return;
-        }
-        if std::mem::take(&mut self.first) {
-            return;
-        }
-        #[cfg(unix)]
-        match &mut self.child {
-            Some(signal) => {
-                signal.recv().await;
-            }
-            // No listener: the reader ends only with stdout, as a leader's descendants that
-            // keep it open end.
-            None => std::future::pending::<()>().await,
-        }
-        #[cfg(windows)]
-        self.tick.tick().await;
     }
 }
 

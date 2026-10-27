@@ -22,6 +22,7 @@ dependencies = [
  "cmux-lock-rank",
  "cmux-memory",
  "cmux-panic-log",
+ "cmux-process",
  "cmux-sdk",
  "cmux-server-core",
  "cmux-trace",
