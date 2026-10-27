@@ -47,3 +47,4 @@ semicolon_if_nothing_returned = "warn"
 redundant_clone = "warn"
 # cmux-tui/clippy.toml disallows std thread spawns and sleep; this package has not opted in.
 disallowed_methods = "allow"
+disallowed_types = "allow"

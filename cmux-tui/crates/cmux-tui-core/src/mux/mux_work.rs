@@ -8,8 +8,9 @@
 //! `PostTaskAndReplyWithResult`). [`MuxWork`] holds the mux's weak
 //! reference that those items get.
 
+use cmux_threads::sync::Mutex;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, OnceLock, PoisonError, Weak};
 
 use cmux_threads::work::{Lane, Priority, Refused, Shutdown};
 

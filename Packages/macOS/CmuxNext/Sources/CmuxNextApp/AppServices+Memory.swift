@@ -138,6 +138,17 @@ struct AppMemoryConsumers {
         scope.sharedGlyphMasks = masks
     }
 
+    /// `memoryHomeLabCaches` (default off): the Home transcript's shared pixel caches and the Home lists' row
+    /// bitmaps as one lossless consumer on `homeRenderBitmapBytes`, emptied after 60 s with no Home view shown
+    /// (p07-memory-081). Nil while the feature is off; Home makes it with its service and keeps it.
+    func makeHomeLabCaches() -> MessagesLabMemoryConsumer? {
+        guard services.features.isEnabled(.memoryHomeLabCaches) else { return nil }
+        return MessagesLabMemoryConsumer(
+            budgetBytes: SubsystemBudget.forThisMac(gpuResidentAvailable: false).homeRenderBitmapBytes,
+            registry: services.memoryCoordinator,
+            idle: MainDeadline(owner: "Home.labCaches.idle", workClass: .background, scheduler: services.mainDeadlines))
+    }
+
     /// The sidebar document store's projection memo: one lossless entry, dropped at critical
     /// (p07-memory-054). The store is made lazily with the sidebar layout, so `SidebarDocWiring.start` calls this.
     func registerSidebarDoc(_ store: SidebarDocStore) {
