@@ -219,5 +219,44 @@ class Suite(unittest.TestCase):
             self.assertIn(step, threads.Threads.required)
 
 
+def vm_summary_source() -> str:
+    """The per-major summary program vm.sh feeds to `python3 -I -` (the last <<'PY' heredoc)."""
+    with open(os.path.join(HERE, "vm.sh")) as f:
+        text = f.read()
+    start = text.index("\n", text.index('python3 -I - "$RUN" "$MAJORS"')) + 1
+    return text[start:text.index("\nPY\n", start)]
+
+
+class VmSummary(unittest.TestCase):
+    """vm.sh's summary over a run folder: a crash there gives no MATRIX VERDICT and no results archive."""
+
+    def summarize(self, suite: str, results: dict[str, dict]) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as run:
+            for major, result in results.items():
+                os.makedirs(os.path.join(run, major))
+                with open(os.path.join(run, major, "result.json"), "w") as f:
+                    json.dump(result, f)
+            archive = os.path.join(run, "results.tgz")
+            done = subprocess.run([sys.executable, "-I", "-", run, ",".join(results), suite, archive, "", HERE],
+                                  input=vm_summary_source(), capture_output=True, text=True, timeout=60)
+            done.archived = os.path.exists(archive)  # type: ignore[attr-defined]
+            return done
+
+    def test_smoke_and_threads_runs_give_a_verdict_and_an_archive(self):
+        passed = {"os": "14.7", "ok": True, "failed_steps": [], "crashes": 0, "hang_reports": 0, "faults": 0}
+        for suite in ("smoke", "threads"):
+            done = self.summarize(suite, {"14": passed, "15": dict(passed, os="15.6")})
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn("MATRIX VERDICT PASS", done.stdout.splitlines())
+            self.assertIn("14   14.7     %-5s PASS" % suite, done.stdout)
+            self.assertTrue(done.archived)
+
+    def test_a_failed_step_gives_fail(self):
+        failed = {"os": "15.6", "ok": False, "failed_steps": ["raise"], "crashes": 0, "hang_reports": 0, "faults": 0}
+        done = self.summarize("threads", {"15": failed})
+        self.assertIn("MATRIX VERDICT FAIL", done.stdout.splitlines(), done.stderr)
+        self.assertIn("failed=raise", done.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
