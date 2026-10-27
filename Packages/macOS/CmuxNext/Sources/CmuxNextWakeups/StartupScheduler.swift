@@ -17,10 +17,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
 ///   priority.
 /// - Completion is a ref count, as in Chrome: the implicit registration ref (``finishRegistration()``),
 ///   the first-frame ref (``firstFrameCommitted()``, or ``firstFrameMissed(_:)`` when the caller knows
-///   none will come), the launch-phase ref (below) and every
+///   none will come), the first-idle ref (``StartupFirstIdle``), the launch-phase ref (below) and every
 ///   ``hold(_:)``. When the last one is released the completion is posted to a later main turn, which
 ///   checks again; the failsafe completes it with reason `failsafe` whatever is still held. The
-///   completion never fires after ``beginQuit()``.
+///   completion never fires after ``beginQuit()`` (the app's quit calls it once the quit is decided).
 /// - One launch, one completion: the scheduler reads the ``StartupPhase`` of its `mainWork`
 ///   (p06-scheduler). While that phase is not settled, its settle is one more ref, and the phase's
 ///   settle failsafe (10 s from launch) is the scheduler's failsafe: no afterStartup task runs before
@@ -100,6 +100,7 @@ public final class StartupScheduler {
     private let visibleWork: FrameBatchQueue
     private let idleOwner: MainTaskOwner
     private let mainWork: MainWorkScheduler
+    private let firstIdleSignal: StartupFirstIdle
     private var firstFrameDone = false
     /// Set by the first ``firstFrameCommitted()``; a missed frame (``firstFrameMissed(_:)``) never sets it.
     private var frameCommitted = false
@@ -115,6 +116,7 @@ public final class StartupScheduler {
     private var lastRefID: UInt64 = 0
     private var registration: StartupInProgressRef?
     private var firstFrame: StartupInProgressRef?
+    private var firstIdle: StartupInProgressRef?
     private var launchPhase: StartupInProgressRef?
     private var heldAfterFirstFrame: [Pending] = []
     private var heldAfterStartup: [Pending] = []
@@ -151,6 +153,7 @@ public final class StartupScheduler {
     ///     batches); its ``MainWorkScheduler/startup`` phase is the launch this scheduler completes with.
     ///   - background: The app's lanes (lane tasks).
     ///   - hop: How off-main posts and the posted completion reach main (the app: ``StartupMainHop/userVisible``).
+    ///   - firstIdle: The main loop's first idle after ``finishRegistration()`` (the app: ``StartupFirstIdle/mainRunLoop``).
     ///   - clock: The failsafe's clock.
     ///   - ledger: Where the failsafe's wakeup is recorded.
     ///   - criticalAllowlist: The names a critical post may have.
@@ -158,7 +161,7 @@ public final class StartupScheduler {
     ///   - log: The records, signposts and the watchdog's current task (the app: on ``Signposter/launch``).
     ///   - uptimeNanos: The clock of ``Completion/uptimeNanos``.
     public init(mainWork: MainWorkScheduler, background: BackgroundWork, hop: StartupMainHop = .userVisible,
-                clock: any Clock<Duration>, ledger: WakeupLedger = .shared,
+                firstIdle: StartupFirstIdle = .mainRunLoop, clock: any Clock<Duration>, ledger: WakeupLedger = .shared,
                 criticalAllowlist: [StaticString] = StartupScheduler.criticalAllowlist,
                 failsafeTimeout: Duration = StartupScheduler.failsafeTimeout,
                 log: StartupTaskLog = .signposted(),
@@ -166,6 +169,7 @@ public final class StartupScheduler {
         self.mainWork = mainWork
         self.background = background
         self.hop = hop
+        firstIdleSignal = firstIdle
         self.log = log
         self.uptimeNanos = uptimeNanos
         allowlist = Set(criticalAllowlist.map(\.description))
@@ -174,6 +178,7 @@ public final class StartupScheduler {
         idleOwner = mainWork.budget.board.owner("Startup.afterStartup")
         registration = hold("Startup.registration")
         firstFrame = hold("Startup.firstFrame")
+        self.firstIdle = hold("Startup.firstIdle")
         let phase = mainWork.startup
         if phase.phase < .settled {
             launchPhase = hold("Startup.launchPhase")
@@ -233,10 +238,13 @@ public final class StartupScheduler {
     /// The names of the refs still held (`debug.startup`).
     public var heldRefs: [String] { refs.values.map(\.description).sorted() }
 
-    /// The app registered its launch work: releases the implicit registration ref.
+    /// The app registered its launch work: releases the registration ref; the next main-loop idle releases the first-idle ref.
     public func finishRegistration() {
-        registration?.release(.registrationFinished)
-        registration = nil
+        guard let registration else { return }
+        self.registration = nil
+        // Armed first: an idle the seam reports at once is then not the last reason.
+        firstIdleSignal.whenIdle { [weak self] in self?.firstIdle?.release(.firstIdle) }
+        registration.release(.registrationFinished)
     }
 
     /// The first window's first frame was committed: releases the first-frame ref and the held

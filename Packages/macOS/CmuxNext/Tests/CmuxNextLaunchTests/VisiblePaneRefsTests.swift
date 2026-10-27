@@ -211,18 +211,125 @@ import Testing
         defer { window.close() }
         let shown = TerminalContent()
         f.refs.restoreFinished { [shown] in
-            [Window(id: "w", content: .workspace(onScreen: shown.hasContent ? [] : [Pane(key: "a", state: .loading)], layoutPanes: 0))]
+            [Window(id: "w", content: .workspace(onScreen: [Pane(key: "a", state: shown.hasContent ? .loadedIdle : .loading)], layoutPanes: 1))]
         }
         let center = NotificationCenter()
         f.refs.followWindows([window], center: center)
         let occlusion = NSWindow.didChangeOcclusionStateNotification
         let events = WindowEvents.of(window, center: center)
         #expect(events.subscriberCount(occlusion) == 1)
-        shown.hasContent = true  // the pane's window went off screen
+        shown.hasContent = true  // the pane's page loaded while its window was occluded; the window shows again
         center.post(name: occlusion, object: window)
         await f.recorder.released(count: 2)
-        #expect(f.recorder.releases == [["restoreFinished"], ["noVisiblePane"]])
+        #expect(f.recorder.releases == [["restoreFinished"], ["visiblePaneLoadedIdle"]])
         #expect(events.subscriberCount(occlusion) == 0, "the observers end with the last ref")
+    }
+
+    // MARK: Task 105: loaded-idle and the bound that starts again on hide
+
+    /// A terminal that shows its snapshot is loaded-idle only once a whole quiet period passed with no output.
+    @Test func aShownPaneIsLoadedIdleAfterAQuietPeriodWithNoOutput() async throws {
+        let f = PaneRefsFixture()
+        f.screen.show([Pane(key: "t", state: .shown(output: 1))])
+        f.refs.restoreFinished { [screen = f.screen] in screen.windows }
+        #expect(f.recorder.releases == [["restoreFinished"], []], "content showing is not loaded-idle")
+        try await f.quietClock.waitForSleeper()
+        f.quietClock.advance(by: VisiblePaneRefs.quietPeriod)
+        try await f.quietClock.waitForSleeper()
+        #expect(f.refs.pendingPanes == ["t"], "the first quiet read only notes the output")
+        f.quietClock.advance(by: VisiblePaneRefs.quietPeriod - .milliseconds(1))
+        #expect(f.refs.pendingPanes == ["t"])
+        f.quietClock.advance(by: .milliseconds(1))
+        await f.recorder.released(count: 2)
+        #expect(f.recorder.releases == [["restoreFinished"], ["visiblePaneLoadedIdle"]])
+        #expect(f.quietClock.sleeperCount == 0, "the quiet reads end with the last pane")
+        #expect(!f.bound.isScheduled)
+    }
+
+    /// Output during the quiet period starts it again: the pane waits for a period with none.
+    @Test func outputDuringTheQuietPeriodKeepsThePaneLoading() async throws {
+        let f = PaneRefsFixture()
+        f.screen.show([Pane(key: "t", state: .shown(output: 1))])
+        f.refs.restoreFinished { [screen = f.screen] in screen.windows }
+        try await f.quietClock.waitForSleeper()
+        f.quietClock.advance(by: VisiblePaneRefs.quietPeriod)
+        try await f.quietClock.waitForSleeper()
+        f.screen.show([Pane(key: "t", state: .shown(output: 2))])  // output came
+        f.quietClock.advance(by: VisiblePaneRefs.quietPeriod)
+        try await f.quietClock.waitForSleeper()
+        #expect(f.refs.pendingPanes == ["t"], "output since the last read: not quiet")
+        f.quietClock.advance(by: VisiblePaneRefs.quietPeriod)
+        await f.recorder.released(count: 2)
+        #expect(f.recorder.lastReason == "visiblePaneLoadedIdle")
+    }
+
+    /// A terminal that never stops writing holds startup only to the bound.
+    @Test func aPaneThatNeverGoesQuietTimesOutAtTheBound() async throws {
+        let f = PaneRefsFixture()
+        let output = TerminalOutput()
+        f.refs.restoreFinished { [output] in
+            output.count += 1  // each read sees new output
+            return [Window(id: "w", content: .workspace(onScreen: [Pane(key: "t", state: .shown(output: output.count))], layoutPanes: 1))]
+        }
+        for _ in 0..<3 {
+            try await f.quietClock.waitForSleeper()
+            f.quietClock.advance(by: VisiblePaneRefs.quietPeriod)
+        }
+        #expect(f.refs.pendingPanes == ["t"])
+        try await f.clock.waitForSleeper()
+        f.clock.advance(by: VisiblePaneRefs.paneBound)
+        await f.recorder.released(count: 2)
+        #expect(f.recorder.releases == [["restoreFinished"], ["visiblePaneTimedOut"]])
+    }
+
+    /// Every visible pane hides (the window minimized): the panes keep their refs and the bound starts
+    /// again; at its end with nothing visible they release as not visible.
+    @Test func theBoundStartsAgainWhenEveryVisiblePaneHides() async throws {
+        let f = PaneRefsFixture()
+        f.screen.show([Pane(key: "a", state: .loading)])
+        f.refs.restoreFinished { [screen = f.screen] in screen.windows }
+        try await f.clock.waitForSleeper()
+        f.clock.advance(by: .seconds(4))
+        f.screen.windows = []  // the window was minimized
+        await f.sleepRequests(f.clock, count: 2)
+        #expect(f.refs.pendingPanes == ["a"], "a hidden pane keeps its ref")
+        #expect(f.recorder.releases == [["restoreFinished"], []])
+        f.clock.advance(by: .seconds(4))
+        #expect(f.refs.pendingPanes == ["a"], "the first bound's end passed: the bound started again at the hide")
+        f.clock.advance(by: .seconds(1))
+        await f.recorder.released(count: 2)
+        #expect(f.recorder.releases == [["restoreFinished"], ["noVisiblePane"]])
+        #expect(!f.refs.isHolding)
+    }
+
+    /// A pane shown again gets a whole bound: its hidden time was not load time.
+    @Test func aPaneShownAgainGetsAWholeBound() async throws {
+        let f = PaneRefsFixture()
+        f.screen.show([Pane(key: "a", state: .loading)])
+        f.refs.restoreFinished { [screen = f.screen] in screen.windows }
+        try await f.clock.waitForSleeper()
+        f.clock.advance(by: .seconds(1))
+        f.screen.windows = []
+        await f.sleepRequests(f.clock, count: 2)
+        f.clock.advance(by: .seconds(3))
+        f.screen.show([Pane(key: "a", state: .loading)])
+        await f.sleepRequests(f.clock, count: 3)
+        f.clock.advance(by: VisiblePaneRefs.paneBound - .milliseconds(1))
+        #expect(f.refs.pendingPanes == ["a"])
+        f.clock.advance(by: .milliseconds(1))
+        await f.recorder.released(count: 2)
+        #expect(f.recorder.releases == [["restoreFinished"], ["visiblePaneTimedOut"]])
+    }
+
+    /// One pane of several leaving is not every pane hiding: it releases at once.
+    @Test func aPaneThatLeavesWhileAnotherShowsReleasesAtOnce() async {
+        let f = PaneRefsFixture()
+        f.screen.show([Pane(key: "a", state: .loading), Pane(key: "b", state: .loading)])
+        f.refs.restoreFinished { [screen = f.screen] in screen.windows }
+        f.screen.show([Pane(key: "b", state: .loading)])
+        await f.recorder.released(count: 2)
+        #expect(f.recorder.releases == [["restoreFinished"], ["noVisiblePane"], []])
+        #expect(f.refs.pendingPanes == ["b"])
     }
 
     /// The phase's restore and visible-page references are marked before the release that ends them,
@@ -293,22 +400,36 @@ import Testing
 private typealias Pane = VisiblePaneRefs.Pane
 private typealias Window = VisiblePaneRefs.Window
 
-/// A pane refs object on a manual bound clock and a recording `hold`.
+/// A pane refs object on manual bound and quiet clocks and a recording `hold`.
 @MainActor
 private final class PaneRefsFixture {
     let clock: ManualClock
+    let quietClock: ManualClock
     let recorder: RefRecorder
     let screen = FakeScreen()
     let bound: DemandTimer
     let refs: VisiblePaneRefs
 
     init(phase: StartupPhase? = nil) {
-        let clock = ManualClock(), recorder = RefRecorder(phase: phase)
+        let clock = ManualClock(), quietClock = ManualClock(), recorder = RefRecorder(phase: phase)
         let bound = DemandTimer(owner: "test.bound", clock: clock, ledger: WakeupLedger())
         self.clock = clock
+        self.quietClock = quietClock
         self.recorder = recorder
         self.bound = bound
-        refs = VisiblePaneRefs(hold: { name in recorder.hold(name) }, phase: phase, bound: bound)
+        refs = VisiblePaneRefs(hold: { name in recorder.hold(name) }, phase: phase, bound: bound,
+                               quiet: DemandTimer(owner: "test.quiet", clock: quietClock, ledger: WakeupLedger()))
+    }
+
+    /// Returns once `clock` was asked for `count` sleeps in all: a timer started again from a later main turn
+    /// (a pane read after a change) has fixed its new deadline.
+    func sleepRequests(_ clock: ManualClock, count: Int) async {
+        var turns = 0
+        while clock.sleepRequests.count < count, turns < 10_000 {
+            turns += 1
+            await Task.yield()
+        }
+        #expect(clock.sleepRequests.count == count)
     }
 }
 
@@ -328,7 +449,7 @@ private final class CompletionFixture {
         let phase = StartupPhase(clock: phaseClock, ledger: WakeupLedger())
         let mainWork = MainWorkScheduler.testing(clock: ManualClock(), ledger: WakeupLedger(), startup: phase) { _ in TestLink() }
         let startup = StartupScheduler(mainWork: mainWork, background: BackgroundWork(label: "test.visible-pane-refs"),
-                                       clock: ManualClock(), ledger: WakeupLedger(), log: StartupTaskLog())
+                                       firstIdle: .atRegistration, clock: ManualClock(), ledger: WakeupLedger(), log: StartupTaskLog())
         self.phaseClock = phaseClock
         self.boundClock = boundClock
         self.startup = startup
@@ -401,6 +522,12 @@ private final class FakeScreen {
 @MainActor
 private final class TerminalContent {
     var hasContent = false
+}
+
+/// A terminal's output count, not observable (`TerminalSession.contentCount`).
+@MainActor
+private final class TerminalOutput {
+    var count: UInt64 = 0
 }
 
 /// A one-shot paint signal, as `PageWebView.whenPainted` gives.

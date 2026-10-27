@@ -35,14 +35,16 @@ public final class StartupTestScheduler {
     ///   - input: The budget's pending-input source (a test that holds work behind input passes its own).
     ///   - criticalAllowlist: The names a critical post may have.
     ///   - background: The lanes (a test that raises a fence on them passes its own).
+    ///   - firstIdle: The main loop's first idle (default: the registration, so ``complete()`` needs no run loop).
     public init(phase: StartupPhase = .settled(), input: any InputPendingSource = NoInputPending(),
                 criticalAllowlist: [StaticString] = StartupScheduler.criticalAllowlist,
-                background: BackgroundWork = BackgroundWork(label: "test.startup")) {
+                background: BackgroundWork = BackgroundWork(label: "test.startup"),
+                firstIdle: StartupFirstIdle = .atRegistration) {
         let clock = ManualClock(), hand = StartupTestHop(), uptime = StartupTestUptime()
         let mainWork = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: { uptime.now }),
                                                  clock: ManualClock(), ledger: WakeupLedger(), startup: phase) { _ in StartupTestLink() }
         (self.clock, self.hand, self.uptime, self.mainWork, self.background) = (clock, hand, uptime, mainWork, background)
-        startup = StartupScheduler(mainWork: mainWork, background: background, hop: hand.hop, clock: clock,
+        startup = StartupScheduler(mainWork: mainWork, background: background, hop: hand.hop, firstIdle: firstIdle, clock: clock,
                                    ledger: WakeupLedger(), criticalAllowlist: criticalAllowlist, log: StartupTaskLog())
     }
 

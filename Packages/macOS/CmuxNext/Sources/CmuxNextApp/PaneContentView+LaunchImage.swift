@@ -103,18 +103,23 @@ extension VisiblePaneRefs {
         return .workspace(onScreen: onScreen.map { Pane(key: $0.paneKey, state: state(of: $0)) }, layoutPanes: content.modelPanes.count)
     }
 
-    /// A pane's content signal: a terminal's first content, a page's first load ended, an agent or page
-    /// tab's first paint (task 105 makes each loaded-idle). A placeholder, a notice and a conversation are
-    /// native views with nothing left to load: they show whole when selected.
+    /// A pane's loaded-idle signal (p08-startup task 105): a terminal shows its content (its frame draws within two
+    /// display ticks, inside the quiet period) and then gets no output for `VisiblePaneRefs.quietPeriod`; a page's
+    /// load ended; an agent or page tab painted. A
+    /// placeholder, a notice and a conversation are native views with nothing left to load: they show
+    /// whole when selected.
     func state(of pane: PaneController) -> PaneState {
         guard pane.stripModel.selectedID != nil else { return .loadedIdle }
-        let loaded: Bool = switch pane.currentContent {
-        case nil: false
-        case .terminal(let entry)?: !pane.showsLiveTerminal || entry.session.hasContent
-        case .browser(let entry)?: entry.tab is DeferredBrowserTab || entry.tab is HibernatedBrowserTab || entry.tab.state.launchLoadEnded
-        case .agent(let view)?: view.model.hasPainted
-        case .page(let view)?: state(of: view) == .loadedIdle
-        case .placeholder?, .notice?, .conversation?: true
+        let loaded: Bool
+        switch pane.currentContent {
+        case nil: loaded = false
+        case .terminal(let entry)?:
+            guard pane.showsLiveTerminal else { return .loadedIdle }
+            return entry.session.hasContent ? .shown(output: entry.session.contentCount) : .loading
+        case .browser(let entry)?: loaded = entry.tab is DeferredBrowserTab || entry.tab is HibernatedBrowserTab || entry.tab.state.launchLoadEnded
+        case .agent(let view)?: loaded = view.model.hasPainted
+        case .page(let view)?: loaded = state(of: view) == .loadedIdle
+        case .placeholder?, .notice?, .conversation?: loaded = true
         }
         return loaded ? .loadedIdle : .loading
     }

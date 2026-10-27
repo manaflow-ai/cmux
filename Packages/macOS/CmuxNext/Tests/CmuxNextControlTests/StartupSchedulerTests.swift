@@ -437,6 +437,64 @@ import Testing
                 "released at completion, it ran before quit; nothing queued at quit or posted after it runs")
     }
 
+    // MARK: Task 105: Chrome's StartupObserver completion rules
+
+    /// The main loop's first idle after registration is a ref (Chrome's `RecordBrowserMainLoopFirstIdle`):
+    /// registration and the first frame alone do not complete startup.
+    @Test func theFirstIdleAfterRegistrationIsARef() {
+        let idle = HandFirstIdle()
+        let f = StartupFixture(firstIdle: idle.seam)
+        f.startup.post(.afterStartup, "Palette.prepare", on: .main) { [ran = f.ran] in ran.names.append("Palette.prepare") }
+        #expect(!idle.isArmed, "the first idle counts from the registration")
+        f.complete()
+        #expect(idle.isArmed)
+        #expect(f.startup.completion == nil)
+        #expect(f.startup.heldRefs == ["Startup.firstIdle"])
+        f.fire()
+        #expect(f.ran.names.isEmpty)
+        idle.fire()
+        #expect(f.startup.completion == nil, "posted, never inline")
+        f.hand.drain()
+        #expect(f.startup.completion?.reason == .firstIdle)
+        f.fire()
+        #expect(f.ran.names == ["Palette.prepare"])
+    }
+
+    /// A quit 100 ms after launch: the person quits before the launch completed. No afterStartup task runs,
+    /// on main or on a lane, and the completion never fires, whatever is released after.
+    @Test func aQuitBeforeCompletionRunsNoAfterStartupTask() async {
+        let idle = HandFirstIdle()
+        let f = StartupFixture(firstIdle: idle.seam)
+        f.startup.post(.afterStartup, "Palette.prepare", on: .main) { [ran = f.ran] in ran.names.append("Palette.prepare") }
+        f.startup.post(.afterStartup, "Launch.cleanup", on: .lane(.files, .bestEffort)) { [ran = f.laneRan] in ran.add("Launch.cleanup") }
+        var completed = false
+        f.startup.whenComplete { _ in completed = true }
+        f.complete()
+        f.startup.beginQuit()
+        idle.fire()
+        f.hand.drain()
+        for _ in 0..<3 { f.fire() }
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            f.background.post(.bestEffort, mayBlock: .files) { done.resume() }
+        }
+        #expect(f.ran.names.isEmpty)
+        #expect(f.laneRan.names.isEmpty)
+        #expect(f.startup.completion == nil)
+        #expect(!completed)
+        #expect(f.startup.log.phase == .quitting)
+    }
+
+    /// A quit that holds startup while it decides and is then cancelled ends its hold with its own reason.
+    @Test func aCancelledQuitsHoldEndsWithQuitCancelled() {
+        let f = StartupFixture()
+        let deciding = f.startup.hold("Quit.deciding")
+        f.complete()
+        #expect(f.startup.completion == nil, "a quit deciding holds startup")
+        deciding.release(.quitCancelled)
+        f.hand.drain()
+        #expect(f.startup.completion?.reason == .quitCancelled)
+    }
+
     @Test func noFailsafeTimerOutlivesCompletion() async throws {
         let f = StartupFixture()
         try await f.clock.waitForSleeper()
@@ -462,14 +520,17 @@ private final class StartupFixture {
     var background: BackgroundWork { scheduler.background }
     var startup: StartupScheduler { scheduler.startup }
 
-    /// - Parameter phase: The launch phase of the frame scheduler (default: already settled, so the
-    ///   scheduler arms its own failsafe on `clock`).
-    init(phase: StartupPhase = .settled()) {
+    /// - Parameters:
+    ///   - phase: The launch phase of the frame scheduler (default: already settled, so the scheduler
+    ///     arms its own failsafe on `clock`).
+    ///   - firstIdle: The main loop's first idle (default: the registration).
+    init(phase: StartupPhase = .settled(), firstIdle: StartupFirstIdle = .atRegistration) {
         let input = StartupTestInput()
         self.input = input
         // One files slot per priority, so an item that holds it queues the posts behind it.
         scheduler = StartupTestScheduler(phase: phase, input: input, criticalAllowlist: ["Theme.apply", "Settings.read"],
-                                         background: BackgroundWork(filesWidths: .serial, label: "test.startup"))
+                                         background: BackgroundWork(filesWidths: .serial, label: "test.startup"),
+                                         firstIdle: firstIdle)
     }
 
     /// One display frame, 17 ms after the last.
@@ -477,6 +538,25 @@ private final class StartupFixture {
 
     /// Releases both implicit refs and runs the posted completion.
     func complete() { scheduler.complete() }
+}
+
+/// A main loop's first idle the test reports by hand.
+@MainActor
+private final class HandFirstIdle {
+    private var waiting: (@MainActor () -> Void)?
+
+    /// The seam to give the scheduler.
+    var seam: StartupFirstIdle { StartupFirstIdle { [self] idle in waiting = idle } }
+
+    /// The scheduler waits for the first idle.
+    var isArmed: Bool { waiting != nil }
+
+    /// The main loop went idle.
+    func fire() {
+        let idle = waiting
+        waiting = nil
+        idle?()
+    }
 }
 
 /// The names the tasks ran, in order.

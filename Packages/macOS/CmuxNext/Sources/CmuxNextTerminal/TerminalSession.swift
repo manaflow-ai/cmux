@@ -146,6 +146,8 @@ public final class TerminalSession {
     /// True once the current surface received a replay or output; a later
     /// replay then needs a fresh surface.
     private(set) var surfaceHasContent = false
+    /// How many times content reached a live surface: the launch's output count (`VisiblePaneRefs.PaneState.shown`).
+    public private(set) var contentCount: UInt64 = 0
     let frameHold = TerminalFrameHold()
     /// READY snapshots restored in place, and surfaces swapped in for a later VT replay (diagnostics: a snapshot attach never swaps).
     private(set) var restoredSnapshots = 0
@@ -371,6 +373,7 @@ public final class TerminalSession {
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contentOnMain(session: ObjectIdentifier(self)) }
         #endif
         surfaceHasContent = true
+        contentCount &+= 1
         frameHold.contentQueued()
         TerminalTimings.contentApplied()
     }

@@ -29,6 +29,9 @@ final class QuitCoordinator {
     private(set) var failureAlert: QuitFailureAlert?
     /// A quit is in progress (deciding, asking or completing).
     private(set) var isQuitting = false
+    /// While a quit decides during the launch, startup does not complete (p08-startup task 105): a decided
+    /// quit ends the launch's scheduler (`beginQuit`), a cancelled one releases this.
+    private var launchHold: StartupInProgressRef?
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
     /// The browser tabs that held Secure Input as this quit began, before any dialog took the keyboard: they leave
@@ -88,6 +91,7 @@ final class QuitCoordinator {
             return .terminateLater
         }
         isQuitting = true
+        launchHold = services.launchStartup?.hold("Quit.deciding")
         secureInputPages = services.cache.secureInputPages()
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
@@ -110,11 +114,7 @@ final class QuitCoordinator {
         // question is the quit's one dialog: the sessions are not asked
         // about after it (#17501).
         let askedUnsaved = origin == .interactive && !unsaved.unsaved().isEmpty
-        guard await resolveUnsaved(origin) else {
-            isQuitting = false
-            sender.reply(toApplicationShouldTerminate: false)
-            return
-        }
+        guard await resolveUnsaved(origin) else { return cancelQuit(sender) }
         let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
         switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: askedUnsaved) {
         case .quit(let choice):
@@ -147,8 +147,7 @@ final class QuitCoordinator {
             self.sheet = nil
             switch answer {
             case .cancel:
-                self.isQuitting = false
-                sender.reply(toApplicationShouldTerminate: false)
+                self.cancelQuit(sender)
             case .quit(let choice, let remember):
                 // The rest of the person's answer, as above: it drains BackgroundWork itself.
                 self.services.work.task(.userBlocking, shutdown: .continueOnShutdown) { [self, services = self.services] in
@@ -161,9 +160,21 @@ final class QuitCoordinator {
         sheet.present(in: sheetWindow())
     }
 
+    /// The quit was cancelled (an unsaved document kept, the dialog's Cancel): the app stays, and a launch it
+    /// held completes again.
+    private func cancelQuit(_ sender: NSApplication) {
+        isQuitting = false
+        launchHold?.release(.quitCancelled)
+        launchHold = nil
+        sender.reply(toApplicationShouldTerminate: false)
+    }
+
     private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
         logger.info("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
         let services = services, secureInputPages = secureInputPages
+        // The quit is decided: no launch task held for after startup runs now (Chrome drops after-startup tasks at shutdown).
+        services.launchStartup?.beginQuit()
+        launchHold = nil
         // Sparkle installs a staged update as the app exits unless
         // `updates.installOnQuit` is off (then its installer is cancelled now).
         services.updater.prepareForQuit()

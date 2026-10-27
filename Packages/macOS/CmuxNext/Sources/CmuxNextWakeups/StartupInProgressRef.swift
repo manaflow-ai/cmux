@@ -1,7 +1,7 @@
 /// One reason startup is not complete yet (Chrome's `StartupInProgressRef`,
 /// chrome/browser/after_startup_task_utils.cc): ``StartupScheduler`` completes when every ref,
-/// its two implicit ones included (registration and the first frame), is released, or when its
-/// failsafe fires.
+/// its implicit ones included (registration, the first frame and the first idle), is released, or
+/// when its failsafe fires.
 ///
 /// Release a ref exactly once, with the reason it ends; a second release does nothing. A ref that
 /// is never released holds startup until the failsafe, which records the reason `failsafe`, so a
@@ -65,6 +65,11 @@ public final class StartupInProgressRef {
         /// The session restore ended with each visible pane holding its own ref (`VisiblePaneRefs`), so
         /// it is never the last release.
         case restoreFinished
+        /// The main run loop went idle for the first time after registration (``StartupScheduler/finishRegistration()``,
+        /// Chrome's `RecordBrowserMainLoopFirstIdle`).
+        case firstIdle
+        /// A quit that held startup while it decided was cancelled (the person kept the app open).
+        case quitCancelled
 
         public var description: String { rawValue }
     }
