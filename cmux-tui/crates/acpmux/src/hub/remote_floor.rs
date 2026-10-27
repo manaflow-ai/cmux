@@ -44,6 +44,9 @@ pub(crate) struct FloorState {
     /// check counts it as full access until the end succeeds or a new host starts (review 51 of
     /// #23322).
     pub(super) full_access_end_pending: AtomicBool,
+    /// The turn MDM's off ended with its agent (`end_managed_full_access`): it ends as a stop's
+    /// does, leaving the chat idle (review 2 of #26034).
+    pub(super) ended_turn: StdMutex<Option<String>>,
     /// The agent process holds a lasting grant a client gave it ("allow
     /// always"): Web control ends until the agent exits (`web_control.rs`).
     pub(super) harness_grant: AtomicBool,

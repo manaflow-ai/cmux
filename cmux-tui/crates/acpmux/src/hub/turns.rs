@@ -833,6 +833,11 @@ impl Hub {
             session.meta.lock().unwrap().unread = true;
         }
         if session.status() != SessionStatus::Closed {
+            // A turn MDM's off ended with its agent leaves the chat idle (review 2 of #26034).
+            let ended = {
+                let mut ended = session.floor.ended_turn.lock().unwrap_or_else(|e| e.into_inner());
+                ended.take_if(|t| t.as_str() == turn_id).is_some()
+            };
             let alive = child.is_alive().await;
             // A subagent or background shell still waiting on the person
             // keeps the chat waiting after its turn (cx-jo8yo). The lock is
@@ -842,10 +847,11 @@ impl Hub {
             let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
             self.set_status(
                 session,
-                match (alive, asking) {
-                    (false, _) => SessionStatus::Disconnected,
-                    (true, true) => SessionStatus::Waiting,
-                    (true, false) => SessionStatus::Ready,
+                match (ended, alive, asking) {
+                    (true, _, _) => SessionStatus::Idle,
+                    (false, false, _) => SessionStatus::Disconnected,
+                    (false, true, true) => SessionStatus::Waiting,
+                    (false, true, false) => SessionStatus::Ready,
                 },
             );
             drop(state);

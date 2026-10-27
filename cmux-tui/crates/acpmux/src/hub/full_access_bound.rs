@@ -245,10 +245,13 @@ impl Hub {
         self.full_access_managed() == Some(false)
     }
 
-    /// Whether MDM forces full access off while `session`'s agent runs in it (`runs_full_access`).
+    /// Whether MDM forces full access off while `session`'s agent runs in it (`runs_full_access`)
+    /// or its end is pending (`full_access_end_pending`): `child_for` then hands it out only
+    /// through `ensure_child`, which ends it first (review 2 of #26034).
     pub(super) fn managed_off_runs_full_access(&self, session: &Session) -> bool {
         self.full_access_managed_off()
-            && runs_full_access(&FullAccessView::of_session(session)).is_some()
+            && (session.floor.full_access_end_pending.load(Ordering::SeqCst)
+                || runs_full_access(&FullAccessView::of_session(session)).is_some())
     }
 
     /// Refuses to start an agent from a profile that pins full access in its argv while MDM
@@ -405,11 +408,26 @@ impl Hub {
     /// (`FullAccessEnd::StillRunning`, review 51 of #23322). So does one whose host records
     /// cannot be read (`host_record_gone`, review 66).
     pub(super) async fn end_managed_full_access(&self, session: &Session) -> FullAccessEnd {
-        let child = session.child.lock().await.take();
+        // Bounded, as the spawn lock's wait is (review 2 of #26034): a stop that holds the agent
+        // slot while its agent ends keeps no push waiting. The end stays pending, tried again.
+        let wait = super::shutdown::SHUTDOWN_GRACE * 2;
+        let Ok(mut slot) = tokio::time::timeout(wait, session.child.lock()).await else {
+            tracing::warn!(session = %session.id, "MDM forces full access off: its agent is busy stopping; its end is tried again");
+            session.floor.full_access_end_pending.store(true, Ordering::SeqCst);
+            self.idle_wake.notify_one();
+            return FullAccessEnd::StillRunning;
+        };
+        let child = slot.take();
+        drop(slot);
         let ended = child.is_some() || !Self::host_record_gone(&session.id);
         if child.is_some() {
-            // Ended on purpose, as a stop is (review 1 of #26034): its exit leaves the chat idle,
-            // not disconnected, and the next prompt starts an agent under the bound.
+            // Ended on purpose, as a stop is (reviews 1 and 2 of #26034): its turn gets no
+            // continuation, nothing it asked stays asking, and its exit and its turn's end leave
+            // the chat idle, not disconnected. The next prompt starts an agent under the bound.
+            *session.floor.ended_turn.lock().unwrap_or_else(|e| e.into_inner()) =
+                session.turn().map(|t| t.turn_id);
+            self.stop_auto_resume(session);
+            self.cancel_pending_permissions(session);
             self.idle_unless_closed(session);
         }
         if let Some(child) = child {
