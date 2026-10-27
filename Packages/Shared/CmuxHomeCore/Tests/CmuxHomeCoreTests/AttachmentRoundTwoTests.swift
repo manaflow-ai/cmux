@@ -450,6 +450,33 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         #expect(!fm.fileExists(atPath: stale.path))
     }
 
+    /// p14-energy-067b: a prepare that starts right after `start` (a share
+    /// handed over at launch) makes the start pass skip; that prepare then
+    /// fails and arms nothing. The skipped pass arms one prune, and it
+    /// deletes the stale blob `blobCachePruneInterval` later.
+    @MainActor @Test func aStartPassSkippedByARunningPrepareStaysDue() async throws {
+        let root = try temporaryDirectory()
+        let fm = FileManager.default
+        let clock = ManualClock()
+        let stale = root.appendingPathComponent("stale", isDirectory: true)
+        try fm.createDirectory(at: stale, withIntermediateDirectories: true)
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-10 * 86_400)], ofItemAtPath: stale.path)
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root, clock: clock)
+        // The prepare is running before the start pass gets the main actor.
+        store.preparing += 1
+        store.start()
+        defer { store.stop() }
+        await waitUntil { clock.pendingSleepers == 1 }
+        #expect(clock.pendingSleepers == 1, "the skipped start pass arms one prune")
+        #expect(fm.fileExists(atPath: stale.path), "the start pass skips while a prepare runs")
+        // That prepare throws: it never calls scheduleBlobCachePrune.
+        store.preparing -= 1
+
+        clock.advance(by: HomeStore.blobCachePruneInterval)
+        await waitUntil { !fm.fileExists(atPath: stale.path) }
+        #expect(!fm.fileExists(atPath: stale.path))
+    }
+
     /// p14-energy-067b: a store that prepares nothing never wakes to prune
     /// (it pruned at `start`; only a prepare grows the cache). The periodic
     /// prune loop kept a 6 h sleeper armed for the store's whole life.

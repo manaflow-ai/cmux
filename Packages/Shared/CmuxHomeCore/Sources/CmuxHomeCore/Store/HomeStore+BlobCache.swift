@@ -15,22 +15,17 @@ extension HomeStore {
         // task-owner: the one prune due after the cache grew; `stop` cancels it
         pruneDeadline = Task { [weak self] in
             // wakeup-allow: deadline one prune `blobCachePruneInterval` after a prepare grew the cache; armed
-            // again only by the next prepare after it ran, or by this task when a prepare made it skip
+            // again only by the next prepare after it ran, or by a pass a running prepare made skip
             do { try await clock.sleep(for: interval, tolerance: HomeWakeLeeway(delay: interval).tolerance) } catch { return }
             guard let self, !self.stopped else { return }
             self.pruneDeadline = nil
-            // A running prepare makes the pass skip and may fail without arming
-            // another one: the prune stays due.
-            guard self.preparing == 0 else {
-                self.scheduleBlobCachePrune()
-                return
-            }
             await self.pruneBlobCache()
         }
     }
 
     /// Prunes the blob cache (at `start`, then `blobCachePruneInterval`
-    /// after a prepare grew it): temp files left by a crash,
+    /// after a prepare grew it or after a running prepare made a pass
+    /// skip): temp files left by a crash,
     /// blobs older than `blobCacheMaxAge`, then the least recently used
     /// blobs over `blobCacheMaxBytes`. Never deletes a blob that a pending
     /// send or this session's prepared attachments use.
@@ -39,9 +34,12 @@ extension HomeStore {
             await running.value
             return
         }
-        // A prepare may be reusing a blob it has not registered yet: the
-        // next pass prunes.
-        guard preparing == 0 else { return }
+        // A prepare may be reusing a blob it has not registered yet, and it
+        // may fail without arming a prune: the skipped pass stays due.
+        guard preparing == 0 else {
+            scheduleBlobCachePrune()
+            return
+        }
         var keep = Set<String>()
         func add(_ ref: AttachmentRef) {
             keep.insert(ref.hash)
