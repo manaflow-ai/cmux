@@ -14,11 +14,11 @@ import Testing
     /// A frame source whose frames come only when the test calls ``frame()``.
     @MainActor final class ManualFrames: FrameTickSource {
         @MainActor final class Stream: FrameTickStream {
-            let onFrame: @MainActor () -> Bool
+            let onFrame: @MainActor @Sendable () -> Bool
             private(set) var running = false
             private(set) var starts = 0
             private(set) var restarts = 0
-            init(onFrame: @escaping @MainActor () -> Bool) { self.onFrame = onFrame }
+            init(onFrame: @escaping @MainActor @Sendable () -> Bool) { self.onFrame = onFrame }
             func start() {
                 starts += 1
                 running = true
@@ -39,7 +39,7 @@ import Testing
 
         private(set) var streams: [(view: NSView, stream: Stream)] = []
 
-        func frames(for view: NSView, onFrame: @escaping @MainActor () -> Bool) -> any FrameTickStream {
+        func frames(for view: NSView, onFrame: @escaping @MainActor @Sendable () -> Bool) -> any FrameTickStream {
             let stream = Stream(onFrame: onFrame)
             streams.append((view, stream))
             return stream

@@ -20,7 +20,7 @@ final class HomeFrameTicks: FrameTickSource {
         self.scheduler = scheduler
     }
 
-    func frames(for view: NSView, onFrame: @escaping @MainActor () -> Bool) -> any FrameTickStream {
+    func frames(for view: NSView, onFrame: @escaping @MainActor @Sendable () -> Bool) -> any FrameTickStream {
         let resolve = scheduler
         let client = FrameClient(owner: Self.owner, isAnimation: false, rate: .motion,
                                  scheduler: { [weak view] in view.map(resolve) ?? .app }) { _ in onFrame() }
