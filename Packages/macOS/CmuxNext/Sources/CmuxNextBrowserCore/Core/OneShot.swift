@@ -1,16 +1,19 @@
 package import Foundation
 package import CmuxNextCompat
+package import class CmuxSafeConcurrency.OnceContinuation
+package import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One value, delivered once, to one waiter that may be cancelled: the
 /// wait ends with `cancelled` when its task is cancelled, so no
 /// continuation outlives the work that waits on it.
 public nonisolated final class OneShot<Value: Sendable>: Sendable {
     private struct State {
-        package var continuation: CheckedContinuation<Value, Never>?
+        package var continuation: OnceContinuation<Value, OnceContinuationError>?
         package var value: Value?
         package var resolved = false
 
-        package init(continuation: CheckedContinuation<Value, Never>? = nil, value: Value? = nil, resolved: Bool = false) {
+        package init(continuation: OnceContinuation<Value, OnceContinuationError>? = nil, value: Value? = nil, resolved: Bool = false) {
             self.continuation = continuation
             self.value = value
             self.resolved = resolved
@@ -21,16 +24,20 @@ public nonisolated final class OneShot<Value: Sendable>: Sendable {
 
     public init() {}
 
-    /// The resolved value, or `cancelled` once the waiting task is cancelled.
+    /// The resolved value, or `cancelled` once the waiting task is cancelled (or the wait was dropped).
     public func wait(cancelled: Value) async -> Value {
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Value, Never>) in
-                let early = state.withLock { state -> Value? in
-                    if state.resolved { return state.value }
-                    state.continuation = continuation
-                    return nil
+            do {
+                return try await withOnceContinuation { (continuation: OnceContinuation<Value, OnceContinuationError>) in
+                    let early = state.withLock { state -> Value? in
+                        if state.resolved { return state.value }
+                        state.continuation = continuation
+                        return nil
+                    }
+                    if let early { continuation.resume(returning: early) }
                 }
-                if let early { continuation.resume(returning: early) }
+            } catch {
+                return cancelled
             }
         } onCancel: {
             resolve(cancelled)
@@ -42,7 +49,7 @@ public nonisolated final class OneShot<Value: Sendable>: Sendable {
 
     /// Delivers `value`; later calls do nothing.
     public func resolve(_ value: Value) {
-        let waiting = state.withLock { state -> CheckedContinuation<Value, Never>? in
+        let waiting = state.withLock { state -> OnceContinuation<Value, OnceContinuationError>? in
             guard !state.resolved else { return nil }
             state.resolved = true
             state.value = value

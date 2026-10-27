@@ -28,7 +28,7 @@ public nonisolated struct FeatureOverrides: Sendable, Equatable {
     public var environmentEnabled: Set<String>
     /// The signed remote document's values, already filtered by safe mode (step 4).
     public var remote: [String: Bool]
-    /// The Nightly field-trial arms (step 5).
+    /// The field-trial arms (step 5): ``FieldTrials/values``, already filtered by channel and build.
     public var fieldTrial: [String: Bool]
 
     public init(

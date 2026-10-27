@@ -32,10 +32,10 @@
 //! one idle worker per task (`ThreadGroupImpl::EnsureEnoughWorkersLockRequired`),
 //! never all of them.
 
+use cmux_threads::sync::{Condvar, Mutex};
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering, fence};
-use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::diagnostics::{LockClassStats, LockClassesSnapshot};

@@ -1,6 +1,7 @@
 //! Unit tests for the surface module, split by topic under surface/tests/.
 //! This file holds the writers that the input and clear-history topics share.
 
+mod allocation_counter;
 mod attach_tap;
 mod byte_mirror;
 mod child_process;
@@ -18,6 +19,8 @@ mod lifecycle;
 #[cfg(unix)]
 mod local_resize_order;
 mod lock_order;
+#[cfg(unix)]
+mod read_loop;
 mod render_geometry;
 #[cfg(unix)]
 mod resize_audit;

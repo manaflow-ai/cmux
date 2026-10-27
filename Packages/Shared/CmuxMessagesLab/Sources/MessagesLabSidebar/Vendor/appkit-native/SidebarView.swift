@@ -111,7 +111,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// The palette, scale and color-space generation (tests).
     var renderGeneration: Int { generation }
     private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
-    private let cache = SidebarBitmapCache()
+    let cache = SidebarBitmapCache() // cmux: internal, the host sizes and trims it (Cmux/CmuxSidebarView+Memory.swift)
     let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
     private let textCache = SidebarTextCache()
     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)

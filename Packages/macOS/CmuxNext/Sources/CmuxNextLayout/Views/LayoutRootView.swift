@@ -49,8 +49,8 @@ public final class LayoutRootView: NSView {
     /// The pointer-move intercept held while a strip shows away from its laid-out place
     /// (``updatePointerLanding()``).
     private var pointerLanding: InputSubscription?
-    /// Key-window observers of the current window (`observeKeyWindow()`).
-    var keyWindowObservers: [any NSObjectProtocol] = []
+    /// Key-window subscriptions on the current window's ``WindowEvents`` (`observeKeyWindow()`).
+    var keyWindowObservers: [EventSubscription] = []
     private var lastSnapshot: Snapshot?
     /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
     private var appliedReveal: ColumnCenterRequest?
@@ -74,6 +74,10 @@ public final class LayoutRootView: NSView {
     var hoveredPane: PaneID?
     /// Delivers pointer moves for focus-follows-mouse (owner: self).
     private var hoverTrackingArea: NSTrackingArea?
+    /// Focus-follows-mouse's hover moves on the window's frames (``mouseMoved(with:)``).
+    private(set) lazy var hoverFocus = PointerFrameHover(owner: "LayoutRootView.focusFollowsMouse", view: self) { [weak self] point in
+        _ = self?.focusPaneForPointerHover(at: point)
+    }
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -245,7 +249,7 @@ public final class LayoutRootView: NSView {
             observationTask?.cancel()
             inputIntercept?.cancel()
             pointerLanding?.cancel()
-            for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
+            for subscription in keyWindowObservers { subscription.cancel() }
             driver.detach()
             motionTrace.endRun()
         }
@@ -259,12 +263,6 @@ public final class LayoutRootView: NSView {
         let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(area)
         hoverTrackingArea = area
-    }
-
-    override public func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        guard event.window === window else { return }
-        focusPaneForPointerHover(at: event.locationInWindow)
     }
 
     // MARK: Public API
@@ -691,6 +689,7 @@ public final class LayoutRootView: NSView {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        hoverFocus.frames = (window as? any HoverFrameInputHosting)?.hoverFrameInput
         setLive(isShown)
     }
 
@@ -761,8 +760,10 @@ extension LayoutRootView {
     /// or stops showing moved and when the root goes live, so a strip at rest costs pointer moves nothing.
     func updatePointerLanding() {
         let moved = isLive && screenViews.values.contains { $0.showsPanMoved }
-        if moved, pointerLanding == nil {
-            pointerLanding = inputTap?.subscribe(class: .pointerMove, phase: .intercept(order: .layout)) { [weak self] event in
+        if moved, pointerLanding == nil, let window {
+            // Scoped to the root's window (a live root leaves its window only through `setLive(false)`,
+            // which cancels this): another window's moves run no closure; its page windows' do, and pass.
+            pointerLanding = inputTap?.subscribe(class: .pointerMove, phase: .intercept(order: .layout), window: .window(window)) { [weak self] event in
                 if let self, event.window === self.window { self.landStripsWhereTheyShow() }
                 return .pass
             }

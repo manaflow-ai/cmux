@@ -18,9 +18,17 @@
 //! recovered (`orphan_hosts::recoverable`, cx-0tgl LC).
 //!
 //! The reaper uses the same pool to end several due terminals at once.
+//!
+//! The pool also owns the owner's one read loop ([`read_loop`]): every
+//! daemon-local PTY terminal's output is read there, not on a thread of its
+//! own.
 
 use super::*;
 
+#[cfg(unix)]
+pub(crate) mod read_loop;
+#[cfg(unix)]
+mod read_poller;
 #[cfg(any(unix, windows))]
 mod standby_host;
 
@@ -57,6 +65,9 @@ struct TerminalWorkState {
 /// dropped owner never joins a worker that holds its last reference.
 pub(crate) struct TerminalWorkPool {
     state: Arc<Mutex<TerminalWorkState>>,
+    /// The read loop of the owner's daemon-local PTY terminals.
+    #[cfg(unix)]
+    reads: read_loop::TerminalReads,
     /// The host process started ahead of the next new tab (R81, cap one).
     #[cfg(any(unix, windows))]
     standby: Arc<standby_host::StandbyHostSlot>,
@@ -69,6 +80,8 @@ impl TerminalWorkPool {
     pub(crate) fn new(memory: &Arc<crate::memory::DaemonMemory>) -> Self {
         Self {
             state: Arc::default(),
+            #[cfg(unix)]
+            reads: read_loop::TerminalReads::new(),
             #[cfg(any(unix, windows))]
             standby: standby_host::StandbyHostSlot::new(memory.clone()),
         }
@@ -191,6 +204,12 @@ impl PrelaunchedTerminal {
 }
 
 impl Mux {
+    /// The read loop every daemon-local PTY terminal of this owner reads on.
+    #[cfg(unix)]
+    pub(crate) fn terminal_reads(&self) -> &read_loop::TerminalReads {
+        &self.terminal_work.reads
+    }
+
     /// Queue `job` on the terminal work pool. Returns it when the pool is
     /// saturated, so the caller runs it inline.
     pub(crate) fn submit_terminal_work(

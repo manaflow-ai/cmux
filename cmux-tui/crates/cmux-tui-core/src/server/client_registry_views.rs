@@ -9,6 +9,7 @@ use super::ClientRegistry;
 use super::ClientSizeUpdate;
 use super::DaemonHandoffReservation;
 use super::DetachedSurface;
+use super::MessageWriter;
 use super::OutboundStream;
 use super::RETIRED_VIEW_LEASE_CAPACITY;
 use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
@@ -210,6 +211,31 @@ impl ClientRegistry {
             .map(|outbound| (stream, outbound)))
     }
 
+    /// The view lease of `client`'s attach stream `stream` on `surface`
+    /// (`Some(None)` for a view with no lease); `None` when that stream does
+    /// not view `surface`.
+    pub(super) fn stream_view(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: u64,
+    ) -> Option<Option<String>> {
+        let state = self.state.lock().recover_poison();
+        let attached = state.clients.get(&client)?.attached.get(&surface)?;
+        (attached.streams.contains_key(&stream) || attached.pending_streams.contains_key(&stream))
+            .then(|| attached.lease_by_stream.get(&stream).cloned())
+    }
+
+    /// The surface `client`'s attach stream `stream` views.
+    pub(super) fn stream_surface(&self, client: u64, stream: u64) -> Option<SurfaceId> {
+        let state = self.state.lock().recover_poison();
+        state.clients.get(&client)?.attached.iter().find_map(|(surface, attached)| {
+            (attached.streams.contains_key(&stream)
+                || attached.pending_streams.contains_key(&stream))
+            .then_some(*surface)
+        })
+    }
+
     pub(super) fn prepare_view_resize(
         &self,
         client: u64,
@@ -374,6 +400,26 @@ impl ClientRegistry {
                 record.retired_surfaces.remove(&expired);
             }
         }
+    }
+
+    /// The writer of `client` and every attach stream it holds on `surface`,
+    /// committed or pending: the views (leases) of one client that a kick of
+    /// its participant on this terminal ends.
+    pub(super) fn surface_view_streams(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+    ) -> Option<(MessageWriter, Vec<(u64, OutboundStream)>)> {
+        let state = self.state.lock().recover_poison();
+        let record = state.clients.get(&client)?;
+        let attached = record.attached.get(&surface)?;
+        let streams = attached
+            .streams
+            .iter()
+            .chain(&attached.pending_streams)
+            .map(|(stream, outbound)| (*stream, outbound.clone()))
+            .collect();
+        Some((record.writer.clone(), streams))
     }
 
     pub(super) fn detach_surface(

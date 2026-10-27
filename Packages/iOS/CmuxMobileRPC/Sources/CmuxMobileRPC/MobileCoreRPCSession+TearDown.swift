@@ -1,3 +1,6 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 // MobileCoreRPCSession's teardown: failing pending requests, closing the transport, and
@@ -5,8 +8,9 @@ import Foundation
 extension MobileCoreRPCSession {
     func tearDown(error: MobileShellConnectionError) async {
         if isTearingDown {
-            await withCheckedContinuation {
-                tearDownWaiters.append($0)
+            // A dropped waiter returns as a finished teardown does.
+            _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
+                tearDownWaiters.append(waiter)
             }
             return
         }
@@ -25,7 +29,7 @@ extension MobileCoreRPCSession {
             let waiters = tearDownWaiters
             tearDownWaiters.removeAll()
             for waiter in waiters {
-                waiter.resume()
+                waiter.resume(returning: ())
             }
         }
         let pendingSnapshot = pending

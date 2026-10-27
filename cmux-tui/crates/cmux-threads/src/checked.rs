@@ -189,36 +189,62 @@ pub mod sync {
         handle.join()
     }
 
+    /// A condition variable the checked waits take: std's or the timed
+    /// [`crate::sync::Condvar`]. A checked wait is judged at any length, so
+    /// it waits on the std condition variable directly.
+    pub trait AnyCondvar: sealed::Sealed {
+        /// The std condition variable to wait on.
+        fn std_condvar(&self) -> &Condvar;
+    }
+
+    mod sealed {
+        pub trait Sealed {}
+        impl Sealed for std::sync::Condvar {}
+        impl Sealed for crate::sync::Condvar {}
+    }
+
+    impl AnyCondvar for Condvar {
+        fn std_condvar(&self) -> &Condvar {
+            self
+        }
+    }
+
+    impl AnyCondvar for crate::sync::Condvar {
+        fn std_condvar(&self) -> &Condvar {
+            self.as_std()
+        }
+    }
+
     /// `Condvar::wait` ([`BlockingKind::CondvarWait`]).
     #[track_caller]
     pub fn wait<'a, T>(
-        condvar: &Condvar,
+        condvar: &impl AnyCondvar,
         guard: MutexGuard<'a, T>,
     ) -> LockResult<MutexGuard<'a, T>> {
         assert_blocking_allowed(BlockingKind::CondvarWait);
-        condvar.wait(guard)
+        condvar.std_condvar().wait(guard)
     }
 
     /// `Condvar::wait_while` ([`BlockingKind::CondvarWait`]).
     #[track_caller]
     pub fn wait_while<'a, T>(
-        condvar: &Condvar,
+        condvar: &impl AnyCondvar,
         guard: MutexGuard<'a, T>,
         condition: impl FnMut(&mut T) -> bool,
     ) -> LockResult<MutexGuard<'a, T>> {
         assert_blocking_allowed(BlockingKind::CondvarWait);
-        condvar.wait_while(guard, condition)
+        condvar.std_condvar().wait_while(guard, condition)
     }
 
     /// `Condvar::wait_timeout` ([`BlockingKind::CondvarWait`]).
     #[track_caller]
     pub fn wait_timeout<'a, T>(
-        condvar: &Condvar,
+        condvar: &impl AnyCondvar,
         guard: MutexGuard<'a, T>,
         timeout: Duration,
     ) -> LockResult<(MutexGuard<'a, T>, WaitTimeoutResult)> {
         assert_blocking_allowed(BlockingKind::CondvarWait);
-        condvar.wait_timeout(guard, timeout)
+        condvar.std_condvar().wait_timeout(guard, timeout)
     }
 
     /// `std::thread::sleep` ([`BlockingKind::Sleep`]).

@@ -7,7 +7,7 @@ pub(super) mod machine_catalog;
 
 use super::*;
 use crate::diagnostics::{LockCaller, LockCallerScope};
-use crate::event_cause::EventCause;
+use crate::event_cause::{EventCause, RequestPriority};
 use cmux_threads::work::{Lane, Priority, Shutdown};
 
 /// The caller class the lock acquisitions of `writer`'s connection count
@@ -96,8 +96,9 @@ pub(super) fn handle_connection_frame_at(
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
     }
     // An older client's line, upgraded to this daemon's API revision before
-    // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
-    let upgraded = writer.api_revision.upgrade_request(message);
+    // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise,
+    // and always for a frame (frames exist only at this revision).
+    let upgraded = writer.upgrade_request(message);
     let line = LineFrame {
         mux,
         client,
@@ -234,13 +235,17 @@ fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
     };
     // An envelope's `origin` claim may only narrow the cause, as it
     // only narrows the origin; the origin gate still checks the claim.
-    // The narrowed cause sets the class too: a claimed automation line
-    // runs at UTILITY here, as it would on the dispatcher.
+    // Its `priority` narrows the cause the same way and is never checked:
+    // it cannot raise anything. The narrowed cause sets the class too: a
+    // claimed or prioritized automation line runs at UTILITY here, as it
+    // would on the dispatcher.
     let request_qos = mux.request_qos();
-    let _claimed =
-        request.as_ref().ok().and_then(|envelope| envelope.origin.as_ref()).map(|claim| {
-            request_qos.enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
-        });
+    let _narrowed = request.as_ref().ok().and_then(|envelope| {
+        let claim = envelope.origin.as_ref().map(|claim| claim.claim.event_cause());
+        let priority = envelope.priority.map(RequestPriority::event_cause);
+        let narrowest = claim.into_iter().chain(priority).min()?;
+        Some(request_qos.enter(EventCause::current().narrowed_by(narrowest)))
+    });
     let arrival = RequestArrival::parsed_now(arrived);
     let mut span = match (page_span, &request) {
         (Some(span), _) => span,
@@ -584,6 +589,10 @@ pub(super) fn zeroize_string(value: &mut str) {
 #[cfg(test)]
 #[path = "event_cause_tests.rs"]
 mod event_cause_tests;
+
+#[cfg(test)]
+#[path = "request_priority_tests.rs"]
+mod request_priority_tests;
 
 #[cfg(all(test, unix))]
 mod dispatch_tests;

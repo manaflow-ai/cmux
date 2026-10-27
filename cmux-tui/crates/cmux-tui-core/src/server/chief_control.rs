@@ -78,8 +78,10 @@ pub(super) fn handle_with(
         Err(error) => return send_resource_response(writer, id, operation, Err(error)),
     };
     let line = tool_line(operation, &request.fields);
-    let (mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
-    let spawned = std::thread::Builder::new().name("mux-chief-control".into()).spawn(move || {
+    let (worker_mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
+    // The ask waits on the brain's tools socket (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let mux = worker_mux;
         let chief = match &route {
             Route::Default(_) => DEFAULT_CHIEF.to_owned(),
             Route::Named(chief) => chief.clone(),
@@ -102,7 +104,7 @@ pub(super) fn handle_with(
         }
         send_resource_response(&thread_writer, reply_id, operation, answer);
     });
-    spawned.is_ok()
+    posted.is_ok()
         || send_resource_response(
             writer,
             id,
@@ -110,7 +112,7 @@ pub(super) fn handle_with(
             Err(ResourceError::operation_failed(
                 operation.wire_name(),
                 "unavailable",
-                json!({"message": "cannot start the Chief control request"}),
+                json!({"message": "the daemon is shutting down"}),
             )),
         )
 }

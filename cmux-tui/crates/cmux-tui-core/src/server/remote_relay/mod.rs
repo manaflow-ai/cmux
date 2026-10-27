@@ -108,11 +108,7 @@ impl super::ClientRegistry {
     /// A poisoned registry lock also gives `None`, which every caller treats
     /// as remote (fail closed).
     pub(super) fn transport_of(&self, client: u64) -> Option<ClientTransport> {
-        lock_checked(&self.state, RelayLock::Clients)
-            .ok()?
-            .clients
-            .get(&client)
-            .map(|record| record.transport)
+        self.state.lock().ok()?.clients.get(&client).map(|record| record.transport)
     }
 
     /// [`Self::transport_of`] with the origin the client derives, in the
@@ -121,7 +117,8 @@ impl super::ClientRegistry {
         &self,
         client: u64,
     ) -> Option<(ClientTransport, crate::request_origin::RequestOrigin)> {
-        lock_checked(&self.state, RelayLock::Clients)
+        self.state
+            .lock()
             .ok()?
             .clients
             .get(&client)

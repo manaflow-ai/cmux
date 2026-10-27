@@ -214,6 +214,7 @@ public final class HoverCardRowView: NSView {
 
     /// A store repaint with no new theme (a machine color picked while the card shows) reaches
     /// the row only through this hook.
+    // visibility-walk-allow: color stores only (a tint, four text colors, the accessory's layer colors), no layout or text measure; a row exists only in a shown card
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -404,6 +405,7 @@ public final class HoverCardGalleryHost: NSView, ThemeResponsive {
         recolor()
     }
 
+    // visibility-walk-allow: DEBUG gallery host only, shown in the gallery's own window; it recolors one card body as the panel does
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         recolor()

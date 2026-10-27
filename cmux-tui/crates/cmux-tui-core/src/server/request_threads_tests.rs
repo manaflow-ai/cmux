@@ -10,6 +10,7 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use cmux_threads::work::Lane;
 use cmux_threads::{BlockingKind, ThreadQos};
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket};
@@ -109,12 +110,50 @@ fn the_connection_dispatcher_is_a_request_thread_that_records_its_blocking() {
     );
 }
 
-/// A clear-history request runs on its own `mux-surface-control` worker at
-/// UserInitiated. Its path makes no checked blocking call (its waits are
-/// unchecked `Condvar` waits), so the test holds the terminal lock the worker
-/// takes to see its row while it lives.
+/// The line of `next_request`'s wait for the connection's next request in
+/// connection_scheduler.rs.
+fn next_request_wait_line() -> u32 {
+    let source = include_str!("connection_scheduler.rs");
+    let start = source.find("fn next_request(").expect("next_request");
+    let wait = start + source[start..].find(".wait(").expect("next_request waits");
+    u32::try_from(source[..wait].lines().count()).expect("line")
+}
+
+/// The dispatcher waits for its connection's next request while idle
+/// (Chromium's `WaitableEvent::declare_only_used_while_idle`): on a request
+/// thread, a wait far over the 2 ms lock-wait budget records no site.
 #[test]
-fn a_clear_history_worker_is_a_user_initiated_request_thread() {
+fn an_idle_dispatcher_waiting_for_its_next_request_records_no_site() {
+    const IDLE: Duration = Duration::from_millis(20);
+    let scheduler = Arc::new(ConnectionSurfaceScheduler::default());
+    let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
+    let idle = scheduler.clone();
+    let waiter = spawn_request_thread("mux-test-idle-dispatch", move || {
+        waiting_tx.send(Instant::now()).expect("waiting");
+        let next = idle.next_request();
+        next.is_none()
+    })
+    .expect("start the request thread");
+    let waiting_since = waiting_rx.recv().expect("the dispatcher waits");
+    std::thread::sleep(IDLE);
+    scheduler.close();
+    assert!(waiter.join().expect("the request thread returns"), "a closed queue ends the wait");
+    assert!(waiting_since.elapsed() >= IDLE);
+    let file = file!().replace("request_threads_tests.rs", "connection_scheduler.rs");
+    let line = next_request_wait_line();
+    assert_eq!(
+        cmux_threads::blocking::snapshot().site(&file, line).copied(),
+        None,
+        "{file}:{line}"
+    );
+}
+
+/// A clear-history request runs as a `Mux::work` item on the system lane, not
+/// on a thread of its own (p02-threads 230): a person's request at
+/// UserBlocking, on a UserInitiated foreground worker. The test holds the
+/// terminal lock the item takes, to see it running.
+#[test]
+fn a_clear_history_request_is_a_work_item_not_a_thread() {
     let mux = crate::Mux::new_for_test("request-threads-clear", crate::SurfaceOptions::default());
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     let outbound = Arc::new(BoundedOutbound::default());
@@ -128,7 +167,16 @@ fn a_clear_history_worker_is_a_user_initiated_request_thread() {
     });
     let held = surface.with_terminal(|_| {
         assert_eq!(scheduler.dispatch(mux.clone(), client, &mut clear, 0, writer), Some(true));
-        assert_declared("mux-surface-control", ThreadQos::UserInitiated);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while mux.work.stats()[Lane::System as usize].running == 0 {
+            assert!(Instant::now() < deadline, "the clear-history item never started");
+            std::thread::yield_now();
+        }
+        assert_declared("mux-sys-fg", ThreadQos::UserInitiated);
+        assert!(
+            cmux_threads::snapshot().iter().all(|row| row.name != "mux-surface-control"),
+            "a clear-history request started its own thread"
+        );
     });
     assert!(held.is_some(), "a PTY surface");
     scheduler.finish_and_wait();

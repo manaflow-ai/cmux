@@ -95,7 +95,10 @@ Lab stories: launch-restore-cold.json and launch-restore-warm.json.
 Value marks (tasks 007, 108): `launch.temperature`, `launch.pageins_run_loop_start`,
 `launch.pageins_first_frame`, `launch.main_cpu_ms` and `launch.interrupted`
 arrive on the same pipe as `<name> <value>` (a number, true/false, or a name).
-So do p08-startup-064's `launch.sidebar_rows_built` and `launch.sidebar_rows_visible`:
+So do p08-startup-068's `launch.first_frame_threads`, `launch.first_frame_runtime_threads`
+and `launch.first_frame_ghostty_threads` (Debug and bench builds: the threads right after the
+first frame, the native runtime threads among them, target 0, and libghostty's), and
+p08-startup-064's `launch.sidebar_rows_built` and `launch.sidebar_rows_visible`:
 the sidebar row views built before startup_complete against the rows its clip showed
 (sent right after `startup_complete`, so they need --startup-complete).
 `launch.views_built` (p08-startup-065: the pane content views made before
@@ -311,8 +314,17 @@ SIDEBAR_ROWS_WAIT_S = 0.5
 # The pane content views made before startup_complete (p08-startup-065, `launchVisiblePanesOnly`): == visible panes.
 # The app sends it just before startup_complete, so a --startup-complete run has it.
 VIEWS_BUILT = "launch.views_built"
+# p08-startup-068 (LaunchThreadCensus, Debug and bench builds): the process's threads right after the first frame,
+# the threads of a native runtime no first frame needs (iroh's tokio pool; target 0), and libghostty's threads.
+FIRST_FRAME_THREADS = "launch.first_frame_threads"
+FIRST_FRAME_RUNTIME_THREADS = "launch.first_frame_runtime_threads"
+FIRST_FRAME_GHOSTTY_THREADS = "launch.first_frame_ghostty_threads"
+THREAD_MARKS = (FIRST_FRAME_THREADS, FIRST_FRAME_RUNTIME_THREADS, FIRST_FRAME_GHOSTTY_THREADS)
+# How long a launch that reached its content waits for the thread counts, sent from a cpu lane after the committed
+# first frame (never at a missed reveal deadline); a build without them, or a launch that drew no frame, costs this.
+THREAD_MARKS_WAIT_S = 1.0
 VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE,
-               VIEWS_BUILT)
+               VIEWS_BUILT, *THREAD_MARKS)
 # Percentiles printed after p50 (perf_stats.summary).
 PERCENTILES = (95, 99)
 
@@ -937,6 +949,9 @@ def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purg
             # without them, or a launch with no window, costs SIDEBAR_ROWS_WAIT_S.
             if STARTUP_COMPLETE in launch.marks:
                 launch.wait_for([SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE], SIDEBAR_ROWS_WAIT_S)
+        if reached:
+            # p08-startup-068: the census comes after the first frame, so a quit at the content mark can beat it.
+            launch.wait_for(list(THREAD_MARKS), THREAD_MARKS_WAIT_S)
         for term in ORDER_MARKS if reached else []:
             launch.wait_for(term_marks(term), max(0.0, timeout - (time.monotonic() - started)), any_of=True)
         if HANG_THRESHOLD_MS:
@@ -1083,12 +1098,20 @@ def run_values(marks):
         shown.append(f"sidebar rows built {marks[SIDEBAR_ROWS_BUILT]:.0f} for {marks[SIDEBAR_ROWS_VISIBLE]:.0f} visible")
     if is_number(marks.get(VIEWS_BUILT)):
         shown.append(f"views built {marks[VIEWS_BUILT]:.0f}")
+    if any(mark in marks for mark in THREAD_MARKS):
+        total, runtime, ghostty = (count_or_missing(marks.get(mark)) for mark in THREAD_MARKS)
+        shown.append(f"threads at first frame {total} (runtime {runtime}, ghostty {ghostty})")
     reason = completion_reason(marks)
     if reason is not None:
         shown.append(f"startup complete {reason}")
     if interrupted(marks):
         shown.append("interrupted")
     return shown
+
+
+def count_or_missing(value):
+    """A count for a run's line, or `missing`: a count that did not arrive is never read as 0."""
+    return f"{value:.0f}" if is_number(value) else "missing"
 
 
 def main_span_summary(runs):
@@ -1134,6 +1157,7 @@ def value_summary(runs, temperature=None):
         cells = "  ".join(f"{column} {value:.0f}" for column, value in spread(built).items())
         lines.append(f"  {VIEWS_BUILT}: {cells}  n {len(built)} (== the visible panes)")
     lines += sidebar_rows_summary(runs)
+    lines += first_frame_threads_summary(runs)
     lines.append(completion_summary(runs))
     stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
     lines.append(f"  {INTERRUPTED}: " + (f"runs {', '.join(stopped)} ({len(stopped)} of {total})" if stopped
@@ -1153,6 +1177,29 @@ def sidebar_rows_summary(runs):
     visible = perf_stats.pct([visible for _, visible in pairs], 0.5)
     return [f"  {SIDEBAR_ROWS_BUILT}: {cells}  n {len(pairs)}; visible p50 {visible:.0f}; "
             f"{over} of {len(pairs)} over visible + {SIDEBAR_ROWS_SLACK}"]
+
+
+def first_frame_threads_summary(runs):
+    """p08-startup-068: each first-frame thread count as a spread, the runs with a runtime thread at the first
+    frame (target none) and the runs that sent no runtime count, which never pass as none. No line when no run sent
+    any count (an older build, or a Release build without bench hooks)."""
+    if not any(mark in run for run in runs for mark in THREAD_MARKS):
+        return []
+    lines = []
+    for mark in THREAD_MARKS:
+        values = [run[mark] for run in runs if is_number(run.get(mark))]
+        if values:
+            cells = "  ".join(f"{column} {value:.0f}" for column, value in spread(values).items())
+            lines.append(f"  {mark}: {cells}  n {len(values)}")
+    measured = [(index + 1, run[FIRST_FRAME_RUNTIME_THREADS]) for index, run in enumerate(runs)
+                if is_number(run.get(FIRST_FRAME_RUNTIME_THREADS))]
+    runtime = [str(number) for number, value in measured if value > 0]
+    status = f"runs {', '.join(runtime)}" if runtime else "none"
+    lines.append(f"  runtime threads at first frame: {status} of {len(measured)} measured")
+    missing = [str(index + 1) for index, run in enumerate(runs) if not is_number(run.get(FIRST_FRAME_RUNTIME_THREADS))]
+    if missing:
+        lines.append(f"  {FIRST_FRAME_RUNTIME_THREADS}: missing in runs {', '.join(missing)} ({len(missing)} of {len(runs)})")
+    return lines
 
 
 def classified_not_cold(run):
