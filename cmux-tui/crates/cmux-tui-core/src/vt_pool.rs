@@ -236,12 +236,17 @@ struct Slot {
 
 struct Entry {
     slot: Arc<Slot>,
+    /// Which registration of the id this is: a slice of an earlier one that
+    /// ends after a re-register must not touch this entry.
+    generation: u64,
     group: VtGroup,
     chunks: VecDeque<Chunk>,
     /// Unparsed bytes, the running slice's included.
     pending: usize,
     /// Where the next pushed bytes must start.
     queued_end: u64,
+    /// A slice of this id runs, of this registration or an earlier one: no
+    /// second thread may take the id until it ends.
     running: bool,
     queued: bool,
     /// Parsed bytes no frame has shown yet.
@@ -259,6 +264,7 @@ impl Entry {
 /// One slice's work, taken under the lock and run outside it.
 struct Job {
     id: VtTerminalId,
+    generation: u64,
     slot: Arc<Slot>,
     chunks: VecDeque<Chunk>,
     frame_due: bool,
@@ -267,6 +273,7 @@ struct Job {
 /// What a slice did, handed back under the lock.
 struct Outcome {
     id: VtTerminalId,
+    generation: u64,
     leftovers: VecDeque<Chunk>,
     parsed: usize,
     frame_due: bool,
@@ -277,6 +284,7 @@ struct Outcome {
 struct PoolState {
     entries: HashMap<VtTerminalId, Entry>,
     queues: [VecDeque<VtTerminalId>; 2],
+    next_generation: u64,
     shutdown: bool,
     panicked: u64,
 }
@@ -318,19 +326,33 @@ impl PoolState {
                 chunks.push_back(chunk);
             }
             let frame_due = std::mem::take(&mut entry.frame_due);
-            return Some(Job { id, slot: Arc::clone(&entry.slot), chunks, frame_due });
+            return Some(Job {
+                id,
+                generation: entry.generation,
+                slot: Arc::clone(&entry.slot),
+                chunks,
+                frame_due,
+            });
         }
         None
     }
 
     /// Ends a slice; returns an entry unregistered meanwhile, to drop after
-    /// the lock.
+    /// the lock. The slice of a registration replaced meanwhile only lets
+    /// the new one run: its leftovers and frame go with the old terminal.
     fn finish(&mut self, outcome: Outcome, wake: &[Condvar; 2]) -> Option<Entry> {
         let id = outcome.id;
         let entry = self.entries.get_mut(&id)?;
         entry.running = false;
+        self.panicked += u64::from(outcome.panicked);
+        if entry.generation != outcome.generation {
+            if entry.removed {
+                return self.entries.remove(&id);
+            }
+            self.schedule(id, wake);
+            return None;
+        }
         if entry.removed || outcome.panicked {
-            self.panicked += u64::from(outcome.panicked);
             return self.entries.remove(&id);
         }
         for chunk in outcome.leftovers.into_iter().rev() {
@@ -385,7 +407,10 @@ impl VtPool {
         Ok(pool)
     }
 
-    /// Adds a terminal whose next bytes start at `offset`.
+    /// Adds a terminal whose next bytes start at `offset`. An id unregistered
+    /// while its last slice still runs (a respawn reusing the surface id) is
+    /// registered at once: its bytes queue now and parse after that slice
+    /// ends, so the id still runs on one thread at a time.
     pub(crate) fn register(
         &self,
         id: VtTerminalId,
@@ -393,28 +418,37 @@ impl VtPool {
         group: VtGroup,
         offset: u64,
     ) -> Result<(), VtPoolError> {
-        let mut state = self.shared.lock();
-        if state.shutdown {
-            return Err(VtPoolError::ShutDown);
-        }
-        if state.entries.contains_key(&id) {
-            return Err(VtPoolError::AlreadyRegistered(id));
-        }
-        let slot = Arc::new(Slot { terminal, visible: AtomicBool::new(group == VtGroup::Visible) });
-        state.entries.insert(
-            id,
-            Entry {
-                slot,
-                group,
-                chunks: VecDeque::new(),
-                pending: 0,
-                queued_end: offset,
-                running: false,
-                queued: false,
-                frame_due: false,
-                removed: false,
-            },
-        );
+        let replaced = {
+            let mut state = self.shared.lock();
+            if state.shutdown {
+                return Err(VtPoolError::ShutDown);
+            }
+            let draining = match state.entries.get(&id) {
+                Some(entry) if !entry.removed => return Err(VtPoolError::AlreadyRegistered(id)),
+                Some(entry) => entry.running,
+                None => false,
+            };
+            let generation = state.next_generation;
+            state.next_generation += 1;
+            let slot =
+                Arc::new(Slot { terminal, visible: AtomicBool::new(group == VtGroup::Visible) });
+            state.entries.insert(
+                id,
+                Entry {
+                    slot,
+                    generation,
+                    group,
+                    chunks: VecDeque::new(),
+                    pending: 0,
+                    queued_end: offset,
+                    running: draining,
+                    queued: false,
+                    frame_due: false,
+                    removed: false,
+                },
+            )
+        };
+        drop(replaced);
         Ok(())
     }
 
@@ -568,7 +602,7 @@ fn run_worker(shared: &Shared, group: VtGroup) {
 /// Parses one slice, confirms it and publishes it if the terminal is
 /// visible; the terminal stays this thread's until [`PoolState::finish`].
 fn run_slice(config: &VtPoolConfig, job: Job) -> Outcome {
-    let Job { id, slot, mut chunks, frame_due } = job;
+    let Job { id, generation, slot, mut chunks, frame_due } = job;
     let mut parsed = 0;
     let mut published = false;
     let body = catch_unwind(AssertUnwindSafe(|| {
@@ -601,6 +635,7 @@ fn run_slice(config: &VtPoolConfig, job: Job) -> Outcome {
     }));
     Outcome {
         id,
+        generation,
         leftovers: chunks,
         parsed,
         frame_due: (parsed > 0 || frame_due) && !published,

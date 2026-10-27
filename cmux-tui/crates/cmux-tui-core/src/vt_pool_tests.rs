@@ -284,7 +284,7 @@ fn moving_between_groups_during_a_flood_keeps_offset_order() {
 
 /// The acceptance row: a 64 MiB flood delays a visible chunk by at most one
 /// slice. Hidden, the flood runs on the hidden thread and never on the
-/// visible one. Shown, it shares the one visible thread, and at most one
+/// visible one, so no flood slice is ahead of the echo there. Shown, it shares the one visible thread, and at most one
 /// flood slice ends between the echo's push and its parse: the one running
 /// (or just requeued from the hidden thread) when the echo was pushed.
 #[test]
@@ -329,7 +329,12 @@ fn a_64_mib_flood_delays_a_visible_chunk_by_at_most_one_slice() {
             }
         }
         if !shown {
-            assert_eq!(flood.publishes(), 0, "the hidden flood ran on the visible thread");
+            let threads = flood.threads();
+            assert!(
+                threads.iter().all(|name| name.starts_with("vt-pool-h-")),
+                "the hidden flood ran on a visible thread: {threads:?}"
+            );
+            assert_eq!(flood.publishes(), 0, "the hidden flood did frame work");
         }
     }
     assert!(flood.confirmed() < FLOOD as u64, "the flood ended before the test measured it");
@@ -405,9 +410,11 @@ fn ten_hidden_floods_leave_the_focused_echo_under_5_ms_at_p99() {
 
 #[test]
 fn unregister_during_a_slice_drops_the_terminal_after_it() {
+    // Declared first so it drops last: a failed assert drops `open`, which
+    // frees the gated slice before the pool joins its thread.
+    let pool = VtPool::start(config(1, 1)).unwrap();
     let (open, gate) = mpsc::channel();
     let terminal = Arc::new(Recorder { gate: Some(Mutex::new(gate)), ..Recorder::plain(3) });
-    let pool = VtPool::start(config(1, 1)).unwrap();
     pool.register(3, terminal.clone(), VtGroup::Visible, 0).unwrap();
     pool.push(3, 0, vec![1; 100]).unwrap();
     wait_until("the slice to start", || terminal.busy.load(Ordering::SeqCst));
@@ -450,4 +457,65 @@ fn shutdown_joins_the_threads_and_refuses_new_work() {
     assert!(pool.threads.is_empty());
     assert_eq!(pool.push(5, 1_000_000, vec![1]), Err(VtPoolError::ShutDown));
     assert_eq!(pool.register(6, terminal, VtGroup::Visible, 0), Err(VtPoolError::ShutDown));
+}
+
+/// A respawn registers the surface id again right after unregistering it,
+/// while the old slice may still run: the new registration is accepted at
+/// once, its bytes wait for that slice, and the old slice leaves it alone.
+#[test]
+fn register_again_while_the_old_slice_runs() {
+    // Declared first so it drops last: a failed assert drops `open`, which
+    // frees the gated slice before the pool joins its thread.
+    let pool = VtPool::start(config(2, 1)).unwrap();
+    let (open, gate) = mpsc::channel();
+    // The same terminal both times: the id must still run on one thread.
+    let terminal = Arc::new(Recorder { gate: Some(Mutex::new(gate)), ..Recorder::plain(8) });
+    pool.register(8, terminal.clone(), VtGroup::Visible, 0).unwrap();
+    pool.push(8, 0, vec![1; 100]).unwrap();
+    wait_until("the slice to start", || terminal.busy.load(Ordering::SeqCst));
+    pool.unregister(8).unwrap();
+
+    assert_eq!(pool.register(8, terminal.clone(), VtGroup::Visible, 500), Ok(()));
+    assert_eq!(
+        pool.register(8, terminal.clone(), VtGroup::Visible, 500),
+        Err(VtPoolError::AlreadyRegistered(8))
+    );
+    pool.push(8, 500, vec![2; 50]).unwrap();
+    assert_eq!(pool.stats().terminals, 1);
+    assert!(terminal.calls().is_empty(), "the new bytes ran beside the old slice");
+
+    open.send(()).unwrap();
+    open.send(()).unwrap();
+    wait_until("the new bytes confirmed", || terminal.confirmed() == 550);
+    wait_until("the queue drained", || pool.stats().pending_bytes == 0);
+    assert!(!terminal.overlapped.load(Ordering::SeqCst), "two threads parsed one id");
+    let parses: Vec<Call> =
+        terminal.calls().into_iter().filter(|call| matches!(call, Call::Parse { .. })).collect();
+    assert_eq!(parses, [Call::Parse { offset: 0, len: 100 }, Call::Parse { offset: 500, len: 50 }]);
+    assert_eq!(pool.stats().terminals, 1);
+    pool.push(8, 550, vec![3]).unwrap();
+    open.send(()).unwrap();
+    wait_until("the next byte confirmed", || terminal.confirmed() == 551);
+}
+
+/// Unregistering the new registration before the old slice ends drops both.
+#[test]
+fn register_and_unregister_again_while_the_old_slice_runs() {
+    // Declared first so it drops last: a failed assert drops `open`, which
+    // frees the gated slice before the pool joins its thread.
+    let pool = VtPool::start(config(1, 1)).unwrap();
+    let (open, gate) = mpsc::channel();
+    let terminal = Arc::new(Recorder { gate: Some(Mutex::new(gate)), ..Recorder::plain(6) });
+    pool.register(6, terminal.clone(), VtGroup::Hidden, 0).unwrap();
+    pool.push(6, 0, vec![1; 10]).unwrap();
+    wait_until("the slice to start", || terminal.busy.load(Ordering::SeqCst));
+    pool.unregister(6).unwrap();
+    pool.register(6, terminal.clone(), VtGroup::Visible, 0).unwrap();
+    pool.push(6, 0, vec![2; 10]).unwrap();
+    pool.unregister(6).unwrap();
+    assert_eq!(pool.stats().terminals, 0);
+    open.send(()).unwrap();
+    wait_until("the id to leave", || pool.stats().pending_bytes == 0);
+    assert_eq!(pool.register(6, terminal.clone(), VtGroup::Visible, 0), Ok(()));
+    assert_eq!(terminal.calls(), [Call::Parse { offset: 0, len: 10 }, Call::Confirm(10)]);
 }
