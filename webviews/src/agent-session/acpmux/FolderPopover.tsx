@@ -104,7 +104,7 @@ export function FolderPopover({
   const typed = query.trim();
   const typedPath = /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
   // The actions follow the folders in the same list, so the arrows reach them from the field.
-  const actions: { value: string; text: string; run(): void }[] = [
+  const actions: { value: string; text: string; run(): void | Promise<unknown> }[] = [
     ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noProject"), run: onNoProject }] : []),
     ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
     ...(onBrowse
@@ -125,7 +125,7 @@ export function FolderPopover({
   const submit = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
     close();
-    if (action) action.run();
+    if (action) void Promise.resolve(action.run()).catch(() => undefined);
     else if (value && value !== current && (shown.has(value) || value === typedPath)) onPick(value);
   };
   const row = (value: string) => {
