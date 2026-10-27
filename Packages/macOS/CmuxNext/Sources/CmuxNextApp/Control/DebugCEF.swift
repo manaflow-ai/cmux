@@ -68,6 +68,11 @@ enum DebugCEF {
             .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
+        // Host mode with feature chromiumHostChoosers (p01-process-228): null while cmux shows none of the host's choosers.
+        object["host_choosers"] = services.cache.cef.hostChoosers.map { report in
+            .object(["color_open": .bool(report.colorOpen), "device_choosers": .number(Double(report.deviceChoosers)),
+                     "screen_shares": .number(Double(report.screenShares)), "answers": .number(Double(report.answers))])
+        } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Host mode with feature chromiumHostHangBanner (p01-process-084): the busy banner's deadline and the host's hangs.
         object["host_hang"] = services.cache.cef.hostHangCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null

@@ -24,6 +24,7 @@
 #include "host_energy_saver.h"
 #include "host_hang_watcher.h"
 #include "host_resize.h"
+#include "remote_shim_choosers.h"
 #include "remote_shim_mirror.h"
 #include "remote_shim_runtime.h"
 
@@ -230,6 +231,19 @@ const char* OptionalExportName(uint16_t op) {
     if (entry.op == op && op != 0) return entry.name;
   }
   return nullptr;
+}
+
+// The setter op of a chooser handler (remote_shim_choosers.h): its local export's op id.
+uint16_t ChooserHandlerOp(cmux_host::choosers::Handler handler) {
+  switch (handler) {
+    case cmux_host::choosers::kColor:
+      return kOpSetColorChooserHandler;
+    case cmux_host::choosers::kDevice:
+      return kOpSetDeviceChooserHandler;
+    case cmux_host::choosers::kDesktopMedia:
+      return kOpSetDesktopMediaHandler;
+  }
+  return 0;
 }
 
 // The dylib's state. The C ABI has no context argument, so there is one per process, as in
@@ -673,6 +687,8 @@ class Runtime {
   // destroys the channel there: destroying a Channel joins that thread, done by then.
   void Disconnect() {
     if (!channel_) return;
+    // The host's open choosers went with it; their ends run before a next host can attach.
+    if (hello_) choosers::Detach();
     channel_->Close();
     closing_.emplace(generation_, std::move(channel_));
     ++generation_;
@@ -737,6 +753,8 @@ class Runtime {
         const std::string s1 = r.Str().value_or(std::string());
         const std::string s2 = r.Str().value_or(std::string());
         if (!r.ok() || !r.AtEnd()) return false;
+        // The chooser handlers' pushes go to cmux's handler fn, never to its event fn (host_choosers.h).
+        if (choosers::IsHandlerEvent(kind)) return choosers::Deliver(kind, browser, request, a, b, s1);
         if (event_fn_) event_fn_(event_ctx_, kind, browser, request, a, b, s1.c_str(), s2.c_str());
         return true;
       }
@@ -784,6 +802,8 @@ class Runtime {
         // Input ordered from here on is counted against the host's dispatch acks.
         watches_host_ = host_exports_.count(cmux_host::hang::kHangWatchHelloName) > 0;
         Flush();
+        // Behind the queue: the handlers cmux set go to this host.
+        choosers::Attach(&chooser_transport_);
         if (callbacks_.ready) callbacks_.ready(callbacks_.ctx);
         return true;
       }
@@ -816,7 +836,14 @@ class Runtime {
     host_watch_(host_watch_ctx_, event, 0, 0);
   }
 
+  static bool SendChooserInstalled(void* context, cmux_host::choosers::Handler handler, bool installed) {
+    TlvWriter args;
+    cmux_host::choosers::WriteInstalled(installed, &args);
+    return static_cast<Runtime*>(context)->Post(ChooserHandlerOp(handler), 0, args);
+  }
+
   cmux_remote_shim_callbacks callbacks_ = {};
+  const choosers::Transport chooser_transport_{this, &SendChooserInstalled};
   // Where REPLY frames go: the configured callback, or cmux_remote_shim_set_reply's.
   cmux_remote_reply_fn reply_ = nullptr;
   void* reply_ctx_ = nullptr;

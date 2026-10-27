@@ -15,7 +15,8 @@ import CmuxNextWakeups
 /// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
 /// (``HangReportsController``), whose sink does nothing while they are off, as each committed key's `key.frame`
 /// time (`AppServices.inputFrameSignposts`); with the main thread's phase (`main_thread_phase`, `cef_pump`)
-/// and `hang.cef` in the CEF pump. The blocking detector's new call sites go to ``BlockingReportSink``.
+/// and `hang.cef` in the CEF pump. The blocking detector's new call sites go to ``BlockingReportSink``, and so
+/// do the local daemon's (`server-diagnostic-site`, ``DaemonService/diagnosticSites``), each on a best-effort lane.
 @MainActor
 enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
@@ -47,10 +48,15 @@ enum WatchdogReporting {
             let drain = HangWatchedLane("blocking.drain", deadline: BlockingDetector.drainHangDeadline, on: TraceRuntime.shared.hangWatch)
             services.blocking.watchDrain { job in drain.run(job) }
         }
-        // Replays the sites the detector recorded before this point (BlockingDetector.install).
-        services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
+        let blockingSink = BlockingReportSink(collector: collector, nonFatal: .init(
             consented: { reporter.isStarted },
-            send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) })))
+            send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) }))
+        // Replays the sites the detector recorded before this point (BlockingDetector.install).
+        services.blocking.install(sink: blockingSink)
+        // Replays the daemon sites read before this point; each goes off the reader thread (the sink may save).
+        services.daemon.diagnosticSites.install { [work = services.work] sighting in
+            work.post(.bestEffort, mayBlock: .files) { blockingSink.record(daemonSite: sighting) }
+        }
         // Replaces the crash-reporting-only sink set before Sentry started (WatchdogHangSinks), adding hang reports.
         watchdog.onHang = { hang in
             WatchdogHangSinks.send(hang, to: reporter)
