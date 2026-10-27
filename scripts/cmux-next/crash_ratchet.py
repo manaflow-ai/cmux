@@ -139,8 +139,8 @@ compared, never in crash-safety-baseline.json, and never read by the CI compare 
                                    or `FileHandle.standardError` and the other standard handles). Use `read(upToCount:)`,
                                    `seekToEnd()`, `write(contentsOf:)`, which throw
                       ns_range     NSString / NSAttributedString calls given a range or index past the end
-                                   (NSRangeException): `substring(with:`, `attributedSubstring(from:`,
-                                   `attribute(_:at:`, `attributes(at:`, `replaceCharacters(in:`,
+                                   (NSRangeException): `substring(with:`, `substring(from:`, `substring(to:`,
+                                   `attributedSubstring(from:`, `attribute(_:at:`, `attributes(at:`, `replaceCharacters(in:`,
                                    `deleteCharacters(in:`, `addAttribute(s)(..range:`, `setAttributes(..range:`,
                                    `removeAttribute(..range:`, `enumerateAttribute(s)(..in:`, `character(at:`,
                                    `rangeOfComposedCharacterSequence(at:`, `lineRange(for:`, `paragraphRange(for:`,
@@ -148,10 +148,12 @@ compared, never in crash-safety-baseline.json, and never read by the CI compare 
                                    not counted, when the argument is the receiver's whole range spelled in the call
                                    (`NSRange(location: 0, length: s.length)`, `NSMakeRange(0, s.length)`) or a name
                                    bound from the receiver's `checkedRange(` / `checkedIndex(` on the line or one of
-                                   the 3 lines above (`guard let r = s.checkedRange(r0) else { ... }`)
+                                   the 3 lines above (`guard let r = s.checkedRange(r0) else { ... }`); `substring(from:`
+                                   and `substring(to:` are also proven by `i <= s.length` in that window
                       Replacements: CmuxNextCompat's CheckedFoundation.swift (CheckedJSON.data(_:) throws;
-                      NSString/NSAttributedString checkedRange, checkedIndex, checkedSubstring, checkedCharacter(at:),
-                      checkedAttributedSubstring return nil, never a clamped value); that file is not counted
+                      NSString/NSAttributedString checkedRange, checkedIndex, checkedSubstring (with a range, from:, to:),
+                      checkedCharacter(at:), checkedAttributedSubstring return nil, never a clamped value); that file
+                      is not counted
   --report adds "queue" to a class that feeds a machine queue (trap_api Q09, objc_raises Q19).
   The ratchet classes index_subscript and int_conversion are also report classes: by default over INDEX_MODULES
   (the CI rows, counted and waived together), with --all-modules over every module of every package.
@@ -550,13 +552,17 @@ HANDLE_EXPRESSION = re.compile(r"(?:\bFileHandle\.standard(?:Error|Output|Input)
 HANDLE_TYPED = re.compile(r"\b(\w+)\s*:\s*FileHandle\b(?!\s*[.(])")
 HANDLE_BOUND = re.compile(r"\b(?:let|var)\s+(\w+)\s*=\s*(?:try[?!]?\s+)?"
                           r"(?:FileHandle\s*[.(]|[\w.?]*\.fileHandleFor(?:Writing|Reading)\b)")
-# The NSString / NSAttributedString calls that raise on a range or index past the end, with the label of the
-# argument that carries it (a call without that label, `substring(from:)` or `attribute(forName:)`, is not one).
-RANGE_LABELS = {"substring": "with", "attributedSubstring": "from", "attribute": "at", "attributes": "at",
-                "replaceCharacters": "in", "deleteCharacters": "in", "addAttribute": "range", "addAttributes": "range",
-                "setAttributes": "range", "removeAttribute": "range", "enumerateAttribute": "in",
-                "enumerateAttributes": "in", "character": "at", "rangeOfComposedCharacterSequence": "at",
-                "lineRange": "for", "paragraphRange": "for", "range": "range"}
+# The NSString / NSAttributedString calls that raise on a range or index past the end, with the labels of the
+# argument that carries it (a call without one of them, `attribute(forName:)` or `range(of:)`, is not one).
+RANGE_LABELS = {"substring": ("with", "from", "to"), "attributedSubstring": ("from",), "attribute": ("at",),
+                "attributes": ("at",), "replaceCharacters": ("in",), "deleteCharacters": ("in",),
+                "addAttribute": ("range",), "addAttributes": ("range",), "setAttributes": ("range",),
+                "removeAttribute": ("range",), "enumerateAttribute": ("in",), "enumerateAttributes": ("in",),
+                "character": ("at",), "rangeOfComposedCharacterSequence": ("at",), "lineRange": ("for",),
+                "paragraphRange": ("for",), "range": ("range",)}
+# The calls whose index may equal the length (`substringFromIndex:` / `substringToIndex:` raise only past it), so a
+# `<= receiver.length` guard proves them too.
+END_INDEX_CALLS = {("substring", "from"), ("substring", "to")}
 RANGE_CALL = re.compile(r"(?<!\w)(" + "|".join(sorted(RANGE_LABELS, key=len, reverse=True)) + r")\s*\(")
 # A line without one of these words starts no objc_raises call (skips swift_code on most lines).
 OBJC_HINT = re.compile(r"JSONSerialization|availableData|seekToEndOfFile|readData|write\s*\(|ubstring\s*\("
@@ -625,14 +631,34 @@ def json_checked(lines, index, code, start, value):
                for text in guard_window(lines, index, code, start) for found in JSON_CHECK.finditer(text))
 
 
-def range_proven(lines, index, code, start, receiver, value):
+def length_guarded(lines, index, code, start, length, value):
+    """Whether `VALUE <= LENGTH` (or `<`, `LENGTH >= VALUE`, `LENGTH > VALUE`; both normalized) is read before
+    CODE[start] on its line or on one of the GUARD_LINES lines above."""
+    side = r"(?<![\w.])" + re.escape(value) + r"<=?" + re.escape(length) + r"(?![\w.(])"
+    other = r"(?<![\w.])" + re.escape(length) + r">=?" + re.escape(value) + r"(?![\w.(])"
+    check = re.compile(side + "|" + other)
+    return any(check.search(normalized_words(text)) for text in guard_window(lines, index, code, start))
+
+
+def normalized_words(text):
+    """TEXT as normalized() reads it, but with one space kept between two words (`guard at`, not `guardat`) and
+    only an optional-chaining or unwrapping mark dropped (`s?.length`, not the `?` of `i <= s.length ? a : b`), so
+    a name is still found whole."""
+    text = re.sub(r"\s+", " ", re.sub(r"\s*([^\w\s])\s*", r"\1", text)).strip()
+    return re.sub(r"(?<![\w.])self\.", "", re.sub(r"[?!](?=\.)", "", text))
+
+
+def range_proven(lines, index, code, start, receiver, value, end_index=False):
     """Whether VALUE, the range or index the call at CODE[start] passes, is proven inside RECEIVER: RECEIVER's whole
     range spelled in the call (`NSRange(location: 0, length: text.length)`, `NSMakeRange(0, text.length)`), or a name
     bound from RECEIVER's checkedRange / checkedIndex (CmuxNextCompat's CheckedFoundation.swift) before the call on
-    its line or on one of the GUARD_LINES lines above."""
+    its line or on one of the GUARD_LINES lines above. END_INDEX (`substring(from:` / `substring(to:`): a
+    `VALUE <= RECEIVER.length` guard in the same window proves it too."""
     owner, value = normalized(receiver), normalized(value)
     length = (owner + "." if owner else "") + "length"
     if value in (f"NSRange(location:0,length:{length})", f"NSMakeRange(0,{length})"):
+        return True
+    if end_index and length_guarded(lines, index, code, start, length, value):
         return True
     if not re.fullmatch(r"[A-Za-z_]\w*", value):
         return False
@@ -697,10 +723,15 @@ def objc_raises_hits(lines, index, code=None, handles=frozenset()):
     for match in RANGE_CALL.finditer(code):
         if DECLARED_FUNC.search(code[:match.start()]):
             continue
-        value = labeled(call_arguments(lines, index, code, match.end()), RANGE_LABELS[match.group(1)])
-        if value is not None and not range_proven(lines, index, code, match.start(),
-                                                  receiver_of(code, match.start()), value):
-            add("ns_range")
+        name, arguments = match.group(1), call_arguments(lines, index, code, match.end())
+        for label in RANGE_LABELS[name]:
+            value = labeled(arguments, label)
+            if value is None:
+                continue
+            if not range_proven(lines, index, code, match.start(), receiver_of(code, match.start()), value,
+                                end_index=(name, label) in END_INDEX_CALLS):
+                add("ns_range")
+            break
     return found
 
 

@@ -561,7 +561,7 @@ reset
 # 24. objc_raises (report-only, p10-stability-166, queue Q19): each pattern (json, file_handle, ns_range) counts per
 #     module with its pattern on the site; a JSON value checked with isValidJSONObject, the throwing FileHandle API,
 #     a whole range spelled from the receiver's length, a range or index bound from the receiver's checkedRange /
-#     checkedIndex, calls without the raising label, comments and strings do not; CheckedFoundation.swift (the
+#     checkedIndex, a substring(from:/to:) index guarded `<= receiver.length`, calls without the raising label, comments and strings do not; CheckedFoundation.swift (the
 #     helpers) is not counted; a crash-allow does not hide a hit; the CI compare and its baseline never see the class.
 pattern_hits() { python3 -c 'import json, sys; print(json.load(sys.stdin)["objc_raises"]["patterns"][sys.argv[1]]["modules"].get(sys.argv[2], 0))' "$@"; }
 compat="$app/Sources/CmuxNextCompat"
@@ -590,13 +590,15 @@ storage.removeAttribute(.font, range: r)
 storage.enumerateAttribute(.font, in: r) { _, _, _ in }
 let k = ns.range(of: "x", options: [], range: r)
 let l = ns.lineRange(for: r)
+let m = text.substring(from: i)
+let n = ns.substring(to: NSMaxRange(sel))
 SWIFT
 g add -A
 out="$(report objc_raises)" || fail "--report objc_raises failed: $out"
-[[ "$(hits objc_raises M <<<"$out")" == 19 ]] || fail "an objc_raises pattern was missed (want 19 in M): $out"
+[[ "$(hits objc_raises M <<<"$out")" == 21 ]] || fail "an objc_raises pattern was missed (want 21 in M): $out"
 [[ "$(pattern_hits json M <<<"$out")" == 2 ]] || fail "the json pattern count is wrong: $out"
 [[ "$(pattern_hits file_handle M <<<"$out")" == 6 ]] || fail "the file_handle pattern count is wrong: $out"
-[[ "$(pattern_hits ns_range M <<<"$out")" == 11 ]] || fail "the ns_range pattern count is wrong: $out"
+[[ "$(pattern_hits ns_range M <<<"$out")" == 13 ]] || fail "the ns_range pattern count is wrong: $out"
 # Each site: path, 1-based line of the call's opening (a wrapped call at its first line), class, module, pattern.
 python3 - "$out" <<'PY' || fail "the objc_raises report is wrong: $out"
 import json, sys
@@ -604,10 +606,10 @@ d = json.loads(sys.argv[1])["objc_raises"]
 assert d["queue"] == "Q19", d.get("queue")
 a = "Packages/macOS/CmuxNext/Sources/M/A.swift"
 sites = {s["line"]: s for s in d["hits"]}
-assert sorted(sites) == [1, 2, 6, 7, 8, 9, 10, 12] + list(range(13, 24)), sorted(sites)
+assert sorted(sites) == [1, 2, 6, 7, 8, 9, 10, 12] + list(range(13, 26)), sorted(sites)
 assert sites[2] == {"path": a, "line": 2, "class": "objc_raises", "module": "M", "hits": 1, "pattern": "json"}, sites[2]
 assert {sites[n]["pattern"] for n in (6, 7, 8, 9, 10, 12)} == {"file_handle"}, sites
-assert {sites[n]["pattern"] for n in range(13, 24)} == {"ns_range"}, sites
+assert {sites[n]["pattern"] for n in range(13, 26)} == {"ns_range"}, sites
 assert sites[18] == {"path": a, "line": 18, "class": "objc_raises", "module": "M", "hits": 1, "pattern": "ns_range"}, sites[18]
 PY
 out="$(ratchet)" || fail "objc_raises reached the CI compare: $out"
@@ -629,7 +631,12 @@ guard let r = text.checkedRange(r0) else { return }
 let f = text.substring(with: r)
 guard let i = ns.checkedIndex(i0),
       ns.character(at: i) == 10 else { return }
-let g = text.substring(from: 3)
+guard at <= text.length else { return }
+let g = text.substring(from: at)
+if ns.length >= NSMaxRange(sel) { tail = ns.substring(from: NSMaxRange(sel)) }
+let rest = cut <= self.ns?.length ? ns.substring(from: cut) : ""
+guard let p = new.checkedIndex(p0) else { return }
+let q = new.substring(to: p)
 let h = attribute(forName: "x")
 func character(at index: Int) -> unichar { 0 }
 let k = s.range(of: "x")
@@ -652,15 +659,17 @@ guard let r = other.checkedRange(r0) else { return }
 let f = text.substring(with: r)
 guard let own = checkedRange(r0) else { return }
 let g = text.substring(with: own)
+guard at <= other.length else { return }
+let h = text.substring(from: at)
 SWIFT
 out="$(report objc_raises)" || fail "--report objc_raises failed: $out"
-[[ "$(hits objc_raises M <<<"$out")" == 3 ]] || fail "another value's check exempted a call: $out"
+[[ "$(hits objc_raises M <<<"$out")" == 4 ]] || fail "another value's check exempted a call: $out"
 cp "$ci" "$tmp/ci-before.json"
 out="$(report objc_raises --update-report-baseline)" || fail "the objc_raises report baseline was refused: $out"
 python3 - "$rb" <<'PY' || fail "the objc_raises report row is wrong: $(cat "$rb")"
 import json, sys
 d = json.load(open(sys.argv[1]))
-assert d["objc_raises"] == {"scope": "packages", "modules": {"CmuxNextCompat": 1, "M": 3}}, d
+assert d["objc_raises"] == {"scope": "packages", "modules": {"CmuxNextCompat": 1, "M": 4}}, d
 PY
 cmp -s "$ci" "$tmp/ci-before.json" || fail "the objc_raises report baseline changed crash-safety-baseline.json"
 rm -f "$tmp/ci-before.json" "$rb"

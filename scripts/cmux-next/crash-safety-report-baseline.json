@@ -259,7 +259,7 @@
   "modules": {
    "CMUXMobileCore": 3,
    "CmuxAuthRuntime": 1,
-   "CmuxConversationCore": 27,
+   "CmuxConversationCore": 28,
    "CmuxConversationGeometry": 19,
    "CmuxConversationLabMac": 4,
    "CmuxConversationMacUI": 18,
@@ -287,7 +287,7 @@
    "CmuxNextDesign": 19,
    "CmuxNextDiff": 4,
    "CmuxNextErrorJournal": 18,
-   "CmuxNextHome": 6,
+   "CmuxNextHome": 7,
    "CmuxNextHomeEngine": 7,
    "CmuxNextHostedChief": 3,
    "CmuxNextMacScreen": 2,
@@ -309,7 +309,7 @@
    "CmuxSyncStore": 2,
    "CmuxTextConfirmCore": 1,
    "CmuxUpdater": 1,
-   "MessagesLabHome": 116,
+   "MessagesLabHome": 124,
    "cmux-cua-helper": 1
   },
   "scope": "packages"

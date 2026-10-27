@@ -52,6 +52,20 @@ struct CheckedFoundationTests {
         #expect(("" as NSString).checkedCharacter(at: 0) == nil)
     }
 
+    @Test func substringFromAndToAcceptTheEndAndRefusePastIt() {
+        let text: NSString = "héllo"
+        #expect(text.checkedSubstring(from: 1) == "éllo")
+        #expect(text.checkedSubstring(to: 2) == "hé")
+        #expect(text.checkedSubstring(from: 5) == "")
+        #expect(text.checkedSubstring(to: 5) == "héllo")
+        #expect(text.checkedSubstring(from: 0) == "héllo")
+        #expect(text.checkedSubstring(to: 0) == "")
+        for index in [6, -1, NSNotFound, Int.max] {
+            #expect(text.checkedSubstring(from: index) == nil, "\(index)")
+            #expect(text.checkedSubstring(to: index) == nil, "\(index)")
+        }
+    }
+
     @Test func attributedStringRangesAreCheckedTheSameWay() {
         let text = NSAttributedString(string: "hello")
         #expect(text.checkedRange(NSRange(location: 0, length: 5)) == NSRange(location: 0, length: 5))
