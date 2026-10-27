@@ -121,22 +121,86 @@ struct HomePendingTerminalFocusTests {
             try #require(focused, "the field did not take the keyboard")
             let editing = shell.firstResponder?.ownsTypedText == true
             try #require(editing, "the field's editor does not have the keyboard: \(String(describing: shell.firstResponder))")
+            // The person's keyboard is in this window: the app is active and the window is key (the focus model's facts).
+            window.focus.send(.appActive(true))
+            window.focus.send(.windowKey(true))
 
             let request = ActionInvocation(arguments: ["focus": .bool(true), "name": .string("scripted-terminal")], origin: .script)
-            #expect(services.registry.perform("newTab", invocation: request))
+            var ran = false
+            let work = services.registry.capturingWork { ran = services.registry.perform("newTab", invocation: request) }
+            #expect(ran)
             let held = services.keyRouter.modes.contains(.creationCapture)
             #expect(!held, "a script's new terminal holds the keys of a person typing in a field")
             let typed = try Self.key("x", in: shell)
             let taken = services.keyRouter.interceptKeyDown(typed, in: shell)
             #expect(!taken, "a key the person typed in the field was taken for the script's terminal")
 
-            // The workspace is made and listed in this window; the window stays on Home.
+            // The create and its show decision ran; the workspace is listed in this window and the window stays on Home.
+            for task in work { _ = await task.value }
             try await PasswordManagerRouteTests.until({
                 services.daemon.store.workspaces.contains { $0.name == "scripted-terminal" }
                     && services.daemon.store.workspaces.first { $0.name == "scripted-terminal" }.map { services.windows.registry.value.owner(of: $0.id) != nil } == true
             }, report: { "the script's workspace was never listed: \(services.daemon.store.workspaces.map(\.name))" })
             let shown = window.state.workspaceID
             #expect(shown == home.id, "the script's new terminal took the window from the person typing: it shows \(String(describing: shown))")
+        }
+    }
+
+    /// A script's new terminal with focus shows when no text input has the person's keyboard (the CLI's
+    /// `cmux new --focus`, `cmux open <dir>` run by a person): automation waits only for a person typing.
+    @Test func aScriptsNewTerminalWithFocusShowsWhenNoTextInputHasTheKeyboard() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, home) = try await HomeSplitKeysTests.showHome(services, connection)
+            let shell = try #require(window.window)
+            let host = try #require(shell.contentView)
+            let holder = Holder(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+            host.addSubview(holder)
+            defer { holder.removeFromSuperview() }
+            let focused = shell.makeFirstResponder(holder)
+            try #require(focused, "the test view did not take the keyboard")
+            window.focus.send(.appActive(true))
+            window.focus.send(.windowKey(true))
+
+            let request = ActionInvocation(arguments: ["focus": .bool(true), "name": .string("shown-terminal")], origin: .script)
+            var ran = false
+            let work = services.registry.capturingWork { ran = services.registry.perform("newTab", invocation: request) }
+            #expect(ran)
+            for task in work { _ = await task.value }
+            try await PasswordManagerRouteTests.until({
+                services.daemon.store.workspaces.first { $0.name == "shown-terminal" }.map { window.state.workspaceID == $0.id } == true
+            }, report: {
+                "the window shows \(String(describing: window.state.workspaceID)) (Home \(home.id)), workspaces \(services.daemon.store.workspaces.map(\.name))"
+            })
+        }
+    }
+
+    /// The person runs `cmux open <dir>` from another app while cmux sits behind with a text input focused (Home's message
+    /// box takes the keyboard by itself): their keyboard is not in cmux, so the script's new terminal shows (review of
+    /// 2be9a0cc33a: the text-input check ignored whether the app was active).
+    @Test func aScriptsNewTerminalShowsWhenThePersonsKeyboardIsInAnotherApp() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, home) = try await HomeSplitKeysTests.showHome(services, connection)
+            let shell = try #require(window.window)
+            let host = try #require(shell.contentView)
+            let field = NSTextField(string: "")
+            field.contentType = .URL
+            field.frame = NSRect(x: 10, y: 10, width: 200, height: 24)
+            host.addSubview(field)
+            defer { field.removeFromSuperview() }
+            let focused = shell.makeFirstResponder(field)
+            try #require(focused, "the field did not take the keyboard")
+            window.focus.send(.appActive(false))
+
+            let request = ActionInvocation(arguments: ["focus": .bool(true), "name": .string("from-another-app")], origin: .cli)
+            var ran = false
+            let work = services.registry.capturingWork { ran = services.registry.perform("newTab", invocation: request) }
+            #expect(ran)
+            for task in work { _ = await task.value }
+            try await PasswordManagerRouteTests.until({
+                services.daemon.store.workspaces.first { $0.name == "from-another-app" }.map { window.state.workspaceID == $0.id } == true
+            }, report: {
+                "the window shows \(String(describing: window.state.workspaceID)) (Home \(home.id)), workspaces \(services.daemon.store.workspaces.map(\.name))"
+            })
         }
     }
 }
