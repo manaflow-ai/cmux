@@ -21,6 +21,15 @@
 #           Each recording is replayed at the rate the program wrote it (capped
 #           at 50 Mbit/s), with screenshots during and after the flood.
 #   all     build, test and bench.
+#   pair-e2e
+#           build, plus a tagged DEBUG cmux NEXT Mac app built here
+#           (reload.sh), and pairing by its QR code end to end
+#           (cmux_next_pair_e2e.py): the Mac's Mobile Pairing link, opened on
+#           the iPhone, pairs it with no Allow prompt and no test seed. Screens
+#           of the Mac page (never while it shows a code: its image carries
+#           the token), the phone's Settings > Devices (a base ref gives
+#           the "before") and its scanner with the camera off; the Mac's
+#           pairing log, hostd's log and paired-devices.json, keys redacted.
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
@@ -36,7 +45,7 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|test|bench|all) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench or all, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|test|bench|all|pair-e2e) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench, all or pair-e2e, got '$mode'" >&2; exit 2 ;; esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
@@ -47,8 +56,58 @@ mkdir -p "$out/screens" "$out/bench" "$work"
 summary="$out/SUMMARY.md"
 note() { printf '%s\n' "$*" | tee -a "$summary"; }
 
-# Steps run with a per-step HOME; Homebrew tools (xcodegen) live outside it.
+# Steps run with a per-step HOME; Homebrew tools live outside it.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
+
+# Everything this step makes outside its checkout goes away when it ends: the
+# pinned xcodegen's temp dir and, once made, the simulator device set.
+xcodegen_dir=""
+sims=""
+cleanup() {
+  if [[ -n "$sims" ]]; then
+    xcrun simctl --set "$sims" shutdown all >/dev/null 2>&1 || true
+    xcrun simctl --set "$sims" delete all >/dev/null 2>&1 || true
+    rm -rf "$sims" || true
+  fi
+  # Attempted even when the simulator set's removal failed.
+  if [[ -n "$xcodegen_dir" ]]; then rm -rf "$xcodegen_dir" || true; fi
+  # pair-e2e's Mac app build (its DerivedData, app included), reload.sh's
+  # /tmp/cmux-<tag> link to it, and the host's last-debug-log pointer as it was.
+  if [[ -n "${mac_dd:-}" ]]; then
+    # The tag is this run's own (its PID is in it), so its link and state are too. The rig removes
+    # them in its own finally; this runs the same list (forget_tag) for a rig cut short.
+    if [[ -n "${mac_tag:-}" ]]; then
+      if [[ -L "/tmp/cmux-$mac_tag" ]]; then rm -f "/tmp/cmux-$mac_tag" || true; fi
+      if [[ -n "${mac_app:-}" && -d "$mac_app" ]]; then
+        python3 -I scripts/ci/cmux_next_pair_e2e.py --forget-tag "$mac_app" >/dev/null 2>&1 || true
+      fi
+    fi
+    rm -rf "$work/pair-rig" || true
+    if [[ -n "${mac_tag:-}" ]] && grep -qF -- "$mac_tag" /tmp/cmux-last-debug-log-path 2>/dev/null; then
+      if [[ -n "${prev_last_log:-}" ]]; then printf '%s\n' "$prev_last_log" > /tmp/cmux-last-debug-log-path || true
+      else rm -f /tmp/cmux-last-debug-log-path || true; fi
+    fi
+    rm -rf "$mac_dd" || true
+  fi
+}
+trap cleanup EXIT
+
+# xcodegen: a pinned release, checksum-verified, in a temp dir of this step's
+# own, never the host's (aws-m4pro-2 has none, and the fleet's AWS Macs are not
+# provisioned by hand). Bump the version and the zip's sha256 together.
+xcodegen_version=2.46.0
+xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+xcodegen_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-ios-sim-xcodegen.XXXXXX")"
+curl -fsSL --retry 3 --retry-delay 2 -o "$xcodegen_dir/xcodegen.zip" \
+  "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" ||
+  { echo "error: could not download xcodegen $xcodegen_version" >&2; exit 3; }
+got="$(shasum -a 256 "$xcodegen_dir/xcodegen.zip" | awk '{ print $1 }')"
+[[ "$got" == "$xcodegen_sha256" ]] ||
+  { echo "error: xcodegen $xcodegen_version zip has sha256 $got, expected $xcodegen_sha256" >&2; exit 3; }
+unzip -q "$xcodegen_dir/xcodegen.zip" -d "$xcodegen_dir"
+# The binary finds its SettingPresets in ../share/xcodegen, so it runs from the unzipped tree.
+xcodegen="$xcodegen_dir/xcodegen/bin/xcodegen"
+[[ -x "$xcodegen" ]] || { echo "error: no xcodegen binary in the $xcodegen_version zip" >&2; exit 3; }
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   if [[ -n "${CMUX_CI_XCODE_APP:-}" ]]; then
     export DEVELOPER_DIR="$CMUX_CI_XCODE_APP/Contents/Developer"
@@ -59,19 +118,19 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   fi
 fi
 [[ -d "$DEVELOPER_DIR" ]] || { echo "error: no Xcode at $DEVELOPER_DIR" >&2; exit 3; }
-command -v xcodegen >/dev/null || { echo "error: xcodegen is not installed on $(hostname -s) (brew install xcodegen)" >&2; exit 3; }
 
 note "# cmux-next-ios simulator step ($mode)"
 note ""
 note "- commit: $(git rev-parse HEAD)"
 note "- host: $(hostname -s), $(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, macOS $(sw_vers -productVersion)"
 note "- Xcode: $(xcodebuild -version | tr '\n' ' ')"
+note "- xcodegen: $xcodegen_version (pinned, sha256 verified)"
 
 # --- Build ------------------------------------------------------------------
 t0=$SECONDS
 JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh >"$work/ffi.log" 2>&1 || {
   tail -60 "$work/ffi.log"; echo "error: CmuxMobileLinkFFI.xcframework build failed" >&2; exit 1; }
-(cd cmux-next-ios && xcodegen generate -q)
+(cd cmux-next-ios && "$xcodegen" generate -q)
 dd="$work/dd"
 # Demo builds the Swift packages as Release (no DEBUG), so the flood benchmark
 # and terminal demo would be missing; the command-line conditions reach the
@@ -94,12 +153,6 @@ note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle
 sims="$work/sims"
 mkdir -p "$sims"
 simctl() { xcrun simctl --set "$sims" "$@"; }
-cleanup() {
-  simctl shutdown all >/dev/null 2>&1 || true
-  simctl delete all >/dev/null 2>&1 || true
-  rm -rf "$sims"
-}
-trap cleanup EXIT
 read -r runtime device_type < <(xcrun simctl list -j runtimes devicetypes | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -233,7 +286,50 @@ PY
   tail -n +1 "$summary" | tail -8
 fi
 
-simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' > "$out/app-log.txt" 2>/dev/null || true
+# --- Pairing by QR code ----------------------------------------------------
+if [[ "$mode" == pair-e2e ]]; then
+  t0=$SECONDS
+  # A tag of this run only: its own bundle id, socket, settings and state.
+  mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
+  prev_last_log="$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || true)"
+  mac_dd="$work/mac-dd"
+  # A fleet step checks out no submodules (only their empty gitlink directories): the Mac app
+  # needs Ghostty's headers, the ghostty-next tree and GhosttyKit.xcframework (a prebuilt
+  # download), as the measure steps do (scripts/measure/action-signposts.sh). Without them
+  # reload.sh stops at once: "ghostty/include/ghostty.h is missing" (step 4baf44ec, 2026-10-27).
+  for sub in ghostty ghostty-next; do
+    [[ -e "$sub/.git" ]] || git submodule update --init --depth 1 "$sub" >"$work/submodules.log" 2>&1 ||
+      { tail -20 "$work/submodules.log"; echo "error: could not check out the $sub submodule" >&2; exit 1; }
+  done
+  if [[ ! -f GhosttyKit.xcframework/Info.plist ]]; then
+    rm -rf GhosttyKit.xcframework
+    if [[ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
+      export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+    fi
+    ./scripts/download-prebuilt-ghosttykit.sh >"$work/ghosttykit.log" 2>&1 ||
+      { tail -20 "$work/ghosttykit.log"; echo "error: could not download GhosttyKit.xcframework" >&2; exit 1; }
+  fi
+  # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
+  # cmux-mobile-host on a cache miss and requires them in the bundle.
+  set +e
+  CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
+    --no-global-cli-links >"$work/mac-build.log" 2>&1
+  status=$?
+  set -e
+  cp "$work/mac-build.log" "$out/mac-build.log"
+  mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
+  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
+  note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
+  set +e
+  python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
+    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"
+  pair_status=$?
+  set -e
+fi
+
+# The app log goes through the pairing redactor: a pairing link or token it logged never reaches the artifact.
+simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' 2>/dev/null |
+  python3 -I scripts/ci/cmux_next_pair_e2e.py --redact > "$out/app-log.txt" || true
 cp "$work/build.log" "$out/build.log" 2>/dev/null || true
 # The app (so the same build runs on another Mac's simulator) and the recordings.
 ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Demo-simulator.app.zip"
@@ -244,3 +340,4 @@ fi
 (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
 cat "$summary"
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
+if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi

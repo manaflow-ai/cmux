@@ -121,6 +121,8 @@ public final class NotificationRouter {
 public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
+        PushAppGroup.prime()
         PushReplies.shared.registerCategories()
         #if DEBUG && targetEnvironment(simulator)
         SimulatedServiceExtension.deliverIfAsked()
@@ -240,6 +242,11 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
 
     func removeThisPhoneFromMacs() async {
         await live?.removeThisPhoneFromMacs()
+    }
+
+    func openPairingCode(_ text: String) -> Bool {
+        guard let live, let invite = PairInvite(text: text) else { return false }
+        return live.accept(invite)
     }
 }
 #endif

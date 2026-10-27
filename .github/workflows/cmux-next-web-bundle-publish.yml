@@ -35,6 +35,7 @@ on:
       - "Resources/markdown-viewer/viewer-navigation.js"
       - "config/vite-plus/**"
       - "schemas/sync-motion/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2"
       - "scripts/cmux-next/web-bundle-archive.py"
       - "scripts/cmux-next/web-ota-pointer.py"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Device, PAID_USER, auditEvents, signIn } from "./helpers";
+import { Device, auditEvents, billingPlans, signIn } from "./helpers";
 
 describe("device registration and signed requests", () => {
   it("registers a device signed by its own key and serves /v1/me", async () => {
@@ -18,11 +18,17 @@ describe("device registration and signed requests", () => {
     expect(await auditEvents(d)).toEqual(["device_added"]);
   });
 
-  it("reports the paid plan from PAID_USER_IDS", async () => {
-    const account = await signIn(PAID_USER);
+  it("reports the plan from the caller's cmux subscription", async () => {
+    const sub = `pro-${crypto.randomUUID()}`;
+    billingPlans.set(sub, { subscriptionPlanId: "pro" });
+    const account = await signIn(sub);
     const d = await Device.create(account);
     await d.register();
     expect((await d.call("GET", "/v1/me")).json.plan).toBe("paid");
+    billingPlans.set(sub, { subscriptionPlanId: "go" });
+    expect((await d.call("GET", "/v1/me")).json.plan).toBe("free");
+    billingPlans.set(sub, { status: 500 });
+    expect((await d.call("GET", "/v1/me")).json.plan).toBe("free");
   });
 
   it("rejects registration signed by another key or for a mismatched id", async () => {

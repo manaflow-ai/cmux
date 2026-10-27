@@ -1,7 +1,8 @@
 // The New Tab page's field follows the browser omnibar's pointer and hover rules (OmnibarPointer,
 // cx-d0d.80; Lawrence 2026-10-13): the I-beam over the whole field row at rest and while editing,
-// the arrow over its buttons, and no hover lift on the box: it is quiet, as Claude's and ChatGPT's
-// composers are (Leo 2026-10-18).
+// the pointing hand over its buttons (Leo 2026-10-21: every clickable thing shows the hand; it was
+// the arrow), and no hover lift on the box: it is quiet, as Claude's and ChatGPT's composers are
+// (Leo 2026-10-18).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -78,7 +79,7 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
       return `${style.backgroundColor} ${style.backgroundImage}`;
     });
 
-  test("the I-beam over the whole field row at rest and while editing; the arrow over a button", async () => {
+  test("the I-beam over the whole field row at rest and while editing; the pointing hand over a button", async () => {
     const page = await open("no-preference");
     const row = (await page.locator(".nt-input").boundingBox())!;
     const field = (await page.locator(".nt-field").boundingBox())!;
@@ -101,7 +102,9 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     const box = (await button.boundingBox())!;
     const got = await cursorAt(page, box.x + box.width / 2, box.y + box.height / 2);
     console.log("new-tab-omnibar-pointer button:", JSON.stringify(got));
-    expect(got.cursor).toBe("default");
+    // The first button is the enabled model chip; every enabled button shows the hand (Leo
+    // 2026-10-21: "LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE").
+    expect(got.cursor).toBe("pointer");
     await page.close();
   });
 

@@ -308,6 +308,53 @@ test("picking a machine instead clears the saved environment", async () => {
   expect(folderButton()).not.toBeNull();
 });
 
+test("picking another machine acpmux lists starts the chat there", async () => {
+  const calls = await mount();
+  await click(environmentButton());
+  await click(row("devbox"));
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox`);
+  // The prompt takes the keyboard back, as after a folder pick.
+  expect(doc().activeElement).toBe(host.querySelector(".nt-field"));
+  await ask("tail the logs");
+  const asked = calls.find((call) => call.method === "chat.new")!.params!;
+  expect(asked).toMatchObject({ harness: "claude", peer: "devbox" });
+  // Another machine's folder is not this Mac's: no local folder check.
+  expect(calls.some((call) => call.method === "workspace.useFolder")).toBe(false);
+  expect(calls.find((call) => call.method === "chat.send")?.params).toEqual({ text: "tail the logs" });
+});
+
+test("a chat started on another machine with no folder there does not take this tab's folder", async () => {
+  const { newSessionHost, newSessionParams } = await import("../src/agent-session/acpmux/direct");
+  const tab = { cwd: "/Users/you/src/app" };
+  expect(newSessionParams(newSessionHost(tab, undefined, "devbox", false), "claude")).toEqual({
+    mcpServers: [],
+    _meta: { acpmux: { harness: "claude", peer: "devbox" } },
+  });
+  expect(newSessionHost(tab, "/srv/api", "devbox", false)).toEqual({ cwd: "/srv/api", peer: "devbox" });
+  // This Mac with no folder picked still starts in the tab's.
+  expect(newSessionHost(tab, undefined, undefined, false)).toEqual({ cwd: "/Users/you/src/app", peer: undefined });
+});
+
+test("a machine picked after a saved environment is where the chat starts", async () => {
+  const calls = await mount();
+  await click(environmentButton());
+  await click(row("Web"));
+  await click(environmentButton());
+  await click(row("devbox"));
+  await ask("tail the logs");
+  expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ peer: "devbox" });
+});
+
+test("picking this Mac again after another machine starts the chat here", async () => {
+  const calls = await mount();
+  await click(environmentButton());
+  await click(row("devbox"));
+  await click(environmentButton());
+  await click(rows().find((item) => item.querySelector('.acpmux-env-row[data-kind="local"]')));
+  await ask("fix the build");
+  expect(calls.find((call) => call.method === "chat.new")?.params?.peer).toBeUndefined();
+});
+
 test("Create environment saves where the page would start and picks it", async () => {
   const calls = await mount();
   await click(environmentButton());
@@ -393,4 +440,27 @@ test("a start the SSH machine held without a chat sends the prompt nowhere", asy
   await ask("tail the logs");
   expect(calls.some((call) => call.method === "chat.new")).toBe(true);
   expect(calls.some((call) => call.method === "chat.send")).toBe(false);
+});
+
+test("a chat started on another machine starts on the model the page showed", async () => {
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  const calls: Call[] = [];
+  const noop = () => {};
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => {
+      calls.push({ method, ...(params ? { params } : {}) });
+      return method === "chat.new" ? "session-1" : undefined;
+    },
+    leave: noop,
+    selectSession: noop,
+    showAllChats: noop,
+    runShell: noop,
+  });
+  actions.onAsk("claude", "tail the logs", undefined, "claude-opus-5-5", undefined, undefined, { peer: "devbox" });
+  await settle();
+  expect(calls.find((call) => call.method === "chat.new")?.params).toEqual({
+    harness: "claude",
+    model: "claude-opus-5-5",
+    peer: "devbox",
+  });
 });

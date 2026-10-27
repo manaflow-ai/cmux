@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
@@ -21,6 +22,7 @@ import {
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
+  runAfterResponse,
   vmActiveLimitExceededResponse,
   vmErrorResponse,
   resolveVmProvisioningAccountScope,
@@ -136,6 +138,8 @@ export async function runBaseRoute(input: {
       stackUserId: user.id,
     }),
     timing: input.timing,
+    // The guest vm-kind write runs after the answer, kept alive by the platform.
+    deferAfterResponse: (work: Effect.Effect<void>) => runAfterResponse(() => Effect.runPromise(work)),
   };
   // Allocated at the call: the workflow owns the credential and wipes it when
   // it ends, including work that continues after the route answers.

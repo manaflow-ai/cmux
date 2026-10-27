@@ -1578,15 +1578,17 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
  * `baked` and `current` when a main sync brings a new ladder. The desktop
  * sources moved again in 089cd3e3dc92 and 5901bc15bec0 (the codex config
  * merge under a lock) and b5f75830c15f (agent-config.sh bounds that lock's
- * wait), and again with the cmux-machine-health install (the bake steps and
- * the boot script's HOUSEKEEPING_TIMERS), so `current` is their digest.
+ * wait), again with the cmux-machine-health install (the bake steps and
+ * the boot script's HOUSEKEEPING_TIMERS), and again with cmux-vm-kind-sync's
+ * write-only-a-fetched-kind lock and the boot's clone-reset fallback, so
+ * `current` is their digest.
  */
 export const DEVBOX_AWAITING_REBAKE = [
   {
     layers: "desktop",
     schema: 2,
     baked: "28fce1e49495",
-    current: "c7f978ae71238b86f6907678de05fc212323f91b69a948eea42af71ac5d04bf2",
+    current: "08eaadaaff2d2bae9b06f0ab85925fcbbfc8b35eea8da89088b58ea92842b0ee",
   },
 ] as const;
 
