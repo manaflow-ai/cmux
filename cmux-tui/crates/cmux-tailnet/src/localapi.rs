@@ -21,9 +21,6 @@ pub(crate) struct LocalApi {
 impl LocalApi {
     pub(crate) fn new(addr: &str, cred: &str) -> Self {
         let token = base64::engine::general_purpose::STANDARD.encode(format!(":{cred}"));
-        // Requests stay on loopback: never through a proxy from the
-        // environment (it would receive the LocalAPI password). The watch
-        // stream must not time out.
         let agent =
             reqwest::blocking::Client::builder().no_proxy().build().expect("LocalAPI client");
         Self { base: format!("http://{addr}"), authorization: format!("Basic {token}"), agent }

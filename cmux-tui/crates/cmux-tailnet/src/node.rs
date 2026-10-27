@@ -51,7 +51,6 @@ pub struct Node {
     calls: Mutex<()>,
 }
 
-// The handle is an integer into libtailscale's table; calls are serialized by `calls`.
 unsafe impl Send for Node {}
 unsafe impl Sync for Node {}
 
@@ -73,8 +72,6 @@ impl Node {
             node.call(|| unsafe { ffi::tailscale_set_control_url(sd, url.as_ptr()) })?;
         }
         node.call(|| unsafe { ffi::tailscale_set_ephemeral(sd, config.ephemeral as i32) })?;
-        // Also routes tsnet's user log (which repeats the sign-in link) to
-        // this fd or nowhere: patches/0001-user-logf-follows-logfd.patch.
         node.call(|| unsafe { ffi::tailscale_set_logfd(sd, config.log_fd.unwrap_or(-1)) })?;
         Ok(node)
     }
@@ -221,7 +218,6 @@ impl Listener {
         let mut buf = vec![0 as c_char; 64];
         if unsafe { ffi::tailscale_getremoteaddr(self.fd, conn, buf.as_mut_ptr(), buf.len()) } != 0
         {
-            // No address means no identity: refuse the connection.
             return Err(Error("accept: no remote address".into()));
         }
         let remote = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_string_lossy().into_owned();

@@ -121,7 +121,6 @@ fn build(source: &Path, out: &Path) -> PathBuf {
         go.env("GOARCH", goarch);
     }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-        // Match the app's deployment target so the linker does not warn per object.
         let target = std::env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| "14.0".into());
         go.env("MACOSX_DEPLOYMENT_TARGET", &target)
             .env("CGO_CFLAGS", format!("-mmacosx-version-min={target}"))
