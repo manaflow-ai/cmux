@@ -255,6 +255,16 @@ impl Pairing {
             .is_some_and(|ticket| ticket.identity.is_empty() || ticket.identity == identity)
     }
 
+    /// Tailnet ingress never accepts migration-era unbound tickets.
+    pub fn ticket_open_bound(&self, secret: &str, identity: &str) -> bool {
+        !identity.is_empty()
+            && self
+                .lock()
+                .store
+                .find_open(secret, crate::store::now_ms())
+                .is_some_and(|ticket| ticket.identity == identity)
+    }
+
     /// Redeem `secret` for a device named `name`; `check` runs on the ticket's
     /// role before anything is consumed (the daemon role's peer checks).
     pub fn redeem(
@@ -267,7 +277,7 @@ impl Pairing {
         let token = random_secret()?;
         let device_id = store::new_id("dv")?;
         let now = crate::store::now_ms();
-        self.change(|s| s.redeem(secret, name, &token, &device_id, now, self_instance, check))
+        self.change(|s| s.redeem((secret, self_instance), name, &token, &device_id, now, check))
     }
 
     /// Issue a device credential with no ticket: the joining side's own

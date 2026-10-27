@@ -14,7 +14,7 @@ fn ok(_: Role) -> Result<(), RpcError> {
 }
 
 fn redeem(s: &mut Store, secret: &str, name: &str, now: u64) -> Result<Redeemed, RpcError> {
-    s.redeem(secret, name, &"ab".repeat(32), &format!("dv_{name}"), now, "test-instance", ok)
+    s.redeem((secret, "test-instance"), name, &"ab".repeat(32), &format!("dv_{name}"), now, ok)
 }
 
 fn reason(e: &RpcError) -> &str {
@@ -69,7 +69,7 @@ fn the_device_gets_the_role_the_minter_stored() {
 fn a_refused_redeem_leaves_the_ticket_open() {
     let (mut s, _) = minted(Role::Daemon);
     let e = s
-        .redeem(SECRET, "box", &"ab".repeat(32), "dv_1", T0 + 1, "test-instance", |_| {
+        .redeem((SECRET, "test-instance"), "box", &"ab".repeat(32), "dv_1", T0 + 1, |_| {
             Err(RpcError::invalid_params("no").with_data(serde_json::json!({"reason": "x"})))
         })
         .unwrap_err();
@@ -87,7 +87,7 @@ fn a_refused_redeem_leaves_the_ticket_open() {
 fn a_ticket_cannot_cross_acpmux_instances() {
     let (mut s, _) = minted(Role::Client);
     let error = s
-        .redeem(SECRET, "laptop", &"ab".repeat(32), "dv_laptop", T0 + 1, "other-instance", ok)
+        .redeem((SECRET, "other-instance"), "laptop", &"ab".repeat(32), "dv_laptop", T0 + 1, ok)
         .unwrap_err();
     assert_eq!(reason(&error), "ticket_refused");
     assert_eq!(s.tickets[0].state(T0 + 1), TicketState::Open);
@@ -333,4 +333,25 @@ fn a_new_phone_credential_ends_the_old_one_and_keeps_its_setting() {
     );
     assert!(s.issue_phone("bad name", &"05".repeat(32), "dv_5", T0).is_err());
     assert_eq!(s, before);
+}
+
+#[test]
+fn tailnet_admission_requires_bound_tickets_even_for_migrated_stores() {
+    let pairing = Pairing::default();
+    let (ticket, _) = pairing
+        .mint(
+            Role::Client,
+            60,
+            None,
+            "wss://node.test.ts.net".into(),
+            "host".into(),
+            "run-one".into(),
+        )
+        .unwrap();
+    assert!(pairing.ticket_open_bound(&ticket.secret, "run-one"));
+    assert!(!pairing.ticket_open_bound(&ticket.secret, "run-two"));
+    assert!(!pairing.ticket_open_bound(&ticket.secret, ""));
+    pairing.lock().store.tickets[0].identity.clear();
+    assert!(pairing.ticket_open(&ticket.secret, "run-one"));
+    assert!(!pairing.ticket_open_bound(&ticket.secret, "run-one"));
 }
