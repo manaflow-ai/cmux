@@ -1,4 +1,4 @@
-import CoreFoundation
+public import CoreFoundation
 import CmuxNextCompat
 import Darwin
 import Foundation
@@ -15,15 +15,18 @@ import Foundation
 /// modes, as Chrome's work source is (`MessagePumpCFRunLoopBase::work_source_`,
 /// base/message_loop/message_pump_apple.mm), so menu tracking and modal panels run main-actor jobs too.
 ///
-/// The classes (``workClass(priority:inInputTurn:)``): a job the main thread enqueues while a discrete input's
-/// dispatch is open is ``MainWorkClass/input``; otherwise `.high` and above is `userBlocking`, `.medium` and no
-/// priority are `visible`, `.low` (utility) is `automation`, `.background` is `background`. A task makes one job at
-/// a time (its next one only after the last one ran), and each class is FIFO, so one task's jobs keep their order.
+/// The classes (``workClass(priority:inInputTurn:)``, the spec's mapping): a job the main thread enqueues while a
+/// discrete input's dispatch is open is ``MainWorkClass/input``; otherwise `.high` (userInitiated) and above is
+/// `visible`, `.medium` and no priority (the runtime's default) are `automation`, `.low` (utility) is `background`,
+/// `.background` is `idle`. A task makes one job at a time (its next one only after the last one ran), and each class
+/// is FIFO, so one task's jobs keep their order.
 ///
-/// Each pass runs at most the jobs queued when it began (jobs they enqueue wait for the next pass, after the run
-/// loop's observers and the commit), at least one, and stops before a job below ``MainWorkClass/input`` while a
-/// person's input is pending (``SessionInputPending`` through the scheduler's budget), checked at most every
-/// ``inputCheckNanos``. The source signals itself again for what is left.
+/// Each pass runs only the jobs queued before it began (jobs they enqueue wait for a later pass), at least one, and
+/// stops before a job below ``MainWorkClass/input`` while a person's input is pending (``SessionInputPending``
+/// through the scheduler's budget), checked at most every ``inputCheckNanos``. A pass never signals the source
+/// again: an observer of the main run loop's before-waiting and exit stages, ordered after Core Animation's commit,
+/// arms the next pass. So the stages' observers and the commit run between every two passes, however fast
+/// main-actor work arrives.
 ///
 /// The hook word is taken only when it is free (the p04-input MainJobGate and the p08 main-job census want the same
 /// word: the first one wins and the others find it ``State/busy``), and stays for the life of the process. Only
@@ -51,7 +54,7 @@ public final class MainExecutorHook: Sendable {
     /// The longest a pass trusts its last pending-input answer (the budget's own cache, MainFrameBudget.inputPending).
     public static let inputCheckNanos: UInt64 = 250_000
     /// The classes a main-actor job runs in, highest first: the order a pass picks them in.
-    public static let classes: [MainWorkClass] = [.input, .userBlocking, .visible, .automation, .background]
+    public static let classes: [MainWorkClass] = [.input, .visible, .automation, .background, .idle]
 
     /// What the install found.
     public enum State: UInt8, Sendable {
@@ -100,65 +103,6 @@ public final class MainExecutorHook: Sendable {
         case work(@MainActor @Sendable () -> Void)
     }
 
-    /// One class's FIFO.
-    struct Bucket {
-        private var items: [Item] = []
-        private var head = 0
-
-        var isEmpty: Bool { head == items.count }
-
-        mutating func push(_ item: Item) { items.append(item) }
-
-        mutating func pop() -> Item? {
-            guard head < items.count else { return nil }
-            let item = items[head]
-            head += 1
-            if head == items.count {
-                items.removeAll(keepingCapacity: true)
-                head = 0
-            } else if head >= 64, head * 2 >= items.count {
-                items.removeFirst(head)
-                head = 0
-            }
-            return item
-        }
-    }
-
-    /// The queues and the source, behind one lock: the hook enqueues from any thread.
-    struct Queues {
-        var buckets = Array(repeating: Bucket(), count: MainExecutorHook.classes.count)
-        var stats = Stats()
-        /// The run-loop source is signaled and has not started its pass yet.
-        var signaled = false
-        /// The main run loop's source (nil until ``MainExecutorHook/install()``, and in tests).
-        var source: CFRunLoopSource?
-
-        mutating func push(_ item: Item, at index: Int) {
-            buckets[index].push(item)
-            stats.queued += 1
-        }
-
-        /// The oldest item of the highest non-empty class; with `inputOnly`, only an ``MainWorkClass/input`` one.
-        mutating func pop(inputOnly: Bool) -> Item? {
-            let end = inputOnly ? 1 : buckets.count
-            for index in 0 ..< end {
-                guard let item = buckets[index].pop() else { continue }
-                stats.queued -= 1
-                stats.ranByClass[index] += 1
-                return item
-            }
-            return nil
-        }
-
-        /// Signals the source once until its next pass begins (nothing in tests, which have no source).
-        mutating func signal() {
-            guard !signaled, let source else { return }
-            signaled = true
-            CFRunLoopSourceSignal(source)
-            CFRunLoopWakeUp(CFRunLoopGetMain())
-        }
-    }
-
     private let queues = Mutex(Queues())
     /// Open discrete-input dispatches (``noteInputTurn(began:)``), read by the hook on the main thread.
     private let inputTurns = Atomic<Int>(0)
@@ -185,8 +129,9 @@ public final class MainExecutorHook: Sendable {
         }
     }
 
-    /// The process's environment asked for the hook (read once): the first scheduler installs it, so a whole test
-    /// run goes through it (the gate's `CMUX_MAIN_EXECUTOR_HOOK=1 swift test`).
+    /// The process's environment asked for the hook (read once): the process's first scheduler installs it (the
+    /// gate's `CMUX_MAIN_EXECUTOR_HOOK=1 swift test`). Main-actor jobs before that scheduler run on the main
+    /// dispatch queue.
     static let launchEnvironmentAsks = ProcessInfo.processInfo.environment[environmentKey] == "1"
 
     /// The class a job of raw `priority` (`TaskPriority.rawValue`, 0 for none) runs in. `inInputTurn`: the main
@@ -197,12 +142,12 @@ public final class MainExecutorHook: Sendable {
 
     /// ``workClass(priority:inInputTurn:)``'s index in ``classes``.
     static func classIndex(priority: UInt8, inInputTurn: Bool) -> Int {
-        if inInputTurn { return 0 }
-        if priority == 0 { return 2 }
-        if priority >= TaskPriority.high.rawValue { return 1 }
-        if priority >= TaskPriority.medium.rawValue { return 2 }
-        if priority >= TaskPriority.low.rawValue { return 3 }
-        return 4
+        if inInputTurn { return 0 } // input
+        if priority == 0 { return 2 } // no priority: the runtime's default, medium
+        if priority >= TaskPriority.high.rawValue { return 1 } // visible
+        if priority >= TaskPriority.medium.rawValue { return 2 } // automation
+        if priority >= TaskPriority.low.rawValue { return 3 } // background
+        return 4 // idle
     }
 
     /// A discrete input's dispatch began or ended on the main thread (``MainWorkScheduler/noteDiscreteDispatch(began:)``):
@@ -229,24 +174,26 @@ public final class MainExecutorHook: Sendable {
         let index = Self.classIndex(priority: priority, inInputTurn: inInputTurn)
         queues.withLock { queues in
             queues.push(item, at: index)
-            queues.signal()
+            if !queues.waitsForObservers { queues.signal() }
         }
     }
 
-    /// One pass of the run-loop source: the jobs queued when it began, highest class first, until a person's input
-    /// is pending (after the first job; ``MainWorkClass/input`` jobs still run). What is left signals the next pass.
+    /// One pass of the run-loop source: the jobs queued before it began, highest class first, until a person's
+    /// input is pending (after the first job; ``MainWorkClass/input`` jobs still run). It never signals the next
+    /// pass: ``runLoopObserversRan()`` does, after the run loop's observers and the commit. A pass that a job's
+    /// nested run loop starts takes its own cutoff, so it can run what the outer pass left.
     @MainActor
     public func runPass() {
-        let limit = queues.withLock { queues in
+        let cutoff = queues.withLock { queues in
             queues.signaled = false
+            queues.waitsForObservers = true
             queues.stats.passes += 1
-            return queues.stats.queued
+            return queues.nextSequence
         }
         var ran = 0
         var checkedAt: UInt64?
         var inputPending = false
-        var yielded = false
-        while ran < limit {
+        while true {
             if ran > 0 {
                 let now = clock()
                 if checkedAt.map({ now &- $0 >= Self.inputCheckNanos }) ?? true {
@@ -255,15 +202,24 @@ public final class MainExecutorHook: Sendable {
                 }
             }
             let inputOnly = inputPending
-            guard let item = queues.withLock({ $0.pop(inputOnly: inputOnly) }) else {
-                yielded = inputOnly
-                break
+            let next = queues.withLock { queues -> Item? in
+                if let item = queues.pop(before: cutoff, inputOnly: inputOnly) { return item }
+                if inputOnly, queues.holds(before: cutoff) { queues.stats.yields += 1 }
+                return nil
             }
-            run(item)
+            guard let next else { break }
+            run(next)
             ran += 1
         }
+    }
+
+    /// The main run loop reached its before-waiting or exit stage, after Core Animation's commit and the stage's
+    /// other observers: if a pass ran since the last call and work is queued, the next pass is signaled. Any thread
+    /// (tests call it in place of the run loop).
+    func runLoopObserversRan() {
         queues.withLock { queues in
-            if yielded { queues.stats.yields += 1 }
+            guard queues.waitsForObservers else { return }
+            queues.waitsForObservers = false
             if queues.stats.queued > 0 { queues.signal() }
         }
     }
@@ -337,20 +293,30 @@ public final class MainExecutorHook: Sendable {
         return .installed
     }
 
-    /// Adds the pass's source to the main run loop in the common modes.
+    /// Adds the pass's source, and the observer that arms it, to the main run loop in the common modes (install(),
+    /// and tests that drive the real main run loop with a hook they never install).
     @MainActor
-    private func attachSource() {
+    func attachSource() {
         // install() keeps this hook retained while the source is on the run loop (detachSource() invalidates it
         // before that retain is released).
-        queues.withLock { $0.source = WorkSource.attach(self) }
+        queues.withLock { queues in
+            queues.source = WorkSource.attach(self)
+            // `lastOrder`: after Core Animation's commit (order 2000000) and AppKit's observers of these stages.
+            queues.observer = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: MainRunLoopObserver.lastOrder) { [weak self] _ in
+                self?.runLoopObserversRan()
+            }
+        }
     }
 
     @MainActor
-    private func detachSource() {
+    func detachSource() {
         queues.withLock { queues in
             if let source = queues.source { CFRunLoopSourceInvalidate(source) }
+            queues.observer?.invalidate()
             queues.source = nil
+            queues.observer = nil
             queues.signaled = false
+            queues.waitsForObservers = false
         }
     }
 }

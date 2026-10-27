@@ -473,22 +473,34 @@ priority. A run-loop source on the main run loop runs them in the common modes (
 `MessagePumpCFRunLoopBase::work_source_`, `base/message_loop/message_pump_apple.mm`), highest class first and oldest
 first within a class (`base/task/sequence_manager/task_queue_selector.h`).
 
+The classes follow the spec's mapping (p06-scheduler.md, task 202):
+
 | Job | Class |
 |---|---|
 | enqueued by the main thread while a discrete input's dispatch is open (`MainWorkScheduler.noteDiscreteDispatch`) | `input` |
-| `.high` and above (a `Task {}` made on main inherits the main thread's user-interactive QoS) | `userBlocking` |
-| `.medium`, or no priority | `visible` |
-| `.low` (utility: CLI, agent and page work) | `automation` |
-| `.background` | `background` |
+| `.high` (userInitiated) and above (a `Task {}` made on main inherits the main thread's user-interactive QoS) | `visible` |
+| `.medium`, or no priority (the runtime's default; a `Task {}` made on a default-QoS socket or daemon thread) | `automation` |
+| `.low` (utility) | `background` |
+| `.background` | `idle` (the lowest FIFO: it runs only when no other class holds a job; no idle deadline) |
 
-A pass runs at most the jobs queued when it began, at least one. After the first job it stops before any job below
-`input` while the person's input is pending (the budget's `SessionInputPending` and the board's injected-input count,
-checked at most every 250 us), and signals itself again for what is left.
+A pass runs only the jobs queued before it began (each job gets a sequence number; the pass takes the next one as its
+cutoff), at least one. A job that a job of the pass enqueues waits for a later pass, whatever its class. After the
+first job the pass stops before any job below `input` while the person's input is pending (the budget's
+`SessionInputPending` and the board's injected-input count, checked at most every 250 us).
+
+A pass never signals its source again. An observer of the main run loop's before-waiting and exit stages, at
+`MainRunLoopObserver.lastOrder` (after Core Animation's commit at 2000000 and AppKit's observers), signals the next
+pass when work is queued. A source0 signaled from inside its own pass would keep `__CFRunLoopRun` polling
+(`sourceHandledThisLoop`), and polling skips the before-waiting observers: a steady stream of main-actor jobs would
+hold back the commit. So every two passes have the commit and those observers between them, however fast work
+arrives. `MainExecutorHookTests.runLoopObserversRunBetweenPassesUnderAStreamOfJobs` runs the real main run loop under
+a self-renewing stream of jobs and checks it. An enqueue while no pass waits for those observers signals at once.
 
 **Switch.** Feature `mainExecutorHook` (perfPath, default off on every channel), installed once by the composition
 root (`CmuxNextApp.swift`). `CMUX_MAIN_EXECUTOR_HOOK=1` turns it on for one launch, and `0` keeps it off even when the
-feature is on. In a test process launched with `CMUX_MAIN_EXECUTOR_HOOK=1`, the first `MainWorkScheduler` installs it,
-so the whole run goes through it. The hook word is taken only when it is free. The p04-input MainJobGate (021/076) and
+feature is on. In a test process launched with `CMUX_MAIN_EXECUTOR_HOOK=1`, the first `MainWorkScheduler` installs it.
+Main-actor jobs before that first scheduler run on the main dispatch queue, so suites that run earlier do not go
+through the hook. The hook word is taken only when it is free. The p04-input MainJobGate (021/076) and
 the p08 main-job census (080) want the same word: the first install wins and the others report `busy`.
 
 **The gate.** Each step runs with the hook on, on macOS 26, 27, 14 and 15:
@@ -497,8 +509,11 @@ the p08 main-job census (080) want the same word: the first install wins and the
 2. `os-matrix.sh --os 14,15` for the two older versions.
 3. `automation-typing` STRESS, with the hook on and off.
 
-`MainExecutorHookTests.runtimeJobsRunInOrderThroughTheInstalledHook` checks real runtime jobs: `assumeIsolated` and
-`dispatchPrecondition(.onQueue(.main))` hold, and one task's jobs keep their order.
+`MainExecutorHookTests.runtimeJobsRunInOrderThroughTheInstalledHook` checks real runtime jobs. In the gate's run it
+makes a scheduler first (so the hook is installed whatever order the suites run in) and requires
+`MainExecutorHook.installed`: a `missing` or `busy` install fails it. Then a utility task's six jobs go through the
+hook's `background` class, `assumeIsolated` and `dispatchPrecondition(.onQueue(.main))` hold, and the task's jobs keep
+their order.
 
 - **If it passes:** queues Q1, Q1b and Q7 shrink to "give the task the right priority". The main-hop guardrail can then
   accept a `Task(priority:)` with a stated priority.
@@ -509,8 +524,12 @@ hook. These risks were found while building it. Each gate run checks them:
 
 - **Priority inversion on escalation.** A queued job keeps the class it was queued with. When a high-priority waiter
   escalates a low task, the runtime may not enqueue it again on this executor. Its waiting job stays in
-  `automation` until the classes above it drain. Pending input never holds input or userBlocking jobs, so the wait is
-  bounded by those classes' work, not by input.
+  `background` until the classes above it drain. Pending input holds every class below `input` (a pass then runs one
+  job at most, plus input jobs), so the wait is not bounded by this hook: it lasts while higher classes keep jobs
+  queued or the person's input stays pending.
+- **Medium is automation.** The spec's mapping puts `.medium` and no priority below `visible`. A main-actor job that
+  shows something to the person and was started from a default-QoS thread without a stated priority now waits for
+  `visible` work. The gate's STRESS run checks that no visible update starves.
 - **Nested run loops.** The main dispatch queue does not drain inside a nested run loop that a main-queue block
   started: a menu or a modal opened from a main-actor job. CFRunLoop can call this source again inside a nested
   run loop, so other main-actor jobs can run there. Code that counted on them waiting until the menu closes changes
@@ -521,6 +540,6 @@ hook. These risks were found while building it. Each gate run checks them:
 - **Order against non-Swift main work.** `MainRunLoopBlock`, `CFRunLoopPerformBlock` and GCD main blocks no longer
   share one FIFO with main-actor jobs. A test or a caller that queued both and expected arrival order sees them in
   pass order instead.
-- **Strict class order.** Background jobs can wait for as long as higher classes keep work queued. This is the
+- **Strict class order.** Background and idle jobs can wait for as long as higher classes keep work queued. This is the
   selector's rule, and the budget's progress rule does not cover these jobs.
 
