@@ -303,6 +303,37 @@ struct RunawayPaneWarningCenterTests {
     }
 
     @Test
+    func persistentlyUnavailableTTYEventuallyClearsWarning() async throws {
+        let center = makeCenter(
+            source: WarningSnapshotSource(census(workers: 1_200)),
+            recorder: WarningSignalRecorder()
+        )
+        var notified = 0
+        center.onNewWarning = { _ in notified += 1 }
+        await evaluate(center)
+        #expect(center.warnings.count == 1)
+
+        // The shell exited but the pane stayed open: its TTY never resolves again.
+        let exited = PaneMemoryDescriptor(
+            workspaceId: workspaceID, panelId: paneID,
+            workspaceTitle: "my-app", paneTitle: "dev server",
+            ttyName: nil, foregroundPID: nil
+        )
+        center.paneProvider = { [exited] }
+        for _ in 0..<RunawayPaneWarningCenter.maximumUnavailableSamples {
+            await evaluate(center)
+            #expect(center.warnings.count == 1, "a brief gap keeps the warning")
+        }
+        await evaluate(center)
+        #expect(center.warnings.isEmpty, "a frozen warning must not outlive its session")
+
+        let live = descriptor
+        center.paneProvider = { [live] }
+        await evaluate(center)
+        #expect(notified == 2, "a new runaway in the same pane warns again")
+    }
+
+    @Test
     func emptyCompleteTTYMeasurementConfirmsRecovery() async throws {
         let source = WarningSnapshotSource(census(workers: 1_200))
         let center = makeCenter(source: source, recorder: WarningSignalRecorder())
