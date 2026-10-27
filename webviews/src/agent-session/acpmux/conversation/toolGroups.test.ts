@@ -145,6 +145,9 @@ test("unchanged streamed tool revisions reuse the bounded body parser cache", ()
   expect(recordedMessageBodyParseCountForTests()).toBe(3);
   // A same-id command revision is a new cache key, so stale content cannot survive an overwrite.
   const changedWriter = { ...writer, tool: { ...writer.tool!, command: "echo replacement > /tmp/review.md" } };
-  toolGroups([changedWriter, send]);
+  const changed = toolGroups([changedWriter, send]);
   expect(recordedMessageBodyParseCountForTests()).toBe(4);
+  const changedSend = changed.find((entry) => entry.type === "send");
+  expect(changedSend?.type).toBe("send");
+  if (changedSend?.type === "send") expect(changedSend.send.text).toBeUndefined();
 });
