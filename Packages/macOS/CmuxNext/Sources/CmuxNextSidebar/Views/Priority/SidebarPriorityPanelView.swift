@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 
@@ -89,8 +90,11 @@ final class SidebarPriorityPanelView: NSView {
     /// Lays the rows out in rank order on the sidebar's motion (`Motion.sidebar`, the main list's `.move`
     /// spring), as the main list does (`RowMotion`, `SidebarRowTransition`): a row that moved slides
     /// there, a new row opens its slot from zero height at the top of its run of new rows, and a row
-    /// that left closes its slot at the top of its run, so the rows below slide up into it. With motion
-    /// off (the master switch, the sidebar switch, speed "off", Reduce Motion) all of it lands at once.
+    /// that left closes its slot at the top of its run, so the rows below slide up into it. The frames
+    /// move on the render server (`SidebarDragSpring.move(_:in:)`): each model frame is at its target in
+    /// this turn and nothing writes a row's frame per display frame; only the opacity of the rows that
+    /// open, close or still fade runs on AppKit's spring. With motion off (the master switch, the sidebar
+    /// switch, speed "off", Reduce Motion) all of it lands at once.
     private func placeRows(animated: Bool) {
         let width = scroll.contentView.bounds.width
         let oldFrames = rows.mapValues(\.frame)
@@ -130,7 +134,7 @@ final class SidebarPriorityPanelView: NSView {
         document.frame = NSRect(x: 0, y: 0, width: width, height: y)
         guard animated, Motion.sidebar.animatesMovement else {
             // Each row at its place, whole. Set through the animator, the frame replaces a move still in
-            // flight (as `RowMotion` does), which a plain set would not stop.
+            // flight (as `RowMotion` does), which a plain set would not stop; an earlier move's springs come off.
             Motion.withoutAnimation {
                 for (row, frame) in targets + opening {
                     row.animator().frame = frame
@@ -138,6 +142,7 @@ final class SidebarPriorityPanelView: NSView {
                     row.clipsToBounds = false
                 }
             }
+            SidebarDragSpring.stop((targets + opening).map(\.0))
             for row in closing + leaving.map(\.0) { row.removeFromSuperview() }
             closing = []
             opensUntil = [:]
@@ -154,16 +159,7 @@ final class SidebarPriorityPanelView: NSView {
             for (row, _) in opening { row.alphaValue = 0 }
         }
         let gone = leaving.map(\.0)
-        Motion.sidebar.animate(.move, in: self, {
-            for (row, frame) in targets + opening {
-                row.animator().frame = frame
-                row.animator().alphaValue = 1
-            }
-            for (row, end) in leaving {
-                row.animator().frame = end
-                row.animator().alphaValue = 0
-            }
-        }, settleAtSleep: { [weak self] in self?.placeRows(animated: false) }, completion: { [weak self, opens, gone] in
+        let ended = RowMotionEnd { [weak self, opens, gone] in
             for row in gone { row.removeFromSuperview() }
             guard let self else { return }
             self.closing.removeAll { row in gone.contains { $0 === row } }
@@ -172,7 +168,25 @@ final class SidebarPriorityPanelView: NSView {
                 self.opensUntil[ObjectIdentifier(row)] = nil
                 row.clipsToBounds = false
             }
-        })
+        }
+        // Nothing draws while the display sleeps: every row shows its place now, without motion, and the move ends.
+        let settleAtSleep: @MainActor () -> Void = { [weak self] in
+            guard !ended.isDone else { return }
+            self?.placeRows(animated: false)
+            ended.finish()
+        }
+        // The opacity changes: a row opening or still fading in goes to 1, a closing row to 0 (an opaque row is left out).
+        var fades: [(SidebarPriorityRowView, CGFloat)] = leaving.map { ($0.0, 0) }
+        for (row, _) in targets + opening where row.alphaValue != 1 { fades.append((row, 1)) }
+        let springsEnded = Motion.sidebar.trackMove(.move, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
+        CATransaction.begin()
+        // Runs once every spring added in this transaction has ended or was removed (a snap, the display's sleep).
+        CATransaction.setMainCompletion { springsEnded() }
+        SidebarDragSpring.move(targets + opening + leaving, in: self)
+        Motion.sidebar.animate(.move, in: self, {
+            for (row, alpha) in fades { row.animator().alphaValue = alpha }
+        }, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
+        CATransaction.commit()
     }
 
     /// Ticks the working chips on `deadlines` (the app's one placer) from now on. `node` is the sidebar's: while it
