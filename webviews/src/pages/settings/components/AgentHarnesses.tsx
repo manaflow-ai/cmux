@@ -5,10 +5,11 @@
 // operations as the `agent.harness.*` actions (cmux.settings.agents.run) and sends the list live
 // (cmux.settings.agents.changed) only while this card is mounted. The route's focus opens a panel:
 // `agents.add` (Add ACP Agent…, the model picker's +) or `agents.registry`.
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tabs } from "@base-ui/react/tabs";
-import { AgentMark, knownMark } from "../../../agent-session/shared/AgentMark";
+import { AgentMark } from "../../../agent-session/shared/AgentMark";
+import { parseHarnessIconSpec, rememberHarnessIcons } from "../../../agent-session/shared/harnessIcons";
 import { useStore } from "../context";
 import { Icon } from "../icons";
 import { AGENTS_KEY, agentsQuery } from "../sectionQueries";
@@ -108,6 +109,11 @@ function AgentsBody({
   run: (gesture: AgentsRun) => Promise<boolean>;
 }) {
   const added = state.harnesses.filter((row) => row.removable);
+  // Each row's mark is the icon acpmux resolved for it (its own, else the agent it runs, else a
+  // monogram), the same one the model picker, the tabs and Home draw.
+  useEffect(() => {
+    rememberHarnessIcons(state.harnesses.map((row) => ({ id: row.id, iconSpec: parseHarnessIconSpec(row.iconSpec) })));
+  }, [state.harnesses]);
   return (
     <>
       {!state.manages && (
@@ -169,10 +175,11 @@ function HarnessRow({
   run: (gesture: AgentsRun) => Promise<boolean>;
 }) {
   const problem = row.unavailable ?? row.probeError;
+  const [editing, setEditing] = useState(false);
   return (
     <div className="border-0 border-b border-solid border-edge px-3 py-2 last:border-b-0" data-agent-harness={row.id}>
       <div className="flex items-center gap-2.5">
-        <AgentMark agent={knownMark(row.icon, row.family, row.id)} size={16} reserve />
+        <AgentMark agent={row.id} size={16} reserve />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[13px] text-fg">
             <span className="truncate">{row.name}</span>
@@ -202,12 +209,120 @@ function HarnessRow({
           </button>
         )}
         {manages && row.removable && (
+          <button
+            type="button"
+            className="button"
+            aria-expanded={editing}
+            data-agent-icon-edit=""
+            onClick={() => setEditing(!editing)}
+          >
+            {t("settingsPage.agents.icon")}
+          </button>
+        )}
+        {manages && row.removable && (
           <button type="button" className="button" onClick={() => void run({ action: "remove", id: row.id })}>
             {t("settingsPage.agents.remove")}
           </button>
         )}
       </div>
+      {editing && <IconEditor row={row} run={run} done={() => setEditing(false)} />}
       {doctor && !doctor.running && doctor.steps && <DoctorSteps result={doctor} />}
+    </div>
+  );
+}
+
+/** The bytes of a chosen or dropped PNG or SVG as base64, or null for another kind of file. */
+async function iconImage(file: File): Promise<{ data: string; ext: "png" | "svg" } | null> {
+  const name = file.name.toLowerCase();
+  const ext =
+    file.type === "image/svg+xml" || name.endsWith(".svg")
+      ? "svg"
+      : file.type === "image/png" || name.endsWith(".png")
+        ? "png"
+        : null;
+  if (!ext) return null;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { data: btoa(binary), ext };
+}
+
+/// A user profile's icon (user 12922): type one emoji, an SF Symbol name or an agent; choose or
+/// drop a PNG or SVG (acpmux copies it next to the profile); or Automatic. acpmux checks the value
+/// and answers why it refuses one.
+function IconEditor({
+  row,
+  run,
+  done,
+}: {
+  row: AgentHarnessRow;
+  run: (gesture: AgentsRun) => Promise<boolean>;
+  done: () => void;
+}) {
+  const [value, setValue] = useState(row.icon && !row.icon.includes("/") ? row.icon : "");
+  const [over, setOver] = useState(false);
+  const file = useRef<HTMLInputElement>(null);
+  const apply = async (gesture: AgentsRun) => {
+    if (await run(gesture)) done();
+  };
+  const image = async (chosen: File | undefined) => {
+    const picked = chosen ? await iconImage(chosen) : null;
+    if (picked) await apply({ action: "icon", id: row.id, ...picked });
+  };
+  return (
+    <div
+      className={`mt-2 ml-[26px] rounded-md border border-dashed p-2 ${over ? "border-accent-soft" : "border-edge"}`}
+      data-agent-icon-editor={row.id}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        setOver(false);
+        void image(event.dataTransfer.files[0]);
+      }}
+    >
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (value.trim()) void apply({ action: "icon", id: row.id, icon: value.trim() });
+        }}
+      >
+        <input
+          className={`${field} flex-1`}
+          value={value}
+          placeholder={t("settingsPage.agents.icon.placeholder")}
+          aria-label={t("settingsPage.agents.icon")}
+          onChange={(event) => setValue(event.target.value)}
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- the editor opens on the person's click.
+          autoFocus
+        />
+        <button type="submit" className="button" disabled={!value.trim()}>
+          {t("settingsPage.agents.icon.set")}
+        </button>
+        <button type="button" className="button" onClick={() => file.current?.click()}>
+          {t("settingsPage.agents.icon.choose")}
+        </button>
+        <button
+          type="button"
+          className="button"
+          onClick={() => void apply({ action: "icon", id: row.id, clear: true })}
+        >
+          {t("settingsPage.agents.icon.auto")}
+        </button>
+        <input
+          ref={file}
+          type="file"
+          accept=".png,.svg,image/png,image/svg+xml"
+          aria-label={t("settingsPage.agents.icon.choose")}
+          hidden
+          onChange={(event) => void image(event.target.files?.[0])}
+        />
+      </form>
+      <p className="m-0 mt-1.5 text-detail text-muted">{t("settingsPage.agents.icon.help")}</p>
     </div>
   );
 }
