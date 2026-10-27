@@ -80,10 +80,8 @@ pub(super) fn dispatch(
             get_resource(mux, &request.selectors, ResourceTarget::Screen, "screens")
         }
         ResourceOperation::ScreenLayoutExport => {
-            get_resource(mux, &request.selectors, ResourceTarget::Screen, "screens")?
-                .get_mut("layout")
-                .map(Value::take)
-                .ok_or_else(|| malformed_collection("screen.layout.export", "screens"))
+            Ok(get_resource(mux, &request.selectors, ResourceTarget::Screen, "screens")?["layout"]
+                .clone())
         }
         ResourceOperation::PaneList => {
             let scope = optional_scope(&request.selectors, ResourceTarget::Screen);
@@ -132,9 +130,8 @@ fn list_resources(
     let path = mux.resolve_resource_path(scope, selectors)?;
     let snapshot = public_session_snapshot(mux)?;
     let path_index = SnapshotPathIndex::new(&snapshot);
-    let values = snapshot
-        .get(collection)
-        .and_then(Value::as_array)
+    let values = snapshot[collection]
+        .as_array()
         .ok_or_else(|| malformed_collection(operation, collection))?
         .iter()
         .filter(|value| path_index.contains(collection, value, &path))
@@ -386,18 +383,14 @@ fn snapshot_mutation_result(
     result_field: &str,
 ) -> Result<Value, ResourceError> {
     let id = result_id(&commit.result, operation, result_field)?;
-    let Some(value) = commit
-        .result
-        .get("public_value")
-        .filter(|value| value.get("id").and_then(Value::as_str) == Some(id))
-        .cloned()
-    else {
+    let value = commit.result["public_value"].clone();
+    if !value.is_object() || value["id"].as_str() != Some(id) {
         return Err(ResourceError::operation_failed(
             operation,
             "topology commit omitted its exact public result",
             json!({"field":"public_value","id":id}),
         ));
-    };
+    }
     mutation_result(mux, value, commit.revision, commit.replayed)
 }
 
