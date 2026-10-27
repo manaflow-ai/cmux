@@ -15,25 +15,18 @@ from cmux import cmux, cmuxError
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 
+Rows = list[tuple[str, bool]]
+
 
 def _must(cond: bool, msg: str) -> None:
     if not cond:
         raise cmuxError(msg)
 
 
-def _listed_ids(c: cmux) -> set[str]:
+def _listed_rows(c: cmux) -> Rows:
+    # Served from the published read snapshot; reading it never refreshes that snapshot.
     payload = c._call("workspace.list", {}) or {}
-    return {str(row.get("id") or "") for row in payload.get("workspaces") or []}
-
-
-def _tree_ids(c: cmux) -> set[str]:
-    # all_windows makes this a live read, not the cached snapshot workspace.list serves.
-    payload = c._call("system.tree", {"all_windows": True}) or {}
-    return {
-        str(workspace.get("id") or "")
-        for window in payload.get("windows") or []
-        for workspace in window.get("workspaces") or []
-    }
+    return [(str(row.get("id") or ""), bool(row.get("selected"))) for row in payload.get("workspaces") or []]
 
 
 def _wait_until(predicate, timeout_s: float) -> bool:
@@ -45,40 +38,55 @@ def _wait_until(predicate, timeout_s: float) -> bool:
     return predicate()
 
 
+def _workspace_exists(c: cmux, workspace_id: str) -> bool:
+    try:
+        c._call("surface.read_text", {"workspace_id": workspace_id})
+    except cmuxError as error:
+        if "not_found" in str(error):
+            return False
+        raise
+    return True
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         created_workspace = ""
         try:
-            payload = c._call("workspace.create", {"focus": False}) or {}
+            # The shell exits on its own a few seconds later, so the close
+            # happens with no socket call in flight to refresh the snapshot.
+            payload = c._call(
+                "workspace.create",
+                {"focus": False, "initial_command": "sleep 3; exit"},
+            ) or {}
             created_workspace = str(payload.get("workspace_id") or "")
             _must(bool(created_workspace), f"workspace.create returned no workspace_id: {payload}")
+
+            # workspace.create schedules a snapshot refresh; once it lands, the
+            # list is the live state from before the shell exits.
             _must(
-                _wait_until(lambda: created_workspace in _listed_ids(c), 10.0),
-                "workspace.list never listed the new workspace",
+                _wait_until(lambda: created_workspace in dict(_listed_rows(c)), 2.0),
+                f"workspace.list never listed the new workspace: {_listed_rows(c)}",
             )
+            before = _listed_rows(c)
+            # A background close: not selected and not the window's last
+            # workspace, so the selection and the window stay as they are.
+            _must(
+                dict(before)[created_workspace] is False,
+                "workspace.create with focus=false selected the new workspace",
+            )
+            _must(len(before) > 1, f"the new workspace is the only one, so closing it closes the window: {before}")
+            expected = [row for row in before if row[0] != created_workspace]
 
-            # Exiting the only shell closes the background workspace on its own,
-            # with no socket mutation and no selection or order change. Input
-            # typed before the shell is ready is lost, so keep sending until it exits.
-            def exited() -> bool:
-                if created_workspace not in _tree_ids(c):
-                    return True
-                try:
-                    c._call("surface.send_text", {"workspace_id": created_workspace, "text": "exit\r"})
-                except cmuxError as error:
-                    if "not_found" in str(error):
-                        return True
-                    raise
-                return _wait_until(lambda: created_workspace not in _tree_ids(c), 2.0)
-
-            _must(_wait_until(exited, 20.0), "the workspace did not close after its shell exited")
-            created_workspace_closed = created_workspace
+            if not _wait_until(lambda: _listed_rows(c) == expected, 20.0):
+                listed = _listed_rows(c)
+                # This live read publishes a fresh snapshot, so it only runs after the wait.
+                _must(
+                    not _workspace_exists(c, created_workspace),
+                    "the workspace did not close after its shell exited",
+                )
+                created_workspace = ""
+                raise cmuxError(f"workspace.list still lists the closed workspace: {listed}, expected {expected}")
             created_workspace = ""
-
-            _must(
-                _wait_until(lambda: created_workspace_closed not in _listed_ids(c), 5.0),
-                "workspace.list still lists a workspace that system.tree shows closed",
-            )
         finally:
             if created_workspace:
                 try:
