@@ -103,3 +103,25 @@ fn mirror_shows_the_tab_in_a_second_pane() {
     assert!(params.get("agent").is_none());
     assert!(page(&["mirror", "extra"]).is_err());
 }
+
+/// cmux https://github.com/manaflow-ai/cmux/issues/25830: `fill-login [--submit]` asks the app to
+/// fill the Secure Store login for the tab's site; no username or password ever rides in the
+/// request.
+#[test]
+fn fill_login_asks_the_app_to_fill_the_saved_login() {
+    let (method, params) = page(&["fill-login"]).unwrap();
+    assert_eq!(method, "browser.page.fill_login");
+    assert_eq!(params["tab"], json!("tab_01ab"));
+    assert!(params.get("submit").is_none());
+    let (method, params) = page(&["fill-login", "--submit", "--agent", "Chief"]).unwrap();
+    assert_eq!(method, "browser.page.fill_login");
+    assert_eq!(params["submit"], json!(true));
+    assert_eq!(params["agent"], json!("Chief"));
+    let keys: Vec<&String> = params.as_object().unwrap().keys().collect();
+    assert_eq!(keys.len(), 3, "only tab, submit and agent: {keys:?}");
+    let (method, _) = page(&["fill_login"]).unwrap();
+    assert_eq!(method, "browser.page.fill_login");
+    assert!(page(&["fill-login", "user@example.com"]).is_err(), "it takes no username");
+    assert!(page(&["fill-login", "--password", "x"]).is_err(), "it takes no password");
+    assert!(page(&["fill-login", "--sumbit"]).is_err());
+}

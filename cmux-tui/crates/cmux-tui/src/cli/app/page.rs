@@ -149,6 +149,15 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
             }
             "browser.page.passkey"
         }
+        // `fill-login [--submit]`: the app fills the login the person saved for the tab's site
+        // (the Secure Store) into the page itself; the answer says only what it filled, never
+        // the username or the password.
+        ("fill-login" | "fill_login", []) => {
+            if Options::parse(rest, &[], &["submit"])?.flag("submit") {
+                params.insert("submit".into(), json!(true));
+            }
+            "browser.page.fill_login"
+        }
         ("tabs", []) => {
             if Options::parse(rest, &[], &["all"])?.flag("all") {
                 params.insert("all".into(), json!(true));
@@ -255,6 +264,8 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
         "download",
         "downloads",
         "mirror",
+        "fill-login",
+        "fill_login",
     ];
     if !flagged.contains(&verb.as_str()) && words.len() != rest.len() {
         return Err(usage());
@@ -279,6 +290,7 @@ const AGENT_METHODS: &[&str] = &[
     "browser.page.click",
     "browser.page.focus",
     "browser.page.fill",
+    "browser.page.fill_login",
     "browser.page.type",
     "browser.page.hover",
     "browser.page.check",

@@ -147,3 +147,24 @@ fn passkey_on_right_asks_the_app_to_hand_the_ceremony_to_the_person() {
     assert_eq!(second["params"]["tab"], "tab_own");
     assert_eq!(second["params"]["agent"], "Chief");
 }
+
+/// cmux https://github.com/manaflow-ai/cmux/issues/25830: `right fill-login` is a write verb (the
+/// agent's own tab), and the fill runs on the tab the app named.
+#[test]
+fn fill_login_on_right_runs_on_the_agents_own_tab() {
+    let resolved = json!({ "id": 1, "ok": true, "result": { "tab": "tab_own", "created": false, "navigated": false } });
+    let filled = json!({ "id": 2, "ok": true, "result": { "tab": "tab_own", "filled": true, "site": "example.com" } });
+    let (socket, app) = fake_app(vec![resolved, filled]);
+    let command = parse(&args(&["browser", "right", "fill-login", "--submit", "--agent", "Chief"]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(run(&global_for(&socket), command), 0);
+    let connections = app.join().unwrap();
+    let [first, second] = connections[0].as_slice() else { panic!("{connections:?}") };
+    assert_eq!(first["method"], "browser.page.right");
+    assert_eq!(first["params"]["verb"], "browser.page.fill_login");
+    assert_eq!(second["method"], "browser.page.fill_login");
+    assert_eq!(second["params"]["tab"], "tab_own");
+    assert_eq!(second["params"]["submit"], true);
+    assert_eq!(second["params"]["agent"], "Chief");
+}

@@ -15,6 +15,9 @@ public struct BrowserPageService: Sendable {
     /// Lists a tab in a second pane (`browser.page.mirror`, and the Home mirror of a tab an
     /// agent starts driving); nil (tests, hosts without strips) mirrors nothing.
     let mirrors: (any BrowserTabMirrorHost)?
+    /// The person's Secure Store logins by host, for `browser.page.fill_login`; nil (tests, hosts
+    /// without a store) answers `no_saved_login`.
+    let logins: BrowserPageLogins?
     /// `browser.agentMouse.*` as it is now, read per click.
     let agentMouse: @Sendable () async -> AgentMouseSetting.Value
     /// Test-only seam for the direct pixel-capture contract. Production leaves this false because
@@ -29,20 +32,23 @@ public struct BrowserPageService: Sendable {
     ///     (hosts without settings) uses the defaults, human motion with a 350 ms cap.
     ///   - mirrors: lists a tab in a second pane (``BrowserTabMirrorHost``); nil serves
     ///     `browser.page.mirror` as unavailable and mirrors no agent tab into Home.
+    ///   - logins: the person's Secure Store logins by host (`browser.page.fill_login`); nil
+    ///     answers every fill with `no_saved_login`.
     public init(engine: any BrowserPageEngine, passkeys: BrowserPasskeyRequests? = nil,
                 agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil,
-                mirrors: (any BrowserTabMirrorHost)? = nil) {
+                mirrors: (any BrowserTabMirrorHost)? = nil, logins: BrowserPageLogins? = nil) {
         self.init(engine: engine, leases: BrowserTabLeases(), passkeys: passkeys, agentMouse: agentMouse,
-                  allowsUnsafeCapture: false, mirrors: mirrors)
+                  allowsUnsafeCapture: false, mirrors: mirrors, logins: logins)
     }
 
     init(engine: any BrowserPageEngine, leases: BrowserTabLeases, passkeys: BrowserPasskeyRequests? = nil,
          agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil, allowsUnsafeCapture: Bool = false,
-         mirrors: (any BrowserTabMirrorHost)? = nil) {
+         mirrors: (any BrowserTabMirrorHost)? = nil, logins: BrowserPageLogins? = nil) {
         self.engine = engine
         self.leases = leases
         self.passkeys = passkeys
         self.mirrors = mirrors
+        self.logins = logins
         self.agentMouse = agentMouse ?? { AgentMouseSetting().fallback }
         self.allowsUnsafeCapture = allowsUnsafeCapture
     }
@@ -120,6 +126,7 @@ public struct BrowserPageService: Sendable {
         register(tabMethods(router: router))
         router.register([rightMethod(router: router)])
         register(passkeyMethods())
+        register(fillLoginMethods())
         register(inputMethods())
         register(rawInputMethods())
         register(browserUseMethods())
