@@ -169,9 +169,14 @@ def main():
             last.update(value)
         return value
 
+    # The Mac page's shots show the pairing code (this Mac's device id, team and a token): they stay
+    # in the fleet artifact (screens/private/) and are never published; the phone's shots carry none.
+    private = os.path.join(screens, "private")
+    os.makedirs(private, exist_ok=True)
+
     def mac_shot(name):
-        r = rpc("debug.page", {"page": PAGE, "action": "snapshot", "path": os.path.join(screens, f"{name}.png")})
-        return f"screens/{name}.png" if r.get("path") else f"no snapshot ({r.get('error')})"
+        r = rpc("debug.page", {"page": PAGE, "action": "snapshot", "path": os.path.join(private, f"{name}.png")})
+        return f"screens/private/{name}.png" if r.get("path") else f"no snapshot ({r.get('error')})"
 
     simctl = ["xcrun", "simctl", "--set", a.sims]
     phone_env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL=email, SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=password)
@@ -269,10 +274,22 @@ def main():
         teardown.end()
         shutil.rmtree(rig, ignore_errors=True)  # the credential file
         shutil.rmtree(support, ignore_errors=True)  # this run's bundle id only
+        forget_keychain(mac_bundle)
         for path in (sock, f"/tmp/cmux-debug-{tag}.log"):
             if os.path.exists(path):
                 os.unlink(path)
     return 0 if paired else 1
+
+
+def forget_keychain(bundle):
+    """This run's Keychain items: the Stack tokens (`<bundle>.auth`, CloudConfiguration) and the iPhone
+    host's identity (`<bundle>.iphone-host.identity`, MobileHostMacIdentity), by their exact services;
+    the bundle id is this tag's own. Every item of a service goes (one per account)."""
+    for service in (f"{bundle}.auth", f"{bundle}.iphone-host.identity"):
+        for _ in range(32):  # bounded: delete-generic-password removes one item per call
+            if subprocess.run(["/usr/bin/security", "delete-generic-password", "-s", service],
+                              capture_output=True).returncode != 0:
+                break
 
 
 def scanner(udid, shot):
