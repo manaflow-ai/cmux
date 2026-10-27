@@ -231,9 +231,10 @@ const TEST_RUNNERS: &[&str] = &["swiftpm-testing-helper", "xctest"];
 /// Why a client run from `peer_exe` may not stop the daemon of `home` (`_acpmux/shutdown`), or
 /// None. Only the person's own home is guarded, as in [`verdict`]: a test runner never stops it,
 /// and a client from a runner `_work` or a temporary folder does not unless `allow`
-/// ([`ALLOW_ENV`] on the client) or it is an app's bundled binary. On 2026-10-26 a `cmux-next
-/// swift test` job on a CI mini (`swiftpm-testing-helper`, no `ACPMUX_HOME`) handed the mini's
-/// own `~/.acpmux` daemon off and cycled daemons there until the run ended.
+/// ([`ALLOW_ENV`] in the daemon's own environment; a client cannot grant it) or it is an app's
+/// bundled binary. On 2026-10-26 a `cmux-next swift test` job on a CI mini
+/// (`swiftpm-testing-helper`, no `ACPMUX_HOME`) handed the mini's own `~/.acpmux` daemon off and
+/// cycled daemons there until the run ended.
 pub fn shutdown_refusal(
     peer_exe: &Path,
     home: &Path,
@@ -257,7 +258,8 @@ pub fn shutdown_refusal(
     }?;
     Some(format!(
         "acpmux: refused to stop the daemon of {}: the request came from {} ({}). A test or CI \
-         job gives its client its own ACPMUX_HOME; a client from an unstable path may set {ALLOW_ENV}=1",
+         job gives its client its own ACPMUX_HOME; a daemon started with {ALLOW_ENV}=1 allows a \
+         client from an unstable path",
         home.display(),
         peer_exe.display(),
         refused

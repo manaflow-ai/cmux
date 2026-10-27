@@ -1810,8 +1810,9 @@ async fn dispatch_request(
         }
         method::MUX_SHUTDOWN => {
             // The person's own daemon is never stopped by a test runner or a client from a
-            // runner's `_work` or a temp folder (`exe_path::shutdown_refusal`).
-            let allow = params.get("allowUnstablePath").and_then(Value::as_bool) == Some(true);
+            // runner's `_work` or a temp folder (`exe_path::shutdown_refusal`). Only the daemon's
+            // own environment can allow those; nothing a client sends does.
+            let allow = crate::daemon::exe_path::allowed_by_env();
             if let Some(why) =
                 crate::daemon::exe_path::peer_shutdown_refusal(conn.peer.as_ref(), allow)
             {

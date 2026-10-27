@@ -30,11 +30,7 @@ async fn run_on(clock: &dyn Clock, end_agents: bool, json_out: bool) -> Result<(
     let hosts = agent_host::hosts_dir();
     let before = sweep::running_hosts(&hosts).len();
     let client = connect(false).await?;
-    let mut params = if keep_agents { json!({}) } else { json!({"endAgents": true}) };
-    // The daemon of the person's own home refuses a client from an unstable path unless allowed.
-    if crate::daemon::exe_path::allowed_by_env() {
-        params["allowUnstablePath"] = json!(true);
-    }
+    let params = if keep_agents { json!({}) } else { json!({"endAgents": true}) };
     // A refusal (a shutdown already under way hands its agents off) or a
     // closed connection still ends with the daemon's exit, and the sweep
     // below ends whatever it left running.
