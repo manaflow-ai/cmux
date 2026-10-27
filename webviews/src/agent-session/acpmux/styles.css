@@ -289,14 +289,15 @@
 .acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
-.acpmux-project-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--acpmux-project-badge) 24%,transparent);color:var(--acpmux-project-badge);font-size:var(--text-caption);font-weight:var(--weight-emphasis);letter-spacing:.02em;line-height:1}
-/* A project's own icon (projectIcon.ts) or the folder glyph on a quiet neutral tile, so a dark or a
-   white icon reads in either theme. No corner dot on any row (Leo 2026-10-21). */
-.acpmux-project-badge[data-project-icon],.acpmux-project-badge[data-project-folder]{background:color-mix(in srgb,var(--agent-text) 7%,transparent)}
-.acpmux-project-badge[data-project-folder]{color:var(--agent-muted)}
+/* Every badge sits on the same quiet neutral tile, so a dark or a white icon reads in either theme
+   and the rows line up. A framework's or language's mark (ProjectBadge.tsx) takes its brand color; a
+   project with neither draws a muted folder. No corner dot on any row (Leo 2026-10-21). */
+.acpmux-project-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-muted);line-height:1}
+/* A brand color is pulled a quarter toward the text color: darker on a light tile, lighter on a dark
+   one, so a pale mark (React's cyan) and a deep one (Flutter's blue) both read in either theme. */
+.acpmux-project-badge[data-project-glyph]{color:color-mix(in srgb,var(--acpmux-project-badge) 72%,var(--agent-text))}
 .acpmux-project-badge>img{display:block;width:16px;height:16px;border-radius:3px;object-fit:contain}
-/* A language's or framework's glyph (ProjectBadge.tsx) in its own color on its tinted tile. */
-.acpmux-project-badge[data-project-glyph]>svg{display:block}
+.acpmux-project-badge>svg{display:block}
 .acpmux-project-check{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;min-height:16px;margin-left:auto;color:var(--agent-text);font-size:13px}
 .acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}
