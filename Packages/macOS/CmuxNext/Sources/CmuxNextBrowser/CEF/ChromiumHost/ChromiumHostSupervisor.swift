@@ -23,7 +23,7 @@ import Darwin
 ///   after a crash of cmux, and the first attach of a launch adopts the host a crashed cmux left
 ///   (``ChromiumHostAdoption``) before it starts one. A host that speaks another version quits on the offer; the new
 ///   host starts once it ended, since both use one data folder. An adopted host is no child of this process: its end
-///   is watched without a status and a kill checks that its pid still runs the host executable.
+///   is watched by `NOTE_EXIT` without a status, and it is killed only while that end has not come.
 @MainActor
 public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?

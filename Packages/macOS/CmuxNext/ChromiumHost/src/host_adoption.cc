@@ -14,7 +14,6 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -310,7 +309,8 @@ void Listener::Run(Options options) {
       return finish(expired);
     }
     pollfd ready{listener, POLLIN, 0};
-    const int polled = poll(&ready, 1, static_cast<int>(std::min<int64_t>(remaining, 60'000)));
+    // wakeup-allow: deadline the orphan's one grace deadline (30 s), only while cmux is gone; the host ends at it
+    const int polled = poll(&ready, 1, static_cast<int>(remaining));
     if (polled <= 0) continue;  // the deadline, EINTR: checked at the top
     const int fd = accept(listener, nullptr, nullptr);
     if (fd < 0) continue;

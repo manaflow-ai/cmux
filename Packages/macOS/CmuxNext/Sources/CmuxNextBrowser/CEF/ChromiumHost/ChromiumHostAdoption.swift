@@ -44,7 +44,7 @@ nonisolated struct ChromiumHostAdoption: Sendable {
         static func of(_ path: String) -> FrameworkIdentity? {
             var info = stat()
             // SAFETY: stat writes one struct stat into `info`, a local, during the call.
-            guard unsafe stat(path, &info) == 0 else { return nil }
+            guard unsafe blockingCall(.fileIO, { unsafe stat(path, &info) }) == 0 else { return nil }
             return FrameworkIdentity(device: Int64(info.st_dev), inode: Int64(info.st_ino), size: Int64(info.st_size),
                                      mtime: Int64(info.st_mtimespec.tv_sec))
         }
@@ -179,7 +179,8 @@ nonisolated struct ChromiumHostAdoption: Sendable {
         guard unsafe SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
         var requirement: SecRequirement?
         // SAFETY: SecCodeCopyDesignatedRequirement writes one retained SecRequirement reference into `requirement`, a local.
-        guard unsafe SecCodeCopyDesignatedRequirement(code, [], &requirement) == errSecSuccess, let requirement else { return nil }
+        let copied = unsafe blockingCall(.systemCall) { unsafe SecCodeCopyDesignatedRequirement(code, [], &requirement) }
+        guard copied == errSecSuccess, let requirement else { return nil }
         var text: CFString?
         // SAFETY: SecRequirementCopyString writes one retained CFString reference into `text`, a local.
         guard unsafe SecRequirementCopyString(requirement, [], &text) == errSecSuccess, let text else { return nil }
@@ -281,7 +282,7 @@ nonisolated struct ChromiumHostAdoption: Sendable {
             // SAFETY: write reads the bytes the buffer lends, from `sent` to its end, during the call.
             let n = unsafe bytes.withUnsafeBytes { buffer -> Int in
                 guard let base = unsafe buffer.baseAddress else { return -1 }
-                return unsafe Darwin.write(fd, base + sent, bytes.count - sent)
+                return unsafe blockingWrite(fd, base + sent, bytes.count - sent)
             }
             if n > 0 {
                 sent += n
@@ -301,7 +302,7 @@ nonisolated struct ChromiumHostAdoption: Sendable {
             // SAFETY: read writes at most the bytes from `got` to the end of `out`, which the buffer lends for the call.
             let n = unsafe out.withUnsafeMutableBytes { buffer -> Int in
                 guard let base = unsafe buffer.baseAddress else { return -1 }
-                return unsafe Darwin.read(fd, base + got, count - got)
+                return unsafe blockingRead(fd, base + got, count - got)
             }
             if n > 0 {
                 got += n

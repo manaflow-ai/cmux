@@ -28,10 +28,11 @@ nonisolated protocol ChromiumHostSpawning: Sendable {
     /// Watches a host this process did not start (an adopted one) off the main thread and runs `ended` on the main
     /// thread when it ends; its status cannot be read.
     func watchAdoptedExit(of pid: pid_t, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit) -> Void)
-    /// Returns once `pid`, a host this process did not start, has ended, or after `limit` (then it is SIGKILLed when
-    /// it still runs this app's host executable).
+    /// Returns once `pid`, a host this process did not start, has ended, or after `limit` (then it is SIGKILLed: its
+    /// exit was not seen, so the pid is still the host's).
     func awaitAdoptedEnd(of pid: pid_t, limit: Duration) async
-    /// SIGKILL to an adopted `pid` when it still runs this app's host executable (it is no child: its pid may be reused).
+    /// SIGKILL to an adopted `pid` whose exit the caller has not seen yet (the supervisor's running host). It is no
+    /// child, so no zombie holds its pid: only a host whose `NOTE_EXIT` has not come is killed.
     func killAdopted(_ pid: pid_t)
 }
 

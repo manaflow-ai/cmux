@@ -244,17 +244,6 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         pid > 0 && (Darwin.kill(pid, 0) == 0 || errno == EPERM)
     }
 
-    /// SIGKILL to `pid` only while it runs `executable` (symlinks resolved): a process that is not this one's child
-    /// may have ended and its pid gone to another process.
-    static func killIfRunning(_ pid: pid_t, executable: URL) {
-        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        // SAFETY: proc_pidpath writes at most the buffer's count of bytes into `buffer`, which it lends for the call.
-        guard pid > 1, unsafe proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return }
-        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-        guard URL(fileURLWithPath: path).resolvingSymlinksInPath().path == executable.resolvingSymlinksInPath().path else { return }
-        _ = Darwin.kill(pid, SIGKILL)
-    }
-
     func reap(_ pid: pid_t) {
         var status: Int32 = 0
         // SAFETY: waitpid writes one Int32 into `status` during the call.

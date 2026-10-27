@@ -137,11 +137,7 @@ nonisolated struct ChromiumHostLaneSpawner: ChromiumHostSpawning {
     }
 
     func killAdopted(_ pid: pid_t) {
-        let plan = plan
-        work.post(.userVisible, mayBlock: .system) {
-            guard let executable = plan()?.configuration.executable else { return }
-            ChromiumHostLauncher.killIfRunning(pid, executable: executable)
-        }
+        processes.kill(pid)
     }
 }
 #endif

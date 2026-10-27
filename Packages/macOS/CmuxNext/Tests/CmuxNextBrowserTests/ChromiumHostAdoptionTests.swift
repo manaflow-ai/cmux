@@ -251,8 +251,8 @@ import Testing
         #expect(first.mintFloor == Self.adopted.attachment.mintFloor)
         #expect(supervisor.hostPID == 4321 && supervisor.hostsAdopted == 1 && supervisor.hostsStarted == 0)
         #expect(supervisor.adoption == "adopted host 4321")
-        // A second attach supersedes the adopted host with a kill that checks its executable, and spawns: the
-        // adoption is for the launch's first host only.
+        // A second attach supersedes the adopted host (its end not seen yet) and spawns: the adoption is for the
+        // launch's first host only.
         _ = try await supervisor.attachment()
         #expect(spawner.calls.withLock { $0 } == ["adopt", "watch adopted 4321", "kill adopted 4321", "spawn", "watch 999999"])
         #expect(supervisor.hostsStarted == 1)
