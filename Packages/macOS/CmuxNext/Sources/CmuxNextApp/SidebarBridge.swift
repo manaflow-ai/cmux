@@ -71,7 +71,8 @@ final class SidebarBridge {
         rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) },
                                  observations: services.mainWork.observationOwner("SidebarRows"))
         container = SidebarContainerView(model: model, deadlines: services.mainDeadlines, appEvents: services.appEvents,
-                                         newRows: PendingWorkspaceRows.shared.newRows)
+                                         newRows: PendingWorkspaceRows.shared.newRows,
+                                         responsiveScrolling: services.features.isEnabled(.responsiveScrolling))
         // Only the rows the clip shows get views until startup completes (p08-startup-064); the counts go to `debug.startup` and the bench.
         container.sidebarView.followLaunch(services.launchStartup) { [values = services.launchValues] in values.recordSidebarLaunchRows(built: $0.built, visible: $0.visible) }
         // The resize edge moves the width once per frame (feature `pointerFrameDrags`).

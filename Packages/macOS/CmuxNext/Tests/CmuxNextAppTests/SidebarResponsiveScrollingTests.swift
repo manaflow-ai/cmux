@@ -3,18 +3,22 @@ import AppKit
 @testable import CmuxNextSidebar
 import Testing
 
-/// The sidebar list keeps AppKit's responsive scrolling (p03-rendering-110): its scroll view opts back in,
-/// and a trackpad gesture reaches `super` only once ``ScrollAxisLatch`` rails it vertical (or it ends too
-/// short to show an axis), then whole from its `mayBegin`, so a horizontal swipe (and its momentum) stays
-/// the paging's and never becomes AppKit's to track.
+/// The sidebar list's responsive scrolling (p03-rendering-110, feature `responsiveScrolling`): with the feature
+/// on, its scroll view opts in and a trackpad gesture reaches `super` only once ``ScrollAxisLatch`` rails it
+/// vertical (or it ends too short to show an axis), then whole from its `mayBegin`, so a horizontal swipe (and its
+/// momentum) stays the paging's and never becomes AppKit's to track. With it off, the list scrolls on the main
+/// thread and routes each event as before. Swipes page on both.
+///
+/// Whether AppKit really scrolls the list off the main thread needs real input in a running app:
+/// scripts/cmux-next/responsive-scroll-live.py (a 50 ms main stall during momentum).
 @MainActor
 @Suite(.serialized)
 struct SidebarResponsiveScrollingTests {
-    private static func sidebar() -> SidebarView {
+    private static func sidebar(responsive: Bool = true) -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let workspaces = (0..<60).map { SidebarNode.workspace(SidebarWorkspace(id: WorkspaceID("ws-\($0)"), title: "workspace \($0)")) }
         let sidebar = SidebarView(model: SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: workspaces)]),
-                                  design: DesignSettings())
+                                  design: DesignSettings(), responsiveScrolling: responsive)
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 400)
         sidebar.renderNow()
         sidebar.layoutSubtreeIfNeeded()
@@ -31,15 +35,21 @@ struct SidebarResponsiveScrollingTests {
         return try #require(NSEvent(cgEvent: cg))
     }
 
-    @Test func theListOptsIntoResponsiveScrolling() throws {
+    @Test func theFeatureOptsTheListIntoResponsiveScrolling() throws {
         let sidebar = Self.sidebar()
-        #expect(SidebarScrollView.isCompatibleWithResponsiveScrolling)
+        #expect(type(of: sidebar.scrollView).isCompatibleWithResponsiveScrolling)
         let document = try #require(sidebar.scrollView.documentView)
         let draw = #selector(NSView.draw(_:))
         // AppKit also needs the document compatible or not drawing (AppKit 10.9 notes, "Responsive Scrolling").
         #expect(type(of: document).isCompatibleWithResponsiveScrolling
             || type(of: document).instanceMethod(for: draw) == NSView.instanceMethod(for: draw))
         #expect(sidebar.scrollView.horizontalScrollElasticity == .none)
+    }
+
+    @Test func withTheFeatureOffTheListScrollsOnTheMainThreadAsBefore() {
+        let sidebar = Self.sidebar(responsive: false)
+        #expect(!type(of: sidebar.scrollView).isCompatibleWithResponsiveScrolling)
+        #expect(sidebar.scrollView.horizontalScrollElasticity != .none)
     }
 
     @Test func aVerticalGestureReachesTheListWholeFromItsTouchDownOnceItShowsItsAxis() {
@@ -67,9 +77,27 @@ struct SidebarResponsiveScrollingTests {
         #expect(latch.route("next", phase: .began, touchDown: false, deltaX: 0, deltaY: 5) == .list(["next"]))
     }
 
+    /// A swipe whose first points go diagonally (trackpad noise) is still a swipe: the latch waits until the
+    /// gesture leans clearly one way, as the main-thread path's cumulative `ProfileSwipeTracker` does.
+    @Test func aSwipeWithANoisyDiagonalStartStillRailsHorizontal() {
+        var latch = ScrollAxisLatch<String>()
+        #expect(latch.route("began", phase: .began, touchDown: false, deltaX: -2, deltaY: -2) == .hold)
+        #expect(latch.route("changed1", phase: .changed, touchDown: false, deltaX: -3, deltaY: -1) == .hold,
+                "5 pt by 3 pt leans neither way: still undecided")
+        #expect(latch.route("changed2", phase: .changed, touchDown: false, deltaX: -10, deltaY: 0) == .horizontal,
+                "15 pt by 3 pt: a swipe")
+        #expect(latch.axis == .horizontal)
+    }
+
+    @Test func aGestureThatLeansNeitherWayIsTheListsAfterItsWindow() {
+        var latch = ScrollAxisLatch<String>()
+        #expect(latch.route("began", phase: .began, touchDown: false, deltaX: 4, deltaY: 3) == .hold, "not twice as wide as tall")
+        #expect(latch.route("changed1", phase: .changed, touchDown: false, deltaX: 6, deltaY: 5) == .hold)
+        #expect(latch.route("changed2", phase: .changed, touchDown: false, deltaX: 6, deltaY: 5) == .list(["began", "changed1", "changed2"]),
+                "16 pt of a diagonal: the list scrolls it, as the main-thread path does")
+    }
+
     @Test func aShortScrollAndATapStillReachTheList() {
-        var diagonal = ScrollAxisLatch<String>()
-        #expect(diagonal.route("began", phase: .began, touchDown: false, deltaX: 4, deltaY: 3) == .list(["began"]), "not twice as wide as tall")
         var short = ScrollAxisLatch<String>()
         #expect(short.route("mayBegin", phase: nil, touchDown: true, deltaX: 0, deltaY: 0) == .hold)
         #expect(short.route("began", phase: .began, touchDown: false, deltaX: 0, deltaY: -1) == .hold)
@@ -105,9 +133,9 @@ struct SidebarResponsiveScrollingTests {
         #expect(list.contentView.bounds.origin != origin, "the held 3 pt reach the list when the gesture ends")
     }
 
-    @Test func aSwipeOverTheListPagesOneToOneAndKeepsTheClipStill() throws {
-        let sidebar = Self.sidebar()
-        let list = sidebar.scrollView
+    @Test(arguments: [true, false])
+    func aSwipeOverTheListPagesOneToOneAndKeepsTheClipStill(responsive: Bool) throws {
+        let list = Self.sidebar(responsive: responsive).scrollView
         let origin = list.contentView.bounds.origin
         var reports: [(ProfileSwipeTracker.Phase, CGFloat)] = []
         list.onHorizontalScroll = { phase, dx, _ in reports.append((phase, dx)) }
@@ -124,8 +152,9 @@ struct SidebarResponsiveScrollingTests {
         #expect(list.contentView.bounds.origin == origin)
     }
 
-    @Test func aLongSwipeSwitchesOnceWithoutTheOneToOneHandler() throws {
-        let list = Self.sidebar().scrollView
+    @Test(arguments: [true, false])
+    func aLongSwipeSwitchesOnceWithoutTheOneToOneHandler(responsive: Bool) throws {
+        let list = Self.sidebar(responsive: responsive).scrollView
         list.onHorizontalScroll = nil
         var steps: [Int] = []
         list.onHorizontalSwipe = { steps.append($0) }
@@ -133,5 +162,19 @@ struct SidebarResponsiveScrollingTests {
         for _ in 0..<6 { list.scrollWheel(with: try Self.event(dx: -20, phase: .changed)) }
         list.scrollWheel(with: try Self.event(phase: .ended))
         #expect(steps == [1], "one switch per gesture, to the next profile for a leftward swipe")
+    }
+
+    /// The finding's case over the real list: (-2, -2), (-3, -1), then 100 pt sideways still switches once.
+    @Test(arguments: [true, false])
+    func aSwipeWithANoisyDiagonalStartSwitchesOverTheList(responsive: Bool) throws {
+        let list = Self.sidebar(responsive: responsive).scrollView
+        list.onHorizontalScroll = nil
+        var steps: [Int] = []
+        list.onHorizontalSwipe = { steps.append($0) }
+        list.scrollWheel(with: try Self.event(dx: -2, dy: -2, phase: .began))
+        list.scrollWheel(with: try Self.event(dx: -3, dy: -1, phase: .changed))
+        for _ in 0..<5 { list.scrollWheel(with: try Self.event(dx: -20, phase: .changed)) }
+        list.scrollWheel(with: try Self.event(phase: .ended))
+        #expect(steps == [1])
     }
 }
