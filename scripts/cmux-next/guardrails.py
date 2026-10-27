@@ -2817,6 +2817,35 @@ RULES += INVARIANT_SITE_RULES
 # ---------------------------------------------------------------- end of invariant-site (p10-stability-099, 199)
 
 
+# ---------------------------------------------------------------- not-fatal-until-lowered (p10-stability-205)
+# Invariant.notFatalUntil(cond, id, build: N) reports until build N, then traps, like Chromium's
+# base::NotFatalUntil::M<n> (base/check.h). A lower or removed N moves the day users crash, so it needs a reason. The
+# rules are crash_ratchet.py's lowered_not_fatal_until (one definition), judged over the push's changed Swift files on
+# both sides, so an id that moves between files keeps its build. Local only, like every guardrail.
+# The block owns its lines from here to `RULES += NOT_FATAL_UNTIL_RULES`.
+def not_fatal_until_lowered(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Invariant calls that lower or remove the notFatalUntil build of the base call they replace (paired by place)."""
+    judged = [c for c in changes if c.path.endswith(".swift") and "/Sources/" in c.path]
+    base = {c.path: c.base_lines for c in judged if not c.is_new}
+    head = {c.path: c.head_lines for c in judged if not c.is_deleted}
+    return [Added(path, line, f"{head[path][line - 1]}  ({why})")
+            for path, line, why in ratchet.lowered_not_fatal_until(base, head)]
+
+
+NOT_FATAL_UNTIL_RULES = (
+    Rule("not-fatal-until-lowered", "An `Invariant.notFatalUntil` build lowered or removed (made `check` or "
+         "`dumpWillBeCheck`, or its `build:` dropped)",
+         "the build number is the release from which the site traps instead of reporting; lowering it crashes users "
+         "earlier than the reviewed plan (Chromium's base::NotFatalUntil only ever moves to a later milestone)",
+         "keep the build, or raise it while the reports are still coming in; fix the cause, then remove the call",
+         "// not-fatal-until-lowered-allow: <why the site may trap sooner>",
+         not_fatal_until_lowered,
+         scope=("Packages/",)),
+)
+RULES += NOT_FATAL_UNTIL_RULES
+# ---------------------------------------------------------------- end of not-fatal-until-lowered (p10-stability-205)
+
+
 # ---------------------------------------------------------------- trap-api (p10-stability-092, 097, 098)
 # A standard-library call that traps on a bad argument: `uniqueKeysWithValues:` (a repeated key), an unguarded
 # `removeFirst()` / `removeLast()` (an empty collection), `(repeating:count:)` with a count that may be negative,

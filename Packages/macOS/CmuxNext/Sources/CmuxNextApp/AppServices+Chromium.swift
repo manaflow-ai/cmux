@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextFeatures
+import CmuxNextMemory
 import CmuxNextSettings
 import CmuxNextWakeups
 import Observation
@@ -59,9 +60,15 @@ extension AppServices {
         let pagesSpare = features.isEnabled(.pagesSpareWindow)
         // Before the first spare: its placeholder has no renderer where the fork can (p13-webui-019).
         cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let hostNoSpareWindow = features.isEnabled(.chromiumHostNoSpareWindow)  // the bench's no spare window arm (p01-process-086)
+        #else
+        let hostNoSpareWindow = false
+        #endif
         chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium },
                              pagesPending: { [weak cache] in cache?.hasPendingPages == true },
-                             pagesSpare: { pagesSpare && preference.defaultEngine == .chromium })
+                             pagesSpare: { pagesSpare && preference.defaultEngine == .chromium },
+                             placement: .init(backend: chromiumRuntime.source.backend, hostNoSpareWindow: hostNoSpareWindow))
         cache.onPagesSettled = { [weak chromiumWarmup] in chromiumWarmup?.pagesSettled() }
         if pagesSpare {
             // Pages follow the default engine: switched away from Chromium, the untaken pages spare
@@ -104,7 +111,8 @@ extension AppServices {
         let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: TunableStore.shared)
         let hostTabs = hostSwitch.isEnabled && features.isEnabled(.chromiumHostTabs)
         guard BrowserHostTunables.backend(hostEnabled: hostTabs) == .host else { return nil }
-        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence))
+        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence),
+                                      restoresPages: features.isEnabled(.chromiumHostRestoreTabs))
         #else
         return nil
         #endif
@@ -114,7 +122,13 @@ extension AppServices {
     func makeChromiumSlot() -> ChromiumEngineSlot {
         #if DEBUG || CMUX_BENCH_HOOKS
         // A host that ends while cmux quits reports nothing (quit ends it).
-        (chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor)?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        let supervisor = chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor
+        supervisor?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        // A crashed host's tabs come back with the history their daemon records keep (p01-process-083).
+        supervisor?.savedNavigation = { [weak self] tab, url in
+            guard let tabs = self?.cache.browserTabs else { return nil }
+            return await tabs.historyStarts.hostRestart(tab.rawValue, at: url, service: tabs)
+        }
         #endif
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
         // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
@@ -131,6 +145,8 @@ extension AppServices {
         chromiumRuntime.source.drawsHostChoosers = features.isEnabled(.chromiumHostChoosers) // p01-process-228
         // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
         chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
+        chromiumRuntime.source.handlesHostLocks = features.isEnabled(.chromiumHostLocks) // pointer and keyboard locks, p01-process-229
+        chromiumRuntime.source.appEvents = appEvents // the app's resign-active ends a page's pointer lock
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
@@ -138,7 +154,8 @@ extension AppServices {
                                            chromiumFeatures = features.enabledChromiumFeatures,
                                            disabledChromiumFeatures = features.disabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
                                            attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator,
-                                           everyPage = Self.hostsEveryPage(features)] stores, deadlines, source in
+                                           everyPage = Self.hostsEveryPage(features),
+                                           rendererCaps = Self.sharedRendererMemoryCaps(.forThisMac(gpuResidentAvailable: false))] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
                                                                            isStarting: { launchStartup.map { $0.completion == nil } ?? false })
@@ -149,10 +166,18 @@ extension AppServices {
                                                        prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
+                                          .cappingSharedRendererMemory(rendererCaps)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
                                   stop: { await $0.shutdown() })
+    }
+
+    /// Chromium's shared-renderer memory caps from the app's memory budget (p07-memory 111): Chrome's
+    /// `kProcessPerSiteMainFrameTotalMemoryLimit` and subframe reuse threshold, read by the fork.
+    nonisolated static func sharedRendererMemoryCaps(_ budget: SubsystemBudget) -> CEFSharedRendererMemoryCaps {
+        CEFSharedRendererMemoryCaps(mainFrameBytes: budget.sharedRendererMemoryCapBytes,
+                                    subframeBytes: budget.sharedRendererSubframeMemoryCapBytes)
     }
 
     /// Bench-only feature `cefLayerHostingEveryPage`, the layer hosting benches' on arm: compiled out of shipped builds.

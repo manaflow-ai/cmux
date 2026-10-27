@@ -34,6 +34,7 @@ extension PageWebView {
         applyTheme(force: true)
         applyLiveDocumentAttributes()
         resumeLoadWaiters()
+        claimLoadedDocument() // a claimed page's new document booted parked (PageWebView+Claim.swift)
         onLoaded?()
     }
 }

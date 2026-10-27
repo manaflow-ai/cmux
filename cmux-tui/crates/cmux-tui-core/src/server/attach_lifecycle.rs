@@ -65,9 +65,10 @@ pub(super) fn spawn_attach_notification_stream(
     outbound_stream: OutboundStream,
 ) -> std::io::Result<()> {
     let events = mux.subscribe_attached_surface(surface_id);
-    std::thread::Builder::new()
-        .name("mux-attach-notifications".into())
-        .spawn(move || {
+    cmux_threads::spawn(
+        "mux-attach-notifications",
+        crate::thread_qos::ThreadType::Interactive.qos(),
+        move || {
             let interrupt = StreamInterrupt::new();
             writer.register_interrupt(&interrupt);
             outbound_stream.register_interrupt(&interrupt);
@@ -89,8 +90,9 @@ pub(super) fn spawn_attach_notification_stream(
                 lifecycle.mark_overflow();
             }
             report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-        })
-        .map(|_| ())
+        },
+    )
+    .map(|_| ())
 }
 
 pub(super) struct MarkedClientAttach {
