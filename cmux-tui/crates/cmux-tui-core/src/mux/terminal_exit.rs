@@ -193,6 +193,17 @@ impl Mux {
     /// event in one registry transaction. Callers may observe the same exit
     /// through the live frame, sidecar recovery, and dead-host reconciliation;
     /// the first commit is the latch and all later observations are no-ops.
+    /// The terminal-host record directory and the owner's panic log for its
+    /// hosts' crash sidecars; `None` without host records.
+    #[cfg(any(unix, windows))]
+    fn terminal_host_paths(
+        &self,
+    ) -> Option<(std::path::PathBuf, Option<crate::terminal_host_runtime::HostPanicLog>)> {
+        let options = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner);
+        let root = options.terminal_host_root.clone()?;
+        Some((root, options.host_panic_log.clone()))
+    }
+
     #[track_caller]
     pub(super) fn persist_terminal_exit(
         &self,
@@ -223,20 +234,20 @@ impl Mux {
         // visible: an owner stopped right then still names it after its
         // restart (the dead tab's cause comes back from the log).
         #[cfg(any(unix, windows))]
-        let host_loss =
-            self.surface_options.lock().unwrap().terminal_host_root.clone().map(|root| {
-                let mut loss = crate::terminal_loss_log::HostLoss::read(
-                    &root.join(format!("{terminal_id}.json")),
-                    terminal_id,
-                    incarnation,
-                    end,
-                );
-                loss.log();
-                if loss.is_loss() {
-                    self.note_holder_exit();
-                }
-                loss
-            });
+        let host_loss = self.terminal_host_paths().map(|(root, panic_log)| {
+            let mut loss = crate::terminal_loss_log::HostLoss::read(
+                &root.join(format!("{terminal_id}.json")),
+                terminal_id,
+                incarnation,
+                end,
+                panic_log,
+            );
+            loss.log();
+            if loss.is_loss() {
+                self.note_holder_exit();
+            }
+            loss
+        });
         // cx-6so.49: whether this loss may respawn, checked before the locks.
         #[cfg(any(unix, windows))]
         let respawn_candidate =

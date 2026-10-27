@@ -100,6 +100,7 @@ public final class OwnerPanicForwarder: Sendable {
         guard let record = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let message = record["message"] as? String,
               record["test"] as? Bool != true else { return nil }
+        let source = source.labeling(lineSource: record["source"] as? String)
         let location = record["location"] as? String ?? ""
         let event = Event(level: .error)
         let exception = Exception(value: message, type: "RustPanic")

@@ -7,7 +7,9 @@
 //! line goes on the next start) to the app's Sentry project, tagged
 //! `process=cmux-tui`, each line once (a byte offset in `<log>.sent`). The
 //! memory guard's `owner-memory-<session>.jsonl` goes the same way, at start
-//! and right after each alert.
+//! and right after each alert. A terminal host's panic, which the owner
+//! appends to its log with `"source": "cmux-tui-host"`, goes as the host's
+//! (`process=cmux-tui-host`, its own fingerprint), as the app labels it.
 //!
 //! It sends nothing when: the binary is inside the cmux app (the app sends
 //! them), a managed policy disables telemetry, `DO_NOT_TRACK` or
@@ -125,9 +127,16 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
     let message = scrub(record.get("message")?.as_str()?);
     let location = scrub(record.get("location").and_then(Value::as_str).unwrap_or_default());
     let text = |key: &str| record.get(key).and_then(Value::as_str).map(String::from);
+    let host =
+        text("source").as_deref() == Some(cmux_tui_core::terminal_host_runtime::PANIC_LOG_SOURCE);
+    let (process, crash_source, fingerprint, label) = if host {
+        ("cmux-tui-host", "terminal_host_crash", "host-panic", "cmux-tui terminal host panic")
+    } else {
+        ("cmux-tui", "owner_panic_log", "owner-panic", "cmux-tui owner panic")
+    };
     let mut tags = serde_json::Map::new();
-    tags.insert("process".into(), json!("cmux-tui"));
-    tags.insert("crash_source".into(), json!("owner_panic_log"));
+    tags.insert("process".into(), json!(process));
+    tags.insert("crash_source".into(), json!(crash_source));
     for (field, tag) in [
         ("thread", "thread"),
         ("version", "tui_version"),
@@ -179,9 +188,9 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
             "value": message,
             "mechanism": {"type": "rust_panic", "handled": false},
         }]},
-        "message": {"formatted": format!("cmux-tui owner panic at {location}: {message}")},
+        "message": {"formatted": format!("{label} at {location}: {message}")},
         // Same panic site, same issue, whatever the message text holds (as the app does).
-        "fingerprint": ["owner-panic", location],
+        "fingerprint": [fingerprint, location],
         "tags": tags,
         "extra": {
             "location": location,
@@ -457,6 +466,22 @@ mod tests {
         assert_eq!(event["tags"]["tui_version"], "0.13.5");
         assert_eq!(event["release"], "cmux-tui@0.13.5");
         assert_eq!(event["fingerprint"], json!(["owner-panic", "a.rs:1"]));
+    }
+
+    #[test]
+    fn a_terminal_host_line_is_labeled_as_the_host() {
+        let event = event_for(
+            r#"{"source":"cmux-tui-host","message":"boom","location":"vt.rs:9:1","thread":"parser"}"#,
+            None,
+        )
+        .unwrap();
+        assert_eq!(event["tags"]["process"], "cmux-tui-host");
+        assert_eq!(event["tags"]["crash_source"], "terminal_host_crash");
+        assert_eq!(event["fingerprint"], json!(["host-panic", "vt.rs:9:1"]));
+        assert_eq!(
+            event["message"]["formatted"],
+            "cmux-tui terminal host panic at vt.rs:9:1: boom"
+        );
     }
 
     #[test]

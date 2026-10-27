@@ -2379,6 +2379,7 @@ fn run_server(
         surface_options.terminal_host_root = Some(
             cmux_tui_core::terminal_host_runtime::terminal_host_root(state_root, &args.session),
         );
+        surface_options.host_panic_log = owner_start::host_panic_log(args.headless, &args.session);
         // Set by the Cloud VM boot supervisor on a snapshot clone; see
         // SurfaceOptions::adopt_template_terminal.
         if let Some(template) = CLOUD_TEMPLATE_ENV.get() {
