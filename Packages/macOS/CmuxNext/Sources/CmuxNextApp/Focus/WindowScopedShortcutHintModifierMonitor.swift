@@ -15,7 +15,9 @@ import CmuxNextWakeups
 final class WindowScopedShortcutHintModifierMonitor {
     private weak var window: NSWindow?
     private let tap: InputEventTap
-    private let notifications: NotificationCenter
+    /// The window's own resign-key notice and the app's resign-active notice.
+    private let windowEvents: WindowEvents
+    private let appEvents: AppEvents
     /// The intentional-hold deadline of one modifier press, in the visible class; its release or a key cancels it.
     private let holdDeadline: MainDeadline
     private let changed: (NSEvent.ModifierFlags?) -> Void
@@ -25,7 +27,7 @@ final class WindowScopedShortcutHintModifierMonitor {
     private var subscriptions: [InputSubscription] = []
     /// The policy's `held`, read by the key and click subscriptions' predicate without a weak load.
     private let hold = Hold()
-    private var observers: [NSObjectProtocol] = []
+    private var leaveSubscriptions: [EventSubscription] = []
     private var enabled = false
     /// Hints show in this window now; the tap's `hintsShowing` flag is set while it is true.
     private(set) var showing = false
@@ -37,17 +39,19 @@ final class WindowScopedShortcutHintModifierMonitor {
     /// - Parameters:
     ///   - tap: The app's input tap.
     ///   - deadlines: The app's deadline placer (`AppServices.mainDeadlines`): the hold deadline is one of its wakes.
-    ///   - notifications: Where the window's resign-key and the app's resign-active notifications come from.
+    ///   - events: The app's notices (`AppServices.appEvents`): its resign-active notice.
+    ///   - windowEvents: The window's notices (default `WindowEvents.of(window)`): its resign-key notice.
     ///   - isFront: Whether the window is the one a hold shows hints in (the active app's key window).
     ///   - keepsHints: Whether a key-down leaves the hints up (a pane-navigation key); others hide them until release.
     ///   - changed: The held set to show hints for, or nil to hide them.
-    init(window: NSWindow, tap: InputEventTap, deadlines: MainDeadlineScheduler, notifications: NotificationCenter = .default,
+    init(window: NSWindow, tap: InputEventTap, deadlines: MainDeadlineScheduler, events: AppEvents, windowEvents: WindowEvents? = nil,
          isFront: @escaping @MainActor (NSWindow) -> Bool = WindowScopedShortcutHintModifierMonitor.isFrontWindow,
          keepsHints: @escaping (NSEvent) -> Bool = { _ in false },
          changed: @escaping (NSEvent.ModifierFlags?) -> Void) {
         self.window = window
         self.tap = tap
-        self.notifications = notifications
+        self.windowEvents = windowEvents ?? WindowEvents.of(window)
+        appEvents = events
         holdDeadline = MainDeadline(owner: "ShortcutHint.intentionalHold", workClass: .visible, scheduler: deadlines)
         self.isFront = isFront
         self.keepsHints = keepsHints
@@ -79,12 +83,12 @@ final class WindowScopedShortcutHintModifierMonitor {
             tap.subscribe(class: .key, window: .window(window), while: held, handler: deliver),
             tap.subscribe(class: .button, window: .anyWindow, while: held, handler: deliver),
         ]
-        for (name, object) in [(NSWindow.didResignKeyNotification, window as AnyObject?),
-                               (NSApplication.didResignActiveNotification, nil)] {
-            observers.append(notifications.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.holdLeftWindow() }
-            })
-        }
+        // The hold's modifier changes go to another window or app now: forget it in the notice's own turn.
+        let owner = "ShortcutHint.holdLeftWindow"
+        leaveSubscriptions = [
+            windowEvents.subscribe(NSWindow.didResignKeyNotification, owner: owner) { [weak self] in self?.holdLeftWindow() },
+            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: owner) { [weak self] in self?.holdLeftWindow() },
+        ]
     }
 
     /// One event from the tap: this window's modifier change or key-down, or any window's mouse-down.
@@ -176,8 +180,8 @@ final class WindowScopedShortcutHintModifierMonitor {
         #endif
         subscriptions.forEach { $0.cancel() }
         subscriptions.removeAll()
-        observers.forEach(notifications.removeObserver)
-        observers.removeAll()
+        leaveSubscriptions.forEach { $0.cancel() }
+        leaveSubscriptions.removeAll()
     }
 
     /// Whether a modifier is held in this window, shared with the subscriptions' predicate.

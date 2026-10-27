@@ -3,6 +3,7 @@ import CmuxNextCompat
 import Foundation
 import CmuxNextControl
 import CmuxNextSettings
+import CmuxNextWakeups
 
 // Account and Cloud machine state for the iOS dogfood launcher and agents:
 // `auth.status` (signed in, email) and `cloud.machines`. Short main-actor
@@ -40,8 +41,8 @@ extension AppControl {
         service?.router.register([
             // Starts this Mac's cmux link the way a connect does and reports
             // the ensure and the apps-link-changed answer (cx-rtipa S3).
-            .async("debug.cloud.link_ensure") { [weak services] _ in
-                let found = await MainActor.run { () -> (CloudService?, ControlError?) in
+            .async("debug.cloud.link_ensure") { [weak services, work = mainWork] _ in
+                let found = await work.apply(.automation, owner: "debug.cloud.link_ensure") { () -> (CloudService?, ControlError?) in
                     guard let services else { return (nil, nil) }
                     return (services.cloud, Self.policyRefusal("debug.cloud.link_ensure", disabled: services.registry.disabledFeatures))
                 }
@@ -55,8 +56,8 @@ extension AppControl {
             },
             // Ends the Cloud session here without the app's sign-out (as an
             // expired or remote sign-out does), for the link's GUI proof.
-            .async("debug.cloud.end_session") { [weak services] _ in
-                guard let cloud = await MainActor.run(body: { services?.cloud }) else { return .null }
+            .async("debug.cloud.end_session") { [weak services, work = mainWork] _ in
+                guard let cloud = await work.apply(.automation, owner: "debug.cloud.end_session", { services?.cloud }) else { return .null }
                 await cloud.auth.signOut()
                 return .object(["ended": .bool(true)])
             },

@@ -67,7 +67,9 @@ import Testing
         let w = Int(c.host.bounds.width * 2), h = Int(c.host.bounds.height * 2)
         var data = [UInt8](repeating: 0, count: w * h * 4)
         try data.withUnsafeMutableBytes { buf in
-            let ctx = try #require(CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+            // SAFETY: buf is the array's storage, w * h * 4 bytes (its count), lent for this closure; the context writes
+            // w * 4 bytes a row for h rows inside it, and is not drawn into after the closure.
+            let ctx = try #require(unsafe CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
             ctx.scaleBy(x: 2, y: 2)
             layer.render(in: ctx)

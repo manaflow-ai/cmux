@@ -9,7 +9,9 @@ section 3E). The tool that reads the expectation files is
 | `Expectations.d/<suite>.txt` | Known results that are not Pass, for one suite |
 | `NeverFix.d/<suite>.txt` | Cases that never run on a configuration (`[ Skip ]` only) |
 | `corpus/<suite>/<case>.json` | Cases (task 012); the linter reads them for stale and budget checks |
+| `blocked/<suite>/<case>.json` | Converted cases that no driver can run yet; no run reads them. The suite's `coverage.json` names what blocks each one |
 | `baselines/` | Reviewed baselines of golden suites (task 016) |
+| `mutants/<product>/<name>.patch` | Seeded faults that a job applies before its build (task 026, [mutants/README.md](mutants/README.md)) |
 
 Each suite has its own file, so agents that work in parallel do not change the same file.
 The tool also reads a combined file (all suites in one file) with the same result.

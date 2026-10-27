@@ -31,4 +31,5 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
+cmux-threads.workspace = true
 libc = { workspace = true }

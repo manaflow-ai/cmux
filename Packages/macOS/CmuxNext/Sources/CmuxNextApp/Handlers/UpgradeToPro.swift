@@ -8,6 +8,6 @@ struct UpgradeToPro {
     static let pricingURL = StaticURL.pricing.url
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("palette.pro.upgrade", run: { _ in try context.open(pricingURL) })
+        registry.bindEffect("palette.pro.upgrade", effect: { _ in context.open(pricingURL) })
     }
 }

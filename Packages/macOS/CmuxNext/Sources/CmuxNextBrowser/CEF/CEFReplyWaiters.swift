@@ -1,5 +1,8 @@
-import Foundation
+import CmuxNextCompat
 import CmuxNextWakeups
+import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// Continuations waiting for a reply by key, each with a deadline on the
 /// injected clock (architecture.md 5a): a reply that never comes (a page
@@ -13,7 +16,7 @@ import CmuxNextWakeups
 final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
     private struct Waiter {
         let id: UInt64
-        let continuation: CheckedContinuation<Value, any Error>
+        let continuation: OnceContinuation<Value, any Error>
         let deadline: Task<Void, Never>
 
         func finish(_ result: Result<Value, any Error>) {
@@ -64,7 +67,8 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
             self?.settle(key, waiter: id, .failure(failure))
         }
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            // Waiters dropped with this table unresumed throw OnceContinuationError.abandoned.
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Value, any Error>) in
                 // Keys are unique per request; a reused one fails the older waiter.
                 waiting.updateValue(Waiter(id: id, continuation: continuation, deadline: deadline), forKey: key)?
                     .finish(.failure(superseded()))
@@ -112,54 +116,53 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
 /// shim's reply callback at attach. That callback runs on the main thread
 /// (remote_shim_runtime.h `cmux_remote_reply_fn`) and only copies the bytes in;
 /// the typed decode runs off main in the awaiting call. ``expect(_:)`` keeps a reply that arrives
-/// before the caller awaits; a callback registered with ``onReply(_:label:timeout:_:)`` runs in the
-/// turn that delivers the reply. A token nobody expects, awaits or calls back for is dropped, so
-/// fire-and-forget async calls hold nothing.
+/// before the caller awaits; a token nobody expects or awaits is dropped, so fire-and-forget async
+/// calls hold nothing. A caller in a synchronous turn registers a callback instead
+/// (``onReply(_:label:timeout:deadlines:_:)``, task 021), which runs in the turn that delivers the reply.
 @MainActor
 final class CEFHostReplies {
-    /// A caller in a synchronous turn: runs once, with the reply, `hostGone` or its deadline.
+    /// A callback registered with ``onReply(_:label:timeout:deadlines:_:)`` and its deadline.
     private struct Callback {
+        let id: UInt64
         let body: (Result<[UInt8], CEFHostReplyError>) -> Void
-        let deadline: Task<Void, Never>
+        let deadlines: AlignedWakeups
+        let deadline: AlignedWakeups.Ticket
 
         func finish(_ outcome: Result<[UInt8], CEFHostReplyError>) {
-            deadline.cancel()
+            deadlines.cancel(deadline)
             body(outcome)
         }
     }
 
+    /// The `WakeupLedger` owner of the callbacks' deadlines.
+    static let callbackDeadlineOwner = "CEFHostReplies.callback"
+
     private let waiters: CEFReplyWaiters<UInt32, [UInt8]>
-    private let clock: any Clock<Duration>
     /// Sent, not awaited yet: a reply to one of these is kept in `early`.
     private var expected: Set<UInt32> = []
     /// Answered or failed before anyone awaited.
     private var early: [UInt32: Result<[UInt8], CEFHostReplyError>] = [:]
-    /// Callbacks by token (``onReply(_:label:timeout:_:)``).
+    /// Callbacks by token, each run once: by the reply, its deadline, ``fail(_:_:)`` or ``failAll(_:)``.
     private var callbacks: [UInt32: Callback] = [:]
+    private var lastCallback: UInt64 = 0
+    /// This table's entry for the remote shim's reply callback, made at the first attach; it goes with the table.
+    private var sinkRegistration: CEFReplySinkRegistration?
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
-        self.clock = clock
         waiters = CEFReplyWaiters(clock: clock, superseded: { CEFHostReplyError.superseded })
     }
 
-    /// Tokens expected, answered and not taken, awaited, or called back for.
-    var count: Int { waiters.count + expected.count + early.count + callbacks.count }
-
-    /// Runs `body` once with the reply to `token`, in the turn that delivers it; with
-    /// ``CEFHostReplyError/timedOut(_:_:)`` when none came within `timeout` on the clock, or with
-    /// `hostGone` (``failAll(_:)``). Register it in the turn that sent the op. Like a mojo reply
-    /// callback, which a disconnect runs with its default (interface_endpoint_client.cc).
-    func onReply(_ token: UInt32, label: String, timeout: Duration,
-                 _ body: @escaping (Result<[UInt8], CEFHostReplyError>) -> Void) {
-        guard token != 0 else { return body(.failure(.cancelled)) }
-        let clock = clock
-        let deadline = Task { [weak self] in
-            // wakeup-allow: one-shot reply deadline on the injected clock, cancelled when the reply arrives
-            do { try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance) } catch { return }
-            self?.callbacks.removeValue(forKey: token)?.body(.failure(.timedOut(label, timeout)))
-        }
-        callbacks.updateValue(Callback(body: body, deadline: deadline), forKey: token)?.finish(.failure(.superseded))
+    /// The context the remote shim's reply callback gets for this table (``CEFReplySinkRegistration``): the same
+    /// token for every attach of the table.
+    func replySinkToken() throws(CallbackRegistryError) -> CallbackToken {
+        if let sinkRegistration { return sinkRegistration.token }
+        let registration = try CEFReplySinkRegistration(self)
+        sinkRegistration = registration
+        return registration.token
     }
+
+    /// Tokens expected, answered and not taken, awaited, or with a callback.
+    var count: Int { waiters.count + expected.count + early.count + callbacks.count }
 
     /// Calls suspended on a reply now.
     var awaiting: Int { waiters.count }
@@ -191,6 +194,24 @@ final class CEFHostReplies {
         }
     }
 
+    /// Runs `body` once with the REPLY to `token` in the turn that delivers it, with `timedOut` when
+    /// none came `timeout` from now (an entry on `deadlines`, the main thread's deadline queue), or with
+    /// the error that fails the token. A reply that came first runs it now. For a caller in a
+    /// synchronous turn (an event, a tab's creation): nothing waits on a task of its own.
+    func onReply(_ token: UInt32, label: String, timeout: Duration, deadlines: AlignedWakeups,
+                 _ body: @escaping (Result<[UInt8], CEFHostReplyError>) -> Void) {
+        if let outcome = early.removeValue(forKey: token) { return body(outcome) }
+        expected.remove(token)
+        lastCallback &+= 1
+        let id = lastCallback
+        let deadline = deadlines.schedule(owner: Self.callbackDeadlineOwner, after: timeout) { [weak self] in
+            self?.expire(token, callback: id, .timedOut(label, timeout))
+        }
+        // Tokens are unique per request; a reused one fails the older callback.
+        callbacks.updateValue(Callback(id: id, body: body, deadlines: deadlines, deadline: deadline), forKey: token)?
+            .finish(.failure(.superseded))
+    }
+
     /// The REPLY to `token` arrived. False when nothing expects or awaits it: late, timed out, or
     /// never awaited.
     @discardableResult
@@ -206,9 +227,9 @@ final class CEFHostReplies {
 
     /// Fails every token not answered yet (the host exited: ``CEFHostReplyError/hostGone``, task 091).
     func failAll(_ error: CEFHostReplyError) {
-        let waiting = callbacks
+        let pending = callbacks.values
         callbacks.removeAll()
-        for callback in waiting.values { callback.finish(.failure(error)) }
+        for callback in pending { callback.finish(.failure(error)) }
         waiters.failAll(where: { _ in true }, with: error)
         for token in expected { early[token] = .failure(error) }
         expected.removeAll()
@@ -235,6 +256,12 @@ final class CEFHostReplies {
         guard expected.remove(token) != nil else { return false }
         early[token] = outcome
         return true
+    }
+
+    /// The deadline of callback `id` on `token`: fails it when it still waits (not answered or replaced).
+    private func expire(_ token: UInt32, callback id: UInt64, _ error: CEFHostReplyError) {
+        guard callbacks[token]?.id == id, let callback = callbacks.removeValue(forKey: token) else { return }
+        callback.finish(.failure(error))
     }
 
     /// Off the main thread: a password list or a cookie dump is parsed where it cannot delay a frame.

@@ -29,6 +29,48 @@
   ],
   "steps": [
     {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "agent-message-mark-ok.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-message",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "agent.message.send",
+        "params": {
+          "recipients": [
+            "$step:fx-workspace#/value/terminal_id"
+          ],
+          "body": "oracle"
+        },
+        "idempotencyKey": "agent-message-mark-ok.fx-message"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -39,10 +81,10 @@
         "method": "agent.message.mark",
         "params": {
           "ids": [
-            "oracle"
+            "$step:fx-message#/value/id"
           ],
-          "recipient": "oracle",
-          "state": "delivered"
+          "recipient": "$step:fx-workspace#/value/terminal_id",
+          "state": "acknowledged"
         },
         "idempotencyKey": "agent-message-mark-ok.call"
       },
@@ -54,7 +96,35 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "acknowledges the fixture message's delivery to the fixture terminal; a person reading a queued message may skip delivered (agent_message_store.rs), so the outcome is the same whether the terminal took it yet"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "agent.message.mark",
+        "params": {
+          "ids": [
+            "$step:fx-message#/value/id"
+          ],
+          "recipient": "$step:fx-workspace#/value/terminal_id",
+          "state": "acknowledged"
+        },
+        "idempotencyKey": "agent-message-mark-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
@@ -63,8 +133,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.ids[0] is a fixed placeholder, not a fixture object; chief/_tuning.json tunes it"
   ]
 }

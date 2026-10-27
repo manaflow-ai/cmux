@@ -71,7 +71,27 @@ extension BackgroundWork {
     func blockShutdownEnded(_ site: CallSite, since start: UInt64?) {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         guard let start else { return }
-        let elapsed = uptimeNanos() &- start
+        noteBlockShutdownRun(site, elapsed: uptimeNanos() &- start)
+        #endif
+    }
+
+    /// A block-shutdown lane item's run report: the check of its run from the lane's own start and end stamps (no
+    /// clock read of its own) in builds with the check, then `report`.
+    func blockShutdownRan(_ site: CallSite, then report: (@Sendable (WorkPriority, UInt64, UInt64) -> Void)?)
+        -> (@Sendable (WorkPriority, UInt64, UInt64) -> Void)? {
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        return { [self] priority, start, end in
+            noteBlockShutdownRun(site, elapsed: end &- start)
+            report?(priority, start, end)
+        }
+        #else
+        return report
+        #endif
+    }
+
+    #if DEBUG || CMUX_BLOCKING_CHECKS
+    /// Records the item at `site` when its run of `elapsed` nanoseconds is over ``blockShutdownLimit``.
+    private func noteBlockShutdownRun(_ site: CallSite, elapsed: UInt64) {
         let duration = Duration.nanoseconds(Int64(clamping: elapsed))
         guard duration > Self.blockShutdownLimit else { return }
         let overrun = BlockShutdownOverrun(site: "\(site.fileID):\(site.line)", duration: duration)
@@ -82,6 +102,6 @@ extension BackgroundWork {
         Logger(subsystem: "com.cmuxterm.app.next", category: "work").fault(
             "blockShutdown item at \(overrun.site, privacy: .public) ran \(elapsed / 1_000_000, privacy: .public) ms (limit 250 ms): quit waits for it; make it one bounded write, or use skipOnShutdown or continueOnShutdown"
         )
-        #endif
     }
+    #endif
 }

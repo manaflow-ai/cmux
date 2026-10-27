@@ -18,9 +18,8 @@ import QuartzCore
 /// recording (DEBUG builds' `debug.motion start` to `stop`).
 ///
 /// Not measured: commits outside the run-loop observer, which Chromium's pre- and post-commit
-/// waits also hold: an explicit `CATransaction.flush()` (`Motion+Popup`) and the flushes AppKit
-/// makes inside a window's live resize. A bench of the window's live resize reads its frames, not
-/// `ca.commit`.
+/// waits also hold: the flushes AppKit makes inside a window's live resize. A bench of the
+/// window's live resize reads its frames, not `ca.commit`.
 ///
 /// The `debug.motion` handler owns the probe (`AppControl` makes one and passes it to
 /// ``MotionDebug/handle(_:windows:samplers:commitProbe:)``); no type holds one statically.

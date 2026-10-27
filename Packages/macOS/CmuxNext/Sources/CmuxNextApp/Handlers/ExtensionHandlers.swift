@@ -14,11 +14,10 @@ enum ExtensionHandlers {
         })
         registry.bind("browser.extensions.manage", run: { try openChromium(URL.browserExtensionManagement, context, $0) })
         registry.bind("browser.extensions.webStore", run: { try openChromium(URL.browserExtensionWebStore, context, $0) })
-        registry.bind("browser.extensions.loadUnpacked", run: { invocation in
+        registry.bindEffect("browser.extensions.loadUnpacked", requires: nil, effect: { invocation in
             let (tab, store) = try managedStore(context, invocation)
             if let path = invocation["path"]?.stringValue, !path.isEmpty {
-                try load(path, store)
-                return
+                return try load(path, store)
             }
             let panel = NSOpenPanel()
             panel.canChooseDirectories = true
@@ -31,23 +30,29 @@ enum ExtensionHandlers {
                 _ = store.loadUnpacked(at: url.path)
             }
             if let window { panel.beginSheetModal(for: window, completionHandler: completion) } else { panel.begin(completionHandler: completion) }
+            return .done
         })
         registry.bind("browser.extension.run", run: { invocation in
             let entry = try chromiumEntry(context, invocation)
             let id = try extensionID(invocation, entry)
             entry.chrome.runExtensionAction(id)
         })
-        registry.bind("browser.extension.options", run: { invocation in
+        registry.bindEffect("browser.extension.options", requires: nil, effect: { invocation in
             let (tab, store) = try managedStore(context, invocation)
             let id = try known(invocation, store)
-            guard store.openOptions(id, from: tab) else { throw ActionFailure(message: ExtensionStrings.noOptions) }
+            let verdict = OneShot<Bool>()
+            guard store.openOptions(id, from: tab, answered: { verdict.resolve($0) }) else {
+                throw ActionFailure(message: ExtensionStrings.noOptions)
+            }
+            // action-wait-allow: Chromium (the Chromium Host's process in host mode) decides whether the options page opens; nothing shows before
+            return .waiting(.externalProcess) { await failure(verdict, ExtensionStrings.noOptions) }
         })
-        bindToggle(registry, context, "browser.extension.pin") { $0.setPinned($1, true) }
-        bindToggle(registry, context, "browser.extension.unpin") { $0.setPinned($1, false) }
-        bindToggle(registry, context, "browser.extension.enable") { $0.setEnabled($1, true) }
-        bindToggle(registry, context, "browser.extension.disable") { $0.setEnabled($1, false) }
-        bindToggle(registry, context, "browser.extension.remove") { $0.uninstall($1) }
-        bindToggle(registry, context, "browser.extension.reload") { $0.reload($1) }
+        bindToggle(registry, context, "browser.extension.pin") { $0.setPinned($1, true, answered: $2) }
+        bindToggle(registry, context, "browser.extension.unpin") { $0.setPinned($1, false, answered: $2) }
+        bindToggle(registry, context, "browser.extension.enable") { $0.setEnabled($1, true, answered: $2) }
+        bindToggle(registry, context, "browser.extension.disable") { $0.setEnabled($1, false, answered: $2) }
+        bindToggle(registry, context, "browser.extension.remove") { $0.uninstall($1, answered: $2) }
+        bindToggle(registry, context, "browser.extension.reload") { $0.reload($1, answered: $2) }
         registry.bind("browser.extension.move", run: { invocation in
             let entry = try chromiumEntry(context, invocation)
             guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: ExtensionStrings.needsChromiumTab) }
@@ -67,13 +72,24 @@ enum ExtensionHandlers {
         })
     }
 
+    /// The store shows the change in this turn; Chromium's answer settles it. The store takes
+    /// Chromium's lists at the answer, which reverts a refused change, so the effect needs no rollback.
     private static func bindToggle(_ registry: ActionRegistry, _ context: AppActionContext, _ id: ActionID,
-                                   _ body: @escaping (BrowserExtensionStore, String) -> Bool) {
-        registry.bind(id, run: { invocation in
+                                   _ body: @escaping (BrowserExtensionStore, String, @escaping (Bool) -> Void) -> Bool) {
+        registry.bindEffect(id, requires: nil, effect: { invocation in
             let (_, store) = try managedStore(context, invocation)
             let extensionID = try known(invocation, store)
-            guard body(store, extensionID) else { throw ActionFailure(message: ExtensionStrings.refused) }
+            let verdict = OneShot<Bool>()
+            guard body(store, extensionID, { verdict.resolve($0) }) else { throw ActionFailure(message: ExtensionStrings.refused) }
+            return .applied(ActionConfirmation(send: { await failure(verdict, ExtensionStrings.refused) }))
         })
+    }
+
+    /// Nil once Chromium accepted the change, else the refusal `reason`.
+    private static func failure(_ verdict: OneShot<Bool>, _ reason: String) async -> ActionWorkFailure? {
+        // concurrency-allow: OneShot.wait is an async suspension, not a blocking wait
+        let accepted = await verdict.wait(cancelled: false)
+        return accepted ? nil : ActionWorkFailure(refusal: .unavailable, reason: reason)
     }
 
     // MARK: Lookup
@@ -119,12 +135,15 @@ enum ExtensionHandlers {
         return id
     }
 
-    private static func load(_ path: String, _ store: BrowserExtensionStore) throws {
+    private static func load(_ path: String, _ store: BrowserExtensionStore) throws -> ActionEffect {
         let expanded = (path as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: (expanded as NSString).appendingPathComponent("manifest.json")) else {
             throw ActionFailure(message: ExtensionStrings.noManifest(path))
         }
-        guard store.loadUnpacked(at: expanded) else { throw ActionFailure(message: ExtensionStrings.refused) }
+        let verdict = OneShot<Bool>()
+        guard store.loadUnpacked(at: expanded, answered: { verdict.resolve($0) }) else { throw ActionFailure(message: ExtensionStrings.refused) }
+        // action-wait-allow: Chromium (the Chromium Host's process in host mode) checks the folder and its manifest; the extension shows only once loaded
+        return .waiting(.externalProcess) { await failure(verdict, ExtensionStrings.refused) }
     }
 
     /// Opens `url` in a new Chromium tab of the focused pane, in the browser

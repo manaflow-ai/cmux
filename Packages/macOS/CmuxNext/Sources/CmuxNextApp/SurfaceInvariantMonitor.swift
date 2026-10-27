@@ -19,7 +19,8 @@ final class SurfaceInvariantMonitor {
     /// Time after the last change before the check (layout springs settle in ~250 ms).
     static let settleDelay: Duration = .milliseconds(500)
     weak var services: AppServices?
-    private let settle = DemandTimer(owner: "SurfaceInvariantMonitor.settle")
+    /// The check's deadline on the app's scheduler, made at the first change: `background` work, nobody waits on it.
+    private var settle: MainDeadline?
     private(set) var violations = 0
     private(set) var checks = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.surfaces")
@@ -30,27 +31,30 @@ final class SurfaceInvariantMonitor {
     /// Re-checks after any window's occlusion changes (AppServices wiring).
     func observeWindowOcclusion() {
         guard occlusionObserver == nil else { return }
-        occlusionObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main
-        ) { [weak self] note in
+        let center = NotificationCenter.default
+        // raw-observer-allow: the tab-switch timeline names the posting window, and AppEvents (frozen Wakeups API) passes no notification
+        occlusionObserver = center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] note in
             // Tab switch timeline (cx-asb1): when a page child window's occlusion state lands.
             let window = note.object as? NSWindow
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                // In the notice's own turn: noteChange only arms the settle deadline.
+                self?.noteChange()
                 guard let window else { return }
                 let child = window.parent != nil
                 let visible = window.occlusionState.contains(.visible)
                 // wall-clock: one timeline with the Control and Browser tab-switch marks and the page's performance.timeOrigin
                 Self.tabSwitchLog.debug("tab-switch occlusion-\(child ? "child" : "top", privacy: .public)-\(visible ? "visible" : "hidden", privacy: .public)-\(String(describing: type(of: window)).filter(\.isLetter), privacy: .public)\(window.identifier?.rawValue.filter(\.isLetter) ?? "", privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
             }
-            // task-owner: one main-actor hop per occlusion change; noteChange only arms the settle frames.
-            Task { @MainActor in self?.noteChange() }
         }
     }
 
     /// A pane showed, hid, moved or released content.
     func noteChange() {
         #if DEBUG
-        settle.schedule(after: Self.settleDelay) { @MainActor [weak self] in self?.check() }
+        guard let services else { return }
+        let settle = self.settle ?? MainDeadline(owner: "SurfaceInvariantMonitor.settle", workClass: .background, scheduler: services.mainDeadlines)
+        self.settle = settle
+        settle.schedule(after: Self.settleDelay) { [weak self] in self?.check() }
         #endif
     }
 

@@ -18,4 +18,8 @@ public struct MoveTabGroupToNewWorkspaceRequest: DaemonRequest {
         self.index = index
         self.transaction = transaction
     }
+
+    enum CodingKeys: String, CodingKey {
+        case group, workspaceGroup = "workspace_group", index, transaction
+    }
 }

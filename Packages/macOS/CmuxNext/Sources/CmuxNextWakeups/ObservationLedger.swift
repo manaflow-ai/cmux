@@ -81,7 +81,8 @@ public final class ObservationLedger: Sendable {
         }
 
         /// One SwiftUI hosting view body of this owner was evaluated; `hidden` when its node was
-        /// hidden at the time (the budget is 0 hidden bodies).
+        /// hidden at the time (the budget is 0 hidden bodies). A tab page's `VisibilityGatedHostingView`
+        /// (CmuxNextDesign) records it under `Hosting.<page>`; a gated page that runs a hidden body opted out.
         public func bodyEvaluated(hidden: Bool) {
             bodies.add(1, ordering: .relaxed)
             if hidden { hiddenBodies.add(1, ordering: .relaxed) }

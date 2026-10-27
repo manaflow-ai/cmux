@@ -6,10 +6,15 @@ import GhosttyNextKit
 
 /// One terminal on screen: a Ghostty surface fed by a ``TerminalIO``.
 ///
-/// Embed ``view``. The session consumes `io.events` off the main actor: live
-/// output goes straight to a serial off-main output lane, every other event
-/// is handled on the main actor in stream order. It writes Ghostty's
-/// encoded input back to `io.write` in order. Consumption is demand-driven:
+/// Embed ``view``. The session consumes `io.events` off the main actor and
+/// never waits for it (``TerminalEventRouter``): output, grid locks and
+/// snapshot restores go straight to a serial off-main output lane, and what
+/// the main actor shows (grid, status, chip, content) is applied once per
+/// frame (``TerminalEventMailbox``). Only a replay into a surface with
+/// content takes the main actor, which swaps in a fresh surface. Ghostty's encoded input,
+/// grid reports and focus go to the IO in order through one
+/// ``TerminalInputLane`` drained on the IO's queue (`io.inputDrain()`), one
+/// thread hop from the key. Consumption is demand-driven:
 /// the next event is taken only once the lane has room, so a slow parser
 /// pushes back on the IO (which bounds its own buffer) instead of queueing
 /// without limit (state-audit.md T1).
@@ -18,7 +23,7 @@ import GhosttyNextKit
 /// the byte stream, or later output lands in the wrong cells. The IO owner
 /// decides the PTY size; every `.resize` event locks the live surface's grid
 /// in place (`ghostty_surface_set_grid`, queued on the output lane behind
-/// every earlier chunk), and never replaces the surface. Once one arrived the surface
+/// every earlier chunk, at the lane's generation), and never replaces the surface. Once one arrived the surface
 /// renders only `.resize` grids (``TerminalGridPolicy``). When
 /// ``ownsGeometry`` is true the grid the view fits is sent with `io.resize`,
 /// once per change, as a request: the surface follows when the owner
@@ -85,6 +90,12 @@ public final class TerminalSession {
         didSet { surfaceView.isRenderingSuspended = isRenderingSuspended }
     }
 
+    /// Outside the keep-alive band (the App's surface ledger): paused, the surface lets its GPU memory
+    /// go (``TerminalGPUResidencyGate``); in the band it keeps it, so scrolling back reallocates nothing.
+    public var releasesGPUWhilePaused = false {
+        didSet { surfaceView.releasesGPUWhilePaused = releasesGPUWhilePaused }
+    }
+
     /// This terminal's theme when it differs from the Ghostty config (its
     /// own, its workspace's or its room's); nil uses the config. Applied to
     /// the live surface in place (`ghostty_surface_update_config`: palette,
@@ -120,10 +131,13 @@ public final class TerminalSession {
     private let modifiers: TerminalModifierWatch?
     /// Passed to each surface view this session makes: the windows' frame-aligned pointer input.
     private let pointerFrames: FrameInputCoalescers?
+    /// Passed to each surface view this session makes: their GPU memory release while away.
+    private let gpuResidency: (any TerminalGPUResidency)?
     private let input: TerminalInputSink
     private let echoStages: TerminalEchoStages
+    /// What the events loop changed for the main actor, applied once per frame (``applyEvents()``).
+    let events: TerminalEventMailbox
     private var eventsTask: Task<Void, Never>?
-    private var writerTask: Task<Void, Never>?
     var createStages = NewTerminalTrace.CreateStages() // the new tab's create.tab while it waits (traceCreate)
     /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
     public var closeCancels: [Task<Void, Never>] = []
@@ -158,12 +172,15 @@ public final class TerminalSession {
     ///     first event and once more at its frame (``TerminalPointerFrames``). Nil: every event at once.
     ///   - mainWork: The app's main-thread scheduler, and `node` the tab's node (`TabContentCache.node(for:)`; nil: no
     ///     tab, as in tests): the host's find bar, scrollbar and TextBox follow their models through them, once per frame while it shows.
+    ///   - gpuResidency: Lets the surfaces' GPU memory go while ``releasesGPUWhilePaused`` and paused;
+    ///     nil keeps them resident (a GhosttyNextKit pin without the switch, or `terminalGPURelease` off).
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
                 modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
-                mainWork: MainWorkScheduler, node: VisibilityNode? = nil) {
+                mainWork: MainWorkScheduler, node: VisibilityNode? = nil,
+                gpuResidency: (any TerminalGPUResidency)? = nil) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
@@ -171,42 +188,39 @@ public final class TerminalSession {
         self.secureInput = secureInput
         self.modifiers = modifiers
         self.pointerFrames = pointerFrames
+        self.gpuResidency = gpuResidency
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
-        // concurrency-allow: carries only user input and resizes, produced at human rate
-        let (outgoing, continuation) = AsyncStream<TerminalOutgoing>.makeStream(bufferingPolicy: .unbounded)
-        input = TerminalInputSink(continuation: continuation, typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
+        // One hop from the main thread to the IO's own queue (``TerminalInputLane``), no pool task.
+        input = TerminalInputSink(lane: TerminalInputLane(drain: io.inputDrain()),
+                                  typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
+
+        // node-free: the model's connection, grid and content are read while the tab is hidden
+        // (its sidebar status, a click's reconnect, the frame hold); the view work it does is a
+        // chip and a banner, once per frame at most.
+        let target = EventsTarget(), owner = mainWork.board.owner("terminal.events")
+        events = TerminalEventMailbox { [mainWork] in
+            mainWork.postFromAnyThread(.visible, owner: owner) { target.session?.applyEvents() }
+        }
 
         view = TerminalHostView(mainWork: mainWork, node: node)
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
-                                          secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames)
-        surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
+                                          secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
+                                          gpuResidency: gpuResidency)
+        surfaceView.bridgeObject.installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
         view.install(surfaceView)
         find.target = self
         view.attachFind(find)
 
-        writerTask = Task.detached(priority: .userInitiated) { [io] in
-            for await item in outgoing {
-                switch item {
-                case .bytes(let data):
-                    await io.write(data)
-                case .resize(let grid, let width, let height):
-                    await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
-                case .focusGained:
-                    await io.focusGained()
-                case .takeOverSize(let setLatest):
-                    await io.takeOverSize(setLatest: setLatest)
-                case .reconnect:
-                    await io.reconnectRequested()
-                case .resync:
-                    await io.resyncRequested()
-                }
-            }
-        }
-
-        eventsTask = Self.consume(io.events, for: self)
+        target.session = self
+        eventsTask = Self.consume(io.events, from: io, with: TerminalEventRouter(
+            lane: surfaceView.lane, mailbox: events, input: input,
+            replace: { [weak self] event -> TerminalOutputLane?? in
+                guard let self else { return nil }
+                return await self.replace(event)
+            }))
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
@@ -217,7 +231,6 @@ public final class TerminalSession {
     // Sendable cleanup only, so it runs on whatever thread releases the session.
     nonisolated deinit {
         eventsTask?.cancel()
-        writerTask?.cancel()
         input.finish()
     }
 
@@ -232,63 +245,8 @@ public final class TerminalSession {
     /// that names no file is plain text, with no underline and no open. Gets the text and the
     /// folder the shell last reported; runs off the main thread. Nil: every detected link is one.
     public private(set) var linkCheck: TerminalLinkCheck? {
-        didSet { surfaceView.bridge.takeUnretainedValue().linkFilter.setCheck(linkCheck) }
+        didSet { surfaceView.bridgeObject.linkFilter.setCheck(linkCheck) }
     }
-
-    #if DEBUG
-    /// Moves the pointer over viewport cell (`column`, `row`) as a mouse does, with
-    /// `flags` held (live checks): the view's own mouse-move path.
-    public func hoverLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
-        guard let event = surfaceView.linkTestEvent(.mouseMoved, column: column, row: row, flags: flags) else { return }
-        surfaceView.linkPointer.testPointer = surfaceView.convert(event.locationInWindow, from: nil)
-        surfaceView.linkPointer.testFlags = flags
-        surfaceView.mouseMoved(with: event)
-    }
-
-    /// A left click on viewport cell (`column`, `row`) with `flags` held, through the
-    /// view's own press and release handlers (live checks).
-    public func clickLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
-        guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: column, row: row, flags: flags),
-              let up = surfaceView.linkTestEvent(.leftMouseUp, column: column, row: row, flags: flags) else { return }
-        surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
-        surfaceView.linkPointer.testFlags = flags
-        surfaceView.mouseDown(with: down)
-        surfaceView.mouseUp(with: up)
-    }
-
-    /// A left press on one cell, a drag to another and the release there, with `flags`
-    /// held throughout (live checks).
-    public func dragForTesting(from: (column: Int, row: Int), to: (column: Int, row: Int), flags: NSEvent.ModifierFlags = .command) {
-        guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: from.column, row: from.row, flags: flags),
-              let drag = surfaceView.linkTestEvent(.leftMouseDragged, column: to.column, row: to.row, flags: flags),
-              let up = surfaceView.linkTestEvent(.leftMouseUp, column: to.column, row: to.row, flags: flags) else { return }
-        surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
-        surfaceView.linkPointer.testFlags = flags
-        surfaceView.mouseDown(with: down)
-        surfaceView.linkPointer.testPointer = surfaceView.convert(drag.locationInWindow, from: nil)
-        surfaceView.mouseDragged(with: drag)
-        surfaceView.mouseUp(with: up)
-    }
-
-    /// Modifier keys went down or up with the pointer still (live checks): the key path
-    /// when this terminal has focus, the app-wide watcher's either way.
-    public func modifiersChangedForTesting(_ flags: NSEvent.ModifierFlags) {
-        surfaceView.linkPointer.testFlags = flags
-        // A Command key event as AppKit delivers it: flagsChanged, left Command (key code 55).
-        let key = CGEvent(keyboardEventSource: nil, virtualKey: 55, keyDown: flags.contains(.command))
-        key?.type = .flagsChanged
-        key?.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
-        if surfaceView.isFirstResponder, let key, let event = NSEvent(cgEvent: key) {
-            surfaceView.flagsChanged(with: event)
-        }
-        surfaceView.linkPointer.modifiersChanged(flags)
-    }
-
-    /// The wrapped link under the pointer and whether the pointer shows the pointing hand.
-    public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
-        (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
-    }
-    #endif
 
     /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
     @discardableResult
@@ -307,9 +265,9 @@ public final class TerminalSession {
     /// program enabled it). The encoded bytes reach `io.write`.
     public func sendText(_ text: String) {
         guard let surface = surfaceView.surface, !text.isEmpty else { return }
-        text.withCString { pointer in
-            ghostty_surface_text(surface, pointer, UInt(text.utf8.count))
-        }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface); Swift passes a NUL-terminated
+        // copy of `text` for the call, its length without the NUL, and Ghostty copies what it keeps.
+        unsafe ghostty_surface_text(surface, text, UInt(text.utf8.count))
     }
 
     /// Downscaled image of the last presented frame, for static previews.
@@ -322,6 +280,7 @@ public final class TerminalSession {
     /// why it did not (diagnostics), nil when it holds the frame.
     @discardableResult
     public func showLastFrame(_ frame: TerminalLastFrame) -> String? {
+        applyEvents()
         guard !surfaceHasContent else { return "has_content" }
         guard let surface = frame.take() else { return "purged" }
         lastFrameHolds += 1
@@ -348,88 +307,75 @@ public final class TerminalSession {
 
     // MARK: Events
 
-    /// Consumes `events` off the main actor. Output for a surface that already has content goes
-    /// straight to its output lane: a busy terminal costs the main thread nothing per chunk, and an
-    /// echo never waits behind other terminals' output or a motion frame on main. Every other event
-    /// (a replay, a snapshot, a grid, a status, a surface's first content) is handled on the main
-    /// actor, in stream order: the loop waits for it, and it hands back the lane the next output
-    /// may use (nil while the surface still waits for its first content, or none is live). Only
-    /// ``handle(_:)`` swaps surfaces, so that lane stays current until the next main-actor event.
-    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>,
-                                            for session: TerminalSession) -> Task<Void, Never> {
-        Task.detached(priority: .high) { [weak session] in
-            var lane: TerminalOutputLane?
+    /// Consumes `events` off the main actor (``TerminalEventRouter``): the loop never waits for the
+    /// main actor except to swap in a fresh surface for a replay into one with content.
+    /// Each output chunk, once routed, is credited back to `io` (``TerminalIO/outputConsumed(_:)``),
+    /// so an IO that bounds its stream reads on.
+    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>, from io: any TerminalIO,
+                                            with router: TerminalEventRouter) -> Task<Void, Never> {
+        Task.detached(priority: .high) {
+            var router = router
             for await event in events {
-                if let lane, await lane.takeOffMain(event) { continue }
-                guard let session else { return }
-                lane = await session.handle(event)
+                defer { if case .output(let data) = event { io.outputConsumed(data.count) } }
+                guard await router.route(event) else { return }
             }
         }
     }
 
-    /// Handles one event on the main actor. Returns the lane later output may go to off the main
-    /// actor (``consume(_:for:)``).
-    private func handle(_ event: TerminalIOEvent) async -> TerminalOutputLane? {
-        await apply(event)
-        return surfaceHasContent ? surfaceView.lane : nil
+    /// A replay into a surface with content: what the loop posted before it applies first, then a
+    /// fresh surface takes the old one's place and the replay is queued on its lane. Returns that
+    /// lane, for the loop's later events.
+    private func replace(_ event: TerminalIOEvent) -> TerminalOutputLane? {
+        applyEvents()
+        swapSurface()
+        switch event {
+        case .replay(let data): surfaceView.lane?.processOutput(data)
+        case .kittyReplay(let replay): surfaceView.lane?.processOutput(replay.vt)
+        default: break
+        }
+        contentQueued()
+        return surfaceView.lane
     }
 
-    private func apply(_ event: TerminalIOEvent) async {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { traceEvent(event) }
-        #endif
-        switch event {
-        case .replay(let data):
-            if surfaceHasContent { swapSurface() }
-            surfaceView.lane?.processOutput(data)
-            surfaceHasContent = true
-            frameHold.contentQueued()
-            TerminalTimings.contentApplied()
-        case .kittyReplay(let replay):
-            // GhosttyNextKit restores Kitty graphics through GHOSTSNP snapshots
-            // (terminal-snapshot-v1), not the desktop fork's kitty replay. Until
-            // this view attaches in snapshot mode (S2b), the VT part is
-            // replayed and on-screen Kitty images come back only when the
-            // program draws them again.
-            if surfaceHasContent { swapSurface() }
-            surfaceView.lane?.processOutput(replay.vt)
-            surfaceHasContent = true
-            frameHold.contentQueued()
-            TerminalTimings.contentApplied()
-        case .snapshot(let data, let phase):
-            // The same surface takes the owner's state: no swap.
-            let restored = await restoreSnapshot(data, phase: phase)
-            guard restored, phase.isReady else { return }
-            restoredSnapshots += 1
-            surfaceHasContent = true
-            frameHold.contentQueued()
-            TerminalTimings.contentApplied()
-        case .output(let data):
-            ExpectedActivity.shared.note(.terminalOutput)
-            guard let lane = surfaceView.lane else { return }
-            lane.outputReceived()
-            await lane.waitForCapacity()
-            // The surface may have been swapped while waiting (a replay).
-            surfaceView.lane?.processOutput(data)
-            surfaceHasContent = true
-            frameHold.contentQueued()
-            TerminalTimings.contentApplied()
-        case .inputEcho(let flow): surfaceView.lane?.echoReceived(flow)
-        case .resize(let columns, let rows):
-            guard columns > 0, rows > 0 else { return }
-            await applyCanonicalGrid(TerminalGridSize(columns: columns, rows: rows))
-        case .exited:
-            model.hasExited = true
-        case .status(let status):
+    /// Applies what the events loop and the lane changed since the last pass, in one main turn:
+    /// on the frame the mailbox asked for, or first thing before a surface swap.
+    func applyEvents() {
+        guard let pending = events.take() else { return }
+        if let grid = pending.grid {
+            // Its lock is already on the lane, in stream order; the view follows it here.
+            canonicalGrid = grid
+            surfaceView.applyAnnouncedGrid(grid)
+        }
+        if let status = pending.status {
             model.connection = status
             model.hasExited = status == .exited
             surfaceView.updateReflowPreview()
             view.showStatus(status)
-            // A disconnected or exited view no longer knows who sets the grid.
-            if status != .connected { view.showSizedFor(nil) }
-        case .sizedFor(let sizedFor):
+        }
+        if pending.exited { model.hasExited = true }
+        if let sizedFor = pending.sizedFor {
             view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         }
+        restoredSnapshots += pending.readyRestores
+        localSnapshots += pending.localSnapshots
+        localHistoryMismatches += pending.localHistoryMismatches
+        skippedImages += pending.skippedImages
+        if pending.contentQueued { contentQueued() }
+    }
+
+    /// Takes a holder of ``events`` back to the session on the main actor, without retaining it.
+    @MainActor private final class EventsTarget {
+        weak var session: TerminalSession?
+    }
+
+    /// Content reached the live surface's lane: the frame hold waits for it to be drawn.
+    private func contentQueued() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contentOnMain(session: ObjectIdentifier(self)) }
+        #endif
+        surfaceHasContent = true
+        frameHold.contentQueued()
+        TerminalTimings.contentApplied()
     }
 
     /// Take over ("Sized for" chip): this view sets the grid, always with a new claim; under a
@@ -445,40 +391,37 @@ public final class TerminalSession {
         input.reconnect()
     }
 
-    /// Locks the live mirror to the owner's grid in stream order: the lock
-    /// is queued on the output lane behind every chunk received before this
-    /// event, so Ghostty reflows the same screen the owner reflowed. Every
-    /// `.resize` applies; the event is the PTY's size at this point in the
-    /// stream.
-    private func applyCanonicalGrid(_ grid: TerminalGridSize) async {
-        canonicalGrid = grid
-        surfaceView.applyAnnouncedGrid(grid)
-    }
-
     /// Ghostty has no reset API, so a new replay goes into a new surface
     /// that takes the old one's place (cmux-tui-contract.md 3.2).
     private func swapSurface() {
         let old = surfaceView
+        applyWaitingActions() // the old surface's held pwd and progress: the fresh one starts from the model
         old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
-                                        secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames)
+                                        secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
+                                        gpuResidency: gpuResidency)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
         #endif
         fresh.ownsGeometry = ownsGeometry
-        fresh.isRenderingSuspended = isRenderingSuspended
+        // The draw demand first: a fresh surface a live mirror draws is never released, even for one turn.
         fresh.mirrorDemand = mirrorDemand
+        fresh.isRenderingSuspended = isRenderingSuspended
+        fresh.releasesGPUWhilePaused = releasesGPUWhilePaused
         surfaceView = fresh
-        fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
-        fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
+        fresh.bridgeObject.installLinkFilter(linkCheck)
+        fresh.bridgeObject.linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
         applyTheme(to: fresh, clearing: false, animated: false)
         TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
-        // Nothing was parsed into the fresh surface yet: no drain needed.
-        if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
+        // Nothing was parsed into the fresh surface yet: its lock goes first on its lane.
+        if let canonicalGrid {
+            fresh.lane?.lockGrid(canonicalGrid)
+            fresh.applyAnnouncedGrid(canonicalGrid)
+        }
         if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
         surfaceHasContent = false
         // The fresh surface has no search; an open find bar searches it again.
@@ -494,26 +437,16 @@ public final class TerminalSession {
         guard let surface = surfaceView.surface else { return }
         surfaceView.applyColorTransition(animated: animated)
         if let theme {
-            ghostty_surface_update_config(surface, theme.config)
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface) and the theme's live
+            // config, which `theme` holds for the call; Ghostty copies what it keeps.
+            unsafe ghostty_surface_update_config(surface, theme.config)
         } else if clearing, let config = GhosttyRuntime.shared.config {
-            ghostty_surface_update_config(surface, config)
+            // SAFETY: as above, with the runtime's live applied config (GhosttyRuntime.config).
+            unsafe ghostty_surface_update_config(surface, config)
         }
     }
 
     // MARK: From the surface view
-
-    func noteSkippedImages(_ count: Int) {
-        skippedImages += max(0, count)
-    }
-
-    func noteLocalSnapshot() {
-        localSnapshots += 1
-    }
-
-    func noteLocalHistoryMismatch() {
-        localHistoryMismatches += 1
-        input.resync()
-    }
 
     func surfaceDidGainFocus() {
         input.focusGained()

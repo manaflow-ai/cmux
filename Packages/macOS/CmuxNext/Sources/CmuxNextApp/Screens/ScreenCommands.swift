@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextLayout
+import CmuxNextWakeups
 
 /// The one mutation path for screens: the screen bar, the palette, context
 /// menus, shortcuts, and the CLI all call these (cmux-shared-behavior).
@@ -39,7 +40,10 @@ enum ScreenCommands {
         let intent = content?.beginFocusIntent()
         let extended = daemon.supports(DaemonCapability.screenMetadata.rawValue)
         let options = SpawnOptions(cwd: cwd, workspace: workspace.key)
-        Task {
+        let logger = daemon.logger, mainWork = content?.services.mainWork
+        // task-owner: one new screen, ended by the daemon's reply. R-hop: the command goes from a nonisolated task to the
+        // connection's actor; the focus it expects is set in one userBlocking task (the rest of the action).
+        Task { @concurrent in
             do {
                 let surface: SurfaceID
                 if extended {
@@ -47,9 +51,12 @@ enum ScreenCommands {
                 } else {
                     surface = try await connection.newScreen(in: handle).surface
                 }
-                content?.expectFocus(on: surface, generation: intent)
+                guard let content, let mainWork else { return }
+                mainWork.postFromAnyThread(.userBlocking, owner: "ScreenCommands.create") {
+                    content.expectFocus(on: surface, generation: intent)
+                }
             } catch {
-                daemon.logger.error("new-screen failed: \(String(describing: error), privacy: .public)")
+                logger.error("new-screen failed: \(String(describing: error), privacy: .public)")
             }
         }
     }
@@ -151,13 +158,18 @@ enum ScreenCommands {
         let handle = screen.handle
         let state = services.windows.active?.state
         let origin = services.windows.moveOrigin(of: daemon.store.workspaces.first { $0.screens.contains { $0 === screen } }?.id)
-        Task {
+        let logger = daemon.logger, mainWork = services.mainWork
+        // task-owner: one move, ended by the daemon's reply. R-hop: the command is awaited off main; the new workspace
+        // is placed in one userBlocking task (the rest of the action).
+        services.work.task(.userBlocking) {
             do {
                 let result = try await connection.moveScreen(handle, to: nil, newWorkspace: true)
                 guard let key = result.key?.rawValue else { return }
-                services.windows.placeMoved(key, from: origin, preferred: state, newWindow: newWindow)
+                mainWork.postFromAnyThread(.userBlocking, owner: "ScreenCommands.moveToNewWorkspace") {
+                    services.windows.placeMoved(key, from: origin, preferred: state, newWindow: newWindow)
+                }
             } catch {
-                daemon.logger.error("move-screen new_workspace failed: \(String(describing: error), privacy: .public)")
+                logger.error("move-screen new_workspace failed: \(String(describing: error), privacy: .public)")
             }
         }
     }

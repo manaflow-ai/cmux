@@ -204,7 +204,7 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         try? lifeline?.fileHandleForWriting.close()
         lifeline = nil
         guard onUpdate != nil, let wait = restarts.exited(atNanos: endedNanos) else { return }
-        restart.schedule(after: wait) { @MainActor [weak self] in self?.launch() }
+        restart.scheduleOnMain(after: wait) { [weak self] in self?.launch() }
     }
 }
 

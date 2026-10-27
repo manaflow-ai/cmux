@@ -128,7 +128,7 @@ final class UIGraphicsImageRenderer {
         let s = format.scale
         let pw = max(1, CrashGuard.int((size.width * s).rounded(.up))), ph = max(1, CrashGuard.int((size.height * s).rounded(.up))) // no trap on NaN
         let info = CGBitmapInfo.byteOrder32Little.rawValue | (format.opaque ? CGImageAlphaInfo.noneSkipFirst.rawValue : CGImageAlphaInfo.premultipliedFirst.rawValue)
-        guard let ctx = CGContext(data: nil, width: pw, height: ph, bitsPerComponent: 8, bytesPerRow: 0,
+        guard let ctx = CGContext.ownedBitmap(width: pw, height: ph, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: format.colorSpace, bitmapInfo: info) else { return UIImage() }  // cmux: the format's
         ctx.translateBy(x: 0, y: CGFloat(ph))
         ctx.scaleBy(x: s, y: -s)
@@ -139,7 +139,7 @@ final class UIGraphicsImageRenderer {
 
 // MARK: Images
 
-final class UIImage {
+final class UIImage: Sendable { // cmux: immutable (every stored property a let); MediaCache hands it across threads
     enum Orientation { case up }
     enum RenderingMode { case automatic, alwaysOriginal, alwaysTemplate }
     enum SymbolWeight { case ultraLight, thin, light, regular, medium, semibold, bold, heavy, black
@@ -218,7 +218,7 @@ final class UIImage {
     /// Decoded into an sRGB bitmap now (UIKit decodes for display).
     func preparingForDisplay() -> UIImage? {
         guard let cg = cgImage else { return self }
-        guard let ctx = CGContext(data: nil, width: cg.width, height: cg.height, bitsPerComponent: 8, bytesPerRow: 0,
+        guard let ctx = CGContext.ownedBitmap(width: cg.width, height: cg.height, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: LabColorSpace.sRGB, // no force unwrap
                                   bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue) else { return self }
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))

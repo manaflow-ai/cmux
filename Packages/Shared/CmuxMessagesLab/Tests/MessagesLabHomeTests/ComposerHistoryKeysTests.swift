@@ -14,7 +14,7 @@ import Testing
         func cancel() {}
     }
 
-    struct Pane {
+    @MainActor struct Pane {
         let window: NSWindow
         let controller: ChatController
         var field: FieldTextView { controller.demo!.compose.textView.view }

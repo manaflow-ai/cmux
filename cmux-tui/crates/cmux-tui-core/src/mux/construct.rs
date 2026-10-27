@@ -148,9 +148,30 @@ impl Mux {
     pub(crate) fn from_workspace_registry(
         session: String,
         surface_options: SurfaceOptions,
+        registry: WorkspaceRegistry,
+        provider_workspace: ProviderWorkspaceState,
+        test_surface_runtime: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::from_workspace_registry_with(
+            session,
+            surface_options,
+            registry,
+            provider_workspace,
+            test_surface_runtime,
+            crate::memory::MemorySetup::from_env(),
+        )
+    }
+
+    /// [`Self::from_workspace_registry`] with the memory registry and the
+    /// scrollback pressure feature given (tests inject both).
+    #[track_caller]
+    fn from_workspace_registry_with(
+        session: String,
+        surface_options: SurfaceOptions,
         mut registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
+        memory_setup: crate::memory::MemorySetup,
     ) -> anyhow::Result<Arc<Self>> {
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
@@ -189,8 +210,12 @@ impl Mux {
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
             );
+        // The owner's memory registry: every memory consumer of this owner
+        // registers here, and its kernel source starts on first use.
+        let crate::memory::MemorySetup { memory, scrollback_pressure, kitty_share } = memory_setup;
         let output_store = crate::output_store::OutputStore::new(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
+            scrollback_pressure,
         );
         Self::rebuild_split_screen_index(&mut state);
         let resource_projection_stats = registry.resource_projection_stats().clone();
@@ -203,9 +228,6 @@ impl Mux {
             label: "mux".to_owned(),
             ..cmux_threads::work::WorkConfig::default()
         })?;
-        // The owner's memory registry: every memory consumer of this owner
-        // registers here, and its kernel source starts on first use.
-        let memory = Arc::new(crate::memory::DaemonMemory::new());
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -215,6 +237,7 @@ impl Mux {
             connection_stats: Arc::default(),
             request_stats: Arc::default(),
             ipc_stats: Arc::default(),
+            bulk_frame_max: crate::server::bulk_frame_max_from_env(),
             resource_projection_stats,
             request_path_stats: crate::request_path::stats_from_env(),
             request_qos: crate::request_qos::RequestQosGate::from_env(),
@@ -233,7 +256,9 @@ impl Mux {
             workspace_lifecycles: Mutex::new(HashMap::new()),
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
             client_sizing_lifecycle: Mutex::new(()),
-            client_sizing: Mutex::new(ClientSizingState::default()),
+            client_sizing: Mutex::new(
+                ClientSizingState::with_scheme(ParticipantScheme::from_env()),
+            ),
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
@@ -292,8 +317,11 @@ impl Mux {
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
             deadline_fanout_pool: DeadlineFanoutPool::new(),
-            kitty_image_budget: Mutex::new(KittyImageBudgetState::default()),
+            kitty_image_budget: Mutex::new(KittyImageBudgetState::with_share(
+                KittyShare::for_feature(kitty_share),
+            )),
             kitty_image_budget_changed: Condvar::new(),
+            kitty_pixel_consumer: OnceLock::new(),
             app_terminals: Mutex::default(),
             #[cfg(debug_assertions)]
             terminal_host_reconnect_completion_failures: AtomicU64::new(
@@ -316,6 +344,7 @@ impl Mux {
             cell_pixels: Mutex::new((8, 16)),
             pending_cell_pixels: Mutex::new(None),
             cell_pixel_retries: Mutex::new(CellPixelRetryQueue::default()),
+            cell_pixel_sets: Arc::default(),
             #[cfg(test)]
             cell_pixel_before_publish: Mutex::new(None),
             #[cfg(test)]
@@ -348,7 +377,7 @@ impl Mux {
             notification_posts: Mutex::new(HashMap::new()),
             feed_local,
             presentation: Mutex::new(Arc::new(presentation)),
-            git_heads: Mutex::new(HashMap::new()),
+            git_heads: Arc::default(),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
@@ -377,9 +406,9 @@ impl Mux {
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
             terminal_adoption_ended: Condvar::new(),
-            terminal_adoptions_now: Mutex::new(HashSet::new()),
+            startup_adoptions: Mutex::default(),
+            terminal_replays: mux_work::Permits::new(terminal_adoption::ADOPTION_REPLAYS),
             restored_tab_names: Mutex::new(HashMap::new()),
-            startup_adoptions_released: AtomicBool::new(false),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
             terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
@@ -400,6 +429,7 @@ impl Mux {
             shutting_down: AtomicBool::new(false),
             session_shutdown,
             exit_settles: Arc::default(),
+            mux_work: mux_work::MuxWork::default(),
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
@@ -409,6 +439,9 @@ impl Mux {
             #[cfg(unix)]
             access_requests: Default::default(),
             activity: Default::default(),
+            energy: Default::default(),
+            #[cfg(target_os = "macos")]
+            maintenance: OnceLock::new(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
             cold_scrollback_wake: OnceLock::new(),
@@ -431,6 +464,7 @@ impl Mux {
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
+            sequenced_pool: crate::server::SequencedPool::default(),
             request_watchdog: crate::server::RequestWatchdog::default(),
             work,
             git_sequences: crate::git_ops::Sequences::default(),
@@ -445,6 +479,10 @@ impl Mux {
         if cmux_panic_log::hang::installed() {
             mux.request_watchdog.watch_for_process();
         }
+        mux.mux_work.bind(Arc::downgrade(&mux));
+        #[cfg(unix)]
+        mux.control_clients.bind_browser_runtime_owner(Arc::downgrade(&mux));
+        mux.register_kitty_pixel_consumer();
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
@@ -486,9 +524,9 @@ impl Mux {
         }
         let recovery_deadline = Instant::now() + Duration::from_secs(15);
         while mux.reconcile_interrupted_resource_creations()? {
-            // Its terminal may be adopting on a thread that waits for ready,
-            // which comes only after this start returns.
-            mux.startup_adoptions_released.store(true, Ordering::Release);
+            // Its terminal's adoption may be held for ready, which comes
+            // only after this start returns.
+            mux.release_startup_adoptions();
             if Instant::now() >= recovery_deadline {
                 mux.shutdown();
                 anyhow::bail!("interrupted resource creation did not settle during startup");
@@ -504,11 +542,57 @@ impl Mux {
         crate::journal_hooks::start(&mux)?;
         mux.start_journal_maintenance()?;
         crate::state::project_watch::start(&mux);
+        mux.warm_git_heads();
         Ok(mux)
     }
 
     pub fn lock_initial_bootstrap(&self) -> MutexGuard<'_, ()> {
         self.initial_bootstrap.lock().unwrap()
+    }
+
+    /// A persistent mux whose memory registry and scrollback pressure
+    /// feature the test sets.
+    #[cfg(test)]
+    #[track_caller]
+    pub(crate) fn open_persistent_with_memory_for_test(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        state_root: &Path,
+        memory_setup: crate::memory::MemorySetup,
+    ) -> anyhow::Result<Arc<Self>> {
+        let session = session.into();
+        let registry = WorkspaceRegistry::open(state_root, &session)?;
+        Self::from_workspace_registry_with(
+            session,
+            surface_options,
+            registry,
+            ProviderWorkspaceState::default(),
+            false,
+            memory_setup,
+        )
+    }
+
+    /// An in-memory test mux whose memory registry and memory features the
+    /// test sets.
+    #[cfg(test)]
+    #[track_caller]
+    pub(crate) fn new_for_test_with_memory(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        memory_setup: crate::memory::MemorySetup,
+    ) -> Arc<Self> {
+        let session = session.into();
+        let registry = WorkspaceRegistry::in_memory(&session)
+            .expect("in-memory workspace registry must initialize");
+        Self::from_workspace_registry_with(
+            session,
+            surface_options,
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+            memory_setup,
+        )
+        .expect("in-memory workspace registry must load")
     }
 
     #[cfg(test)]

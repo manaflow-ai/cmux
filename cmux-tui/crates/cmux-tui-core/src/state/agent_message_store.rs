@@ -479,6 +479,50 @@ pub(crate) fn mark(
     Ok(values)
 }
 
+/// Counts a hand-over acpmux never accepted on `recipient`'s still-queued
+/// receipt of `id`, with why (the delivery pump's attempt record).
+pub(crate) fn note_queued_attempt(
+    transaction: &Transaction<'_>,
+    id: &str,
+    recipient: &str,
+    error: &str,
+    now_ms: i64,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "UPDATE agent_message_deliveries
+         SET attempts = attempts + 1, error = ?3, updated_at_ms = ?4,
+             via = 'acp.prompt'
+         WHERE message_id = ?1 AND recipient = ?2 AND state = 'queued'",
+        params![id, recipient, error, now_ms],
+    )?;
+    Ok(())
+}
+
+/// Up to `page` queued acpmux deliveries after `cursor` (a message's
+/// sequence and the delivery's position), oldest first:
+/// `(sequence, position, message id, recipient)`.
+pub(crate) fn queued_acp(
+    connection: &Connection,
+    cursor: (i64, i64),
+    page: usize,
+) -> anyhow::Result<Vec<(i64, i64, String, String)>> {
+    let mut statement = connection.prepare(
+        "SELECT m.sequence, d.position, m.message_id, d.recipient
+         FROM agent_message_deliveries AS d
+         JOIN agent_messages AS m ON m.message_id = d.message_id
+         WHERE d.state = 'queued' AND d.recipient LIKE 'acp:%'
+           AND (m.sequence > ?1 OR (m.sequence = ?1 AND d.position > ?2))
+         ORDER BY m.sequence, d.position
+         LIMIT ?3",
+    )?;
+    let rows = statement
+        .query_map(params![cursor.0, cursor.1, i64::try_from(page)?], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 /// Newest messages first, or oldest first with [`AgentMessageFilter::oldest_first`].
 pub(crate) fn list(
     connection: &Connection,

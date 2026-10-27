@@ -11,6 +11,10 @@
 //! - `validate [FILE]`: the problems the settings owner would report for the
 //!   file (default: the settings file), without the app. Exit 1 when the
 //!   file does not parse or a value is refused.
+//! - `feature-flags`: every declared feature (`schemas/features/features.d`)
+//!   with its state and the input that decided it (`policy`, `env`, `local`,
+//!   `remote`, `trial`, `default`), read from the app (`features.list`,
+//!   read-only, no params). `--json` prints the app's whole report.
 //!
 //! A socket write of a user-only key (schema `agent_settable: false`) is
 //! refused with `setting_user_only`. `--confirm` sends `confirm: true`: the
@@ -28,7 +32,11 @@ use std::os::unix::net::UnixStream;
 use super::{AppCommand, GlobalArgs, OutputMode, READ_TIMEOUT, UsageError};
 
 /// The verbs of `cmux settings` (and `cmux config`).
-pub(super) const VERBS: &[&str] = &["get", "set", "reset", "unset", "list", "schema", "validate"];
+pub(super) const VERBS: &[&str] =
+    &["get", "set", "reset", "unset", "list", "schema", "validate", "feature-flags"];
+
+/// The app's read-only feature report behind `feature-flags`.
+const FEATURES_LIST: &str = "features.list";
 
 /// A settings verb this module runs itself.
 #[derive(Debug, PartialEq)]
@@ -41,12 +49,14 @@ pub(crate) enum Command {
     Document(Value),
     /// `list`: the app's settings (`settings.get`) as schema rows.
     List { section: Option<String> },
+    /// `feature-flags`: the app's features (`features.list`).
+    FeatureFlags,
 }
 
 impl Command {
-    /// Runs the command, connecting to the app only for `list`.
+    /// Runs the command, connecting to the app only for `list` and `feature-flags`.
     pub(super) fn run(self, global: &GlobalArgs) -> i32 {
-        if let Command::List { .. } = self {
+        if matches!(self, Command::List { .. } | Command::FeatureFlags) {
             return match super::connect_command(global) {
                 Ok(mut stream) => self.run_on(global, &mut stream),
                 Err(error) => super::super::wire::print_local_error(&error, global.output, 3),
@@ -56,13 +66,23 @@ impl Command {
     }
 
     pub(super) fn run_on(self, global: &GlobalArgs, stream: &mut UnixStream) -> i32 {
-        let Command::List { section } = self else { return self.run_on_nothing(global.output) };
+        let method = match &self {
+            Command::List { .. } => "settings.get",
+            Command::FeatureFlags => FEATURES_LIST,
+            _ => return self.run_on_nothing(global.output),
+        };
         let wire = super::super::wire::print_local_error;
-        match super::wait::request(global, stream, "settings.get", &json!({}), Some(READ_TIMEOUT)) {
+        let human = global.output == OutputMode::Human;
+        match super::wait::request(global, stream, method, &json!({}), Some(READ_TIMEOUT)) {
             Ok(Ok(result)) => {
-                let rows = list_rows(&result, section.as_deref());
-                let human = global.output == OutputMode::Human;
-                let shown = if human { human_rows(&rows) } else { rows };
+                let shown = match self {
+                    Command::List { section } => {
+                        let rows = list_rows(&result, section.as_deref());
+                        if human { human_rows(&rows) } else { rows }
+                    }
+                    _ if human => feature_rows(&result),
+                    _ => result,
+                };
                 super::super::wire::print_local_success(&shown, global.output)
             }
             Ok(Err(error)) => wire(&error, global.output, 1),
@@ -75,7 +95,7 @@ impl Command {
             Command::Local(Ok(value)) => super::super::wire::print_local_success(&value, output),
             Command::Local(Err(error)) => super::super::wire::print_local_error(&error, output, 1),
             Command::Document(document) => print_document(&document),
-            Command::List { .. } => 2,
+            Command::List { .. } | Command::FeatureFlags => 2,
         }
     }
 }
@@ -100,6 +120,13 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     let Some((verb, args)) = rest.split_first() else { return Err(usage()) };
     match verb.as_str() {
         "list" => return parse_list(args)?.ok_or_else(usage),
+        "feature-flags" => {
+            return if args.is_empty() {
+                Ok(AppCommand::Settings(Command::FeatureFlags))
+            } else {
+                Err(usage())
+            };
+        }
         "schema" if args.is_empty() => {
             return Ok(AppCommand::Settings(Command::Document(Schema::embedded().json_schema())));
         }
@@ -265,6 +292,20 @@ pub(super) fn human_rows(rows: &Value) -> Value {
     json!(rows.as_array().map(|rows| rows.iter().map(pick).collect::<Vec<_>>()))
 }
 
+/// What a person sees of each `features.list` feature: its name, `on` or
+/// `off`, and the input that decided it. JSON output keeps the app's report.
+pub(super) fn feature_rows(report: &Value) -> Value {
+    let row = |feature: &Value| {
+        let state = if feature["enabled"] == Value::Bool(true) { "on" } else { "off" };
+        json!({ "name": feature["name"], "state": state, "source": feature["source"] })
+    };
+    let rows: Vec<Value> = report["features"]
+        .as_array()
+        .map(|features| features.iter().map(row).collect())
+        .unwrap_or_default();
+    json!(rows)
+}
+
 /// The diagnostics the settings owner would report for the file at `path`.
 /// A missing settings file (`named`: false) is valid, as the owner reads it:
 /// every key has its default. A file the caller names must exist.
@@ -351,4 +392,52 @@ fn local_state(file: FileRead) -> State {
         Default::default(),
         0,
     )
+}
+
+#[cfg(test)]
+mod feature_flag_tests {
+    use super::super::{AppCommand, parse as parse_app};
+    use super::{Command, feature_rows};
+    use serde_json::json;
+
+    fn words(words: &[&str]) -> Vec<String> {
+        words.iter().map(|word| (*word).to_owned()).collect()
+    }
+
+    /// `settings feature-flags` (and `config feature-flags`) is the one verb
+    /// for `features.list`; it takes no words, so nothing it sends can carry a
+    /// command. `--json` is the global output flag, stripped before parsing.
+    #[test]
+    fn feature_flags_is_a_settings_verb_with_no_params() {
+        for scope in ["settings", "config"] {
+            assert_eq!(
+                parse_app(&words(&[scope, "feature-flags"])).ok().flatten(),
+                Some(AppCommand::Settings(Command::FeatureFlags))
+            );
+            assert!(
+                parse_app(&words(&[scope, "feature-flags", "--name", "x"])).is_err(),
+                "{scope}"
+            );
+            assert!(parse_app(&words(&[scope, "feature-flags", "run"])).is_err(), "{scope}");
+        }
+    }
+
+    #[test]
+    fn a_person_sees_each_feature_state_and_source() {
+        let report = json!({
+            "channel": "nightly",
+            "features": [
+                { "name": "perfThing", "enabled": true, "source": "remote", "kind": "perfPath" },
+                { "name": "killThing", "enabled": false, "source": "policy", "kind": "killSwitch" },
+            ],
+        });
+        assert_eq!(
+            feature_rows(&report),
+            json!([
+                { "name": "perfThing", "state": "on", "source": "remote" },
+                { "name": "killThing", "state": "off", "source": "policy" },
+            ])
+        );
+        assert_eq!(feature_rows(&json!({})), json!([]));
+    }
 }

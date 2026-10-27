@@ -9,7 +9,7 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let consent = UserDefaultsAnalyticsConsentProvider(defaults: defaults)
+        let consent = UserDefaultsAnalyticsConsentProvider(suiteName: suiteName)
         #expect(consent.isTelemetryEnabled)
 
         defaults.set(false, forKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)

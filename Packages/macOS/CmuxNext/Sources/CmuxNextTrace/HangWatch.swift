@@ -2,20 +2,25 @@ import CmuxNextCompat
 import Darwin
 
 /// The hang-watch slots of one process: each watched thread or lane registers once, then opens a
-/// ``HangWatchScope`` around each unit of work, with a deadline. A monitor (the app's, on the main-thread
-/// watchdog's thread: `HangMonitor` in CmuxNextControl) reports a slot whose scope is open past its deadline.
+/// ``HangWatchScope`` around each unit of work, with a deadline (its budget). A monitor (the app's, on the
+/// main-thread watchdog's thread: `HangMonitor` in CmuxNextControl) reports a scope in two tiers: a jank
+/// when it is open past its budget, and a hang (a stack dump with crash keys) when it is still open
+/// ``hangAfterBudget`` (2 s) later. Each tier is reported once per scope.
 ///
 /// This is Chrome's `base::HangWatcher` model (base/threading/hang_watcher.h): `RegisterThread` per
 /// thread type, `WatchHangsInScope` as a nesting RAII scope (default deadline 10 s), the deadline and
 /// its flags packed in one atomic word (`HangWatchDeadline`), and `InvalidateActiveExpectations()` for
-/// a wait the thread is allowed to make. cmux differs in one rule: its monitor parks while no scope
-/// opens, so an idle process has no hang-watch wakeup (p09-observability.md section 3E).
+/// a wait the thread is allowed to make. cmux differs in two rules: its monitor parks while no scope
+/// opens, so an idle process has no hang-watch wakeup (p09-observability.md section 3E), and a scope's
+/// deadline is its jank budget, with the hang tier 2 s past it (Chrome measures jank apart from its 10 s
+/// hang deadline; p10-stability.md section B).
 ///
 /// Slots live in chunks of 64, 128 bytes each (one cache line, so two threads never share one), made on
 /// first use: at most 4,096 registrations, the others are counted (``registrationOverflows``) and not
-/// watched. Opening a scope is a clock read, one store of the packed deadline (a lane also stores the
-/// running thread's port) and one load of the monitor's plan; closing is one store. Neither takes a lock
-/// or makes a system call, except to wake the monitor (``scan(nowNanos:)`` says when).
+/// watched. Opening a scope is a clock read, one exchange of the packed deadline (a lane also stores the
+/// running thread's port) and one load of the monitor's plan; closing is one compare-and-swap. Each edge
+/// is one atomic read-modify-write, as the monitor's mark is, so neither loses a flag the monitor sets.
+/// Neither takes a lock or makes a system call, except to wake the monitor (``scan(nowNanos:)`` says when).
 ///
 /// ```swift
 /// let lane = runtime.hangWatch.registerLane("terminal-output")
@@ -25,7 +30,11 @@ public final class HangWatch: Sendable {
     /// The monitor's scan period while scopes open and close, and so the latency past a deadline at which
     /// a hang is seen. A shorter deadline is still watched, up to this much late.
     public let minimumDeadline: Duration
-    let periodNanos: UInt64
+    public let periodNanos: UInt64 // ``minimumDeadline`` in nanoseconds (at least 1)
+    /// How long a scope may stay open past its budget before the monitor reports it as a hang (a stack
+    /// dump); before that it is a jank (a record with no stack).
+    public let hangAfterBudget: Duration
+    let hangAfterNanos: UInt64
     let clock: TraceClock
     /// The address of the chunk table: one word per chunk, the chunk's address or 0 (owned until deinit).
     private let chunks: UInt
@@ -45,10 +54,14 @@ public final class HangWatch: Sendable {
     ///
     /// - Parameters:
     ///   - minimumDeadline: The scan period while scopes open and close (100 ms).
+    ///   - hangAfterBudget: How long past its budget a scope is a hang, not a jank (2 s).
     ///   - clock: The clock of every deadline (tests inject one).
-    public init(minimumDeadline: Duration = .milliseconds(100), clock: TraceClock = TraceClock()) {
+    public init(minimumDeadline: Duration = .milliseconds(100), hangAfterBudget: Duration = .seconds(2),
+                clock: TraceClock = TraceClock()) {
         self.minimumDeadline = minimumDeadline
         periodNanos = min(max(Self.nanos(minimumDeadline), 1), Self.deadlineMask)
+        self.hangAfterBudget = hangAfterBudget
+        hangAfterNanos = min(Self.nanos(hangAfterBudget), Self.deadlineMask)
         self.clock = clock
         let memory = UnsafeMutableRawPointer.allocate(byteCount: Self.chunkLimit * 8, alignment: 8)
         memory.initializeMemory(as: UInt64.self, repeating: 0, count: Self.chunkLimit)
@@ -99,8 +112,9 @@ public final class HangWatch: Sendable {
         Self.word(live.slot, Self.stateWord).compareExchange(expected: live.state, desired: live.state & ~Self.kindMask, ordering: .releasing)
     }
 
-    /// Opens a scope on `registration`'s slot: the slot hangs if the scope is still open after
-    /// `deadline`. Scopes nest; the innermost deadline applies until it closes.
+    /// Opens a scope on `registration`'s slot: the scope janks if it is still open after `deadline` (its
+    /// budget) and hangs if it is still open ``hangAfterBudget`` later. Scopes nest; the innermost
+    /// deadline applies until it closes.
     ///
     /// - Returns: The scope; it closes when it goes away (end it at the end of the unit of work).
     public func watch(_ registration: Registration, deadline: Duration = .seconds(10)) -> HangWatchScope {
@@ -111,16 +125,15 @@ public final class HangWatch: Sendable {
         if live.state & Self.kindMask == UInt64(ThreadKind.lane.rawValue) {
             Self.word(slot, Self.portWord).store(Self.currentPort(), ordering: .relaxed)
         }
-        let word = Self.word(slot, Self.deadlineWord)
-        let previous = word.load(ordering: .relaxed)
         let (sum, overflow) = clock.nowNanos().addingReportingOverflow(timeoutNanos(deadline, slot: slot))
         let due = overflow ? Self.deadlineMask : max(min(sum, Self.deadlineMask), 1)
         // The deadline, then the plan: the monitor stores its scanning mark, then reads the slots, so
-        // either it sees this deadline or this open sees the mark and wakes it.
-        word.store(due, ordering: .sequentiallyConsistent)
+        // either it sees this deadline or this open sees the mark and wakes it. The exchange returns the
+        // enclosing scope with every flag the monitor set on it, up to this instant.
+        let previous = Self.word(slot, Self.deadlineWord).exchange(due, ordering: .sequentiallyConsistent)
         requestScan(by: due)
         return HangWatchScope(registration: registration, previousDeadline: previous, slotAddress: UInt(bitPattern: slot),
-                              owner: Unmanaged.passUnretained(self))
+                              owner: self)
     }
 
     /// Runs `body` inside a scope on `registration`'s slot.
@@ -143,7 +156,7 @@ public final class HangWatch: Sendable {
             guard let slot = slot(at: index), Self.word(slot, Self.portWord).load(ordering: .relaxed) == port else { continue }
             let word = Self.word(slot, Self.deadlineWord)
             var current = word.load(ordering: .relaxed)
-            while current & Self.deadlineMask != 0, current & Self.ignoredFlag == 0 {
+            while current & Self.deadlineMask != 0, current & (Self.ignoredFlag | Self.closedFlag) == 0 {
                 let (exchanged, original) = word.compareExchange(expected: current, desired: current | Self.ignoredFlag, ordering: .relaxed)
                 if exchanged { break }
                 current = original
@@ -154,25 +167,42 @@ public final class HangWatch: Sendable {
     // MARK: - Scopes
 
     /// Restores `previous` (the enclosing scope's packed word) when a scope closes. An enclosing scope
-    /// keeps its reported flag, so it is never reported twice, and takes the ignore flag of
-    /// ``invalidateActive()``; one that is watched again may need an earlier scan. A reported scope that ends
-    /// asks for a scan now: the monitor takes its thread off what it reported hung (the crash keys' hung
-    /// threads) at once, even when it was parked.
+    /// keeps its jank and reported flags, so no tier is reported twice, and takes the ignore flag of
+    /// ``invalidateActive()``; one that is watched again may need an earlier scan.
+    /// The outermost scope leaves a closed mark (its own budget and ``closedFlag``), never 0: a lane busy
+    /// between two scans changes its word, so the monitor keeps its period and no open has to wake it.
+    /// A reported scope that ends asks for a scan now: the monitor takes its thread off what it reported
+    /// hung (the crash keys' hung threads) at once, even when it was parked.
     @inline(__always)
     func close(slotAddress: UInt, registration: Registration, previous: UInt64) {
         guard let slot = UnsafeMutablePointer<UInt64>(bitPattern: slotAddress),
               Self.owns(Self.word(slot, Self.stateWord).load(ordering: .relaxed), registration) else { return }
         let word = Self.word(slot, Self.deadlineWord)
-        let closing = word.load(ordering: .relaxed)
-        guard previous != 0 else {
-            word.store(0, ordering: .releasing)
-            if closing & Self.reportedFlag != 0 { requestScan(by: clock.nowNanos()) }
-            return
+        let outermost = previous & Self.deadlineMask == 0 || previous & Self.closedFlag != 0
+        // A compare-and-swap, as the monitor's mark and `invalidateActive()`'s flag are: `current` is the
+        // word this close replaced, so its reported flag (the wake below) and ignore flag are never stale.
+        func restoring(_ current: UInt64) -> UInt64 {
+            outermost ? current & Self.deadlineMask | Self.closedFlag : previous | current & Self.ignoredFlag
         }
-        let restored = previous | closing & Self.ignoredFlag
-        word.store(restored, ordering: .sequentiallyConsistent)
-        if restored & Self.flagMask == 0 { requestScan(by: restored) }
-        if closing & Self.reportedFlag != 0, restored != closing { requestScan(by: clock.nowNanos()) }
+        var current = word.load(ordering: .relaxed)
+        var restored = restoring(current)
+        while case (false, let original) = word.compareExchange(expected: current, desired: restored, ordering: .sequentiallyConsistent) {
+            current = original
+            restored = restoring(current)
+        }
+        if let due = nextTierDue(restored) { requestScan(by: due) }
+        if current & Self.reportedFlag != 0, restored != current { requestScan(by: clock.nowNanos()) }
+    }
+
+    /// When the scope in packed word `packed` reaches its next unreported tier: its budget, or once it
+    /// janked, ``hangAfterBudget`` past it. nil: no scope, or it was reported as a hang or cancelled.
+    @inline(__always)
+    func nextTierDue(_ packed: UInt64) -> UInt64? {
+        let budget = packed & Self.deadlineMask
+        guard budget != 0, packed & Self.silencedMask == 0 else { return nil }
+        guard packed & Self.jankFlag != 0 else { return budget }
+        let (sum, overflow) = budget.addingReportingOverflow(hangAfterNanos)
+        return overflow ? Self.deadlineMask : min(sum, Self.deadlineMask)
     }
 
     /// Wakes the monitor when its plan would see `due` more than one period late: it is parked or
@@ -284,14 +314,19 @@ public final class HangWatch: Sendable {
     // Slot words. The timeout cache (4 to 6) is plain memory of the scope's thread; the last word the
     // monitor saw (7) is plain memory of the monitor's thread.
     static let deadlineWord = 0, portWord = 1, stateWord = 2, nameWord = 3, timeoutWord = 4, timeoutNanosWord = 6, seenWord = 7
-    /// The packed deadline (Chrome's `HangWatchDeadline`): `CLOCK_UPTIME_RAW` nanoseconds in the low 62
-    /// bits (0: no scope open), then the flags.
-    static let deadlineMask: UInt64 = 1 << 62 - 1
-    /// The monitor reported this scope; it is not reported again, nested or not.
+    /// The packed deadline (Chrome's `HangWatchDeadline`): the budget's `CLOCK_UPTIME_RAW` nanoseconds in
+    /// the low 60 bits (0: no scope opened yet; 2^60 ns is 36 years of uptime), then the flags.
+    static let deadlineMask: UInt64 = 1 << 60 - 1
+    /// The monitor reported this scope as a hang; it is not reported again, nested or not.
     static let reportedFlag: UInt64 = 1 << 63
     /// ``invalidateActive()`` cancelled this scope and the ones around it.
     static let ignoredFlag: UInt64 = 1 << 62
-    static let flagMask = reportedFlag | ignoredFlag
+    /// The monitor reported this scope as a jank (past its budget); its hang tier is still watched.
+    static let jankFlag: UInt64 = 1 << 61
+    /// No scope is open: the last one to close left its budget as a mark (``close(slotAddress:registration:previous:)``).
+    static let closedFlag: UInt64 = 1 << 60
+    /// The flags after which no tier of the word's scope is watched.
+    static let silencedMask = reportedFlag | ignoredFlag | closedFlag
     /// The state word: the generation above the low byte, the ``ThreadKind`` in it (0: free).
     static let kindMask: UInt64 = 0xFF
 

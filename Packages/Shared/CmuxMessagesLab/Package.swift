@@ -52,7 +52,7 @@ let package = Package(
                 .process("Resources/SidebarLocalizable.xcstrings"),
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
+                .swiftLanguageMode(.v6),
                 .define("APPKIT_NATIVE"),
             ]
         ),
@@ -75,9 +75,32 @@ let package = Package(
             name: "MessagesLabSidebarTests",
             dependencies: ["MessagesLabSidebar"],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
+                .swiftLanguageMode(.v6),
                 .define("APPKIT_NATIVE"),
             ]
         ),
     ]
 )
+
+// BEGIN apply-stability-settings.py: generated from scripts/cmux-next/stability-settings.json; do not edit.
+// p10 stability settings per target (plans/cmux-next/chrome-parity/p10-stability.md C.5): add a row to
+// stability-settings.json and run the lander instead of editing this block or a target's settings.
+let stabilitySettingGroups: [(targets: [String], settings: [SwiftSetting])] = [
+    (
+        targets: [
+            "MessagesLabHome",
+            "MessagesLabHomeTests",
+            "MessagesLabSidebar",
+            "MessagesLabSidebarTests",
+        ],
+        settings: [
+            .strictMemorySafety(),
+        ]
+    ),
+]
+for group in stabilitySettingGroups {
+    for target in package.targets where group.targets.contains(target.name) {
+        target.swiftSettings = (target.swiftSettings ?? []) + group.settings
+    }
+}
+// END apply-stability-settings.py

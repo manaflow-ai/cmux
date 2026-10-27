@@ -29,6 +29,48 @@
   ],
   "steps": [
     {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "saved-tab-group-save-error.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-tab-group",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "tab_group.create",
+        "params": {
+          "tabs": [
+            "$step:fx-workspace#/value/tab_id"
+          ],
+          "name": "oracle"
+        },
+        "idempotencyKey": "saved-tab-group-save-error.fx-tab-group"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,19 +80,24 @@
       "args": {
         "method": "saved_tab_group.save",
         "params": {
-          "tab_group": ""
+          "tab_group": "$step:fx-tab-group#/value/id",
+          "room": "oracle-missing"
         },
         "idempotencyKey": "saved-tab-group-save-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "room",
+          "id": "oracle-missing"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "tab_group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a room id that names no room: the router refuses it before the group is saved"
     }
   ],
   "invariants": [

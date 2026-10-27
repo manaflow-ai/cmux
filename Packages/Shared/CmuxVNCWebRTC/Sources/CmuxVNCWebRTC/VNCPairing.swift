@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 /// What a viewer needs to reach a host over WebRTC: the signaling Worker,
 /// the room, and the room secret. Shared as
@@ -77,9 +76,12 @@ public struct VNCPairing: Sendable, Hashable, Codable {
         return components.url ?? base
     }
 
+    /// Room ids and secrets from SystemRandomNumberGenerator: the OS CSPRNG (arc4random_buf
+    /// on Apple platforms), as Chromium's crypto::RandBytes reads the OS generator
+    /// (crypto/random.cc), with no pointer into the array. It cannot fail, where the old
+    /// SecRandomCopyBytes call ignored its status and could leave zero bytes.
     private static func random(_ count: Int) -> [UInt8] {
-        var bytes = [UInt8](repeating: 0, count: count)
-        _ = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
-        return bytes
+        var generator = SystemRandomNumberGenerator()
+        return (0 ..< max(count, 0)).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
     }
 }

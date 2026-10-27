@@ -31,7 +31,9 @@ final class ControlSnapshotPublisher {
     private let router: ControlRouter
     private unowned let services: AppServices
     private var isStopped = false
-    private var observers: [MainActorObservation] = []
+    /// Where the key-window and app-activation notices come from (key windows are not observable).
+    private let appEvents: AppEvents
+    private var notices: [EventSubscription] = []
     /// The classes of the publish tasks queued now: a change adds a task only when none of its class or a higher
     /// one is queued.
     private var queued: Set<BudgetedWorkClass> = []
@@ -52,9 +54,12 @@ final class ControlSnapshotPublisher {
     /// - Parameters:
     ///   - router: The control router whose snapshot store this publishes to.
     ///   - services: The app's services; their ``AppServices/mainWork`` runs every publish.
-    init(router: ControlRouter, services: AppServices) {
+    ///   - appEvents: The app notices' one fan-out; nil: the services' (``AppServices/appEvents``). Tests pass one on
+    ///     their own center.
+    init(router: ControlRouter, services: AppServices, appEvents: AppEvents? = nil) {
         self.router = router
         self.services = services
+        self.appEvents = appEvents ?? services.appEvents
         publishOwner = services.mainWork.board.owner("control.snapshot.publish")
     }
 
@@ -73,12 +78,11 @@ final class ControlSnapshotPublisher {
             // The reader's own request: one automation task, held while the person's input response is open.
             work.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.waiterAdded() }
         })
-        let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
-                     NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
-            observers.append(MainActorObservation(name, center: center) { [weak self] in
-                self?.invalidate()
-            })
+        // raw-observer-allow: names the app's one AppEvents subscribes to (recipe R-notif); no observer of its own
+        let names = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification, NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
+        // `always`: CLI reads need the key window and active state whatever is on screen; each post only sets a dirty bit.
+        notices = names.map { name in
+            appEvents.subscribe(name, owner: "ControlSnapshotPublisher") { [weak self] in self?.invalidate() }
         }
         // The first snapshot is background work too, so launch never waits for it. Until it is published the store
         // is stale: a read before it builds it in the reader's class.
@@ -90,7 +94,7 @@ final class ControlSnapshotPublisher {
         isStopped = true
         router.workQueue.setAfterFrame(nil)
         router.snapshots.setRefresher(nil)
-        observers.removeAll()
+        notices.removeAll()
     }
 
     /// Something the snapshot shows changed where the build's tracking does not see it (a key window, a workspace
@@ -311,8 +315,10 @@ private nonisolated final class DirtyTracking: Sendable {
     @MainActor
     func read<T>(_ body: () -> T, changed: @escaping @MainActor @Sendable () -> Void) -> T {
         dirty.store(false, ordering: .releasing)
+        // view-observation-allow: the read is the whole topology build, once per publish; ServiceObservation would build again per flush and in the person's input response, which this publisher must stay out of (task 039)
         return withObservationTracking(body) { [self] in
             markDirty()
+            // main-hop-allow: models change on main, so this runs inline in the change's turn and only queues the publish, whose post names its class
             MainDelivery().run(changed)
         }
     }

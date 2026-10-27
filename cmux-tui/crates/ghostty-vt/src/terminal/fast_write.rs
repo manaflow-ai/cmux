@@ -70,10 +70,13 @@ impl Terminal {
         let mouse_modes_may_have_changed =
             self.mouse_mode_change_detector.write_reference(&normalized);
         self.history_markers_before_write();
+        // SAFETY: `self.raw` is this Terminal's live handle; `normalized` is
+        // readable for `normalized.len()` bytes for the call.
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
         let history_rows = self.scrollback_rows();
         let history_anchor_evicted = !self.history_anchor.is_null()
+            // SAFETY: `history_anchor` is a non-null anchor this Terminal owns.
             && !unsafe { sys::ghostty_tracked_grid_ref_has_value(self.history_anchor) };
         if previous_history_rows != history_rows || history_anchor_missing || history_anchor_evicted
         {

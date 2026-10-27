@@ -152,7 +152,7 @@ public struct MotionPath {
             animation.keyTimes = stepTimes
             animation.beginTime = layer.convertTime(first, from: nil)
             animation.duration = span
-            return animation
+            return MotionActivity.began(animation)
         }
         if discrete {
             // One more key time than values: value i holds from time i to time i + 1; the model shows after.
@@ -165,7 +165,7 @@ public struct MotionPath {
         animation.keyTimes = keyTimes
         animation.beginTime = layer.convertTime(first, from: nil)
         animation.duration = span
-        return animation
+        return MotionActivity.began(animation)
     }
 
     // MARK: - Evaluation

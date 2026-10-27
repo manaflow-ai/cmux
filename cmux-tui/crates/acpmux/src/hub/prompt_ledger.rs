@@ -8,11 +8,16 @@ use std::collections::VecDeque;
 /// must stay discoverable, including restored prompts whose completion looks them up.
 pub(super) fn prune(ledger: &mut VecDeque<(String, PromptOutcome)>) {
     const COMPLETED_OUTCOMES: usize = 64;
+    prune_to(ledger, COMPLETED_OUTCOMES);
+}
+
+/// Drops the oldest completed outcomes past the newest `keep`; pending ones stay.
+pub(super) fn prune_to(ledger: &mut VecDeque<(String, PromptOutcome)>, keep: usize) {
     let mut excess = ledger
         .iter()
         .filter(|(_, outcome)| outcome.borrow().is_some())
         .count()
-        .saturating_sub(COMPLETED_OUTCOMES);
+        .saturating_sub(keep);
     if excess == 0 {
         return;
     }

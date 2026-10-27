@@ -61,7 +61,7 @@ pub(crate) struct BatchCloseRequest<'a> {
 /// group in the close's transaction; `result` is the request's result.
 /// `bare` are the space's workspaces with no tab: they close in the same plan.
 pub(crate) struct RoomClose<'a> {
-    pub before_patch: &'a dyn Fn(&rusqlite::Transaction<'_>) -> anyhow::Result<()>,
+    pub before_patch: crate::workspace_registry::RegistryTransactionWrite<'a>,
     pub result: Value,
     pub bare: Vec<WorkspaceId>,
 }
@@ -69,6 +69,7 @@ pub(crate) struct RoomClose<'a> {
 /// Why a client closes tabs (`close-reason-v1`, SDK type `CloseReason`).
 /// An unknown value fails the request's deserialization (`bad request`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CloseReason {
     /// A browser session ended and closes the tabs it opened for itself.

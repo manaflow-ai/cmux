@@ -58,7 +58,9 @@
       },
       "args": {
         "method": "pane.zoom",
-        "params": {},
+        "params": {
+          "enabled": true
+        },
         "idempotencyKey": "pane-zoom-ok.call"
       },
       "expect": {
@@ -69,7 +71,42 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the layout document records the zoomed pane"
+    },
+    {
+      "id": "zoomed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/zoomed_pane_id",
+        "equals": "$step:fx-workspace#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.zoom",
+        "params": {
+          "enabled": true
+        },
+        "idempotencyKey": "pane-zoom-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

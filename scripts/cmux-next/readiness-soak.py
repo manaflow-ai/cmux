@@ -42,6 +42,15 @@ The agents are acpmux's test agent (cmux-tui/crates/acpmux/tests/fake_agent.py):
 network, no credential on the host. The app runs with its own ACPMUX_HOME and config in a scratch
 folder; the soak never touches the host's ~/.acpmux or settings.
 
+The app starts through bench_launch.BenchApp (the bench env, a scratch cmux.json, the window on the last screen,
+the GUI-session check: this account must be the console user, so its display ticks), with the agent switches the
+soak needs (real acpmux agent launches, no mock agent pane) and the soak's own ACPMUX_HOME. Percentiles and
+medians are scripts/perf-lab/perf_stats.py's. With --story (scripts/perf-lab/stories.d; Chromium tabs, the story's
+session) a soak that ran its whole length is also written into --out as cmux-perf-result/v1 (BenchApp.record):
+readiness_soak.<app|daemon|acpmux>.{cpu,idle_cpu} (percent), .footprint_growth (bytes), .fd_growth,
+readiness_soak.events.<crash|hang|control-error|stuck-turn> and readiness_soak.zombies (count),
+readiness_soak.control.{ping,snapshot} (ms). Failed criteria still record; a soak that stopped early writes none.
+
 At the end it writes report.json and report.md to --out and exits 1 when a criterion failed:
 no crash, no hang, no control error, no stuck turn, memory growth (median of the last hour of load against an hour mid-load,
 or quarters of a shorter load phase) within --max-growth-percent and --max-growth-mb per kind, open fds of the
@@ -55,6 +64,7 @@ socket. Use a copy of the app (the nightly runner unpacks cmux-next-dev into the
 
   scripts/cmux-next/readiness-soak.py --app PATH [--hours 24] [--agents 10] [--terminals 10]
       [--browsers 4] [--sample 60] [--turn-every 300] [--app-config asan|tsan] [--stress] [--out DIR]
+      [--story readiness-soak]
 """
 from __future__ import annotations
 
@@ -71,7 +81,6 @@ import re
 import shlex
 import shutil
 import socket
-import statistics
 import subprocess
 import sys
 import tempfile
@@ -80,7 +89,10 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import launch_journey_report as journey  # noqa: E402
 from bench_idle import Client, process_table, usage  # noqa: E402
+from bench_launch import BenchApp, bench_env, socket_candidates, tag_of  # noqa: E402
+from bench_story import story_problem  # noqa: E402
 from daemon_teardown import daemon_status, request, terminal_hosts  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 
@@ -176,8 +188,10 @@ def own_copy(app, work):
 
     A tagged build's control socket, cmux-tui session and acpmux tag home all follow its bundle id, so any
     other copy of the same build on the host (an installed cmux NEXT DEV) neither blocks the soak's copy nor
-    shares its daemons."""
-    copy = os.path.join(work, os.path.basename(app.rstrip("/")))
+    shares its daemons. The copy is named `cmux DEV <tag>-soak<pid>.app`, the tag its bundle id sanitizes to, so
+    BenchApp (which reads the tag from the bundle name) finds its socket and state."""
+    tag, _ = bundle_tag(app)
+    copy = os.path.join(work, f"cmux DEV {tag}-soak{os.getpid()}.app")
     copied = run("ditto", app, copy, timeout=900)
     if copied.returncode:
         raise SystemExit(f"readiness-soak: copying {app} failed: {copied.stderr.strip()[-300:]}")
@@ -406,6 +420,7 @@ class Soak:
         self.started = time.time()
         self.pids = {}
         self.app_pid = None
+        self.app_exit = None  # the app process's return code once it has exited (check_app_exit)
         self.seen_pids = set()  # every PID of this copy but WebKit's, for crash reports
         self.webkit_before = set()
         self.chromium_off = bool(args.app_config)
@@ -436,15 +451,21 @@ class Soak:
         if not self.args.same_tag:
             self.app = own_copy(self.app, self.work)
         self.tag, executable = bundle_tag(self.app)
+        if tag_of(self.app) != self.tag:
+            raise SystemExit(f"readiness-soak: {self.app} is named for tag {tag_of(self.app)!r} but its bundle id is "
+                             f"tag {self.tag!r}: BenchApp would look for another app's socket")
         with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as handle:
             self.bundle_id = plistlib.load(handle)["CFBundleIdentifier"]
         self.binary = os.path.join(self.app, "Contents/MacOS", executable)
         self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
-        # The app's own rule (ControlSocketPath.resolve): the state folder, or the old /tmp name when that
-        # path would not fit sun_path. The app also keeps a /tmp symlink, so the soak uses the real path.
-        # A build from before the move listens on the /tmp name only; connect() settles on the one that answers.
-        moved, old = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{self.tag}.sock"), f"/tmp/cmux-debug-{self.tag}.sock"
-        self.sockets = [self.args.socket] if self.args.socket else [moved, old] if len(moved.encode()) <= 103 else [old]
+        # The control socket comes from BenchApp (bench_launch.socket_candidates, the app's ControlSocketPath rule):
+        # the state folder, or the /tmp name when that path would not fit sun_path. --socket is checked first.
+        self.bench = BenchApp(self.app, out=self.out, env=self.launch_env(), config=self.settings("keep"), window=None,
+                              screen="last", log_name="app.log", teardown=False, fresh_state=not self.args.same_tag,
+                              perf_session=self.perf_session())
+        self.config = os.path.join(self.bench.scratch, "cmux.json")  # BenchApp writes it at the launch
+        self.sockets = ([self.args.socket] if self.args.socket else []) + [
+            path for path in socket_candidates(self.tag) if path != self.args.socket]
         self.socket = self.sockets[0]
         self.setup["tag"] = self.tag
 
@@ -504,12 +525,25 @@ class Soak:
             self.setup["sanitizer_logs"] = self.sanitizer_dir
             self.setup["browser_engine"] = "webkit"
 
-    def write_config(self, quit_behavior):
+    def settings(self, quit_behavior):
+        """The soak's cmux.json: the bench defaults (bench_env, the updater off) under the soak's own keys."""
         settings = {"app": {"quitBehavior": quit_behavior}}
         if self.chromium_off:
             settings["browser"] = {"defaultEngine": "webkit"}
+        return bench_env.with_config_defaults(settings)
+
+    def write_config(self, quit_behavior):
         with open(self.config, "w") as handle:
-            json.dump(settings, handle)
+            json.dump(self.settings(quit_behavior), handle)
+
+    def perf_session(self):
+        """result-v1's session: the STRESS session with --stress, else light."""
+        return "stress" if self.args.stress else "light"
+
+    def launch_env(self):
+        """What the soak adds to BenchApp's bench env: its own acpmux home, and agents that really start (the fake
+        agent through acpmux), so neither the agent launch deny nor the mock agent pane of the bench env."""
+        return {"ACPMUX_HOME": self.acpmux_home, "ACPMUX_AGENT_LAUNCH": None, "CMUX_NEXT_AGENT_PANE_MOCK": None}
 
     def launch(self):
         os.makedirs(self.acpmux_home)
@@ -518,21 +552,12 @@ class Soak:
         with open(os.path.join(self.acpmux_home, "config.json"), "w") as handle:
             # The default too: an agent chat opened without a harness (STRESS's) runs the fake agent, not a real one.
             json.dump({"harnesses": {FAKE_HARNESS: {"argv": [sys.executable, agent]}}, "defaultHarness": FAKE_HARNESS}, handle)
-        self.config = os.path.join(self.work, "cmux.json")
-        self.write_config("keep")
-        env = {"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-               "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": self.config,
-               "ACPMUX_HOME": self.acpmux_home}
         if self.args.app_config:
-            env.update(sanitizer_env(self.args.app_config, self.sanitizer_dir))
-        log = os.path.join(self.out, "app.log")
-        argv = ["open", "-n", "-g", "--stdout", log, "--stderr", log]
-        for key, value in env.items():
-            argv += ["--env", f"{key}={value}"]
-        # LaunchServices starts the app in the Aqua session even from SSH.
-        opened = run(*argv, self.app)
-        if opened.returncode != 0:
-            raise SystemExit(f"readiness-soak: open failed: {opened.stderr}")
+            self.bench.extra_env.update(sanitizer_env(self.args.app_config, self.sanitizer_dir))
+        # system.ping, not debug.windows: a build without the debug methods (a nightly) soaks too. Raises
+        # LaunchError (a SystemExit) with the reason when the app does not come up.
+        self.bench.launch(timeout=120, ready="system.ping")
+        self.sockets = [self.bench.socket]
         self.control = wait(lambda: self.connect(), 120, 1)
         if not self.control:
             raise SystemExit(f"readiness-soak: no control socket at {self.socket}")
@@ -640,8 +665,9 @@ class Soak:
     # ---- sampling ------------------------------------------------------------------------
 
     def kinds(self):
-        """{pid: kind} for every process of this app copy and its agents."""
-        app_pid = self.setup["identity"].get("pid")
+        """{pid: kind} for every process of this app copy and its agents. An app that has exited has no row: its
+        PID may be an unreaped zombie's or another process's by now."""
+        app_pid = self.setup["identity"].get("pid") if self.app_exit is None else None
         found = {}
         tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
         acpmux = os.path.join(self.app, "Contents/Resources/bin/acpmux")
@@ -778,6 +804,21 @@ class Soak:
         self.zombies_last = now
         return len(lasting)
 
+    def check_app_exit(self):
+        """One crash event when the app this soak started has exited. BenchApp starts it as this process's child,
+        so an exit that writes no crash report (a jetsam or other SIGKILL, a plain exit) leaves a zombie with the
+        same PID: only the process's own state tells. poll() also reaps it. True when it has exited."""
+        if self.app_exit is not None:
+            return True
+        code = self.bench.process.poll() if self.bench.process is not None else None
+        if code is None:
+            return False
+        self.app_exit = code
+        how = f"signal {-code}" if code < 0 else f"status {code}"
+        self.event("crash", f"app {self.app_pid} exited ({how})", returncode=code)
+        self.pids["app"] = []
+        return True
+
     def track(self, kinds):
         """Remembers the PIDs whose crash reports are this copy's (not WebKit's: any app's)."""
         self.seen_pids.update(pid for pid, kind in kinds.items() if kind != "webkit")
@@ -821,6 +862,7 @@ class Soak:
             wall = time.monotonic() - tick
             tick = time.monotonic()
             processes = self.sample(before, kinds, wall)
+            self.check_app_exit()
             kinds = self.kinds()
             self.track(kinds)
             before = {pid: usage(pid) for pid in kinds}
@@ -892,18 +934,18 @@ class Soak:
         summary, failures, warnings = {}, [], []
 
         def median(rows, kind, key):
-            values = [s["processes"][kind].get(key) for s in rows if kind in s["processes"]]
-            values = [v for v in values if v is not None]
-            return round(statistics.median(values), 2) if values else None
+            """perf_stats.pct at 0.5: the middle value, or the mean of the two middle ones."""
+            return journey.percentile((s["processes"][kind].get(key) for s in rows if kind in s["processes"]), 0.5,
+                                      digits=2)
 
         def mean(rows, kind, key):
             values = [s["processes"][kind][key] for s in rows if kind in s["processes"]]
-            return round(statistics.fmean(values), 2) if values else None
+            return round(sum(values) / len(values), 2) if values else None
 
         for kind in kinds:
             cpu = [s["processes"][kind]["cpu_percent"] for s in warm if kind in s["processes"]]
             summary[kind] = {
-                "mean_cpu_percent": round(statistics.fmean(cpu), 2) if cpu else None,
+                "mean_cpu_percent": round(sum(cpu) / len(cpu), 2) if cpu else None,
                 "max_cpu_percent": round(max(cpu), 2) if cpu else None,
                 "footprint_mb_mid": median(first, kind, "footprint_mb"),
                 "footprint_mb_end": median(last, kind, "footprint_mb"),
@@ -968,14 +1010,20 @@ class Soak:
         hours = round((samples[-1]["elapsed_s"] if samples else 0) / 3600, 2)
         if hours < self.args.hours * 0.95:
             failures.append(f"ran {hours} h of {self.args.hours} h")
-        pings = sorted(s["snapshot_ms"] for s in samples)
+        pings = [s["snapshot_ms"] for s in samples]
         result = {"ok": not failures, "failures": failures, "warnings": warnings, "hours": hours, "setup": self.setup,
                   "app": self.app, "summary": summary, "events": self.events, "zombies": zombies,
                   "sanitizer": {"mode": self.args.app_config, "logs": self.setup.get("sanitizer_logs"),
                                 "reports": self.sanitizer_count} if self.args.app_config else None,
-                  "snapshot_ms_p50": pings[len(pings) // 2] if pings else None,
-                  "snapshot_ms_p99": pings[int(len(pings) * 0.99)] if pings else None,
+                  "snapshot_ms_p50": journey.percentile(pings, 0.5, digits=1),
+                  "snapshot_ms_p95": journey.percentile(pings, 0.95, digits=1),
+                  "snapshot_ms_p99": journey.percentile(pings, 0.99, digits=1),
                   "turns": samples[-1]["turns"] if samples else 0, "turns_done": samples[-1]["turns_done"] if samples else 0}
+        if getattr(self.args, "story", None):
+            result["results"] = self.record(self.args.story, hours, warm, idle, summary, zombies, samples)
+            if not journey.any_written(result["results"]):
+                result["ok"] = False
+                failures.append(f"result-v1: no series was written ({result['results']})")
         with open(os.path.join(self.out, f"{stem}.json"), "w") as handle:
             json.dump(result, handle, indent=1)
         lines = [f"# cmux-next readiness soak: {'PASS' if result['ok'] else 'FAIL'}", "",
@@ -984,7 +1032,8 @@ class Soak:
                  f"{self.setup.get('terminals')} terminals, {self.setup.get('browsers')} {self.setup.get('browser_engine', '')} browser tabs.", ""]
         lines += [f"- FAIL: {failure}" for failure in failures] or ["- No failures."]
         lines += [f"- WARN: {warning}" for warning in warnings]
-        lines += ["", f"Control round trip (snapshot.get): p50 {result['snapshot_ms_p50']} ms, p99 {result['snapshot_ms_p99']} ms.",
+        lines += ["", f"Control round trip (snapshot.get): p50 {result['snapshot_ms_p50']} ms, "
+                      f"p95 {result['snapshot_ms_p95']} ms, p99 {result['snapshot_ms_p99']} ms.",
                   f"Zombie children: {zombies['total']} in all, per hour {zombies['per_hour']}, at the end {zombies['at_end']}."]
         if self.args.app_config:
             lines.append(f"App config {self.args.app_config} (Chromium off): {self.sanitizer_count} sanitizer report(s) "
@@ -1013,6 +1062,20 @@ class Soak:
         print("\n".join(lines))
         return result
 
+    def record(self, story, hours, warm, idle, summary, zombies, samples):
+        """A soak that ran its whole length, under `story`: {metric: path or `not recorded: why`}, or why none was
+        written. Its failed criteria (a crash, a hang, growth) still record: the series show them."""
+        if not getattr(self, "completed", False) or self.setup.get("error"):
+            return "none: the soak stopped before its end"
+        if hours < self.args.hours * 0.95:
+            return f"none: ran {hours} h of {self.args.hours} h"
+        engine = journey.soak_engine(self.args.app_config, self.args.browsers)
+        ran = self.setup.get("browser_engine", engine) if self.args.browsers else "none"
+        if ran != engine:
+            return f"none: the browser tabs ran on {ran}, the story's engine is {engine}"
+        series = journey.soak_series(warm, idle, summary, self.events, zombies["total"], samples)
+        return journey.record_all(self.bench, story, engine, series, log=say)
+
     def zombie_summary(self, samples):
         """Zombie children in all, per elapsed hour (by the hour each was first counted), by parent kind and at the
         last sample."""
@@ -1034,17 +1097,20 @@ class Soak:
         self.check_sanitizer()
 
     def quit(self):
+        """The app's own quit with end-everything, then BenchApp.stop for an app that is still up (debug.quit, then
+        TERM and KILL of the PID it started); the tag's daemons are the soak's TagTeardown's."""
         try:
             self.write_config("end-everything")
             time.sleep(2)  # soak script: the app reloads cmux.json from its file watcher
-            pids = [pid for pid, kind in self.kinds().items() if kind == "app"]
             Client(self.socket, timeout=10).call("action.run", {"action": "quit", "wait": False})
-            wait(lambda: not any(run("kill", "-0", str(pid)).returncode == 0 for pid in pids), 90)
+            wait(lambda: self.bench.process.poll() is not None, 90)
         except (OSError, ValueError, KeyError) as error:
             say(f"quit: {error}")
+        finally:
+            self.bench.stop()
 
 
-def main():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="a copy of a tagged cmux-next app (bundle com.cmuxterm.app.debug.<tag>)")
     parser.add_argument("--socket", help="the app's control socket (default ~/.local/state/cmux/cmux-debug-<tag>.sock)")
@@ -1078,9 +1144,29 @@ def main():
                         help="a sanitizer build of the app: Chromium off, its reports are crash events")
     parser.add_argument("--stress", action="store_true", help="build the STRESS session (perf-stress-session.py) first")
     parser.add_argument("--out", default=os.path.join(os.getcwd(), "readiness-soak"))
-    args = parser.parse_args()
+    parser.add_argument("--story", help="write a soak that ran its whole length as cmux-perf-result/v1 under this story")
+    parser.add_argument("--tag", help="the story runner's tag of --app (checked against it; the soak runs its own copy)")
+    parser.add_argument("--session", choices=["light", "stress"],
+                        help="result-v1 session (the story runner's): stress needs --stress, light a soak without it")
+    args = parser.parse_args(argv)
+    if args.session and (args.session == "stress") != args.stress:
+        parser.error(f"--session {args.session} does not match {'--stress' if args.stress else 'a soak without --stress'}")
     if args.warmup + args.idle >= args.hours * 3600:
         parser.error("--warmup plus --idle must leave a load phase within --hours")  # else every load check is empty
+    if args.story:
+        if args.app_config:
+            parser.error("--story does not go with --app-config: a sanitizer build is not a lab config")
+        problem = (story_problem(args.story, journey.soak_engine(args.app_config, args.browsers))
+                   or journey.story_session_problem(args.story, "stress" if args.stress else "light"))
+        if problem:
+            parser.error(problem)
+    return args
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    if args.tag and tag_of(args.app) != args.tag:
+        raise SystemExit(f"readiness-soak: --tag {args.tag} is not the tag of {args.app} ({tag_of(args.app)})")
     soak = Soak(args)
     teardown = None
     result = {"ok": False}
@@ -1100,6 +1186,7 @@ def main():
         say(f"setup: {json.dumps(soak.setup)}")
         soak.stage = "run"
         soak.loop()
+        soak.completed = True
     except SystemExit as stop:
         if soak.stage == "setup":
             # A refused or failed setup still writes report.json and report.md, naming why.

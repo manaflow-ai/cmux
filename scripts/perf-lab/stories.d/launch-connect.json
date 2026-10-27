@@ -1,0 +1,17 @@
+{
+  "id": "launch-connect",
+  "tier": "T1",
+  "description": "Launch journey on a new tag (launch-connect-journey.py): the first launch, a warm relaunch that adopts the running daemon after 400 MiB of terminal output was journaled, and a restart relaunch with the daemon stopped; per launch, process start to the first window frame and to workspace content, and how long the Connecting to cmux-tui screen showed.",
+  "command": ["scripts/cmux-next/launch-connect-journey.py", "--story", "launch-connect"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "launch_connect\\.(first|warm|restart)\\.(first_window_frame_committed|usable|connecting_screen)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 600,
+  "needs": ["debug:debug.window_snapshot"],
+  "owner": "Performance Lead",
+  "component": "Launch"
+}

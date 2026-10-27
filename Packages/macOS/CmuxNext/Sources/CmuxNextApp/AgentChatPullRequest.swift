@@ -60,7 +60,7 @@ final class AgentChatPullRequest {
                 return ask(cwd)
             }
             guard badge?.checks.state == "pending" else { return }
-            refresh.schedule(after: freshness) { @MainActor [weak self] in
+            refresh.scheduleOnMain(after: freshness) { [weak self] in
                 guard let self, answer?.cwd == cwd, asking == nil else { return }
                 ask(cwd)
             }

@@ -78,6 +78,43 @@ import Testing
         #expect(presenter.shown == nil, "the delay's timer showed the tooltip over the other app")
     }
 
+    /// A tooltip that comes while the pointer is already over its view (a web page's `title=`, which the
+    /// page sends once the pointer reaches the element) enters at once, as Chrome's
+    /// `-setToolTipAtMousePoint:` fakes AppKit's enter: a tracking area added under a still pointer
+    /// reports no enter, so it would never show. It hangs below the pointer, not the view; with the
+    /// pointer elsewhere it waits for a real enter.
+    @Test func aTooltipSetAtThePointerEntersAtOnceAndHangsBelowIt() throws {
+        let events = InputTapTestEvents()
+        let window = InputTapTestEvents.window()
+        defer {
+            window.orderOut(nil)
+            PointerHover.debugPointers[ObjectIdentifier(window)] = nil
+        }
+        let view = NSView(frame: NSRect(x: 20, y: 20, width: 200, height: 100))
+        try #require(window.contentView).addSubview(view)
+        let presenter = TooltipPresenter(clock: ManualClock())
+        presenter.inputTap = events.tap
+        presenter.appEvents = AppEvents(center: NotificationCenter())
+        presenter.timing = .standard
+
+        PointerHover.setDebugPointer(NSPoint(x: 300, y: 250), in: window)
+        TooltipTracker.setAtPointer("Elsewhere", on: view, presenter: presenter)
+        #expect(!presenter.isWatching, "a tooltip entered with the pointer outside its view")
+        TooltipTracker.setAtPointer(nil, on: view, presenter: presenter)
+        #expect(view.themedToolTip == nil)
+
+        PointerHover.setDebugPointer(NSPoint(x: 70, y: 50), in: window)
+        TooltipTracker.setAtPointer("Open the menu", on: view, presenter: presenter)
+        #expect(view.themedToolTip == "Open the menu")
+        #expect(presenter.isWatching, "the tooltip under a still pointer never entered")
+        let anchor = try #require(TooltipTracker.whole(of: view)?.anchorScreenRect)
+        let pointer = window.convertPoint(toScreen: NSPoint(x: 70, y: 50))
+        #expect(anchor.minX == pointer.x && anchor.maxY == pointer.y, "it hangs below the view, not the pointer")
+        #expect(anchor.height == TooltipTracker.pointerDrop)
+        presenter.dismiss()
+        #expect(!presenter.isWatching)
+    }
+
     @Test func aScrollKeepsWatchingUntilTheScrollingStops() throws {
         let events = InputTapTestEvents()
         let window = InputTapTestEvents.window()

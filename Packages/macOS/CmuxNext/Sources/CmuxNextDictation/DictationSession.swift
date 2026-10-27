@@ -95,7 +95,7 @@ public final class DictationSession {
         case .listening:
             set(.finalizing)
             let session = generation
-            deadline.schedule(after: stopDeadline) { @MainActor [weak self] in
+            deadline.scheduleOnMain(after: stopDeadline) { [weak self] in
                 self?.finish(session)
             }
             finishEngine()

@@ -38,19 +38,23 @@
       "args": {
         "method": "saved_tab_group.reopen",
         "params": {
-          "saved_tab_group": ""
+          "saved_tab_group": "oracle-missing"
         },
         "idempotencyKey": "saved-tab-group-reopen-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "saved_tab_group",
+          "id": "oracle-missing"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "saved_tab_group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a saved group id that names no record (tabs.rs state_reopen_saved_tab_group)"
     }
   ],
   "invariants": [

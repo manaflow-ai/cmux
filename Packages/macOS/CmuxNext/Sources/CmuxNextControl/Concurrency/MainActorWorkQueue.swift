@@ -1,6 +1,9 @@
 public import CmuxNextSettings
 import CmuxNextCompat
+public import CmuxNextTrace
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// The one path from the control socket to main-actor state
 /// (plans/cmux-next/architecture.md section 5a).
@@ -34,6 +37,9 @@ public import CmuxNextWakeups
 ///   queued fails with `timeout` and is dropped without running. Time the
 ///   main thread spends in Chromium's start does not count
 ///   (`MainThreadEngineStart`).
+/// - Traced: each request is a `control.request` async slice from its enqueue to its run's end or its failure
+///   (``ControlRequestTrace``), and a posted task: a `task.post` flow at its `file` and `line` and a `task.run`
+///   slice on the main thread (``TaskTrace``), while those categories record.
 public final class MainActorWorkQueue: Sendable {
     public struct Limits: Sendable {
         public var maxPending: Int
@@ -118,11 +124,15 @@ public final class MainActorWorkQueue: Sendable {
 
     public let limits: Limits
     private let frameSource: any ControlFrameSource
+    private let taskTrace: TaskTrace
     private let state = Mutex(State())
 
-    public init(limits: Limits = Limits(), frameSource: any ControlFrameSource = MainQueueFrameSource()) {
+    /// A queue; `trace` is the runtime its `control.request` and task records go to (default the process's).
+    public init(limits: Limits = Limits(), frameSource: any ControlFrameSource = MainQueueFrameSource(),
+                trace: TraceRuntime = .shared) {
         self.limits = limits
         self.frameSource = frameSource
+        taskTrace = TaskTrace(runtime: trace)
     }
 
     public var stats: Stats { state.withLock { $0.stats } }
@@ -176,25 +186,36 @@ public final class MainActorWorkQueue: Sendable {
         // Interned when the method was registered; otherwise here, off the main thread. Either way
         // the drain starts the task without a lock.
         let owner = owner ?? frameSource.mainTaskBoard?.owner(method)
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+        let itemClass: MainWorkClass = workClass == .input ? .input : .automation
+        // The site is interned here; the post is written only when the queue accepts the item (`enqueue`).
+        let post = taskTrace.prepare(fileID: file, line: line, lane: .main)
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
+            let request = ControlRequestTrace.begin(on: taskTrace.runtime, owner: owner, workClass: itemClass)
             let item = MainActorWorkItem(
                 connection: connection,
                 method: method,
                 owner: owner,
-                workClass: workClass == .input ? .input : .automation,
+                workClass: itemClass,
                 deadline: deadline,
                 enqueuedAt: now,
                 posted: posted,
-                body: {
-                    do {
-                        continuation.resume(returning: try work())
-                    } catch {
-                        continuation.resume(throwing: error)
+                body: { ticket in
+                    defer { request?.end(.ran) }
+                    let resume = {
+                        do {
+                            continuation.resume(returning: try work())
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
                     }
+                    if let ticket { ticket.run(priority: TaskTrace.code(itemClass), resume) } else { resume() }
                 },
-                fail: { continuation.resume(throwing: $0) }
+                fail: { error in
+                    request?.end(ControlRequestTrace.Outcome(error))
+                    continuation.resume(throwing: error)
+                }
             )
-            if let rejection = enqueue(item) {
+            if let rejection = enqueue(item, post: post) {
                 item.expire(rejection)
                 return
             }
@@ -210,7 +231,10 @@ public final class MainActorWorkQueue: Sendable {
 
     // MARK: - Private
 
-    private func enqueue(_ item: MainActorWorkItem) -> ControlError? {
+    /// Queues `item`, or refuses it as `busy`. `post` is written only for an accepted item, before it is
+    /// visible to a drain, so each `task.post` has its `task.run` (Chrome's `TaskAnnotator::WillQueueTask` runs
+    /// for a task the queue took).
+    private func enqueue(_ item: MainActorWorkItem, post: TaskTrace.PendingPost) -> ControlError? {
         let board = item.workClass == .input ? frameSource.mainTaskBoard : nil
         let (rejection, drain) = state.withLock { state -> (ControlError?, Drain?) in
             let pending = state.stats.pending
@@ -223,6 +247,7 @@ public final class MainActorWorkQueue: Sendable {
                 state.stats.rejectedBusy += 1
                 return (.busy(pending: mine, limit: limits.maxPendingPerConnection), nil)
             }
+            item.notePosted(post.write())
             if mine == 0 { state.ready.append(item.connection) }
             state.queues[item.connection, default: ItemQueue()].items.append(item)
             state.stats.pending += 1

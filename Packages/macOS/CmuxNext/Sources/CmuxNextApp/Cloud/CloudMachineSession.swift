@@ -39,10 +39,15 @@ final class CloudMachineSession {
     /// Counts suspends: a connect that a pause overtook opens no connection
     /// (not `isLive`: a click connects a paused machine on purpose).
     @ObservationIgnored private var suspends = 0
-    @ObservationIgnored private var linkTransition: Task<Void, Never>?
+    /// The last lifecycle hop (connect, suspend, disconnect): off main, each waits for the one before it.
+    @ObservationIgnored private var linkTransition: Task<Void, any Error>?
     /// The app-link connect hop in flight: a pause or a disconnect cancels
     /// it instead of waiting up to `CloudAppLinks.connectTimeout`.
-    @ObservationIgnored private var connectHop: Task<Void, Never>?
+    @ObservationIgnored private var connectHop: Task<Void, any Error>?
+    /// The app's main-thread scheduler: the machine's event batches, and the main part of each lifecycle hop.
+    @ObservationIgnored let mainWork: MainWorkScheduler
+    /// Where the hops' awaits (the link actors, a resume, a list read) run, off main.
+    @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private var disconnected = false
     /// Repairs an empty workspace on this machine (never on another).
     @ObservationIgnored let emptyWorkspaces: EmptyWorkspaceRepair
@@ -62,24 +67,30 @@ final class CloudMachineSession {
     /// For an app link, a click's connect on a paused machine is its resume.
     private(set) var resumeFailure: String?
 
-    /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
-    convenience init(machine: CloudMachine, link: CloudMachineLink, mainWork: MainWorkScheduler) {
-        self.init(machine: machine, link: link, appLink: nil, localIdentity: { nil }, mainWork: mainWork)
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
+    ///   - work: The app's one ``BackgroundWork``, for the lifecycle hops' awaits.
+    convenience init(machine: CloudMachine, link: CloudMachineLink, mainWork: MainWorkScheduler, work: BackgroundWork) {
+        self.init(machine: machine, link: link, appLink: nil, localIdentity: { nil }, mainWork: mainWork, work: work)
     }
 
-    /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
+    ///   - work: The app's one ``BackgroundWork``, for the lifecycle hops' awaits.
     convenience init(machine: CloudMachine, appLink: CloudLinkSession, localIdentity: @escaping @MainActor () -> DaemonIdentity?,
-                     mainWork: MainWorkScheduler) {
-        self.init(machine: machine, link: nil, appLink: appLink, localIdentity: localIdentity, mainWork: mainWork)
+                     mainWork: MainWorkScheduler, work: BackgroundWork) {
+        self.init(machine: machine, link: nil, appLink: appLink, localIdentity: localIdentity, mainWork: mainWork, work: work)
     }
 
     private init(machine: CloudMachine, link: CloudMachineLink?, appLink: CloudLinkSession?,
-                 localIdentity: @escaping @MainActor () -> DaemonIdentity?, mainWork: MainWorkScheduler) {
+                 localIdentity: @escaping @MainActor () -> DaemonIdentity?, mainWork: MainWorkScheduler, work: BackgroundWork) {
         machineID = machine.id
         self.machine = machine
         self.link = link
         self.appLink = appLink
         self.localIdentity = localIdentity
+        self.mainWork = mainWork
+        self.work = work
         daemon = DaemonService(machineID: machine.id, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
     }
@@ -100,31 +111,38 @@ final class CloudMachineSession {
         // A resume that failed earlier says nothing about this connect.
         resumeFailure = nil
         let previous = linkTransition
-        // task-owner: one lifecycle hop; each later hop waits for this one
-        linkTransition = Task {
-            await previous?.value
+        let link = link, appLink = appLink, mainWork = mainWork
+        // task-owner: one lifecycle hop; each later hop waits for this one. R-hop: the link actors are awaited
+        // off main, and the legacy link's daemon start is one visible task.
+        linkTransition = work.task(.userVisible) { [weak self] in
+            _ = await previous?.result
             if let appLink {
-                await connectApp(appLink, origin: origin)
+                await self?.connectApp(appLink, origin: origin)
                 return
             }
             guard let link else { return }
             await link.resume()
-            guard !disconnected, machine.status.isLive else { return }
-            // A link start that a pause overtook changes nothing (`noteLink`).
-            let suspendsBefore = suspends
-            daemon.start(remote: { [weak self] in
-                await self?.noteLinkStarting(since: suspendsBefore)
-                do {
-                    let path = try await link.socketPath()
-                    await self?.noteLink(.up, since: suspendsBefore)
-                    return path
-                } catch {
-                    if !(error is CancellationError) { await self?.noteLink(.failed(String(describing: error)), since: suspendsBefore) }
-                    throw error
-                }
-            })
+            await mainWork.apply(.visible, owner: "CloudMachineSession.link") { [weak self] in self?.startLegacyLink(link) }
         }
         if appLink != nil { connectHop = linkTransition }
+    }
+
+    /// The legacy link resumed: the daemon starts on its socket, unless a disconnect or a pause came first.
+    private func startLegacyLink(_ link: CloudMachineLink) {
+        guard !disconnected, machine.status.isLive else { return }
+        // A link start that a pause overtook changes nothing (`noteLink`).
+        let suspendsBefore = suspends
+        daemon.start(remote: { [weak self] in
+            await self?.noteLinkStarting(since: suspendsBefore)
+            do {
+                let path = try await link.socketPath()
+                await self?.noteLink(.up, since: suspendsBefore)
+                return path
+            } catch {
+                if !(error is CancellationError) { await self?.noteLink(.failed(String(describing: error)), since: suspendsBefore) }
+                throw error
+            }
+        })
     }
 
     /// Attaching to this machine (opening a workspace or a terminal, ssh,
@@ -139,22 +157,30 @@ final class CloudMachineSession {
         guard machine.status == .paused, !resuming, !disconnected, let resumer else { return }
         resuming = true
         resumeFailure = nil
-        // task-owner: one resume per attach; a second attach while it runs waits on it
-        Task {
-            defer { resuming = false }
-            do {
-                try await resumer(machineID)
-            } catch {
-                guard !disconnected else { return }
-                resumeFailure = RefusalStrings.describe(error)
-                return
-            }
-            // The resume's refresh connects a record that turned live; a
-            // refresh that failed leaves the record paused, so connect here.
-            guard !disconnected, !machine.status.isLive else { return }
-            machine.status = .running
-            connect()
+        let machineID = machineID, mainWork = mainWork
+        // A click's resume is the rest of the person's action (userBlocking); a script's is automation.
+        let endClass: BudgetedWorkClass = origin == .user ? .userBlocking : .automation
+        // task-owner: one resume per attach; a second attach while it runs waits on it. R-hop: the resume is
+        // awaited off main; its outcome is one task in `endClass`.
+        work.task(origin == .user ? .userBlocking : .userVisible) {
+            let outcome: Result<Void, any Error>
+            do { try await resumer(machineID); outcome = .success(()) } catch { outcome = .failure(error) }
+            mainWork.postFromAnyThread(endClass, owner: "CloudMachineSession.resume") { [weak self] in self?.resumeEnded(outcome) }
         }
+    }
+
+    /// An attach's resume ended: a failure says why; a success connects a record its refresh left paused.
+    private func resumeEnded(_ outcome: Result<Void, any Error>) {
+        resuming = false
+        if case .failure(let error) = outcome {
+            if !disconnected { resumeFailure = RefusalStrings.describe(error) }
+            return
+        }
+        // The resume's refresh connects a record that turned live; a
+        // refresh that failed leaves the record paused, so connect here.
+        guard !disconnected, !machine.status.isLive else { return }
+        machine.status = .running
+        connect()
     }
 
     /// One app-link connect: a fresh connection on the carrier socket. The
@@ -239,8 +265,8 @@ final class CloudMachineSession {
         guard !disconnected, suspends == suspendsBefore else { return }
         linkPhase = phase
         if case .failed = phase, let refresher {
-            // task-owner: one throttled list read; the reconcile it runs updates this record
-            Task { await refresher(false) }
+            // task-owner: one throttled list read; the reconcile it runs updates this record. R-hop: awaited off main.
+            work.task(.bestEffort) { await refresher(false) }
         }
     }
 
@@ -292,10 +318,12 @@ final class CloudMachineSession {
     func retry() {
         if appLink == nil, daemon.connection == nil, machine.status != .paused, refresher != nil {
             // The record may be stale: read it, then retry on what it says.
-            // task-owner: one list read before the retry; the retry itself is synchronous
-            Task {
-                await refreshIfMaybePaused()
-                retryNow()
+            let mainWork = mainWork
+            // task-owner: one list read before the retry; the retry itself is one userBlocking task (the rest of a
+            // person's Retry).
+            work.task(.userBlocking) { [weak self] in
+                await self?.refreshIfMaybePaused()
+                mainWork.postFromAnyThread(.userBlocking, owner: "CloudMachineSession.retry") { [weak self] in self?.retryNow() }
             }
             return
         }
@@ -317,12 +345,16 @@ final class CloudMachineSession {
     /// A `cloud.link.changed` for this machine (app link only).
     func linkChanged(_ change: CloudLinkChange) {
         guard let appLink else { return }
-        // task-owner: one actor hop; a link that already ended ignores it
-        Task {
+        let mainWork = mainWork
+        // task-owner: one actor hop; a link that already ended ignores it. R-hop: the actor is awaited off main,
+        // and the ended link shows as one visible task.
+        work.task(.userVisible) { [weak self] in
             guard let ended = await appLink.apply(change) else { return }
-            let reason = change.reason ?? change.state.rawValue
-            endAppLink(change.state == .revoked ? CloudLinkError.revoked(reason: reason) : CloudLinkError.disconnected(reason: reason),
-                       ticket: ended)
+            mainWork.postFromAnyThread(.visible, owner: "CloudMachineSession.linkChanged") { [weak self] in
+                let reason = change.reason ?? change.state.rawValue
+                self?.endAppLink(change.state == .revoked ? CloudLinkError.revoked(reason: reason) : CloudLinkError.disconnected(reason: reason),
+                                 ticket: ended)
+            }
         }
     }
 
@@ -333,9 +365,9 @@ final class CloudMachineSession {
         daemon.shutdownConnection()
         let previous = linkTransition
         let link = link, appLink = appLink
-        // task-owner: terminal teardown after earlier lifecycle hops
-        linkTransition = Task {
-            await previous?.value
+        // task-owner: terminal teardown after earlier lifecycle hops, off main (only the link actors)
+        linkTransition = work.task(.bestEffort) {
+            _ = await previous?.result
             await link?.stop()
             await appLink?.close()
         }
@@ -353,9 +385,9 @@ final class CloudMachineSession {
         daemon.shutdownConnection()
         let previous = linkTransition
         let link = link, appLink = appLink
-        // task-owner: reversible teardown; resume waits for this hop
-        linkTransition = Task {
-            await previous?.value
+        // task-owner: reversible teardown; resume waits for this hop. Off main: only the link actors.
+        linkTransition = work.task(.userVisible) {
+            _ = await previous?.result
             await link?.suspend()
             await appLink?.end(reason: "paused")
         }

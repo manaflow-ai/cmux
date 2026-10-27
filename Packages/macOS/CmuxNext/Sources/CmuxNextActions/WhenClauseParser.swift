@@ -22,8 +22,15 @@ extension WhenClause {
 }
 
 nonisolated struct WhenClauseParser {
+    /// The deepest nesting of `!` and `(` a clause may have: Chromium's JSON `kAbsoluteMaxDepth`
+    /// (base/json/json_common.h), the bound cmux-next.json has too. Parsing, evaluating and writing
+    /// a clause recurse once per level, so a deeper clause is refused, never run out of stack.
+    static let maxDepth = 200
+
     private let bytes: [UInt8]
     private var index = 0
+    /// `!` and `(` levels open at ``index``.
+    private var depth = 0
 
     init(_ bytes: [UInt8]) {
         self.bytes = bytes
@@ -58,6 +65,12 @@ nonisolated struct WhenClauseParser {
         return true
     }
 
+    /// Opens one more `!` or `(` level at ``index``, or throws past ``maxDepth``.
+    private mutating func descend() throws(WhenClauseParseError) {
+        guard depth < Self.maxDepth else { throw error("nested too deep") }
+        depth += 1
+    }
+
     mutating func parseOr() throws(WhenClauseParseError) -> WhenClause {
         var clauses = [try parseAnd()]
         while take("||") { clauses.append(try parseAnd()) }
@@ -73,16 +86,23 @@ nonisolated struct WhenClauseParser {
     private mutating func parseUnary() throws(WhenClauseParseError) -> WhenClause {
         skipSpace()
         if index + 1 < bytes.count, bytes[index] == UInt8(ascii: "!"), bytes[index + 1] != UInt8(ascii: "=") {
+            try descend()
             index += 1
-            return .not(try parseUnary())
+            let operand = try parseUnary()
+            depth -= 1
+            return .not(operand)
         }
         return try parsePrimary()
     }
 
     private mutating func parsePrimary() throws(WhenClauseParseError) -> WhenClause {
-        if take("(") {
+        skipSpace()
+        if index < bytes.count, bytes[index] == UInt8(ascii: "(") {
+            try descend()
+            index += 1
             let inner = try parseOr()
             guard take(")") else { throw error("expected )") }
+            depth -= 1
             return inner
         }
         if takeWord("true") { return .constant(true) }

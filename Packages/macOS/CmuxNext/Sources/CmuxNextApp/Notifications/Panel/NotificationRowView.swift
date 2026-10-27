@@ -18,7 +18,7 @@ final class NotificationRowView: NSView {
     private var close: NSButton?
     /// Each label and the color it draws in, applied in the view's theme scope.
     private var tinted: [(ChromeLabel, Tone)] = []
-    var isSelected = false { didSet { needsDisplay = true } }
+    var isSelected = false { didSet { if isSelected != oldValue { needsDisplay = true } } }
 
     private static let timeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
@@ -31,6 +31,7 @@ final class NotificationRowView: NSView {
         self.callbacks = callbacks
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerRadius = Metrics.space2
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
@@ -82,6 +83,7 @@ final class NotificationRowView: NSView {
             for (label, tone) in tinted { label.textColor = tone.color }
             close?.contentTintColor = Palette.textTertiary
         }
+        // invalidate: a new window or appearance (the only callers); the fill and dot resolve again.
         needsDisplay = true
     }
 

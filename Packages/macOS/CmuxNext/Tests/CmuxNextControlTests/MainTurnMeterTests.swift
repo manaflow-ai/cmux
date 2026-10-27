@@ -201,6 +201,46 @@ import Testing
         #expect(snapshot.busyNanos == 19 * Self.ms, "every millisecond once")
     }
 
+    /// A task that runs a nested loop (a CEF pump pass that runs a context menu): the loop's time is
+    /// not the task's, a task run inside the loop is charged as itself, and while the loop runs the
+    /// board names no task (Chrome's RunLevelTracker, base/task/sequence_manager/thread_controller.cc).
+    @Test func aNestedLoopATaskRunsIsNotThatTasksTime() throws {
+        let clock = TurnClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let turns = budget.turns
+        let pump = budget.board.owner("cef.pump")
+        var namedInMenu: MainTaskBoard.Task?
+        var namedInMenuTask: MainTaskBoard.Task?
+        turns.loopWoke()
+        budget.run(.frame, owner: pump) {
+            clock.advance(ms: 1)
+            turns.loopEntered()
+            namedInMenu = budget.board.running
+            clock.advance(ms: 3_000)
+            budget.run(.visible, owner: budget.board.owner("menu.item")) {
+                namedInMenuTask = budget.board.running
+                clock.advance(ms: 2)
+            }
+            #expect(budget.board.running == nil, "back in the menu: still no task")
+            turns.loopExited()
+            #expect(budget.board.running?.owner == "cef.pump", "the pass runs again after the menu")
+            clock.advance(ms: 1)
+        }
+        turns.loopWillWait()
+        turns.loopDidRender()
+        #expect(namedInMenu == nil)
+        #expect(namedInMenuTask?.owner == "menu.item")
+        let snapshot = turns.snapshot()
+        #expect(snapshot.tasks == 2)
+        #expect(snapshot.maxTaskNanos == 2 * Self.ms, "the pass's own 2 ms and the menu item's 2 ms, not the menu's 3 s")
+        let owners = budget.board.ownerSnapshot().owners
+        let pass = try #require(owners.first { $0.owner == "cef.pump" })
+        #expect(pass.runTotalNanos == 2 * Self.ms)
+        let item = try #require(owners.first { $0.owner == "menu.item" })
+        #expect(item.runTotalNanos == 2 * Self.ms)
+        #expect(budget.stats.maxTaskNanos.allSatisfy { $0 <= 2 * Self.ms }, "the budget charges no class the menu")
+    }
+
     /// AppKit catches an Objective-C exception thrown in a modal session run from `sendEvent` and goes
     /// on: the exception skipped the span's end and the loop's exit, and `reportException` resyncs.
     @Test func anExceptionUnwindGoesBackToTheTopLevel() {

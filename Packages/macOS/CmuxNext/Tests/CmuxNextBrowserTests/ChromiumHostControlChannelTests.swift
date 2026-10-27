@@ -88,8 +88,12 @@ import Testing
             return ChromiumHostControlChannel(
                 fd: fd, options: options, post: { drain in Task { @MainActor in drain() } },
                 onMessages: { batch in
-                    for message in batch { onMessage?(message) }
-                    continuation.yield(.messages(batch))
+                    var messages: [Message] = []
+                    for message in batch {
+                        onMessage?(message)
+                        messages.append(message)
+                    }
+                    continuation.yield(.messages(messages))
                 },
                 onEnd: { continuation.yield(.end($0)) })
         }

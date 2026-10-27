@@ -1,4 +1,7 @@
+import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextSidebar
 
 /// The one sidebar selection and walk (SIDEBAR-SELECTION-ONE-MODEL,
@@ -45,6 +48,42 @@ enum SidebarNavigation {
         let walk = stepping(settings(services), scope: scope)
         guard let item = model.itemOrder.step(from: current(in: window, services), by: offset, walk) else { return }
         activate(item, in: window, services)
+    }
+
+    /// Next / Previous Sidebar Item (`nextSidebarTab`, `prevSidebarTab`). From a person's key (`directionalPrewarm`,
+    /// p04-input-044), the front page of the item one more step that way prewarms in the background.
+    static func stepAction(by offset: Int, _ invocation: ActionInvocation, _ services: AppServices) -> ActionEffect {
+        let scope = invocation["scope"]?.stringValue
+        step(by: offset, scope: scope, services)
+        guard PreviousNext.isKeyStep(invocation), let direction = IntentPrewarmDirection(offset: offset),
+              let prewarm = services.cache.hibernation?.intentPrewarm?.service else { return .done }
+        prewarm.stepped(direction) { [weak services] in
+            services.map { SidebarNavigation.followingPages(by: offset, scope: scope, $0) } ?? []
+        }
+        return .done
+    }
+
+    /// The page the item `offset` steps from the active window's selection shows once selected, read when the
+    /// step's prewarm runs: a workspace's (or a collapsed group's first workspace's) front tab, as the sidebar's
+    /// hover prewarm reads it; none for a top item.
+    static func followingPages(by offset: Int, scope: String?, _ services: AppServices) -> [String] {
+        guard let window = services.windows.active else { return [] }
+        let model = window.sidebar.model
+        let walk = stepping(settings(services), scope: scope)
+        guard let item = model.itemOrder.step(from: current(in: window, services), by: offset, walk) else { return [] }
+        let id: String
+        switch item {
+        case .workspace(let workspace):
+            id = workspace.rawValue
+        case .group(let group):
+            guard let first = model.group(group)?.workspaces.first else { return [] }
+            id = first.id.rawValue
+        case .topItem:
+            return []
+        }
+        guard let workspace = services.workspace(id: id) else { return [] }
+        let selection = window.state.selection
+        return SidebarMapping.shared.frontTab(workspace) { pane in selection.selection(in: pane.id) }.map { [$0.id] } ?? []
     }
 
     /// The window's selection, from the window state (the truth), not the sidebar's mirror of it, which may lag a turn.

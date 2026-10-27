@@ -394,6 +394,11 @@ path = "tests/test_cmux_next_web_bundle_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_bundle_key_shared.py"
+lane = "manual"
+reason = "web-bundle-key.py --shared regression checks run by the agent that changes them (no new CI tests, Lawrence 2026-10-23); build-web-bundles.sh runs --shared on every build."
+
+[[test]]
 path = "tests/test_nightly_builder.py"
 lane = "linux-guard"
 
@@ -1938,3 +1943,8 @@ reason = "Lawrence 2026-10-23: no new CI tests. script-storm-bench.py --hidden N
 path = "tests/test_bench_idle.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. bench_idle.py and bench_launch.py order are fleet benches, not gates; run python3 -I tests/test_bench_idle.py yourself after changing bench_idle.py, the launch order check or DebugLayoutCounters' hidden counters (under 1 s, no app, no build)."
+
+[[test]]
+path = "tests/test_perf_signposts_presented.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. perf-signposts.py is a fleet and local report; run python3 -I tests/test_perf_signposts_presented.py yourself after changing it (under 1 s, no app, no build)."

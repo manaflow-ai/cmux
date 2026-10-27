@@ -41,18 +41,18 @@
 //! secret values up to 64 KiB.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::sync::Mutex;
 use std::collections::BTreeMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
 
-use crate::mux::Mux;
 use crate::server::remote_relay::gate::COMMAND_PARAMS;
 use crate::server::responses::send_response_with_details;
-use crate::server::{MessageWriter, Response};
+use crate::server::routes::{Route, RouteLine, RouteName};
+use crate::server::{FrameStage, MessageWriter, Response};
 
 pub const ACCESS_REQUEST_CAPABILITY: &str = "access-request-v1";
 
@@ -177,33 +177,22 @@ impl Command {
 }
 
 /// The `cmd` names this module answers (server/routes.rs).
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[
-            crate::server::routes::RouteName::Exact("access-request"),
-            crate::server::routes::RouteName::Prefix("access-request-"),
-        ],
-        stage: crate::server::FrameStage::AgentTransfer,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Exact("access-request"), RouteName::Prefix("access-request-")],
+    stage: FrameStage::AgentTransfer,
+    entry: handle,
+}];
 
-/// Handles an `access-request*` line; None for any other line.
-pub(super) fn try_handle(
-    mux: &Mux,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"access-request") {
-        return None;
-    }
+/// Answers an `access-request` or `access-request-*` line (the route found
+/// it by name). The line's one decode is its `Value`, which gives every
+/// reply the `id` as written, a refused one too, and then the typed
+/// [`Command`]. `None` only for a line with no `Value` (a number past
+/// `f64`, a lone surrogate); the `Command` parse answers it.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
-    let cmd = object.get("cmd").and_then(Value::as_str)?;
-    if cmd != "access-request" && !cmd.starts_with("access-request-") {
-        return None;
-    }
     let id = object.remove("id");
     // Trust first: an untrusted client gets one answer whatever it sent.
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
@@ -213,7 +202,7 @@ pub(super) fn try_handle(
         return Some(reply(writer, id, Err(Refusal::Unavailable)));
     }
     let result = Command::parse(object)
-        .and_then(|command| handle(&mux.access_requests, command, Instant::now()));
+        .and_then(|command| serve(&mux.access_requests, command, Instant::now()));
     Some(reply(writer, id, result))
 }
 
@@ -223,7 +212,7 @@ fn plain_path(path: &str) -> bool {
     path.starts_with('/') && path.len() <= MAX_PATH_BYTES && !path.chars().any(char::is_control)
 }
 
-fn handle(requests: &AccessRequests, command: Command, now: Instant) -> Result<Value, Refusal> {
+fn serve(requests: &AccessRequests, command: Command, now: Instant) -> Result<Value, Refusal> {
     let mut kept = lock(&requests.requests);
     kept.retain(|_, request| {
         let since = request.answer.as_ref().map_or(request.made, |(at, _)| *at);

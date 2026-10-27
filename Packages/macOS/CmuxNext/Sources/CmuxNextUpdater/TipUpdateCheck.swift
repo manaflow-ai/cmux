@@ -64,7 +64,7 @@ final class TipUpdateCheck {
     func refresh(_ updater: UpdaterService) {
         guard mayCheck(updater) else { return timer.cancel() }
         guard task == nil, !timer.isScheduled else { return }
-        timer.schedule(after: .seconds(Self.interval)) { @MainActor [weak self, weak updater] in
+        timer.scheduleOnMain(after: .seconds(Self.interval)) { [weak self, weak updater] in
             guard let self, let updater else { return }
             self.run(updater)
         }

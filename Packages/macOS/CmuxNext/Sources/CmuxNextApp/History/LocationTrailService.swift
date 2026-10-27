@@ -6,6 +6,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 import CmuxNextFocus
@@ -26,7 +27,8 @@ final class LocationTrailService {
     private var sync = HistoryTrailSync()
     /// The trail's failure log (cx-hnmbt.14): each skipped settle, step, report and reply.
     let log = HistoryTrailLog()
-    private var observation: Task<Void, Never>?
+    /// Reads the daemon's trail once it connects. `background`: the trail is there before anyone goes Back.
+    private var observation: ServiceObservation<Bool>?
     /// Steps go to the daemon in order: one FIFO, so a step never overtakes the one before it.
     private let reports: AsyncStream<@Sendable () async -> Void>.Continuation
     private let reportDrain: Task<Void, Never>
@@ -40,6 +42,7 @@ final class LocationTrailService {
 
     /// Adds a listener for every trail change (also scope changes: re-read `canNavigate`); returns
     /// the token for ``removeObserver(_:)``.
+    // raw-observer-allow: the service's own listener list, called from notify(); no NotificationCenter or KVO observer
     @discardableResult
     func addObserver(_ handler: @escaping () -> Void) -> Int {
         nextObserver += 1
@@ -73,34 +76,35 @@ final class LocationTrailService {
         store.sideEvents.subscribe { [weak self] event in
             if case .historyChanged(_, let kinds) = event, kinds.contains("location") { self?.reread() }
         }
-        observation = Task { [weak self] in
-            for await connected in ObservationStream({ if case .connected = store.connectionState { true } else { false } }) where connected {
-                self?.loadOnce()
-            }
+        observation = ServiceObservation(.background, owner: "LocationTrail.connect", on: services.mainWork) {
+            if case .connected = store.connectionState { true } else { false }
+        } apply: { [weak self] connected in
+            if connected { self?.loadOnce() }
         }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
+    // The stream continuation is Sendable and finishes from any thread; the observations stop with their release.
     nonisolated deinit {
         reports.finish()
-        observation?.cancel()
-        scopeObservation?.cancel()
     }
 
-    private var scopeObservation: Task<Void, Never>?
+    private var scopeObservation: ServiceObservation<String>?
 
     /// Tells the observers when `navigation.historyScope` changes, so the titlebar buttons re-read
-    /// ``canNavigate(_:)`` with no trail change. Event driven (observation of the settings snapshot).
+    /// ``canNavigate(_:)`` with no trail change. `visible`: the buttons enable or disable; a person's
+    /// change flushes before its frame.
     func watchScope(settings: SettingsController) {
-        scopeObservation?.cancel()
-        scopeObservation = Task { [weak self] in
-            var last: String?
-            for await scope in ObservationStream({ settings.snapshot.navigationHistoryScope }) {
-                defer { last = scope }
-                guard let last, last != scope else { continue }
-                self?.notify()
+        // The current scope needs no notice: the buttons read it when they are made.
+        var current = true
+        scopeObservation = ServiceObservation(.visible, owner: "LocationTrail.scope", on: services.mainWork) {
+            settings.snapshot.navigationHistoryScope
+        } apply: { [weak self] _ in
+            if current {
+                current = false
+                return
             }
+            self?.notify()
         }
     }
 

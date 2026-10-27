@@ -84,6 +84,7 @@ final class BrowserSwipeIndicatorView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerRadius = frame.height / 2
         layer?.cornerCurve = .continuous
         arrow.frame = bounds
@@ -103,6 +104,7 @@ final class BrowserSwipeIndicatorView: NSView {
         updateColors()
     }
 
+    // visibility-walk-allow: a layer color and a tint in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()

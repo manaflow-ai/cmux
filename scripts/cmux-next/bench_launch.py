@@ -83,7 +83,7 @@ caller's. A script or step that starts an app on its own can run under the same 
     python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
     python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, atexit, contextlib, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, statistics, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, copy, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, stat, statistics, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -112,6 +112,8 @@ def load_by_path(name, path):
 # process's search path, not a switch.
 bench_env = load_by_path("bench_env", os.path.join(PERF_LAB, "bench_env.py"))
 BASE_ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", **bench_env.fixed_env()}
+# The cmux.json a BenchApp writes when its caller passes none: an opaque window, so frames cost the same on any desktop.
+DEFAULT_CONFIG = {"appearance": {"backgroundOpacity": 1}}
 # The shipping measurement mode (idle-budget, p14-energy-100): the launch measures what users run. Occluded windows
 # stop drawing (WindowDrawPolicy.shippingDrawKey), Sentry and hang reports run (a DEV or bench bundle reports only
 # with these opt-ins; hang reports also need ``seed_hang_report_consent`` and the setting on), and
@@ -160,6 +162,68 @@ def seed_hang_report_consent(app, now=None):
     return "" if done.returncode == 0 else f"defaults exit {done.returncode}: {done.stderr.strip()[:200]}"
 
 
+# The test account a signed-in bench launch uses: the host's staging (development Stack project) agent account,
+# CMUX_UITEST_STACK_* in the fleet secrets file. The app reads the file itself (DogfoodCredentials: a Debug build's
+# sign-in); the bench passes only the account's email and the agent profile (and the path of a file the app does not
+# read on its own), never the password or a token.
+AGENT_CREDENTIALS = "~/.secrets/cmuxterm-dev.env"
+AGENT_EMAIL_KEY = "CMUX_UITEST_STACK_EMAIL"
+# The files DogfoodCredentials reads with no CMUX_AUTH_CREDENTIALS_FILE, filtered by CMUX_DEV_AUTH_PROFILE's prefix
+# and the declared account. An explicit file ignores the profile and takes its CMUX_DOGFOOD_STACK_* pair first.
+AMBIENT_CREDENTIALS = ("~/.secrets/cmuxterm-dev.env", "~/.secrets/cmux.env")
+DOGFOOD_KEYS = ("CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD")
+
+
+class CredentialsError(ValueError):
+    """A credentials file the app would not read (DogfoodCredentials.secure), with no agent account, or that would
+    sign another account in."""
+
+
+def credential_keys(path):
+    """{key: value} of the `KEY=value` lines of `path` (DogfoodCredentials.parse: `export`, quotes, comments)."""
+    values = {}
+    with open(path) as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            key, equals, value = line.removeprefix("export ").partition("=")
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+                value = value[1:-1]
+            if equals:
+                values[key.strip()] = value
+    return values
+
+
+def agent_sign_in_env(path=AGENT_CREDENTIALS):
+    """BenchApp `env` that signs a Debug build in as the agent test account of `path`: CMUX_DEV_AUTH_ACCOUNT (no
+    other account signs in) and CMUX_DEV_AUTH_PROFILE agent (the CMUX_UITEST_STACK_* pair; it also makes the sign-in
+    replace a stored session). An ambient file (AMBIENT_CREDENTIALS, the fleet layout) is left to the app's own
+    lookup; another file is passed as CMUX_AUTH_CREDENTIALS_FILE and must hold no CMUX_DOGFOOD_STACK_* pair, which
+    the app would take first. The file must be a regular file of this user with no group or other access, as the
+    app requires. Raises CredentialsError."""
+    path = os.path.expanduser(path)
+    try:
+        info = os.lstat(path)
+    except OSError as error:
+        raise CredentialsError(f"{path}: {error.strerror or error}") from None
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise CredentialsError(f"{path} must be a regular file of this user with no group or other access (0600)")
+    values = credential_keys(path)
+    email = values.get(AGENT_EMAIL_KEY, "")
+    if not email:
+        raise CredentialsError(f"{path} has no {AGENT_EMAIL_KEY}")
+    env = {"CMUX_DEV_AUTH_ACCOUNT": email, "CMUX_DEV_AUTH_PROFILE": "agent"}
+    ambient = {os.path.realpath(os.path.expanduser(name)) for name in AMBIENT_CREDENTIALS}
+    if os.path.realpath(path) in ambient:
+        return env
+    if all(values.get(key) for key in DOGFOOD_KEYS):
+        raise CredentialsError(f"{path} also holds {DOGFOOD_KEYS[0]}: the app takes an explicit file's dogfood pair "
+                               "first and refuses it as another account; use a file with the agent pair only")
+    return {"CMUX_AUTH_CREDENTIALS_FILE": path, **env}
+
+
 def main_binary(app):
     """The main executable of bundle `app`: `cmux DEV`, else the first file of Contents/MacOS that is no dylib."""
     app = os.path.realpath(app).rstrip("/")
@@ -173,6 +237,10 @@ def main_binary(app):
 
 
 # Never passed to the app: NX_REMOTE makes it act as an nx-remote job; the rest name another cmux.
+# Key-press flows for a recording that wraps a bench (`trace.py record --bundle APP -- BENCH`, input-hotspots.py): the
+# app gets CMUX_NEXT_TRACE_FLOWS=<this folder>, as `trace.py record --app` gives its own launch. The app's environment is
+# built here, not inherited, so the wrapper passes it under this name.
+TRACE_FLOWS_KEY = "BENCH_LAUNCH_TRACE_FLOWS"
 DROPPED_ENV = ("NX_REMOTE", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_WORKSPACE_ID",
                "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID")
 
@@ -433,6 +501,37 @@ def read_host():
                        int(memory) if memory.isdigit() else None,
                        out("/usr/bin/sw_vers", "-productVersion") or None,
                        out("/usr/bin/sw_vers", "-buildVersion") or None, main_display_hz())
+
+
+# The perf-lab runner (scripts/perf-lab/run_story.py) runs a story's bench with these variables. A BenchApp reads
+# them as its defaults, so a bench records the run's session, config and measured host without flags of its own.
+LAB_SESSION, LAB_CONFIG, LAB_HOST_FILE, LAB_VDISPLAY_OUT = (
+    "PERF_LAB_SESSION", "PERF_LAB_CONFIG", "PERF_LAB_HOST_FILE", "PERF_LAB_VDISPLAY_OUT")
+# The full host validation of a launched app (``lab_host_check``) goes to `<out>/host-env-full-<app pid>.json`. The
+# runner rejects a run's results unless at least one such file is under its out folder and every one is ok.
+LAB_CHECK_PREFIX = "host-env-full-"
+
+
+def lab_host_check(vdisplay_out, pids, timeout=300):
+    """host_env.py's full validation (p12-perf-process-006) of a launched app: every pre-launch check again, plus
+    nettop over `pids` (the app and its daemons) for an outbound connection (network-egress). Returns its report, or
+    a not-ok report that says why host_env gave none."""
+    argv = [sys.executable, "-I", os.path.join(PERF_LAB, "host_env.py"), "--vdisplay-out", vdisplay_out]
+    for pid in pids:
+        argv += ["--pid", str(pid)]
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"ok": False, "reasons": ["host-env-failed"], "details": {"host-env-failed": str(error)[:300]}}
+    lines = [line[len("HOST-ENV "):] for line in done.stdout.splitlines() if line.startswith("HOST-ENV ")]
+    try:
+        report = json.loads(lines[-1]) if lines else None
+    except ValueError:
+        report = None
+    if not isinstance(report, dict):
+        return {"ok": False, "reasons": ["host-env-no-report"],
+                "details": {"host-env-no-report": f"exit {done.returncode}: {done.stderr[-300:]}"}}
+    return report
 
 
 def features_snapshot(reply):
@@ -944,12 +1043,39 @@ def crash_summary(path, lines=40):
     return "\n".join(text.splitlines()[:lines])
 
 
+def write_local_features(root, features):
+    """Sets `features` ({name: bool}) in `<root>/features/local-overrides.json`, the Labs page's local feature choices
+    (FeatureLocalOverrides.fileName in SidebarSnapshotFile.buildDirectory, the tag's state folder), over the choices
+    the file already has. A DEV or NIGHTLY app reads them once at launch and features.list reports them with source
+    `local`: the way a bench turns a default-off feature on, since the app strips an inherited CMUX_ENABLE_FEATURES
+    (LaunchIdentity.inheritedKeys). Returns the file's path."""
+    path = os.path.join(root, "features", "local-overrides.json")
+    choices = {}
+    try:
+        with open(path) as handle:
+            kept = json.load(handle)
+        if isinstance(kept, dict):
+            choices = {name: value for name, value in kept.items() if isinstance(value, bool)}
+    except (OSError, ValueError):
+        pass
+    choices.update(features)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    partial = path + ".partial"
+    with open(partial, "w") as handle:
+        json.dump(choices, handle, indent=2, sort_keys=True)
+    os.replace(partial, path)
+    return path
+
+
 class BenchApp:
     """A tagged DEV app launched for a bench, its socket, and its teardown.
 
     `env` adds to (and overrides) BASE_ENV; `args` are launch arguments after the binary (for this process only,
-    for example `-AppleShowScrollBars Always`, which AppKit reads into NSArgumentDomain); `config` is written as the
-    app's cmux.json; `window` is
+    for example `-AppleShowScrollBars Always`, which AppKit reads into NSArgumentDomain); `pass_fds` are descriptors the
+    app inherits (subprocess.Popen pass_fds; a bench's CMUX_NEXT_LAUNCH_MARKS_FD pipe), read at each launch, so a
+    relaunch may pass a new pipe; `local_features` ({name: bool}) are written as the tag's Labs local feature
+    choices before each spawn, after the fresh state (``write_local_features``); `config` is written as the app's
+    cmux.json; `window` is
     (x, y, width, height) or None; `screen` is CMUX_NEXT_TEST_WINDOW_SCREEN (`0` = the main display).
     `session` reads whether this account has a GUI session (default ``gui_session``, read at each launch;
     tests pass a stub). `socket_only=True` launches without a GUI session for a check that reads only the socket
@@ -959,15 +1085,30 @@ class BenchApp:
     (default ``read_host``; tests pass their own), `build_config` states the config of a bench-hooks bundle (`bench`
     or `bench-checks`, checked against the bundle) and `run` is the perf_result.Run every result of this BenchApp
     names (default a new one at the first record; a controller attempt passes its own id).
+    Under the perf-lab runner (its PERF_LAB_* variables, the LAB_* names), the defaults are the story's session, the
+    run's config and the host block that host_env wrote with the measured Hz. The first launch is validated again
+    with its pids (`lab_check`, default ``lab_host_check``) before the bench measures, and the report goes to `out`.
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
                  log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
-                 fresh_state=True, perf_session="light", host=None, build_config=None, run=None, args=()):
+                 fresh_state=True, perf_session=None, host=None, build_config=None, run=None, args=(),
+                 lab_check=None, pass_fds=(), local_features=None):
         self.args = tuple(args)
-        self.perf_session = perf_session
+        self.local_features = dict(local_features or {})
+        self.pass_fds = tuple(pass_fds)
+        self.perf_session = perf_session or os.environ.get(LAB_SESSION) or "light"
+        host_file = os.environ.get(LAB_HOST_FILE)
+        if host is None and host_file:
+            host = load_by_path("perf_lab_host_env", os.path.join(PERF_LAB, "host_env.py")).host_reader(host_file)
         self.read_host = host or read_host
-        self.build_config = build_config
+        self.build_config = build_config or os.environ.get(LAB_CONFIG) or None
+        vdisplay_out = os.environ.get(LAB_VDISPLAY_OUT)
+        if lab_check is None and vdisplay_out:
+            def lab_check(pids):
+                return lab_host_check(vdisplay_out, pids)
+        self.lab_check = lab_check
+        self.lab_report = None  # the full host validation of this BenchApp's first launch (``lab_check``)
         self.run = run
         self._build = self._host = None
         self.features = None  # the last launch's features.list snapshot (features_snapshot), read once it answered
@@ -979,7 +1120,7 @@ class BenchApp:
         os.makedirs(self.out, exist_ok=True)
         self.scratch = tempfile.mkdtemp(prefix=f"bench-{self.tag}-")
         self.extra_env = dict(env or {})
-        self.config = {"appearance": {"backgroundOpacity": 1}} if config is None else config
+        self.config = copy.deepcopy(DEFAULT_CONFIG) if config is None else config
         self.window, self.screen = window, screen
         self.log_path = os.path.join(self.out, log_name or f"app-{self.tag}.log")
         self.process = None
@@ -1014,6 +1155,15 @@ class BenchApp:
                 pids.append(int(pid))
         return pids
 
+    def tag_processes(self):
+        """(pid, command) of every process of this tag (TagTeardown's rule: the bundle's executables, its daemon's
+        terminal hosts and holders): a daemon an earlier run left counts, which ``running_pids`` does not see."""
+        if self.teardown:
+            return self.teardown.processes()
+        sys.path.insert(0, HERE)
+        from tag_teardown import TagTeardown
+        return TagTeardown(self.app).processes()
+
     def session(self):
         """This account's GUI session now (the injected read, else ``gui_session``)."""
         return (self.read_session or gui_session)()
@@ -1036,6 +1186,8 @@ class BenchApp:
             env["CMUX_NEXT_TEST_WINDOW_FRAME"] = ",".join(str(v) for v in self.window)
         if self.screen is not None:
             env["CMUX_NEXT_TEST_WINDOW_SCREEN"] = str(self.screen)
+        if os.environ.get(TRACE_FLOWS_KEY):
+            env["CMUX_NEXT_TRACE_FLOWS"] = os.environ[TRACE_FLOWS_KEY]  # a bench's own env below wins
         env.update(self.extra_env)
         for key in DROPPED_ENV + tuple(k for k, v in self.extra_env.items() if v is None):
             env.pop(key, None)  # None in `env` removes a BASE_ENV variable (for example NO_ACTIVATE)
@@ -1150,8 +1302,12 @@ class BenchApp:
         os.rename(root, prev)
         note(f"bench-launch: {self.tag} starts from an empty saved session (earlier state moved to {prev})")
 
-    def launch(self, timeout=180, ready="debug.windows", on_start=None, probe_first_answer=False):
+    def launch(self, timeout=180, ready="debug.windows", on_start=None, probe_first_answer=False, validate_host=True):
         """Starts the app and returns once `ready` answers (debug.windows: with a window).
+
+        With `validate_host` False, the lab's full host validation (``validate_lab_host``, under the perf-lab runner
+        a nettop window of a minute) is not part of the launch: a bench that times a span from the spawn calls
+        ``validate_lab_host()`` itself once that span ends, while the app still runs.
 
         With `probe_first_answer`, ``first_answer`` sends `system.ping` from the spawn on and ``first_answer_ms``
         holds when the app first answered (ms since the spawn; None when it did not).
@@ -1177,7 +1333,15 @@ class BenchApp:
         note(f"bench-launch: {mute_output()}")
         running = self.running_pids()
         if not running and self.fresh_state and not os.environ.get("BENCH_LAUNCH_KEEP_STATE"):
-            self.start_fresh()  # only with no app of the tag running: its state is not in use
+            left = self.tag_processes()
+            if left:
+                self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": [pid for pid, _ in left],
+                                          "log_tail": "",
+                                          "detail": f"processes of tag {self.tag} still run (pid "
+                                                    f"{', '.join(str(pid) for pid, _ in left)}): the launch would "
+                                                    "adopt that daemon and its session, not an empty one; end them "
+                                                    f"(tag_teardown.py \"{self.app}\") or pick a fresh tag"})
+            self.start_fresh()  # only with no process of the tag running: its state is not in use
         if running:
             self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": running, "log_tail": "",
                                       "detail": f"an app of {self.app} already runs (pid {', '.join(map(str, running))}); "
@@ -1189,6 +1353,8 @@ class BenchApp:
                     self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "socket": path, "log_tail": "",
                                               "detail": f"an app of tag {self.tag} accepts on {path}; quit it or pick a fresh tag"})
                 os.unlink(path)  # nothing listens: a socket a killed run of this tag left; the app makes it again
+        if self.local_features:
+            note(f"bench-launch: local features {write_local_features(self.state_root(), self.local_features)}")
         if self.teardown:
             self.teardown.install()
         log = open(self.log_path, "a")
@@ -1198,7 +1364,8 @@ class BenchApp:
             with finder_limits() as changed:
                 self.launched_at = time.time()
                 spawned = time.monotonic()
-                self.process = subprocess.Popen([self.binary, *self.args], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+                self.process = subprocess.Popen([self.binary, *self.args], env=env, stdout=log, stderr=log,
+                                                stdin=subprocess.DEVNULL, pass_fds=self.pass_fds)
         except LaunchError as error:
             log.close()
             self._fail(error.reason, {"tag": self.tag, **host_facts(), **error.report})
@@ -1229,10 +1396,31 @@ class BenchApp:
                     self.ready_seconds = round(time.monotonic() - start, 2)
                     note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
                     self.features = self.read_features()
+                    if validate_host:
+                        self.validate_lab_host()
                     return self
             time.sleep(0.25)  # the poll interval
         log.flush()
         self._fail(*self.diagnose(last, timeout))
+
+    def validate_lab_host(self, pids=None):
+        """Once per BenchApp, while its app runs: ``lab_check`` over the app's and daemons' pids (default the launched
+        process and the tag's processes; a bench that starts the app itself passes them), written to
+        `<out>/host-env-full-<first pid>.json` for the runner, which rejects the run's results when it is not ok."""
+        if self.lab_check is None or self.lab_report is not None:
+            return
+        if pids is None:
+            pids = {self.process.pid}
+            if self.teardown:
+                pids.update(pid for pid, _ in self.teardown.processes())
+        pids = sorted(set(pids))
+        self.lab_report = self.lab_check(pids) if pids else {
+            "ok": False, "reasons": ["network-egress-no-pids"], "details": {"network-egress-no-pids": "no app pid"}}
+        with open(os.path.join(self.out, f"{LAB_CHECK_PREFIX}{pids[0] if pids else 'none'}.json"), "w") as f:
+            json.dump(self.lab_report, f, sort_keys=True)
+        if not self.lab_report.get("ok"):
+            note(f"bench-launch: WARNING: {self.tag} env-invalid after launch "
+                 f"({', '.join(self.lab_report.get('reasons') or ['no reason'])}): the lab rejects this run's results")
 
     def _fail(self, reason, report):
         report.setdefault("gui_session", self.gui_session)
@@ -1328,6 +1516,23 @@ class BenchApp:
         graph = text.split("Call graph:", 1)[-1].splitlines()
         main = [l for l in graph[:60] if l.strip()]
         return "\n".join(l.rstrip()[:180] for l in main[:40])
+
+    def quit_keep_sessions(self, timeout=30):
+        """Quits the app as a person's Quit that keeps the sessions (action quitKeepSessions, no sheet: the terminals,
+        the daemon, its hosts and acpmux keep running) and waits for the app's process to end. ``stop`` still ends
+        the daemons afterwards. Returns {"quit": bool, "seconds": float, "error": str}."""
+        if self.process is None or self.process.poll() is not None:
+            return {"quit": False, "seconds": 0.0, "error": "the app is not running"}
+        began = time.monotonic()
+        # The reply may be lost: the app closes its socket as it quits. The process exit is the answer.
+        reply = self.rpc("action.run", {"action": "quitKeepSessions", "args": {}, "focus": False, "origin": "script"},
+                         timeout=10)
+        try:
+            self.process.wait(timeout)
+        except subprocess.TimeoutExpired:
+            return {"quit": False, "seconds": round(time.monotonic() - began, 2),
+                    "error": f"the app still runs {timeout:g} s after quitKeepSessions: {json.dumps(reply)[:200]}"}
+        return {"quit": True, "seconds": round(time.monotonic() - began, 2), "error": ""}
 
     def stop(self, quit_timeout=30):
         """Quits the app (debug.quit, then TERM and KILL of its own PID) and ends the tag's daemons.

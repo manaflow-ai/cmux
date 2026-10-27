@@ -6,6 +6,7 @@
 use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
 use super::SHARED_SIZING_CAPABILITY;
+use super::SizeStateReader;
 use super::connection_scheduler::REQUEST_THREAD_QOS;
 use super::machine_usage_json;
 use super::size_state_event_json;
@@ -14,6 +15,8 @@ use crate::GraphicsStatus;
 use crate::Mux;
 use crate::MuxEvent;
 use crate::SurfaceId;
+use crate::event_bus::MuxEventKind;
+use crate::event_bus::MuxEventKinds;
 use crate::panic_free::JsonFields;
 use crate::stream_interrupt::StreamInterrupt;
 use serde_json::Value;
@@ -43,20 +46,26 @@ pub(super) fn subscribe_command(
         "deltas" => true,
         other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
     };
-    let events = match surface {
-        Some(surface) => mux
+    // A page relay hears only its page's events (page-router.json `events`;
+    // client_hello admits its `subscribe` only when there are some). Their
+    // kinds filter its stream on the bus, so the others (a busy terminal's
+    // output) are never queued for it nor rendered to JSON.
+    let page_events = super::origin_gate::page_relay_events(mux, client);
+    let interest = page_events.and_then(page_event_kinds);
+    let events = match (surface, interest) {
+        (Some(surface), _) => mux
             .subscribe_surface_session(surface)
             .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?,
-        None => mux.subscribe(),
+        (None, Some(kinds)) => mux.subscribe_kinds(kinds),
+        (None, None) => mux.subscribe(),
     };
+    #[cfg(test)]
+    let probe = mux.control_clients.subscribe_probe(client);
     let event_mux = mux.clone();
     let trusted_pairing_client = mux.control_clients.is_unix(client);
     // Conversation events go to the person's own clients: the Unix socket
     // and authenticated WebSocket connections (`ws-conversations-v1`).
     let conversation_client = mux.control_clients.is_owner_client(client);
-    // A page relay hears only its page's events (page-router.json `events`;
-    // client_hello admits its `subscribe` only when there are some).
-    let page_events = super::origin_gate::page_relay_events(mux, client);
     // Its events are never tree deltas: render none only to drop them.
     let tree_deltas = tree_deltas && page_events.is_none();
     let pending_pairings = if trusted_pairing_client && page_events.is_none() {
@@ -96,6 +105,15 @@ pub(super) fn subscribe_command(
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
+            #[cfg(test)]
+            probe.received.note(&event);
+            // A surface stream is not filtered on the bus: drop an unwanted
+            // kind before any JSON is built.
+            if interest.is_some_and(|kinds| !kinds.accepts(&event)) {
+                continue;
+            }
+            #[cfg(test)]
+            probe.rendered.note(&event);
             let mut value = match &event {
                 MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
                     if !trusted_pairing_client =>
@@ -274,7 +292,9 @@ pub(super) fn subscribe_command(
                     let open = event_mux
                         .control_clients
                         .supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
-                    size_state_event_json(*surface, *runtime, state, Some((client, open)))
+                    let reader =
+                        SizeStateReader { client, open, scheme: event_mux.participant_scheme() };
+                    size_state_event_json(*surface, *runtime, state, Some(reader))
                 }
                 _ => subscribed_event_json(&event),
             };
@@ -299,6 +319,103 @@ pub(super) fn subscribe_command(
         }
     })?;
     Ok(json!({}))
+}
+
+/// What one connection's subscription took from the bus and what it
+/// started to render to JSON, per event kind: tests read it to see which
+/// events a filter kept out of a connection's stream.
+#[cfg(test)]
+#[derive(Default)]
+pub(super) struct SubscribeProbe {
+    pub(super) received: KindCounts,
+    pub(super) rendered: KindCounts,
+}
+
+#[cfg(test)]
+pub(super) struct KindCounts([std::sync::atomic::AtomicU64; MuxEventKind::COUNT]);
+
+#[cfg(test)]
+impl Default for KindCounts {
+    fn default() -> Self {
+        Self(std::array::from_fn(|_| std::sync::atomic::AtomicU64::new(0)))
+    }
+}
+
+#[cfg(test)]
+impl KindCounts {
+    fn note(&self, event: &MuxEvent) {
+        self.0[MuxEventKind::of(event) as usize].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(super) fn of(&self, kind: MuxEventKind) -> u64 {
+        self.0[kind as usize].load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+/// The kinds a page relay hearing the subscribe events `names` needs, or
+/// `None` when a name is one this map does not know (the stream is then
+/// filtered by name alone, as before).
+pub(super) fn page_event_kinds(names: &[String]) -> Option<MuxEventKinds> {
+    names.iter().try_fold(MuxEventKinds::NONE, |kinds, name| {
+        wire_event_kinds(name).map(|more| kinds.union(more))
+    })
+}
+
+/// The event kinds that can render as the subscribe event `name`
+/// ([`subscribed_event_json`] and the arms of [`subscribe_command`]). Tree
+/// delta names are left out: a page relay never hears deltas.
+pub(super) fn wire_event_kinds(name: &str) -> Option<MuxEventKinds> {
+    use MuxEventKind as Kind;
+    let kind = match name {
+        "surface-output" => Kind::SurfaceOutput,
+        "surface-resized" => Kind::SurfaceResized,
+        "surface-resize-failed" => Kind::SurfaceResizeFailed,
+        "surface-exited" => Kind::SurfaceExited,
+        "size-state" => Kind::SizeStateChanged,
+        "title-changed" => Kind::TitleChanged,
+        "agent-changed" => Kind::AgentChanged,
+        "agent-presence-changed" => Kind::AgentPresenceChanged,
+        "bell" => Kind::Bell,
+        "program-status-changed" => Kind::ProgramStatusChanged,
+        "notification" => Kind::Notification,
+        "graphics-status" => Kind::GraphicsStatus,
+        "status" => Kind::Status,
+        "machine-usage-changed" => Kind::MachineUsageChanged,
+        "config-reload-requested" => Kind::ConfigReloadRequested,
+        "window-title-requested" => Kind::WindowTitleRequested,
+        "scroll-changed" => Kind::ScrollChanged,
+        "tree-changed" => {
+            return Some(
+                MuxEventKinds::NONE
+                    .with(Kind::TreeChanged)
+                    .with(Kind::TreeSelectionChanged)
+                    .with(Kind::TreeDelta),
+            );
+        }
+        "frontend-projection-changed" => Kind::FrontendProjectionChanged,
+        "personal-changed" => Kind::PersonalChanged,
+        "bookmarks-changed" => Kind::BookmarksChanged,
+        "history-changed" => Kind::HistoryChanged,
+        "settings-changed" => Kind::SettingsChanged,
+        "keybindings-changed" => Kind::KeybindingsChanged,
+        "terminal-registry-changed" => Kind::TerminalRegistryChanged,
+        "terminal-reaped" => Kind::TerminalReaped,
+        "layout-changed" => Kind::LayoutChanged,
+        "client-attached" => Kind::ClientAttached,
+        "client-changed" => Kind::ClientChanged,
+        "client-detached" => Kind::ClientDetached,
+        "client-list-invalidated" => Kind::ClientListInvalidated,
+        "pairing-requested" => Kind::PairingRequested,
+        "pairing-resolved" => Kind::PairingResolved,
+        "empty" => Kind::Empty,
+        // ConversationEvent::wire_json and the draft arm above.
+        "chief-changed" | "participant-avatar-changed" => Kind::Conversation,
+        name if name.starts_with("conversation-") => Kind::Conversation,
+        // CloudEvent::wire_json.
+        name if name.starts_with("cloud-") => Kind::CloudConversation,
+        _ => return None,
+    };
+    Some(MuxEventKinds::NONE.with(kind))
 }
 
 pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
@@ -563,3 +680,7 @@ pub(super) fn subscription_overflow_json() -> Value {
 fn host_replica_needed(event: &crate::cloud_conversations::CloudEvent) -> bool {
     matches!(event, crate::cloud_conversations::CloudEvent::HostReplicaNeeded { .. })
 }
+
+#[cfg(all(test, unix))]
+#[path = "cmd_subscribe_tests.rs"]
+mod tests;

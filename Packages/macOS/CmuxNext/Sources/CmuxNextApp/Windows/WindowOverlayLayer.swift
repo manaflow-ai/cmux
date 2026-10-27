@@ -8,6 +8,12 @@ import CmuxNextWakeups
 
 /// Keeps a window's app overlays above its content child windows.
 ///
+/// With no visible content child window (a page attached as a view, or no
+/// page) nothing here crosses windows: the planes stay in their layout root,
+/// presented overlays draw in the overlay host's top layer in this window
+/// (feature `overlayTopLayer`, `WindowOverlayHost.topLayer`), and no panel is
+/// made or re-ordered. The rest is the fallback for page child windows.
+///
 /// Chromium pages are child `NSWindow`s that the CEF fork orders above the
 /// whole parent content, so anything drawn in the parent window (focus
 /// ring, inactive dim, drop highlight) disappears behind them. Two rules fix
@@ -181,7 +187,7 @@ final class WindowOverlayLayer {
     /// applies the deferred page update once the pass ends.
     func planeDidLayout(_ plane: OverlayPlane) {
         guard layoutDepth == 0 else { return }
-        // A layout outside the window's pass (`layoutSubtreeIfNeeded`).
+        // A layout outside the window's pass (a forced subtree layout).
         windowDidLayoutWork()
     }
 
@@ -278,7 +284,7 @@ final class WindowOverlayLayer {
             (plane.home as? LayoutRootView)?.returnPlaneHome()
         case .overlayWindow:
             guard !isTornDown else { return }
-            let container = host.panel.planeContainer
+            let container = host.topLayer.planeContainer
             if plane.superview !== container { container.addSubview(plane) }
             plane.syncFrame()
         }
@@ -380,7 +386,7 @@ final class WindowOverlayLayer {
             return
         }
         inGeometrySlice(.parentGeometry) {
-            if placement == .overlayWindow, let panel = WindowOverlayHost.existingHost(for: window)?.panel,
+            if placement == .overlayWindow, let panel = WindowOverlayHost.existingHost(for: window)?.madePanel,
                panel.parent === window, panel.frame != window.frame {
                 panel.setFrame(window.frame, display: false)
             }

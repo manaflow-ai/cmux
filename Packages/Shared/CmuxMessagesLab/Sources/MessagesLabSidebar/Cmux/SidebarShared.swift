@@ -3,45 +3,28 @@ import CoreText
 import Foundation
 import os
 
-/// cmux (Swift 6): a type that is not Sendable but whose values the list's render threads may share
-/// (`concurrentPerform`, the search and render queues): Core Graphics images, colors and color spaces,
-/// Core Text fonts, the configured time formatter, and values made only of them. All are immutable and
-/// thread-safe (Core Text Programming Guide, "Thread Safety"; DateFormatter since macOS 10.9, 64-bit).
-/// Never a CTLine, a CTTypesetter or a mutable object. Each conformance is declared at its type, so a
-/// new one shows in review.
-protocol SidebarShareable {}
-
-/// cmux (Swift 6): a ``SidebarShareable`` value that crosses to another thread. The module's one
-/// unchecked conformance (crash ratchet: MessagesLabSidebar unchecked 1); the text cache's store is
-/// the one unchecked lock state (`SidebarTextCache`).
-struct SidebarShared<Value: SidebarShareable>: @unchecked Sendable {
-    let value: Value
-    init(_ value: Value) { self.value = value }
+/// cmux (Swift 6): a Core Text font made once and read by every render thread (`concurrentPerform`,
+/// the search and render queues). Everything else the render threads share is checked Sendable: the
+/// SDK's Core Graphics overlay makes `CGImage`, `CGColor` and `CGColorSpace` Sendable, `DateFormatter`
+/// is Sendable, and the palette, render context, time formatter and render results declare it.
+/// `CTFont` is the one type here the SDK leaves unmarked, so this concrete wrapper is the module's one
+/// unchecked conformance (crash ratchet: MessagesLabSidebar unchecked waived 1); the text cache's
+/// store is the one unchecked lock state (`SidebarTextCache`).
+// crash-allow: `font` is a let of a CTFont, which is immutable once made, and Core Text font objects are safe to use from any thread (Core Text Programming Guide, "Thread Safety")
+struct SidebarFont: @unchecked Sendable {
+    let font: CTFont
+    init(_ font: CTFont) { self.font = font }
 }
-
-extension CGImage: SidebarShareable {}
-extension CGColor: SidebarShareable {}
-extension CGColorSpace: SidebarShareable {}
-extension CTFont: SidebarShareable {}
-extension Array: SidebarShareable where Element: SidebarShareable {}
-extension Optional: SidebarShareable where Wrapped: SidebarShareable {}
-/// Its calendar and formatters are configured in `init` and only read after it.
-extension ConversationTimeFormatter: SidebarShareable {}
-/// Colors and flags read on the main thread for one appearance.
-extension SidebarPalette: SidebarShareable {}
-/// Metrics, palette, color space and glyph images read on the main thread.
-extension SidebarRenderContext: SidebarShareable {}
 
 /// cmux (Swift 6): `body(i)` for every `i` in `0..<count` on all cores at once
 /// (`DispatchQueue.concurrentPerform`, the calling thread takes a share), the results in index order.
-func sidebarConcurrentMap<R: SidebarShareable>(_ count: Int, _ body: @Sendable (Int) -> R?) -> [R?] {
+func sidebarConcurrentMap<R: Sendable>(_ count: Int, _ body: @Sendable (Int) -> R?) -> [R?] {
     guard count > 0 else { return [] }
-    let results = OSAllocatedUnfairLock<[Int: SidebarShared<R>]>(initialState: [:])
+    let results = OSAllocatedUnfairLock<[Int: R]>(initialState: [:])
     DispatchQueue.concurrentPerform(iterations: count) { j in
         guard let r = body(j) else { return }
-        let shared = SidebarShared(r)
-        results.withLock { _ = $0.updateValue(shared, forKey: j) } // dictionary write
+        results.withLock { _ = $0.updateValue(r, forKey: j) } // dictionary write
     }
     let byIndex = results.withLock { $0 }
-    return (0..<count).map { byIndex.value(for: $0)?.value }
+    return (0..<count).map { byIndex.value(for: $0) }
 }

@@ -16,7 +16,9 @@ A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
 the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
 file in the tour's work directory, so a tour can show a setting (background
 art, a theme) and `cmux settings set` writes there, never to the runner's own
-settings. A step has a `title` and optionally:
+settings; and `features`: feature names the app launches with on
+(`CMUX_ENABLE_FEATURES`, schemas/features), for a feature that ships off and
+resolves once per launch. A step has a `title` and optionally:
 
     cmux      argv after `cmux`; app scopes get --app-socket, see `daemon`
     rpc       {"method": ..., "params": {...}}: one app control-socket request
@@ -80,7 +82,7 @@ MAX_OTHER_WINDOWS = 4
 MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
-TOUR_KEYS = {"title", "steps", "settings"}
+TOUR_KEYS = {"title", "steps", "settings", "features"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 POSTCONDITION_TIMEOUT = 2.0
@@ -137,6 +139,10 @@ def load_tour(path: Path) -> dict[str, Any]:
         raise TourError(f"{path}: `steps` must be a non-empty list")
     if "settings" in data and not isinstance(data["settings"], dict):
         raise TourError(f"{path}: `settings` must be an object (the cmux-next.json the app launches with)")
+    features = data.get("features", [])
+    if (not isinstance(features, list)
+            or not all(isinstance(name, str) and re.fullmatch(r"[a-z][A-Za-z0-9]*", name) for name in features)):
+        raise TourError(f"{path}: `features` must be a list of feature names (the app launches with them on)")
     if len(steps) > MAX_STEPS:
         raise TourError(f"{path}: {len(steps)} steps; split tours past {MAX_STEPS}")
     for number, step in enumerate(steps, 1):
@@ -178,7 +184,8 @@ def load_tour(path: Path) -> dict[str, Any]:
             if (not isinstance(expect.get("fields"), dict) or not expect["fields"]
                     or not all(isinstance(field, str) and field for field in expect["fields"])):
                 raise TourError(f"{where}: `expect.fields` must be a non-empty object of field names")
-    return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings")}
+    return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
+            "features": features}
 
 
 def command_line(argv: list[str]) -> str:
@@ -464,8 +471,9 @@ class App:
     """One launch of the app on a private socket, driven through its bundled CLI."""
 
     def __init__(self, app_path: Path, session: Session, workdir: Path, *, fresh_state: bool = False,
-                 settings: dict[str, Any] | None = None) -> None:
+                 settings: dict[str, Any] | None = None, features: list[str] | None = None) -> None:
         self.app_path = app_path
+        self.features = list(features or [])
         self.session = session
         self.fresh_state = fresh_state
         self.cli_path = app_path / "Contents/Resources/bin/cmux"
@@ -528,6 +536,8 @@ class App:
         knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1"]
         if self.settings_path:
             knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
+        if self.features:
+            knobs.append(f"CMUX_ENABLE_FEATURES={','.join(self.features)}")
         argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES"]
         with self.log_path.open("wb") as log:
             self.process = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT,
@@ -840,7 +850,8 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     shots = session.shareable(directory / "shots")
     frames = session.shareable(directory / "frames")
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
-    app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"))
+    app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"),
+              features=tour.get("features"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],

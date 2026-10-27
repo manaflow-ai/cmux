@@ -62,6 +62,8 @@ public struct DaemonCommandName: Sendable, Equatable, ExpressibleByStringLiteral
 
     /// Whether `wire` is `text`, byte for byte (a hash match alone may be another string).
     static func spells(_ text: StaticString, _ wire: String) -> Bool {
-        text.withUTF8Buffer { wire.utf8.elementsEqual($0) }
+        // SAFETY: the buffer is the literal's own UTF-8 bytes, static for the program's life; it is only read,
+        // inside the closure, and its count bounds the comparison.
+        unsafe text.withUTF8Buffer { unsafe wire.utf8.elementsEqual($0) }
     }
 }

@@ -5,7 +5,9 @@ public import ApplicationServices
 @inlinable
 public func blockingAXCopyAttributeValue(_ element: AXUIElement, _ attribute: CFString, _ value: UnsafeMutablePointer<CFTypeRef?>,
                                          _ permit: borrowing BlockingPermit, fileID: StaticString = #fileID, line: UInt = #line) -> AXError {
-    return blockingCall(.systemCall, permit, fileID: fileID, line: line) { AXUIElementCopyAttributeValue(element, attribute, value) }
+    // SAFETY: forwards the caller's pointers to AXUIElementCopyAttributeValue unchanged, only for the call; the
+    // caller's own `unsafe` states why they are valid for it.
+    return blockingCall(.systemCall, permit, fileID: fileID, line: line) { unsafe AXUIElementCopyAttributeValue(element, attribute, value) }
 }
 
 /// ``blockingAXSetAttributeValue(_:_:_:fileID:line:)`` in a lane or allowance body: `permit` is the body's ``BlockingPermit``.

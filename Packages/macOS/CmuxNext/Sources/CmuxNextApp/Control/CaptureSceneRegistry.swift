@@ -1,8 +1,11 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextBridge
 import CmuxNextEnergy
+import CmuxNextHibernation
 import CmuxNextResources
 import CmuxNextSettings
+import CmuxNextTabs
 import CmuxNextWakeups
 
 /// Describes the named DEBUG scenes available to the deterministic capture route.
@@ -20,6 +23,8 @@ final class CaptureSceneRegistry {
     var blockedTerminal: String?
     /// The terminals `home-chief` opened, closed after its snapshot.
     var openedTerminals: [String] = []
+    /// Puts back the seams `high-energy-tab` replaced (its readings, its clock, the card's pointer) before the next scene.
+    var restoreHighEnergyTab: (() -> Void)?
 
     /// Creates a registry bound to the running app services.
     init(services: AppServices) {
@@ -72,7 +77,8 @@ final class CaptureSceneRegistry {
                     && self.services.windows.controller(for: targetWindowID)?.sidebar.model.sections.flatMap(\.workspaces).contains { !$0.rowState.isPending } == true
                     && self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
-                    return view.webView.window != nil && !view.webView.isLoading
+                    // Shown and painted, in whichever engine shows the chat.
+                    return view.window != nil && view.page.hasPainted
                 }
             },
             start: start,
@@ -170,6 +176,8 @@ final class CaptureSceneRegistry {
         _ = await DebugAgentPane.handle(["action": .string("close_menus")], services)
         // The energy-saver scene's simulated Low Power Mode ends before any other scene draws.
         if name != Self.energySaverScene, services.energyMonitor.isSimulated { services.energyMonitor.simulate(nil) }
+        restoreHighEnergyTab?()
+        restoreHighEnergyTab = nil
         switch name {
         case "composer":
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
@@ -186,6 +194,8 @@ final class CaptureSceneRegistry {
             return .object(["hint": hint, "menu": menu])
         case Self.energySaverScene:
             return await showEnergySaver()
+        case Self.highEnergyTabScene:
+            return await showHighEnergyTab()
         case "hints-ctrl-held":
             let hint = await DebugShortcutHintControl().handle(["modifier": .string("ctrl")], services: services)
             let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
@@ -228,13 +238,63 @@ final class CaptureSceneRegistry {
         return .object(report)
     }
 
+    static let highEnergyTabScene = "high-energy-tab"
+
+    /// `high-energy-tab` (p14-energy-125): a browser tab opens in the focused pane as a person opens one and hides behind
+    /// the tab the pane showed; fixture renderer readings (``HighEnergySceneReadings``) give it 8 % of a core over a
+    /// whole window; then the pointer rests on it until its card shows "Using high energy" with Discard. The fixtures
+    /// and the card's pointer stay until the next scene. An error names the step that never happened.
+    private func showHighEnergyTab() async -> JSONValue {
+        guard let monitor = services.cache.hibernation?.highEnergy else {
+            return .object(["error": .string("feature highEnergyTabs is off: launch with CMUX_ENABLE_FEATURES=highEnergyTabs")])
+        }
+        let cache = services.cache
+        // A titled data page: the card names it without the network.
+        guard let pane = services.windows.active?.focusedPane, let shown = pane.stripModel.selectedID,
+              let url = URL(string: "data:text/html,%3Ctitle%3EVideo%20render%3C/title%3E%3Ch1%3EVideo%20render%3C/h1%3E"),
+              pane.newBrowserTab(url: url) else {
+            return .object(["error": .string("the active window has no focused pane to open a browser tab in")])
+        }
+        frames.start()
+        _ = await frames.settled(until: { pane.stripModel.selectedID.map { $0 != shown && cache.browsers[$0.rawValue] != nil } ?? false },
+                                 start: .now, window: 0, deadline: 5_000)
+        let opened = pane.stripModel.selectedID.flatMap { $0 != shown && cache.browsers[$0.rawValue] != nil ? $0 : nil }
+        if let opened { pane.select(shown) }
+        let hidden = await frames.settled(until: { opened.map { cache.lifecycle.phase($0.rawValue) == .mountedHidden } ?? true },
+                                          start: .now, window: 100, deadline: 5_000)
+        let strip = pane.view.stripView
+        guard let tab = opened, hidden != nil, let window = strip.window,
+              let center = strip.model.orderedTabs.firstIndex(where: { $0.id == tab }).flatMap({ TabStripDebug.tabCenter(in: strip, at: $0) }) else {
+            _ = frames.stop()
+            return .object(["error": .string("the scene's browser tab did not open and hide in the strip before the deadline")])
+        }
+        let restoreReadings = HighEnergySceneReadings(busy: tab.rawValue, share: 0.08).install(on: monitor)
+        let coordinator = services.hoverCards
+        let pointer = (coordinator.pointerLocation, coordinator.windowNumberAt, coordinator.appIsActive)
+        restoreHighEnergyTab = { [weak coordinator] in
+            restoreReadings()
+            if let coordinator { (coordinator.pointerLocation, coordinator.windowNumberAt, coordinator.appIsActive) = pointer }
+        }
+        let screen = window.convertPoint(toScreen: strip.convert(center, to: nil))
+        coordinator.pointerLocation = { screen }
+        coordinator.windowNumberAt = { _ in window.windowNumber }
+        coordinator.appIsActive = { true }
+        TabStripDebug.pointerMoved(in: strip, to: center)
+        let target = TabStripDebug.cardTarget(of: tab)
+        let settled = await frames.settled(until: { coordinator.isShowing(target) }, start: .now, window: 300, deadline: 4_000)
+        var report: [String: JSONValue] = ["tab": .string(tab.rawValue), "card_text": .string(coordinator.report["card_text"] ?? ""),
+                                           "high_energy_frames": frames.stop()]
+        if settled == nil { report["error"] = .string("the hidden tab's card did not show before the deadline") }
+        return .object(report)
+    }
+
     static let taskManagerScene = "task-manager"
 
     /// `task-manager`: opens the Task Manager in window `windowID` with `taskManagerMemorySaved` on,
     /// over the app's sample plus ``TaskManagerFixtureSource/captureDiscarded``, then waits until its
     /// page is in the window and lists those pages. An error names what never appeared.
     private func showTaskManager(windowID: String) async -> JSONValue {
-        guard let controller = services.windows.controller(for: windowID) else {
+        guard let controller = services.windows.controllerBuildingIfWaiting(for: windowID) else {
             return .object(["error": .string("capture window is gone")])
         }
         let taskManager = services.taskManager
@@ -247,6 +307,7 @@ final class CaptureSceneRegistry {
         frames.start()
         let settled = await frames.settled(
             until: {
+                // visibility-walk-allow: the capture waits for what AppKit shows before it snapshots the window; a node would mirror it a turn late
                 guard page.window != nil, !page.isHiddenOrHasHiddenAncestor, let model = taskManager.model else { return false }
                 return model.memorySaved && model.snapshot.discarded == TaskManagerFixtureSource.captureDiscarded
             },
@@ -292,6 +353,9 @@ final class CaptureSceneRegistry {
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "energy-saver",
                                description: "Energy Saver on through simulated Low Power Mode (feature energySaver): the sidebar footer's leaf and its card with the reason and Turn Off for Now."),
+        // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
+        CaptureSceneDefinition(name: "high-energy-tab",
+                               description: "A hidden browser tab whose renderer used 8 percent of one core over the last minute (feature highEnergyTabs, fixture readings): its hover card says Using high energy, with Discard."),
         CaptureSceneDefinition(name: "task-manager",
                                description: "The Task Manager with taskManagerMemorySaved on: the app's processes, then two pages Memory Saver discarded (one saved about 182 MB, one with no measurement) and the Memory Saver freed footer."),
     ]

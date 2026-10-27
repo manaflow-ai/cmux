@@ -1,7 +1,8 @@
 public import CmuxNextDaemon
-import CmuxNextCompat
-import CmuxNextWakeups
-import Observation
+public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 extension Array where Element == WorkspaceModel {
     /// Whether launch gives the tree its first workspace (`WindowManager.restore`, `FirstWorkspaceLaunch`):
@@ -43,25 +44,25 @@ public struct FirstWorkspaceLanding: Sendable {
     /// `home` once the store lists the Home workspace `ensure_home` named (`ensured`): a fresh
     /// store's snapshot can lag that reply, and on the very first launch landing must not depend on
     /// which came first. `listed` reads the listed workspace's id; it is waited for at most
-    /// `deadline`, then the launch makes a New Tab workspace as before.
+    /// `deadline` (nil also when the launch is cancelled), then the launch makes a New Tab
+    /// workspace as before. The wait is a ``FirstValueWait`` in `userBlocking` (the person waits
+    /// for the first window) on the app's schedulers.
     @MainActor
-    public func home(ensured: Bool, listed: @escaping @MainActor @Sendable () -> String?) async -> String? {
+    public func home(ensured: Bool, work: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+                     listed: @escaping @MainActor @Sendable () -> String?) async -> String? {
         guard launchIntoHome, !classic, ensured else { return nil }
         if let id = listed() { return id }
-        let expired = DeadlineFlag()
-        let timer = DemandTimer(owner: "first-workspace.home")
-        timer.schedule(after: deadline) { @MainActor in expired.passed = true }
-        defer { timer.cancel() }
-        for await (id, passed) in ObservationStream({ (listed(), expired.passed) }) {
-            if let id { return id }
-            if passed { return nil }
+        let limit = deadline
+        var wait: FirstValueWait<String>?
+        let home = try? await withOnceContinuation(cancellation: .cancellable, failingWith: { $0 }) {
+            (answer: OnceContinuation<String?, OnceContinuationError>) in
+            wait = FirstValueWait.start(.userBlocking, owner: "FirstWorkspace.home", within: limit, work: work, deadlines: deadlines,
+                                        read: listed) { id in
+                answer.resume(returning: id)
+            }
         }
-        return nil
+        // A cancelled launch stops the observation and its deadline now.
+        wait?.cancel()
+        return home
     }
-}
-
-/// Set when `FirstWorkspaceLanding`'s deadline passes, so its observation ends.
-@MainActor @Observable
-final class DeadlineFlag {
-    var passed = false
 }

@@ -12,7 +12,7 @@ public final class BrowserFolderAccess {
     private let store: any BrowserFolderGrantStore
     private let enabled: () -> Bool
 
-    public init(environment: ImportEnvironment = .live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) },
+    public init(environment: ImportEnvironment = .live(),
                 store: any BrowserFolderGrantStore = UserDefaultsBrowserFolderGrantStore(),
                 enabled: (() -> Bool)? = nil) {
         self.environment = environment

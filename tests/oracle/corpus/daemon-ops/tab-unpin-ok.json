@@ -49,6 +49,24 @@
       }
     },
     {
+      "id": "pin",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.pin",
+        "params": {},
+        "idempotencyKey": "tab-unpin-ok.pin"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -69,7 +87,30 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "round trip: the tab the before step pinned is unpinned"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-workspace#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.unpin",
+        "params": {},
+        "idempotencyKey": "tab-unpin-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

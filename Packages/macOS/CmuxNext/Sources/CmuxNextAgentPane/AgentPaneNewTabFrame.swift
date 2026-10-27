@@ -1,6 +1,9 @@
 public import AppKit
 public import CmuxNextCompat
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The app's last New Tab page frames (cx-ec99), one per pane size: a New Tab page that has not
 /// painted draws the one at its size, so Cmd-T never shows an empty pane. Each size keeps its own,
@@ -88,27 +91,60 @@ public final class AgentPaneNewTabFrame {
     /// today's content, size and appearance is held, and the page draws today's content (it drew an
     /// answer one page frame before the capture, and none came meanwhile); one capture per page at a
     /// time, never of a hidden page (perf-tabs I6), and none while the memory limit keeps no frame.
+    ///
+    /// The 400 ms settle is a `background` ``MainDeadline`` on the app's deadline scheduler (nobody sees the capture),
+    /// held on the page's ``AgentPageRedraw`` while it is pending.
     public func capture(_ view: AgentPaneView, in host: NSView) {
         let redraw = view.redraw
         guard capturesFrames, !redraw.givesNewTabFrame else { return }
         redraw.givesNewTabFrame = true
+        let deadlines = view.mainThread.deadlines
         view.model.whenPainted { [weak self, weak view, weak host, weak redraw] in
-            let settle = DemandTimer(owner: "newTab.frame.settle")
-            settle.schedule(after: .milliseconds(400)) { @MainActor in
-                withExtendedLifetime(settle) {}
-                defer { redraw?.givesNewTabFrame = false }
-                guard let self, let view, let host, let redraw, view.model.newTab != nil, !view.pageDrawsOverCovers, view.isDescendant(of: host),
-                      view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
-                let size = host.bounds.size, appearance = host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
-                let takenAt = self.generation, before = self.shows(view.model)
-                guard self.capturesFrames, size != .zero, before.0, self.image(size: size, appearance: appearance) == nil else { return }
-                // One page frame first: an answer handed to the page before this is drawn by then.
-                await withCheckedContinuation { done in redraw.afterNextFrame { done.resume() } }
-                guard self.capturesFrames, view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host),
-                      host.bounds.size == size, let snapshot = await view.pageSnapshot(), snapshot.size == size, view.snapshotKeepsClearAreas,
-                      takenAt == self.generation, self.shows(view.model) == before else { return }
-                self.store(snapshot, size: size, appearance: appearance, generation: takenAt)
+            guard let redraw else { return }
+            let settle = MainDeadline(owner: "AgentPaneNewTabFrame.settle", workClass: .background, scheduler: deadlines)
+            redraw.newTabSettle = settle
+            settle.schedule(after: .milliseconds(400)) { [weak self, weak view, weak host, weak redraw] in
+                redraw?.newTabSettle = nil
+                guard let self, let view, let host, let redraw else {
+                    redraw?.givesNewTabFrame = false
+                    return
+                }
+                self.captureSettled(view, in: host, redraw: redraw)
             }
+        }
+    }
+
+    /// The settle's capture: one page frame, then the page's picture, kept when nothing moved meanwhile.
+    private func captureSettled(_ view: AgentPaneView, in host: NSView, redraw: AgentPageRedraw) {
+        // visibility-walk-allow: the capture pictures what AppKit composites, so it reads AppKit's view state; a
+        // node says the tab is selected while its pane is parked hidden. Read twice per capture, never per frame
+        guard view.model.newTab != nil, !view.pageDrawsOverCovers, view.isDescendant(of: host), view.window != nil, !view.isHiddenOrHasHiddenAncestor
+        else {
+            redraw.givesNewTabFrame = false
+            return
+        }
+        let size = host.bounds.size, appearance = host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+        let takenAt = generation, before = shows(view.model)
+        guard capturesFrames, size != .zero, before.0, image(size: size, appearance: appearance) == nil else {
+            redraw.givesNewTabFrame = false
+            return
+        }
+        // main-hop-allow: the frame wait and pageSnapshot() are the page host's main-actor async calls (the engine's
+        // frame callback and picture); this task only starts them from the settle's background task, and its resumes
+        // store the picture
+        Task { [weak self, weak view, weak host, weak redraw] in
+            defer { redraw?.givesNewTabFrame = false }
+            guard let redraw else { return }
+            // One page frame first: an answer handed to the page before this is drawn by then.
+            // A page that drops its frame callback releases `done` (AgentPageRedraw): abandoned, nothing to capture.
+            let framed: Void? = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
+                redraw.afterNextFrame { done.resume(returning: ()) }
+            }
+            // visibility-walk-allow: as above, the second of the capture's two reads
+            guard let self, let view, let host, framed != nil, self.capturesFrames, view.window != nil, !view.isHiddenOrHasHiddenAncestor,
+                  view.isDescendant(of: host), host.bounds.size == size, let snapshot = await view.pageSnapshot(), snapshot.size == size,
+                  view.snapshotKeepsClearAreas, takenAt == self.generation, self.shows(view.model) == before else { return }
+            self.store(snapshot, size: size, appearance: appearance, generation: takenAt)
         }
     }
 

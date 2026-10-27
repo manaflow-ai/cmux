@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextStash
+import CmuxNextWakeups
 
 /// Save and Close (Stash, a native OneTab; StashActionCatalog): browser tabs, whole workspaces
 /// (every tab and its terminal), a workspace group or a window's workspaces go into one stashed
@@ -50,6 +51,7 @@ enum StashHandlers {
                 return found.isEmpty ? StashHandlerStrings.noPage : nil
             }
             ActionTargetVisibility.hide(id, in: registry) { invocation in
+                // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
                 guard invocation.target?.kind == .tab, let id = invocation.target?.id, let (_, pane) = services.locateTab(id) else { return false }
                 return !services.machines.daemon(forPane: pane).isLocal
             }
@@ -101,6 +103,7 @@ enum StashHandlers {
         let services = context.services
         let found: (TabModel, PaneModel)?
         if quiet {
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
             found = invocation.target.flatMap { $0.kind == .tab ? services.locateTab($0.id) : nil }
         } else {
             found = context.daemonTab(invocation).map { ($0.tab, $0.pane) }
@@ -178,14 +181,11 @@ enum StashHandlers {
 
     /// Runs `create` as the action's work; a person's run then offers Undo in `window`.
     private static func save(_ invocation: ActionInvocation, _ services: AppServices, workspaces: Bool, toastIn window: NSWindow?,
-                             _ create: @escaping @MainActor () async throws -> String) {
+                             _ create: @escaping @MainActor @Sendable () async throws -> String) {
         let user = invocation.origin == .user
-        report(services.registry, Task { @MainActor [weak services] in
-            let stashID: String
-            do { stashID = try await create() } catch { return ActionWorkFailure(RefusalStrings.describe(error)) }
+        report(services, owner: "StashHandlers.save", create) { [weak services] stashID in
             if user, let window, let services { offerUndo(stashID, workspaces: workspaces, in: window, services) }
-            return nil
-        })
+        }
     }
 
     /// "Saved to Stashed Tabs" with Undo, which restores the whole group where it was.
@@ -195,18 +195,28 @@ enum StashHandlers {
         handle.onAction = { [weak services] in
             guard let services else { return }
             let stash = services.historyPage.stash
-            report(services.registry, Task { @MainActor in
-                do { try await stash.restoreAll(stashID, workspaces: workspaces) } catch { return ActionWorkFailure(RefusalStrings.describe(error)) }
-                return nil
-            })
+            report(services, owner: "StashHandlers.undo") { try await stash.restoreAll(stashID, workspaces: workspaces) }
         }
     }
 
-    /// task-owner: a CLI or MCP run awaits `work` (`track`); a palette, menu or toast run nobody
-    /// waits on shows its failure as a refusal.
-    private static func report(_ registry: ActionRegistry, _ work: ActionWork) {
-        if registry.isCapturingWork { return registry.track(work) }
-        Task { @MainActor [weak registry] in if let failure = await work.value { registry?.refuse(failure.message) } }
+    /// Runs `work` as the action's work (``ActionRegistry/trackWork(owner:on:tracked:file:line:_:then:)``): the stash
+    /// calls run from its async part, and its end is one posted task, userBlocking for a person's run (p06 rule 2).
+    /// A CLI or MCP run awaits it (`track`); a palette, menu or toast run nobody waits on shows its failure as a refusal.
+    /// `done` is the end of a success.
+    private static func report<Value: Sendable>(_ services: AppServices, owner: String, _ work: @escaping @Sendable () async throws -> Value,
+                                                done: @escaping @MainActor @Sendable (Value) -> Void = { _ in }) {
+        let registry = services.registry, capturing = registry.isCapturingWork
+        registry.trackWork(owner: owner, on: services.mainWork, tracked: capturing, work) { [weak registry] result in
+            switch result {
+            case .success(let value):
+                done(value)
+                return nil
+            case .failure(let error):
+                let failure = ActionWorkFailure(RefusalStrings.describe(error))
+                if !capturing { registry?.refuse(failure.message) }
+                return failure
+            }
+        }
     }
 }
 

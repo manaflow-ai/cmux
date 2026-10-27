@@ -93,6 +93,8 @@ import Testing
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         throw .cannotStart("not started in this test")
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// Stand-in shim: the DevTools placement and commands record in order; every other symbol returns 0.

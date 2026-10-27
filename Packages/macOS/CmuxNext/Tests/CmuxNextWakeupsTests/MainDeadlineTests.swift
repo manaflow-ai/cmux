@@ -213,7 +213,7 @@ import Testing
 
     // MARK: Exemptions
 
-    @Test func recentMediaOrACaptureVoteDisablesAlignment() {
+    @Test func recentMediaOrAShowingCaptureVoteDisablesAlignment() {
         let harness = DeadlineHarness()
         let node = harness.node(.hidden)
         let deadline = harness.deadline("media", alignment: .whenHidden(node))
@@ -229,10 +229,15 @@ import Testing
         deadline.schedule(after: .milliseconds(300)) {}
         #expect(deadline.plannedWake?.rule == .hidden, "media 30 s ago")
 
-        node.setCaptured(true)
-        #expect(deadline.plannedWake?.rule == .flexible, "a capture vote places the pending wake again")
+        let screenshot = node.captureVote(reason: "test.screenshot", stayHidden: true)
+        #expect(deadline.plannedWake?.rule == .hidden, "a stayHidden capture keeps the timers aligned")
+        let mirror = node.captureVote(reason: "test.mirror", stayHidden: false)
+        #expect(deadline.plannedWake?.rule == .flexible, "a capture vote that shows the node places the pending wake again")
         deadline.schedule(after: .milliseconds(300)) {}
         #expect(deadline.plannedWake?.rule == .flexible, "a capture vote")
+        mirror.release()
+        #expect(deadline.plannedWake?.rule == .hidden, "the vote's release aligns the pending wake again")
+        screenshot.release()
     }
 
     @Test func mediaStartingReplansAPendingBudgetWakeAtOnce() {
@@ -257,9 +262,10 @@ import Testing
         let deadline = harness.deadline("capture", alignment: .whenHidden(node))
         deadline.schedule(after: .milliseconds(300)) {}
         #expect(harness.rig.timer.armedDate == 1_000 * ms)
-        node.setCaptured(true)
+        let vote = node.captureVote(reason: "test.mirror", stayHidden: false)
         #expect(deadline.plannedWake?.fire == .milliseconds(304))
         #expect(harness.rig.timer.armedDate == 304 * ms)
+        vote.release()
     }
 
     @Test func showingTheNodeReplansAPendingHiddenDeadline() {

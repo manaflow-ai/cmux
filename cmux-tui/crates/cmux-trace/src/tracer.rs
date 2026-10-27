@@ -462,6 +462,11 @@ impl Tracer {
         Ok(self.status())
     }
 
+    /// Whether a recording runs now (between a `start_recording` and its `stop`): one load.
+    pub fn recording(&self) -> bool {
+        self.control.load(Ordering::Relaxed) == RECORDING
+    }
+
     pub fn status(&self) -> Status {
         let active = self.active_ring();
         let recording = self.recording.get();
@@ -479,6 +484,13 @@ impl Tracer {
             heap_chunks_lost: self.file.get().map_or(0, |file| file.counter(off::HEAP_CHUNKS_LOST)),
             map_failures: self.map_failures.load(Ordering::Relaxed),
         }
+    }
+
+    /// How long the tracer has run, on its start clock: now less the heap ring's
+    /// `start_uptime_ns` (written once, when the tracer was made). No allocation or lock.
+    pub fn uptime_ns(&self) -> u64 {
+        let started = self.heap.a64(off::START_UPTIME_NS).load(Ordering::Relaxed);
+        (self.config.clocks.uptime_ns)().saturating_sub(started)
     }
 
     /// A consistent copy of the active ring, as its file would read. Allocates.

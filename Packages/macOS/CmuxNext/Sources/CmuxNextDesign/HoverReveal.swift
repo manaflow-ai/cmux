@@ -279,8 +279,10 @@ final class HoverRevealFocusRouter {
             let router = HoverRevealFocusRouter()
             router.window = window
             routers[ObjectIdentifier(window)] = router
+            // raw-observer-allow: AppKit posts no notice for a first-responder change; one KVO per window, for every reveal
             router.observation = window.observe(\.firstResponder, options: [.new]) { @Sendable [weak router] window, _ in
                 // KVO calls back synchronously on the changing thread: inline on main (a hop would reveal a focused button a turn late), a hop from anywhere else.
+                // main-hop-allow: AppKit changes the first responder on main, so this runs inline in the focus change's turn
                 MainDelivery().run { router?.responderDidChange(window.firstResponder) }
             }
             return router

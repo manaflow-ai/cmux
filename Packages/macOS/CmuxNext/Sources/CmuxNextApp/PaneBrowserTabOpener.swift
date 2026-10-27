@@ -108,6 +108,7 @@ struct PaneBrowserTabOpener {
             // create.tab: a foreground tab this window shows once the daemon made it.
             let createTabs = services.cache.createTabs
             let timing = createTabs.begin(choice.engine == .cef ? .chromium : .webkit, shows: !background && !beside && controller.showsNewTabs)
+            // main-hop-allow: the action's tracked work awaits the main-actor opener seam (BrowserTabOpeners); selection and focus run in its reply's job
             services.registry.track(Task {
                 do {
                     // A new tab the user asked for opens the New Tab page; an
@@ -213,6 +214,7 @@ extension PaneBrowserTabOpener {
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab)
         if let timing { cache.createTabs.expect(timing, tab: pending.tab, standIn: true) }
         controller.selectWhenReported(surface: pending.surface)
+        // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and moves the page in its reply's job
         services.registry.track(Task {
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }

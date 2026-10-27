@@ -36,18 +36,26 @@ extension MainFrameBudget {
         }
 
         /// The scheduled work one frame may hold in all (the sum of the shares): one main run loop
-        /// pass stays under the 8 ms stall target with input dispatch and the commit.
+        /// pass stays under the 8 ms stall target with input dispatch and the commit. userBlocking
+        /// work counts in it too.
         public var total: Duration { visible + automation + background }
+
+        /// The cap of ``MainWorkClass/userBlocking``: the visible + automation shares
+        /// (p06-scheduler.md, section 3A). It never runs past it on idle frame time, so a flood of it
+        /// leaves the background share and the first task of every other class.
+        public var userBlocking: Duration { visible + automation }
 
         /// The main run loop pass the budget protects: no main-thread stall over 8 ms
         /// (perf-lead.md section 1). The scheduled work of a frame plus the last render pass (layout,
         /// display, commit) stays under it: past 4 ms of render, the scheduled work gets less.
         public var passTarget: Duration = .milliseconds(8)
 
-        /// The budget of `workClass`; nil for the unbudgeted classes.
+        /// The budget of `workClass`; nil for the unbudgeted classes (idle work has a deadline per
+        /// idle period instead, ``IdleDeadline``).
         public func budget(_ workClass: MainWorkClass) -> Duration? {
             switch workClass {
-            case .input, .frame: nil
+            case .input, .frame, .idle: nil
+            case .userBlocking: userBlocking
             case .visible: visible
             case .automation: automation
             case .background: background

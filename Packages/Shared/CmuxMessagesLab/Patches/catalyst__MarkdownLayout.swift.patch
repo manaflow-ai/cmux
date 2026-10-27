@@ -1,14 +1,15 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownLayout.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownLayout.swift
-@@ -3,6 +3,7 @@
+@@ -3,6 +3,8 @@
  #else
  import AppKit
  #endif
 +import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
++import os
  
  // Markdown layout (shared/MARKDOWN.md): a parsed document at a column width becomes
  // a display list in body-local points (origin = the bubble's top-left; text starts
-@@ -73,10 +74,15 @@
+@@ -73,10 +75,15 @@
      var children: [MDAXNode] = []
  }
  
@@ -27,7 +28,7 @@
      let regions: [MDRegion]
      /// Display text: what selection offsets index and what Copy returns.
      let plain: String
-@@ -88,7 +94,7 @@
+@@ -88,7 +95,7 @@
      let proxy: TextLayout
  
      init(size: CGSize, frags: [MDFrag], boxes: [MDBox], regions: [MDRegion], plain: String, source: String, ax: [MDAXNode], identity: Int) {
@@ -36,7 +37,34 @@
          self.plain = plain; self.source = source; self.ax = ax; self.identity = identity
          let n = (plain as NSString).length
          proxy = TextLayout(text: plain, runs: [], lines: [TextLayout.Line(range: NSRange(location: 0, length: n), width: size.width)], width: size.width)
-@@ -157,7 +163,7 @@
+@@ -128,7 +135,8 @@
+ /// never loads a URL and never reads a file for `![alt](src)`: it asks this provider, and shows
+ /// the image only when the host returns one (an attachment, a local file the host allows).
+ /// Without a provider (the default) an image is a link or the text "[Image: alt]".
+-protocol MarkdownImageProvider: AnyObject {
++/// Sendable: layouts run on any thread and call it concurrently.
++protocol MarkdownImageProvider: AnyObject, Sendable {
+     /// The image for `source` (the destination exactly as written), or nil. Called during layout,
+     /// off the main thread: return only what the host already has, never fetch here. Answers
+     /// must be stable per source (block layouts are cached by content and width).
+@@ -136,12 +144,12 @@
+ }
+ 
+ enum MarkdownImages {
+-    private static let lock = NSLock()
+-    private static weak var current: MarkdownImageProvider?
++    private struct Current: Sendable { weak var provider: MarkdownImageProvider? }
++    private static let current = OSAllocatedUnfairLock(initialState: Current())
+     /// The host's provider (weak; nil by default). Set it before the first layout.
+     static var provider: MarkdownImageProvider? {
+-        get { lock.lock(); defer { lock.unlock() }; return current }
+-        set { lock.lock(); current = newValue; lock.unlock() }
++        get { current.withLock { $0.provider } }
++        set { current.withLock { $0.provider = newValue } }
+     }
+     /// Largest image height in a bubble (points).
+     static let maxHeight: CGFloat = 320
+@@ -157,7 +165,7 @@
  
  enum MarkdownLayoutEngine {
      /// Laid-out top-level blocks, keyed by block content and width (streams re-use all but the tail).
@@ -45,7 +73,7 @@
      struct BlockKey: Hashable { var block: MDBlock; var width: CGFloat; var columns: [CGFloat]? = nil }
  
      /// A block laid out at y = 0, x = 0 (content-local).
-@@ -172,6 +178,16 @@
+@@ -172,6 +180,16 @@
          var ax: [MDAXNode] = []
      }
  
@@ -62,7 +90,7 @@
      /// `tableColumns`: fixed column widths for the first table (a long message's table continued
      /// from an earlier block). `fill`: the inner width is the whole column (long rows are always
      /// column wide), not the widest content.
-@@ -188,14 +204,15 @@
+@@ -188,14 +206,15 @@
              var cols: [CGFloat]?
              if fixed != nil, case .table = b.kind { cols = fixed; fixed = nil }
              let key = BlockKey(block: MDBlock(kind: b.kind), width: maxWidth, columns: cols)
@@ -84,7 +112,74 @@
              }
              if let p = prev {
                  y += gap(p, b, nested: false)
-@@ -684,27 +701,36 @@
+@@ -378,9 +397,9 @@
+                 // typesetter only chooses the break.
+                 let sub = attr.attributedSubstring(from: range)
+                 let line = CTLineCreateWithAttributedString(sub)
+-                let lw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
++                let lw = CGFloat(line.typographicWidth)
+                 // A wrapped line's trailing space is not part of its drawn width.
+-                let tw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
++                let tw = CGFloat(line.typographicWidth) - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
+                 var lx = x
+                 switch align {
+                 case .center: lx = x + max(0, (w - tw) / 2)
+@@ -412,8 +431,8 @@
+             sub.enumerateAttribute(.mdStyle, in: NSRange(location: 0, length: sub.length)) { v, r, _ in
+                 guard let raw = v as? UInt16 else { return }
+                 let st = MDStyle(rawValue: raw)
+-                let x0 = CTLineGetOffsetForStringIndex(f.line, r.location, nil)
+-                let x1 = CTLineGetOffsetForStringIndex(f.line, NSMaxRange(r), nil)
++                let x0 = f.line.offset(forStringIndex: r.location)
++                let x1 = f.line.offset(forStringIndex: NSMaxRange(r))
+                 if st.contains(.code) {
+                     out.boxes.append(MDBox(rect: CGRect(x: f.origin.x + x0 - 1.5, y: f.origin.y + 1, width: x1 - x0 + 3, height: 14.5), kind: .inlineCode, region: f.region))
+                 }
+@@ -449,14 +468,14 @@
+                 }
+                 let sub = r.length > 0 ? attr.attributedSubstring(from: r) : NSAttributedString(string: "")
+                 let line = CTLineCreateWithAttributedString(sub)
+-                let lw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
++                let lw = CGFloat(line.typographicWidth)
+                 out.frags.append(MDFrag(attr: sub, line: line, origin: CGPoint(x: x + Markdown.codePadX, y: y), width: lw, baseline: Markdown.codeBaseline,
+                                         range: NSRange(location: plainLen + r.location, length: r.length), region: rid, role: .code, links: []))
+                 var lineW = lw
+                 if more > 0 {
+                     let label = NSAttributedString(string: "  " + Markdown.moreCharacters(more), attributes: [.font: Fixture.bodyFont, .mdRole: MDRole.more.rawValue])
+                     let ml = CTLineCreateWithAttributedString(label)
+-                    let mw = CGFloat(CTLineGetTypographicBounds(ml, nil, nil, nil))
++                    let mw = CGFloat(ml.typographicWidth)
+                     out.frags.append(MDFrag(attr: label, line: ml, origin: CGPoint(x: x + Markdown.codePadX + lw, y: y), width: mw, baseline: Markdown.bodyBaseline,
+                                             range: NSRange(location: plainLen + NSMaxRange(r), length: 0), region: rid, role: .more, links: []))
+                     lineW += mw
+@@ -507,7 +526,7 @@
+                     let m = markerText(i, it)
+                     let attr = NSAttributedString(string: m, attributes: [.font: markerFont, .kern: Fixture.bodyKern, .mdRole: MDRole.marker.rawValue])
+                     let line = CTLineCreateWithAttributedString(attr)
+-                    let mw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
++                    let mw = CGFloat(line.typographicWidth)
+                     out.frags.append(MDFrag(attr: attr, line: line, origin: CGPoint(x: x + ind - Markdown.markerGap - mw, y: y), width: mw, baseline: Markdown.bodyBaseline,
+                                             range: NSRange(location: plainLen, length: (m as NSString).length), region: -1, role: .marker, links: []))
+                     appendPlain(m + " ")
+@@ -546,7 +565,7 @@
+                         let line = CTLineCreateWithAttributedString(a)
+                         let word = MarkdownLayoutEngine.longestWord(a, line)
+                         // c < cols == every width array's count; written through checked slots.
+-                        if let s = maxW.checkedIndex(c) { maxW[s] = max(maxW[s], CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)).rounded(.up)) }
++                        if let s = maxW.checkedIndex(c) { maxW[s] = max(maxW[s], CGFloat(line.typographicWidth).rounded(.up)) }
+                         if let s = wordW.checkedIndex(c) { wordW[s] = max(wordW[s], word) }
+                         if let s = minW.checkedIndex(c) { minW[s] = max(minW[s], min(140, word)) }
+                     }
+@@ -640,7 +659,7 @@
+         let n = s.length
+         func measure(_ lo: Int, _ hi: Int) {
+             guard hi > lo else { return }
+-            best = max(best, CTLineGetOffsetForStringIndex(line, hi, nil) - CTLineGetOffsetForStringIndex(line, lo, nil))
++            best = max(best, line.offset(forStringIndex: hi) - line.offset(forStringIndex: lo))
+         }
+         for i in 0..<n {
+             let c = s.character(at: i)
+@@ -684,27 +703,36 @@
  
  // MARK: - LRU
  

@@ -60,4 +60,19 @@ public enum MemoryReleaseProgress: Hashable, Sendable {
     /// calls this one again on a later frame. A consumer that frees one costly item per frame returns
     /// this, so its pace never holds back a cheaper pass ordered after it.
     case yield
+    /// The consumer is at the slice's limit except for entries it kept because they are in its working set
+    /// (``MemoryLimit/workingSet``); the first of them leaves the working set `agesOutIn` from now. The
+    /// coordinator calls it again then, so the limit reaches those entries too once they go idle.
+    case keptWorkingSet(agesOutIn: Duration)
+
+    /// The end of a release that kept its in-use entries (``MemoryLimit/scale(_:inUse:)``):
+    /// ``keptWorkingSet(agesOutIn:)`` while the longest idle of them is still in the working set, else ``done``.
+    ///
+    /// - Parameter idle: The longest time since last use among the kept entries in the working set; nil when it
+    ///   kept none.
+    /// - Returns: What the turn left behind.
+    public static func finished(keptInUseIdleFor idle: Duration?) -> MemoryReleaseProgress {
+        guard let idle, MemoryLimit.isInWorkingSet(idle: idle) else { return .done }
+        return .keptWorkingSet(agesOutIn: MemoryLimit.workingSet - max(idle, .zero))
+    }
 }

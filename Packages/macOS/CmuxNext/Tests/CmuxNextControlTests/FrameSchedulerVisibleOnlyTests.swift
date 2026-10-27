@@ -80,11 +80,11 @@ import Testing
         var ticks = 0
         let client = FrameClient(owner: "glass", visibleOnly: window, on: scheduler) { _ in ticks += 1; return true }
         client.activate()
-        window.setCaptured(true)
+        let vote = window.captureVote(reason: "test.screenshot", stayHidden: true)
         #expect(window.wantsFrames && !client.isParked)
         scheduler.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
         #expect(ticks == 1, "a captured hidden client was not ticked")
-        window.setCaptured(false)
+        vote.release()
         #expect(!scheduler.hasLink, "the vote's end keeps the link")
         scheduler.frameDidFire(timestamp: 2, refreshInterval: 1.0 / 60)
         #expect(ticks == 1)
@@ -148,10 +148,10 @@ import Testing
         for frame in 1...5 {
             client?.activate()
             let watching = window.subscriberCounts
-            #expect(watching.flips == 1 && watching.exemptions == 1, "frame \(frame) watches the node \(watching) times")
+            #expect(watching.flips == 0 && watching.exemptions == 0 && watching.rendering == 1, "frame \(frame) watches the node \(watching) times")
             scheduler.frameDidFire(timestamp: Double(frame), refreshInterval: 1.0 / 60)
             let afterFire = window.subscriberCounts
-            #expect(afterFire.flips == 1 && afterFire.exemptions == 1, "a one-shot fire dropped its watch: \(afterFire)")
+            #expect(afterFire.flips == 0 && afterFire.exemptions == 0 && afterFire.rendering == 1, "a one-shot fire dropped its watch: \(afterFire)")
         }
         #expect(ticks == 5)
         window.set(.hidden)
@@ -160,7 +160,7 @@ import Testing
         client?.deactivate()
         client = nil
         let released = window.subscriberCounts
-        #expect(released.flips == 0 && released.exemptions == 0, "a released client still watches its node: \(released)")
+        #expect(released.flips == 0 && released.exemptions == 0 && released.rendering == 0, "a released client still watches its node: \(released)")
     }
 
     /// A client with no node ticks whatever anyone sees (today's behavior).

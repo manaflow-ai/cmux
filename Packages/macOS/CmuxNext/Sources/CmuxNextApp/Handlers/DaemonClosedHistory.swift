@@ -157,6 +157,7 @@ enum DaemonClosedHistory {
         let clock = ContinuousClock(), start = clock.now
         // Its browser tabs' pages restore the history they closed with (cx-d0d.59).
         if daemon.isLocal { services.cache.pageRequests.closedHistories.expect(item) }
+        // main-hop-allow: the person's reopen (Cmd-Shift-T, Undo) rest, userBlocking (p06 rule 2), tracked for a capturing caller: it awaits the reply, then shows the reopened item on main; post has no userBlocking class (task 208)
         services.registry.track(Task { @MainActor in
             guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
             let reopened: StateResourceClient.ReopenedItem
@@ -167,17 +168,19 @@ enum DaemonClosedHistory {
                 let tabs = reopened.tabIDs
                 let undo = services.closedTabs?.undoToasts
                 undo?.noteReopen(id: item.id, tabs: tabs.map(\.rawValue), reply: reply)
-                // task-owner: CloseUndoToasts.reopenWatch (the next reopen cancels it); event-driven
+                // task-owner: CloseUndoToasts.reopenWatch (the next reopen cancels it); keyed store waits, 30 s at most
                 undo?.reopenWatch?.cancel()
+                // main-hop-allow: debug.filepages timing of the person's reopen: it resumes on main only at the applied barrier and at each reopened tab's keyed store wait (StoreWaiters)
                 undo?.reopenWatch = Task { @MainActor [weak undo] in
                     await daemon.appliedThroughReply(on: connection, after: "reopen closed")
-                    let inStore = { tabs.allSatisfy { id in daemon.store.workspaces.contains { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.resourceID == id } } } } } }
-                    undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore())
+                    let store = daemon.store
+                    let inStore = tabs.allSatisfy { store.tab(idOrResource: $0.rawValue) != nil }
+                    undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore)
                     // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
-                    for await present in ObservationStream({ inStore() }) where present {
-                        undo?.noteReopenTabsArrived(start.duration(to: clock.now))
-                        return
+                    for tab in tabs {
+                        guard await store.waitForTab(resource: tab, timeout: .seconds(30)) != nil else { return }
                     }
+                    undo?.noteReopenTabsArrived(start.duration(to: clock.now))
                 }
             } catch {
                 daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
@@ -237,9 +240,18 @@ enum DaemonClosedHistory {
     /// Deletes `entry` for good on its daemon (History's Remove, Search
     /// Tabs' forget): it cannot be reopened any more.
     static func delete(_ entry: Entry, services: AppServices) {
-        services.registry.track(Task { @MainActor in
-            await deleteNow(entry, services: services).map { ActionWorkFailure($0) }
-        })
+        let daemon = entry.daemon, id = entry.item.id, isLocal = daemon.isLocal
+        releaseWindow(of: entry.item, daemon: daemon, services: services)
+        // The daemon's send path: the command runs on the connection and reports to a capturing caller.
+        daemon.send("closed.delete") { connection in
+            do {
+                try await connection.state.deleteClosed(id)
+            } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
+                // Already gone (a second Remove, or a reopen that ran first): the goal holds.
+                return
+            }
+            if isLocal { AgentHome.emptyStandardTrashPendingInBackground() }
+        }
     }
 
     /// ``delete(_:services:)`` that answers once the daemon deleted `entry`:
@@ -271,17 +283,11 @@ enum DaemonClosedHistory {
             releaseWindow(of: entry.item, daemon: entry.daemon, services: services)
         }
         for daemon in services.machines.daemons where daemon.store.servesStateResources {
-            services.registry.track(Task { @MainActor in
-                guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
-                do {
-                    try await connection.state.deleteAllClosed(sinceMs: sinceMs)
-                    if daemon.isLocal { emptyAgentHomeTrash() }
-                    return nil
-                } catch {
-                    daemon.logger.error("closed.delete all failed: \(String(describing: error), privacy: .public)")
-                    return "closed.delete: \(error)"
-                }
-            })
+            let isLocal = daemon.isLocal
+            daemon.send("closed.delete all") { connection in
+                try await connection.state.deleteAllClosed(sinceMs: sinceMs)
+                if isLocal { AgentHome.emptyStandardTrashPendingInBackground() }
+            }
         }
     }
 

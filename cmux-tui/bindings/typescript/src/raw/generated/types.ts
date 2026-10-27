@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169. */
+/* cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -93,6 +93,56 @@ export type AgentCLIStoredIntent = {
   "root_key": string;
   "session": string;
 };
+
+export type AgentInventoryAuth = "signedIn" | "signedOut" | "unknown";
+
+export type AgentInventoryChannel = "npm" | "bun" | "brew" | "brewCask" | "native" | "launcher" | "standalone" | "missing";
+
+export type AgentInventoryFamily = "claude" | "codex" | "opencode" | "pi" | "chief" | "gemini" | "amp" | "copilot" | "cursor";
+
+export type AgentInventoryHarness = {
+  "auth": AgentInventoryAuth;
+  "channel": AgentInventoryChannel;
+  /** When the owner's health check saved this row, in Unix milliseconds. */
+  "checkedAt": bigint;
+  /** Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know. */
+  "family": (AgentInventoryFamily) | null;
+  /** Harness profile id: 1-128 bytes of `[A-Za-z0-9._-]`. */
+  "id": string;
+  /** Latest registry version from the last successful check, or null. */
+  "latest": (string) | null;
+  /** When `latest` was checked, in Unix milliseconds; null when never checked. */
+  "latestCheckedAt": (bigint) | null;
+  /** True only when `version` and `latest` are both known and `latest` is newer. */
+  "outdated": boolean;
+  /** Installed semantic version, or null when unknown. */
+  "version": (string) | null;
+};
+
+export type AgentInventoryRefreshResult = {
+  "cached": true;
+  "harnesses": Array<AgentInventoryHarness>;
+  /** Canonical public machine id (`machine_…`) of the daemon that answered. */
+  "machine": string;
+  "view": "inventory";
+};
+
+export type AgentInventoryResult = {
+  "cached": true;
+  "harnesses": Array<AgentInventoryHarness>;
+  "view": "inventory";
+};
+
+export type AgentInventoryWatchActive = {
+  /** Canonical public machine id (`machine_…`) of the daemon that answered. */
+  "machine": string;
+  /** The owner's inventory revision when the lease became active. */
+  "revision": bigint;
+  /** Opaque lease id: `inventory_watch_` and 32 lowercase hex digits. */
+  "watch_id": string;
+};
+
+export type AgentInventoryWatchResult = (AgentInventoryWatchActive) | (EmptyResult);
 
 export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
 
@@ -372,6 +422,11 @@ export type BrowserRuntimeStatusResult = {
 
 export type BrowserRuntimeStopResult = {
   "stopped": true;
+};
+
+export type CancelStreamResult = {
+  "outcome": "applied" | "ended";
+  "stream": number;
 };
 
 export type CellPixelFailure = {
@@ -874,6 +929,7 @@ export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
+  "bulk_frame_max"?: (number) | null;
   "capabilities"?: Array<string>;
   "cli_path"?: (string) | null;
   "crate_version"?: (string) | null;
@@ -1488,6 +1544,24 @@ export type ServerStatsLockWaits = {
   "recent": Array<ServerStatsLockWait>;
 };
 
+export type ServerStatsMethodLatency = {
+  "class": string;
+  "handler_us": ServerStatsPercentiles;
+  "id": (number) | null;
+  "latency_us": ServerStatsPercentiles;
+  "lock_wait_us": ServerStatsPercentiles;
+  "method": string;
+  "trace_id": number;
+};
+
+export type ServerStatsPercentiles = {
+  "count": bigint;
+  "max": bigint;
+  "p50": bigint;
+  "p95": bigint;
+  "p99": bigint;
+};
+
 export type ServerStatsRegistryLock = {
   "contended_acquisitions": bigint;
   "hold_us": ServerStatsHistogram;
@@ -1555,6 +1629,7 @@ export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
   "ipc"?: ServerStatsIpc;
+  "ipc_methods"?: Array<ServerStatsMethodLatency>;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "lock_classes"?: ServerStatsLockClasses;
   "registry_lock": ServerStatsRegistryLock;

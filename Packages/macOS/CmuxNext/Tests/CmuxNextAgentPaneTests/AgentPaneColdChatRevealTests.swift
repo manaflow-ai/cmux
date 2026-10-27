@@ -4,6 +4,7 @@ import CmuxNextPages
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// Leo 2026-10-14, as the Claude app switches chats: a chat the pane has not drawn yet holds its
 /// page background for a beat with no busy mark popping up, then its page fades in (quick but
@@ -18,8 +19,8 @@ struct AgentPaneColdChatRevealTests {
     private static func pane(newTab: AgentPaneNewTab? = nil) throws -> (AgentPaneView, NSWindow) {
         _ = NSApplication.shared
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: newTab),
-                                              source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost(), newTab: newTab),
+                                              work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

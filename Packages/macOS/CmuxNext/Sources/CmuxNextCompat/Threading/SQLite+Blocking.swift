@@ -18,7 +18,9 @@ public import SQLite3
 @inlinable
 public func blockingSQLiteOpen(_ path: UnsafePointer<CChar>, _ database: UnsafeMutablePointer<OpaquePointer?>, _ flags: Int32,
                                _ vfs: UnsafePointer<CChar>? = nil, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.sqlite, fileID: fileID, line: line) { sqlite3_open_v2(path, database, flags, vfs) }
+    // SAFETY: forwards the caller's pointers to sqlite3_open_v2 unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.sqlite, fileID: fileID, line: line) { unsafe sqlite3_open_v2(path, database, flags, vfs) }
 }
 
 /// Compiles a statement, like `sqlite3_prepare_v2`, as a checked blocking call (kind ``BlockingKind/sqlite``):
@@ -38,7 +40,9 @@ public func blockingSQLiteOpen(_ path: UnsafePointer<CChar>, _ database: UnsafeM
 public func blockingSQLitePrepare(_ database: OpaquePointer?, _ sql: UnsafePointer<CChar>, _ byteCount: Int32,
                                   _ statement: UnsafeMutablePointer<OpaquePointer?>, _ tail: UnsafeMutablePointer<UnsafePointer<CChar>?>?,
                                   fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.sqlite, fileID: fileID, line: line) { sqlite3_prepare_v2(database, sql, byteCount, statement, tail) }
+    // SAFETY: forwards the caller's pointers to sqlite3_prepare_v2 unchanged, only for the call; the caller's own
+    // `unsafe` states why they are valid for it.
+    return blockingCall(.sqlite, fileID: fileID, line: line) { unsafe sqlite3_prepare_v2(database, sql, byteCount, statement, tail) }
 }
 
 /// Runs a statement one step, like `sqlite3_step`, as a checked blocking call (kind ``BlockingKind/sqlite``).
@@ -51,7 +55,9 @@ public func blockingSQLitePrepare(_ database: OpaquePointer?, _ sql: UnsafePoint
 @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSQLiteStep(_ statement: OpaquePointer?, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.sqlite, fileID: fileID, line: line) { sqlite3_step(statement) }
+    // SAFETY: forwards the caller's pointers to sqlite3_step unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.sqlite, fileID: fileID, line: line) { unsafe sqlite3_step(statement) }
 }
 
 /// Runs SQL text with no result rows, like `sqlite3_exec` with no callback, as a checked blocking call (kind
@@ -69,7 +75,9 @@ public func blockingSQLiteStep(_ statement: OpaquePointer?, fileID: StaticString
 public func blockingSQLiteExec(_ database: OpaquePointer?, _ sql: UnsafePointer<CChar>,
                                _ errorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>? = nil,
                                fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.sqlite, fileID: fileID, line: line) { sqlite3_exec(database, sql, nil, nil, errorMessage) }
+    // SAFETY: forwards the caller's pointers to sqlite3_exec unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.sqlite, fileID: fileID, line: line) { unsafe sqlite3_exec(database, sql, nil, nil, errorMessage) }
 }
 
 /// Closes a connection, like `sqlite3_close`, as a checked blocking call (kind ``BlockingKind/sqlite``): it
@@ -83,7 +91,9 @@ public func blockingSQLiteExec(_ database: OpaquePointer?, _ sql: UnsafePointer<
 @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable @discardableResult
 public func blockingSQLiteClose(_ database: OpaquePointer?, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.sqlite, fileID: fileID, line: line) { sqlite3_close(database) }
+    // SAFETY: forwards the caller's pointers to sqlite3_close unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.sqlite, fileID: fileID, line: line) { unsafe sqlite3_close(database) }
 }
 
 /// Closes a connection, like `sqlite3_close_v2`, as a checked blocking call (kind ``BlockingKind/sqlite``): it
@@ -97,7 +107,9 @@ public func blockingSQLiteClose(_ database: OpaquePointer?, fileID: StaticString
 @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable @discardableResult
 public func blockingSQLiteCloseV2(_ database: OpaquePointer?, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.sqlite, fileID: fileID, line: line) { sqlite3_close_v2(database) }
+    // SAFETY: forwards the caller's pointers to sqlite3_close_v2 unchanged, only for the call; the caller's own
+    // `unsafe` states why they are valid for it.
+    return blockingCall(.sqlite, fileID: fileID, line: line) { unsafe sqlite3_close_v2(database) }
 }
 
 /// Copies pages of a backup, like `sqlite3_backup_step`, as a checked blocking call (kind ``BlockingKind/sqlite``):
@@ -113,5 +125,7 @@ public func blockingSQLiteCloseV2(_ database: OpaquePointer?, fileID: StaticStri
 @inlinable
 public func blockingSQLiteBackupStep(_ backup: OpaquePointer?, _ pages: Int32,
                                      fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.sqlite, fileID: fileID, line: line) { sqlite3_backup_step(backup, pages) }
+    // SAFETY: forwards the caller's pointers to sqlite3_backup_step unchanged, only for the call; the caller's own
+    // `unsafe` states why they are valid for it.
+    return blockingCall(.sqlite, fileID: fileID, line: line) { unsafe sqlite3_backup_step(backup, pages) }
 }

@@ -13,10 +13,7 @@ extension TerminalSurfaceView {
             bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
             rectangle: false
         )
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let pointer = text.text, text.text_len > 0 else { return "" }
-        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        return unsafe GhosttyTextRead(surface, selection: selection)?.string
     }
 }

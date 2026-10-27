@@ -27,7 +27,7 @@ extension MainFrameBudgetTests {
         #expect(budget.mayRun(.input), "input never waits")
         #expect(budget.isRenderStarved)
         #expect(rig.starvation.stats.events == 1, "one late period reports once")
-        #expect(rig.starvation.stats.heldTasks == [1, 1, 1])
+        #expect(rig.starvation.stats.heldTasks == [1, 1, 1, 1])
         #expect(rig.starvation.last?.turn?.label == "job")
         #expect(rig.starvation.last?.link == rig.window.name)
         #expect(rig.visibility.asks == 1, "visibility is asked once per late period")
@@ -198,7 +198,7 @@ extension MainFrameBudgetTests {
             #expect(budget.mayRun(.automation), "cycle \(cycle): a check after the stall tick")
         }
         #expect(starvation.stats.events == 0)
-        #expect(starvation.stats.heldTasks == [0, 0, 0])
+        #expect(starvation.stats.heldTasks == [0, 0, 0, 0])
         spring.deactivate()
     }
 

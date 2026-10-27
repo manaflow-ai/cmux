@@ -1,7 +1,7 @@
 //! Earlier indeterminate receipts on the request path: `drain_unsettled`
 //! waits for the journal writer, a `journal_wait` noted at its caller.
 
-use std::sync::mpsc::sync_channel;
+use cmux_threads::sync::mpsc::sync_channel;
 use std::time::Duration;
 
 use super::*;

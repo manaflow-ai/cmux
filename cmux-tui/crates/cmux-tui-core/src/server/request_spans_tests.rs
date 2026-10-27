@@ -69,6 +69,39 @@ fn request_spans_method_id_is_the_commands_row() {
     }
 }
 
+/// Every method has its own lock op inside the lock tables, named by its
+/// wire name (`debug-daemon-locks`).
+#[test]
+fn request_spans_every_method_has_a_distinct_named_lock_op() {
+    use crate::diagnostics::{LOCK_OPS, LockOp};
+    use crate::resource::ResourceOperation;
+    let mut methods: Vec<(RequestMethod, String)> = COMMANDS
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let method = RequestMethod { id: index as u16, class: row.class };
+            (method, row.wire.to_owned())
+        })
+        .collect();
+    methods.extend(ResourceOperation::ALL.iter().map(|operation| {
+        (RequestMethod::of_resource(*operation), operation.wire_name().to_owned())
+    }));
+    methods.extend(MethodClass::ALL.iter().map(|class| {
+        let method =
+            RequestMethod { id: RequestMethod::ROUTED_BASE + *class as u16, class: *class };
+        (method, format!("routed.{}", class.as_str()))
+    }));
+    let mut seen = std::collections::HashSet::new();
+    for (method, name) in methods {
+        let op = method.lock_op();
+        assert!(usize::from(op.0) < LOCK_OPS, "{name} is past the lock table");
+        assert_ne!(op, LockOp::NONE, "{name}");
+        assert!(seen.insert(op.0), "{name} shares lock op {}", op.0);
+        assert_eq!(super::lock_op_name(op), name);
+    }
+    assert_eq!(super::lock_op_name(LockOp::NONE), "none");
+}
+
 #[test]
 fn request_spans_request_id_hash_is_fnv1a_of_the_id_text() {
     assert_eq!(request_id_hash::<Value>(None), 0);

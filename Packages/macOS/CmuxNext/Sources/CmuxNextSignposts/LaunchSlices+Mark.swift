@@ -27,12 +27,15 @@ nonisolated extension LaunchSlices {
         public let samplesTemperature: Bool
         /// The page-ins `clock` read, nil when the mark samples nothing or the count could not be read.
         public let pageins: UInt64?
+        /// Whether the mark is ``interruptedMark``.
+        public let interrupts: Bool
 
         /// Reads the page-ins from `clock` only for ``temperatureMark``.
         public init(mark: String, clock: LaunchClock) {
             milestone = Milestone(mark: mark)
             samplesTemperature = mark == LaunchSlices.temperatureMark
             pageins = samplesTemperature ? clock.pageins() : nil
+            interrupts = mark == LaunchSlices.interruptedMark
         }
     }
 
@@ -44,6 +47,8 @@ nonisolated extension LaunchSlices {
         public var temperature: LaunchClock.Temperature?
         /// The page-ins it was decided from; nil at every other mark or when they could not be read.
         public var pageins: UInt64?
+        /// Whether the launch was interrupted when this mark came (``interruptedMark``).
+        public var interrupted = false
 
         /// A mark that changed nothing.
         public init() {}
@@ -58,7 +63,20 @@ nonisolated extension LaunchSlices {
             temperature == nil ? nil : pageins.map { Int64(clamping: $0) }
         }
 
-        /// Writes the slices into `runtime`'s ring and records `launch.pageins` into its metrics.
+        /// The `launch.first_frame.<temperature>` sample this mark records: the first-frame slice's length, the
+        /// process start to the first window's first committed frame, in its temperature's histogram. Nil when the
+        /// mark released no first-frame slice, the launch was interrupted, or the temperature is undetermined. Chrome
+        /// records `Startup.FirstWebContents.NonEmptyPaint3` only when `ShouldLogStartupHistogram` (no interrupted
+        /// launch), and per temperature (`UmaHistogramWithTemperature`) only for a determined one
+        /// (components/startup_metric_utils/browser/startup_metric_utils.cc).
+        var firstFrameSample: (temperature: HistogramID.LaunchTemperature, duration: Duration)? {
+            guard !interrupted, let slice = slices.first(where: { $0.name == .launchFirstFrame }),
+                  let temperature = HistogramID.LaunchTemperature(slice.temperature) else { return nil }
+            return (temperature, .nanoseconds(slice.endNanos - slice.beginNanos))
+        }
+
+        /// Writes the slices into `runtime`'s ring and records `launch.pageins` and `launch.first_frame.<temperature>`
+        /// into its metrics.
         public func publish(into runtime: TraceRuntime) {
             for slice in slices {
                 slice.record(into: runtime)
@@ -66,13 +84,19 @@ nonisolated extension LaunchSlices {
             if let pageinsSample {
                 Metrics(runtime: runtime).record(.launchPageins, pageinsSample)
             }
+            if let firstFrame = firstFrameSample {
+                Metrics(runtime: runtime).record(.launchFirstFrame(firstFrame.temperature), duration: firstFrame.duration)
+            }
         }
     }
 
-    /// Applies one launch mark: ends its milestone's slice and, at ``temperatureMark``, decides the temperature and
-    /// releases the slices that waited for it. The owner calls it once per mark name.
+    /// Applies one launch mark: ends its milestone's slice, at ``interruptedMark`` interrupts the launch, and at
+    /// ``temperatureMark`` decides the temperature and releases the slices that waited for it. The owner calls it once
+    /// per mark name.
     public mutating func apply(_ reading: Reading, atUptimeNanos endNanos: UInt64) -> Step {
         var step = Step()
+        if reading.interrupts { interrupt() }
+        step.interrupted = interrupted
         if let milestone = reading.milestone, let slice = reach(milestone, atUptimeNanos: endNanos) {
             step.slices.append(slice)
         }

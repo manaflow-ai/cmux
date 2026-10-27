@@ -1,10 +1,13 @@
 import Foundation
 
 enum WireCoding {
+    /// Keys go on the wire as each type's `CodingKeys` spell them (the
+    /// generated wire types carry the schema's snake_case names), in encode
+    /// order: serde reads JSON objects by name, so neither a key rewrite
+    /// nor a sort is needed per line.
     static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        encoder.outputFormatting = [.withoutEscapingSlashes]
         return encoder
     }
 
@@ -13,18 +16,16 @@ enum WireCoding {
         WireDecoder(recorder: recorder)
     }
 
-    /// Encodes `{id, cmd, ...fields}` as one line (no newline). The field
-    /// names go to snake case; a ``VerbatimFieldsRequest``'s verbatim fields
-    /// are added after that, unchanged (the snake case strategy also renames
-    /// the keys inside nested objects).
+    /// Encodes `{id, cmd, ...fields}` as one line (no newline). A
+    /// ``VerbatimFieldsRequest``'s verbatim fields, which its `encode` leaves
+    /// out, are added unchanged.
     static func encodeRequest<R: DaemonRequest>(_ request: R, id: UInt64?) throws -> Data {
-        let line = try encoder().encode(RequestEnvelope(id: id, request: request))
+        let wire = encoder()
+        let line = try wire.encode(RequestEnvelope(id: id, request: request))
         guard let verbatim = request as? any VerbatimFieldsRequest,
-              case .object(var fields) = try JSONDecoder().decode(JSONValue.self, from: line) else { return line }
+              case .object(var fields) = try decoder().decode(JSONValue.self, from: line) else { return line }
         for (name, value) in verbatim.verbatimFields { fields.updateValue(value, forKey: name) }
-        let plain = JSONEncoder()
-        plain.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return try plain.encode(JSONValue.object(fields))
+        return try wire.encode(JSONValue.object(fields))
     }
 
     /// Decodes the `data` of an `ok:true` response line.

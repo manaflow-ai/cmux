@@ -278,9 +278,7 @@ final class ComposeAttachmentStrip {
 
     /// The thumbnail shown for an image (tests).
     func shownImage(_ id: ID) -> CGImage? {
-        guard let raw = imageLayers[id]?.image.contents else { return nil }
-        let contents = raw as AnyObject
-        return CFGetTypeID(contents) == CGImage.typeID ? unsafeDowncast(contents, to: CGImage.self) : nil
+        imageLayers[id]?.image.bitmapContents // cmux: the one checked downcast (RowDrawing.swift)
     }
 }
 

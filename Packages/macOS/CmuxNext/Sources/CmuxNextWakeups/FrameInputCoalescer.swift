@@ -89,6 +89,10 @@ public final class FrameInputCoalescer {
     private var inInterval: [PointerFrameConsumer] = []
     private var spareInterval: [PointerFrameConsumer] = []
     private var frameInterval = FrameInputCoalescer.defaultFrameInterval
+    /// ``frameInterval`` in seconds, for ``frameTime(for:)``.
+    private(set) var frameIntervalSeconds = FrameTick.defaultRefreshInterval
+    /// The time of the frame tick whose deliveries run now; nil outside a tick.
+    private(set) var tickTime: CFTimeInterval?
     /// Told when work becomes pending (true) and when none is left (false).
     var onPendingChange: (@MainActor (Bool) -> Void)?
 
@@ -117,7 +121,7 @@ public final class FrameInputCoalescer {
     /// consumer gets every event at once, never merged (Chrome's `needs_low_latency_`).
     public func consumer(owner: String, lowLatency: Bool = false,
                          deliver: @escaping @MainActor (PointerCoalescedInput) -> Void) -> PointerFrameConsumer {
-        PointerFrameConsumer(owner: owner, lowLatency: lowLatency, coalescer: self, deliver: deliver)
+        PointerFrameConsumer(owner: owner, lowLatency: lowLatency, coalescer: self) { input, _ in deliver(input) }
     }
 
     /// Queues `sample` for `owner`'s next frame delivery of `kind`; `body` replaces the body of
@@ -231,11 +235,16 @@ public final class FrameInputCoalescer {
     /// with input, so the next interval's input finds the link running (and needs no fallback); a
     /// frame after an interval with none goes idle.
     private func frameTick(_ tick: FrameTick) -> Bool { // perf-hot: 0.1ms frame-tick (a window's input stage, every frame while input comes)
-        if let interval = tick.refreshInterval, interval > 0 { frameInterval = .seconds(interval) }
+        if let interval = tick.refreshInterval, interval > 0 {
+            frameInterval = .seconds(interval)
+            frameIntervalSeconds = interval
+        }
         if fallbackArmed, linkRunning { cancelFallback() }
         let hadInput = !order.isEmpty || !inInterval.isEmpty
         if !order.isEmpty { frameFlushes += 1 }
+        tickTime = tick.timestamp
         flushAll(endingIntervals: true)
+        tickTime = nil
         return hadInput || !order.isEmpty
     }
 
@@ -259,6 +268,7 @@ public final class FrameInputCoalescer {
     /// Runs every pending delivery in arrival order; posts made by the bodies wait for the next frame.
     /// `endingIntervals`: a frame (or its fallback) ends every consumer's interval; a discrete flush
     /// ends only the intervals of the consumers it delivered.
+    // perf-hot: 10us input-coalesce
     private func flushAll(endingIntervals: Bool) {
         if !order.isEmpty {
             var due: [Slot] = []

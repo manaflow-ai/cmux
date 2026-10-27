@@ -74,6 +74,13 @@ CASES = {
          "func nap() {\n    // blocking-allow: test fixture for the escape\n    Thread.sleep(forTimeInterval: 0.1)\n}\n"),
         (UI, "func done() {\n    process.waitUntilExit()\n}\n",
          "func done() {\n    process.terminationHandler = { _ in }\n}\n"),
+        # A nested modal run loop (p02-threads-132), in any target and in a closure too.
+        (UI, "func ask() {\n    _ = alert.runModal()\n}\n",
+         "func ask(_ window: NSWindow) {\n    alert.beginSheetModal(for: window) { _ in }\n}\n"),
+        (SERVICE, "func pick() {\n    if let window { panel.beginSheetModal(for: window) { _ in } } else { _ = panel.runModal() }\n}\n",
+         "func pick() {\n    panel.begin { _ in }\n}\n"),
+        (UI, "func show() {\n    NSApp.runModal(for: window)\n}\n",
+         "func show() {\n    window.makeKeyAndOrderFront(nil)\n}\n"),
     ],
     "main-blocking ": [  # the same rule: cases the review found refused correct code
         (UI, "func load() async {\n    try await backoff.wait(owner: self)\n}\n", None),
@@ -108,6 +115,8 @@ CASES = {
          "main-blocking"),
         (UI, "func f() {\n    while running,\n          ready {\n        semaphore.blockingWait()\n    }\n}\n", "main-blocking"),
         (UI, "var path: String {\n    _ = FileManager.checked.fileExists(atPath: p)\n    return p\n}\n", "main-blocking"),
+        # NSPrintOperation's sheet form returns at once: it is no nested modal loop.
+        (UI, "func print() {\n    op.runModal(for: window, delegate: ended, didRun: nil, contextInfo: nil)\n}\n", None),
     ],
     "raw-blocking": [
         (SERVICE, "func load() -> Data? {\n    try? Data(contentsOf: url)\n}\n",

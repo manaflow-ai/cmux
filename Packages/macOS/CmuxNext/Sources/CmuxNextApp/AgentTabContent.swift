@@ -18,15 +18,17 @@ struct AgentTabContent {
 
     func content(_ key: String) -> TabContent? {
         let services = pane.services
-        let focused = pane.workspace?.focus.state.pane
-        let deferred = services.agentTabs.deferAtLaunch(
-            key, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
-            focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
-        ) { [weak pane] in
+        let focusedPane = pane.workspace?.focus.state.pane
+        let focused = focusedPane == pane.paneKey
+        let focusedTerminalDraws = focusedPane.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
+        let deferred = services.agentTabs.deferAtLaunch(key, focused: focused, focusedTerminalDraws: focusedTerminalDraws,
+                                                        reveal: services.launchReveal, startup: services.launchStartup) { [weak pane] in
             if let pane, pane.currentTabKey == key { pane.showSelected() }
         }
         if deferred {
             drawLastPage(key, until: nil)
+            // The focused pane's picture is its first content: the pane region shows it in the first frame.
+            if focused, pane.view.launchImageView != nil { services.launchReveal.markReady(.pane) }
             return nil
         }
         guard let view = services.agentTabs.view(for: key) else {

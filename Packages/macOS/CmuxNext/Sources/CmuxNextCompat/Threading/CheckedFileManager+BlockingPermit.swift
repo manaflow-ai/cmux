@@ -12,7 +12,9 @@ extension CheckedFileManager {
     @available(*, noasync, message: "Run blocking work in a lane body: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?, _ permit: borrowing BlockingPermit, fileID: StaticString = #fileID, line: UInt = #line) -> Bool {
-        return blockingCall(.fileIO, permit, fileID: fileID, line: line) { FileManager.default.fileExists(atPath: path, isDirectory: isDirectory) }
+        // SAFETY: forwards the caller's pointer to fileExists unchanged, only for the call; the caller's own `unsafe`
+        // states why it is valid for it.
+        return blockingCall(.fileIO, permit, fileID: fileID, line: line) { unsafe FileManager.default.fileExists(atPath: path, isDirectory: isDirectory) }
     }
 
     /// ``isReadableFile(atPath:fileID:line:)`` in a lane or allowance body: `permit` is the body's ``BlockingPermit``.
@@ -201,7 +203,9 @@ extension CheckedFileManager {
     @available(*, noasync, message: "Run blocking work in a lane body: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func trashItem(at url: URL, _ permit: borrowing BlockingPermit, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>? = nil, fileID: StaticString = #fileID, line: UInt = #line) throws {
-        try blockingCall(.fileIO, permit, fileID: fileID, line: line) { try FileManager.default.trashItem(at: url, resultingItemURL: outResultingURL) }
+        // SAFETY: forwards the caller's result pointer to trashItem unchanged, only for the call; the caller's own
+        // `unsafe` states why it is valid for it (nil writes nothing).
+        try blockingCall(.fileIO, permit, fileID: fileID, line: line) { try unsafe FileManager.default.trashItem(at: url, resultingItemURL: outResultingURL) }
     }
 
     /// ``url(for:in:appropriateFor:create:fileID:line:)`` in a lane or allowance body: `permit` is the body's ``BlockingPermit``.

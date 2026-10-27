@@ -231,7 +231,7 @@ final class ChromeView: UIView {
                     ctx.saveGState()
                     UIBezierPath(ovalIn: r).addClip()
                     // an optional gradient draws nothing when it fails (CrashSafeGraphics).
-                    let g = CGGradient(colorsSpace: space, colors: [col(c.0), col(c.1)] as CFArray, locations: [0.15, 0.85])
+                    let g = CGGradient.checked(colorsSpace: space, colors: [col(c.0), col(c.1)], locations: [0.15, 0.85])
                     ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: r.minY), end: CGPoint(x: 0, y: r.maxY), options: [])
                     ctx.restoreGState()
                     UIColor(white: 1, alpha: 0.35).setStroke()

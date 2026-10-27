@@ -1,0 +1,90 @@
+// Copyright 2019 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module remote_cocoa.mojom;
+
+import "mojo/public/mojom/base/string16.mojom";
+import "ui/base/ime/mojom/text_edit_commands.mojom";
+import "ui/gfx/geometry/mojom/geometry.mojom";
+import "ui/gfx/range/mojom/range.mojom";
+
+// Interface exposing a views::Widget's currently-focused views::View's
+// ui::TextInputClient to the NSView corresponding to that views::Widget.
+interface TextInputHost {
+  // Returns true in |has_client| if there exists an active ui::TextInputClient
+  // for the focused views::View.
+  [Sync]
+  HasClient() => (bool has_client);
+
+  // Returns true in |has_input_context|| if -[NSView inputContext] should
+  // return a non-nil value.
+  [Sync]
+  HasInputContext() => (bool has_input_context);
+
+  // Returns true in |is_rtl| if there exists an active ui::TextInputClient and
+  // that ui::TextInputClient is RTL (right-to-left).
+  [Sync]
+  IsRTL() => (bool is_rtl);
+
+  // Retrieves the character range of current selection in the current text
+  // input. Returns an invalid range if the information cannot be retrieved
+  // right now or if the selected text is not in the focused views::View.
+  [Sync]
+  GetSelectionRange() => (gfx.mojom.Range range);
+
+  // Retrieves the currently selected text, and stores it in |text|. Returns
+  // false in |result| if there was no selection.
+  [Sync]
+  GetSelectionText() => (bool result, mojo_base.mojom.String16 text);
+
+  // Inserts a given text at the insertion point.
+  InsertText(mojo_base.mojom.String16 text, bool as_character);
+
+  // Deletes contents in the given character range.
+  DeleteRange(gfx.mojom.Range range);
+
+  // Sets composition text in the current ui::TextInputClient to |text| with
+  // selection range |selected_range|, and delete the content of
+  // |replacement_range|.
+  SetCompositionText(mojo_base.mojom.String16 text,
+                     gfx.mojom.Range selected_range,
+                     gfx.mojom.Range replacement_range);
+
+  // Converts current composition text into final content.
+  ConfirmCompositionText();
+
+  // Returns true in |has_composition_text| if there is composition text.
+  [Sync]
+  HasCompositionText() => (bool has_composition_text);
+
+  // Returns in |composition_range| the character range of current composition
+  // text.
+  [Sync]
+  GetCompositionTextRange() => (gfx.mojom.Range composition_range);
+
+  // Returns in |text| the string corresponding to |requested_range| for current
+  // ui::TextInputClient. If a gfx::Range::InvalidRange() is passed, the full
+  // string stored by for the current ui::TextInputClient is returned. Sets
+  // |actual_range| corresponding to the returned string.
+  [Sync]
+  GetAttributedSubstringForRange(gfx.mojom.Range requested_range) =>
+      (mojo_base.mojom.String16 text, gfx.mojom.Range actual_range);
+
+  // Returns in |rect| the boundary rectangle for composition characters in the
+  // |requested_range|. Sets |actual_range| corresponding to the returned
+  // rectangle. For cases where there is no composition text or the
+  // |requested_range| lies outside the composition range, a zero width
+  // rectangle corresponding to the caret bounds is returned.
+  [Sync]
+  GetFirstRectForRange(gfx.mojom.Range requested_range) =>
+      (gfx.mojom.Rect rect, gfx.mojom.Range actual_range);
+
+  // Returns true if |command| is currently allowed to be executed. Used to
+  // populate macOS menubar text edit commands in app shim applications.
+  [Sync]
+  IsTextEditCommandEnabled(ui.mojom.TextEditCommand command) => (bool enabled);
+
+  // See ui/base/ime/text_input_client.h for definition.
+  SetTextEditCommandForNextKeyEvent(ui.mojom.TextEditCommand command);
+};

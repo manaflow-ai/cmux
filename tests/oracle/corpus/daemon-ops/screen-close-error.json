@@ -49,6 +49,26 @@
       }
     },
     {
+      "id": "second-screen",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "screen.create",
+        "params": {
+          "name": "second"
+        },
+        "idempotencyKey": "screen-close-error.second-screen"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -59,19 +79,35 @@
       "args": {
         "method": "screen.close",
         "params": {
-          "expected_revision": -1
+          "expected_revision": "1"
         },
         "idempotencyKey": "screen-close-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "revision.conflict",
+        "errorDetails": {
+          "expected": "1"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "expected_revision breaks its catalog type (value must be an unsigned decimal string); the daemon's catalog check refuses it"
+      "note": "expected_revision 1 is older than the fixture's commits: revision.conflict (details expected 1; actual is the current revision), nothing written; both screens stay"
+    },
+    {
+      "id": "two-screens",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 2
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

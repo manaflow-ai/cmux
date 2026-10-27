@@ -19,6 +19,8 @@ public import CmuxNextWakeups
     public private(set) var isAppHidden: Bool
     /// The displays sleep (`NSWorkspace.screensDidSleepNotification` came last).
     public private(set) var screensAsleep = false
+    /// Whether one of the app's windows shows; ``windowNode(_:name:)`` tracks each window.
+    public let shownWindows = ShownWindows()
     /// The notices it follows; kept here, as a subscription holds its fan-out only weakly.
     private let appEvents: AppEvents
     private let workspaceEvents: AppEvents
@@ -38,11 +40,21 @@ public import CmuxNextWakeups
         node = VisibilityNode(root: "app", own: isAppHidden ? .hidden : .visible, uptime: uptime)
         let owner = "AppVisibilitySource"
         subscriptions = [
+            // raw-observer-allow: an AppEvents subscription, the recipe R-notif asks for (the app's one observer per notice); only the notice's name matches
             appEvents.subscribe(NSApplication.didHideNotification, owner: owner) { [weak self] in self?.setHidden(true) },
+            // raw-observer-allow: an AppEvents subscription, the recipe R-notif asks for (the app's one observer per notice); only the notice's name matches
             appEvents.subscribe(NSApplication.didUnhideNotification, owner: owner) { [weak self] in self?.setHidden(false) },
             workspaceEvents.subscribe(NSWorkspace.screensDidSleepNotification, owner: owner) { [weak self] in self?.setAsleep(true) },
             workspaceEvents.subscribe(NSWorkspace.screensDidWakeNotification, owner: owner) { [weak self] in self?.setAsleep(false) },
         ]
+    }
+
+    /// `window`'s node (``WindowVisibilitySource``) under the app's, counted in ``shownWindows``.
+    /// The window's owner calls it once, before any view reaches the window.
+    public func windowNode(_ window: NSWindow, name: String) -> VisibilityNode {
+        let windowNode = WindowVisibilitySource.of(window, name: name, app: node).node
+        shownWindows.track(windowNode)
+        return windowNode
     }
 
     /// The app's state from its two facts: hidden wins over asleep.

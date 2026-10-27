@@ -62,8 +62,7 @@ public struct FirefoxPasswordCrypto: Sendable {
         } catch .undecryptable {
             throw refusal
         }
-        let checks = opened.withUnsafeBytes { $0.starts(with: Self.check) }
-        guard checks else { throw refusal }
+        guard opened.starts(with: Self.check) else { throw refusal }
 
         var sealed: [([UInt8], [UInt8])] = []
         do {
@@ -136,16 +135,20 @@ public struct FirefoxPasswordCrypto: Sendable {
                 }
                 let scheme = try parameters.child(1, tag: NSSDER.sequence)
                 guard try scheme.child(0, tag: NSSDER.objectIdentifier).oid() == aes256CBC, keyLength == kCCKeySizeAES256,
-                      (1...10_000_000).contains(iterations) else { throw Failure.unsupportedScheme }
+                      (1...10_000_000).contains(iterations), let rounds = UInt32(exactly: iterations) else { throw Failure.unsupportedScheme }
                 var iv = try scheme.child(1, tag: NSSDER.octetString).content
                 // NSS stores a 14-byte IV; the cipher IV is it with its own DER header in front.
                 if iv.count == 14 { iv = [NSSDER.octetString, 14] + iv }
                 guard iv.count == kCCBlockSizeAES128 else { throw Failure.malformed }
                 let key = SecretBytes(capacity: keyLength) { out in
                     let status = hashed.withUnsafeBytes { password in
-                        CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), password.baseAddress?.assumingMemoryBound(to: Int8.self), password.count,
-                                             salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256), UInt32(iterations),
-                                             out.baseAddress?.assumingMemoryBound(to: UInt8.self), keyLength)
+                        // SAFETY: CommonCrypto reads password.count bytes of the hash's view and salt.count of
+                        // `salt`, and writes keyLength bytes to `out`, which holds exactly that capacity
+                        // (SecretBytes.init). The views are bytes, valid while these closures run; Int8 and
+                        // UInt8 views of bytes may alias.
+                        unsafe CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), password.baseAddress?.assumingMemoryBound(to: Int8.self),
+                                                    password.count, salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+                                                    rounds, out.baseAddress?.assumingMemoryBound(to: UInt8.self), keyLength)
                     }
                     return status == kCCSuccess ? keyLength : 0
                 }
@@ -172,52 +175,93 @@ public struct FirefoxPasswordCrypto: Sendable {
         let chp = sha1([entrySalt], prefix: hashed)
         let k1 = hmacSHA1(key: chp, padded + entrySalt)
         let tk = hmacSHA1(key: chp, padded)
-        let k2 = tk.withUnsafeBytes { hmacSHA1(key: chp, Array($0) + entrySalt) }
-        let key = SecretBytes(capacity: 40) { out in
+        let k2 = hmacSHA1(key: chp, prefix: tk, entrySalt)
+        let digest = CC_SHA1_DIGEST_LENGTH.widened
+        let key = SecretBytes(capacity: 2 * digest) { out in
             k1.withUnsafeBytes { a in k2.withUnsafeBytes { b in
-                for index in 0..<20 {
-                    out[index] = a[index]
-                    out[20 + index] = b[index]
-                }
+                // SAFETY: `a` and `b` are HMAC-SHA1 outputs of exactly `digest` (20) bytes each and `out`
+                // holds 2 * digest; the two copies fill out[0..<20] and out[20..<40], all inside, from
+                // views valid while these closures run.
+                unsafe UnsafeMutableRawBufferPointer(rebasing: out.prefix(digest)).copyMemory(from: a)
+                unsafe UnsafeMutableRawBufferPointer(rebasing: out.dropFirst(digest).prefix(digest)).copyMemory(from: b)
             } }
-            return 40
+            return 2 * digest
         }
-        let iv = key.withUnsafeBytes { Array($0[32..<40]) }
+        let iv = key.withUnsafeBytes { bytes in
+            // SAFETY: `bytes` holds the 40 key bytes written above, so 32..<40 is inside; Array copies them.
+            unsafe Array(bytes.dropFirst(32).prefix(8))
+        }
         return (key, iv)
     }
 
     // MARK: Primitives (outputs in SecretBytes)
 
     static func sha1(_ parts: [[UInt8]], secret: SecretBytes) -> SecretBytes {
-        SecretBytes(capacity: Int(CC_SHA1_DIGEST_LENGTH)) { out in
+        SecretBytes(capacity: CC_SHA1_DIGEST_LENGTH.widened) { out in
             var context = CC_SHA1_CTX()
-            CC_SHA1_Init(&context)
-            for part in parts { CC_SHA1_Update(&context, part, CC_LONG(part.count)) }
-            secret.withUnsafeBytes { _ = CC_SHA1_Update(&context, $0.baseAddress, CC_LONG($0.count)) }
-            CC_SHA1_Final(out.baseAddress?.assumingMemoryBound(to: UInt8.self), &context)
-            _ = memset_s(&context, MemoryLayout<CC_SHA1_CTX>.size, 0, MemoryLayout<CC_SHA1_CTX>.size)
-            return Int(CC_SHA1_DIGEST_LENGTH)
+            // SAFETY: each call below gets the local `context`, live for the call, and reads part.count
+            // bytes of each array, lent for the call; sha1Final writes the digest into `out`.
+            _ = unsafe CC_SHA1_Init(&context)
+            for part in parts { _ = unsafe CC_SHA1_Update(&context, part, CC_LONG(part.count)) }
+            secret.withUnsafeBytes { bytes in
+                // SAFETY: reads bytes.count bytes of the secret's view, valid while this closure runs.
+                _ = unsafe CC_SHA1_Update(&context, bytes.baseAddress, CC_LONG(bytes.count))
+            }
+            return unsafe sha1Final(&context, into: out)
         }
     }
 
     static func sha1(_ parts: [[UInt8]], prefix: SecretBytes) -> SecretBytes {
-        SecretBytes(capacity: Int(CC_SHA1_DIGEST_LENGTH)) { out in
+        SecretBytes(capacity: CC_SHA1_DIGEST_LENGTH.widened) { out in
             var context = CC_SHA1_CTX()
-            CC_SHA1_Init(&context)
-            prefix.withUnsafeBytes { _ = CC_SHA1_Update(&context, $0.baseAddress, CC_LONG($0.count)) }
-            for part in parts { CC_SHA1_Update(&context, part, CC_LONG(part.count)) }
-            CC_SHA1_Final(out.baseAddress?.assumingMemoryBound(to: UInt8.self), &context)
-            _ = memset_s(&context, MemoryLayout<CC_SHA1_CTX>.size, 0, MemoryLayout<CC_SHA1_CTX>.size)
-            return Int(CC_SHA1_DIGEST_LENGTH)
+            // SAFETY: each call below gets the local `context`, live for the call, and reads part.count
+            // bytes of each array, lent for the call; sha1Final writes the digest into `out`.
+            _ = unsafe CC_SHA1_Init(&context)
+            prefix.withUnsafeBytes { bytes in
+                // SAFETY: reads bytes.count bytes of the secret's view, valid while this closure runs.
+                _ = unsafe CC_SHA1_Update(&context, bytes.baseAddress, CC_LONG(bytes.count))
+            }
+            for part in parts { _ = unsafe CC_SHA1_Update(&context, part, CC_LONG(part.count)) }
+            return unsafe sha1Final(&context, into: out)
         }
     }
 
+    /// Writes the digest to `out` (at least CC_SHA1_DIGEST_LENGTH bytes) and zeroes `context`.
+    @unsafe private static func sha1Final(_ context: inout CC_SHA1_CTX, into out: UnsafeMutableRawBufferPointer) -> Int {
+        let digest = CC_SHA1_DIGEST_LENGTH.widened
+        // SAFETY: reads the lent buffer's count, not its bytes.
+        guard unsafe out.count >= digest else { return 0 }
+        // SAFETY: CC_SHA1_Final writes `digest` bytes, inside `out` (checked above), and reads `context`;
+        // memset_s zeroes exactly the context's own size. Both pointers are live for their calls.
+        _ = unsafe CC_SHA1_Final(out.baseAddress?.assumingMemoryBound(to: UInt8.self), &context)
+        _ = unsafe memset_s(&context, MemoryLayout<CC_SHA1_CTX>.size, 0, MemoryLayout<CC_SHA1_CTX>.size)
+        return digest
+    }
+
     static func hmacSHA1(key: SecretBytes, _ message: [UInt8]) -> SecretBytes {
-        SecretBytes(capacity: Int(CC_SHA1_DIGEST_LENGTH)) { out in
+        hmacSHA1(key: key, prefix: nil, message)
+    }
+
+    /// HMAC-SHA1 of `prefix` (a secret, never copied out of its buffer) followed by `message`.
+    static func hmacSHA1(key: SecretBytes, prefix: SecretBytes?, _ message: [UInt8]) -> SecretBytes {
+        SecretBytes(capacity: CC_SHA1_DIGEST_LENGTH.widened) { out in
+            var context = CCHmacContext()
             key.withUnsafeBytes { keyBytes in
-                CCHmac(CCHmacAlgorithm(kCCHmacAlgSHA1), keyBytes.baseAddress, keyBytes.count, message, message.count, out.baseAddress)
+                // SAFETY: reads keyBytes.count bytes of the key's view, valid while this closure runs, into
+                // the local `context`.
+                unsafe CCHmacInit(&context, CCHmacAlgorithm(kCCHmacAlgSHA1), keyBytes.baseAddress, keyBytes.count)
             }
-            return Int(CC_SHA1_DIGEST_LENGTH)
+            prefix?.withUnsafeBytes { bytes in
+                // SAFETY: reads bytes.count bytes of the secret's view, valid while this closure runs.
+                unsafe CCHmacUpdate(&context, bytes.baseAddress, bytes.count)
+            }
+            // SAFETY: reads message.count bytes of the array lent for the call; writes the 20-byte digest to
+            // `out`, which holds CC_SHA1_DIGEST_LENGTH bytes (the capacity asked for); then zeroes exactly
+            // the local context's size.
+            unsafe CCHmacUpdate(&context, message, message.count)
+            unsafe CCHmacFinal(&context, out.baseAddress)
+            _ = unsafe memset_s(&context, MemoryLayout<CCHmacContext>.size, 0, MemoryLayout<CCHmacContext>.size)
+            return CC_SHA1_DIGEST_LENGTH.widened
         }
     }
 
@@ -231,8 +275,15 @@ public struct FirefoxPasswordCrypto: Sendable {
         let output = SecretBytes(capacity: input.count + block) { out in
             var written = 0
             status = key.withUnsafeBytes { keyBytes in
-                CCCrypt(operation, algorithm, CCOptions(kCCOptionPKCS7Padding), keyBytes.baseAddress, keyLength, iv,
-                        input, input.count, out.baseAddress, out.count, &written)
+                // The callers check key.count >= keyLength first; a shorter key reads as a refusal.
+                // SAFETY: reads the lent buffer's count, not its bytes.
+                guard unsafe keyBytes.count >= keyLength else { return CCCryptorStatus(kCCKeySizeError) }
+                // SAFETY: CCCrypt reads keyLength bytes of the key's view (checked above), one block of
+                // `iv` and input.count bytes of `input`, and writes at most out.count bytes to `out` (the
+                // capacity asked for) and that count into `written`. The views are valid while these
+                // closures run; the arrays are lent for the call.
+                return unsafe CCCrypt(operation, algorithm, CCOptions(kCCOptionPKCS7Padding), keyBytes.baseAddress, keyLength, iv,
+                                      input, input.count, out.baseAddress, out.count, &written)
             }
             return status == kCCSuccess ? written : 0
         }

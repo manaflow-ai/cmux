@@ -55,8 +55,8 @@ import Testing
 
     @Test func homesNewChiefOpensItsDirectMessageUnderTheSameKey() async throws {
         let opens = Opens()
-        let creator = HomeLocalChiefCreator(me: me, send: { _, _, _ in
-            .object(["value": .object(["id": .string("agent_scout01"), "display_name": .string("Scout")])])
+        let creator = HomeLocalChiefCreator(me: me, send: { _, _ in
+            try ChiefCreateFixture(id: "agent_scout01", name: "Scout").result()
         }, open: { request in
             await opens.add(request)
             return "conv_scout"

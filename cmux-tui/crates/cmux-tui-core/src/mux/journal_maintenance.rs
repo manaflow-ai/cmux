@@ -89,7 +89,9 @@ impl JournalMaintenance {
         let worker_control = control.clone();
         let weak_mux = Arc::downgrade(mux);
         let interval = journal_maintenance_interval();
-        let thread = std::thread::Builder::new().name("cmux-journal-maintenance".into()).spawn(
+        let thread = cmux_threads::spawn(
+            "cmux-journal-maintenance",
+            crate::request_qos::UPKEEP_THREAD_QOS,
             move || {
                 let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
                 loop {
@@ -98,10 +100,12 @@ impl JournalMaintenance {
                     if *stopped {
                         return;
                     }
-                    let (next, timeout) = worker_control
-                        .changed
-                        .wait_timeout(stopped, interval)
-                        .unwrap_or_else(PoisonError::into_inner);
+                    let (next, timeout) = cmux_threads::checked::sync::wait_timeout(
+                        &worker_control.changed,
+                        stopped,
+                        interval,
+                    )
+                    .unwrap_or_else(PoisonError::into_inner);
                     stopped = next;
                     if *stopped {
                         return;
@@ -111,6 +115,7 @@ impl JournalMaintenance {
                     }
                     drop(stopped);
                     let Some(mux) = weak_mux.upgrade() else { return };
+                    let _pass = mux.request_qos().enter_upkeep_pass();
                     mux.run_journal_maintenance(&mut ledgers);
                 }
             },
@@ -125,7 +130,7 @@ impl JournalMaintenance {
             // The last `Arc<Mux>` can drop on the worker itself; it must not
             // join its own thread.
             if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
+                let _ = cmux_threads::checked::sync::join(thread);
             }
         }
     }
@@ -543,31 +548,11 @@ impl Mux {
             .unwrap()
             .journal_checkpoint(selector)?
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
-        let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
-
-        let database_path = self
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .session_journal_database_path();
-        if let Some(database_path) = database_path {
-            let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;
-            let mut cursor = reader.restore_cursor(checkpoint.source_sequence)?;
-            let head_sequence = loop {
-                let page = cursor.next_page(1024)?;
-                let head = page.head_sequence;
-                let empty = page.records.is_empty();
-                for record in page.records {
-                    reducer.apply(&record)?;
-                }
-                if empty {
-                    break head;
-                }
-            };
-            cursor.finish()?;
-            return reducer.finish(head_sequence);
+        if let Some(reader) = self.journal_kernel.open_reader()? {
+            return crate::journal_checkpoint::restore_preview_on_reader(&checkpoint, reader, None);
         }
 
+        let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
         let mut sequence = checkpoint.source_sequence;
         let mut target_head = None;
         let head_sequence = loop {

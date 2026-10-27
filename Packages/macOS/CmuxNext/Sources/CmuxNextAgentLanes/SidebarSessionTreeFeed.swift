@@ -277,7 +277,7 @@ final class SidebarPullRequestStore {
     /// shown pull request open, and the store reads it again then without waiting for the tree.
     private func scheduleRecheck() {
         if freshness > .zero, shown.contains(where: inFlight) {
-            recheck.scheduleIfIdle(after: freshness) { @MainActor [weak self] in
+            recheck.scheduleOnMainIfIdle(after: freshness) { [weak self] in
                 guard let self else { return }
                 refresh(shown, onlyInFlight: true)
             }

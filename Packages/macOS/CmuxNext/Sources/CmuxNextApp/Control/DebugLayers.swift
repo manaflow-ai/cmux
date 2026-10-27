@@ -119,6 +119,7 @@ enum DebugLayers {
                 "presentation": .string(entry.tab.presentation == .childWindow ? "child_window" : "in_view"),
                 "content_in_window": .bool(content.window === window),
             ]
+            // visibility-walk-allow: the report checks AppKit's own view state against the page windows; a node would hide the mismatch it looks for
             if entry.tab.presentation == .childWindow, content.window === window, !content.isHiddenOrHasHiddenAncestor {
                 // The page window must cover the host view exactly, in
                 // screen coordinates, whatever moved the window.
@@ -171,6 +172,9 @@ enum DebugLayers {
             "divider_catcher_updates": .number(Double(layer.catchers?.panelUpdates ?? 0)),
             "page_windows_take_mouse": .bool(layer.pageWindowsTakeMouse),
             "reorders": .number(Double(layer.reorderCount)),
+            // p03-rendering-052: overlays in the window's own top layer, and whether a panel was ever made.
+            "overlay_top_layer_in_window": .bool(WindowOverlayHost.existingHost(for: window)?.isTopLayerInWindow == true),
+            "overlay_panel_made": .bool(WindowOverlayHost.existingHost(for: window)?.madePanel != nil),
             "child_window_violations": .array(ChildWindowPolicy.violations.map(JSONValue.string)),
             "pages_in_sync": .bool(pagesInSync),
             "rings_in_sync": .bool(ringsInSync),
@@ -194,16 +198,22 @@ enum DebugLayers {
         let contextIdGetter = #selector(getter: QuartzLayerHostingSPI.contextId)
         let rootLayerGetter = #selector(getter: QuartzLayerHostingSPI.layer)
         guard let host = firstLayerHost(layer), host.responds(to: contextIdGetter) else { return nil }
-        let id = unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
+        // SAFETY: an @objc protocol existential is the object pointer alone, so the cast changes no layout;
+        // only `contextId`, which `responds(to:)` proved the layer implements, is sent through it.
+        let id = unsafe unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
+        // SAFETY: `+allContexts` is answered (checked first) and returns an autoreleased NSArray at +0, so
+        // taking it unretained is its ownership; the cast to [NSObject] copies it into a Swift array.
         guard id != 0, let contextClass: AnyClass = NSClassFromString("CAContext"),
               (contextClass as AnyObject).responds(to: #selector(QuartzLayerHostingSPI.allContexts)),
-              let contexts = (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
+              let contexts = unsafe (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
                   .takeUnretainedValue() as? [NSObject] else { return nil }
         for context in contexts {
             // Two checks, not one `&&`: its autoclosure would capture the non-Sendable context.
             guard context.responds(to: contextIdGetter) else { continue }
             guard context.responds(to: rootLayerGetter) else { continue }
-            let spi = unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
+            // SAFETY: as for the host: the existential is the object pointer, and only `contextId` and `layer`,
+            // both proved answered just above, are sent through it.
+            let spi = unsafe unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
             guard spi.contextId == id else { continue }
             return layerHostCount(spi.layer)
         }

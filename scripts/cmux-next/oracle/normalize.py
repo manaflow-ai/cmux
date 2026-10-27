@@ -90,6 +90,8 @@ RULES: Dict[str, str] = {
     "number": "Swift (Foundation) and Rust (serde_json/ryu) print doubles differently, and layout "
     "arithmetic differs in the last bits across CPUs; 1.0 and 1 are the same JSON number.",
     "set": "the producer iterates a HashMap, Dictionary or Set; the schema marks the array x-oracle-order: set.",
+    "decimal": "the daemon sends uint64 values as decimal strings (cmux-tui/spec/bindings.md); the rules "
+    "below compare the number, so 9 and 10 order and offset as numbers.",
     "id": "ids come from UUID(), Uuid::new_v4 and per-process counters (spec section 2.7); "
     "only which values are the same id is behavior.",
 }
@@ -104,8 +106,13 @@ ORACLE_KEYWORDS = {
     "x-oracle-rewrite",
     "x-oracle-time",
     "x-oracle-counter",
+    "x-oracle-decimal",
 }
-ROOT_KEYWORDS = {"x-oracle-id-patterns", "x-oracle-precision-default"}
+ROOT_KEYWORDS = {"x-oracle-id-patterns", "x-oracle-precision-default", "x-oracle-id-unpatterned",
+                 "x-oracle-open-keys"}
+# Rules an x-oracle-open-keys entry may apply to the members of open objects whose key it matches.
+OPEN_KEY_RULES = ("x-oracle-time", "x-oracle-volatile")
+DECIMAL_PATTERN = "^(0|[1-9][0-9]*)$"
 # Case-schema keywords (schemas/oracle/case-v1.schema.json, p15-oracle-012); case_checks.py runs them.
 CASE_KEYWORDS = {"x-oracle-unique", "x-oracle-step-ref", "x-oracle-crash-scope", "x-oracle-error"}
 ANNOTATION_KEYWORDS = {
@@ -245,6 +252,8 @@ class Schema:
         self.doc = doc
         self.origin = origin
         self._patterns: Dict[str, Any] = {}
+        self._id_search: Any = None
+        self._id_kinds: List[str] = []
         problems: List[str] = []
         declared = doc.get("$schema") if isinstance(doc, dict) else None
         if declared is None or declared in DRAFT_2020:
@@ -255,6 +264,8 @@ class Schema:
             self.draft = 2020
             problems.append(f"/$schema: {declared!r} is not draft-07 or 2020-12")
         self.id_patterns: List[Tuple[str, Any]] = []
+        # (key regex, rule keyword, rule value) for members of open objects (README x-oracle-open-keys).
+        self.open_keys: List[Tuple[Any, str, Any]] = []
         self.precision_default = DEFAULT_PRECISION
         self._lint(doc, (), problems)
         if contract:
@@ -359,8 +370,15 @@ class Schema:
             if value not in ("set", "sequence"):
                 problems.append(f"{where}: x-oracle-order is \"set\" or \"sequence\"")
         elif key == "x-oracle-id-kind":
-            if not isinstance(value, str) or not KIND_RE.match(value):
-                problems.append(f"{where}: x-oracle-id-kind is a kind name matching {KIND_RE.pattern}")
+            kinds = value if isinstance(value, list) else [value]
+            if not kinds or not all(isinstance(k, str) and KIND_RE.match(k) for k in kinds):
+                problems.append(f"{where}: x-oracle-id-kind is a kind name matching {KIND_RE.pattern}, or a "
+                                "non-empty list of them")
+            elif isinstance(value, list) and len(set(value)) != len(value):
+                problems.append(f"{where}: x-oracle-id-kind lists a kind twice")
+        elif key == "x-oracle-decimal":
+            if value is not True:
+                problems.append(f"{where}: x-oracle-decimal is true")
         elif key == "x-oracle-precision":
             if _precision_decimals(value) is None:
                 problems.append(f"{where}: x-oracle-precision is a power of ten from 1 down to 1e-9")
@@ -383,6 +401,14 @@ class Schema:
                 problems.append(f"{where}: x-oracle-counter is \"monotonic\"")
 
     def _lint_root_keyword(self, key: str, value: Any, where: str, problems: List[str]) -> None:
+        if key == "x-oracle-id-unpatterned":
+            if not isinstance(value, dict) or not all(
+                    KIND_RE.match(k) and isinstance(r, str) and len(r.strip()) >= 3 for k, r in value.items()):
+                problems.append(f"{where}: x-oracle-id-unpatterned maps id kinds to the reason they have no pattern")
+            return
+        if key == "x-oracle-open-keys":
+            self._lint_open_keys(value, where, problems)
+            return
         if key == "x-oracle-precision-default":
             if _precision_decimals(value) is None:
                 problems.append(f"{where}: x-oracle-precision-default is a power of ten from 1 down to 1e-9")
@@ -399,6 +425,30 @@ class Schema:
             compiled = self._compile(pattern, f"{where}/{kind}", problems)
             if compiled is not None:
                 self.id_patterns.append((kind, compiled))
+
+    def _lint_open_keys(self, value: Any, where: str, problems: List[str]) -> None:
+        if not isinstance(value, list):
+            problems.append(f"{where}: x-oracle-open-keys is a list of {{key, <rule>}}")
+            return
+        for index, entry in enumerate(value):
+            at = f"{where}/{index}"
+            rules = [k for k in OPEN_KEY_RULES if isinstance(entry, dict) and k in entry]
+            if not (isinstance(entry, dict) and isinstance(entry.get("key"), str) and len(rules) == 1
+                    and set(entry) == {"key", rules[0]}):
+                problems.append(f"{at}: an open-keys entry is {{key: <regex>, one of {list(OPEN_KEY_RULES)}}}")
+                continue
+            compiled = self._compile(entry["key"], f"{at}/key", problems)
+            before = len(problems)
+            self._lint_oracle(rules[0], entry[rules[0]], f"{at}/{rules[0]}", problems)
+            if compiled is not None and len(problems) == before:
+                self.open_keys.append((compiled, rules[0], entry[rules[0]]))
+
+    def open_key_rule(self, name: str) -> Optional[Tuple[str, Any]]:
+        """The x-oracle-open-keys rule for a member of an open object named `name`; the first entry wins."""
+        for regex, rule, value in self.open_keys:
+            if regex.search(name):
+                return rule, value
+        return None
 
     def _lint_assertion(self, key: str, value: Any, at: Path_, problems: List[str]) -> None:
         where = pointer(at)
@@ -453,9 +503,19 @@ class Schema:
             problems.append(f"{where}: a number needs x-oracle-precision")
         if "x-oracle-rewrite" in node and types and "string" not in types:
             problems.append(f"{where}: x-oracle-rewrite marks a string")
+        decimal = node.get("x-oracle-decimal") is True
+        if decimal and (types != {"string"} or node.get("pattern") != DECIMAL_PATTERN):
+            problems.append(f"{where}: x-oracle-decimal marks a string with pattern {DECIMAL_PATTERN}")
         for key in ("x-oracle-time", "x-oracle-counter"):
-            if key in node and types and not types & {"number", "integer"}:
-                problems.append(f"{where}: {key} marks a number")
+            if key in node and types and not types & {"number", "integer"} and not decimal:
+                problems.append(f"{where}: {key} marks a number or an x-oracle-decimal string")
+        kinds = node.get("x-oracle-id-kind")
+        if isinstance(kinds, list):
+            patterned = {kind for kind, _ in self.id_patterns}
+            for kind in kinds:
+                if kind not in patterned:
+                    problems.append(f"{where}: x-oracle-id-kind lists {kind!r}, which has no x-oracle-id-patterns "
+                                    "entry: a list picks the kind by pattern")
         if "x-oracle-id-kind" in node and types & {"object", "array", "boolean"}:
             problems.append(f"{where}: x-oracle-id-kind marks a string or integer id; mark the array's items")
         for key, value in node.items():
@@ -557,6 +617,24 @@ class Schema:
         if len(kinds) > 1:
             raise OracleError(f"{text!r} matches the id patterns of {kinds}; patterns must not overlap")
         return kinds[0] if kinds else None
+
+    def id_spans(self, text: str) -> List[Tuple[int, int, str]]:
+        """(start, end, kind) of every id inside an open-object string (README "Id relabeling"): each
+        x-oracle-id-patterns regex without its anchors, between non-alphanumerics, the longest literal prefix
+        first and left to right, so `itm_w_<uuid>_ws_<hex>` holds a uuid and a workspace id."""
+        if self._id_search is None:
+            ordered = sorted(self.id_patterns, key=lambda kr: (-len(kr[1].pattern.split("[", 1)[0]), kr[0]))
+            branches = []
+            for _, regex in ordered:
+                body = regex.pattern[1:] if regex.pattern.startswith("^") else regex.pattern
+                body = body[:-1] if body.endswith("$") else body
+                branches.append(f"(?P<k{len(branches)}>{body})")
+            self._id_kinds = [kind for kind, _ in ordered]
+            joined = "|".join(branches)
+            self._id_search = re.compile(f"(?<![A-Za-z0-9])(?:{joined})(?![A-Za-z0-9])") if branches else False
+        if not self._id_search:
+            return []
+        return [(m.start(), m.end(), self._id_kinds[int(m.lastgroup[1:])]) for m in self._id_search.finditer(text)]
 
     # -- validation
 
@@ -890,6 +968,15 @@ class _Unit:
         self.rank = 0
 
 
+class _Text:
+    """An open-object string with ids inside it: literal text and _Ref parts, joined when written."""
+
+    __slots__ = ("parts",)
+
+    def __init__(self, parts: List[Any]):
+        self.parts = parts
+
+
 class _Obj:
     __slots__ = ("members", "entries")
 
@@ -911,6 +998,15 @@ def _node_count(value: Any) -> int:
     if isinstance(value, list):
         return 1 + sum(_node_count(v) for v in value)
     return 1
+
+
+_DROPPED = object()
+
+
+def _open_time(value: Any) -> bool:
+    """A time an open-keys rule converts: a number, or a uint64 decimal string as the wire sends it."""
+    return (_is_number(value) and not isinstance(value, bool)) or (
+        isinstance(value, str) and re.fullmatch(DECIMAL_PATTERN, value) is not None)
 
 
 def _open(ann: Dict[str, Any]) -> bool:
@@ -948,9 +1044,15 @@ class _Lifter:
             raise OracleError("/: x-oracle-volatile marks the whole snapshot")
         return self.lift(instance, ())
 
-    def ref(self, kind: str, raw: Any, at: Path_) -> _Ref:
+    def ref(self, kind: Any, raw: Any, at: Path_) -> _Ref:
         if isinstance(raw, bool) or not isinstance(raw, (str, int)):
             raise OracleError(f"{pointer(at)}: an id is a string or an integer, got {_type_name(raw)}")
+        if isinstance(kind, list):
+            # A field that holds one of several kinds (tabs[].content_id): the kind whose pattern matches.
+            found = self.schema.id_kind_of(str(raw))
+            if found not in kind:
+                raise OracleError(f"{pointer(at)}: {_short(raw)} matches none of the id kinds {kind}")
+            kind = found
         key = (kind, raw if isinstance(raw, str) else str(raw))
         self.sites.setdefault(key, []).append(f"{self.checkpoint}:{pointer(at)}")
         return _Ref(kind, key)
@@ -984,6 +1086,11 @@ class _Lifter:
             return None
         if kind:
             return self.ref(kind, value, at)
+        if ann.get("x-oracle-decimal") is True and isinstance(value, str):
+            # README step 1: the wire's uint64 decimal string is a number for the rules below. The validator
+            # already checked the pattern, so int() cannot fail.
+            value = int(value)
+            self.note("decimal", at)
         if isinstance(value, str):
             mode = ann.get("x-oracle-rewrite")
             if mode:
@@ -1014,7 +1121,9 @@ class _Lifter:
             members: Dict[str, Any] = {}
             entries: List[_Unit] = []
             for name, item in value.items():
-                node = self.lift_open(item, at + (name,))
+                node = self.open_member(name, item, at + (name,))
+                if node is _DROPPED:
+                    continue
                 kind = self.schema.id_kind_of(name)
                 if kind:
                     entries.append(_Unit(self.ref(kind, name, at + (name,)), node))
@@ -1025,10 +1134,41 @@ class _Lifter:
             return [self.lift_open(item, at + (index,)) for index, item in enumerate(value)]
         if isinstance(value, str):
             kind = self.schema.id_kind_of(value)
-            return self.ref(kind, value, at) if kind else value
+            if kind:
+                return self.ref(kind, value, at)
+            # README step 3: every string of an open object gets the path and url rewrites.
+            text, used = self.rewriter.apply("url", value)
+            if used:
+                self.note("rewrite", at, mode="open", tokens=sorted(set(used)))
+            spans = self.schema.id_spans(text)
+            if not spans:
+                return text
+            parts: List[Any] = []
+            cursor = 0
+            for start, end, span_kind in spans:
+                if start > cursor:
+                    parts.append(text[cursor:start])
+                parts.append(self.ref(span_kind, text[start:end], at))
+                cursor = end
+            if cursor < len(text):
+                parts.append(text[cursor:])
+            return _Text(parts)
         if _is_number(value):
             return self._round(value, self.default_decimals, at)
         return value
+
+    def open_member(self, name: str, item: Any, at: Path_) -> Any:
+        """A member of an open object, after the x-oracle-open-keys rule its name matches (README steps 2 and
+        4): _DROPPED for a volatile one, an offset (or the wall-clock mark) for a time."""
+        rule = self.schema.open_key_rule(name)
+        if rule is not None and rule[0] == "x-oracle-volatile":
+            self.dropped += _node_count(item)
+            self.note("volatile", at, reason=rule[1]["reason"], owner=rule[1]["task"], open=True)
+            return _DROPPED
+        if rule is not None and rule[0] == "x-oracle-time" and _open_time(item):
+            node = self._time(int(item) if isinstance(item, str) else item, rule[1], at)
+            return node if isinstance(node, str) else self._round(node, self.default_decimals, at)
+        return self.lift_open(item, at)
 
     def _lift_object(self, value: Dict[str, Any], at: Path_) -> _Obj:
         members: Dict[str, Any] = {}
@@ -1041,7 +1181,9 @@ class _Lifter:
                 self.dropped += _node_count(item)
                 self.note("volatile", child, reason=volatile["reason"], owner=volatile["task"])
                 continue
-            node = self.lift(item, child)
+            node = self.open_member(name, item, child) if _open(child_ann) else self.lift(item, child)
+            if node is _DROPPED:
+                continue
             name_kind = child_ann.get("§name-kind") or (self.schema.id_kind_of(name) if _open(child_ann) else None)
             if name_kind:
                 entries.append(_Unit(self.ref(name_kind, name, child), node))
@@ -1136,6 +1278,15 @@ class _Graph:
         if isinstance(node, _Ref):
             self._edges.append((unit, rel, self._id_vertex(node)))
             return json.dumps("§" + node.kind)
+        if isinstance(node, _Text):
+            masked = []
+            for index, part in enumerate(node.parts):
+                if isinstance(part, _Ref):
+                    self._edges.append((unit, f"{rel}#t{index}", self._id_vertex(part)))
+                    masked.append("§" + part.kind)
+                else:
+                    masked.append(part)
+            return json.dumps("".join(masked), ensure_ascii=False)
         if isinstance(node, _Obj):
             parts = [json.dumps(name, ensure_ascii=False) + ":" +
                      self._region(node.members[name], unit, rel + _segment(name), where + _segment(name))
@@ -1598,6 +1749,8 @@ def _materialize(g: _Graph, pos: List[int]) -> Tuple[List[Any], Dict[int, str], 
                 label = labels[node.vertex] = f"{node.kind}#{counts[node.kind]}"
                 order.append(node.vertex)
             return label
+        if isinstance(node, _Text):
+            return "".join(visit(part) if isinstance(part, _Ref) else part for part in node.parts)
         if isinstance(node, _Obj):
             out = {name: visit(node.members[name]) for name in sorted(node.members)}
             for unit in unit_order(node.entries):
@@ -2278,13 +2431,62 @@ def selftest(seed: int, out: Any) -> int:
 
         def doc(a: str, b: str) -> Dict[str, Any]:
             return {"focused": a, "extra": {a: {"ratio": 0.12345, "next": b}, b: {"ratio": 0.5, "next": None},
-                                            "note": "pane_00aa is here", "list": [b, 1.23456]}}
+                                            "note": f"{a} is here", "list": [b, 1.23456]}}
 
         v = canonicalize(doc("pane_00aa", "pane_11bb"), s).value
         assert v == {"focused": "pane#2", "extra": {"pane#2": {"ratio": 0.12, "next": "pane#1"},
                                                     "pane#1": {"ratio": 0.5, "next": None},
-                                                    "note": "pane_00aa is here", "list": ["pane#1", 1.23]}}, v
+                                                    "note": "pane#2 is here", "list": ["pane#1", 1.23]}}, v
         assert canonicalize(doc("pane_ffff", "pane_0000"), s).text == canonical_json(v)
+
+    @case
+    def wire_keywords_of_the_snapshot_schema() -> None:
+        # snapshot-v1 (p15-oracle-011): decimal strings, a list of id kinds, open-key rules, unpatterned kinds.
+        decimal = {"pattern": DECIMAL_PATTERN, "x-oracle-decimal": True}
+        root = {"$schema": DRAFT_07_URI, "x-oracle-id-patterns": {"term": "^term_[0-9a-f]{4}$",
+                                                                  "browser": "^browser_[0-9a-f]{4}$"},
+                "x-oracle-id-unpatterned": {"surface": "daemon surface handle; typed fields only"},
+                "x-oracle-open-keys": [
+                    {"key": "^(.+_)?at_ms$", "x-oracle-time": {"unit": "ms", "epoch": "fixture"}},
+                    {"key": "^(.+_)?revision$", "x-oracle-volatile": {"reason": "commit count", "task": TASK}}]}
+        s = Schema({**root, **_object(
+            seen=_f("/seen", decimal, {"x-oracle-time": {"unit": "ms", "epoch": "fixture"}}, type="string"),
+            count=_f("/count", decimal, type="string"),
+            content=_f("/content", {"x-oracle-id-kind": ["term", "browser"]}, type="string"),
+            extra=_f("/extra", type="object"))}, contract=True)
+        doc = {"seen": "1500", "count": "10", "content": "browser_00aa",
+               "extra": {"closed_at_ms": "1700", "row_revision": 7, "note": "at $x /tmp/o/ab/f"}}
+        meta_ctx = Context(root=("/tmp/o/ab",), epoch_ms=1000)
+        v = canonicalize(doc, s, meta_ctx).value
+        assert v == {"seen": 500, "count": 10, "content": "browser#1",
+                     "extra": {"closed_at_ms": 700, "note": "at $x $ROOT/f"}}, v
+        # Ids inside an open string (README "Id relabeling"): `itm_w_<uuid>_ws_<hex>` holds two ids.
+        u = Schema({**root, "x-oracle-id-patterns": {
+            "uuid": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "workspace": "^ws_[0-9a-f]{4}$"},
+            **_object(extra=_f("/extra", type="object"))}, contract=True)
+
+        def item(machine: str, ws: str) -> Dict[str, Any]:
+            return {"extra": {"rows": [f"itm_w_{machine}_ws_{ws}", f"sec_m_{machine}", f"news_{ws}x"]}}
+
+        first = canonicalize(item("78bbf1cd-d977-4707-94c8-55d4f26863f0", "eb25"), u).value
+        assert first == {"extra": {"rows": ["itm_w_uuid#1_workspace#1", "sec_m_uuid#1", "news_eb25x"]}}, first
+        assert canonicalize(item("42fd84d1-fa1d-4ad4-85f0-84dc026bd0cd", "fb53"), u).value["extra"]["rows"][:2] \
+            == first["extra"]["rows"][:2]
+        try:
+            canonicalize({**doc, "content": "pane_00aa"}, s)
+            raise AssertionError("a value of no listed kind was labeled")
+        except OracleError as error:
+            assert "matches none of the id kinds" in str(error), error
+        assert validate({**doc, "count": "010"}, s.doc), "a non-canonical decimal string passed"
+        refusals = [({"type": "string", "x-oracle-decimal": True}, "x-oracle-decimal marks a string"),
+                    ({"type": "string", "x-oracle-id-kind": ["term", "surface"]}, "has no x-oracle-id-patterns"),
+                    ({"type": "string", "x-oracle-time": {"unit": "ms", "epoch": "fixture"}}, "marks a number")]
+        for bad, message in refusals:
+            try:
+                Schema({**root, **_object(x=_f("/x", **bad))}, contract=True)
+                raise AssertionError(f"{bad} was not refused")
+            except SchemaError as error:
+                assert message in str(error), error
 
     @case
     def rewrite_only_marked_fields() -> None:
@@ -2498,7 +2700,8 @@ def selftest(seed: int, out: Any) -> int:
             node = doc
             for part in at:
                 node = node[part]
-            rng.shuffle(node)
+            if isinstance(node, list):  # a nullable set array may be null here
+                rng.shuffle(node)
         return _shuffled(doc, rng)
 
     @case

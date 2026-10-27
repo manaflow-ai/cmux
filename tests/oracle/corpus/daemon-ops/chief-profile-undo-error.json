@@ -29,6 +29,25 @@
   ],
   "steps": [
     {
+      "id": "fx-chief",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "chief.profile.create",
+        "params": {
+          "display_name": "oracle"
+        },
+        "idempotencyKey": "chief-profile-undo-error.fx-chief"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,19 +57,23 @@
       "args": {
         "method": "chief.profile.undo",
         "params": {
-          "chief": ""
+          "chief": "$step:fx-chief#/value/id"
         },
         "idempotencyKey": "chief-profile-undo-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "operation": "chief.profile.undo",
+          "reason": "no_revision"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "chief breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a Chief with only its first revision has none to go back to"
     }
   ],
   "invariants": [

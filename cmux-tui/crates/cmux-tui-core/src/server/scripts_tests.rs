@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 use super::*;
 use crate::SurfaceOptions;
 use crate::scripts::router::{DaemonRouter, STREAMS};
-use crate::server::{BoundedOutbound, ClientTransport, QueuedSink};
+use crate::server::{
+    BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, QueuedSink,
+    handle_connection_frame,
+};
 
 /// A connection over `transport`, bound to an agent when `agent`.
 fn connection(
@@ -33,8 +36,42 @@ fn reply_to(
     out: &BoundedOutbound,
     request: Value,
 ) -> Value {
-    assert_eq!(try_handle(mux, client, &request.to_string(), writer), Some(true));
+    let message = request.to_string();
+    let head = crate::server::RequestHead::parse(&message);
+    let line = RouteLine { mux, client, message: &message, writer, head: &head };
+    assert_eq!(handle(&line), Some(true));
     serde_json::from_str(&out.try_pop().expect("reply")).unwrap()
+}
+
+/// Sends `line` on the local connection `client` through the daemon's frame
+/// dispatch, so it reaches this module by its route as a real line does.
+/// Returns the reply and the JSON parses the line took.
+fn send_line(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    out: &BoundedOutbound,
+    line: &str,
+) -> (Value, u64) {
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let stats = crate::diagnostics::IpcStats::default();
+    {
+        let _parses = crate::diagnostics::JsonParseScope::enter(
+            &stats,
+            crate::diagnostics::IpcTransport::Lines,
+        );
+        assert!(handle_connection_frame(
+            mux,
+            client,
+            ClientTransport::Unix,
+            line,
+            writer,
+            &scheduler
+        ));
+    }
+    let reply = serde_json::from_str(&out.try_pop().expect("reply")).unwrap();
+    (reply, stats.snapshot().parses.lines.json_parses)
 }
 
 #[test]
@@ -68,15 +105,46 @@ fn malformed_requests_and_other_commands() {
     let (client, out, writer) = connection(&mux, ClientTransport::Unix, false);
     let reply = reply_to(&mux, client, &writer, &out, json!({ "id": 3, "cmd": "script-run" }));
     assert_eq!(reply["error_code"], "bad-request");
-    // Not a script command: left to the next handler.
-    assert_eq!(
-        try_handle(&mux, client, &json!({ "id": 4, "cmd": "identify" }).to_string(), &writer),
-        None
-    );
-    assert_eq!(
-        try_handle(&mux, client, r#"{"id":5,"cmd":"apps-list","x":"script-"}"#, &writer),
-        None
-    );
+    // Not a script command: the route is found by `cmd`, never by a
+    // `script-` anywhere else in the line.
+    let scripts_route = |cmd: &str| {
+        crate::server::routes::find(cmd)
+            .is_some_and(|route| route.stage == crate::server::FrameStage::Scripts)
+    };
+    assert!(scripts_route("script-run"));
+    assert!(!scripts_route("identify"));
+    let message = r#"{"id":5,"cmd":"apps-list","x":"script-"}"#;
+    let head = crate::server::RequestHead::parse(message);
+    assert!(!head.cmd().is_some_and(scripts_route));
+}
+
+/// The route is found by the line's decoded `cmd`, never a substring of the
+/// raw line (p05-ipc-070): a `script-*` name spelled with a JSON escape
+/// answers as its plain spelling, and every line takes two parses (the
+/// head and the route's one decode).
+#[test]
+fn scripts_route_by_the_decoded_cmd_and_decode_once() {
+    let mux = Mux::new_for_test("scripts-decoded-cmd", SurfaceOptions::default());
+    let (client, out, writer) = connection(&mux, ClientTransport::Unix, false);
+    let (agent, agent_out, agent_writer) = connection(&mux, ClientTransport::Unix, true);
+    // The JSON escape of `-`.
+    let dash = "\\u002d";
+    // An agent connection is refused by the gate; a line with no `code` by
+    // the typed parse.
+    for (id, rest) in [(1, r#","code":"1""#), (2, "")] {
+        let plain = format!(r#"{{"id":{id},"cmd":"script-run"{rest}}}"#);
+        let escaped = format!(r#"{{"id":{id},"cmd":"script{dash}run"{rest}}}"#);
+        let (plain_reply, plain_parses) = send_line(&mux, agent, &agent_writer, &agent_out, &plain);
+        let (escaped_reply, escaped_parses) =
+            send_line(&mux, agent, &agent_writer, &agent_out, &escaped);
+        assert_eq!(escaped_reply, plain_reply, "{escaped}");
+        assert_eq!((plain_parses, escaped_parses), (2, 2), "{escaped}");
+        assert_eq!(plain_reply["id"], id, "{plain_reply}");
+        assert_eq!(plain_reply["ok"], false, "{plain_reply}");
+    }
+    let (reply, parses) =
+        send_line(&mux, client, &writer, &out, &format!(r#"{{"id":3,"cmd":"script{dash}open"}}"#));
+    assert_eq!((reply["error_code"].clone(), parses), (json!("bad-request"), 2), "{reply}");
 }
 
 #[test]

@@ -4,10 +4,15 @@
   "catalog_sha256": "4c2922739cc0197b0344681e4f831efd0206fb6f85a4296760f0e60424dbb799",
   "suite": "daemon-ops",
   "total": 201,
-  "covered": 159,
+  "covered": 169,
   "verdicts": "not run",
+  "retries": 200,
+  "unretried": {
+    "session.shutdown": "its success ends the daemon: the reply is sent, then complete_daemon_shutdown_after_ack (cmux-tui-core/src/server/disconnect.rs) disconnects every client and exits, so no daemon answers a retry"
+  },
   "excluded": {
-    "agent.message.mark": "placeholders params.ids[0]: p15-oracle-069 tunes the success case",
+    "agent.message.release": "no product runs it yet: only the person in the verified cmux app (the frontend actor) releases a held delivery, and a delivery is held only when an agent (a terminal actor) sends into another workspace; the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for the release and a fixture-terminal sender for the held delivery",
+    "agent.message.unsend": "no product runs it yet: only the message's verified sender or the person in the verified cmux app takes a message back, and the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for it",
     "browser.activate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
     "browser.back": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
     "browser.forward": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
@@ -17,21 +22,16 @@
     "browser.input.wheel": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
     "browser.navigate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
     "browser.reload": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
-    "chief.profile.adopt": "placeholders params.participant_id: p15-oracle-069 tunes the success case",
-    "closed.reopen": "a fresh daemon has no closed group to reopen; the family task closes one first: p15-oracle-067 tunes the success case",
-    "column.update": "placeholders params.column: p15-oracle-066 tunes the success case",
-    "conversation.draft": "placeholders params.conversation: p15-oracle-069 tunes the success case",
-    "conversation.send": "placeholders params.conversation: p15-oracle-069 tunes the success case",
-    "conversation.typing": "placeholders params.conversation: p15-oracle-069 tunes the success case",
+    "conversation.draft": "no product runs it yet: a draft comes from an agent participant bound to a local conversation (conversation-bind), and the case connection acts as the person. p15-oracle-240 gives driver_daemon.py a `connection: agent` step bound to the mock conversation's agent",
     "credential.rotate": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and credential.rotate needs the verified frontend on a local Unix connection (origin_gate.rs check_credential_owner); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
-    "git.checkpoint.create": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.checkpoint.pin": "placeholders params.checkpoint_id, params.pin_id; the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.checkpoint.unpin": "placeholders params.checkpoint_id, params.pin_id; the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.commit": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.push": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.worktree.apply": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.worktree.create": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "git.worktree.remove": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
+    "git.checkpoint.create": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.checkpoint.pin": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.checkpoint.unpin": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.commit": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.push": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.worktree.apply": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.worktree.create": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "git.worktree.remove": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
     "history.backups.purge": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.backups.purge is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
     "history.restore": "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; p15-oracle-237 gives the case that user connection, then it records a visit, removes it and restores the removal's restore_id",
     "history.trail.record": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.trail.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
@@ -39,15 +39,9 @@
     "history.visit.record": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
     "history.visit.title": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.title is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
     "pairing_request.resolve": "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); p15-oracle-238 adds a pairing.open step that opens a WebSocket pairing on the loopback listener, then this case rejects it",
-    "pane.split_ratio.set": "placeholders params.split_id: p15-oracle-066 tunes the success case",
-    "participant.avatar.set": "placeholders params.participant_id: p15-oracle-069 tunes the success case",
-    "project.add": "placeholders params.path: p15-oracle-068 tunes the success case",
-    "project.observe": "placeholders params.entries[0].path: p15-oracle-068 tunes the success case",
-    "project.remove": "placeholders params.path: p15-oracle-068 tunes the success case",
-    "project.update": "placeholders params.path: p15-oracle-068 tunes the success case",
-    "session.journal.append": "placeholders params.event.producer_id: p15-oracle-063 tunes the success case",
-    "session.journal.hook.put": "placeholders params.manifest.hook_id: p15-oracle-063 tunes the success case",
-    "session.journal.producer.put": "placeholders params.manifest.producer_id: p15-oracle-063 tunes the success case",
+    "project.add": "no case folder is one the project store takes: every case root is under /tmp (oracle.py DEFAULT_STATE_BASE /tmp/o, spec 3G) and state/projects.rs Refusals refuses every path under /tmp, /var/folders and the home folder (validation.invalid refused_path); p15-oracle-244 gives a case a folder outside those roots for project.add; no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+    "tab.create_browser": "no product runs it yet: the daemon product has no browser engine (engine_unavailable before the handler), and driver_app.py hands resource.call to driver_daemon.py; p15-oracle-239 runs requires-chromium cases on the app product's own daemon, whose browser host is the provider",
+    "terminal.viewport.scroll": "the call moves only the compatibility view's scroll anchor (Surface::view_scroll_delta), and no read or facet field returns it, so no case can see the view move; p15-oracle-246 adds the readback",
     "workspace.agent_folder.set": "placeholders params.path: p15-oracle-064 tunes the success case"
   },
   "missing": [],
@@ -63,7 +57,7 @@
     "chief": 24,
     "misc": 28
   },
-  "placeholder_operations": 20,
+  "placeholder_operations": 3,
   "tokens": {
     "$CASE_ROOT": "the case's state root (hermetic_env.py ROOT_TOKEN, p15-oracle-200)"
   },
@@ -74,14 +68,18 @@
         "success": "daemon-ops/agent-message-mark-ok",
         "error": "daemon-ops/agent-message-mark-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "fx-message"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "ids",
-        "rule": "value has too few items"
+        "code": "resource.not_found"
       },
-      "placeholders": [
-        "params.ids[0]"
+      "placeholders": [],
+      "retry": "daemon-ops/agent-message-mark-ok/retry",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "agent.message.release": {
@@ -95,11 +93,15 @@
         "fx-message"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "message_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/agent-message-release-ok/retry",
+      "gap": "no product runs it yet: only the person in the verified cmux app (the frontend actor) releases a held delivery, and a delivery is held only when an agent (a terminal actor) sends into another workspace; the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for the release and a fixture-terminal sender for the held delivery",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "agent.message.send": {
       "family": "chief",
@@ -111,11 +113,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "body",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/agent-message-send-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "agent.message.unsend": {
       "family": "chief",
@@ -128,11 +132,15 @@
         "fx-message"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "message_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/agent-message-unsend-ok/retry",
+      "gap": "no product runs it yet: only the message's verified sender or the person in the verified cmux app takes a message back, and the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for it",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "agent.report": {
       "family": "chief",
@@ -144,11 +152,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "terminal_id",
-        "rule": "resource id has the wrong type prefix"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/agent-report-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "browser.activate": {
       "family": "browser",
@@ -165,6 +175,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-activate-ok/retry",
       "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
@@ -196,6 +207,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-back-ok/retry",
       "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
@@ -226,6 +238,7 @@
         "code": "selector.not_found"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-close-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -242,6 +255,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-devices-add-custom-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -262,6 +276,7 @@
         "rule": "value has too few UTF-8 bytes"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-devices-remove-custom-ok/retry",
       "tuned": [
         "success"
       ]
@@ -283,6 +298,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-forward-ok/retry",
       "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
@@ -313,6 +329,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-input-key-ok/retry",
       "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
@@ -343,6 +360,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-input-mouse-ok/retry",
       "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
       "tuned": [
         "error",
@@ -373,6 +391,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-input-text-ok/retry",
       "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
@@ -403,6 +422,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-input-wheel-ok/retry",
       "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
       "tuned": [
         "error",
@@ -433,6 +453,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-navigate-ok/retry",
       "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
@@ -461,6 +482,7 @@
         "rule": "value has too few UTF-8 bytes"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-profile-create-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -480,6 +502,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-profile-open-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -500,6 +523,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-reload-ok/retry",
       "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
@@ -530,6 +554,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-tab-emulate-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -551,6 +576,7 @@
         "code": "selector.not_found"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-tab-emulate-clear-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -572,6 +598,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/browser-tab-set-profile-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -585,11 +612,14 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/chief-engine-set-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "chief.profile.adopt": {
       "family": "chief",
@@ -599,12 +629,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "participant_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": [
-        "params.participant_id"
+      "placeholders": [],
+      "retry": "daemon-ops/chief-profile-adopt-ok/retry",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "chief.profile.avatar.set": {
@@ -617,11 +648,14 @@
         "fx-chief"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/chief-profile-avatar-set-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "chief.profile.create": {
       "family": "chief",
@@ -631,11 +665,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "display_name",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/chief-profile-create-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "chief.profile.delete": {
       "family": "chief",
@@ -647,11 +683,13 @@
         "fx-chief"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/chief-profile-delete-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "chief.profile.undo": {
       "family": "chief",
@@ -660,14 +698,18 @@
         "error": "daemon-ops/chief-profile-undo-error"
       },
       "fixture": [
-        "fx-chief"
+        "fx-chief",
+        "rename"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/chief-profile-undo-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "chief.profile.update": {
       "family": "chief",
@@ -679,11 +721,13 @@
         "fx-chief"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/chief-profile-update-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "chief.stop": {
       "family": "chief",
@@ -693,11 +737,14 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "chief",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/chief-stop-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "closed.delete": {
       "family": "tab",
@@ -705,13 +752,20 @@
         "success": "daemon-ops/closed-delete-ok",
         "error": "daemon-ops/closed-delete-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "fx-split",
+        "close-tab"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "closed",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/closed-delete-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "closed.reopen": {
       "family": "tab",
@@ -719,14 +773,20 @@
         "success": "daemon-ops/closed-reopen-ok",
         "error": "daemon-ops/closed-reopen-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "fx-split",
+        "close-tab"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "closed",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
       "placeholders": [],
-      "gap": "a fresh daemon has no closed group to reopen; the family task closes one first"
+      "retry": "daemon-ops/closed-reopen-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "column.update": {
       "family": "layout",
@@ -735,15 +795,18 @@
         "error": "daemon-ops/column-update-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "viewport-split",
+        "read-layout"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "column",
-        "rule": "resource id has the wrong type prefix"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.column"
+      "placeholders": [],
+      "retry": "daemon-ops/column-update-ok/retry",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "conversation.draft": {
@@ -752,14 +815,18 @@
         "success": "daemon-ops/conversation-draft-ok",
         "error": "daemon-ops/conversation-draft-error"
       },
-      "fixture": [],
+      "fixture": [
+        "conversation"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "conversation",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": [
-        "params.conversation"
+      "placeholders": [],
+      "retry": "daemon-ops/conversation-draft-ok/retry",
+      "gap": "no product runs it yet: a draft comes from an agent participant bound to a local conversation (conversation-bind), and the case connection acts as the person. p15-oracle-240 gives driver_daemon.py a `connection: agent` step bound to the mock conversation's agent",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "conversation.send": {
@@ -768,14 +835,17 @@
         "success": "daemon-ops/conversation-send-ok",
         "error": "daemon-ops/conversation-send-error"
       },
-      "fixture": [],
+      "fixture": [
+        "conversation"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "conversation",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": [
-        "params.conversation"
+      "placeholders": [],
+      "retry": "daemon-ops/conversation-send-ok/retry",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "conversation.typing": {
@@ -784,14 +854,17 @@
         "success": "daemon-ops/conversation-typing-ok",
         "error": "daemon-ops/conversation-typing-error"
       },
-      "fixture": [],
+      "fixture": [
+        "conversation"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "conversation",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": [
-        "params.conversation"
+      "placeholders": [],
+      "retry": "daemon-ops/conversation-typing-ok/retry",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "credential.rotate": {
@@ -805,6 +878,7 @@
         "code": "origin.forbidden"
       },
       "placeholders": [],
+      "retry": "daemon-ops/credential-rotate-ok/retry",
       "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and credential.rotate needs the verified frontend on a local Unix connection (origin_gate.rs check_credential_owner); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
       "tuned": [
         "error",
@@ -824,6 +898,7 @@
         "rule": "value has too few UTF-8 bytes"
       },
       "placeholders": [],
+      "retry": "daemon-ops/frontend-projection-put-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -835,16 +910,28 @@
         "success": "daemon-ops/git-checkpoint-create-ok",
         "error": "daemon-ops/git-checkpoint-create-error"
       },
-      "fixture": [
-        "fx-workspace"
-      ],
+      "fixture": [],
       "error": {
         "code": "validation.invalid",
         "field": "path",
         "rule": "value has too few UTF-8 bytes"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "retry": "daemon-ops/git-checkpoint-create-ok/retry",
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "git.checkpoint.pin": {
       "family": "git",
@@ -853,18 +940,28 @@
         "error": "daemon-ops/git-checkpoint-pin-error"
       },
       "fixture": [
-        "fx-workspace"
+        "checkpoint"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "checkpoint_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": [
-        "params.checkpoint_id",
-        "params.pin_id"
+      "placeholders": [],
+      "retry": "daemon-ops/git-checkpoint-pin-ok/retry",
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
       ],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.checkpoint.unpin": {
       "family": "git",
@@ -873,18 +970,29 @@
         "error": "daemon-ops/git-checkpoint-unpin-error"
       },
       "fixture": [
-        "fx-workspace"
+        "checkpoint",
+        "pin"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "checkpoint_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": [
-        "params.checkpoint_id",
-        "params.pin_id"
+      "placeholders": [],
+      "retry": "daemon-ops/git-checkpoint-unpin-ok/retry",
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
       ],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.commit": {
       "family": "git",
@@ -892,16 +1000,27 @@
         "success": "daemon-ops/git-commit-ok",
         "error": "daemon-ops/git-commit-error"
       },
-      "fixture": [
-        "fx-workspace"
-      ],
+      "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "message",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "retry": "daemon-ops/git-commit-ok/retry",
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.push": {
       "family": "git",
@@ -909,16 +1028,27 @@
         "success": "daemon-ops/git-push-ok",
         "error": "daemon-ops/git-push-error"
       },
-      "fixture": [
-        "fx-workspace"
-      ],
+      "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "retry": "daemon-ops/git-push-ok/retry",
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.worktree.apply": {
       "family": "git",
@@ -926,16 +1056,27 @@
         "success": "daemon-ops/git-worktree-apply-ok",
         "error": "daemon-ops/git-worktree-apply-error"
       },
-      "fixture": [
-        "fx-workspace"
-      ],
+      "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "retry": "daemon-ops/git-worktree-apply-ok/retry",
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.worktree.create": {
       "family": "git",
@@ -943,16 +1084,27 @@
         "success": "daemon-ops/git-worktree-create-ok",
         "error": "daemon-ops/git-worktree-create-error"
       },
-      "fixture": [
-        "fx-workspace"
-      ],
+      "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "retry": "daemon-ops/git-worktree-create-ok/retry",
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "git.worktree.remove": {
       "family": "git",
@@ -961,15 +1113,28 @@
         "error": "daemon-ops/git-worktree-remove-error"
       },
       "fixture": [
-        "fx-workspace"
+        "worktree"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
+      "retry": "daemon-ops/git-worktree-remove-ok/retry",
+      "gap": "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api",
+          "git_repo"
+        ]
+      }
     },
     "history.backups.purge": {
       "family": "misc",
@@ -982,6 +1147,7 @@
         "code": "origin.forbidden"
       },
       "placeholders": [],
+      "retry": "daemon-ops/history-backups-purge-ok/retry",
       "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.backups.purge is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
       "tuned": [
         "error",
@@ -1000,7 +1166,8 @@
         "field": "range",
         "rule": "value is outside the allowed enum"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/history-clear-ok/retry"
     },
     "history.entries.remove": {
       "family": "misc",
@@ -1015,6 +1182,7 @@
         "rule": "value has too few items"
       },
       "placeholders": [],
+      "retry": "daemon-ops/history-entries-remove-ok/retry",
       "tuned": [
         "success"
       ]
@@ -1030,6 +1198,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/history-restore-ok/retry",
       "gap": "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; p15-oracle-237 gives the case that user connection, then it records a visit, removes it and restores the removal's restore_id",
       "tuned": [
         "error",
@@ -1047,6 +1216,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/history-site-remove-ok/retry",
       "tuned": [
         "error"
       ]
@@ -1062,6 +1232,7 @@
         "code": "origin.forbidden"
       },
       "placeholders": [],
+      "retry": "daemon-ops/history-trail-record-ok/retry",
       "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.trail.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
       "tuned": [
         "error",
@@ -1081,6 +1252,7 @@
       "placeholders": [
         "params.path"
       ],
+      "retry": "daemon-ops/history-visit-import-ok/retry",
       "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.import is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user, and the case writes a History.sqlite visit log under $CASE_ROOT first",
       "tuned": [
         "error",
@@ -1098,6 +1270,7 @@
         "code": "origin.forbidden"
       },
       "placeholders": [],
+      "retry": "daemon-ops/history-visit-record-ok/retry",
       "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
       "tuned": [
         "error",
@@ -1116,7 +1289,8 @@
         "field": "urls",
         "rule": "value has too few items"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/history-visit-remove-ok/retry"
     },
     "history.visit.title": {
       "family": "misc",
@@ -1129,6 +1303,7 @@
         "code": "origin.forbidden"
       },
       "placeholders": [],
+      "retry": "daemon-ops/history-visit-title-ok/retry",
       "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.title is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
       "tuned": [
         "error",
@@ -1148,6 +1323,7 @@
         "code": "keybindings.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/keybindings-remove-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -1165,7 +1341,8 @@
         "field": "command",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/keybindings-reset-ok/retry"
     },
     "keybindings.set": {
       "family": "misc",
@@ -1178,6 +1355,7 @@
         "code": "keybindings.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/keybindings-set-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -1190,14 +1368,19 @@
         "error": "daemon-ops/layout-bulk-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-split",
+        "split-in-place"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "verb",
-        "rule": "value is outside the allowed enum"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/layout-bulk-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "notification.ack": {
       "family": "misc",
@@ -1212,6 +1395,7 @@
         "code": "revision.conflict"
       },
       "placeholders": [],
+      "retry": "daemon-ops/notification-ack-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -1229,7 +1413,8 @@
         "field": "terminal_id",
         "rule": "resource id has the wrong type prefix"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/notification-clear-ok/retry"
     },
     "notification.create": {
       "family": "misc",
@@ -1243,7 +1428,8 @@
         "field": "title",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/notification-create-ok/retry"
     },
     "pairing_request.resolve": {
       "family": "misc",
@@ -1258,6 +1444,7 @@
       "placeholders": [
         "target.pairing_request"
       ],
+      "retry": "daemon-ops/pairing-request-resolve-ok/retry",
       "gap": "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); p15-oracle-238 adds a pairing.open step that opens a WebSocket pairing on the loopback listener, then this case rejects it",
       "tuned": [
         "error",
@@ -1276,7 +1463,8 @@
         "field": "key",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/palette-usage-forget-ok/retry"
     },
     "palette_usage.hide": {
       "family": "misc",
@@ -1290,7 +1478,8 @@
         "field": "key",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/palette-usage-hide-ok/retry"
     },
     "palette_usage.import": {
       "family": "misc",
@@ -1304,7 +1493,8 @@
         "field": "source",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/palette-usage-import-ok/retry"
     },
     "palette_usage.record": {
       "family": "misc",
@@ -1318,7 +1508,8 @@
         "field": "key",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/palette-usage-record-ok/retry"
     },
     "pane.close": {
       "family": "layout",
@@ -1327,14 +1518,18 @@
         "error": "daemon-ops/pane-close-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "revision.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/pane-close-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "pane.create": {
       "family": "layout",
@@ -1346,11 +1541,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "correlation_key",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "creation.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/pane-create-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "pane.focus": {
       "family": "layout",
@@ -1359,14 +1557,18 @@
         "error": "daemon-ops/pane-focus-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/pane-focus-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "pane.focus_direction": {
       "family": "layout",
@@ -1375,14 +1577,19 @@
         "error": "daemon-ops/pane-focus-direction-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-split",
+        "split-in-place"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "direction",
-        "rule": "value is outside the allowed enum"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/pane-focus-direction-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "pane.rename": {
       "family": "layout",
@@ -1394,11 +1601,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "name",
-        "rule": "value must be a string"
+        "code": "revision.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/pane-rename-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "pane.run": {
       "family": "layout",
@@ -1410,11 +1620,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "correlation_key",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/pane-run-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "pane.split": {
       "family": "layout",
@@ -1426,11 +1639,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "direction",
-        "rule": "value is outside the allowed enum"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/pane-split-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "pane.split_ratio.set": {
       "family": "layout",
@@ -1439,15 +1655,19 @@
         "error": "daemon-ops/pane-split-ratio-set-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-split",
+        "split-in-place",
+        "read-layout"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "split_id",
-        "rule": "resource id has the wrong type prefix"
+        "code": "operation.failed"
       },
-      "placeholders": [
-        "params.split_id"
+      "placeholders": [],
+      "retry": "daemon-ops/pane-split-ratio-set-ok/retry",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "pane.swap": {
@@ -1461,11 +1681,14 @@
         "fx-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "other_workspace",
-        "rule": "selector must be a string"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/pane-swap-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "pane.viewport_width.set": {
       "family": "layout",
@@ -1474,14 +1697,18 @@
         "error": "daemon-ops/pane-viewport-width-set-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "viewport-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "columns",
-        "rule": "value must be an unsigned 16-bit integer"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/pane-viewport-width-set-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "pane.zoom": {
       "family": "layout",
@@ -1493,11 +1720,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "enabled",
-        "rule": "value must be a boolean"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/pane-zoom-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "participant.avatar.set": {
       "family": "chief",
@@ -1507,12 +1737,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "participant_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": [
-        "params.participant_id"
+      "placeholders": [],
+      "retry": "daemon-ops/participant-avatar-set-ok/retry",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "project.add": {
@@ -1523,13 +1754,24 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value must be a string"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.path"
-      ]
+      "placeholders": [],
+      "retry": "daemon-ops/project-add-ok/retry",
+      "gap": "no case folder is one the project store takes: every case root is under /tmp (oracle.py DEFAULT_STATE_BASE /tmp/o, spec 3G) and state/projects.rs Refusals refuses every path under /tmp, /var/folders and the home folder (validation.invalid refused_path); p15-oracle-244 gives a case a folder outside those roots for project.add; no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "git_repo"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "project.observe": {
       "family": "git",
@@ -1543,8 +1785,10 @@
         "field": "source",
         "rule": "value must be a string"
       },
-      "placeholders": [
-        "params.entries[0].path"
+      "placeholders": [],
+      "retry": "daemon-ops/project-observe-ok/retry",
+      "tuned": [
+        "success"
       ]
     },
     "project.remove": {
@@ -1553,14 +1797,17 @@
         "success": "daemon-ops/project-remove-ok",
         "error": "daemon-ops/project-remove-error"
       },
-      "fixture": [],
+      "fixture": [
+        "observe"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value must be a string"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.path"
+      "placeholders": [],
+      "retry": "daemon-ops/project-remove-ok/retry",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "project.source.update": {
@@ -1569,13 +1816,19 @@
         "success": "daemon-ops/project-source-update-ok",
         "error": "daemon-ops/project-source-update-error"
       },
-      "fixture": [],
+      "fixture": [
+        "observe"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "source",
         "rule": "value must be a string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/project-source-update-ok/retry",
+      "tuned": [
+        "success"
+      ]
     },
     "project.sync": {
       "family": "git",
@@ -1583,13 +1836,19 @@
         "success": "daemon-ops/project-sync-ok",
         "error": "daemon-ops/project-sync-error"
       },
-      "fixture": [],
+      "fixture": [
+        "observe"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "existing",
         "rule": "value must be an array"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/project-sync-ok/retry",
+      "tuned": [
+        "success"
+      ]
     },
     "project.update": {
       "family": "git",
@@ -1597,14 +1856,17 @@
         "success": "daemon-ops/project-update-ok",
         "error": "daemon-ops/project-update-error"
       },
-      "fixture": [],
+      "fixture": [
+        "observe"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value must be a string"
+        "code": "validation.invalid"
       },
-      "placeholders": [
-        "params.path"
+      "placeholders": [],
+      "retry": "daemon-ops/project-update-ok/retry",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "room.create": {
@@ -1615,11 +1877,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "name",
-        "rule": "value must be a string"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/room-create-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "room.delete": {
       "family": "chief",
@@ -1631,11 +1895,13 @@
         "fx-room"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "room",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/room-delete-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "room.follow": {
       "family": "chief",
@@ -1647,11 +1913,13 @@
         "fx-room"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "room",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/room-follow-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "room.move": {
       "family": "chief",
@@ -1663,11 +1931,13 @@
         "fx-room"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "room",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/room-move-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "room.pin": {
       "family": "chief",
@@ -1680,11 +1950,13 @@
         "fx-room"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "room",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/room-pin-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "room.unpin": {
       "family": "chief",
@@ -1693,14 +1965,19 @@
         "error": "daemon-ops/room-unpin-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-room",
+        "pin"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "revision.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/room-unpin-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "room.update": {
       "family": "chief",
@@ -1712,11 +1989,13 @@
         "fx-room"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "room",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/room-update-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "saved_tab_group.delete": {
       "family": "tab",
@@ -1730,11 +2009,13 @@
         "fx-saved-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "saved_tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "revision.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/saved-tab-group-delete-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "saved_tab_group.reopen": {
       "family": "tab",
@@ -1744,15 +2025,20 @@
       },
       "fixture": [
         "fx-workspace",
+        "fx-split",
         "fx-tab-group",
-        "fx-saved-tab-group"
+        "fx-saved-tab-group",
+        "close-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "saved_tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/saved-tab-group-reopen-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "saved_tab_group.save": {
       "family": "tab",
@@ -1765,11 +2051,13 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/saved-tab-group-save-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "screen.close": {
       "family": "layout",
@@ -1778,14 +2066,18 @@
         "error": "daemon-ops/screen-close-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "second-screen"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "revision.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-close-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "screen.create": {
       "family": "layout",
@@ -1797,11 +2089,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "correlation_key",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "creation.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-create-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "screen.focus": {
       "family": "layout",
@@ -1810,14 +2105,19 @@
         "error": "daemon-ops/screen-focus-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "second-screen",
+        "second-focused"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-focus-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "screen.layout.undo": {
       "family": "layout",
@@ -1826,14 +2126,18 @@
         "error": "daemon-ops/screen-layout-undo-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "zoom"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "confirmation.required"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-layout-undo-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "screen.move": {
       "family": "layout",
@@ -1842,14 +2146,18 @@
         "error": "daemon-ops/screen-move-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "second-screen"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "index",
-        "rule": "value must be an unsigned 32-bit integer"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-move-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "screen.rename": {
       "family": "layout",
@@ -1861,11 +2169,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "name",
-        "rule": "value must be a string"
+        "code": "revision.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-rename-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "screen.update": {
       "family": "layout",
@@ -1877,11 +2188,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "pinned",
-        "rule": "value must be a boolean"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-update-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "screen_group.add_screens": {
       "family": "layout",
@@ -1891,14 +2205,18 @@
       },
       "fixture": [
         "fx-workspace",
-        "fx-screen-group"
+        "fx-screen-group",
+        "second-screen"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "screen_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-group-add-screens-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "screen_group.create": {
       "family": "layout",
@@ -1910,11 +2228,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "screens",
-        "rule": "value has too few items"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-group-create-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "screen_group.remove_screens": {
       "family": "layout",
@@ -1927,11 +2248,14 @@
         "fx-screen-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "screens",
-        "rule": "value has too few items"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-group-remove-screens-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "screen_group.ungroup": {
       "family": "layout",
@@ -1944,11 +2268,14 @@
         "fx-screen-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "screen_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-group-ungroup-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "screen_group.update": {
       "family": "layout",
@@ -1961,11 +2288,14 @@
         "fx-screen-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "screen_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/screen-group-update-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "session.journal.append": {
       "family": "session",
@@ -1973,15 +2303,30 @@
         "success": "daemon-ops/session-journal-append-ok",
         "error": "daemon-ops/session-journal-append-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "producer"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "event",
         "rule": "value must be an object"
       },
-      "placeholders": [
-        "params.event.producer_id"
-      ]
+      "placeholders": [],
+      "retry": "daemon-ops/session-journal-append-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.journal.checkpoint.create": {
       "family": "session",
@@ -1989,13 +2334,29 @@
         "success": "daemon-ops/session-journal-checkpoint-create-ok",
         "error": "daemon-ops/session-journal-checkpoint-create-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "oracle_unknown",
         "rule": "request contains unknown parameters"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/session-journal-checkpoint-create-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.journal.hook.put": {
       "family": "session",
@@ -2003,15 +2364,29 @@
         "success": "daemon-ops/session-journal-hook-put-ok",
         "error": "daemon-ops/session-journal-hook-put-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "manifest",
         "rule": "value must be an object"
       },
-      "placeholders": [
-        "params.manifest.hook_id"
-      ]
+      "placeholders": [],
+      "retry": "daemon-ops/session-journal-hook-put-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.journal.producer.put": {
       "family": "session",
@@ -2019,15 +2394,29 @@
         "success": "daemon-ops/session-journal-producer-put-ok",
         "error": "daemon-ops/session-journal-producer-put-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "manifest",
         "rule": "value must be an object"
       },
-      "placeholders": [
-        "params.manifest.producer_id"
-      ]
+      "placeholders": [],
+      "retry": "daemon-ops/session-journal-producer-put-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.journal.segment.seal": {
       "family": "session",
@@ -2035,13 +2424,30 @@
         "success": "daemon-ops/session-journal-segment-seal-ok",
         "error": "daemon-ops/session-journal-segment-seal-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "checkpoint"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "through_sequence",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/session-journal-segment-seal-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.open": {
       "family": "session",
@@ -2049,13 +2455,29 @@
         "success": "daemon-ops/session-open-ok",
         "error": "daemon-ops/session-open-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "expected_revision",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/session-open-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.reload_config": {
       "family": "session",
@@ -2063,13 +2485,29 @@
         "success": "daemon-ops/session-reload-config-ok",
         "error": "daemon-ops/session-reload-config-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "expected_revision",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/session-reload-config-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.shutdown": {
       "family": "session",
@@ -2077,13 +2515,34 @@
         "success": "daemon-ops/session-shutdown-ok",
         "error": "daemon-ops/session-shutdown-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "workspaces-before",
+        "panes-before",
+        "tabs-before",
+        "producers-before",
+        "checkpoints-before",
+        "snapshot-before"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "force",
         "rule": "value must be a boolean"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.terminal_defaults.update": {
       "family": "session",
@@ -2091,13 +2550,29 @@
         "success": "daemon-ops/session-terminal-defaults-update-ok",
         "error": "daemon-ops/session-terminal-defaults-update-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "foreground",
         "rule": "value must be a string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/session-terminal-defaults-update-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.window.title.clear": {
       "family": "session",
@@ -2105,13 +2580,29 @@
         "success": "daemon-ops/session-window-title-clear-ok",
         "error": "daemon-ops/session-window-title-clear-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "expected_revision",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/session-window-title-clear-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "session.window.title.set": {
       "family": "session",
@@ -2119,13 +2610,29 @@
         "success": "daemon-ops/session-window-title-set-ok",
         "error": "daemon-ops/session-window-title-set-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "title",
         "rule": "value must be a string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/session-window-title-set-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "restart"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "settings.reset": {
       "family": "misc",
@@ -2139,7 +2646,8 @@
         "field": "key",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/settings-reset-ok/retry"
     },
     "settings.reset_all": {
       "family": "misc",
@@ -2152,6 +2660,7 @@
         "code": "settings.agent_refused"
       },
       "placeholders": [],
+      "retry": "daemon-ops/settings-reset-all-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2169,7 +2678,8 @@
         "field": "key",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/settings-set-ok/retry"
     },
     "sidebar.adopt": {
       "family": "sidebar",
@@ -2182,6 +2692,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-adopt-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2198,6 +2709,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-apply-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2214,6 +2726,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-group-create-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2232,6 +2745,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-group-ungroup-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2250,6 +2764,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-group-update-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2266,6 +2781,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-item-add-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2282,6 +2798,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-item-remove-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2298,6 +2815,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-item-remove-ref-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2314,6 +2832,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-item-update-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2330,6 +2849,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-move-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2346,6 +2866,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-pin-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2367,6 +2888,7 @@
         "rule": "request contains unknown parameters"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-reset-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2383,6 +2905,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-section-add-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2399,6 +2922,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-section-move-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2415,6 +2939,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-section-remove-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2431,6 +2956,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-section-update-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2450,6 +2976,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-unpin-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2466,6 +2993,7 @@
         "code": "validation.invalid"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-layout-update-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2486,6 +3014,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-view-ensure-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2507,6 +3036,7 @@
         "code": "selector.not_found"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-view-input-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2528,6 +3058,7 @@
         "code": "selector.not_found"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-view-reload-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2549,6 +3080,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "retry": "daemon-ops/sidebar-view-resize-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -2560,13 +3092,21 @@
         "success": "daemon-ops/stash-create-ok",
         "error": "daemon-ops/stash-create-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace",
+        "fx-browser-profile",
+        "fx-app-browser"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "tabs",
         "rule": "value has too few items"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/stash-create-ok/retry",
+      "tuned": [
+        "success"
+      ]
     },
     "stash.delete": {
       "family": "git",
@@ -2576,7 +3116,8 @@
       },
       "fixture": [
         "fx-workspace",
-        "fx-split",
+        "fx-browser-profile",
+        "fx-app-browser",
         "fx-stash"
       ],
       "error": {
@@ -2584,7 +3125,11 @@
         "field": "stash",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/stash-delete-ok/retry",
+      "tuned": [
+        "success"
+      ]
     },
     "stash.import": {
       "family": "git",
@@ -2598,7 +3143,11 @@
         "field": "source",
         "rule": "value is outside the allowed enum"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/stash-import-ok/retry",
+      "tuned": [
+        "success"
+      ]
     },
     "stash.restore": {
       "family": "git",
@@ -2608,7 +3157,8 @@
       },
       "fixture": [
         "fx-workspace",
-        "fx-split",
+        "fx-browser-profile",
+        "fx-app-browser",
         "fx-stash"
       ],
       "error": {
@@ -2616,7 +3166,11 @@
         "field": "stash",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/stash-restore-ok/retry",
+      "tuned": [
+        "success"
+      ]
     },
     "tab.close": {
       "family": "tab",
@@ -2625,14 +3179,18 @@
         "error": "daemon-ops/tab-close-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-close-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.create_browser": {
       "family": "tab",
@@ -2648,7 +3206,22 @@
         "field": "url",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-create-browser-ok/retry",
+      "gap": "no product runs it yet: the daemon product has no browser engine (engine_unavailable before the handler), and driver_app.py hands resource.call to driver_daemon.py; p15-oracle-239 runs requires-chromium cases on the app product's own daemon, whose browser host is the provider",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "requires": {
+        "success": [
+          "resource_api",
+          "chromium"
+        ],
+        "error": [
+          "resource_api"
+        ]
+      }
     },
     "tab.create_terminal": {
       "family": "tab",
@@ -2660,11 +3233,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "correlation_key",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-create-terminal-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.focus": {
       "family": "tab",
@@ -2673,14 +3249,19 @@
         "error": "daemon-ops/tab-focus-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-split",
+        "focus-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-focus-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.move": {
       "family": "tab",
@@ -2693,11 +3274,13 @@
         "fx-split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "destination_workspace",
-        "rule": "selector must be a string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-move-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "tab.pin": {
       "family": "tab",
@@ -2709,11 +3292,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-pin-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "tab.rename": {
       "family": "tab",
@@ -2725,11 +3310,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "name",
-        "rule": "value must be a string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-rename-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.unpin": {
       "family": "tab",
@@ -2738,14 +3326,18 @@
         "error": "daemon-ops/tab-unpin-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "pin"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-unpin-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab.update": {
       "family": "tab",
@@ -2757,11 +3349,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "zoom",
-        "rule": "value must be a finite number"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-update-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.add_tabs": {
       "family": "tab",
@@ -2771,14 +3366,18 @@
       },
       "fixture": [
         "fx-workspace",
+        "fx-split",
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-group-add-tabs-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.close": {
       "family": "tab",
@@ -2791,11 +3390,13 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-group-close-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "tab_group.create": {
       "family": "tab",
@@ -2807,11 +3408,14 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tabs",
-        "rule": "value has too few items"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-group-create-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.move": {
       "family": "tab",
@@ -2821,14 +3425,18 @@
       },
       "fixture": [
         "fx-workspace",
+        "fx-split",
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-group-move-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "tab_group.remove_tabs": {
       "family": "tab",
@@ -2841,11 +3449,13 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tabs",
-        "rule": "value has too few items"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-group-remove-tabs-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "tab_group.ungroup": {
       "family": "tab",
@@ -2858,11 +3468,13 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-group-ungroup-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "tab_group.update": {
       "family": "tab",
@@ -2875,11 +3487,14 @@
         "fx-tab-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "tab_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/tab-group-update-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "terminal.close": {
       "family": "terminal",
@@ -2891,11 +3506,42 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "revision.conflict"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/terminal-close-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "switches": {
+        "success": [
+          "terminal-holder"
+        ],
+        "error": [
+          "terminal-holder"
+        ]
+      },
+      "expectations": {
+        "success": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
+        "error": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ]
+      }
     },
     "terminal.history.clear": {
       "family": "terminal",
@@ -2904,14 +3550,47 @@
         "error": "daemon-ops/terminal-history-clear-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fill",
+        "filled"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.wrong_parent"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/terminal-history-clear-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "switches": {
+        "success": [
+          "terminal-holder"
+        ],
+        "error": [
+          "terminal-holder"
+        ]
+      },
+      "expectations": {
+        "success": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
+        "error": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ]
+      }
     },
     "terminal.input.focus": {
       "family": "terminal",
@@ -2920,14 +3599,49 @@
         "error": "daemon-ops/terminal-input-focus-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "arm",
+        "armed"
       ],
       "error": {
         "code": "validation.invalid",
         "field": "focused",
         "rule": "value must be a boolean"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/terminal-input-focus-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "switches": {
+        "success": [
+          "terminal-holder"
+        ],
+        "error": [
+          "terminal-holder"
+        ]
+      },
+      "expectations": {
+        "success": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
+        "error": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ]
+      }
     },
     "terminal.input.keys": {
       "family": "terminal",
@@ -2939,11 +3653,42 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "keys",
-        "rule": "value has too few items"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/terminal-input-keys-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "switches": {
+        "success": [
+          "terminal-holder"
+        ],
+        "error": [
+          "terminal-holder"
+        ]
+      },
+      "expectations": {
+        "success": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
+        "error": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ]
+      }
     },
     "terminal.input.mouse": {
       "family": "terminal",
@@ -2952,14 +3697,47 @@
         "error": "daemon-ops/terminal-input-mouse-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "arm",
+        "armed"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "kind",
-        "rule": "value is outside the allowed enum"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/terminal-input-mouse-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "switches": {
+        "success": [
+          "terminal-holder"
+        ],
+        "error": [
+          "terminal-holder"
+        ]
+      },
+      "expectations": {
+        "success": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
+        "error": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ]
+      }
     },
     "terminal.input.write": {
       "family": "terminal",
@@ -2971,11 +3749,42 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "text",
-        "rule": "value must be a string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/terminal-input-write-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "switches": {
+        "success": [
+          "terminal-holder"
+        ],
+        "error": [
+          "terminal-holder"
+        ]
+      },
+      "expectations": {
+        "success": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
+        "error": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ]
+      }
     },
     "terminal.move": {
       "family": "terminal",
@@ -2985,14 +3794,47 @@
       },
       "fixture": [
         "fx-workspace",
-        "fx-split"
+        "fill",
+        "filled",
+        "split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "destination_workspace",
-        "rule": "selector must be a string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/terminal-move-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "switches": {
+        "success": [
+          "terminal-holder"
+        ],
+        "error": [
+          "terminal-holder"
+        ]
+      },
+      "expectations": {
+        "success": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
+        "error": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ]
+      }
     },
     "terminal.project": {
       "family": "terminal",
@@ -3002,14 +3844,47 @@
       },
       "fixture": [
         "fx-workspace",
-        "fx-split"
+        "fill",
+        "filled",
+        "split"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "destination_workspace",
-        "rule": "selector must be a string"
+        "code": "selector.not_found"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/terminal-project-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "switches": {
+        "success": [
+          "terminal-holder"
+        ],
+        "error": [
+          "terminal-holder"
+        ]
+      },
+      "expectations": {
+        "success": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
+        "error": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ]
+      }
     },
     "terminal.viewport.scroll": {
       "family": "terminal",
@@ -3018,14 +3893,50 @@
         "error": "daemon-ops/terminal-viewport-scroll-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fill",
+        "filled"
       ],
       "error": {
         "code": "validation.invalid",
         "field": "delta_rows",
         "rule": "value must be a signed 32-bit integer"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/terminal-viewport-scroll-ok/retry",
+      "gap": "the call moves only the compatibility view's scroll anchor (Surface::view_scroll_delta), and no read or facet field returns it, so no case can see the view move; p15-oracle-246 adds the readback",
+      "tuned": [
+        "error",
+        "success"
+      ],
+      "switches": {
+        "success": [
+          "terminal-holder"
+        ],
+        "error": [
+          "terminal-holder"
+        ]
+      },
+      "expectations": {
+        "success": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
+        "error": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ]
+      }
     },
     "window_record.delete": {
       "family": "misc",
@@ -3040,6 +3951,7 @@
         "code": "resource.not_found"
       },
       "placeholders": [],
+      "retry": "daemon-ops/window-record-delete-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -3056,6 +3968,7 @@
         "code": "revision.conflict"
       },
       "placeholders": [],
+      "retry": "daemon-ops/window-record-put-ok/retry",
       "tuned": [
         "error",
         "success"
@@ -3077,7 +3990,8 @@
       },
       "placeholders": [
         "params.path"
-      ]
+      ],
+      "retry": "daemon-ops/workspace-agent-folder-set-ok/retry"
     },
     "workspace.close": {
       "family": "workspace",
@@ -3093,7 +4007,8 @@
         "field": "expected_revision",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-close-ok/retry"
     },
     "workspace.create": {
       "family": "workspace",
@@ -3107,7 +4022,8 @@
         "field": "initial_content",
         "rule": "value is outside the allowed enum"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-create-ok/retry"
     },
     "workspace.ensure_app": {
       "family": "workspace",
@@ -3121,7 +4037,8 @@
         "field": "app",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-ensure-app-ok/retry"
     },
     "workspace.ensure_home": {
       "family": "workspace",
@@ -3135,7 +4052,8 @@
         "field": "oracle_unknown",
         "rule": "request contains unknown parameters"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-ensure-home-ok/retry"
     },
     "workspace.focus": {
       "family": "workspace",
@@ -3151,7 +4069,8 @@
         "field": "expected_revision",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-focus-ok/retry"
     },
     "workspace.layout.apply": {
       "family": "workspace",
@@ -3167,7 +4086,8 @@
         "field": "layout",
         "rule": "value must be an object"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-layout-apply-ok/retry"
     },
     "workspace.move": {
       "family": "workspace",
@@ -3183,7 +4103,8 @@
         "field": "index",
         "rule": "value must be an unsigned 32-bit integer"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-move-ok/retry"
     },
     "workspace.open_url": {
       "family": "workspace",
@@ -3199,7 +4120,8 @@
         "field": "url",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-open-url-ok/retry"
     },
     "workspace.place": {
       "family": "workspace",
@@ -3215,7 +4137,8 @@
         "field": "group",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-place-ok/retry"
     },
     "workspace.rename": {
       "family": "workspace",
@@ -3231,7 +4154,8 @@
         "field": "name",
         "rule": "value must be a string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-rename-ok/retry"
     },
     "workspace.run": {
       "family": "workspace",
@@ -3247,7 +4171,12 @@
         "field": "correlation_key",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-run-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "workspace.update": {
       "family": "workspace",
@@ -3263,7 +4192,8 @@
         "field": "title",
         "rule": "value must be a string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-update-ok/retry"
     },
     "workspace_checklist.add": {
       "family": "workspace",
@@ -3279,7 +4209,8 @@
         "field": "text",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-checklist-add-ok/retry"
     },
     "workspace_checklist.remove": {
       "family": "workspace",
@@ -3296,7 +4227,8 @@
         "field": "item",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-checklist-remove-ok/retry"
     },
     "workspace_checklist.update": {
       "family": "workspace",
@@ -3313,7 +4245,8 @@
         "field": "item",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-checklist-update-ok/retry"
     },
     "workspace_group.create": {
       "family": "workspace",
@@ -3327,7 +4260,8 @@
         "field": "name",
         "rule": "value must be a string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-group-create-ok/retry"
     },
     "workspace_group.delete": {
       "family": "workspace",
@@ -3343,7 +4277,8 @@
         "field": "workspace_group",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-group-delete-ok/retry"
     },
     "workspace_group.move": {
       "family": "workspace",
@@ -3359,7 +4294,8 @@
         "field": "workspace_group",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-group-move-ok/retry"
     },
     "workspace_group.update": {
       "family": "workspace",
@@ -3375,7 +4311,8 @@
         "field": "workspace_group",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-group-update-ok/retry"
     },
     "workspace_log.append": {
       "family": "workspace",
@@ -3391,7 +4328,8 @@
         "field": "text",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-log-append-ok/retry"
     },
     "workspace_log.clear": {
       "family": "workspace",
@@ -3407,7 +4345,8 @@
         "field": "expected_revision",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-log-clear-ok/retry"
     },
     "workspace_progress.clear": {
       "family": "workspace",
@@ -3423,7 +4362,8 @@
         "field": "expected_revision",
         "rule": "value must be an unsigned decimal string"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-progress-clear-ok/retry"
     },
     "workspace_progress.set": {
       "family": "workspace",
@@ -3439,7 +4379,8 @@
         "field": "value",
         "rule": "value must be a finite number"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-progress-set-ok/retry"
     },
     "workspace_status.clear": {
       "family": "workspace",
@@ -3455,7 +4396,8 @@
         "field": "key",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-status-clear-ok/retry"
     },
     "workspace_status.set": {
       "family": "workspace",
@@ -3471,7 +4413,8 @@
         "field": "key",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-status-set-ok/retry"
     }
   }
 }

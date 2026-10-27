@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 /// The one writer of a window's sidebar rows (cx-odqn): the live rows (the
 /// store's, with the saved seed) with the pending drag edits applied in
@@ -30,7 +31,7 @@ final class SidebarRows {
         var untilShown = false
     }
     /// Follows the sidebar document's fold-only batches (another client's fold).
-    private var foldFollow: Task<Void, Never>?
+    private var foldFollow: ServiceObservation<UInt64?>?
     /// The rows of creates the daemon has not reported yet, at their slots
     /// over the edits (`PendingWorkspaceRows`), and the home workspace.
     private var creating: (rows: [PendingWorkspaceRows.Row], home: String?) = ([], nil)
@@ -112,6 +113,7 @@ final class SidebarRows {
         }
         let transaction = ClientTransactionID.generate()
         // task-owner: one personal fold command; settles its fold
+        // main-hop-allow: the fold shows in this turn; the request is DaemonService's main-actor async send, settled in its reply's job
         Task {
             guard await home.request("update-personal-group", transaction: transaction, { connection, _ in try await body(connection) }) != nil else {
                 settle()
@@ -137,30 +139,34 @@ final class SidebarRows {
 
     /// Applies the sidebar document's fold-only batches (another client folded a group) to this
     /// window's rows, one group each: `SidebarDocStore.foldRevision`.
-    func followFolds(of store: SidebarDocStore) {
+    /// It writes this window's rows and the sidebar model, so it is a service observation (`visible`
+    /// for another client's fold, sooner for the person's own); a second call replaces it.
+    func followFolds(of store: SidebarDocStore, on work: MainWorkScheduler) {
         foldFollow?.cancel()
-        // task-owner: this window's rows (ends at the first change after they are gone; a second call replaces it);
-        // event-driven (Observation)
-        foldFollow = Task { [weak self, weak store] in
-            for await _ in ObservationStream({ store?.foldRevision }) {
-                guard let self, let store else { return }
-                for (id, collapsed) in store.lastFolds {
-                    let group = GroupID(id)
-                    if let held = folds[group] {
-                        // This window's own fold came back: the store holds it. Another value is an earlier click's
-                        // echo (a later click's comes after it), so the newer look stays.
-                        if held.untilShown, held.collapsed == collapsed {
-                            folds[group] = nil
-                            setLive(group, collapsed: collapsed)
-                        }
-                        continue
-                    }
-                    // The store holds it already (the next live rows map it from `groupFolds`): the rows kept
-                    // here take it too, so a redraw before them does not show the old fold.
+        foldFollow = ServiceObservation(.visible, owner: "SidebarRows.folds", on: work) { [weak store] in
+            store?.foldRevision
+        } apply: { [weak self, weak store] _ in
+            guard let self, let store else { return }
+            applyFolds(store.lastFolds)
+        }
+    }
+
+    private func applyFolds(_ lastFolds: [String: Bool]) {
+        for (id, collapsed) in lastFolds {
+            let group = GroupID(id)
+            if let held = folds[group] {
+                // This window's own fold came back: the store holds it. Another value is an earlier click's
+                // echo (a later click's comes after it), so the newer look stays.
+                if held.untilShown, held.collapsed == collapsed {
+                    folds[group] = nil
                     setLive(group, collapsed: collapsed)
-                    model.setGroupCollapsed(group, collapsed)
                 }
+                continue
             }
+            // The store holds it already (the next live rows map it from `groupFolds`): the rows kept
+            // here take it too, so a redraw before them does not show the old fold.
+            setLive(group, collapsed: collapsed)
+            model.setGroupCollapsed(group, collapsed)
         }
     }
 
@@ -203,6 +209,7 @@ final class SidebarRows {
         let (failed, applied) = outcome(edit, resync: resync)
         let transaction = ClientTransactionID.generate()
         // task-owner: one personal command; settles its edit
+        // main-hop-allow: the edit shows in this turn; the request is DaemonService's main-actor async send, settled in its reply's job
         Task {
             guard await home.request(label, transaction: transaction, { connection, _ in try await body(connection) }) != nil else { return failed() }
             if let applied { home.whenApplied(transaction, applied) }

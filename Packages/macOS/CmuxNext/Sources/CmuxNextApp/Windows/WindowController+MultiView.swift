@@ -100,6 +100,7 @@ extension WindowController {
         guard SidebarTunables.multiView.value, let set = state.viewSet, let shown = content?.workspace.id,
               let hit = window?.contentView?.hitTest(windowPoint) else { return }
         for id in set.ids where id != shown {
+            // visibility-walk-allow: hit-test, the press goes to the view AppKit shows under it
             guard let view = parked[id]?.contentView, !view.isHiddenOrHasHiddenAncestor, hit.isDescendant(of: view) else { continue }
             services.windows.show(workspaceID: id, in: state)
             return

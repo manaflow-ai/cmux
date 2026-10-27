@@ -13,6 +13,9 @@ public struct InputLatencySlot: Sendable, Equatable {
     /// The input changed a layer or its contents before the presented frame (Chrome
     /// `caused_frame_update`). The ledger drops non-key slots without one.
     public var causedFrameUpdate: Bool
+    /// The display that showed the frame has a variable refresh rate (ProMotion, adaptive
+    /// sync): its rows are labelled, since a vsync estimate drifts there.
+    public var isVariableRefresh: Bool
     /// How many OS events the slot covers (1 unless the input was coalesced).
     public var coalescedCount: UInt16
 
@@ -38,6 +41,7 @@ public struct InputLatencySlot: Sendable, Equatable {
         entrypoint: InputEntrypoint,
         presentationSource: InputPresentationSource = .estimatedVsync,
         causedFrameUpdate: Bool = false,
+        isVariableRefresh: Bool = false,
         coalescedCount: UInt16 = 1
     ) {
         self.kind = kind
@@ -45,6 +49,7 @@ public struct InputLatencySlot: Sendable, Equatable {
         self.entrypoint = entrypoint
         self.presentationSource = presentationSource
         self.causedFrameUpdate = causedFrameUpdate
+        self.isVariableRefresh = isVariableRefresh
         self.coalescedCount = coalescedCount
         generated = 0
         lastGenerated = 0

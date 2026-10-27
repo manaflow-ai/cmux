@@ -23,7 +23,7 @@ nonisolated struct RemoteFetchReplyReader {
     static let redirects: Set<Int> = [301, 302, 303, 307, 308]
 
     let maximumBody: Int
-    private var message = CFHTTPMessageCreateEmpty(nil, false).takeRetainedValue()
+    private var message = RemoteFetchReplyReader.emptyReply()
     /// Interim (1xx) replies skipped before the final one.
     private var interim = 0
     /// The bytes received until the headers completed (at most 16 KB plus one read).
@@ -39,6 +39,12 @@ nonisolated struct RemoteFetchReplyReader {
         chunked = RemoteFetchChunkedBody(maximumBody: maximumBody)
     }
 
+    /// An empty reply message for the parser to fill.
+    private static func emptyReply() -> CFHTTPMessage {
+        // SAFETY: CFHTTPMessageCreateEmpty follows the Create rule (+1), which takeRetainedValue balances.
+        unsafe CFHTTPMessageCreateEmpty(nil, false).takeRetainedValue()
+    }
+
     /// Adds received bytes; true once the reply is complete (its Content-Length arrived), when the
     /// reader wants no more. Throws on a refusal.
     mutating func append(_ data: Data) throws(Refusal) -> Bool {
@@ -48,16 +54,19 @@ nonisolated struct RemoteFetchReplyReader {
             return try checkBody(head.length)
         }
         raw.append(data)
-        let accepted = data.withUnsafeBytes { buffer -> Bool in
-            guard let base = buffer.bindMemory(to: UInt8.self).baseAddress else { return true }
-            return CFHTTPMessageAppendBytes(message, base, buffer.count)
+        // SAFETY: `buffer` is Data's contiguous storage, valid only inside the closure, which lets no pointer out;
+        // CFHTTPMessageAppendBytes copies the buffer.count bytes from its start into the message during the call.
+        let accepted = unsafe data.withUnsafeBytes { buffer -> Bool in
+            guard let base = unsafe buffer.bindMemory(to: UInt8.self).baseAddress else { return true }
+            return unsafe CFHTTPMessageAppendBytes(message, base, buffer.count)
         }
         guard accepted else { throw Refusal(reason: "not an HTTP reply") }
         guard CFHTTPMessageIsHeaderComplete(message) else {
             if raw.count > Self.maximumHeaderBytes { throw Refusal(reason: "headers over 16 KB") }
             return false
         }
-        let received = CFHTTPMessageCopyBody(message)?.takeRetainedValue() as Data? ?? Data()
+        // SAFETY: CFHTTPMessageCopyBody follows the Copy rule (+1), which takeRetainedValue balances.
+        let received = unsafe CFHTTPMessageCopyBody(message)?.takeRetainedValue() as Data? ?? Data()
         let headerBytes = raw.count - received.count
         guard headerBytes <= Self.maximumHeaderBytes else { throw Refusal(reason: "headers over 16 KB") }
         // An HTTP/1.1 server may send interim replies (100 Continue, 103 Early Hints) before the
@@ -67,7 +76,7 @@ nonisolated struct RemoteFetchReplyReader {
         if (100..<200).contains(status), status != 101 {
             interim += 1
             guard interim <= 4 else { throw Refusal(reason: "too many interim replies") }
-            message = CFHTTPMessageCreateEmpty(nil, false).takeRetainedValue()
+            message = Self.emptyReply()
             raw = Data()
             return received.isEmpty ? false : try append(received)
         }
@@ -112,7 +121,8 @@ nonisolated struct RemoteFetchReplyReader {
     private static func checkHead(_ message: CFHTTPMessage, headerBlock: Data) throws(Refusal) -> (status: Int, headers: [String: String], length: Int?) {
         let status = CFHTTPMessageGetResponseStatusCode(message)
         guard (200..<300).contains(status) || redirects.contains(status) else { throw Refusal(reason: "status \(status)") }
-        let fields = CFHTTPMessageCopyAllHeaderFields(message)?.takeRetainedValue() as? [String: String] ?? [:]
+        // SAFETY: CFHTTPMessageCopyAllHeaderFields follows the Copy rule (+1), which takeRetainedValue balances.
+        let fields = unsafe CFHTTPMessageCopyAllHeaderFields(message)?.takeRetainedValue() as? [String: String] ?? [:]
         var headers: [String: String] = [:]
         for (name, value) in fields { headers[name.lowercased()] = value }
         if let coding = headers["transfer-encoding"] {

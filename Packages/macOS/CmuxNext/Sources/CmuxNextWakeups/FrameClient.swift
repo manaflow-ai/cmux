@@ -61,7 +61,10 @@ public final class FrameClient {
     /// client was made with ``init(owner:budgeted:on:onFrame:)``.
     public let workClass: MainWorkClass
     /// How often it needs frames: its display's link runs at the highest rate of the active clients
-    /// on it (``FrameRate``). ``FrameRate/motion`` unless the client was made with another.
+    /// on it (``FrameRate``). ``FrameRate/motion`` unless the client was made with another: every
+    /// key-to-frame client, batch and probe stays motion. An ambient rate (``FrameRate/isAmbient``) is
+    /// opt-in and owner-reviewed: Energy Saver caps it at ``EnergyPolicy/ambientMaxFPS`` and it waits
+    /// while the displays sleep (FrameScheduler+Energy.swift).
     public let rate: FrameRate
     /// The node whose visibility gates its ticks (``VisibilityNode/wantsFrames``); nil: it ticks
     /// whether or not anyone sees it.
@@ -74,10 +77,10 @@ public final class FrameClient {
     private let startup: StartupPhase?
     /// True while an active client waits for the phase that opens its class.
     private var waitingForStartup = false
-    /// The flips of ``visibleOnly`` and its capture votes: made on the first activation and kept for
-    /// the client's life, so a one-shot client activated every frame does no subscription work.
-    /// An idle client ignores them.
-    private var visibilityWatch: [VisibilitySubscription] = []
+    /// The changes of ``visibleOnly``'s ``VisibilityNode/wantsFrames`` (a flip or a capture vote):
+    /// made on the first activation and kept for the client's life, so a one-shot client activated
+    /// every frame does no subscription work. An idle client ignores them.
+    private var visibilityWatch: VisibilitySubscription?
     public private(set) var isActive = false
 
     /// Whether an active client is off its scheduler because nobody sees its ``visibleOnly`` node.
@@ -167,11 +170,8 @@ public final class FrameClient {
     private var isSeen: Bool { visibleOnly?.wantsFrames ?? true }
 
     private func watchVisibility() {
-        guard let visibleOnly, visibilityWatch.isEmpty else { return }
-        visibilityWatch = [
-            visibleOnly.subscribe(owner: owner) { [weak self] _ in self?.visibilityDidChange() },
-            visibleOnly.subscribeExemption(owner: owner) { [weak self] in self?.visibilityDidChange() },
-        ]
+        guard let visibleOnly, visibilityWatch == nil else { return }
+        visibilityWatch = visibleOnly.subscribeRendering(owner: owner) { [weak self] _ in self?.visibilityDidChange() }
     }
 
     /// Its node flipped or a capture vote came or went: an unseen client leaves its scheduler (whose
@@ -229,10 +229,4 @@ public final class FrameClient {
     // is idle or parked (its visibility subscriptions, held only by it, go with it), and owners
     // deactivate before they let go. An `isolated deinit` here hopped through the Swift runtime on
     // every release and trapped when a layout view left its window (cx-t7hu).
-}
-
-extension VisibilityNode {
-    /// Whether frame work for this node is seen: it is ``Visibility/visible``, or a capture vote holds
-    /// it (``isCaptured``: a screenshot, a screencast or screen share sees it while it is hidden).
-    public var wantsFrames: Bool { isVisible || isCaptured }
 }

@@ -65,10 +65,13 @@ public func blockingWindowListCreateImageFromArray(_ screenBounds: CGRect, _ win
 func windowListCreateImage(_ screenBounds: CGRect, _ listOption: CGWindowListOption, _ windowID: CGWindowID,
                            _ imageOption: CGWindowImageOption) -> CGImage? {
     typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+    // SAFETY: dlsym with RTLD_DEFAULT (-2) looks the name up in the loaded images and returns the function's
+    // address or NULL; CreateImage is CGWindowListCreateImage's C signature (CGWindowListOption, CGWindowID and
+    // CGWindowImageOption are UInt32), and the image it returns is +1 (a Create call), taken retained once.
     // perf-gate-ok: the capture helpers' seam, for the files check-perf-source-guard.py lists only
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
-    let create = unsafeBitCast(symbol, to: CreateImage.self)
-    return create(screenBounds, listOption.rawValue, windowID, imageOption.rawValue)?.takeRetainedValue()
+    guard let symbol = unsafe dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
+    let create = unsafe unsafeBitCast(symbol, to: CreateImage.self)
+    return unsafe create(screenBounds, listOption.rawValue, windowID, imageOption.rawValue)?.takeRetainedValue()
 }
 
 /// `CGWindowListCreateImageFromArray`, looked up at run time: the call both
@@ -76,11 +79,16 @@ func windowListCreateImage(_ screenBounds: CGRect, _ listOption: CGWindowListOpt
 func windowListCreateImageFromArray(_ screenBounds: CGRect, _ windowIDs: [CGWindowID],
                                     _ imageOption: CGWindowImageOption) -> CGImage? {
     typealias CreateImage = @convention(c) (CGRect, CFArray, UInt32) -> Unmanaged<CGImage>?
+    // SAFETY: dlsym with RTLD_DEFAULT (-2) looks the name up in the loaded images and returns the function's
+    // address or NULL; CreateImage is CGWindowListCreateImageFromArray's C signature, and the image it returns
+    // is +1 (a Create call), taken retained once.
     // perf-gate-ok: the capture helpers' seam, for the files check-perf-source-guard.py lists only
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray") else { return nil }
-    let create = unsafeBitCast(symbol, to: CreateImage.self)
+    guard let symbol = unsafe dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray") else { return nil }
+    let create = unsafe unsafeBitCast(symbol, to: CreateImage.self)
     // The array holds CGWindowID values, not CFNumbers.
-    var ids: [UnsafeRawPointer?] = windowIDs.map { UnsafeRawPointer(bitPattern: UInt($0)) }
-    guard let array = CFArrayCreate(nil, &ids, ids.count, nil) else { return nil }
-    return create(screenBounds, array, imageOption.rawValue)?.takeRetainedValue()
+    // SAFETY: each value travels in a pointer's bits and is never dereferenced (no callbacks: nil); CFArrayCreate
+    // copies the ids.count values out of the array's own storage, lent for the call.
+    var ids: [UnsafeRawPointer?] = unsafe windowIDs.map { unsafe UnsafeRawPointer(bitPattern: UInt($0)) }
+    guard let array = unsafe CFArrayCreate(nil, &ids, ids.count, nil) else { return nil }
+    return unsafe create(screenBounds, array, imageOption.rawValue)?.takeRetainedValue()
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 
 /// Covers every screen with a ``SleepyOverlayWindow`` showing ``SleepySceneView``,
 /// rebuilt when screens change while it shows.
@@ -8,13 +9,16 @@ final class SleepyOverlayWindows: SleepyOverlayPresenting {
     private let lockMac: @MainActor () -> Void
     private var windows: [SleepyOverlayWindow] = []
     private var wake: (@MainActor () -> Void)?
+    private let events: AppEvents
     /// Follows `didChangeScreenParametersNotification` while the scene shows; cancelled on hide.
-    private var screenWatch: Task<Void, Never>?
+    private var screenWatch: EventSubscription?
 
     /// - Parameters:
+    ///   - events: the app's notices (`AppServices.appEvents`): a screen change rebuilds the windows in its turn.
     ///   - workingAgents: the count of this Mac's agents running a turn, read once a second.
     ///   - lockMac: the scene's Lock Mac button.
-    init(workingAgents: @escaping @MainActor () -> Int, lockMac: @escaping @MainActor () -> Void) {
+    init(events: AppEvents, workingAgents: @escaping @MainActor () -> Int, lockMac: @escaping @MainActor () -> Void) {
+        self.events = events
         self.workingAgents = workingAgents
         self.lockMac = lockMac
     }
@@ -27,11 +31,9 @@ final class SleepyOverlayWindows: SleepyOverlayPresenting {
         NSApp.unhide(nil)
         NSApp.activate()
         screenWatch?.cancel()
-        screenWatch = Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.didChangeScreenParametersNotification) {
-                guard let self, self.isShowing else { return }
-                self.rebuild()
-            }
+        screenWatch = events.subscribe(NSApplication.didChangeScreenParametersNotification, owner: "SleepyOverlay.screens") { [weak self] in
+            guard let self, self.isShowing else { return }
+            self.rebuild()
         }
     }
 

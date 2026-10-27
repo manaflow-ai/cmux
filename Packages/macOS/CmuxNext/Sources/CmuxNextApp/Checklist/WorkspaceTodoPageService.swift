@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextPages
 import SwiftUI
 import CmuxNextTasks
@@ -15,7 +17,9 @@ extension InternalPageID {
 @MainActor
 final class WorkspaceTodoPageService: InternalPageProvider {
     private weak var services: AppServices?
-    private var models: [String: WorkspaceTodoPageModel] = [:]
+    /// Each tab's model, by key: kept from its first view until the tab closes, so a view made again
+    /// after a discard shows the same workspace and the unsent draft.
+    private(set) var models: [String: WorkspaceTodoPageModel] = [:]
     /// The workspace a restored tab shows, by tab key.
     private var pending: [String: String] = [:]
     /// The workspace each show asked for, for the tab it opened or selected.
@@ -42,14 +46,19 @@ final class WorkspaceTodoPageService: InternalPageProvider {
     var symbol: String { "checklist" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        let requested = opens.take(for: key)
         let restored = pending.removeValue(forKey: key)
-        let id = opens.take(for: key) ?? restored ?? opens.running ?? window?.state.workspaceID ?? ""
+        if let model = models[key] {
+            if let requested { model.workspaceID = requested }
+            return VisibilityGatedHostingView(owner: "WorkspaceTodoPage") { WorkspaceTodoPageView(model: model) }
+        }
+        let id = requested ?? restored ?? opens.running ?? window?.state.workspaceID ?? ""
         let model = WorkspaceTodoPageModel(
             workspaceID: id,
             workspace: { [weak self] in self?.services?.workspace(id: $0) },
             perform: { [weak self] id, invocation in _ = self?.services?.registry.perform(id, invocation: invocation) })
         models[key] = model
-        return NSHostingView(rootView: WorkspaceTodoPageView(model: model))
+        return VisibilityGatedHostingView(owner: "WorkspaceTodoPage") { WorkspaceTodoPageView(model: model) }
     }
 
     func tabClosed(_ key: String) {
@@ -61,4 +70,15 @@ final class WorkspaceTodoPageService: InternalPageProvider {
     func route(for key: String) -> String? { models[key]?.workspaceID ?? opens.kept(for: key) ?? pending[key] }
 
     func restore(_ route: String, for key: String) { pending[key] = route }
+
+    // MARK: Discard (p07-memory-025)
+
+    /// Ten minutes hidden (Chrome's proactive_discarding_policy.cc). The model stays with the tab,
+    /// so the rebuilt view shows the same checklist and draft.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// An item whose text is being edited keeps the view: the edited text lives in its row.
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        models[key]?.editing == nil ? [] : [.unsavedEdits]
+    }
 }

@@ -38,11 +38,13 @@ nonisolated final class ComputerUseHelperV2Child: Sendable {
     /// Closes stdin: the helper sees EOF and exits (the same signal it gets
     /// when this app dies).
     func closeInput() {
-        input.withLock { descriptor in
-            guard descriptor >= 0 else { return }
-            close(descriptor)
-            descriptor = -1
+        // The lock hands the descriptor to one caller; the close runs after it is released.
+        let descriptor = input.withLock { descriptor -> Int32 in
+            defer { descriptor = -1 }
+            return descriptor
         }
+        guard descriptor >= 0 else { return }
+        close(descriptor)
     }
 }
 
@@ -77,9 +79,17 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
     /// Spawns the helper off the main thread on the user-blocking launcher (Chrome's process launcher,
     /// content/browser/child_process_launcher_helper.cc): Computer Use waits for it to start.
     private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.computer-use-helper", priority: .userBlocking)
+    /// Reaps the helper from its process-exit source (``ChildExitWatch``): no thread waits in `waitpid` while it
+    /// runs on after SIGTERM.
+    private let reaper: DispatchQueue
 
-    init(disclaim: DisclaimFunction? = DisclaimedHelperSpawner.systemDisclaim) {
+    /// - Parameters:
+    ///   - disclaim: The responsibility disclaim; nil when libsystem lacks it (the helper then does not start).
+    ///   - reaper: The serial queue that reaps a terminated helper; utility, as nobody waits for that reap.
+    init(disclaim: DisclaimFunction? = DisclaimedHelperSpawner.systemDisclaim,
+         reaper: DispatchQueue = DispatchQueue(label: "com.cmuxterm.next.computer-use.helper-reap", qos: .utility)) {
         self.disclaim = disclaim
+        self.reaper = reaper
     }
 
     static let systemDisclaim: DisclaimFunction? = {
@@ -145,21 +155,11 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
         return ComputerUseHelperV2Child(pid: pid, input: toHelper[1], lines: Self.lines(from: toHost[0]))
     }
 
+    /// SIGTERM, then the reap on ``reaper`` once the helper exits, so it never stays a zombie; returns at once.
     func terminate(_ pid: pid_t) {
         guard pid > 0 else { return }
         kill(pid, SIGTERM)
-        Self.reap(pid)
-    }
-
-    /// Reaps the child off the main thread so it never stays a zombie.
-    static func reap(_ pid: pid_t) {
-        let thread = Thread {
-            var status: Int32 = 0
-            while waitpid(pid, &status, 0) < 0, errno == EINTR {}
-        }
-        thread.name = "cua-helper-v2-reap"
-        thread.qualityOfService = .utility
-        thread.start()
+        ChildExitWatch(pid: pid, queue: reaper).start { _ in }
     }
 
     /// stdout as lines, read on a dedicated thread until EOF.

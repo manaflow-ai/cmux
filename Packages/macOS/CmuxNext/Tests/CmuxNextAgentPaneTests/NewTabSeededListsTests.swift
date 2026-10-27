@@ -3,6 +3,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// cx-uw104 at the pane's page: a New Tab page is made with the chats and recently closed items
 /// the app already has (`AgentPageChats.seed`), before its page has loaded. The page subscribes to
@@ -22,7 +23,7 @@ struct NewTabSeededListsTests {
 
     @Test func listsSeededBeforeThePageLoadsReachItAtTheHandshake() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         defer { view.close() }
         // What `AgentPageChats.seed` does as the page is made: the page is still loading.
         view.deviceChats = [AgentPaneDeviceChat(key: "claude-code:s-1", harness: "claude-code", title: "Fix the flaky upload test",
