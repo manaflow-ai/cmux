@@ -17,9 +17,10 @@ const MARK: &str = "ACPMUX_AU=";
 /// What the step reads before it changes anything: the kernel, whether the
 /// host is a cmux Cloud VM, whether automatic updates were turned off, and
 /// whether a user systemd manager runs with the timer enabled in it. An
-/// enabled timer counts (`timer`) only when the manager loads both units from
-/// `~/.config/systemd/user` with acpmux's own text; any other enabled one is
-/// someone else's (`foreign`), which runs what it likes.
+/// enabled timer is acpmux's own only when the manager loads both units from
+/// `~/.config/systemd/user` with acpmux's own text and no drop-in changes
+/// them; any other enabled one is someone else's (`foreign`), which runs what
+/// it likes. acpmux's own timer is `timer` while it runs, `stopped` when not.
 pub(super) fn probe_script() -> String {
     let home = hosts::REMOTE_HOME;
     let off = hosts::NO_AUTO_UPDATE;
@@ -31,12 +32,14 @@ pub(super) fn probe_script() -> String {
 if systemctl --user show-environment >/dev/null 2>&1; then echo {MARK}systemd
 if [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" = enabled ]; then
 au_d=$HOME/.config/systemd/user; au_own=1
-for au_f in acpmux-update.service acpmux-update.timer; do [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own=; done
+for au_f in acpmux-update.service acpmux-update.timer; do [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own=
+au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_own=; [ -z "$au_x" ] || au_own=; done
 cmp -s - "$au_d/acpmux-update.service" <<'ACPMUX_UPDATE_SERVICE' || au_own=
 {service}ACPMUX_UPDATE_SERVICE
 cmp -s - "$au_d/acpmux-update.timer" <<'ACPMUX_UPDATE_TIMER' || au_own=
 {timer}ACPMUX_UPDATE_TIMER
-if [ -n "$au_own" ]; then echo {MARK}timer; else echo {MARK}foreign; fi
+if [ -z "$au_own" ]; then echo {MARK}foreign
+elif systemctl --user is-active --quiet acpmux-update.timer; then echo {MARK}timer; else echo {MARK}stopped; fi
 fi
 fi"#
     )
@@ -49,8 +52,10 @@ pub(super) struct Found {
     pub cloud: bool,
     pub off: bool,
     pub systemd: bool,
-    /// acpmux's own timer is enabled.
+    /// acpmux's own timer is enabled and running.
     pub timer: bool,
+    /// acpmux's own timer is enabled but not running.
+    pub stopped: bool,
     /// An enabled `acpmux-update.timer` that acpmux did not write.
     pub foreign: bool,
 }
@@ -63,6 +68,7 @@ pub(super) fn parse(stdout: &str) -> Found {
             "off" => found.off = true,
             "systemd" => found.systemd = true,
             "timer" => found.timer = true,
+            "stopped" => found.stopped = true,
             "foreign" => found.foreign = true,
             other => {
                 if let Some(os) = other.strip_prefix("os=") {
@@ -126,18 +132,19 @@ pub(super) fn update(r: &dyn Remote, fix: bool) -> StepResult {
         );
     }
     if !fix {
-        return StepResult::new(
-            Step::Update,
-            StepState::Warn,
-            "acpmux-update.timer is not installed, so it does not update itself",
-        )
-        .with_fix(format!("Check again with --fix to install acpmux-update.timer on {host}."));
+        let (detail, verb) = if found.stopped {
+            ("acpmux-update.timer is stopped, so it does not update itself", "start")
+        } else {
+            ("acpmux-update.timer is not installed, so it does not update itself", "install")
+        };
+        return StepResult::new(Step::Update, StepState::Warn, detail)
+            .with_fix(format!("Check again with --fix to {verb} acpmux-update.timer on {host}."));
     }
     install(r, host)
 }
 
 /// Writes and starts the timer ([`hosts::install_script`]), then reads
-/// whether it is enabled now.
+/// whether it runs now.
 fn install(r: &dyn Remote, host: &str) -> StepResult {
     let ran = hosts::lock_to_install(r)
         .and_then(|lock| hosts::run(&lock.fence(r), &hosts::install_script()));
@@ -154,7 +161,7 @@ fn install(r: &dyn Remote, host: &str) -> StepResult {
             StepState::Fixed,
             format!("installed acpmux-update.timer: it {EVERY}"),
         ),
-        _ => warn("acpmux-update.timer was written but is not enabled", Some(host)),
+        _ => warn("acpmux-update.timer was installed but is not running", Some(host)),
     }
 }
 

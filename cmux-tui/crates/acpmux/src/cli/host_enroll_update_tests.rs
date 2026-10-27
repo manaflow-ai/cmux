@@ -17,6 +17,8 @@ struct Host {
     install_out: &'static str,
     fenced: RefCell<Vec<String>>,
     locked: bool,
+    /// Whether the timer runs once installed.
+    starts: bool,
 }
 
 impl Host {
@@ -27,6 +29,7 @@ impl Host {
             install_out: "",
             fenced: RefCell::default(),
             locked: false,
+            starts: true,
         }
     }
 }
@@ -48,7 +51,7 @@ impl Remote for Host {
         }
         assert_eq!(script, probe_script(), "only the probe runs outside the lock");
         let mut words: Vec<String> = self.found.iter().map(|w| format!("{MARK}{w}")).collect();
-        if self.installed.get() && self.install_out.is_empty() {
+        if self.installed.get() && self.install_out.is_empty() && self.starts {
             words.push(format!("{MARK}timer"));
         }
         Ok(RemoteOut {
@@ -171,6 +174,127 @@ fn an_enabled_timer_acpmux_did_not_write_is_not_counted_or_replaced() {
             && script.contains(crate::cli::hosts::UPDATE_TIMER),
         "own units are told apart by where they load from and their text: {script}"
     );
+}
+
+#[test]
+fn a_stopped_timer_is_said_and_started() {
+    let host = Host::new(&["os=Linux", "systemd", "stopped"]);
+    let r = update(&host, false);
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert!(r.detail.contains("is stopped"), "{r:?}");
+    assert!(r.fix.as_deref().unwrap().contains("--fix to start"), "{r:?}");
+    assert!(host.fenced.borrow().is_empty());
+
+    let r = update(&host, true);
+    assert_eq!(r.state, StepState::Fixed, "{r:?}");
+    assert_eq!(host.fenced.borrow().len(), 1);
+
+    let mut host = Host::new(&["os=Linux", "systemd"]);
+    host.starts = false;
+    let r = update(&host, true);
+    assert_eq!(r.state, StepState::Warn, "installed but not running: {r:?}");
+    assert!(r.detail.contains("not running"), "{r:?}");
+}
+
+/// The real probe, run by `sh` against a fake `systemctl` in a scratch home.
+mod probe_in_a_shell {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    /// `systemctl` as a user manager answers: `enabled`, `active`, where each
+    /// unit loads from (`frag`: `own` is ~/.config/systemd/user), and the
+    /// service's drop-ins.
+    struct Manager {
+        enabled: bool,
+        active: bool,
+        frag: &'static str,
+        drop_in: &'static str,
+        /// The service file's text, when not acpmux's.
+        service: Option<&'static str>,
+    }
+
+    const OWN: Manager =
+        Manager { enabled: true, active: true, frag: "own", drop_in: "", service: None };
+
+    fn probe(m: Manager) -> Found {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!("acpmux-probe-{}-{n}", std::process::id()));
+        let home = root.join("home");
+        let units = home.join(".config/systemd/user");
+        let bin = root.join("bin");
+        fs::create_dir_all(&units).unwrap();
+        fs::create_dir_all(&bin).unwrap();
+        let service = m.service.unwrap_or(hosts::UPDATE_SERVICE);
+        fs::write(units.join("acpmux-update.service"), service).unwrap();
+        fs::write(units.join("acpmux-update.timer"), hosts::UPDATE_TIMER).unwrap();
+        let frag = if m.frag == "own" { units.display().to_string() } else { m.frag.into() };
+        let fake = format!(
+            r#"#!/bin/sh
+[ "$1" = --user ] || exit 2; shift
+case "$1" in
+show-environment) exit 0 ;;
+is-enabled) echo {enabled} ;;
+is-active) exit {active} ;;
+show) case "$4" in FragmentPath) echo "{frag}/$2" ;; DropInPaths) [ "$2" = acpmux-update.service ] && echo "{drop_in}" || echo ;; esac ;;
+*) exit 2 ;;
+esac
+"#,
+            enabled = if m.enabled { "enabled" } else { "disabled" },
+            active = if m.active { 0 } else { 3 },
+            drop_in = m.drop_in,
+        );
+        let systemctl: PathBuf = bin.join("systemctl");
+        fs::write(&systemctl, fake).unwrap();
+        fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        let out = Command::new("sh")
+            .arg("-c")
+            .arg(probe_script())
+            .env("HOME", &home)
+            .env("PATH", path)
+            .output()
+            .unwrap();
+        fs::remove_dir_all(&root).unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        parse(&String::from_utf8_lossy(&out.stdout))
+    }
+
+    #[test]
+    fn acpmux_own_running_timer() {
+        let found = probe(OWN);
+        assert!(found.systemd && found.timer && !found.stopped && !found.foreign, "{found:?}");
+    }
+
+    #[test]
+    fn a_stopped_timer_is_stopped() {
+        let found = probe(Manager { active: false, ..OWN });
+        assert!(found.stopped && !found.timer && !found.foreign, "{found:?}");
+    }
+
+    #[test]
+    fn a_drop_in_a_unit_elsewhere_or_other_text_is_foreign() {
+        for m in [
+            Manager {
+                drop_in: "/home/x/.config/systemd/user/acpmux-update.service.d/o.conf",
+                ..OWN
+            },
+            Manager { frag: "/etc/systemd/user", ..OWN },
+            Manager { service: Some("[Service]\nExecStart=/usr/bin/true\n"), ..OWN },
+        ] {
+            let found = probe(m);
+            assert!(found.foreign && !found.timer && !found.stopped, "{found:?}");
+        }
+    }
+
+    #[test]
+    fn a_disabled_timer_is_neither() {
+        let found = probe(Manager { enabled: false, ..OWN });
+        assert!(found.systemd && !found.timer && !found.stopped && !found.foreign, "{found:?}");
+    }
 }
 
 #[test]
