@@ -16,7 +16,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 BINARY = "cmux-mobile-host"
@@ -66,11 +65,10 @@ def identity(source: str, architectures: str) -> dict:
     if run("git", "status", "--porcelain", "--untracked-files=all", "--", *INPUTS):
         raise ValueError("iPhone host inputs are modified")
     rust_root = ROOT / "cmux-next-ios/rust"
-    channel = tomllib.loads((rust_root / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
     data = {
         "recipe": RECIPE, "source": source, "archs": archs(architectures),
-        "rustc": run("rustc", f"+{channel}", "-Vv", cwd=rust_root),
-        "cargo": run("cargo", f"+{channel}", "-V", cwd=rust_root),
+        "rustc": run("rustc", "-Vv", cwd=rust_root),
+        "cargo": run("cargo", "-V", cwd=rust_root),
         "xcode": run("xcodebuild", "-version"),
         "macos": run("sw_vers", "-productVersion"),
         "macos_build": run("sw_vers", "-buildVersion"),
