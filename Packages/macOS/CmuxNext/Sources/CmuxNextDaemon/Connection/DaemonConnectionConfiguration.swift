@@ -65,6 +65,10 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// `daemon.line` scope, never its `read(2)` wait). The App's composition root sets it to its
     /// ``HangWatch``; nil (the default) watches nothing.
     public var hangWatch: (any HangWatchScoping)?
+    /// Echoes `diagnostic-sites-v1`, so the daemon pushes its first-seen blocking, inversion and slow-request
+    /// sites as `server-diagnostic-site` events; the connection hands each to ``DaemonConnection/diagnosticSites``.
+    /// Only the app's control connection to its local daemon sets it (`DaemonService.localConfiguration`).
+    public var reportsDiagnosticSites = false
     /// Told each time the connection's quiet-handoff gate parks a wait (a test seam; the default ignores it).
     var handoffWaits: @Sendable (QuietHandoffGate.Wait) -> Void = { _ in }
 
@@ -110,9 +114,12 @@ public struct ClientHelloIdentity: Sendable {
     /// Nil: role main only (the daemon may still verify the app by its
     /// code signature).
     public var installKey: FrontendInstallKey?
+    /// The app's daemon features, sent in each hello (p12-perf-process-150); nil sends none.
+    public var features: DaemonFeatureHello?
 
-    public init(installKey: FrontendInstallKey?) {
+    public init(installKey: FrontendInstallKey?, features: DaemonFeatureHello? = nil) {
         self.installKey = installKey
+        self.features = features
     }
 }
 
@@ -122,5 +129,6 @@ extension DaemonConnectionConfiguration {
         DaemonCapability.handshakeCapabilities(advertisedCapabilities,
                                                  resolvesShellIntegration: resolvesShellIntegration,
                                                  echoesPlacementShift: echoesPlacementShift)
+            + (reportsDiagnosticSites ? [DaemonCapability.diagnosticSites.rawValue] : [])
     }
 }

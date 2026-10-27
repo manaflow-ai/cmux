@@ -146,11 +146,22 @@ nonisolated final class ReplyTestUptime: Sendable {
 }
 
 /// The remote shim's wire entry points over a test's spy dylib (``HostRepliesHarness/attachedHost(over:)``):
-/// the ABI id, an attach that says hello at once, a detach and a set_reply that keeps nothing.
+/// the ABI id, an attach that says hello at once, a detach, a set_reply that keeps nothing and a set_ended
+/// that keeps the end callback (``endWire(of:reason:)``).
 nonisolated enum SpyRemoteWire {
     static let abi = "spy-remote-wire-abi"
     // crash-allow: a C string made once and never freed, read only
     nonisolated(unsafe) private static let abiCString = strdup(abi)
+    // crash-allow: test-only spy state, written and read on the main thread (the remote shim's wire entry points run there);
+    // every attach hands the same C function, so a test's own reply table names its end by its token
+    nonisolated(unsafe) private static var endedFn: CEFRemoteShim.EndedFn?
+
+    /// The control channel ended under the remote shim (`reason`, a `cmux_remote_end_reason`), as its reader
+    /// reports a host that closed its end: the end callback runs for `replies`, the table the attach handed it.
+    @MainActor static func endWire(of replies: CEFHostReplies, reason: Int32 = 1) throws {
+        let ended = try #require(endedFn, "no attach handed the remote shim an end callback")
+        ended(try replies.replySinkToken().context, reason)
+    }
 
     static func symbol(over spy: @escaping @Sendable (String) -> UnsafeMutableRawPointer?) -> @Sendable (String) -> UnsafeMutableRawPointer? {
         { name in
@@ -161,11 +172,15 @@ nonisolated enum SpyRemoteWire {
             }
             let detach: CEFRemoteShim.DetachFn = {}
             let setReply: CEFRemoteShim.SetReplyFn = { _, _ in }
+            let setEnded: CEFRemoteShim.SetEndedFn = { _, ended in
+                if let ended { SpyRemoteWire.endedFn = ended }
+            }
             return switch name {
             case "cmux_shim_abi_id": unsafeBitCast(abiID, to: UnsafeMutableRawPointer.self)
             case "cmux_remote_shim_attach": unsafeBitCast(attach, to: UnsafeMutableRawPointer.self)
             case "cmux_remote_shim_detach": unsafeBitCast(detach, to: UnsafeMutableRawPointer.self)
             case "cmux_remote_shim_set_reply": unsafeBitCast(setReply, to: UnsafeMutableRawPointer.self)
+            case "cmux_remote_shim_set_ended": unsafeBitCast(setEnded, to: UnsafeMutableRawPointer.self)
             default: spy(name)
             }
         }

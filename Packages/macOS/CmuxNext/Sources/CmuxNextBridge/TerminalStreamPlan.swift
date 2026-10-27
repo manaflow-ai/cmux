@@ -33,6 +33,9 @@ public nonisolated enum TerminalStreamPlan {
         case output(Data)
         /// The `output` before this one carries the echo of key press `flow` (the typing probe).
         case inputEcho(flow: UInt64)
+        /// Resume once every step before this one is applied: live output then goes from the link's reader
+        /// straight to the view's lane again (``TerminalAttachDriver/setOutputSink(_:)``).
+        case outputResume(TerminalOutputMarker)
         /// The terminal's process is gone.
         case exited
         /// The view's link changed (disconnected, reconnecting, back).
@@ -51,6 +54,8 @@ public nonisolated enum TerminalStreamPlan {
             [.output(data)]
         case .inputEcho(let flow):
             [.inputEcho(flow: flow)]
+        case .outputResume(let marker):
+            [.outputResume(marker)]
         case .closed, .colorsChanged, .scrollChanged:
             []
         case .sizeState(let state, let participant):
