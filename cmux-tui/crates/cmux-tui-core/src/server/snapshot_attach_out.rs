@@ -1,18 +1,16 @@
 //! The output of a snapshot viewer (`terminal-snapshot-v1`): READY
 //! snapshots, live output, history and images chunks and the idle digest.
 //!
-//! A legacy viewer runs it on its own `mux-snapshot-attach-out` thread,
-//! blocked on the viewer's queue. A viewer on a client-minted attach stream
-//! runs it as a drain on the daemon-wide sequenced pool and holds no thread
-//! (p05-ipc-079); its idle digest is a delayed task of its sequence, aligned
-//! to the daemon's wake grid so the digests of many idle viewers share one
-//! wake (Chrome's `kAlignWakeUps`, base/message_pump.cc).
+//! Every viewer, legacy or on a client-minted attach stream, runs it as a
+//! drain on the daemon-wide sequenced pool and holds no thread (p05-ipc-079,
+//! p01-process-125); its idle digest is a delayed task of its sequence,
+//! aligned to the daemon's wake grid so the digests of many idle viewers
+//! share one wake (Chrome's `kAlignWakeUps`, base/message_pump.cc).
 
 use std::sync::Arc;
-use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
+use std::sync::mpsc::TryRecvError;
 use std::time::Instant;
 
-use cmux_threads::checked::sync as waits;
 use serde_json::{Value, json};
 
 use super::{
@@ -23,17 +21,9 @@ use crate::server::WatchKind;
 use crate::server::attach_lifecycle::attach_pump::{
     AttachPump, PumpTimer, Step, ViewDrain, ViewOut, ViewSource,
 };
-use crate::server::attach_lifecycle::{
-    AttachCommit, AttachWorkerCommit, commit_client_attach_and_start_pump,
-    commit_client_attach_and_start_worker,
-};
-use crate::server::attach_streams::StreamEndReason;
+use crate::server::attach_lifecycle::{AttachCommit, commit_client_attach_and_start_pump};
 use crate::server::sequenced_pool::SequencePriority;
-use crate::server::{
-    MessageWriter, OutboundStream, detach_committed_attach, handle_attach_send_error,
-    report_attach_overflow,
-};
-use crate::stream_interrupt::StreamInterrupt;
+use crate::server::{MessageWriter, OutboundStream, handle_attach_send_error};
 use crate::surface::snapshot_attach::{
     LocalReadySnapshot, SNAPSHOT_DIGEST_IDLE, SnapshotRequestGate,
 };
@@ -61,9 +51,6 @@ pub(super) struct SnapshotWorker {
     pub(super) images_cap: Option<u64>,
     /// When the idle digest is due: set by output, cleared by a READY.
     pub(super) digest_at: Option<Instant>,
-    /// The viewer is an attach stream: a drain on the sequenced pool, not
-    /// a thread of its own.
-    pub(super) on_pool: bool,
 }
 
 /// What the viewer's queue held.
@@ -76,14 +63,10 @@ enum Polled {
 }
 
 impl SnapshotWorker {
-    /// Queues `value`. The legacy thread waits for room; a drain runs only
-    /// while its stream has room, so it never waits.
+    /// Queues `value`. The drain runs only while its stream has room, so it
+    /// never waits.
     fn queue(&self, value: &Value) -> std::io::Result<()> {
-        if self.on_pool {
-            self.writer.send_stream(value, &self.outbound_stream)
-        } else {
-            self.writer.send_stream_backpressured(value, &self.outbound_stream)
-        }
+        self.writer.send_stream(value, &self.outbound_stream)
     }
 
     fn send(&self, value: &Value) -> bool {
@@ -221,92 +204,30 @@ impl SnapshotWorker {
             self.outbound_stream.id,
         );
     }
-
-    /// The legacy thread: blocks on the viewer's queue; the only timed wait
-    /// is the one-shot idle digest deadline set by the last output. While
-    /// history is pending the queue is only polled: a queued event goes
-    /// first, else one chunk. Images chunks follow the history chunks at the
-    /// same priority.
-    fn run(mut self) {
-        let interrupt = StreamInterrupt::new();
-        self.writer.register_interrupt(&interrupt);
-        self.outbound_stream.register_interrupt(&interrupt);
-        self.lifecycle.register_interrupt(&interrupt);
-        self.receiver.wake_on(&interrupt);
-        while self.writer.is_open()
-            && self.outbound_stream.is_open()
-            && !self.lifecycle.is_canceled()
-        {
-            let deadline = if self.tail.is_some() { Some(Instant::now()) } else { self.digest_at };
-            let polled = match self.receiver.recv_viewer_event(&interrupt, deadline) {
-                Ok(event) => Polled::Event(event),
-                Err(RecvTimeoutError::Timeout) => Polled::Nothing,
-                Err(RecvTimeoutError::Disconnected) => Polled::Disconnected,
-            };
-            if !self.handle(polled) {
-                break;
-            }
-        }
-        report_attach_overflow(
-            &self.writer,
-            self.surface_id,
-            &self.lifecycle,
-            &self.outbound_stream,
-        );
-        self.unregister();
-        detach_committed_attach(&self.mux, self.client, self.surface_id, self.outbound_stream.id);
-        self.writer.end_client_stream(&self.outbound_stream, StreamEndReason::Detached);
-    }
 }
 
-/// Starts `worker` and commits its attach: on its own thread for a legacy
-/// viewer, as a drain on the sequenced pool for an attach stream.
+/// Starts `worker` as a drain on the sequenced pool and commits its attach.
 pub(super) fn start(worker: SnapshotWorker, commit: AttachCommit) -> anyhow::Result<()> {
     let (mux, client, surface, stream) =
         (worker.mux.clone(), worker.client, worker.surface_id, worker.outbound_stream.clone());
-    if worker.on_pool {
-        let pump = AttachPump::new(&mux.sequenced_pool, SequencePriority::Input);
-        let out = ViewOut::bind(
-            &pump,
-            &mux,
-            client,
-            surface,
-            &worker.writer,
-            &stream,
-            &commit.lifecycle,
-            true,
-        );
-        worker.receiver.on_ready(pump.hook());
-        let source = SnapshotSource { worker, wake_at: None };
-        pump.install(Box::new(ViewDrain::new(out, source)));
-        return commit_client_attach_and_start_pump(&mux, client, surface, stream.id, commit, pump);
-    }
-    let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-    let spawned =
-        std::thread::Builder::new().name("mux-snapshot-attach-out".into()).spawn(move || {
-            if waits::recv(&worker_committed).is_ok() {
-                worker.run();
-            } else {
-                worker.unregister();
-            }
-        });
-    let AttachCommit { lifecycle, changed, size_rollback } = commit;
-    if let Err(error) = spawned {
-        lifecycle.cancel();
-        mux.control_clients.snapshot_viewers.unregister(client, surface, stream.id);
-        crate::server::rollback_failed_attach(&mux, client, surface, stream.id, size_rollback);
-        return Err(error.into());
-    }
-    commit_client_attach_and_start_worker(
+    let pump = AttachPump::new(&mux.sequenced_pool, SequencePriority::Input);
+    let out = ViewOut::bind(
+        &pump,
         &mux,
         client,
         surface,
-        stream.id,
-        AttachWorkerCommit { start: worker_start, lifecycle, changed, size_rollback },
-    )
+        &worker.writer,
+        &stream,
+        &commit.lifecycle,
+        true,
+    );
+    worker.receiver.on_ready(pump.hook());
+    let source = SnapshotSource { worker, wake_at: None };
+    pump.install(Box::new(ViewDrain::new(out, source)));
+    commit_client_attach_and_start_pump(&mux, client, surface, stream.id, commit, pump)
 }
 
-/// A snapshot viewer of an attach stream.
+/// A snapshot viewer's source.
 struct SnapshotSource {
     worker: SnapshotWorker,
     /// When the delayed turn armed for the digest runs.

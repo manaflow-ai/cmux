@@ -1,5 +1,6 @@
-//! The byte, render and browser views of attach streams as drains on the
-//! sequenced pool (p05-ipc-079): the work of the legacy `mux-attach-out`,
+//! The byte, render and browser views as drains on the sequenced pool, on a
+//! client-minted attach stream (p05-ipc-079) or a legacy one
+//! (p01-process-125): the work of the former `mux-attach-out`,
 //! `mux-render-attach-out` and `mux-attach-notifications` threads, without
 //! the threads. The snapshot view's drain is in snapshot_attach_out.rs.
 
