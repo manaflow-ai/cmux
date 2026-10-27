@@ -1158,6 +1158,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Small app stores join the memory coordinator: last-quit terminal frames and agent pages go once the launch settles; glass lens stills and What's New pictures go at memory warning and are made again; terminal Kitty image storage is sized from the Mac's memory and halves at warning.
+    public static let memorySmallAppStores = Feature(
+        index: 64,
+        name: "memorySmallAppStores",
+        owner: "PL-memory",
+        description: "Small app stores join the memory coordinator: last-quit terminal frames and agent pages go once the launch settles; glass lens stills and What's New pictures go at memory warning and are made again; terminal Kitty image storage is sized from the Mac's memory and halves at warning.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Tab strip icon caches join the memory coordinator: drawn symbols, pack icons, agent marks and emoji shrink as the memory limit falls; at critical pressure only icons drawn in the last 2 seconds stay. A dropped icon is drawn again when next shown.
     public static let memoryTabCaches = Feature(
         index: 65,
@@ -2024,6 +2041,7 @@ nonisolated extension Feature {
         .memorySaverBackgroundActivity,
         .memorySaverSetting,
         .memoryScrollbackPressure,
+        .memorySmallAppStores,
         .memoryTabCaches,
         .memoryTerminalLastFrames,
         .memoryUrgentDiscardRanking,
@@ -2140,6 +2158,7 @@ nonisolated extension Feature {
         .memorySaverBackgroundActivity,
         .memorySaverSetting,
         .memoryScrollbackPressure,
+        .memorySmallAppStores,
         .memoryTabCaches,
         .memoryTerminalLastFrames,
         .memoryUrgentDiscardRanking,

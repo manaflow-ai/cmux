@@ -1438,6 +1438,9 @@ All IDs below are `p07-memory-NNN`.
 - Change: launch frames and images dropped after LaunchSettle; GlassBackdropImages and ReleaseMediaStore
   register; image-storage-limit from kittyImageBytesPerSurface, lowered at warning.
 - Acceptance: 0 images after LaunchSettle; MQ-CAPS 0 in GhosttyRuntime+ImageStorage.swift; bytes reported.
+  The Ghostty image budget is not a consumer, so "bytes reported" does not apply to it: libghostty reports
+  no image bytes, and the budget is a cap Ghostty enforces, not a store cmux releases. It follows the
+  coordinator's level (`GhosttyImageStorageBudget`) and rises only after `limitRiseDelay` at normal.
 - Test: fleet swift test 'TerminalLaunchFrames|GlassBackdrop|ReleaseMedia'.
 
 ### 084 cmux page browser tabs discardable

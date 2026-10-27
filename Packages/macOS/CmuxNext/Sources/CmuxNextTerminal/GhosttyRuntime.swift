@@ -48,6 +48,8 @@ public final class GhosttyRuntime {
     var reloadRequests = 0
     /// A ``reloadConfig()`` came before the first config landed (``start(loadingOn:then:)`` runs it then).
     var reloadAfterStart = false
+    /// cmux's Kitty graphics budget per screen (``setImageStorageBytesPerScreen(_:)``), bounded from the start.
+    var imageStorageBytesPerScreen = GhosttyRuntime.defaultImageStorageBytesPerScreen
     /// Bumps on every config change (reload, conditional theme switch), after the new config is in
     /// place. Visible views observe it; hidden ones read it when they show.
     public let configRevision = GhosttyConfigRevision()
@@ -217,7 +219,7 @@ public final class GhosttyRuntime {
         config = unsafe fresh
         hostKeybindCache.binds = nil
         // Themed configs were built on the old files: each keeps serving until its rebuild lands.
-        themeConfigs.invalidate(loader: configLoader) { GhosttyConfigInputs.current(theme: $0) }
+        themeConfigs.invalidate(loader: configLoader) { configInputs(theme: $0) }
         onConfigChange?()
         configRevision.bump()
         for handler in configChangeHandlers { handler() }

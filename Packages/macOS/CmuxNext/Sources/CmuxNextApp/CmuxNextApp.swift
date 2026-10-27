@@ -119,7 +119,8 @@ public struct CmuxNextApp {
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
-        TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
+        let terminalFrames = TerminalLaunchFrames(state: state)
+        terminalFrames.prefetch(on: work) { DebugTimings.markLaunch($0) }
         environment.browserLaunchPictures = BrowserLaunchPictures(state: state, work: work)  // browser pages' (p08-startup-043)
         environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
         environment.windowPictures = WindowPictureStore(state: state, work: work)  // the windows' (p08-startup-057)
@@ -198,7 +199,7 @@ public struct CmuxNextApp {
         if let pictures = environment.windowPictures { order.startup.whenComplete { _ in pictures.dropFront() } } // decoded pictures are large
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats, features: features,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
-                                   launchReads: (work, launchImages, relaunchWake))
+                                   launchReads: (work, launchImages, terminalFrames, relaunchWake))
         DebugTimings.markLaunch("main.delegate")
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
         (app as? CmuxApplication)?.meterTurns(delegate.turnMeter)
