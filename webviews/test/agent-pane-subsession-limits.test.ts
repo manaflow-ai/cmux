@@ -282,10 +282,7 @@ test("a kept tail's old limit, replayed as the chat is opened again, is never st
   // passes that record before the attach answers.
   const chat = "0190a000-0000-7000-8000-0000000000f9";
   // fixed-wait: the helper checks, after a short settle, that no late reply takes the limit back.
-  await stepOverReattach(
-    chat,
-    record([["mux", "user_message", { text: "start the agents" }], changed(5)], 1, chat),
-  );
+  await stepOverReattach(chat, record([["mux", "user_message", { text: "start the agents" }], changed(5)], 1, chat));
 });
 
 test("a + while a reopened chat's kept tail shows its own old limit steps from acpmux's limit", async () => {
