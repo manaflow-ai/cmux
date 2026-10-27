@@ -42,6 +42,27 @@ import Testing
         #expect(kept["itm_p2"]?.before == false && kept["itm_p2"]?.after == false)
     }
 
+    /// A pinned group still takes workspaces from the list: into its header and between its members (the
+    /// drop joins the group, it does not pin a loose row). Refused as `pinned_area`, a workspace could not be
+    /// dragged into a pinned group at all; only the band's own top level stays closed.
+    @Test func aWorkspaceFromTheListJoinsAPinnedGroup() {
+        let group = SidebarDocItem(id: "itm_g_saved", section: Self.pinned, body: .group(name: "Saved", color: nil, icon: nil, collapsed: false))
+        let member = SidebarDocItem(id: "itm_member", section: Self.pinned, parent: "itm_g_saved",
+                                    body: .workspace(SidebarDocWorkspaceRef(sessionID: "s-local", workspaceID: "member")))
+        var records = Self.records()
+        records.items[group.id] = group
+        records.items[member.id] = member
+        let header = SidebarDocAcceptance(before: true, into: true, after: true)
+        var table = Self.table
+        table[group.id] = header
+        table[member.id] = Self.open
+        let kept = records.keepingPinned(table, dragging: ["itm_loose"])
+        #expect(kept[group.id]?.into == true, "the pinned group's header refuses a drop into it")
+        #expect(kept[group.id]?.before == false && kept[group.id]?.after == false, "beside the header is Pinned's top level")
+        #expect(kept[member.id] == Self.open, "between the pinned group's members refuses a drop")
+        #expect(kept["itm_p1"]?.before == false && kept[Self.pinned]?.into == false, "the band's top level stays closed")
+    }
+
     @Test func pinnedWorkspacesStillReorderInPinned() {
         #expect(Self.records().keepingPinned(Self.table, dragging: ["itm_p1"]) == Self.table)
     }
