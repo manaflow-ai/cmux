@@ -35,6 +35,7 @@ jobs:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.2
         with:
+          cache-bin: false
           workspaces: coderouter
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --all-targets -- -D warnings

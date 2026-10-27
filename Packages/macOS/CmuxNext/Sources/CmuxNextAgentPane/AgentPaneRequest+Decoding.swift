@@ -120,9 +120,14 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.showContextUsage", "pane.showDictation":
+        case "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend":
             if let show = params?["show"] as? Bool {
-                let path = method == "pane.showDictation" ? AgentPaneComposerSetting.showDictationPath : AgentPaneComposerSetting.showContextUsagePath
+                let path: [String]
+                switch method {
+                case "pane.showDictation": path = AgentPaneComposerSetting.showDictationPath
+                case "pane.setScrollToBottomOnSend": path = AgentPaneComposerSetting.scrollToBottomOnSendPath
+                default: path = AgentPaneComposerSetting.showContextUsagePath
+                }
                 self = .composerSetting(path: path, show: show)
             } else {
                 self = .unsupported(method)
@@ -289,6 +294,9 @@ extension AgentPaneRequest {
             if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
                 self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
             } else { self = .unsupported(method) }
+        case "harness.symbol":
+            if let name = params?["name"] as? String, HarnessSymbolImages.isSymbolName(name) { self = .harnessSymbol(name) }
+            else { self = .unsupported(method) }
         case "project.icon":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }
             else { self = .unsupported(method) }
@@ -343,6 +351,8 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .asksOpen(id) } else { self = .unsupported(method) }
+        case "chat.asks.answer":
+            if let ask = AgentPaneAskAnswer(params) { self = .asksAnswer(ask) } else { self = .unsupported(method) }
         case "chat.offer.open":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .offerOpen(id, sender: params?["sender"] as? Bool == true) } else { self = .unsupported(method) }
         case "chat.upload":

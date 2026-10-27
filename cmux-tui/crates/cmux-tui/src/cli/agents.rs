@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 
 use super::app::{self, ActionName};
 use super::app_focus;
-use super::command::{CommandPlan, RequestPlan, ResponseView, WireOperation};
+use super::command::{CommandPlan, RequestPlan, Resolve, ResponseView, WireOperation};
 use super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::{GlobalArgs, OutputMode, Surface, UsageError, parse_globals, wire};
 
@@ -355,6 +355,18 @@ fn run_resource<B: Backend>(
         }
         Err(error) => return Err(AgentFailure::Usage(error.0)),
     };
+    // `cmux agents` sends plain unary requests with no caller placement: its
+    // `current` is still the focused object, and it has no `caller`.
+    let caller = json!("caller");
+    if plan.params.as_object().is_some_and(|params| {
+        super::command::plan::CALLER_SCOPES.iter().any(|scope| params.get(*scope) == Some(&caller))
+    }) {
+        return Err(AgentFailure::Usage(
+            "cmux agents takes ids, current or names; `caller` is for the cmux resource commands"
+                .into(),
+        ));
+    }
+    plan.resolve.retain(|step| *step != Resolve::Caller);
     if plan.operation.class() == OperationClass::Mutation {
         plan.idempotency_key = Some(change_key(idempotency_key)?);
     }

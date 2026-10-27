@@ -116,6 +116,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setAgentAvatar(String)
     /// `agent.avatar.remove {sessionId}`: Remove Avatar: the session's harness mark again.
     case removeAgentAvatar(String)
+    /// `harness.symbol {name}`: a custom harness's SF Symbol icon as a template PNG `data:` URL
+    /// (``HarnessSymbolImages``); a name this Mac cannot draw answers nothing.
+    case harnessSymbol(String)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -164,6 +167,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
     /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
     case asksOpen(String)
+    /// `chat.asks.answer {sessionId, permissionId, optionId}`: the home's inbox answered another
+    /// chat's ask in place, with that ask's allow once or deny once (``AgentPaneAskAnswer``).
+    case asksAnswer(AgentPaneAskAnswer)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool)
@@ -259,9 +265,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
     /// text to save where the user picks (``AgentPaneSave``).
     case saveFile(AgentPaneSave)
-    /// `pane.showContextUsage` or `pane.showDictation` with `{show}`: the composer's Hide or Show
-    /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
-    /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
+    /// `pane.showContextUsage`, `pane.showDictation` or `pane.setScrollToBottomOnSend` with
+    /// `{show}`: a composer setting which the host writes to cmux.json at `path`.
     case composerSetting(path: [String], show: Bool)
     /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.

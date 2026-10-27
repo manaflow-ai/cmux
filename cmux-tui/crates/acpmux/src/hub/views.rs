@@ -266,15 +266,15 @@ impl Hub {
         enforcement(m, self.config.try_read().ok().map(|c| c.permission_policy))
     }
 
-    /// The session whose agent started this one: its `spawnedBy` tag, which the acpmux client
-    /// sets after a `session/new` sent from inside a session (the caller's `ACPMUX_SESSION_ID`).
-    /// A child lists under it, never on its own in a chat list. Kept only while that session is
-    /// here, listed (not archived) and not a child itself: one level, so a loop of tags or a
-    /// parent nobody sees never hides a chat.
-    /// A sub-session (`subsessions.rs`) names its parent the same way, by its proven link.
+    /// The session whose agent started this one, as the chat lists fold it (`spawnedBy`): its
+    /// lineage parent (`lineage.rs`), else the `spawnedBy` tag an older acpmux client set after a
+    /// `session/new` sent from inside a session it could not prove (the caller's
+    /// `ACPMUX_SESSION_ID`). A child lists under it, never on its own in a chat list. Kept only
+    /// while that session is here, listed (not archived) and a root itself: one level, so a loop
+    /// of tags or a parent nobody sees never hides a chat. `parent` gives the whole tree.
     pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
-        let parent = match &m.subsession {
-            Some(link) => link.started_by.clone(),
+        let parent = match self.lineage_of(m) {
+            Some(lineage) => lineage.parent,
             None => live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned(),
         };
         let session =
@@ -282,7 +282,7 @@ impl Hub {
         let pm = session.meta();
         let tags = live_tags(&pm);
         let listed = tags.get(SPAWNED_BY_TAG).is_none()
-            && pm.subsession.is_none()
+            && self.lineage_of(&pm).is_none()
             && tags.get("archived").is_none();
         (parent != m.id && listed).then_some(parent)
     }
@@ -294,6 +294,7 @@ impl Hub {
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
+        let lineage = self.lineage_of(&m);
         let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
@@ -315,10 +316,13 @@ impl Hub {
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
             spawned_by: self.spawned_by(&m),
+            parent: lineage.as_ref().map(|l| l.parent.clone()),
+            root: lineage.as_ref().map_or_else(|| m.id.clone(), |l| l.root.clone()),
+            spawn_tool_call_id: lineage.as_ref().and_then(|l| l.tool_call_id.clone()),
             pull_requests: m.pull_requests.clone(),
             started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
-            depth: m.subsession.as_ref().map_or(0, |l| l.depth),
+            depth: lineage.as_ref().map_or(0, |l| l.depth),
             children: self.subsessions.open_count(&m.id),
             title: m.title.clone(),
             title_source: m.title_source.clone(),
@@ -488,6 +492,7 @@ impl Hub {
                 live += 1;
             }
         }
+        let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
             "build": BUILD,
@@ -499,6 +504,11 @@ impl Hub {
             // processes. Never its command line: `--token` is on it.
             "exe": std::env::current_exe().ok().map(|e| e.to_string_lossy().into_owned()),
             "runsAsCmuxTuiAcp": runs_as_cmux_tui_acp(std::env::args_os()),
+            // Whether that executable is a stable install, and why not (`runner-work`, `temp`,
+            // `build-tree`): reach, lane-place and `host ls` flag a daemon that a runner's
+            // cleanup can delete (`daemon/exe_path.rs`).
+            "exeStable": exe_unstable.is_none(),
+            "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.

@@ -76,12 +76,13 @@ const menuRows = (): ChatMenuItem[] => [
 ];
 
 // The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
-const panelToggle = (shown: boolean, icon = "view.list") =>
+const panelToggle = (shown: boolean, icon = "view.list", pressedLook?: "ink" | "accent" | "dot") =>
   createElement(PanelToggle, {
     className: "acpmux-summary-button",
     label: "Chat summary",
     shown,
     icon,
+    pressedLook,
     onToggle: () => undefined,
   });
 const summary = panelToggle(false);
@@ -123,8 +124,8 @@ const groupedControls: Play = async (ctx) => {
 
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
 // just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
-// and the chat menu open, no header tool draws a fill, border or shadow; the open panel's toggle reads
-// as on by its ink alone, against Browser at rest.
+// and the chat menu open, no header tool draws a fill, border or shadow but one: the open panel's toggle
+// draws a soft fill so it reads as toggled (Leo, 2026-10-26: "why is the button not toggled?").
 const plainIcons: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
   setHeaderState({ lit: ["splitRight"] });
@@ -133,11 +134,15 @@ const plainIcons: Play = async (ctx) => {
   await openMenu(ctx);
   const view = ctx.document.defaultView!;
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
+  const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
   for (const tool of tools) {
     const style = view.getComputedStyle(tool);
     const name = tool.getAttribute("aria-label");
-    if (!/^rgba\(.*,\s*0\)$|^transparent$/.test(style.backgroundColor))
-      throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    const openPanel = tool.matches('.acpmux-header-panel-toggle[aria-pressed="true"]');
+    if (openPanel === clear(style.backgroundColor))
+      throw new Error(
+        `header tool ${name}: ${openPanel ? "no fill while its panel is open" : `draws a fill: ${style.backgroundColor}`}`,
+      );
     if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
       throw new Error(`header tool ${name} draws a border`);
     if (style.boxShadow !== "none") throw new Error(`header tool ${name} draws a shadow: ${style.boxShadow}`);
@@ -360,8 +365,20 @@ export default componentEntry<HeaderToolsProps>({
       play: panelsOpen,
     },
     "panel-open": {
-      note: "The right-side panel is open: its toggle, first of the icons, is pressed and its glyph's column filled.",
+      note: 'Chosen. Session Info is open: its toggle, first of the icons, shows a soft fill on its 24px square, so it reads as toggled (Leo, 2026-10-26: "why is the button not toggled?"). No other icon draws a box.',
       props: { ...base, summary: panelToggle(true) },
+    },
+    "panel-open-ink": {
+      note: "Before, for comparison: the open panel's toggle only takes the text's ink, which did not read as toggled.",
+      props: { ...base, summary: panelToggle(true, "view.list", "ink") },
+    },
+    "panel-open-accent": {
+      note: "Alternative: the open panel's toggle in the accent color, no fill (the default accent is the text color, so it reads like the ink look).",
+      props: { ...base, summary: panelToggle(true, "view.list", "accent") },
+    },
+    "panel-open-dot": {
+      note: "Alternative: a small dot under the open panel's toggle, no fill.",
+      props: { ...base, summary: panelToggle(true, "view.list", "dot") },
     },
     "panel-icon-list": {
       note: "Panel icon option: three list rows with circular markers, matching ChatGPT's session rail control; this is the shipped choice.",

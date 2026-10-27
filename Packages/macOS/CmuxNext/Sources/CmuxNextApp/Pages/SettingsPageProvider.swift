@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTerminal
 import Foundation
 import Observation
 
@@ -54,6 +55,14 @@ final class SettingsPageProvider: PageProvider {
     var pickFolders: (@MainActor () async -> [String]?)?
     /// Save as Ghostty Theme and Import Theme File (`cmux.settings.theme.save`/`.import`).
     var themeFiles: SettingsThemeFiles?
+    /// The colors the Ghostty config sets itself, which no theme changes (the host lists'
+    /// `theme_overrides`), and the reload after Let Themes Set Colors turned them off; nil in
+    /// tests without an app.
+    var themeOverrides: (@MainActor () -> [GhosttyColorOverride])?
+    var reloadGhosttyConfig: @MainActor () -> Void = { GhosttyRuntime.shared.reloadConfig() }
+    /// Open Ghostty Config: the file of the first override in cmux's editor at its line; false when
+    /// it did not open (Finder then shows the file).
+    var openThemeOverride: (@MainActor (GhosttyColorOverride) -> Bool)?
     /// The backgrounds folder and its image picker (`cmux.settings.backdrop.choose_image`).
     var backdropImages: SettingsBackdropImages?
     /// Browse more art: the museum search's results for this page.
@@ -72,6 +81,8 @@ final class SettingsPageProvider: PageProvider {
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
+    /// Let Themes Set Colors' rounds: a file and the includes before it that set the same color.
+    private static let overrideRounds = 4
 
     init(settings: SettingsController, domains: @escaping @MainActor () -> [String: [String]] = { [:] },
          hostLists: (@MainActor () -> JSONValue)? = nil) {
@@ -163,6 +174,36 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.theme.save", "cmux.settings.theme.import":
             guard let themeFiles else { throw PageError(code: "cmux.page.unavailable", message: "no theme files") }
             return try await themeFiles.call(op, params: params, edits: settings.applied.themeEdits, writer: Self.writer(context))
+        case "cmux.settings.theme.overrides.release":
+            // Let Themes Set Colors: comments out the lines in the person's Ghostty files. The host
+            // names the lines from the applied config; the page names no file.
+            guard Self.writer(context) == .user else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
+            let current = try Self.host(themeOverrides, "theme overrides")
+            // An earlier file (an include) can set the same color: after a reload it is the one in
+            // effect, so turn that off too, a bounded number of rounds.
+            var changed = Set<URL>()
+            for _ in 0..<Self.overrideRounds {
+                let overrides = current()
+                guard !overrides.isEmpty else { break }
+                do {
+                    let files = try await Task.detached(priority: .userInitiated) { try GhosttyColorOverride.turnOff(overrides) }.value
+                    guard !files.isEmpty else { break }
+                    changed.formUnion(files)
+                } catch {
+                    throw PageError(code: "cmux.settings.theme.overrides_failed", message: error.localizedDescription)
+                }
+                reloadGhosttyConfig()
+            }
+            return ["files": .number(Double(changed.count))]
+        case "cmux.settings.theme.overrides.open":
+            guard Self.writer(context) == .user else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
+            guard let first = try Self.host(themeOverrides, "theme overrides")().first else { return .object([:]) }
+            if openThemeOverride?(first) != true { NSWorkspace.shared.revealInBackground([URL(fileURLWithPath: first.file)]) }
+            return .object([:])
         case "cmux.settings.theme.accepts":
             return ["accepts": .bool(acceptsTheme?(params["text"]?.stringValue ?? "") ?? false)]
         case "cmux.settings.folders.add":

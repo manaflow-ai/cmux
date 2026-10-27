@@ -6,7 +6,13 @@ import { expect, test } from "bun:test";
 import span from "../src/pages/changelog/fixtures/nightly-3913596493801-span.json";
 import nightlies from "../src/pages/changelog/fixtures/nightly-next-50.json";
 import { changeItems, mergedView, readableChanges } from "../src/pages/changelog/model";
-import { readableChange, shortTitle } from "../src/pages/changelog/readableChange";
+import {
+  INTERNAL_SCOPES,
+  INTERNAL_TYPES,
+  INTERNAL_WORDS,
+  readableChange,
+  shortTitle,
+} from "../src/pages/changelog/readableChange";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 
 const view = mergedView(span as ReleaseNotes[], "en");
@@ -56,6 +62,53 @@ test("tool-name, PR-number and history-repair commits are internal work", () => 
     "feat: side-by-side diffs in the review pane",
   ])
     expect(readableChange(subject).internal).toBe(false);
+});
+
+// Leo's update to nightly 4037632091801 (2026-10-26) read "Fixed: validate release headings within
+// their day": a change to the release-notes checker (notesCheck.ts and its test), published as news
+// both as its subject and as the summary line made from it. Release and changelog tooling is
+// internal by its scope and by its words; the What's New page's own changes stay news.
+const RELEASE_TOOLING = [
+  "fix(changelog): validate release headings within their day (#25533)",
+  "Validate release headings within their day",
+  "ci(changelog): validate nightly notes before publication (#25518)",
+  "cx-oy6yl: Repair base release-notary fixtures and highlight metadata (#25272)",
+  "What's New: the persistent goals highlight fits the validator",
+  "fix(release-notes): the digest keeps its period",
+  "fix(appcast): every item carries its notes link",
+];
+const RELEASE_USER_FACING = [
+  "What's New: every change with a clip shows it whole, beside its caption (#25135)",
+  "cmux NEXT composer: click outside releases focus (#24896)",
+  "cmux NEXT (release blocker): the app raises its open-file limit at launch, before Chromium starts",
+  "fix(next): a kernel memory pressure source is safe to release before it starts",
+  "fix(updater): staged updates stay replaceable until the restart",
+  // Review of this change: a validator in the app is news; only the release gate's is not.
+  "fix(webviews): wire validator errors and the checkpoint and continuation labels come from the pane's table",
+  "feat: add a searchable changelog page",
+  "Redesign changelog page with feature highlights",
+  // What's New has its own release headings; a fix to them is news.
+  "fix(next): release headings show the day they belong to",
+  "fix(changelog): the popup's footer counts the changes it shows",
+  "fix(updates): channel tracks read verdicts and pulls beside the cmux NEXT appcast on DEV and legacy feeds",
+];
+
+test("release and changelog tooling is internal work; the What's New page's changes are not", () => {
+  for (const subject of RELEASE_TOOLING) expect([subject, readableChange(subject).internal]).toEqual([subject, true]);
+  for (const subject of RELEASE_USER_FACING)
+    expect([subject, readableChange(subject).internal]).toEqual([subject, false]);
+});
+
+// The pipeline marks a commit internal when every file it touches is CI or tooling
+// (release-notes.py tooling_only), whatever its subject says; the page and the card trust it.
+test("a change the notes mark internal stays out, whatever its subject", () => {
+  const { changes, internal, hidden } = readableChanges([
+    { title: "Headings of one day stay in order", pr: 1, internal: true },
+    { title: "fix(sidebar): rows keep their order", pr: 2 },
+  ]);
+  expect(changes.map((c) => c.title)).toEqual(["Rows keep their order"]);
+  expect(internal).toBe(1);
+  expect(hidden.map((c) => c.title)).toEqual(["Headings of one day stay in order"]);
 });
 
 // Review of #22099 (2026-10-19): user-facing titles the tool-name, PR-number and squash rules
@@ -216,6 +269,8 @@ test("the page and the pipeline read every subject of the span alike", () => {
       "fix: macOS 26 window shadows match the system",
       "iPhone pairing shows the Mac's name",
       ...USER_FACING,
+      ...RELEASE_TOOLING,
+      ...RELEASE_USER_FACING,
       "cmux-next: export-backdrop-art reads each entry's subject box and exports it",
       "fix(cmux-next): restore #21369 and #21384, undone by the Chief Dock squash",
     ]),
@@ -241,4 +296,23 @@ print(json.dumps(out))
     return readable.internal ? null : [readable.title, shortTitle(readable.title) ?? null];
   });
   expect(page.map((row, i) => [subjects[i], row])).toEqual(python.map((row, i) => [subjects[i], row]));
+});
+
+// The two readers share their word lists, not only their answers on today's subjects: a scope or a
+// word added to one and not the other is a test failure, not a line that leaks on the next build.
+test("the page and the pipeline share their internal types, scopes and words", () => {
+  const script = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("notes", sys.argv[1])
+notes = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(notes)
+print(json.dumps([sorted(notes.INTERNAL_TYPES), sorted(notes.INTERNAL_SCOPES), notes.INTERNAL_WORDS.pattern]))
+`;
+  const run = Bun.spawnSync(["python3", "-c", script, `${import.meta.dir}/../../scripts/cmux-next/release-notes.py`]);
+  expect(run.stderr.toString()).toBe("");
+  expect(JSON.parse(run.stdout.toString())).toEqual([
+    [...INTERNAL_TYPES].sort(),
+    [...INTERNAL_SCOPES].sort(),
+    INTERNAL_WORDS.source,
+  ]);
 });
