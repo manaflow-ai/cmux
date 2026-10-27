@@ -335,8 +335,9 @@ extension CaptureSceneRegistry {
                 "later_generated_name": .null, "frames": frameStats,
             ]
             guard let settled else {
+                let diagnostic = autoNameReadiness(workspace: workspace, tabID: created.key, windowID: windowID, expected: expected).diagnostic
                 await cleanup()
-                report["error"] = .string("auto-name scene did not settle before deadline")
+                report["error"] = .string("auto-name scene did not settle: \(diagnostic)")
                 return .object(report)
             }
             var finalSettled = settled
@@ -361,8 +362,11 @@ extension CaptureSceneRegistry {
                                        expectedSource: .user, expectedGeneratedTitle: laterGeneratedTitle)
                 }
                 guard let laterSettled else {
+                    let diagnostic = autoNameReadiness(workspace: workspace, tabID: created.key, windowID: windowID,
+                                                       expected: Self.userWorkspaceName, expectedSource: .user,
+                                                       expectedGeneratedTitle: laterGeneratedTitle).diagnostic
                     await cleanup()
-                    report["error"] = .string("user rename precedence did not settle before deadline")
+                    report["error"] = .string("user rename precedence did not settle: \(diagnostic)")
                     return .object(report)
                 }
                 finalSettled = laterSettled
@@ -413,18 +417,31 @@ extension CaptureSceneRegistry {
     private func autoNameReady(workspace: WorkspaceModel, tabID: String, windowID: String, expected: String,
                                expectedSource: WorkspaceNameSource = .auto,
                                expectedGeneratedTitle: String = CaptureSceneRegistry.generatedAutoName) -> Bool {
-        guard workspace.name == expected, workspace.nameSource == expectedSource,
-              let tab = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == tabID }),
-              let session = tab.agentSession, session.session == Self.autoNameSession,
-              AgentTurnStateStore.shared.generatedTitle(for: session) == expectedGeneratedTitle,
-              let view = services.agentTabs.existingView(tabID), view.model.hasPainted,
-              Self.agentPageCanSettle(attached: view.webView.window != nil,
-                                      loading: view.webView.isLoading,
-                                      chromium: view.debugShowsChromium),
-              let sidebar = services.windows.controller(for: windowID)?.sidebar.model else { return false }
-        return sidebar.sections.flatMap(\.workspaces).contains {
-            $0.id.rawValue == workspace.id && $0.title == expected && !$0.rowState.isPending
-        }
+        autoNameReadiness(workspace: workspace, tabID: tabID, windowID: windowID, expected: expected,
+                          expectedSource: expectedSource, expectedGeneratedTitle: expectedGeneratedTitle).ready
+    }
+
+    private func autoNameReadiness(workspace: WorkspaceModel, tabID: String, windowID: String, expected: String,
+                                   expectedSource: WorkspaceNameSource = .auto,
+                                   expectedGeneratedTitle: String = CaptureSceneRegistry.generatedAutoName) -> (ready: Bool, diagnostic: String) {
+        let tab = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == tabID })
+        let tabFound = tab != nil
+        let session = tab?.agentSession
+        let sessionOK = session?.session == Self.autoNameSession
+        let generatedOK = session.map { AgentTurnStateStore.shared.generatedTitle(for: $0) == expectedGeneratedTitle } ?? false
+        let view = services.agentTabs.existingView(tabID)
+        let painted = view?.model.hasPainted == true
+        let inWindow = view?.webView.window != nil
+        let loading = view?.webView.isLoading == true
+        let pageReady = Self.agentPageCanSettle(attached: inWindow, loading: loading, chromium: view?.debugShowsChromium == true)
+        let sidebarRow = services.windows.controller(for: windowID)?.sidebar.model?.sections.flatMap(\.workspaces)
+            .first(where: { $0.id.rawValue == workspace.id })
+        let sidebarRowMatches = sidebarRow?.title == expected
+        let pending = sidebarRow?.rowState.isPending == true
+        let ready = workspace.name == expected && workspace.nameSource == expectedSource
+            && tabFound && sessionOK && generatedOK && painted && pageReady && sidebarRowMatches && !pending
+        let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),generatedOK=\(generatedOK),painted=\(painted),inWindow=\(inWindow),loading=\(loading),sidebarRow=\(sidebarRowMatches),pending=\(pending)"
+        return (ready, String(diagnostic.prefix(330)))
     }
 }
 #endif
