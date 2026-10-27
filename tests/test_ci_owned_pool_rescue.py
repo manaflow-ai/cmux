@@ -3382,15 +3382,30 @@ class Budget(unittest.TestCase):
 
     def test_the_budget_takes_the_lowest_reading_of_a_window_and_only_the_read_tokens(self):
         api = rescue.GitHub("repo", "o/r", read_token="bot")
-        api._note_budget({"X-RateLimit-Remaining": "50", "X-RateLimit-Reset": "900"})
-        api._note_budget({"X-RateLimit-Remaining": "70", "X-RateLimit-Reset": "900"})  # older, out of order
+        api._note_budget({"X-RateLimit-Remaining": "50", "X-RateLimit-Reset": "900"}, 0)
+        api._note_budget({"X-RateLimit-Remaining": "70", "X-RateLimit-Reset": "900"}, 0)  # older, out of order
         self.assertEqual(api._budget[1:], (50, 900.0))
-        api._note_budget({"X-RateLimit-Remaining": "4999", "X-RateLimit-Reset": "4500"})  # the next window
+        api._note_budget({"X-RateLimit-Remaining": "4999", "X-RateLimit-Reset": "4500"}, 0)  # the next window
         self.assertEqual(api._budget[1:], (4999, 4500.0))
         seen, patch = self.serve(lambda request: (200, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "9000"}, b""))
         with patch:
             api.cancel(1)  # GITHUB_TOKEN's own pool says nothing about the App's
         self.assertEqual(api._budget[1:], (4999, 4500.0))
+
+    def test_an_answer_from_a_pool_the_reads_have_left_is_not_counted(self):
+        # A read sent on the App's pool whose answer arrives after another thread fell back to GITHUB_TOKEN.
+        api = rescue.GitHub("repo", "o/r", read_token="app")
+
+        def answers(request):
+            with api._lock:  # the other thread's 401 fallback, while this answer is in flight
+                api.read_headers = api.headers
+                api._budget = (-1e9, None, None)
+                api._pool += 1
+            return 200, {"X-RateLimit-Remaining": "5", "X-RateLimit-Reset": "9000"}, b"{}"
+        seen, patch = self.serve(answers)
+        with patch:
+            api.run(1)
+        self.assertEqual(api._budget[1:], (None, None))
 
     def test_a_304_keeps_the_budget_current(self):
         seen, patch = self.serve(lambda request: (304, {"X-RateLimit-Remaining": "40", "X-RateLimit-Reset": "900"}, b"")
@@ -3422,7 +3437,7 @@ class Budget(unittest.TestCase):
         seen, patch = self.serve(answers)
         with patch:
             api = rescue.GitHub("repo", "o/r", read_token="app")
-            api._note_budget({"X-RateLimit-Remaining": "50", "X-RateLimit-Reset": "900"})
+            api._note_budget({"X-RateLimit-Remaining": "50", "X-RateLimit-Reset": "900"}, 0)
             api.run(1)
         self.assertEqual(api._budget[1:], (900, 100.0))
 

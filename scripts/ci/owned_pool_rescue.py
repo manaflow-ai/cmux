@@ -1124,8 +1124,12 @@ class GitHub:
                 self._budget = (time.monotonic(), *self._merged(remaining, reset))
             return self._budget[1], self._budget[2]
 
-    def _note_budget(self, seen: Mapping[str, str] | None) -> None:
-        """A read-token answer's own rate-limit headers keep budget_left() current between its reads."""
+    def _note_budget(self, seen: Mapping[str, str] | None, pool: int | None) -> None:
+        """A read-token answer's own rate-limit headers keep budget_left() current between its reads.
+        `pool` is the read pool the request was sent on (None: not the read token's); an answer from a
+        pool the reads have since left says nothing about the current one."""
+        if pool is None:
+            return
         try:
             remaining = int((seen or {}).get("X-RateLimit-Remaining") or "")
             reset = float((seen or {}).get("X-RateLimit-Reset") or "")
@@ -1134,7 +1138,8 @@ class GitHub:
         if ((seen or {}).get("X-RateLimit-Resource") or "core") != "core":
             return
         with self._lock:
-            self._budget = (self._budget[0], *self._merged(remaining, reset))
+            if pool == self._pool:
+                self._budget = (self._budget[0], *self._merged(remaining, reset))
 
     def _merged(self, remaining: int | None, reset: float | None) -> tuple[int | None, float | None]:
         """The newer reading, under the lock: a later window replaces an older one, and within one
@@ -1231,6 +1236,8 @@ class GitHub:
             # One token for the whole request, read under the lock _fresh_token() swaps it under.
             sent = dict(headers)
             cached = self._cache.get((sent["Authorization"], path)) if method == "GET" else None
+            # The read pool this request counts against, or None (GITHUB_TOKEN's writes and fallbacks).
+            pool = self._pool if headers is self.read_headers else None
         key = (sent["Authorization"], path)
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=sent, data=data)
@@ -1244,8 +1251,7 @@ class GitHub:
                 self.remaining = seen.get("X-RateLimit-Remaining") or self.remaining
                 self.limit = seen.get("X-RateLimit-Limit") or self.limit
                 etag = seen.get("ETag") if method == "GET" else None
-                if headers is self.read_headers:
-                    self._note_budget(seen)
+                self._note_budget(seen, pool)
             self._limits.tries = 0
             self._count(path, "charged")
             if etag:
@@ -1255,8 +1261,7 @@ class GitHub:
                         self._cache = {k: v for k, v in self._cache.items() if v[2] > old}
                     self._cache[key] = (etag, body, time.monotonic())
         except urllib.error.HTTPError as error:
-            if headers is self.read_headers:
-                self._note_budget(error.headers)
+            self._note_budget(error.headers, pool)
             if error.code == 304 and cached is not None:
                 # Not modified: GitHub does not count it against the budget.
                 self._limits.tries = 0
