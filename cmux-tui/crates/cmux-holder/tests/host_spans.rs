@@ -157,7 +157,8 @@ fn host_spans_holder_records_its_turns_and_pty_bytes_only_while_recording() {
 /// with the features the workspace turns on, is the holder, libc, the std+libc trace crates and
 /// cmux-ipc's descriptor passing (p05-ipc-051) with its no-runtime dependencies, and the std+libc
 /// cmux-memory budget its ring and link-queue sizes come from (p07-memory-089), and the std+libc
-/// cmux-threads QoS and registry row of the daemon-side link reader (p04-input-060).
+/// cmux-threads QoS and registry row of the daemon-side link reader (p04-input-060), and
+/// cmux-panic-log's std-only writer, without serde_json (p09-observability-080).
 #[test]
 fn host_spans_holder_dependencies_stay_std_and_libc() {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
@@ -180,6 +181,7 @@ fn host_spans_holder_dependencies_stay_std_and_libc() {
         "cmux-holder",
         "cmux-ipc",
         "cmux-memory",
+        "cmux-panic-log",
         "cmux-threads",
         "cmux-trace",
         "libc",

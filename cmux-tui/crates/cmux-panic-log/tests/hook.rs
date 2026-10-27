@@ -1,6 +1,8 @@
 //! A panic on any thread lands in the log as one JSON line, with the
 //! caller's fields, and the previous hook still runs.
 
+#![cfg(feature = "json")]
+
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Waker};

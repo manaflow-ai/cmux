@@ -10,8 +10,19 @@ description = "The panic and hang logs of cmux's background processes: one JSON 
 [lints]
 workspace = true
 
+[features]
+default = ["json"]
+# The serde_json panic line, the hang log and the crash-key object the daemons write.
+json = ["dep:serde_json"]
+# The std-only panic writer (`minimal`, hand-escaped JSON) for the std+libc holder.
+minimal = []
+
 [dependencies]
-serde_json.workspace = true
+serde_json = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[dev-dependencies]
+# The minimal writer's tests parse its hand-escaped lines; the writer stays std only.
+serde_json.workspace = true

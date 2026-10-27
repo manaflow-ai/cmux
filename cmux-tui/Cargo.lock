@@ -1218,10 +1218,12 @@ dependencies = [
  "cmux-flow-trace",
  "cmux-ipc",
  "cmux-memory",
+ "cmux-panic-log",
  "cmux-process",
  "cmux-threads",
  "cmux-trace",
  "libc",
+ "serde_json",
 ]
 
 [[package]]
