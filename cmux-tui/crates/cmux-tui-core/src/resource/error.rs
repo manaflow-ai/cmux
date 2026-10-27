@@ -2,6 +2,8 @@
 
 use super::*;
 
+use crate::panic_free::JsonFields;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResourceError {
     pub code: String,
@@ -42,7 +44,7 @@ impl ResourceError {
             "reason":reason,
         });
         if extra.as_object().is_some_and(|extra| !extra.is_empty()) {
-            details["extra"] = extra;
+            details.insert("extra", extra);
         }
         Self::new("operation.failed", reason, details, false)
     }
@@ -113,7 +115,7 @@ impl ResourceError {
         let reason = reason.into();
         let mut details = json!({"reason":reason});
         if let Some(field) = field {
-            details["field"] = json!(field);
+            details.insert("field", json!(field));
         }
         Self::new("validation.invalid", reason, details, false)
     }
@@ -213,6 +215,10 @@ pub(crate) fn is_catalog_error_code(code: &str) -> bool {
     RESOURCE_ERROR_CODES.contains(&code)
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: the checked-in catalog parses; every ResourceError constructor test reads it"
+)]
 pub(super) fn error_catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     CATALOG.get_or_init(|| {

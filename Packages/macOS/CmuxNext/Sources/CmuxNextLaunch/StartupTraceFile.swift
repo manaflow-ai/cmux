@@ -55,7 +55,7 @@ struct StartupTraceFile: Sendable {
             failure = error.localizedDescription
             return
         }
-        let fd = Darwin.open(url.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        let fd = blockingOpen(url.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard fd >= 0 else {
             failure = String(cString: strerror(errno))
             return

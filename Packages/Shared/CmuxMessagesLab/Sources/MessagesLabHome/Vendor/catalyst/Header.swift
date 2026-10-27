@@ -9,8 +9,9 @@ import CoreImage
 /// avatar and name pill, and the video-call button.
 final class HeaderView: UIView {
     weak var source: UIView?
-    var title = "Instinct" { didSet { HeaderView.currentTitle = title; overlay.setNeedsDisplay() } }
-    fileprivate static var currentTitle = "Instinct"
+    // cmux: the overlay draws this view's own title (p10-stability-040; it was one process-wide
+    // global, which every header drew and the row threads raced on).
+    var title = "Instinct" { didSet { overlay.setNeedsDisplay() } }
     private let backdrop = UIImageView()
     private let overlay: CanvasView
     // Display P3: the same transfer curve as sRGB (the fitted blur is unchanged for
@@ -27,8 +28,9 @@ final class HeaderView: UIView {
     static let baseLevel: CGFloat = 23.65 / 255
 
     override init(frame: CGRect) {
-        overlay = CanvasView(drawer: { ctx, b in HeaderView.drawOverlay(ctx, b) })
+        overlay = CanvasView()
         super.init(frame: frame)
+        overlay.drawer = { [weak self] ctx, b in HeaderView.drawOverlay(ctx, b, title: self?.title ?? "Instinct") }
         clipsToBounds = true
         backgroundColor = UIColor(white: HeaderView.baseLevel / (1 - HeaderView.contentGain), alpha: 1)
         backdrop.alpha = HeaderView.contentGain
@@ -103,7 +105,7 @@ final class HeaderView: UIView {
         }
     }
 
-    static func drawOverlay(_ ctx: CGContext, _ b: CGRect) {
+    static func drawOverlay(_ ctx: CGContext, _ b: CGRect, title: String) {
         // Bottom hairline.
         UIColor(white: 1, alpha: 0.09).setFill()
         ctx.fill(CGRect(x: 0, y: 79.5, width: b.width, height: 0.5))
@@ -114,7 +116,6 @@ final class HeaderView: UIView {
         // Name pill.
         // Pill width follows the title (measured for "Instinct": 77.75 pt).
         let bold = HomeFonts.system(ofSize: 13, weight: .bold)
-        let title = HeaderView.currentTitle
         let tw = TextDraw.width(title, font: bold)
         let pw = tw + 77.75 - TextDraw.width("Instinct", font: bold)
         // Height 28 pt: on luma the pill spans whole device pixels 88-144.
@@ -230,7 +231,7 @@ final class ChromeView: UIView {
                     ctx.saveGState()
                     UIBezierPath(ovalIn: r).addClip()
                     // an optional gradient draws nothing when it fails (CrashSafeGraphics).
-                    let g = CGGradient(colorsSpace: space, colors: [col(c.0), col(c.1)] as CFArray, locations: [0.15, 0.85])
+                    let g = CGGradient.checked(colorsSpace: space, colors: [col(c.0), col(c.1)], locations: [0.15, 0.85])
                     ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: r.minY), end: CGPoint(x: 0, y: r.maxY), options: [])
                     ctx.restoreGState()
                     UIColor(white: 1, alpha: 0.35).setStroke()

@@ -1,10 +1,13 @@
 import AppKit
-import os
 import CmuxNextCompat
+import CmuxNextWakeups
 import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Target resolution for workspace, group, window, and sidebar handlers.
 /// Each throws an `ActionFailure` instead of silently doing nothing.
@@ -53,7 +56,7 @@ extension AppActionContext {
             guard let active = activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
             return active
         }
-        guard let controller = services.windows.controllers.first(where: { $0.state.id == ref.id }) else {
+        guard let controller = services.windows.controllerBuildingIfWaiting(for: ref.id) else { // a named target acts in it
             throw ActionFailure.notFound(RefusalStrings.noWindow(ref.id))
         }
         return controller
@@ -71,15 +74,37 @@ extension AppActionContext {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    /// Refuses at once when no app opens `url` (a LaunchServices database lookup); the open itself
-    /// runs off the main thread (cx-050n).
-    func open(_ url: URL) throws {
-        if url.scheme == "http" || url.scheme == "https" { LinkRouter.shared.open(url); return }
-        guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else {
-            throw ActionFailure(message: RefusalStrings.couldNotOpen(url.absoluteString))
+    /// Opens `url`: an http(s) link through the link router on this turn; any other URL in its app off the main
+    /// thread (cx-050n), once Launch Services names that app on the system lane. A URL with no scheme is refused at
+    /// once, and one no app opens fails the action, so a script, the CLI or an agent gets the failure.
+    func open(_ url: URL) -> ActionEffect {
+        let failure = RefusalStrings.couldNotOpen(url.absoluteString)
+        guard let scheme = url.scheme?.lowercased() else { return .refused(failure) }
+        if scheme == "http" || scheme == "https" {
+            LinkRouter.shared.open(url)
+            return .done
         }
-        NSWorkspace.shared.openInBackground(url) { opened in
-            if !opened { Logger(subsystem: "com.cmuxterm.app.next", category: "actions").error("open failed after its app was found") }
+        // action-wait-allow: which app opens the URL is known only when Launch Services answers on the system lane; then it opens.
+        return .waiting(.externalProcess, openWork(url))
+    }
+
+    /// The open of `url` in its app: asks Launch Services for the app on the system lane, then opens off the main
+    /// thread. The work answers nil when it opened, else the failure (no app opens it, or the open failed).
+    func openWork(_ url: URL) -> @MainActor () async -> ActionWorkFailure? {
+        Self.openWork(url, queries: services.workspaceQueries)
+    }
+
+    /// ``openWork(_:)`` over `queries` (tests pass ones over a fake Launch Services).
+    static func openWork(_ url: URL, queries: WorkspaceQueries) -> @MainActor () async -> ActionWorkFailure? {
+        return {
+            let failure = ActionWorkFailure(RefusalStrings.couldNotOpen(url.absoluteString))
+            let app = (try? await queries.value(WorkspaceQuery<URL?>.defaultApplication(toOpen: url), priority: .userBlocking)) ?? nil
+            guard app != nil else { return failure }
+            // A reply that never comes did not open.
+            let opened = (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+                NSWorkspace.shared.openInBackground(url) { continuation.resume(returning: $0) }
+            }) ?? false
+            return opened ? nil : failure
         }
     }
 

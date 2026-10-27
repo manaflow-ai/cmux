@@ -1,6 +1,5 @@
 public import CmuxUpdater
 import Foundation
-@preconcurrency import Sparkle
 
 /// The changelog the update cards show for a found or staged update
 /// (cx-lntk): from the Sparkle appcast item (its description and date), a
@@ -31,7 +30,7 @@ extension UpdaterService {
         return changelog
     }
 
-    static func changelog(_ item: SUAppcastItem) -> UpdateChangelog {
+    static func changelog(_ item: UpdateAppcastItem) -> UpdateChangelog {
         UpdateChangelog(version: item.displayVersionString, date: item.date, description: item.itemDescription)
     }
 }

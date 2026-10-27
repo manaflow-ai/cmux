@@ -37,7 +37,7 @@ extension HomeTopFadeStyleTests {
         guard let layer = view.layer else { return nil }
         let scale: CGFloat = 2, size = Self.cellSize
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
+              let ctx = CGContext.ownedBitmap(width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
                                   bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         ctx.setFillColor((light ? NSColor.white : NSColor(white: 0.12, alpha: 1)).cgColor)
@@ -60,7 +60,7 @@ extension HomeTopFadeStyleTests {
         }
         let cw = Int(Self.cellSize.width * 2), ch = Int(Self.cellSize.height * 2), gap = 24
         let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        let ctx = try #require(CGContext(data: nil, width: cw * 2 + gap * 3, height: (ch + gap) * cells.count + gap, bitsPerComponent: 8,
+        let ctx = try #require(CGContext.ownedBitmap(width: cw * 2 + gap * 3, height: (ch + gap) * cells.count + gap, bitsPerComponent: 8,
                                          bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.setFillColor(CGColor(gray: 0.5, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))

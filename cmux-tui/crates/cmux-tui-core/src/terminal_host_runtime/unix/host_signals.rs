@@ -38,7 +38,7 @@
 //! on `exec`, and `cmux_pty` resets these dispositions and the signal mask
 //! before it execs the shell.
 
-use std::fs::OpenOptions;
+use cmux_threads::checked::fs as files;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
@@ -410,13 +410,14 @@ fn flush() {
     if lines.is_empty() {
         return;
     }
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(&breadcrumbs.path)
-        && file.write_all(lines.as_bytes()).is_err()
+    if let Ok(mut file) = files::open_with(
+        files::File::options()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW),
+        &breadcrumbs.path,
+    ) && file.write_all(lines.as_bytes()).is_err()
     {
         BREADCRUMBS_FAILED.store(true, Ordering::Release);
     }

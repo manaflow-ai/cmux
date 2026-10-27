@@ -102,6 +102,12 @@ pub(crate) trait OrphanFacts: Send + Sync {
     /// Live terminals; `None` when the registry could not be read (the owner
     /// then keeps its terminals).
     fn live_terminals(&self) -> Option<usize>;
+
+    /// The exit rule once the delay has passed with no client: here the
+    /// DEV orphan's; the idle exit (`server_lifecycle.rs`) has its own.
+    fn exits(&self) -> bool {
+        !self.executable_present() || self.live_terminals() == Some(0)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,7 +149,7 @@ pub(crate) fn decide_with(
 /// The executable is gone, or no terminal lives (an unreadable registry
 /// keeps the owner).
 pub(crate) fn orphaned(facts: &dyn OrphanFacts) -> bool {
-    !facts.executable_present() || facts.live_terminals() == Some(0)
+    facts.exits()
 }
 
 /// The watcher's time source. Tests inject a fake.
@@ -181,6 +187,16 @@ impl OrphanClock for SystemClock {
 pub(crate) struct WatchState {
     idle_since: Option<Instant>,
     stopped: bool,
+    /// Not armed yet ([`OrphanWatch::disarmed`]): the watch serves until
+    /// [`OrphanWatch::arm`], whatever the clients.
+    disarmed: bool,
+}
+
+impl WatchState {
+    /// When the owner became idle, as the policy reads it: never while disarmed.
+    fn effective_idle_since(&self) -> Option<Instant> {
+        if self.disarmed { None } else { self.idle_since }
+    }
 }
 
 pub(crate) struct OrphanWatch {
@@ -203,15 +219,49 @@ impl OrphanWatch {
         facts: Arc<dyn OrphanFacts>,
         timing: Timing,
     ) -> Arc<Self> {
+        Self::make(clock, facts, timing, false)
+    }
+
+    /// A watch that never decides until [`OrphanWatch::arm`] (an event such
+    /// as the owning app's exit starts it; `chief_owner_exit.rs`): no wake
+    /// and no deadline before that.
+    pub(crate) fn disarmed(
+        clock: Arc<dyn OrphanClock>,
+        facts: Arc<dyn OrphanFacts>,
+        timing: Timing,
+    ) -> Arc<Self> {
+        Self::make(clock, facts, timing, true)
+    }
+
+    fn make(
+        clock: Arc<dyn OrphanClock>,
+        facts: Arc<dyn OrphanFacts>,
+        timing: Timing,
+        disarmed: bool,
+    ) -> Arc<Self> {
         let watch = Arc::new(Self {
             clock,
             facts,
             timing,
-            state: Mutex::new(WatchState::default()),
+            state: Mutex::new(WatchState { disarmed, ..WatchState::default() }),
             changed: Condvar::new(),
         });
         watch.clients_changed();
         watch
+    }
+
+    /// Starts a [`OrphanWatch::disarmed`] watch: an owner with no client is
+    /// idle from now. A second call does nothing.
+    pub(crate) fn arm(&self) {
+        let mut state = self.lock();
+        if state.disarmed {
+            state.disarmed = false;
+            if state.idle_since.is_some() {
+                state.idle_since = Some(self.clock.now());
+            }
+        }
+        drop(state);
+        self.changed.notify_all();
     }
 
     fn lock(&self) -> MutexGuard<'_, WatchState> {
@@ -247,7 +297,7 @@ impl OrphanWatch {
             if state.stopped {
                 return false;
             }
-            let since = state.idle_since;
+            let since = state.effective_idle_since();
             // The facts may take locks of their own: read them unlocked.
             drop(state);
             let decision = decide_with(since, self.clock.now(), self.facts.as_ref(), self.timing);
@@ -255,7 +305,7 @@ impl OrphanWatch {
             if state.stopped {
                 return false;
             }
-            if state.idle_since != since {
+            if state.effective_idle_since() != since {
                 continue;
             }
             state = match decision {
@@ -342,16 +392,19 @@ pub(crate) fn start(
     }
     let facts = Arc::new(OwnerFacts { mux: Arc::downgrade(mux), executable });
     let watch = OrphanWatch::with_timing(Arc::new(SystemClock), facts, Timing::for_owner());
-    Some(spawn(watch, mux, stop_owner))
+    Some(spawn("dev-orphan-exit", watch, mux, stop_owner))
 }
 
-fn spawn(
+/// Runs `watch` on a thread named `name`, fed by the mux's client presence;
+/// `stop_owner` runs when the facts' exit rule holds.
+pub(crate) fn spawn(
+    name: &str,
     watch: Arc<OrphanWatch>,
     mux: &Arc<cmux_tui_core::Mux>,
     stop_owner: impl Fn(&dyn OrphanFacts) -> bool + Send + 'static,
 ) -> OrphanExit {
     let observer = Arc::downgrade(&watch);
-    mux.set_client_presence_observer(move || {
+    mux.add_client_presence_observer(move || {
         if let Some(watch) = observer.upgrade() {
             watch.clients_changed();
         }
@@ -359,9 +412,11 @@ fn spawn(
     // A client that connected before the observer was installed.
     watch.clients_changed();
     let waiter = watch.clone();
-    let thread = std::thread::Builder::new()
-        .name("dev-orphan-exit".into())
-        .spawn(move || {
+    let thread = cmux_tui_core::thread_qos::spawn_raisable(
+        name,
+        cmux_tui_core::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || {
             while waiter.wait() {
                 if stop_owner(waiter.facts.as_ref()) {
                     return;
@@ -370,8 +425,9 @@ fn spawn(
                 // start the delay again.
                 waiter.restart_after_failed_exit();
             }
-        })
-        .ok();
+        },
+    )
+    .ok();
     OrphanExit { watch, thread }
 }
 

@@ -34,6 +34,7 @@ enum SidebarDaemonReorder {
                               uniquingKeysWith: { first, _ in first })
         // `services` pins the app's services while the commands run, so a
         // re-sync after a rejection never reads a freed owner (cx-6so P1b).
+        // main-hop-allow: the edit shows in this turn; each daemon.intend is the store's main-actor intent, sent in order in its reply's job
         Task { [weak bridge, services = bridge.services] in
             for command in commands {
                 let ok: Bool

@@ -321,6 +321,34 @@ actor OracleBackgroundModel {
         #expect(reply["value"] == 2)
     }
 
+    /// The terminals facet (p15-oracle-044, a split facet): its screen changes off the main actor with no publish and no
+    /// mirror change; the host's change signal wakes a wait on `/terminals/list/0/last24Sha256`.
+    @Test func aWaitOnTheTerminalsScreenResolvesOnItsChangeSignal() async throws {
+        let model = OracleBackgroundModel()
+        let (reads, read) = AsyncStream<Int>.makeStream()
+        let facet = OracleTerminalsFacet(rewrite: .init(root: [], home: []), hash: { "hashed(\($0))" }, changes: { model.changes }) {
+            [OracleTerminalsFacet.Terminal(terminal: "term_a", tab: nil, cols: 80, rows: 24, title: "", cwd: nil, ended: false, exitCode: nil,
+                                           attach: nil, screen: {
+                                               let count = await model.count
+                                               read.yield(count)
+                                               return "count \(count)"
+                                           })]
+        }
+        let router = router(facets: OracleFacets([facet]), sources: idle())
+        let waiting = Task {
+            await call(router, OracleSettleControl.waitFor,
+                       ["pointer": "/terminals/list/0/last24Sha256", "equals": "hashed(count 2)", "maxMs": 10_000])
+        }
+        for await count in reads {
+            #expect(count == 0)
+            break
+        }
+        await model.set(2)
+        let reply = try await waiting.value.get()
+        #expect(reply["satisfied"] == true)
+        #expect(reply["value"] == "hashed(count 2)")
+    }
+
     @Test func aBackgroundFacetWithoutAChangeSignalIsUnavailable() async {
         let facets = OracleFacets([
             OracleFacetSource(.terminals, .background { () async throws(OracleFacetError) -> OracleValue in ["lines": 0] }),

@@ -5,30 +5,29 @@ import Testing
 
 /// Lawrence (2026-10-23): "making splits in general has laggy animation, even more laggy if there
 /// are CEF chromium views involved". On every motion frame the window asks its Chromium pages to
-/// re-apply their geometry (its `ChildPageGeometryRegistry`: the divider lines moved), and every
+/// re-apply their geometry (`NSWindow.updateBrowserPageGeometry`, its `ChildPageGeometryRegistry`: the
+/// divider lines moved), and every
 /// page posted the fork's geometry notification, so the fork re-read clip and occlusion, rebuilt the
 /// mask and moved the page window of every page, the static ones too. A page posts only when what
 /// the fork reads (its screen rect, visible rect, clip inputs, occlusion holes) changed since the
 /// fork last read it.
 @MainActor @Suite struct PageGeometryPostTests {
-    /// A plain window with `ShellWindow`'s page registry: `ShellWindow.setFrame` keeps frames on the
-    /// test screen, which can undo a move.
-    final class PagesWindow: NSWindow, ChildPageGeometryHosting {
-        let childPageGeometry = ChildPageGeometryRegistry()
-    }
-
     /// The app's window with two pages side by side, as the layout places them.
     struct TwoPages {
-        let window: PagesWindow
-        let left = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
-        let right = CEFHostView(frame: CGRect(x: 400, y: 0, width: 400, height: 500))
+        /// A plain window: `ShellWindow.setFrame` keeps frames on the test screen, which can undo a move.
+        /// Each test makes its own, so its requests reach no other test's pages.
+        let window: NSWindow
+        let left: CEFHostView
+        let right: CEFHostView
         /// Both pages' common ancestor below the content view (the layout root's place).
         let stage = NSView()
 
         init() {
             _ = NSApplication.shared
+            left = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
+            right = CEFHostView(frame: CGRect(x: 400, y: 0, width: 400, height: 500))
             let content = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
-            window = PagesWindow(contentRect: content.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window = NSWindow(contentRect: content.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = content
             _ = WindowOverlayHost.host(for: window)
@@ -53,10 +52,10 @@ import Testing
             return CEFHostView.trackerStats.geometryPosts - before
         }
 
-        /// What the window's layout owner (`WindowOverlayLayer.requestPageUpdate`) does.
+        /// What the window's layout owner (`WindowOverlayLayer.requestPageUpdate`) does; how many pages changed.
         @discardableResult
         func requestPageUpdate() -> Int {
-            window.childPageGeometry.pagesNeedUpdate()
+            window.updateBrowserPageGeometry()
         }
     }
 
@@ -99,8 +98,9 @@ import Testing
             hosts.append(host)
         }
         let other = TwoPages()
-        #expect(pages.window.childPageGeometry.count == 10)
-        #expect(other.window.childPageGeometry.count == 2)
+        defer { pages.window.close(); other.window.close() }
+        #expect(ChildPageGeometryRegistry.of(pages.window).count == 10)
+        #expect(ChildPageGeometryRegistry.of(other.window).count == 2)
         for host in hosts + [other.left, other.right] {
             _ = host.cmuxOcclusionRects()
             _ = host.cmuxClipPath()
@@ -116,9 +116,10 @@ import Testing
     /// A page that leaves its window leaves its registry: the window no longer reaches it.
     @Test func aPageThatLeftItsWindowIsNotUpdated() {
         let pages = TwoPages()
+        defer { pages.window.close() }
         pages.forkReads()
         pages.left.removeFromSuperview()
-        #expect(pages.window.childPageGeometry.count == 1)
+        #expect(ChildPageGeometryRegistry.of(pages.window).count == 1)
         pages.left.frame = CGRect(x: 0, y: 0, width: 300, height: 500)
         #expect(pages.posts { pages.requestPageUpdate() } == 0)
     }

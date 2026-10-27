@@ -1,0 +1,22 @@
+{
+  "id": "browser-hibernation",
+  "tier": "T1",
+  "description": "Tab hibernation, Chromium arm (bench_hibernation.py): hidden local pages with a stand-in heap, then frozen and hibernated; the phys_footprint each hibernated tab frees, the hidden and frozen pages' CPU and wakeups, and each wake's time to the page restored, usable and loaded, with the wakes that lost their scroll or form, light session. The WebKit arm is browser-hibernation-webkit.",
+  "command": ["scripts/cmux-next/bench_hibernation.py", "--engines", "chromium", "--tabs", "6", "--heap-mb", "40"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "hibernation\\.freed_per_tab", "unit": "bytes", "better": "higher"},
+    {"name": "hibernation\\.(hidden|frozen)_cpu", "unit": "percent", "better": "lower"},
+    {"name": "hibernation\\.(hidden|frozen)_wakeups", "unit": "per_s", "better": "lower"},
+    {"name": "hibernation\\.wake\\.(mounted|usable|restored|app_mounted|loaded)", "unit": "ms", "better": "lower"},
+    {"name": "hibernation\\.wake\\.(scroll|form)_lost", "unit": "count", "better": "lower"},
+    {"name": "hibernation\\.wake\\.[a-z_]+\\.missed_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 240,
+  "needs": ["debug:debug.surfaces"],
+  "owner": "Performance Lead",
+  "component": "Memory>Hibernation"
+}

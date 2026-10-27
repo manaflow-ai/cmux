@@ -96,10 +96,11 @@ struct RemoteServicesLazyTests {
             // Quit and launch again: the new app restores this Mac's window with the tab shown.
             let (app, again) = world.relaunch()
             #expect(app.madeRemoteTerminals == nil, "the relaunched app made the remote-terminal service before its restore")
-            func shownPanes() -> [PaneController] {
+            // Local functions are not isolated by the closure they sit in: they read the app's windows.
+            @MainActor func shownPanes() -> [PaneController] {
                 app.windows.controllers.compactMap(\.content).flatMap { $0.panes.values }.filter { $0.currentTabKey == tab.id }
             }
-            func attached() -> Bool { app.cache.existingTerminal(tab.id) != nil }
+            @MainActor func attached() -> Bool { app.cache.existingTerminal(tab.id) != nil }
             try await PinnedPageTests.until({ !shownPanes().isEmpty }, within: .seconds(60), report: {
                 let shown = app.windows.controllers.compactMap(\.content).flatMap { $0.panes.values }.map { $0.currentTabKey ?? "-" }
                 return "the restored window does not show the remote-terminal tab \(tab.id); panes show \(shown)"

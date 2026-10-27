@@ -1,0 +1,5 @@
+import Demo
+func g() {
+  let q = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+  q.deallocate()
+}

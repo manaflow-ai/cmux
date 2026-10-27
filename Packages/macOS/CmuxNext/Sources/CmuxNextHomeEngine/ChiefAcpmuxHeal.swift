@@ -1,4 +1,5 @@
 public import CmuxNextAgentPane
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -42,7 +43,7 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
         let home = home
         // The host that took the signal, not one read before it: a host that starts in between
         // would otherwise be stopped mid-turn when the one read earlier is already gone.
-        let asked = OSAllocatedUnfairLock<pid_t?>(initialState: nil)
+        let asked = Mutex<pid_t?>(nil)
         switch await handoff.handOffReplaced(waitFor: {
             let pid = ChiefHostStop.askToHandOffWhenIdle(home: home)
             asked.withLock { $0 = pid }

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextDaemon
 import Darwin
 import Foundation
 import os
@@ -15,7 +16,9 @@ extension ControlSocketServer {
         guard !parent.isEmpty else { return }
         var info = stat()
         var created = false
-        if lstat(parent, &info) != 0 {
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        if unsafe lstat(parent, &info) != 0 {
             guard errno == ENOENT else {
                 if protectExisting { throw StartError.system(call: "lstat", errno: errno) }
                 return
@@ -25,7 +28,8 @@ extension ControlSocketServer {
                 attributes: [.posixPermissions: 0o700]
             )
             created = true
-            guard lstat(parent, &info) == 0 else {
+            // SAFETY: as above.
+            guard unsafe lstat(parent, &info) == 0 else {
                 if protectExisting { throw StartError.system(call: "mkdir", errno: errno) }
                 return
             }
@@ -34,10 +38,13 @@ extension ControlSocketServer {
         guard info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid() else {
             throw StartError.pathOccupied(parent)
         }
-        guard chmod(parent, 0o700) == 0 else {
+        // SAFETY: chmod reads the NUL-terminated copy of the path made for the call.
+        guard unsafe chmod(parent, 0o700) == 0 else {
             throw StartError.system(call: "chmod", errno: errno)
         }
-        guard lstat(parent, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        guard unsafe lstat(parent, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
               info.st_uid == getuid(), info.st_mode & 0o777 == 0o700 else {
             throw StartError.system(call: "chmod", errno: EPERM)
         }
@@ -50,7 +57,9 @@ extension ControlSocketServer {
     @discardableResult
     static func makeLink(_ link: String, to target: String) -> Bool {
         var info = stat()
-        if lstat(link, &info) == 0 {
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        if unsafe lstat(link, &info) == 0 {
             let isStaleSocket = info.st_mode & S_IFMT == S_IFSOCK && info.st_uid == getuid() && probe(link) == .refused
             guard isStaleSocket else {
                 if (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) != target {
@@ -58,25 +67,31 @@ extension ControlSocketServer {
                 }
                 return true
             }
-            unlink(link)
+            // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+            unsafe unlink(link)
         } else if errno != ENOENT {
             return true
         }
-        return symlink(target, link) == 0 || errno == EEXIST
+        // SAFETY: symlink reads the NUL-terminated copies of both paths made for the call.
+        return unsafe symlink(target, link) == 0 || errno == EEXIST
     }
 
     /// Removes `link` only while it is this server's symlink to `target`.
     static func unlinkLink(_ link: String, to target: String) {
         guard (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) == target else { return }
-        unlink(link)
+        // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+        unsafe unlink(link)
     }
 
     /// Removes the socket file at `path` only while it is the one `identity` names: a socket another
     /// instance bound there since is never removed.
     static func unlinkIfOwn(_ path: String, _ identity: (dev: dev_t, ino: ino_t)?) {
         var info = stat()
-        if let identity, lstat(path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
-            unlink(path)
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        if let identity, unsafe lstat(path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
+            // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+            unsafe unlink(path)
         }
     }
 
@@ -102,7 +117,7 @@ extension ControlSocketServer {
     public static func bindListener(path: String, protectStateDirectory: Bool, compatibilityLink: String? = nil,
                                     accessMode: ControlAccessMode = .automation) throws(StartError) -> ControlSocketListener {
         try bindListener(path: path, protectStateDirectory: protectStateDirectory, compatibilityLink: compatibilityLink,
-                         mode: accessMode.filePermissions, backlog: SOMAXCONN, bind: { Darwin.bind($0, $1, $2) })
+                         mode: accessMode.filePermissions, backlog: SOMAXCONN, bind: { $1.bind($0) })
     }
 
     static func bindListener(path: String, protectStateDirectory: Bool, compatibilityLink: String?, mode: mode_t,
@@ -136,10 +151,12 @@ extension ControlSocketServer {
         let lockPath = path + ".lock"
         return try blockingCall(.fileIO) { () throws(StartError) -> Int32 in
             for _ in 0..<3 {
-                let descriptor = open(lockPath, O_RDONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0o600)
+                // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+                let descriptor = unsafe open(lockPath, O_RDONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0o600)
                 guard descriptor >= 0 else { return -1 }
                 var info = stat()
-                guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid() else {
+                // SAFETY: fstat writes one struct stat into `info`, a local live for the call.
+                guard unsafe fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid() else {
                     close(descriptor)
                     return -1
                 }
@@ -150,7 +167,9 @@ extension ControlSocketServer {
                     return -1
                 }
                 var current = stat()
-                if lstat(lockPath, &current) == 0, current.st_dev == info.st_dev, current.st_ino == info.st_ino { return descriptor }
+                // SAFETY: lstat reads the path's NUL-terminated copy and writes one struct stat into `current`, a
+                // local.
+                if unsafe lstat(lockPath, &current) == 0, current.st_dev == info.st_dev, current.st_ino == info.st_ino { return descriptor }
                 close(descriptor)  // the previous owner removed this file as it let go
             }
             return -1
@@ -165,8 +184,11 @@ extension ControlSocketServer {
         let lockPath = path + ".lock"
         blockingCall(.fileIO) {
             var held = stat(), current = stat()
-            if fstat(lock, &held) == 0, lstat(lockPath, &current) == 0, held.st_dev == current.st_dev, held.st_ino == current.st_ino {
-                unlink(lockPath)
+            // SAFETY: fstat and lstat each write one struct stat into a local (`held`, `current`); lstat reads the
+            // path's NUL-terminated copy made for the call.
+            if unsafe fstat(lock, &held) == 0, unsafe lstat(lockPath, &current) == 0, held.st_dev == current.st_dev, held.st_ino == current.st_ino {
+                // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+                unsafe unlink(lockPath)
             }
             close(lock)
         }
@@ -182,18 +204,21 @@ extension ControlSocketServer {
         defer { if shouldClose { close(descriptor) } }
         _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
 
-        let capacity = MemoryLayout.size(ofValue: sockaddr_un().sun_path)
+        let capacity = UnixSocketAddress.pathCapacity
         guard path.utf8.count < capacity else { throw StartError.pathTooLong(path) }
         try bindSocket(descriptor, at: path, mode: mode, capacity: capacity, bind: bind)
         guard listen(descriptor, backlog) == 0 else {
             let code = errno
-            unlink(path)
+            // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+            unsafe unlink(path)
             throw StartError.system(call: "listen", errno: code)
         }
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
 
         var info = stat()
-        let identity = lstat(path, &info) == 0 ? (dev: info.st_dev, ino: info.st_ino) : nil
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        let identity = unsafe lstat(path, &info) == 0 ? (dev: info.st_dev, ino: info.st_ino) : nil
         shouldClose = false
         return (descriptor, identity)
     }
@@ -209,45 +234,43 @@ extension ControlSocketServer {
     static func bindSocket(_ descriptor: Int32, at path: String, mode: mode_t, capacity: Int, bind: BindCall) throws(StartError) {
         let parent = (path as NSString).deletingLastPathComponent
         var template = Array((parent.isEmpty ? "." : parent).utf8CString.dropLast()) + Array("/.cmuxsock.XXXXXX".utf8CString)
-        let staging: String? = template.withUnsafeMutableBufferPointer { buffer in
-            buffer.baseAddress.flatMap { mkdtemp($0) }.map { String(cString: $0) }
+        // SAFETY: mkdtemp rewrites the XXXXXX in place inside the NUL-terminated template, the array's own storage
+        // lent for the closure, and returns that pointer or nil; String(cString:) copies it before the closure ends.
+        let staging: String? = unsafe template.withUnsafeMutableBufferPointer { buffer in
+            unsafe buffer.baseAddress.flatMap { unsafe mkdtemp($0) }.map { unsafe String(cString: $0) }
         }
         if let staging {
-            defer { rmdir(staging) }
+            // SAFETY: rmdir reads the NUL-terminated copy of the path made for the call.
+            defer { unsafe rmdir(staging) }
             let staged = staging + "/s"
             if staged.utf8.count < capacity {
                 try bindAddress(descriptor, staged, bind: bind)
-                guard chmod(staged, mode) == 0 else {
+                // SAFETY: chmod reads the NUL-terminated copy of the path made for the call.
+                guard unsafe chmod(staged, mode) == 0 else {
                     let code = errno
-                    unlink(staged)
+                    // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+                    unsafe unlink(staged)
                     throw StartError.system(call: "chmod", errno: code)
                 }
-                guard renamex_np(staged, path, UInt32(clamping: RENAME_EXCL)) == 0 else {
+                // SAFETY: renamex_np reads the NUL-terminated copies of both paths made for the call.
+                guard unsafe renamex_np(staged, path, UInt32(clamping: RENAME_EXCL)) == 0 else {
                     let code = errno
-                    unlink(staged)
+                    // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+                    unsafe unlink(staged)
                     throw code == EEXIST ? StartError.addressInUse(path) : StartError.system(call: "rename", errno: code)
                 }
                 return try verifyMode(path, mode)
             }
         }
         try bindAddress(descriptor, path, bind: bind)
-        chmod(path, mode)
+        // SAFETY: chmod reads the NUL-terminated copy of the path made for the call.
+        unsafe chmod(path, mode)
         try verifyMode(path, mode)
     }
 
     static func bindAddress(_ descriptor: Int32, _ path: String, bind: BindCall) throws(StartError) {
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
-            var buffer = sunPath  // the same memory; `modify` is mutating on the view
-            buffer.copyBytes(from: path.utf8)
-            buffer.modify(checked: path.utf8.count) { $0 = 0 }
-        }
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
+        guard let address = UnixSocketAddress(path: path) else { throw StartError.pathTooLong(path) }
+        let bound = bind(descriptor, address)
         guard bound == 0 else {
             let code = errno
             throw code == EADDRINUSE ? StartError.addressInUse(path) : StartError.system(call: "bind", errno: code)
@@ -257,9 +280,12 @@ extension ControlSocketServer {
     /// The socket at `path` must have exactly `mode`; otherwise it is removed.
     static func verifyMode(_ path: String, _ mode: mode_t) throws(StartError) {
         var info = stat()
-        guard lstat(path, &info) == 0 else { throw StartError.system(call: "lstat", errno: errno) }
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        guard unsafe lstat(path, &info) == 0 else { throw StartError.system(call: "lstat", errno: errno) }
         guard info.st_mode & 0o777 == mode else {
-            unlink(path)
+            // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+            unsafe unlink(path)
             throw StartError.system(call: "chmod", errno: EPERM)
         }
     }
@@ -270,10 +296,13 @@ extension ControlSocketServer {
     /// error), when it is not a socket, or when another user owns it.
     static func reclaimStalePath(_ path: String) throws(StartError) {
         var info = stat()
-        guard lstat(path, &info) == 0 else { return }
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        guard unsafe lstat(path, &info) == 0 else { return }
         guard info.st_mode & S_IFMT == S_IFSOCK, info.st_uid == getuid() else { throw StartError.pathOccupied(path) }
         guard probe(path) == .refused else { throw StartError.addressInUse(path) }
-        unlink(path)
+        // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+        unsafe unlink(path)
     }
 
     enum ProbeResult: Equatable {
@@ -291,20 +320,10 @@ extension ControlSocketServer {
         // actor): a listener with a full backlog answers EAGAIN, not a wait.
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
         var noSigPipe: Int32 = 1  // the probe never writes; set anyway so no path can raise SIGPIPE
-        setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return .inconclusive(ENAMETOOLONG) }
-        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
-            var buffer = sunPath  // the same memory; `modify` is mutating on the view
-            buffer.copyBytes(from: path.utf8)
-            buffer.modify(checked: path.utf8.count) { $0 = 0 }
-        }
-        let result = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
+        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `noSigPipe`, a local Int32.
+        unsafe setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        guard let address = UnixSocketAddress(path: path) else { return .inconclusive(ENAMETOOLONG) }
+        let result = address.connect(descriptor)
         if result == 0 { return .accepted }
         let code = errno
         // EAGAIN (full backlog) is inconclusive: a live listener is busy.

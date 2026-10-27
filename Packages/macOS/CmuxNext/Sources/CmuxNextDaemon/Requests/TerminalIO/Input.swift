@@ -26,6 +26,10 @@ public struct SendInputRequest: DaemonRequest {
         self.expectForeground = expectForeground
         self.flow = flow
     }
+
+    enum CodingKeys: String, CodingKey {
+        case surface, text, bytes, paste, expectForeground = "expect_foreground", flow
+    }
 }
 
 /// Writes to a terminal by its host id, also one still being created
@@ -43,6 +47,10 @@ public struct SendTerminalInputRequest: DaemonRequest {
     public init(terminalID: String, bytes: Data) {
         self.terminalID = terminalID
         self.bytes = bytes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case terminalID = "terminal_id", bytes
     }
 }
 
@@ -128,5 +136,11 @@ public struct AttachSurfaceRequest: DaemonRequest {
         self.snapshotVersion = snapshotVersion
         self.snapshotLocalHistory = snapshotVersion != nil && snapshotLocalHistory ? true : nil
         self.snapshotImages = snapshotVersion != nil && snapshotImages ? true : nil
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case surface, expectedGeneration = "expected_generation", expectedTerminalID = "expected_terminal_id", mode
+        case cols, rows, snapshot, snapshotVersion = "snapshot_version", snapshotLocalHistory = "snapshot_local_history"
+        case snapshotImages = "snapshot_images"
     }
 }

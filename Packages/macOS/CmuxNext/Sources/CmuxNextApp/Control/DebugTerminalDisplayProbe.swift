@@ -19,7 +19,9 @@ import QuartzCore
 @MainActor
 final class DebugTerminalDisplayProbe {
     /// The replaced method, its original IMP and the timing IMP.
-    private struct Hook {
+    // SAFETY: a Method and the IMPs of a loaded class live for the process (IOSurfaceLayer is never
+    // unloaded, and imp_implementationWithBlock's IMP is never removed), so these values never dangle.
+    @safe private struct Hook {
         let method: Method
         let original: IMP
         let replacement: IMP
@@ -89,23 +91,28 @@ final class DebugTerminalDisplayProbe {
     private func disarm() {
         guard arms > 0 else { return }
         arms -= 1
-        guard arms == 0, let hook, method_getImplementation(hook.method) == hook.replacement else { return }
-        method_setImplementation(hook.method, hook.original)
+        // SAFETY: the hook's method and IMPs live for the process (Hook); the original IMP is the
+        // method's own, so putting it back restores the signature the runtime expects.
+        guard arms == 0, let hook, unsafe method_getImplementation(hook.method) == hook.replacement else { return }
+        unsafe method_setImplementation(hook.method, hook.original)
     }
 
     /// Puts the override on; it is made again when the method's IMP is no longer the one it wraps.
     private func install() -> Bool {
+        // SAFETY: `-[CALayer display]` takes no argument and returns void, so the method's IMP is
+        // (self, _cmd) -> Void, the Display signature, and the cast changes no argument or return layout;
+        // the timing block is that IMP's block form (self). Method and IMPs live for the process (Hook).
         guard let layerClass = NSClassFromString(layerClassName),
-              let method = class_getInstanceMethod(layerClass, #selector(CALayer.display)) else { return false }
-        let current = method_getImplementation(method)
-        if let hook, hook.method == method, current == hook.replacement || current == hook.original {
-            method_setImplementation(method, hook.replacement)
+              let method = unsafe class_getInstanceMethod(layerClass, #selector(CALayer.display)) else { return false }
+        let current = unsafe method_getImplementation(method)
+        if let hook, unsafe hook.method == method, unsafe current == hook.replacement || current == hook.original {
+            unsafe method_setImplementation(method, hook.replacement)
             return true
         }
         typealias Display = @convention(c) (AnyObject, Selector) -> Void
-        let block = Self.timed(unsafeBitCast(current, to: Display.self), probe: self)
-        let made = Hook(method: method, original: current, replacement: imp_implementationWithBlock(block))
-        method_setImplementation(method, made.replacement)
+        let block = Self.timed(unsafe unsafeBitCast(current, to: Display.self), probe: self)
+        let made = unsafe Hook(method: method, original: current, replacement: imp_implementationWithBlock(block))
+        unsafe method_setImplementation(method, made.replacement)
         hook = made
         return true
     }
@@ -113,7 +120,8 @@ final class DebugTerminalDisplayProbe {
     /// No override runs on the method (none was put on, or the last disarm took it off).
     var isRestored: Bool {
         guard let hook else { return true }
-        return method_getImplementation(hook.method) != hook.replacement
+        // SAFETY: the hook's method and IMP live for the process (Hook); this only compares them.
+        return unsafe method_getImplementation(hook.method) != hook.replacement
     }
 
     /// Built outside the main actor so the block carries no isolation check of its own.

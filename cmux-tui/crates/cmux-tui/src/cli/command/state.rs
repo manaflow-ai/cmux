@@ -264,7 +264,7 @@ pub(super) fn workspace_update(
 
 /// The caller's own terminal, when this CLI runs inside one.
 fn caller_terminal() -> Option<String> {
-    std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
+    super::super::caller_env::var("CMUX_TUI_TERMINAL_ID").filter(|id| !id.is_empty())
 }
 
 /// `workspace [<selector>] status|progress|log …`. Without a selector the

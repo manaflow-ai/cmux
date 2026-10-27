@@ -22,18 +22,22 @@ extension SettingsController {
     ///
     /// - Parameters:
     ///   - work: The app's blocking-work lanes.
+    ///   - sequence: The sequence the read runs in, after what was posted to it before (the app: the incognito
+    ///     ledger read, which the launch window built on this read's landing needs); nil runs it on `work`'s
+    ///     files lane beside the other launch reads.
     ///   - prepareFileURL: Makes the settings file on first launch and returns its URL; runs on the lane.
     ///   - fallbackURL: The file read when `prepareFileURL` throws.
     ///   - managedReader: The managed (MDM) preferences; read on the lane.
     /// - Returns: The read in flight; ``PendingLaunchRead/whenRead(on:_:)`` hands it to the steps that need it.
     public static func startLaunchRead(
         on work: BackgroundWork,
+        in sequence: WorkSequence? = nil,
         prepareFileURL: @escaping @Sendable () throws -> URL = { try CmuxConfigFile.prepareDefaultURL() },
         fallbackURL: @escaping @Sendable () -> URL = { CmuxConfigFile.defaultURL() },
         managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader()
     ) -> PendingLaunchRead {
         let valid = validValues
-        return PendingLaunchRead(work: work, read: CmuxNextDesign.LaunchRead(on: work) {
+        let read: @Sendable () -> LaunchRead = {
             let prepared = Result { try prepareFileURL() }
             let fileURL = (try? prepared.get()) ?? fallbackURL()
             var failure: String?
@@ -42,10 +46,12 @@ extension SettingsController {
             let loaded = SettingsController.loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: valid,
                                                    configDirectory: fileURL.deletingLastPathComponent())
             return LaunchRead(loaded: loaded, fileURL: fileURL, bootstrapFailure: failure)
-        })
+        }
+        let pending = sequence.map { CmuxNextDesign.LaunchRead(in: $0, read) } ?? CmuxNextDesign.LaunchRead(on: work, read)
+        return PendingLaunchRead(work: work, read: pending)
     }
 
-    /// The settings launch read in flight (``startLaunchRead(on:prepareFileURL:fallbackURL:managedReader:)``).
+    /// The settings launch read in flight (``startLaunchRead(on:in:prepareFileURL:fallbackURL:managedReader:)``).
     ///
     /// The launch steps that need it run in a continuation on its completion: never a wait on the main
     /// thread, and never a frame in the defaults first (a value-or-nil take has no correct default).

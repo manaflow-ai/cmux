@@ -387,7 +387,9 @@ mod unix {
     use cmux_process::Stdio;
     #[cfg(test)]
     use std::collections::HashMap;
-    use std::fs::{self, File, OpenOptions};
+    #[cfg(test)]
+    use std::fs::OpenOptions;
+    use std::fs::{self, File};
     use std::io as std_io;
     #[cfg(test)]
     use std::io::Read;
@@ -405,6 +407,7 @@ mod unix {
     use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
     #[cfg(test)]
     use std::sync::{Condvar, Mutex};
+    #[cfg(test)]
     use std::thread;
     use std::time::Duration;
     #[cfg(test)]
@@ -499,6 +502,7 @@ mod unix {
 
     impl Drop for SpawnedPtyChild {
         fn drop(&mut self) {
+            // SAFETY: getpgrp takes no arguments, cannot fail and touches no memory.
             let host_group = unsafe { libc::getpgrp() };
             let groups = validated_process_groups(self.process_groups, host_group);
             let groups_signaled = signal_validated_process_groups(
@@ -652,6 +656,8 @@ mod unix {
 #[cfg(any(unix, windows))]
 pub use shared::attachment::HostAttachment;
 #[cfg(any(unix, windows))]
+pub(crate) use shared::attachment::HostReaper;
+#[cfg(any(unix, windows))]
 pub(crate) use shared::attachment::launch::adopt_terminal_host_with_kitty_limits;
 #[cfg(any(unix, windows))]
 pub use shared::attachment::launch::{
@@ -669,6 +675,15 @@ pub(crate) use shared::codec::{
 };
 #[cfg(any(unix, windows))]
 pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_payload};
+pub(crate) use shared::host_crash::append_to_panic_log as append_host_crash_to_panic_log;
+pub use shared::host_crash::{HostPanicLog, PANIC_LOG_SOURCE};
+// The decoders the cmux-tui/fuzz targets drive (crate::fuzz_entry).
+#[cfg(all(any(unix, windows), feature = "fuzz"))]
+pub(crate) use shared::codec::{
+    HostLaunch, decode_default_colors_payload, decode_hex_array, decode_lower_hex_array,
+    decode_snapshot_with_program_status, encode_default_colors_payload, encode_hex,
+    encode_kitty_graphics_limits, encode_resize, encode_snapshot_for_version,
+};
 #[cfg(any(unix, windows))]
 pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
 #[cfg(any(unix, windows))]

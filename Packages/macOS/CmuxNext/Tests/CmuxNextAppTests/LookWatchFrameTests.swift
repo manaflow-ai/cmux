@@ -70,7 +70,7 @@ import Testing
 
     @Test func oneWatchRecolorsEveryPaneInTheNextFrame() throws {
         TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(ChromeTunables.all)
+        TunableStore.shared.register(DesignTunables.all)
         let key = AttentionHighlightLook.tunable.key
         defer { TunableStore.shared.set(key, nil) }
         let rig = LookFrameRig()

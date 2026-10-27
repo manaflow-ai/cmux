@@ -81,6 +81,15 @@ struct BlockingCheckTests {
         #expect(BlockingViolationTable(environment: [:]).mode == .record)
     }
 
+    /// The mode is resolved once, from the environment the table was made with (p02-threads-006): Debug stays
+    /// record during the push, and only `CMUX_BLOCKING_TRAP=1` traps (the flip is p02-threads-021).
+    @Test func theModeIsResolvedFromTheLaunchEnvironmentOnly() {
+        #expect(BlockingMode.resolved(environment: [:]) == .record)
+        #expect(BlockingMode.resolved(environment: ["CMUX_BLOCKING_TRAP": "0"]) == .record)
+        #expect(BlockingMode.resolved(environment: ["CMUX_BLOCKING_TRAP": "1"]) == .trap)
+        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"], mode: .record).mode == .record)
+    }
+
     @Test func theSameCallsOffTheMainThreadDoNotTrap() async {
         await #expect(processExitsWith: .success) {
             await BlockingViolationTable.$scoped.withValue(BlockingViolationTable(mode: .trap)) {

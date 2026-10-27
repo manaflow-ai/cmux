@@ -43,8 +43,11 @@
 //!   ended, its folder `<home>/c/<id tail>` (memory, state, token) is removed
 //!   when its `chief-id` names it and no brain holds its lock.
 
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
@@ -54,6 +57,8 @@ use crate::chief_registry::{ChiefRecord, ChiefStore, DEFAULT_CHIEF, Engine};
 use crate::conversation_store::ConversationEvent;
 use crate::mux::Mux;
 
+#[cfg(unix)]
+mod brain_exit;
 mod home_files;
 use home_files::{lock_held, remove_brain_home, remove_old_acpmux_homes, stop_lock_holder};
 
@@ -97,6 +102,9 @@ pub struct AppValues {
     pub acpmux_bin: Option<PathBuf>,
     /// `MUX_HARNESS`.
     pub harness: Option<String>,
+    /// The app's pid (`OPTCHAT_OWNER_APP_PID`): once it exits an idle brain
+    /// stops (optchat-chief `owner_app.rs`), as the default Chief's host does.
+    pub owner_app_pid: Option<String>,
 }
 
 static TAKEN: OnceLock<Option<String>> = OnceLock::new();
@@ -162,7 +170,7 @@ pub fn tools_socket(chief: &str) -> Result<PathBuf, (&'static str, String)> {
     let config =
         config().ok_or(("not_configured", "this daemon runs no Chief brains".to_owned()))?;
     let mux_home = brain_home(&config.home, chief);
-    let owner = std::fs::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
+    let owner = files::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
     if owner.trim() != chief {
         return Err(("unavailable", format!("Chief {chief}'s brain is not running")));
     }
@@ -255,6 +263,7 @@ pub fn brain_environment(
         ("CMUX_BUNDLED_CLI_PATH", app.bundled_cli.as_ref().map(|p| p.display().to_string())),
         ("ACPMUX_BIN", app.acpmux_bin.as_ref().map(|p| p.display().to_string())),
         ("MUX_HARNESS", app.harness.clone()),
+        ("OPTCHAT_OWNER_APP_PID", app.owner_app_pid.clone()),
     ];
     for (key, value) in optional {
         if let Some(value) = value.filter(|v| !v.is_empty()) {
@@ -384,8 +393,7 @@ impl BrainPending {
     pub(crate) fn resolve(self) -> BrainStart {
         match self {
             Self::Ready(start) => start,
-            Self::Wait(answer) => answer
-                .recv_timeout(Duration::from_secs(5))
+            Self::Wait(answer) => waits::recv_timeout(&answer, Duration::from_secs(5))
                 .unwrap_or(BrainStart::NotStarted("unconfirmed")),
         }
     }
@@ -515,9 +523,18 @@ pub struct ChiefBrains {
     sender: mpsc::Sender<Signal>,
     thread: Option<std::thread::JoinHandle<()>>,
     mux: Weak<Mux>,
+    live: Arc<AtomicUsize>,
 }
 
 impl ChiefBrains {
+    /// The brains that run or wait to start again after a failure, as the
+    /// supervisor last counted them (after each signal or deadline it
+    /// handled): what keeps a Chief owner whose app quit (cmux-tui
+    /// `headless/chief_owner_exit.rs`).
+    pub fn live(&self) -> Arc<AtomicUsize> {
+        self.live.clone()
+    }
+
     /// Stops every brain (SIGTERM, up to 5 s for them to end, then SIGKILL)
     /// and the supervisor.
     pub fn stop(mut self) {
@@ -529,10 +546,10 @@ impl ChiefBrains {
         }
         let (done, ended) = mpsc::channel();
         if self.sender.send(Signal::Shutdown(done)).is_ok() {
-            let _ = ended.recv_timeout(SHUTDOWN_GRACE + Duration::from_secs(1));
+            let _ = waits::recv_timeout(&ended, SHUTDOWN_GRACE + Duration::from_secs(1));
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = waits::join(thread);
         }
     }
 }
@@ -547,7 +564,7 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
     // reading blocks until a writer comes: no sleep, no polling.
     #[cfg(debug_assertions)]
     if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_CHIEF_BRAINS_GATE") {
-        let _ = std::fs::File::open(gate);
+        let _ = files::open(gate);
     }
     let (sender, inbox) = mpsc::channel();
     {
@@ -558,12 +575,14 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         }
         *installed = Some(sender.clone());
     }
+    let live = Arc::new(AtomicUsize::new(0));
     let mut supervisor = Supervisor {
         mux: Arc::downgrade(mux),
         socket: socket.to_owned(),
         config,
         brains: BTreeMap::new(),
         sender: sender.clone(),
+        live: live.clone(),
     };
     let thread = std::thread::Builder::new()
         .name("chief-brains".into())
@@ -576,7 +595,7 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
             supervisor.run(&inbox);
         })
         .ok()?;
-    Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux) })
+    Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux), live })
 }
 
 /// The engine a Chief's record names (`cmux chief new --harness unii`, the
@@ -708,6 +727,8 @@ struct Supervisor {
     brains: BTreeMap<String, Brain>,
     #[cfg_attr(not(unix), allow(dead_code))]
     sender: mpsc::Sender<Signal>,
+    /// [`ChiefBrains::live`].
+    live: Arc<AtomicUsize>,
 }
 
 impl Supervisor {
@@ -715,13 +736,13 @@ impl Supervisor {
         loop {
             let signal = match self.next_deadline() {
                 Some(at) => {
-                    match inbox.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                    match waits::recv_timeout(inbox, at.saturating_duration_since(Instant::now())) {
                         Ok(signal) => Some(signal),
                         Err(mpsc::RecvTimeoutError::Timeout) => None,
                         Err(mpsc::RecvTimeoutError::Disconnected) => return,
                     }
                 }
-                None => match inbox.recv() {
+                None => match waits::recv(inbox) {
                     Ok(signal) => Some(signal),
                     Err(_) => return,
                 },
@@ -736,7 +757,16 @@ impl Supervisor {
                 None => {}
             }
             self.on_time();
+            self.count_live();
         }
+    }
+
+    /// Publishes [`ChiefBrains::live`]: brains with a process, or a start
+    /// due after a failure.
+    fn count_live(&self) {
+        let live =
+            self.brains.values().filter(|b| b.process.is_some() || b.retry_at.is_some()).count();
+        self.live.store(live, std::sync::atomic::Ordering::Release);
     }
 
     fn next_deadline(&self) -> Option<Instant> {
@@ -970,7 +1000,7 @@ impl Supervisor {
             return;
         }
         // Two ids with the same tail would share a directory: the first keeps it.
-        let owner = std::fs::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
+        let owner = files::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
         if !owner.trim().is_empty() && owner.trim() != chief {
             let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
             if !std::mem::replace(&mut brain.lock_noted, true) {
@@ -1017,23 +1047,21 @@ impl Supervisor {
         use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
         let mux_home = brain_home(&self.config.home, &record.id);
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&mux_home)?;
-        std::fs::write(mux_home.join("chief-id"), &record.id)?;
+        files::create_dir_with(files::DirBuilder::new().recursive(true).mode(0o700), &mux_home)?;
+        files::write(mux_home.join("chief-id"), &record.id)?;
         let token = mux.with_conversations(|store| store.mint_agent_token(&record.id))?;
         let token_file = mux_home.join("agent-token");
-        let _ = std::fs::remove_file(&token_file);
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&token_file)?;
+        let _ = files::remove_file(&token_file);
+        let mut file = files::open_with(
+            files::File::options().write(true).create_new(true).mode(0o600),
+            &token_file,
+        )?;
         file.write_all(token.as_bytes())?;
         drop(file);
-        let log = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(mux_home.join("host.log"))?;
+        let log = files::open_with(
+            files::File::options().create(true).append(true).mode(0o600),
+            mux_home.join("host.log"),
+        )?;
         let inherited = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
         let mut command = cmux_process::Command::new(&self.config.executable);
         command
@@ -1056,27 +1084,17 @@ impl Supervisor {
             .stderr(log)
             .process_group(0);
         crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
-        let mut child = command.spawn()?;
+        let child = command.spawn()?;
         let pid = child.id();
         let reaped = Arc::new(Mutex::new(false));
-        let (sender, chief, flag) = (self.sender.clone(), record.id.clone(), reaped.clone());
-        std::thread::Builder::new().name("chief-brain-wait".into()).spawn(move || {
-            let zombie = wait_exited(pid);
-            {
-                // The leader is a zombie now (its id is still taken): end what
-                // is left of its own group (a crashed host's turn processes;
-                // its acpmux has a group of its own), then mark it reaped
-                // before the reap frees the id.
-                let mut reaped = flag.lock().unwrap_or_else(PoisonError::into_inner);
-                if zombie && let Ok(group) = i32::try_from(pid) {
-                    // SAFETY: as Process::signal; the leader is not reaped yet.
-                    unsafe { libc::kill(-group, libc::SIGTERM) };
-                }
-                *reaped = true;
-            }
-            let success = child.wait().is_ok_and(|status| status.success());
-            let _ = sender.send(Signal::Exited { chief, pid, success });
-        })?;
+        // The mux's one reaper waits for the exit (no thread per brain).
+        brain_exit::watch(
+            &mux.reaper,
+            child,
+            record.id.clone(),
+            reaped.clone(),
+            self.sender.clone(),
+        )?;
         Ok(Process { pid, reaped })
     }
 
@@ -1139,7 +1157,7 @@ impl Supervisor {
         }
         let deadline = Instant::now() + SHUTDOWN_GRACE;
         while self.brains.values().any(|b| b.process.is_some()) {
-            match inbox.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            match waits::recv_timeout(inbox, deadline.saturating_duration_since(Instant::now())) {
                 Ok(Signal::Exited { chief, pid, .. }) => {
                     if let Some(brain) = self.brains.get_mut(&chief)
                         && brain.process.as_ref().map(|p| p.pid) == Some(pid)
@@ -1163,27 +1181,6 @@ impl Supervisor {
             if let Some(process) = &brain.process {
                 process.signal(SIGKILL);
             }
-        }
-    }
-}
-
-/// Blocks until child `pid` has exited, without reaping it (`WNOWAIT`);
-/// whether it waits as a zombie now.
-#[cfg(unix)]
-fn wait_exited(pid: u32) -> bool {
-    let id = libc::id_t::from(pid);
-    loop {
-        // SAFETY: a zeroed siginfo_t is a valid out buffer for waitid.
-        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-        // SAFETY: waitid writes only into `info`; WNOWAIT leaves the child
-        // waitable for Child::wait.
-        let done =
-            unsafe { libc::waitid(libc::P_PID, id, &mut info, libc::WEXITED | libc::WNOWAIT) };
-        if done == 0 {
-            return true;
-        }
-        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-            return false;
         }
     }
 }

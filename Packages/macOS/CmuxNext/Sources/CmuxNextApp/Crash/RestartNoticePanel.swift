@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// "cmux restarted after a problem": a small glass panel (opaque under
 /// Reduce Transparency, `Glass.makeOverlayPanel`) at the bottom of a
@@ -16,7 +17,10 @@ final class RestartNoticePanel {
     /// sized from it.
     private let body = ThemeChangeView()
     private weak var parent: NSWindow?
-    private var observers: [MainActorObservation] = []
+    /// The panel's size, measured once when it shows: its content (one line,
+    /// fixed buttons) never changes, so a window resize only moves it.
+    private var size: CGSize = .zero
+    private var observers: [EventSubscription] = []
     private let onShowLog: (() -> Void)?
     private let onReport: (() -> Void)?
 
@@ -79,21 +83,22 @@ final class RestartNoticePanel {
         return glass
     }
 
-    /// Attaches to `window` (bottom center) and follows its resizes.
-    func show(on window: NSWindow) {
+    /// Attaches to `window` (bottom center) and follows its resizes. `center` is where the window posts (tests
+    /// pass their own).
+    func show(on window: NSWindow, center: NotificationCenter = .default) {
         parent = window
         window.addChildWindow(panel, ordered: .above)
         window.themeScope.adopt(panel)
+        // The constraint engine's fitting size: a one-line label and fixed buttons need no layout to measure.
+        size = body.fittingSize
         place()
-        let center = NotificationCenter.default
-        for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
-            observers.append(MainActorObservation(name, object: window, center: center) { [weak self] in
-                self?.place()
-            })
-        }
-        observers.append(MainActorObservation(NSWindow.willCloseNotification, object: window, center: center) { [weak self] in
-            self?.dismiss()
-        })
+        // The window's one observer per notice (WindowEvents): the notice follows its frame and closes with it.
+        let events = WindowEvents.of(window, center: center)
+        observers = [
+            events.subscribe(NSWindow.didResizeNotification, owner: "RestartNotice.place") { [weak self] in self?.place() },
+            events.subscribe(NSWindow.didMoveNotification, owner: "RestartNotice.place") { [weak self] in self?.place() },
+            events.subscribe(NSWindow.willCloseNotification, owner: "RestartNotice.dismiss") { [weak self] in self?.dismiss() },
+        ]
     }
 
     var isShown: Bool { panel.parent != nil }
@@ -103,8 +108,6 @@ final class RestartNoticePanel {
 
     private func place() {
         guard let parent else { return }
-        body.layoutSubtreeIfNeeded()
-        let size = body.fittingSize
         let frame = parent.frame
         panel.setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.minY + 16, width: size.width, height: size.height), display: true)
     }

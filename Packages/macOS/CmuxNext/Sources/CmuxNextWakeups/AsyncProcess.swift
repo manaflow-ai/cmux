@@ -2,6 +2,8 @@ public import Foundation
 import CmuxNextCompat
 import Darwin
 import Dispatch
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// Runs a child process and awaits its end without blocking any thread.
 ///
@@ -47,10 +49,11 @@ public struct AsyncProcess: Sendable {
         let stopsWithCaller = request.onCancel == .stop
         if stopsWithCaller { try Task.checkCancellation() }
         let run = ProcessRun(request, clock: clock)
+        // timer-class-allow: off main (`run` is @concurrent): the request's own timeout stops the child on its queue and posts no main-thread job
         let deadline = request.timeout.map { _ in DemandTimer(owner: "process.\(request.executable.lastPathComponent)", clock: clock) }
         defer { deadline?.cancel() }
         let started: () async throws -> ProcessOutcome = {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ProcessOutcome, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<ProcessOutcome, any Error>) in
                 run.start(continuation)
                 if let deadline, let timeout = request.timeout {
                     deadline.schedule(after: timeout) { run.stop(ProcessFailure.timedOut) }

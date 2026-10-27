@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextDevices
+import CmuxNextWakeups
 import CmuxScreenKit
 
 /// A key combination for the Send Keys menu.
@@ -84,10 +85,11 @@ final class MacScreenChromeHost {
     let card: MacScreenCardView
     private let model: MacScreenPaneModel
 
-    init(model: MacScreenPaneModel) {
+    /// The toolbar and the card follow `model` while `node` (the tab) is visible, on `mainWork`'s frames.
+    init(model: MacScreenPaneModel, node: VisibilityNode, on mainWork: MainWorkScheduler) {
         self.model = model
-        toolbar = MacScreenToolbarView(model: model, actions: actions)
-        card = MacScreenCardView(model: model, actions: actions)
+        toolbar = MacScreenToolbarView(model: model, actions: actions, node: node, on: mainWork)
+        card = MacScreenCardView(model: model, actions: actions, node: node, on: mainWork)
     }
 
     var showsCard: Bool { model.card != nil }

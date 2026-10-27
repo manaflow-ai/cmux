@@ -1,0 +1,293 @@
+// Copyright 2018 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module remote_cocoa.mojom;
+
+import "mojo/public/mojom/base/process_id.mojom";
+import "mojo/public/mojom/base/string16.mojom";
+import "third_party/blink/public/mojom/choosers/popup_menu.mojom";
+import "third_party/blink/public/mojom/input/input_handler.mojom";
+import "third_party/blink/public/mojom/webshare/share_error.mojom";
+import "ui/base/cursor/mojom/cursor.mojom";
+import "ui/base/ime/mojom/ime_types.mojom";
+import "ui/base/mojom/attributed_string.mojom";
+import "ui/display/mojom/screen_infos.mojom";
+import "ui/events/mojom/event.mojom";
+import "ui/gfx/geometry/mojom/geometry.mojom";
+import "ui/gfx/mojom/ca_layer_params.mojom";
+import "ui/gfx/range/mojom/range.mojom";
+import "url/mojom/url.mojom";
+
+// Interface that lets the browser process hide/close a popup menu in a
+// remote cocoa process, for menus displayed by DisplayPopupMenu().
+interface PopupMenuRunner {
+  // Hide the associated popup menu.
+  Hide();
+};
+
+// Struct to encapsulate all the parameters to a DisplayPopupMenu() call.
+// Passed from the browser process to remote cocoa processes, but most of
+// the fields are passed unmodified from a renderer process.
+struct PopupMenu {
+  array<blink.mojom.MenuItem> items;
+  gfx.mojom.Rect bounds;
+  double item_font_size;
+  bool right_aligned;
+  uint32 selected_item;
+  pending_receiver<PopupMenuRunner> receiver;
+};
+
+// The interface through which code in the browser process, in
+// RenderWidgetHostViewMac, sends messages to the app shim process, targeting
+// the RenderWidgetHostViewCocoa NSView. No synchronous communication is allowed
+// in this direction.
+interface RenderWidgetHostNSView {
+  // Specify that the NSView will a popup (e.g, date/time picker) that will
+  // create its own NSWindow.
+  InitAsPopup(gfx.mojom.Rect content_rect, uint64 popup_parent_ns_view_id);
+
+  // Set this to be a child NSView of the NSView mapped to by
+  // |parent_ns_view_id|.
+  SetParentWebContentsNSView(uint64 parent_ns_view_id);
+
+  // Disable displaying any content (including the background color). This is
+  // to be called on views that are to be displayed via a parent ui::Compositor.
+  DisableDisplay();
+
+  // Make the NSView be the first responder of its NSWindow.
+  MakeFirstResponder();
+
+  // Set the bounds of the NSView or its enclosing NSWindow (depending on the
+  // window type).
+  SetBounds(gfx.mojom.Rect rect);
+
+  // Set the contents to display in the NSView.
+  SetCALayerParams(gfx.mojom.CALayerParams ca_layer_params);
+
+  // Set the background SkColor color of the hosted CALayer.
+  SetBackgroundColor(uint32 color);
+
+  // Call the -[NSView setHidden:] method.
+  SetVisible(bool visible);
+
+  // Call the -[NSView setToolTipAtMousePoint] method.
+  SetTooltipText(mojo_base.mojom.String16 display_text);
+
+  // Forward changes in content::TextInputState.
+  SetTextInputState(ui.mojom.TextInputType text_input_type, uint32 flags);
+
+  // Forward the TextInputManager::TextSelection from the renderer.
+  SetTextSelection(mojo_base.mojom.String16 text,
+                   uint64 offset,
+                   gfx.mojom.Range range);
+
+  // Forward the TextInputManager::CompositionRangeInfo from the renderer.
+  SetCompositionRangeInfo(gfx.mojom.Range range);
+
+  // Clear the marked range.
+  CancelComposition();
+
+  // Indicate if the WebContext is showing a context menu or not.
+  SetShowingContextMenu(bool showing);
+
+  // Indicate if the native context menu should display "AutoFill" items.
+  SetSupportsAutoFill(bool supports);
+
+  // Set the cursor type to display.
+  DisplayCursor(ui.mojom.Cursor cursor);
+
+  // Lock or unlock the cursor.
+  SetCursorLocked(bool locked);
+
+  // Set whether unaccelerated (unadjusted) mouse move events are
+  // generated while the cursor is locked.
+  SetCursorLockedUnacceleratedMovement(bool unaccelerated_movement);
+
+  // Open the dictionary overlay for the currently selected string. This
+  // will roundtrip to the NSView to determine the selected range.
+  ShowDictionaryOverlayForSelection();
+
+  // Open the dictionary overlay for the specified string at the specified
+  // point.
+  ShowDictionaryOverlay(ui.mojom.AttributedString attributed_string,
+                        gfx.mojom.Point baseline_point);
+
+  // Start intercepting keyboard events for the specified codes.
+  LockKeyboard(array<uint32>? dom_codes);
+
+  // Stop intercepting keyboard events.
+  UnlockKeyboard();
+
+  // Show the NSSharingServicePicker using the requested data that is passed and
+  // returning the result of that action.
+  ShowSharingServicePicker(string title,
+                           string text,
+                           url.mojom.Url url,
+                           array<string> file_paths)
+    => (blink.mojom.ShareError error);
+
+  // TODO(crbug.com/40226213): This is a work around for a bug in mojo
+  // where close notifications for associated messages pipes can sometimes be
+  // delivered later than they should. This method is called before closing the
+  // remote, and is treated as if a close notification was received.
+  Destroy();
+
+  // Ack gesture scroll event from the renderer.
+  GestureScrollEventAck(blink.mojom.Event event, bool consumed);
+
+  // Ack overscroll message from the renderer.
+  DidOverscroll(blink.mojom.DidOverscrollParams params);
+
+  // Shows a HTML select popup menu. The callback is called with the index of
+  // the selected item, or nullopt if the menu closed without selecting any
+  // items.
+  DisplayPopupMenu(PopupMenu menu) => (uint32? selected_item);
+};
+
+// The interface through which the RenderWidgetHostViewCocoa NSView in the app
+// shim process communicates to the RenderWidgetHostViewMac in the browser
+// process. Synchronous calls are allowed to be made through this interface.
+// TODO(ccameron): This corresponds almost one-to-one with the
+// content::RenderWidgetHostNSViewHost interface. It may be possible to merge
+// these two interfaces, though that may come at the cost of extra work (e.g,
+// de-serializing and re-serializing all events).
+// https://crbug.com/821651
+interface RenderWidgetHostNSViewHost {
+  // Synchronously query if the RenderWidgetHostView is for a main frame, and
+  // return the result as |is_for_main_frame|.
+  [Sync]
+  SyncIsWidgetForMainFrame() => (bool is_for_main_frame);
+
+  // Request that the RenderWidgetHost be shut down (e.g, when a date/time
+  // picker window is closed).
+  RequestShutdown();
+
+  // Indicates whether or not the NSView is its NSWindow's first responder.
+  OnFirstResponderChanged(bool is_first_responder);
+
+  // Indicates whether or not the NSView's NSWindow is key.
+  OnWindowIsKeyChanged(bool is_key);
+
+  // Indicates the NSView's bounds in its NSWindow's DIP coordinate system (with
+  // the origin at the upper-left corner), and indicate if the the NSView is
+  // attached to an NSWindow (if it is not, then |view_bounds_in_window_dip|'s
+  // origin is meaningless, but its size is still relevant).
+  OnBoundsInWindowChanged(
+      gfx.mojom.Rect view_bounds_in_window_dip,
+      bool attached_to_window);
+
+  // Indicates the NSView's NSWindow's frame in the global display::Screen
+  // DIP coordinate system (where the origin the upper-left corner of
+  // Screen::GetPrimaryDisplay).
+  OnWindowFrameInScreenChanged(
+      gfx.mojom.Rect window_frame_in_screen_dip);
+
+  // Indicate changes to the NSScreen hosting the NSView, or other NSScreens.
+  OnScreenInfosChanged(display.mojom.ScreenInfos screen_infos);
+
+  // Indicate the begin and end block of a keyboard event. The beginning of this
+  // block will record the active RenderWidgetHost, and will forward all
+  // remaining keyboard and Ime messages to that RenderWidgetHost.
+  BeginKeyboardEvent();
+  EndKeyboardEvent();
+
+  // Forward a keyboard event to the RenderWidgetHost that is currently handling
+  // the key-down event.
+  ForwardKeyboardEventWithCommands(
+      blink.mojom.Event event,
+      array<uint8> native_event_data,
+      bool skip_if_unhandled,
+      array<blink.mojom.EditCommand> commands);
+
+  // Forward events to the renderer or the input router, as appropriate.
+  RouteOrProcessMouseEvent(blink.mojom.Event event);
+  RouteOrProcessTouchEvent(blink.mojom.Event event);
+  RouteOrProcessWheelEvent(blink.mojom.Event event);
+
+  // Special case forwarding of synthetic events to the renderer.
+  ForwardMouseEvent(blink.mojom.Event event);
+  ForwardWheelEvent(blink.mojom.Event event);
+
+  // Handling pinch gesture events.
+  PinchEvent(blink.mojom.Event event, bool is_synthetically_injected);
+
+  // Handle a double-tap magnify event.
+  SmartMagnifyEvent(blink.mojom.Event event);
+
+  // Forward the corresponding Ime commands to the appropriate RenderWidgetHost.
+  // Appropriate, has two meanings here. If this is during a key-down event,
+  // then the target is the RWH that is handling that key-down event. Otherwise,
+  // it is the result of GetActiveWidget.
+  ImeSetComposition(
+      mojo_base.mojom.String16 text,
+      array<ui.mojom.ImeTextSpan> ime_text_spans,
+      gfx.mojom.Range replacement_range,
+      int32 selection_start,
+      int32 selection_end);
+  ImeCommitText(mojo_base.mojom.String16 text,
+                gfx.mojom.Range replacement_range);
+  ImeFinishComposingText();
+  // Note that the function name ImeCancelComposition would conflict with a
+  // method in RenderWidgetHostViewBase.
+  ImeCancelCompositionFromCocoa();
+
+  // Request an overlay dictionary be displayed for the text at the specified
+  // point.
+  LookUpDictionaryOverlayAtPoint(gfx.mojom.PointF root_point);
+
+  // Request an overlay dictionary be displayed for the text in the the
+  // specified character range.
+  LookUpDictionaryOverlayFromRange(gfx.mojom.Range range);
+
+  // Synchronously query the character index for |root_point|. Return UINT32_MAX
+  // if the request fails or is not completed.
+  [Sync]
+  SyncGetCharacterIndexAtPoint(
+      gfx.mojom.PointF root_point) => (uint32 index);
+
+  // Synchronously query the composition character boundary rectangle and return
+  // it as |out_rect|. Return |out_actual_range| as the range actually used for
+  // the returned rectangle. If there was no focused RenderWidgetHost to query,
+  // then return |success| as false.
+  [Sync]
+  SyncGetFirstRectForRange(
+      gfx.mojom.Range requested_range) =>
+          (gfx.mojom.Rect out_rect,
+           gfx.mojom.Range out_actual_range,
+           bool success);
+
+  // Forward the corresponding edit menu command to the RenderWidgetHost's
+  // delegate.
+  ExecuteEditCommand(string command);
+  Undo();
+  Redo();
+  Cut();
+  Copy();
+  CopyToFindPboard();
+  CenterSelection();
+  Paste();
+  PasteAndMatchStyle();
+  SelectAll();
+
+  // Speak the selected text of the appropriate RenderWidgetHostView using
+  // TextServicesContextMenu.
+  StartSpeaking();
+
+  // Stop speaking using TextServicesContextMenu.
+  StopSpeaking();
+
+  // Synchronously query if TextServicesContextMenu is currently speaking and
+  // return the result as |is_speaking|.
+  [Sync]
+  SyncIsSpeaking() => (bool is_speaking);
+
+  // Return in |element_token| the token for the root content AX node for this
+  // view and in |host_pid| the pid for the host process.
+  [Sync]
+  GetRenderWidgetAccessibilityToken() =>
+      (mojo_base.mojom.ProcessId host_pid, array<uint8> element_token);
+
+  // Send the token for the NSWindow in which this NSView is being displayed.
+  SetRemoteAccessibilityWindowToken(array<uint8> window_token);
+};
