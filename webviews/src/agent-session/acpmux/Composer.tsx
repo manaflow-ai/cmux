@@ -67,7 +67,7 @@ import { remoteComposer } from "./remoteEditing";
 import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
-import { useComposerSettings } from "./composerSettings";
+import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
 import { useComposerLook, useQuietRow } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
@@ -162,6 +162,7 @@ export const COMPOSER_LABELS = {
   selectAll: "composer.menu.selectAll",
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
+  scrollToBottomOnSend: "composer.menu.scrollToBottomOnSend",
 } as const satisfies Record<string, StringKey>;
 
 /// What the pane can do to the composer from outside it.
@@ -272,6 +273,8 @@ type Props = {
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
+  /// A new chat's machine was picked where no folder of it is known: the chat starts there.
+  onComputer?(computer: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
   /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
@@ -285,6 +288,8 @@ type Props = {
   offloads?: readonly OffloadKind[];
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
+  /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
+  folderNote?: string;
   /// This Mac's name for the location row.
   localName?: string;
   /// Preview features on: the location row's computer is the environment picker (ComposerContext).
@@ -350,6 +355,7 @@ export function Composer({
   upload,
   localPaths,
   onProject,
+  onComputer,
   projectChoices,
   onBrowseProject,
   onNewWorktree,
@@ -358,6 +364,7 @@ export function Composer({
   onOffload,
   offloads,
   onRefreshMachines,
+  folderNote,
   localName,
   environments,
   onNewChat,
@@ -488,7 +495,7 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, spellChecking, escapeDoublePress } = useComposerSettings();
+  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend } = useComposerSettings();
   // The composer's look (composerLook.ts): with Claude's, the default, and the plain footer the mode,
   // model and effort sit in the quiet row and Send waits for a draft; Codex's keeps the box's one row.
   const look = useComposerLook();
@@ -1526,10 +1533,17 @@ export function Composer({
       disabled: shell,
       onSelect: () => mention(),
     },
+    {
+      id: "scrollToBottomOnSend",
+      label: t(COMPOSER_LABELS.scrollToBottomOnSend),
+      checked: scrollToBottomOnSend,
+      separatorBefore: true,
+      onSelect: () => setScrollToBottomOnSend(!scrollToBottomOnSend),
+    },
   ];
 
-  // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
-  // composer location strip), so the card holds one controls row. Only a new chat has the visible
+  // The location strip: the folder and computer chips over the card (hq#1957 composer location
+  // strip, composerLocation.css), so the card holds one controls row. Only a new chat has the visible
   // strip, before its first send (locationRow.ts): a started chat cannot change folder or machine.
   // Keep a non-painting slot for that strip while the first prompt changes the transcript. The
   // composer is bottom-anchored, so removing the slot in the same render would move every control
@@ -1564,8 +1578,11 @@ export function Composer({
       peers={snapshot.peers}
       {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+      {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
+      {...(folderNote ? { folderNote } : {})}
       environments={environments}
+      {...(onComputer ? { onComputer } : {})}
       onProject={
         onProject &&
         ((cwd, peer) => {
