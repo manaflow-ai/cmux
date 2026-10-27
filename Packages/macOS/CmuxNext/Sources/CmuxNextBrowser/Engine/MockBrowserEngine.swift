@@ -88,6 +88,8 @@ public final class MockBrowserTab: BrowserTab {
     public let profileID: BrowserProfileID
     /// `.childWindow` stands in for a page drawn in its own window (a Chromium page).
     @ObservationIgnored public var presentation: BrowserPresentation = .inView
+    /// What the page paints behind its document (``BrowserTab/pageBackgroundColor``); nil: see-through.
+    @ObservationIgnored public var pageBackgroundColor: CGColor?
     public var completesNavigationsImmediately: Bool
     /// The page's first content frame (``simulateFirstContentFrame()``, `MockBrowserTab+FirstContent`).
     @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()

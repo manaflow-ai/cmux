@@ -278,38 +278,23 @@ impl Mux {
     /// Give a creating terminal's input back when its creation has not ended by the expiry.
     fn start_creating_input_expiry(self: &Arc<Self>, terminal_id: &str, generation: u64) {
         let expiry = env_millis(EXPIRY_OVERRIDE_ENV).unwrap_or(CREATING_INPUT_EXPIRY);
-        let deadline = Instant::now() + expiry;
-        let mux = Arc::downgrade(self);
         let terminal_id = terminal_id.to_string();
-        let spawned =
-            std::thread::Builder::new().name("creating-input-expiry".into()).spawn(move || {
-                let Some(mux) = mux.upgrade() else { return };
-                let inputs = &mux.creating_inputs;
-                let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
-                // Wakes when any creation ends, or at the deadline: a bounded wait, not a poll.
-                loop {
-                    if terminals.get(&terminal_id).is_none_or(|creating| {
-                        creating.generation != generation || creating.flushing
-                    }) {
-                        return;
-                    }
-                    let now = Instant::now();
-                    if now >= deadline {
-                        break;
-                    }
-                    terminals = cmux_threads::checked::sync::wait_timeout(
-                        &inputs.ended,
-                        terminals,
-                        deadline - now,
-                    )
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .0;
+        // A delayed work item at the expiry, not a thread waiting for it: a
+        // creation that ended (or a later generation) makes it a no-op
+        // (`finish_creating_input` checks both).
+        let posted = self.post_mux_work_after(
+            expiry,
+            cmux_threads::work::Priority::UserVisible,
+            cmux_threads::work::Lane::Cpu,
+            cmux_threads::work::Shutdown::SkipOnShutdown,
+            move |mux| {
+                if let Some(mux) = mux.upgrade() {
+                    mux.finish_creating_input(&terminal_id, generation, Some("expired"));
                 }
-                drop(terminals);
-                mux.finish_creating_input(&terminal_id, generation, Some("expired"));
-            });
-        if let Err(error) = spawned {
-            eprintln!("cmux-tui: no expiry for creating terminal input: {error}");
+            },
+        );
+        if posted.is_err() {
+            eprintln!("cmux-tui: no expiry for creating terminal input: shutting down");
         }
     }
 

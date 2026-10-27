@@ -13,7 +13,8 @@ public protocol WindowSurfacePainting: NSView {
 extension NSWindow {
     /// The only way a window gets its content (plans/cmux-next/windows.md):
     /// records `kind`, makes the window titled and closable with the
-    /// kind's buttons, adopts `scope`, paints the one backdrop (the main
+    /// kind's buttons and not restorable (cmux restores its windows from
+    /// the window registry and the daemon, not AppKit), adopts `scope`, paints the one backdrop (the main
     /// window's material and tint, in a ``WindowSurfaceView`` around
     /// `content` unless the content paints it itself), and only then sets
     /// `contentView`. Changing the
@@ -28,6 +29,7 @@ extension NSWindow {
         WindowKindRegistry.setKind(kind, of: self)
         let traits = kind.traits
         styleMask.formUnion([.titled, .closable])
+        isRestorable = false
         if traits.hidesMinimizeAndZoom {
             standardWindowButton(.miniaturizeButton)?.isHidden = true
             standardWindowButton(.zoomButton)?.isHidden = true
