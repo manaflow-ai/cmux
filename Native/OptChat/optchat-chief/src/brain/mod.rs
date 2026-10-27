@@ -393,6 +393,9 @@ pub enum Input {
     /// SIGUSR1 to the host: an update replaced the app, so the brain stops
     /// once no turn runs ([`HANDOFF_WHEN_IDLE`]); the app then hands acpmux
     /// off and starts the next host.
+    /// The host's binary was replaced on disk (an app update): hand off once
+    /// no turn runs (`update_watch`).
+    BinaryReplaced,
     HandoffWhenIdle,
     /// chief.stop: stops the running turn as a newer message does;
     /// answers `{"stopped": bool}`.
@@ -1457,6 +1460,7 @@ impl Brain {
                 self.cloud_shutdown();
                 self.fatal = Some(format!("{STOP_REQUESTED} (signal {signal})"));
             }
+            Input::BinaryReplaced => {}
             Input::HandoffWhenIdle => {
                 if self.handoff_at.is_none() {
                     (self.log)("an update asks for a handoff: stopping once no turn runs");
