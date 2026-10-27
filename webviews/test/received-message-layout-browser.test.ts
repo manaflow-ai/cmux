@@ -7,6 +7,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import type { ViteDevServer } from "vite";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { installPaintedFrames } from "./support/paintedFrames";
 
 await requireBrowserLane("received-message-layout-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -46,6 +47,7 @@ await requireBrowserLane("received-message-layout-browser.test.ts", async () => 
   const open = async (width: number, colorScheme: "dark" | "light", variant = "compact"): Promise<Page> => {
     const { port } = vite.httpServer!.address() as { port: number };
     const page = await browser.newPage({ viewport: { width, height: 760 }, colorScheme });
+    await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, colorScheme })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     if (width === 360)
@@ -206,12 +208,13 @@ await requireBrowserLane("received-message-layout-browser.test.ts", async () => 
           (node) =>
             new Promise<boolean>((resolve) => {
               let frames = 0;
-              const sample = () => {
-                if (getComputedStyle(node).opacity !== "1") resolve(false);
-                else if (++frames === 16) resolve(true);
-                else requestAnimationFrame(sample);
-              };
-              requestAnimationFrame(sample);
+              window.cmuxAfterPaint(() => {
+                const visible = getComputedStyle(node).opacity === "1";
+                if (!visible || ++frames === 16) {
+                  resolve(visible);
+                  return false;
+                }
+              });
             }),
         );
         expect(visibleWhileOpen).toBe(true);
