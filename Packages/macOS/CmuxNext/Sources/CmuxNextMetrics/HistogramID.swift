@@ -126,6 +126,9 @@ public enum HistogramID: Sendable, Hashable {
     case stabilityUncleanExit
     /// How a child process of a kind ended (`ChildExit` values; task 109).
     case stabilityChildExit(ProcessKind)
+    /// A renderer event of an engine, one sample per page by the surface that showed it (`RendererSurface` values;
+    /// task 108). Content ends count each page a process served; `stability.child_exit.webkit` counts the process once.
+    case stabilityRenderer(RendererEvent, RendererEngine)
     /// A daemon that stopped answering, by the class of its last request (`MethodClass` position; task 109).
     case daemonUnresponsive
     /// Main-thread blocking violations per launch, Nightly with the blocking checks only (task 089).
@@ -163,6 +166,9 @@ extension HistogramID: CaseIterable {
         all += MethodClass.allCases.map(Self.daemonRequest)
         all += MethodClass.allCases.map(Self.automationRequest)
         all += ProcessKind.allCases.map(Self.stabilityChildExit)
+        for event in RendererEvent.allCases {
+            for engine in RendererEngine.allCases { all.append(.stabilityRenderer(event, engine)) }
+        }
         return all
     }
 }
@@ -211,6 +217,7 @@ extension HistogramID {
         case .stabilityActiveSeconds: "stability.active_seconds"
         case .stabilityUncleanExit: "stability.unclean_exit"
         case let .stabilityChildExit(kind): "stability.child_exit." + kind.rawValue
+        case let .stabilityRenderer(event, engine): "stability.renderer." + event.rawValue + "." + engine.rawValue
         case .daemonUnresponsive: "daemon.unresponsive"
         case .blockingViolations: "blocking.violations"
         }
@@ -229,7 +236,7 @@ extension HistogramID {
         case .hangOver250PerHour, .hangThreadHung, .actionMissedFrames, .launchPageins, .idleWakeups, .webviewJSErrors,
              .stabilityLaunch, .stabilityActiveSeconds, .blockingViolations:
             .count
-        case .cefHelperExit, .stabilityUncleanExit, .stabilityChildExit, .daemonUnresponsive: .enumeration
+        case .cefHelperExit, .stabilityUncleanExit, .stabilityChildExit, .stabilityRenderer, .daemonUnresponsive: .enumeration
         case .chromium: .chromium
         }
     }
@@ -242,6 +249,7 @@ extension HistogramID {
         case .cefHelperExit: return .enumeration(valueCount: 256)
         case .stabilityUncleanExit: return .enumeration(valueCount: UncleanExit.allCases.count)
         case .stabilityChildExit: return .enumeration(valueCount: ChildExit.allCases.count)
+        case .stabilityRenderer: return .enumeration(valueCount: RendererSurface.allCases.count)
         case .daemonUnresponsive: return .enumeration(valueCount: MethodClass.allCases.count)
         default: break
         }
@@ -270,7 +278,7 @@ extension HistogramID {
         case .hangOver250PerHour, .hangThreadHung, .memory, .memoryTotal, .memoryHiddenWorkspace, .cpu, .diskIdleWrite,
              .cefHelperExit, .rendererUnresponsive, .webviewINP, .webviewLoAF, .webviewJSErrors, .chromium,
              .remoteInputToPresent, .stabilityLaunch, .stabilityActiveSeconds, .stabilityUncleanExit,
-             .stabilityChildExit:
+             .stabilityChildExit, .stabilityRenderer:
             "PL-telemetry"
         }
     }

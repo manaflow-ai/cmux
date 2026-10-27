@@ -7,6 +7,7 @@ import {
   bucketCount,
   bucketRange,
   histogramCatalog,
+  histogramDefinition,
   isWellFormedHistogramName,
   logLinearIndex,
 } from "../services/hangReports/histogramCatalog";
@@ -388,6 +389,7 @@ describe("histogram catalog", () => {
     expect(names).toContain("key.frame.view");
     expect(names).toContain("daemon.request.terminal_io");
     expect(names).toContain("webview.inp.home");
+    expect(histogramDefinition("stability.renderer.content_end.webkit")?.layout).toEqual({ kind: "enumeration", valueCount: 3 });
     expect(names).toContain("chromium.EventLatency.KeyPressed.TotalLatency");
   });
 

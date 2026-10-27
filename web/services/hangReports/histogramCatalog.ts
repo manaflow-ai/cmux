@@ -68,6 +68,12 @@ const PAGES = [
 export const UNCLEAN_EXITS = ["crash", "system_shutdown", "killed", "fatal_hang"] as const;
 /** `HistogramID.ChildExit`, in value order. */
 export const CHILD_EXITS = ["clean", "signal", "panic", "oom"] as const;
+/** `HistogramID.RendererEvent`. */
+const RENDERER_EVENTS = ["content_end", "unresponsive"] as const;
+/** `HistogramID.RendererEngine`. */
+const RENDERER_ENGINES = ["webkit", "chromium"] as const;
+/** `HistogramID.RendererSurface`, in value order. */
+const RENDERER_SURFACES = ["browser_tab", "page", "warmup"] as const;
 const CHROMIUM_HISTOGRAMS = [
   "EventLatency.KeyPressed.TotalLatency",
   "EventLatency.MousePressed.TotalLatency",
@@ -143,6 +149,9 @@ function catalogDefinitions(): HistogramDefinition[] {
     definition("stability.active_seconds", "count"),
     enumeration("stability.unclean_exit", UNCLEAN_EXITS.length),
     ...PROCESS_KINDS.map((kind) => enumeration(`stability.child_exit.${kind}`, CHILD_EXITS.length)),
+    ...RENDERER_EVENTS.flatMap((event) =>
+      RENDERER_ENGINES.map((engine) => enumeration(`stability.renderer.${event}.${engine}`, RENDERER_SURFACES.length)),
+    ),
     enumeration("daemon.unresponsive", METHOD_CLASSES.length),
     definition("blocking.violations", "count"),
   ];
