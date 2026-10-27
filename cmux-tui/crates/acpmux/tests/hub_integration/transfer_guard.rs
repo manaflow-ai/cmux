@@ -382,6 +382,26 @@ async fn a_web_guarded_chat_asks_and_rules_or_policies_that_approve_are_refused(
     }
 }
 
+/// A chat an older daemon started from another machine with approve-all and no source (the
+/// approve-all vmHost gave, or one that could be) moves in asking (`hub/policy_source.rs`); one
+/// whose source says who set it, or that its own machine started, keeps its approve-all.
+#[tokio::test]
+async fn a_moved_in_remote_approve_all_with_no_source_asks() {
+    let root = Scratch::home("vmhost-grant");
+    let (_b, mut dst) = daemon(config("ask", json!({})), None).await;
+    for (extra, policy) in [
+        (json!({"remoteOrigin": true}), "ask"),
+        (json!({"remoteOrigin": true, "policySource": "set"}), "approve-all"),
+        (json!({"remoteOrigin": false}), "approve-all"),
+    ] {
+        let mut m = meta(root.path(), extra.clone());
+        m["permissionPolicy"] = json!("approve-all");
+        let rid = receive(&mut dst, guard("peer", &[root.path()]), &m, &[]).await.unwrap();
+        let s = finish(&mut dst, &rid, json!({})).await.unwrap();
+        assert_eq!(s["policy"], policy, "{extra}: {s}");
+    }
+}
+
 #[tokio::test]
 async fn a_guarded_chat_takes_its_family_from_here_and_a_web_one_must_ask() {
     let root = Scratch::home("mode");
