@@ -113,7 +113,8 @@ def signature_range(macho: bytes):
             if datasize < 12 or dataoff + datasize > len(macho):
                 raise ValueError("LC_CODE_SIGNATURE points outside the slice")
             # The region left out of the payload must hold signature data only:
-            # a superblob whose index is followed by its blobs back to back,
+            # a superblob whose index is followed by its blobs back to back
+            # (alignment gaps of up to 7 zero bytes allowed),
             # with a CodeDirectory among them, then zero padding to datasize.
             magic, length, count = struct.unpack(">III", macho[dataoff:dataoff + 12])
             if magic != 0xFADE0CC0 or not 12 + 8 * count <= length <= datasize or count == 0:
@@ -123,11 +124,16 @@ def signature_range(macho: bytes):
             at, types = 12 + 8 * count, set()
             for blob_at, typ in entries:
                 blob_magic, blob_length = struct.unpack(">II", macho[dataoff + blob_at:dataoff + blob_at + 8])
-                if blob_at != at or blob_length < 8 or blob_at + blob_length > length or blob_magic >> 16 != 0xFADE:  # every code-signing blob magic is 0xFADExxxx
+                # Apple pads blobs to 8-byte alignment (a CEF dylib's first blob is at
+                # 24 after a 20-byte index): a gap of up to 7 zero bytes only.
+                gap = macho[dataoff + at:dataoff + blob_at] if blob_at >= at else b"x"
+                if len(gap) > 7 or gap.strip(b"\0") or blob_length < 8 or blob_at + blob_length > length \
+                        or blob_magic >> 16 != 0xFADE:  # every code-signing blob magic is 0xFADExxxx
                     raise ValueError("the signature's blobs are not back to back after its index")
-                at += blob_length
+                at = blob_at + blob_length
                 types.add(typ)
-            if at != length or 0 not in types:
+            tail = macho[dataoff + at:dataoff + length] if length >= at else b"x"
+            if len(tail) > 7 or tail.strip(b"\0") or 0 not in types:
                 raise ValueError("the signature has bytes outside its blobs, or no CodeDirectory")
             if macho[dataoff + length:dataoff + datasize].strip(b"\0"):
                 raise ValueError("the bytes after the signature superblob are not zero padding")

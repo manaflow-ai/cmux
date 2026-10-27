@@ -246,6 +246,29 @@ class ReviewFindingTests(unittest.TestCase):
         self.assertEqual(json.loads(out.read_text())["code_resources_differences"],
                          {"Contents/_CodeSignature/CodeResources": ["only in B"]})
 
+    def test_a_four_byte_alignment_gap_after_the_index_is_a_valid_signature(self):
+        # Rebuild the superblob as Apple lays out a CEF dylib's: index 12 + 8n, then 4 zero bytes.
+        good = macho(b"T" * 32, b"c")
+        sig_at = struct.unpack("<I", good[32 + 72 + 8:32 + 72 + 12])[0]
+        blob = bytearray(good[sig_at:])
+        count = struct.unpack(">I", bytes(blob[8:12]))[0]
+        index_end = 12 + 8 * count
+        for i in range(count):
+            typ, at = struct.unpack(">II", bytes(blob[12 + 8 * i:20 + 8 * i]))
+            blob[12 + 8 * i:20 + 8 * i] = struct.pack(">II", typ, at + 4)
+        blob = blob[:index_end] + bytes(4) + blob[index_end:]
+        blob[4:8] = struct.pack(">I", struct.unpack(">I", bytes(blob[4:8]))[0] + 4)
+        aligned = bytearray(good[:sig_at]) + blob
+        aligned[32 + 72 + 12:32 + 72 + 16] = struct.pack("<I", len(blob))
+        a = make_app(self.root / "a", tool=bytes(aligned))
+        b = make_app(self.root / "b", tool=good)
+        rc, failures = self.compare(a, b)
+        self.assertEqual(rc, 0, failures)
+        hidden = bytearray(aligned)
+        hidden[sig_at + index_end:sig_at + index_end + 4] = b"HIDE"
+        c = make_app(self.root / "c", tool=bytes(hidden))
+        self.assertEqual(self.compare(b, c)[0], 1)
+
     def test_setuid_bit_is_payload(self):
         a = make_app(self.root / "a", tool=macho(b"T" * 32, b"c"))
         b = make_app(self.root / "b", tool=macho(b"T" * 32, b"c"), mode=0o4755)
