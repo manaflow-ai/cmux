@@ -4,7 +4,7 @@ public import Foundation
 /// line back within `deadline`, and returns the `result` object on `ok`.
 /// Shared by the activity pane and onboarding's computer use step
 /// (`permissions_status`). Nonisolated: a request runs where its caller runs, so a caller off the
-/// main actor (the live preview's frame loads) also parses the reply there.
+/// main actor (the live preview's frame loads, Computer Use Setup's grant request) also parses the reply there.
 public nonisolated struct CuaSocketClient: Sendable {
     public let configuration: AgentActivitySocketSource.Configuration
 
