@@ -14,7 +14,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 LAB = Path(__file__).resolve().parent.parent
 REPO_ROOT = LAB.parents[1]
@@ -33,6 +35,7 @@ def _load(name: str, path: Path):
 caps = _load("perf_lab_capabilities", LAB / "capabilities.py")
 tpe = _load("perf_lab_test_pinpoint_exec", LAB / "tests" / "test_pinpoint_exec.py")
 tsched = _load("perf_lab_test_scheduler", LAB / "tests" / "test_scheduler.py")
+run_story = _load("run_story", LAB / "run_story.py")
 exe, pinpoint, scheduler = tpe.exe, tpe.pinpoint, tsched.scheduler
 
 TURN_HISTOGRAM = "file:Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/MainTurnHistogram.swift"
@@ -72,6 +75,29 @@ class ProbeTests(unittest.TestCase):
             with self.assertRaises(caps.CapabilityError):
                 caps.missing([need], build)
 
+    def test_the_build_is_asked_and_one_from_before_the_probe_answers_its_methods(self) -> None:
+        needs = ("debug:debug.closed_ids", "signpost:key.frame", "env:CMUX_NEXT_TRACE_FLOWS", TURN_HISTOGRAM)
+        asked = []
+
+        def probe_build(method):
+            asked.append(method)
+            return probe()
+
+        self.assertEqual(caps.probe_missing(needs, probe_build),
+                         ("debug:debug.closed_ids", "signpost:key.frame", "env:CMUX_NEXT_TRACE_FLOWS"))
+        self.assertEqual(asked, [caps.PROBE_METHOD])
+
+        def old_build(method):
+            if method == caps.PROBE_METHOD:
+                return {"error": {"code": "method_not_found"}}
+            return {"protocol_version": 1, "methods": ["system.ping", "debug.hangs"]}
+
+        # Signposts and variables of an old build are unknown, never "lacking".
+        self.assertEqual(caps.probe_missing(needs, old_build), ("debug:debug.closed_ids",))
+        self.assertEqual(caps.probe_missing(["debug:debug.hangs"], old_build), ())
+        with self.assertRaises(caps.CapabilityError):
+            caps.probe_missing(needs, lambda method: {"error": "unreachable", "unreachable": True})
+
     def test_the_swift_lists_parse(self) -> None:
         lists = caps.declared_lists((REPO_ROOT / caps.DEBUG_CAPABILITIES).read_text(encoding="utf-8"))
         self.assertIn("actionCommit", lists["emittedSignposts"])
@@ -80,6 +106,45 @@ class ProbeTests(unittest.TestCase):
         self.assertIn("CMUX_NEXT_TYPING_PROBE", lists["probeEnvironment"])
         cases = caps.tip_signpost_cases(REPO_ROOT)
         self.assertEqual(cases["scrollToFrame"], "key.scroll_frame")
+
+
+class CompileTests(unittest.TestCase):
+    BENCH = caps.CONFIG_FLAGS["bench"]
+
+    def test_conditions_under_the_bench_flags(self) -> None:
+        cases = {"DEBUG": False, "DEBUG || CMUX_BENCH_HOOKS": True, "!DEBUG": True,
+                 "(DEBUG || CMUX_BLOCKING_CHECKS)": False, "DEBUG && arch(arm64)": False,
+                 "(DEBUG || CMUX_BENCH_HOOKS) && !GHOSTTY_RENDERER_FRAMES": None, "arch(arm64)": None,
+                 "compiler(>=6.4)": None, "DEBUG ||": None, "true": True, "!(DEBUG)": True}
+        for expr, value in cases.items():
+            self.assertIs(caps.condition(expr, self.BENCH), value, expr)
+
+    def test_a_block_a_config_does_not_compile_is_blanked(self) -> None:
+        swift = "\n".join(['#if DEBUG', '"debug.a"', '#elseif CMUX_BENCH_HOOKS', '"debug.b"', '#else', '"debug.c"',
+                           '#endif', '#if DEBUG || CMUX_BENCH_HOOKS', '"debug.d"', '#if DEBUG', '"debug.e"', '#endif',
+                           '#endif', '#if GHOSTTY_RENDERER_FRAMES', '"debug.f"', '#else', '"debug.g"', '#endif',
+                           '"debug.h"'])
+
+        def found(config):
+            return set(caps.METHOD_LITERAL.findall(caps.compiled(swift, caps.CONFIG_FLAGS[config])))
+
+        self.assertEqual(found("bench"), {"debug.b", "debug.d", "debug.f", "debug.g", "debug.h"})
+        self.assertEqual(found("debug"), {"debug.a", "debug.d", "debug.e", "debug.f", "debug.g", "debug.h"})
+        self.assertEqual(found("release"), {"debug.c", "debug.f", "debug.g", "debug.h"})
+        self.assertEqual(len(caps.compiled(swift, self.BENCH).splitlines()), len(swift.splitlines()))
+
+    def test_a_story_need_only_debug_compiles_is_reported_for_a_bench_story(self) -> None:
+        debug_build = caps.Capabilities(caps.SOURCE, frozenset({"debug.hangs", "debug.closed_ids"}), frozenset(),
+                                        frozenset())
+        bench = replace(debug_build, methods=frozenset({"debug.hangs"}))
+        tip = {"debug": debug_build, "bench": bench, "bench-checks": bench,
+               "release": replace(bench, methods=frozenset())}
+        sweep = SimpleNamespace(path="stories.d/sweep.json", config="bench",
+                                needs=("debug:debug.hangs", "debug:debug.closed_ids"))
+        dev_sweep = SimpleNamespace(**{**vars(sweep), "path": "stories.d/dev.json", "config": "debug"})
+        problems = caps.story_problems([sweep, dev_sweep], tip.__getitem__, lambda path: True)
+        self.assertEqual(problems, ["stories.d/sweep.json: needs debug:debug.closed_ids, which a bench build of the "
+                                    "tip does not have (only a debug build has it): no build can measure it"])
 
 
 class TreeTests(unittest.TestCase):
@@ -111,6 +176,10 @@ class GitTests(unittest.TestCase):
                    'static let emittedSignposts: [SignpostName] = [\n    .actionCommit, .keyToFrame,\n]\n'
                    'static let probeEnvironment: [String] = [\n    "CMUX_NEXT_TYPING_PROBE",\n]\n')
         self.write(f"{caps.SOURCES}/A/Turn.swift", "struct MainTurnHistogram {}\n")
+        self.write(f"{caps.SOURCES}/A/History.swift",
+                   '#if DEBUG\n.mainActor("debug.closed_ids") { _ in }\n#endif\n'
+                   '#if DEBUG || CMUX_BENCH_HOOKS\n.mainActor("debug.frames") { _ in }\n#endif\n'
+                   '// .mainActor("debug.commented") is a comment, never a method\n')
         self.new = self.commit("the probe")
 
     def tearDown(self) -> None:
@@ -138,8 +207,22 @@ class GitTests(unittest.TestCase):
 
     def test_a_commit_with_the_probe_uses_its_own_lists(self) -> None:
         new = caps.GitCapabilities.of(self.repo).at(self.new)
-        self.assertEqual(new.methods, {"debug.hangs", "debug.capabilities"})
+        self.assertEqual(new.methods, {"debug.hangs", "debug.capabilities", "debug.frames"})
         self.assertEqual(new.signposts, {"action.commit", "key.frame"})
+
+    def test_a_method_only_debug_registers_is_absent_for_a_bench_story(self) -> None:
+        commits = caps.GitCapabilities.of(self.repo)
+        self.assertNotIn("debug.closed_ids", commits.at(self.new, "bench").methods)
+        self.assertNotIn("debug.closed_ids", commits.at(self.new, "bench-checks").methods)
+        self.assertIn("debug.closed_ids", commits.at(self.new, "debug").methods)
+        self.assertNotIn("debug.commented", commits.at(self.new, "debug").methods)
+        needs = ("debug:debug.closed_ids", "debug:debug.frames")
+        story = caps.StoryNeeds({"sweep": needs, "dev-sweep": needs}, commits,
+                                {"sweep": "bench", "dev-sweep": "debug"})
+        self.assertEqual(story("sweep", self.new), ("debug:debug.closed_ids",))
+        self.assertEqual(story("dev-sweep", self.new), ())
+        with self.assertRaises(caps.CapabilityError):
+            commits.at(self.new, "profile")
 
     def test_missing_needs_per_commit_and_the_range_limit(self) -> None:
         commits = caps.GitCapabilities.of(self.repo)
@@ -246,6 +329,71 @@ class PinpointTests(tpe.Fixture):
         report = world.tick(self.executor(world, lacks=broken))
         self.assertTrue(any("capabilities of" in p and "git grep exited 128" in p for p in report.problems))
         self.assertEqual(self.bisect_row(world)["state"], "running")
+
+
+class BuildAnswerWorld(tpe.World):
+    """The build itself says it lacks NEED below commit ADDED, where git sees nothing missing (a guess the source scan
+    gets wrong): as run_story.py's exit 6 with the needs in summary.json, or as the controller's not_measurable."""
+
+    ADDED = 5
+    NEED = "debug:debug.closed_ids"
+
+    def __init__(self, root: Path, *, via: str, **options) -> None:
+        super().__init__(root, **options)
+        self.via = via
+        self.exit_code = lambda request, number: run_story.EXIT_NOT_MEASURABLE if self.lacking(request.sha) else 0
+
+    def lacking(self, sha: str) -> bool:
+        return tpe.SHAS.index(sha) < self.ADDED
+
+    def status(self, controller_id):
+        status = super().status(controller_id)
+        job = self.jobs[controller_id]
+        if job["kind"] != "story" or not status.finished or not self.lacking(job["request"].sha):
+            return status
+        if self.via == "controller":
+            return replace(status, exit_code=0, not_measurable=True, missing=(self.NEED,))
+        folder = self.root / "artifacts" / controller_id
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "summary.json").write_text(json.dumps({"refusal": {"kind": "not-measurable",
+                                                                     "missing": [self.NEED]}}))
+        return replace(status, artifact=folder)
+
+
+class BuildAnswerTests(tpe.Fixture):
+    """p12-perf-process-211: a Change whose build says it lacks a need is not-measurable, never failed attempts."""
+
+    def check(self, via: str) -> None:
+        world = BuildAnswerWorld(self.root, via=via)
+        group_id = tpe.seed_lab(world)
+        self.drive(world, self.executor(world))
+        result = self.result(world)
+        lacking = set(tpe.SHAS[:world.ADDED])
+        events = self.journal()["events"]
+        failed = [e for e in events if e["t"] == "attempt" and e["attempt"]["failed"]]
+        self.assertEqual(failed, [], "a build that lacks a need never gives a failed attempt")
+        self.assertIn([tpe.SHAS[0], pinpoint.NOT_MEASURABLE], result["skipped"])
+        self.assertTrue(all(reason == pinpoint.NOT_MEASURABLE for _, reason in result["skipped"]))
+        self.assertIn(tpe.SHAS[tpe.CULPRIT], [c["change"]["sha"] for c in result["culprits"]])
+        self.assertFalse([c for c in result["culprits"] if lacking & set(c["commits"])], "blamed a lacking commit")
+        unmeasurable = [e for e in events if e["t"] == "unmeasurable"]
+        self.assertTrue(unmeasurable and all(e["missing"] == [world.NEED] for e in unmeasurable))
+        last = max(tpe.SHAS.index(e["change"]["sha"]) for e in unmeasurable)
+        limit = f"range limited by capability {world.NEED} since {tpe.SHAS[last + 1][:12]}"
+        self.assertEqual(result["range_limits"], [limit])
+        reason = world.lab._db.execute("SELECT reason FROM sheriff_history WHERE group_id = ? ORDER BY id DESC",
+                                       (group_id,)).fetchone()[0]
+        self.assertIn(limit, reason)
+
+    def test_the_runner_exit_and_its_summary_make_the_change_not_measurable(self) -> None:
+        self.check("exit")
+
+    def test_a_controller_reported_not_measurable_puts_the_limit_in_the_result(self) -> None:
+        self.check("controller")
+
+    def test_the_exit_codes_agree(self) -> None:
+        self.assertEqual(exe.NOT_MEASURABLE_EXITS, (run_story.EXIT_NOT_MEASURABLE,))
+        self.assertNotIn(run_story.EXIT_NOT_MEASURABLE, exe.MEASURED_EXITS)
 
 
 class CoreTests(unittest.TestCase):

@@ -23,8 +23,9 @@ then tiers, then Pinpoint). One tick:
    persists the job state:
    - a Build or Run of a Change whose commit lacks a capability the story needs (`lacks`, capabilities.py, task
      211) is answered at once: the Change is not-measurable, nothing is built or run for it, and the result names
-     each limit (`range limited by capability X since <sha>`). A story job the controller reports not_measurable
-     (the build refused at run time) skips its Change the same way.
+     each limit (`range limited by capability X since <sha>`). A story job whose build itself said it lacks a need
+     (run_story.py exit 6, or the controller's not_measurable) skips its Change the same way, with no failed
+     attempt, and its needs (ControllerJob.missing, else the artifact's summary.json) join the limits.
    - Build(change): the build ledger (builds.py, task 009) answers it. Until it does, the Build is published as
      `PinpointWork(build_only=True)`, so the scheduler requests (sha, config) once. Only a `failed` ledger record
      makes the commit unbuildable; a build with no record stays outstanding and is reported after BUILD_WAIT,
@@ -104,6 +105,8 @@ UNKNOWN_RUN_SECONDS = 6 * 3600  # a story job of unknown length borrows only a w
 START_STATES = ("new", "triaged")
 # run_story.py exit codes (task 008): 0 every repeat wrote results, 1 a repeat failed; anything else measured nothing.
 MEASURED_EXITS = (0, 1)
+# run_story.py EXIT_NOT_MEASURABLE (task 211): the launched build said it lacks a need of the story.
+NOT_MEASURABLE_EXITS = (6,)
 
 # Action states: PENDING (a story job without its row yet), QUEUED (published to the scheduler),
 # SUBMITTED (the controller has it), DONE (its answer is in the journal).
@@ -137,7 +140,8 @@ class StoryRequest:
 @dataclass(frozen=True)
 class ControllerJob:
     """finished: the job ended; exit_code: the entry's exit status (None for a job that never ran).
-    not_measurable: the build lacks a capability the story needs (task 211's debug.capabilities check).
+    not_measurable: the build lacks a capability the story needs (task 211's debug.capabilities check; an exit in
+    NOT_MEASURABLE_EXITS says the same), and missing names those needs when the controller knows them.
     host: the lab host it runs on. artifact: the job's result folder (`*.ndjson`) on labd's disk, once fetched."""
 
     finished: bool
@@ -145,6 +149,7 @@ class ControllerJob:
     not_measurable: bool = False
     host: str | None = None
     artifact: Path | None = None
+    missing: tuple[str, ...] = ()
 
 
 class Controller(Protocol):
@@ -229,6 +234,16 @@ class Checkpoint:
         if document.get("schema") != CHECKPOINT_SCHEMA:
             raise ExecError(f"checkpoint schema {document.get('schema')!r} is not {CHECKPOINT_SCHEMA}")
         return cls(int(document["job_id"]), list(document["events"]), list(document["actions"]), document.get("host"))
+
+
+def summary_missing(artifact: Path | None) -> list[str]:
+    """The needs a not-measurable story job's summary.json names (run_story.py refusal `missing`); [] without one."""
+    try:
+        refusal = json.loads((Path(artifact) / "summary.json").read_text(encoding="utf-8")).get("refusal") or {}
+        lacked = refusal.get("missing") if refusal.get("kind") == "not-measurable" else None
+    except (TypeError, OSError, ValueError, AttributeError):
+        return []
+    return [need for need in lacked if isinstance(need, str)] if isinstance(lacked, list) else []
 
 
 def record(state, event: Mapping) -> None:
@@ -589,9 +604,13 @@ class Executor:
             return
         change = change_of(entry["change"])
         indexes = range(entry["start"], entry["start"] + entry["count"])
-        if status.not_measurable:
-            attempts = [pinpoint.Attempt(change, i, measurable=False) for i in indexes]
-        elif status.exit_code not in MEASURED_EXITS:
+        if status.not_measurable or status.exit_code in NOT_MEASURABLE_EXITS:
+            lacked = list(status.missing) or summary_missing(status.artifact)
+            self._set_row_state(entry["row_id"], "done")
+            entry.update(status=DONE, missing=lacked)
+            checkpoint.events.append({"t": "unmeasurable", "change": entry["change"], "missing": lacked})
+            return
+        if status.exit_code not in MEASURED_EXITS:
             self._failed_try(checkpoint, entry, f"exited {status.exit_code}", report)
             return
         elif status.artifact is None:
@@ -742,12 +761,24 @@ class Executor:
         report.cancelled.append(row["id"])
 
     def _range_limits(self, job, checkpoint: Checkpoint) -> list[str]:
-        """`range limited by capability X since <sha>` for each need a Change of the job lacked (task 211)."""
-        lacked = {need for event in checkpoint.events if event["t"] == "unmeasurable" for need in event["missing"]}
-        if not lacked:
-            return []
+        """`range limited by capability X since <sha>` for each need a Change of the job lacked (task 211). A commit
+        lacks a need when git says so, or when it is not after a commit whose build said it lacks it (once a commit
+        has a capability, every later one does)."""
         shas = [commit.sha for commit in job.range()]
-        return capabilities.range_limits(shas, lacked, lambda sha: self._lacks(job.story, sha))
+        position = {sha: i for i, sha in enumerate(shas)}
+        last_lacking: dict[str, int] = {}
+        for event in checkpoint.events:
+            if event["t"] == "unmeasurable" and event["change"]["sha"] in position:
+                for need in event.get("missing", ()):
+                    last_lacking[need] = max(last_lacking.get(need, -1), position[event["change"]["sha"]])
+        if not last_lacking:
+            return []
+
+        def lacks(sha: str) -> tuple[str, ...]:
+            built = {need for need, last in last_lacking.items() if position[sha] <= last}
+            return tuple(built | set(self._lacks(job.story, sha)))
+
+        return capabilities.range_limits(shas, last_lacking, lacks)
 
     def _finish(self, row: sqlite3.Row, result, job, checkpoint: Checkpoint) -> None:
         """Stores the result; a group still bisecting moves to culprit (unverified) or back to triaged."""

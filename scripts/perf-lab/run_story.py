@@ -28,8 +28,12 @@ Steps, each refusing with its own exit code and one reason line (stderr and `sum
 
 A story's `command` gets `--app APP --tag TAG --out RUN_DIR` appended (stories.d/README.md). The session, config, host
 block path and vdisplay output come as the PERF_LAB_* variables BenchApp reads as its defaults (bench_launch LAB_*),
-with the story, repeat, engine and Hz for the bench's own use. Exit codes: 0 every run wrote results, 1 a run
-failed, 2 usage, 3 env-invalid, 4 no such artifact, 5 artifact store unreachable, 128+N stopped by signal N.
+with the story, repeat, engine and Hz for the bench's own use, and the story's `needs` with the file its first launch
+writes the build's own `debug.capabilities` answer to (bench_launch LAB_NEEDS, LAB_PROBE_OUT). A build that lacks a
+need makes the run not-measurable: the story's later repeats are not run, and the job exits 6 with the needs in
+`summary.json` (refusal kind `not-measurable`, `missing`), which Pinpoint reads as a not-measurable Change, never a
+failed attempt. Exit codes: 0 every run wrote results, 1 a run failed, 2 usage, 3 env-invalid, 4 no such artifact,
+5 artifact store unreachable, 6 not-measurable (no run failed, and a build lacked a need), 128+N stopped by signal N.
 
 Stdlib only; loaded and run under `python3 -I`.
 """
@@ -73,6 +77,9 @@ SAFE_MODES_MEASURED = ("off", "inactive", None)
 STOP_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 
 EXIT_OK, EXIT_RUN_FAILED, EXIT_USAGE, EXIT_ENV_INVALID, EXIT_NO_ARTIFACT, EXIT_STORE_DOWN = 0, 1, 2, 3, 4, 5
+EXIT_NOT_MEASURABLE = 6
+PROBE_FILE = "debug-capabilities.json"  # in the run's folder: bench_launch.lab_needs_check writes it
+BUILD_NEED_KINDS = ("debug:", "signpost:", "env:")  # the needs a running build answers (file: is git's, privilege: the host's)
 
 
 class Refusal(Exception):
@@ -454,8 +461,21 @@ def story_env(base: Dict[str, str], story, app: str, out: str, sha: str, config:
     env.update({"PERF_LAB_APP": app, "PERF_LAB_OUT": out, "PERF_LAB_SHA": sha, "PERF_LAB_STORY": story.id,
                 "PERF_LAB_REPEAT": str(repeat), "PERF_LAB_ENGINE": story.engine,
                 "PERF_LAB_HZ": "" if hz is None else str(hz), bl.LAB_SESSION: story.session, bl.LAB_CONFIG: config,
-                bl.LAB_HOST_FILE: host_file, bl.LAB_VDISPLAY_OUT: vdisplay_out})
+                bl.LAB_HOST_FILE: host_file, bl.LAB_VDISPLAY_OUT: vdisplay_out,
+                bl.LAB_NEEDS: ",".join(n for n in story.needs if n.startswith(BUILD_NEED_KINDS)),
+                bl.LAB_PROBE_OUT: os.path.join(out, PROBE_FILE)})
     return env
+
+
+def probe_missing(run_dir: str) -> List[str]:
+    """The needs the run's build said it lacks (PROBE_FILE, bench_launch.lab_needs_check); [] when the bench wrote no
+    answer (it launched no app, or the build's answer could not be read)."""
+    try:
+        with open(os.path.join(run_dir, PROBE_FILE), encoding="utf-8") as f:
+            lacked = json.load(f).get("missing")
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [n for n in lacked if isinstance(n, str)] if isinstance(lacked, list) else []
 
 
 def story_argv(story, app: str, tag: str, out: str, root: str = ROOT) -> List[str]:
@@ -524,8 +544,11 @@ class Runner:
                 reason = f"timed out after {timeout:.0f} s"
             finally:
                 self.stop_current()
+        lacked = probe_missing(run_dir)
         host_reason = host_check_reason(run_dir)
         written, rejected = self.collect(story, run_dir, name, host_reason)
+        if lacked:
+            reason = not_measurable_reason(lacked)
         if reason is None and rejected and host_reason:
             reason = host_reason
         if reason is None and not written:
@@ -534,7 +557,7 @@ class Runner:
             self.teardown(self.app)  # a failed bench may leave its app and daemons to the next story
         return {"story": story.id, "repeat": repeat, "ok": reason is None, "reason": reason,
                 "seconds": round(time.monotonic() - started, 3), "results": written, "rejected": rejected,
-                "log": os.path.relpath(log_path, self.out)}
+                "log": os.path.relpath(log_path, self.out), "not_measurable": lacked}
 
     def collect(self, story, run_dir: str, name: str, host_reason: Optional[str]):
         """Moves every result-v1 file under `run_dir` (subfolders too) to results/ or, with its reason, rejected/."""
@@ -614,9 +637,26 @@ def parse_args(argv):
     return p.parse_args(argv)
 
 
-def not_run(story, repeat: int, reason: str) -> dict:
+def not_run(story, repeat: int, reason: str, lacked: Sequence[str] = ()) -> dict:
     return {"story": story.id, "repeat": repeat, "ok": False, "reason": reason, "seconds": 0, "results": [],
-            "rejected": [], "log": None}
+            "rejected": [], "log": None, "not_measurable": list(lacked)}
+
+
+def not_measurable_reason(lacked: Sequence[str]) -> str:
+    return f"not-measurable: the build lacks {', '.join(lacked)}"
+
+
+def runs_exit(summary: dict) -> int:
+    """A failed run outranks a not-measurable one: only a job whose every unsuccessful run was not-measurable exits
+    EXIT_NOT_MEASURABLE, and its summary names the needs (refusal kind `not-measurable`, `missing`)."""
+    runs = summary["runs"]
+    if any(not run["ok"] and not run.get("not_measurable") for run in runs):
+        return EXIT_RUN_FAILED
+    lacked = sorted({need for run in runs for need in run.get("not_measurable") or ()})
+    if not lacked:
+        return EXIT_OK
+    summary["refusal"] = {"kind": "not-measurable", "reason": not_measurable_reason(lacked), "missing": lacked}
+    return EXIT_NOT_MEASURABLE
 
 
 def measure(opts, summary: dict, state: dict, store: ArtifactStore, check_env: Callable[[str, str], dict],
@@ -664,16 +704,24 @@ def measure(opts, summary: dict, state: dict, store: ArtifactStore, check_env: C
         runner = Runner(opts.out, state["app"], tag, opts.sha, opts.config, summary["env"].get("hz"), teardown,
                         display.out_path, root)
         summary["runs"] = []
+        lacking: Dict[str, List[str]] = {}  # story -> what this build lacks: its later repeats would say the same
         try:
             for index, (story, repeat) in enumerate(runs):
                 if not display.alive():
                     summary["runs"] += [not_run(s, r, "the virtual display ended before this run")
                                         for s, r in runs[index:]]
                     break
-                summary["runs"].append(runner.run(story, repeat))
+                if story.id in lacking:
+                    summary["runs"].append(not_run(story, repeat, not_measurable_reason(lacking[story.id]),
+                                                   lacking[story.id]))
+                    continue
+                result = runner.run(story, repeat)
+                if result["not_measurable"]:
+                    lacking[story.id] = result["not_measurable"]
+                summary["runs"].append(result)
         finally:
             runner.stop_current()
-        return EXIT_OK if all(run["ok"] for run in summary["runs"]) else EXIT_RUN_FAILED
+        return runs_exit(summary)
     finally:
         display.stop()
         if os.path.isfile(display.out_path):
