@@ -254,8 +254,10 @@ pub fn default_cpu_width() -> usize {
     performance_cores().saturating_sub(1).max(1)
 }
 
+/// The performance cores (`hw.perflevel0.logicalcpu` on macOS; the available parallelism elsewhere or when
+/// the read fails), at least one.
 #[cfg(target_os = "macos")]
-fn performance_cores() -> usize {
+pub fn performance_cores() -> usize {
     let mut cores: libc::c_int = 0;
     let mut size = size_of::<libc::c_int>();
     // SAFETY: the name is NUL-terminated, `cores` and `size` are live, writable and sized for a c_int.
@@ -274,8 +276,10 @@ fn performance_cores() -> usize {
     std::thread::available_parallelism().map_or(1, usize::from)
 }
 
+/// The performance cores (`hw.perflevel0.logicalcpu` on macOS; the available parallelism elsewhere or when
+/// the read fails), at least one.
 #[cfg(not(target_os = "macos"))]
-fn performance_cores() -> usize {
+pub fn performance_cores() -> usize {
     std::thread::available_parallelism().map_or(1, usize::from)
 }
 
