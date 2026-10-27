@@ -22,7 +22,8 @@ import Testing
         var monitor = rig.monitor()
         let late = HeldScope(watch: rig.watch, name: "terminal.feed", deadline: .milliseconds(100))
         let longer = HeldScope(watch: rig.watch, name: "lane.files", deadline: .seconds(1))
-        let wait = try #require(monitor.service(), "an open scope parks the monitor")
+        let parked = monitor.service()  // mutating: #require's call form would make `monitor` a let
+        let wait = try #require(parked, "an open scope parks the monitor")
         #expect(wait == 100_000_000, "the monitor sleeps to the first budget")
 
         rig.now.add(wait + 300_000_000) // the watchdog thread runs 300 ms after its wait's timeout
@@ -54,7 +55,8 @@ import Testing
         let rig = try Rig()
         var monitor = rig.monitor()
         let older = HeldScope(watch: rig.watch, name: "lane.files", deadline: .seconds(1))
-        let wait = try #require(monitor.service())
+        let parked = monitor.service()  // mutating: #require's call form would make `monitor` a let
+        let wait = try #require(parked)
         #expect(wait == 1_000_000_000)
         rig.now.add(400_000_000) // a 400 ms wait for a 100 ms timeout: 300 ms over
         _ = monitor.service(waitOverrunNanos: 300_000_000)
@@ -77,7 +79,8 @@ import Testing
         let rig = try Rig()
         var monitor = rig.monitor()
         let scope = HeldScope(watch: rig.watch, name: "daemon.line", deadline: .milliseconds(100))
-        let wait = try #require(monitor.service())
+        let parked = monitor.service()  // mutating: #require's call form would make `monitor` a let
+        let wait = try #require(parked)
         rig.now.add(wait + 500_000_000) // the wait ended on time, then the thread reported a main-thread hang
         _ = monitor.service(waitOverrunNanos: 0)
         #expect(monitor.lateWakes == 0)
@@ -92,7 +95,8 @@ import Testing
         let rig = try Rig()
         var monitor = rig.monitor()
         let scope = HeldScope(watch: rig.watch, name: "daemon.line", deadline: .milliseconds(100))
-        let wait = try #require(monitor.service())
+        let parked = monitor.service()  // mutating: #require's call form would make `monitor` a let
+        let wait = try #require(parked)
         rig.now.add(wait + 50_000_000)
         _ = monitor.service(waitOverrunNanos: 50_000_000)
         #expect(monitor.lateWakes == 0)
