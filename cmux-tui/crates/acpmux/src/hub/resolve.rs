@@ -315,6 +315,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         config_options: None,
         models: None,
         permission_policy: d.policy.map(|p| p.to_string()),
+        policy_source: d.policy.map(|_| super::vm_host_grants::SET.to_owned()),
         title: None,
         title_source: None,
         title_prompt: None,

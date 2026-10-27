@@ -163,6 +163,13 @@ pub struct SessionMeta {
     pub models: Option<Value>,
     #[serde(default)]
     pub permission_policy: Option<String>,
+    /// Who set `permission_policy` (`hub/vm_host_grants.rs`): `set` (a request, a default, a
+    /// preset, or acpmux from another chat's), `vmHost` (the approve-all a vmHost machine gives its
+    /// owner's peer chats) or `cleared` (an older daemon's approve-all, now ask). A string, so a
+    /// daemon that knows fewer values still reads the session. None: saved by a daemon from
+    /// before this was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_source: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
     /// Who set `title` (`hub/titles.rs`): `prompt` (its first prompt's line),

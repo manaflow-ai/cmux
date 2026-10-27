@@ -140,6 +140,8 @@ pub(crate) mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 pub mod vm_host;
+mod vm_host_grants;
+pub(crate) use vm_host_grants::VM_HOST as VM_HOST_GRANT;
 pub(crate) use start_gate::host_label;
 mod subsession_answer;
 mod subsession_guard;
@@ -745,6 +747,12 @@ impl Hub {
             };
         let mut sessions = self.sessions.lock().unwrap();
         for mut meta in metas {
+            // An older daemon's approve-all that could be vmHost's asks now (`vm_host_grants.rs`).
+            if vm_host_grants::clear_legacy_grant(&mut meta)
+                && let Err(e) = self.store.save(&meta)
+            {
+                tracing::warn!(session = %meta.id, "save the cleared grant failed: {e}");
+            }
             // An agent whose host still runs keeps its saved status until adoption reaches it:
             // it works on meanwhile, never shown idle (claude-sr2, 2026-10-26).
             let kept = deferred
