@@ -209,6 +209,18 @@ impl Hub {
         }
         true
     }
+
+    /// A host this daemon starts for `session` (`hosts.rs` `start_hosted`): a [`CLEARED_HOST`]
+    /// chat's old host no longer runs (a start reaches a live host instead, `reach_or_start`), so
+    /// this one, started under the chat's policy, is adopted after a restart as any other.
+    pub(super) fn fresh_host_after_clear(&self, session: &Session) {
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        if meta.policy_source.as_deref() == Some(CLEARED_HOST) {
+            meta.policy_source = Some(CLEARED.to_owned());
+            drop(meta);
+            self.save_meta(session);
+        }
+    }
 }
 
 #[cfg(test)]
