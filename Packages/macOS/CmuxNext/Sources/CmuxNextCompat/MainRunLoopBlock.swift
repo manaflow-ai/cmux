@@ -42,7 +42,11 @@ public nonisolated struct MainRunLoopBlock: Sendable {
     /// - Parameter mode: The run loop mode to run in (default `.commonModes`, which includes
     ///   the default mode and the event-tracking mode of menus and drags).
     public func perform(mode: CFRunLoopMode = .commonModes) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let body = Self.censused(self.body)
+        #else
         let body = body
+        #endif
         let main = CFRunLoopGetMain()
         CFRunLoopPerformBlock(main, mode.rawValue) {
             // main-proof: a block queued on CFRunLoopGetMain() runs only on the main thread.
@@ -50,6 +54,16 @@ public nonisolated struct MainRunLoopBlock: Sendable {
         }
         CFRunLoopWakeUp(main)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `body`, timed by the launch's main-job census with this post site's stack when a launch armed it
+    /// (`CMUX_NEXT_MAIN_JOB_CENSUS`, p08-startup-080); unchanged otherwise, and once the census is frozen or full.
+    private static func censused(_ body: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
+        guard let ring = MainJobRing.installed(),
+              let slot = ring.recordEnqueue(.runLoopBlock, priority: MainJobRing.currentPriority) else { return body }
+        return { ring.run(slot: slot) { body() } }
+    }
+    #endif
 
     /// Queues `body` on the main run loop once (``perform(mode:)`` of a new block).
     ///

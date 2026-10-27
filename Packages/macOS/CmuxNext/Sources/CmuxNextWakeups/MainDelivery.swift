@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Runs main-actor work from a callback whose thread the caller does not

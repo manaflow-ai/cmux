@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextWakeups
 import CoreFoundation
 
@@ -7,10 +7,11 @@ import CoreFoundation
 /// the main thread before startup completed, and which main turns ran outside a StartupScheduler task.
 ///
 /// Three sources, one clock (`CLOCK_UPTIME_RAW`):
-/// - ``MainJobRing``: each main-actor job (`swift_task_enqueueMainExecutor_hook`) and each ``MainDelivery`` hop,
-///   with its enqueuer's return addresses, priority and run time;
+/// - ``MainJobRing``: each main-actor job (`swift_task_enqueueMainExecutor_hook`) and each main-thread post the app
+///   makes (a ``MainDelivery`` hop, a `MainRunLoopBlock`, a `DemandTimer` fire), with its enqueuer's return
+///   addresses (a timer: its owner), priority and run time;
 /// - two main run-loop observers (``MainTurnSegments``): each turn's time per phase, and each timer, main-queue or
-///   source callout stretch the ring did not time;
+///   source callout stretch the ring did not time (the system's own callouts);
 /// - the StartupScheduler's main tasks, read when the census is reported (``snapshot(mainTasks:)``), which tag
 ///   the turns they ran in.
 ///

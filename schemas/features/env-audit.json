@@ -980,8 +980,8 @@
       "class": "benchOnly",
       "auto": true,
       "sites": [
-        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/MainJobCensus.swift:34", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
-        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/MainJobCensus.swift:75", "kind": "via environmentKey", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/MainJobCensus.swift:35", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/MainJobCensus.swift:76", "kind": "via environmentKey", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
       ]
     },
     "CMUX_NEXT_MAIN_TASK_DIAGNOSTICS": {

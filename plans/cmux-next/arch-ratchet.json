@@ -728,7 +728,7 @@
       "date": "2026-10-27",
       "row": "global_mutable_statics",
       "allow": 1,
-      "why": "p08-startup-080: MainJobRing.installedBits (CmuxNextWakeups), the one word through which the launch's main-job census reaches its ring. swift_task_enqueueMainExecutor_hook is a thin function with no context, and MainDelivery() has no instance to take a recorder through, so the ring the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_MAIN_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+      "why": "p08-startup-080: MainJobRing.installedBits (CmuxNextCompat), the one word through which the launch's main-job census reaches its ring. swift_task_enqueueMainExecutor_hook is a thin function with no context, and the app's posting seams (MainDelivery(), MainRunLoopBlock, a DemandTimer fire) have no instance to take a recorder through, so the ring the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_MAIN_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
     }
   ],
   "observer_wrappers": [

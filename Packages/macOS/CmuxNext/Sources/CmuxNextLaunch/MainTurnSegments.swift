@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-public import CmuxNextWakeups
+public import CmuxNextCompat
 
 /// The main run loop's turns and callout segments, for ``MainJobCensus`` (p08-startup task 080, queue Q11).
 ///
@@ -7,14 +7,15 @@ public import CmuxNextWakeups
 /// timers, sources, before-waiting, after-waiting and exit, and the last observer of before-waiting and exit. Each
 /// call closes the phase that ran since the last one; its time, less the main jobs ``MainJobRing`` timed in it, goes
 /// to that phase. A turn starts when the run loop wakes (or with any stage after it slept) and ends after the last
-/// before-waiting observer, as ``MainTurnMeter`` counts a turn. What runs between a loop's exit and the next entry
-/// (AppKit's event dispatch, `main`, `applicationDidFinishLaunching`) is ``Phase/outside``.
+/// before-waiting observer, as CmuxNextWakeups' `MainTurnMeter` counts a turn. What runs between a loop's exit and
+/// the next entry (AppKit's event dispatch, `main`, `applicationDidFinishLaunching`) is ``Phase/outside``.
 ///
 /// CFRunLoop runs timers and the main queue after a wake, and blocks and version-0 sources after before-sources
-/// (CFRunLoop.c, `__CFRunLoopRun`), so the census knows which kind of callout took a segment's time but not whose
-/// it was: a ``Segment`` names a run-loop phase; ``MainJobRing`` names the enqueuers. Chromium's pump watches the
-/// same stages with the same observers (base/message_loop/message_pump_apple.mm: `PreSourceObserver`,
-/// `PreWaitObserver`, `EnterExitObserver`) and counts what runs outside its tasks as native work
+/// (CFRunLoop.c, `__CFRunLoopRun`). The app's own posts (main-actor jobs, `MainDelivery` hops, ``MainRunLoopBlock``
+/// posts, `DemandTimer` fires) are ``MainJobRing`` jobs named by their enqueuers, and their time is not a segment's:
+/// a ``Segment`` holds what is left, the system's callouts that the app does not post, by run-loop phase. Chromium's
+/// pump watches the same stages with the same observers (base/message_loop/message_pump_apple.mm:
+/// `PreSourceObserver`, `PreWaitObserver`, `EnterExitObserver`) and counts what runs outside its tasks as native work
 /// (base/task/sequence_manager/thread_controller.h, `RunLevelTracker`).
 ///
 /// Bounded: both lists are reserved at init and stop growing at their capacity (later entries count as dropped), so
@@ -60,6 +61,9 @@ public nonisolated struct MainTurnSegments: Sendable {
         public var phase: Phase
         /// `CLOCK_UPTIME_RAW` nanoseconds.
         public var startNanos: UInt64
+        /// The stretch's wall time, from ``startNanos`` to the stage that closed it: its main jobs ran inside it.
+        public var elapsedNanos: UInt64
+        /// ``elapsedNanos`` less the time of the main jobs ``MainJobRing`` timed in it.
         public var nanos: UInt64
     }
 
@@ -151,7 +155,7 @@ public nonisolated struct MainTurnSegments: Sendable {
             current?.add(phase, own, jobs: jobs)
             if phase == .sources || phase == .wake, own >= segmentFloorNanos {
                 if segments.count < segmentCapacity {
-                    segments.append(Segment(phase: phase, startNanos: phaseStart, nanos: own))
+                    segments.append(Segment(phase: phase, startNanos: phaseStart, elapsedNanos: elapsed, nanos: own))
                 } else {
                     droppedSegments += 1
                 }

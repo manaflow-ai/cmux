@@ -56,7 +56,9 @@ Input contract. All times are ms since process start (the launch-mark clock, Lau
     Each census mode needs its arrays in a run (mainjobs: main_jobs and main_turns; globaljobs: global_jobs;
     arms: arms). A run without them is left out; no run with them exits 2. Task 080's census answers its three
     keys on its own method, `debug.startup.main_jobs` (main_jobs kinds: main_actor, main_delivery,
-    run_loop_sources, run_loop_wake); a live mainjobs run merges that reply into debug.startup's (which it may lack). global_jobs' priority is null when
+    run_loop_block, timer (caller `timer <owner>`), run_loop_sources, run_loop_wake; a caller of `unknown` is a
+    job whose stack held no frame of its enqueuer); a live mainjobs run merges that reply into debug.startup's
+    (which it may lack). global_jobs' priority is null when
     the caller passed none (082); 21 / default / medium (what a Task.detached or a DispatchQueue.global()
     with no priority runs at) is counted as `default`.
   `launch.interrupted` (a mark, or the result's `interrupted`) means interrupted when present and not false or

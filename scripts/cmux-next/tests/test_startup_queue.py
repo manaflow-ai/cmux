@@ -367,6 +367,17 @@ class MainJobsTests(unittest.TestCase):
         self.assertEqual([(h["kind"], h["caller"]) for h in hits],
                          [("run_loop_wake", "run_loop.wake"), ("main_delivery", "LaunchWarmup.start()")])
 
+    def test_run_loop_block_posts_and_timer_fires_rank_by_their_enqueuer(self):
+        jobs = [{"caller": "Sidebar.reload()", "kind": "run_loop_block", "priority": "userInteractive", "run_ms": 0.1,
+                 "enqueued_ms": 10 + i} for i in range(5)]
+        jobs += [{"caller": "timer Feed.poll", "kind": "timer", "priority": "default", "run_ms": 2.5, "enqueued_ms": 90},
+                 {"caller": "timer Feed.poll", "kind": "main_actor", "priority": "default", "run_ms": 0.2, "enqueued_ms": 91}]
+        runs = sq.capture_runs([census_run(main_job_census={"armed": True, "hook": "installed"}, main_jobs=jobs,
+                                           main_turns=[])])
+        hits, _, _ = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual([(h["kind"], h["caller"], h["p50_count"]) for h in hits],
+                         [("timer", "timer Feed.poll", 1), ("run_loop_block", "Sidebar.reload()", 5)])
+
 
 class GlobalJobsTests(unittest.TestCase):
     def test_non_lane_low_priority_callers_before_completion(self):

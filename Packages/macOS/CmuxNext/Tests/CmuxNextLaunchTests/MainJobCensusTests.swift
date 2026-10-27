@@ -1,6 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+@testable import CmuxNextCompat
 @testable import CmuxNextLaunch
-@testable import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -51,6 +51,7 @@ struct MainJobCensusTests {
         // A stretch under the 0.1 ms floor (the third turn's 0.05 ms wake) is not a segment.
         #expect(turns.segments.map(\.phase) == [.sources, .wake, .sources])
         #expect(turns.segments.map(\.nanos) == [10 * Self.ms, Self.ms / 2, Self.ms * 3 / 2])
+        #expect(turns.segments.map(\.elapsedNanos) == [10 * Self.ms, Self.ms / 2, Self.ms * 7 / 2], "the wall time keeps the job's")
     }
 
     @Test func shortTurnsAreCountedAndTheListIsBounded() {
@@ -66,10 +67,10 @@ struct MainJobCensusTests {
     }
 
     @Test func theReportNamesEnqueuersTagsTaskTurnsAndAllowlistsOutsideTurns() throws {
-        let job0 = MainJobRing.Job(slot: 0, kind: .mainActor, enqueuedNanos: 11 * Self.ms, runNanos: 2 * Self.ms,
-                                   priority: 0x19, frames: [1, 2, 3])
-        let job1 = MainJobRing.Job(slot: 1, kind: .mainDelivery, enqueuedNanos: 21 * Self.ms, runNanos: Self.ms / 2,
-                                   priority: 0x11, frames: [1, 2, 3])
+        let job0 = MainJobRing.Job(slot: 0, kind: .mainActor, enqueuedNanos: 11 * Self.ms, runStartNanos: 21 * Self.ms,
+                                   runNanos: 2 * Self.ms, priority: 0x19, frames: [1, 2, 3])
+        let job1 = MainJobRing.Job(slot: 1, kind: .mainDelivery, enqueuedNanos: 21 * Self.ms, runStartNanos: 12 * Self.ms,
+                                   runNanos: Self.ms / 2, priority: 0x11, frames: [1, 2, 3])
         let snapshot = MainJobCensus.Snapshot(hook: .installed, processStartNanos: Self.ms, frozen: true, jobs: [job0, job1],
                                               pendingJobs: 0, droppedJobs: 0, segments: Self.threeTurns(),
                                               tasks: [.init(name: "Theme.apply", startNanos: 2 * Self.ms, durationNanos: 8 * Self.ms)])
@@ -113,13 +114,128 @@ struct MainJobCensusTests {
         #expect(Set(stretch.keys) == ["caller", "kind", "priority", "enqueued_ms", "run_ms"] && stretch["priority"] is NSNull)
     }
 
+    private typealias Frame = MainJobCensusReport.Frame
+    private static let ring = Frame(image: "cmux", symbol: "CmuxNextCompat.MainJobRing.enqueue(_:original:)", imageOffset: 1)
+    private static let entry = Frame(image: "libswift_Concurrency.dylib", symbol: "swift_task_enqueueMainExecutor", imageOffset: 2)
+    private static let create = Frame(image: "libswift_Concurrency.dylib", symbol: "swift_task_create", imageOffset: 3)
+
     @Test func theCallerSkipsTheRuntimeAndTheCensus() {
-        let runtime = MainJobCensusReport.Frame(image: "libdispatch.dylib", symbol: "_dispatch_call_block_and_release", imageOffset: 8)
-        let delivery = MainJobCensusReport.Frame(image: "cmux", symbol: "MainDelivery.run(_:)", imageOffset: 9)
-        let unnamed = MainJobCensusReport.Frame(image: "cmux", symbol: nil, imageOffset: 0x10)
-        #expect(MainJobCensusReport.caller([delivery, runtime, unnamed]) == "cmux+0x10")
-        #expect(MainJobCensusReport.caller([delivery, runtime]) == "_dispatch_call_block_and_release", "every frame skipped: the outermost one")
-        #expect(MainJobCensusReport.caller([]) == "?")
+        let runtime = Frame(image: "libdispatch.dylib", symbol: "_dispatch_call_block_and_release", imageOffset: 8)
+        let delivery = Frame(image: "cmux", symbol: "CmuxNextWakeups.MainDelivery.run(_:)", imageOffset: 9)
+        let unnamed = Frame(image: "cmux", symbol: nil, imageOffset: 0x10)
+        #expect(MainJobCensusReport.caller([delivery, runtime, unnamed], kind: .mainDelivery) == "cmux+0x10")
+        #expect(MainJobCensusReport.caller([delivery, runtime], kind: .mainDelivery) == "unknown")
+        #expect(MainJobCensusReport.caller([], kind: .mainDelivery) == "unknown")
+    }
+
+    /// A stack with nothing of the app past the runtime (an `await` resumed from a pool thread whose async frames were
+    /// cut) has no enqueuer: never the thread start or a runtime frame.
+    @Test func aStackOfRuntimeFramesOnlyHasAnUnknownCaller() {
+        let worker = Frame(image: "libdispatch.dylib", symbol: "_dispatch_worker_thread2", imageOffset: 4)
+        let start = Frame(image: "libsystem_pthread.dylib", symbol: "start_wqthread", imageOffset: 5)
+        let overlay = Frame(image: "libswiftDispatch.dylib", symbol: "Dispatch.DispatchQueue.async(execute:)", imageOffset: 6)
+        #expect(MainJobCensusReport.caller([Self.ring, Self.entry, Self.create, overlay, worker, start], kind: .mainActor) == "unknown")
+        // Before the hook's caller the frames are the ring's: an app frame there is not the enqueuer.
+        let app = Frame(image: "cmux", symbol: "HomeFeed.start()", imageOffset: 7)
+        #expect(MainJobCensusReport.caller([app, Self.ring, worker, start], kind: .mainActor) == "unknown", "no libswift_Concurrency frame")
+    }
+
+    /// `Task.init` and `MainActor.run` are emitted into the caller's image and not inlined in a Debug build: they are
+    /// skipped, mangled or demangled, so each `Task { }` is named by the code that wrote it.
+    @Test func taskAndMainActorMembersAreNotTheCaller() {
+        let taskInit = Frame(image: "cmux", symbol: "(extension in Swift):Swift.Task< where B == Swift.Never>.init(name: Swift.String?, "
+                                 + "priority: Swift.TaskPriority?, operation: sending @isolated(any) () async -> A) -> Swift.Task<A, Swift.Never>",
+                             imageOffset: 0x20)
+        let mangled = Frame(image: "cmux", symbol: "$sScTss5NeverORs_rlE4name8priority9operationScTyxABGSSSg_ScPSgxyYaYAcntcfC", imageOffset: 0x21)
+        let run = Frame(image: "cmux", symbol: "static Swift.MainActor.run<A>(resultType: A.Type, body: @MainActor () throws -> A) async throws -> A",
+                        imageOffset: 0x22)
+        let site = Frame(image: "cmux", symbol: "HomeFeed.start() -> Swift.Task<(), Swift.Never>", imageOffset: 0x23)
+        #expect(MainJobCensusReport.caller([Self.ring, Self.entry, Self.create, taskInit, mangled, run, site], kind: .mainActor)
+            == "HomeFeed.start() -> Swift.Task<(), Swift.Never>", "a function that returns a Task is a site")
+    }
+
+    /// A `MainRunLoopBlock` post is named by the code that posted it, past the seam's own frames.
+    @Test func aRunLoopBlockPostIsNamedByItsPostSite() {
+        let record = Frame(image: "cmux", symbol: "CmuxNextCompat.MainJobRing.recordEnqueue(_:priority:label:) -> Swift.Int?", imageOffset: 1)
+        let censused = Frame(image: "cmux", symbol: "static CmuxNextCompat.MainRunLoopBlock.censused(_:) -> @MainActor () -> ()", imageOffset: 2)
+        let perform = Frame(image: "cmux", symbol: "CmuxNextCompat.MainRunLoopBlock.perform(mode: __C.CFRunLoopModeRef) -> ()", imageOffset: 3)
+        let site = Frame(image: "cmux", symbol: "Sidebar.reload()", imageOffset: 4)
+        #expect(MainJobCensusReport.caller([record, censused, perform, site], kind: .runLoopBlock) == "Sidebar.reload()")
+    }
+
+    /// A timer fire, and the main-actor job it enqueued, are named by the timer's owner; a block is `run_loop_block`.
+    @Test func timerAndRunLoopBlockJobsKeepTheirKindAndATimerItsOwner() {
+        let fire = MainJobRing.Job(slot: 0, kind: .timer, enqueuedNanos: 2 * Self.ms, runStartNanos: 2 * Self.ms, runNanos: Self.ms,
+                                   priority: 0x15, label: "Sidebar.refresh", frames: [9])
+        let task = MainJobRing.Job(slot: 1, kind: .mainActor, enqueuedNanos: 2 * Self.ms, runStartNanos: 4 * Self.ms, runNanos: Self.ms,
+                                   priority: 0x15, label: "Sidebar.refresh", frames: [9])
+        let block = MainJobRing.Job(slot: 2, kind: .runLoopBlock, enqueuedNanos: 5 * Self.ms, runStartNanos: 6 * Self.ms,
+                                    runNanos: Self.ms, priority: 0x21, frames: [7])
+        let snapshot = MainJobCensus.Snapshot(hook: .installed, processStartNanos: 0, frozen: true, jobs: [fire, task, block],
+                                              pendingJobs: 0, droppedJobs: 0, segments: MainTurnSegments(startingAt: 0), tasks: [])
+        let report = MainJobCensusReport(snapshot) { _ in [Frame(image: "cmux", symbol: "Sidebar.reload()", imageOffset: 4)] }
+        #expect(report.mainJobs.map(\.kind) == ["timer", "main_actor", "run_loop_block"])
+        #expect(report.mainJobs.map(\.caller) == ["timer Sidebar.refresh", "timer Sidebar.refresh", "Sidebar.reload()"])
+        #expect(report.mainJobs.map(\.priority) == ["default", "default", "userInteractive"])
+    }
+
+    /// One wake stretch from 10 to 20 ms holding `jobs` (their time in the tally), and the report over it with `tasks`.
+    private static func wakeStretch(jobs: [MainJobRing.Job], tasks: [MainJobCensus.TaskSpan]) -> MainJobCensusReport {
+        var turns = MainTurnSegments(startingAt: 0)
+        var tally = MainJobRing.Tally()
+        for job in jobs {
+            tally.jobs += 1
+            tally.nanos += job.runNanos
+        }
+        turns.record(.rendered, at: 0, jobs: MainJobRing.Tally())
+        turns.record(.afterWaiting, at: 10 * ms, jobs: MainJobRing.Tally())
+        turns.record(.beforeWaiting, at: 20 * ms, jobs: tally)
+        turns.record(.rendered, at: 21 * ms, jobs: MainJobRing.Tally())
+        let snapshot = MainJobCensus.Snapshot(hook: .installed, processStartNanos: 0, frozen: true, jobs: jobs, pendingJobs: 0,
+                                              droppedJobs: 0, segments: turns, tasks: tasks)
+        return MainJobCensusReport(snapshot) { _ in [Frame(image: "cmux", symbol: "HomeFeed.start()", imageOffset: 1)] }
+    }
+
+    /// A run-loop block that ran `runTenths` tenths of a millisecond from `startTenths`.
+    private static func job(_ startTenths: UInt64, _ runTenths: UInt64) -> MainJobRing.Job {
+        MainJobRing.Job(slot: 0, kind: .runLoopBlock, enqueuedNanos: 1 * ms, runStartNanos: startTenths * ms / 10,
+                        runNanos: runTenths * ms / 10, priority: 0x15, frames: [1])
+    }
+
+    /// A scheduler task that ran `runTenths` tenths of a millisecond from `startTenths`.
+    private static func task(_ startTenths: UInt64, _ runTenths: UInt64) -> MainJobCensus.TaskSpan {
+        .init(name: "Theme.apply", startNanos: startTenths * ms / 10, durationNanos: runTenths * ms / 10)
+    }
+
+    private static func records(_ report: MainJobCensusReport) -> [String] {
+        report.mainJobs.map { "\($0.kind) \($0.runMs)" }
+    }
+
+    /// A stretch's own time is its wall time less every instant a job or a scheduler task covered, each counted once,
+    /// wherever in the stretch they ran.
+    @Test func aStretchLosesTheUnionOfItsJobsAndTasks() {
+        // One after the other, late in the stretch: 10 ms less a 4 ms job and a 3 ms task.
+        let apart = Self.wakeStretch(jobs: [Self.job(110, 40)], tasks: [Self.task(150, 30)])
+        #expect(Self.records(apart) == ["run_loop_block 4.0", "run_loop_wake 3.0"])
+        // A 1.5 ms task inside a 4 ms job: the task's time is the job's, counted once; the job keeps the rest.
+        let taskInJob = Self.wakeStretch(jobs: [Self.job(110, 40)], tasks: [Self.task(120, 15)])
+        #expect(Self.records(taskInJob) == ["run_loop_block 2.5", "run_loop_wake 6.0"])
+        // A job that spent most of its time running a task is the task's: no job record.
+        let mostlyTask = Self.wakeStretch(jobs: [Self.job(110, 40)], tasks: [Self.task(120, 25)])
+        #expect(Self.records(mostlyTask) == ["run_loop_wake 6.0"])
+        // A 4 ms job inside a 6 ms task: the stretch keeps the 4 ms neither covered.
+        let jobInTask = Self.wakeStretch(jobs: [Self.job(120, 40)], tasks: [Self.task(110, 60)])
+        #expect(Self.records(jobInTask) == ["run_loop_wake 4.0"])
+    }
+
+    @Test func mergedIntervalsJoinOverlapsAndCoveredCountsEachInstantOnce() {
+        let joined = MainJobCensusReport.merged([(start: 5, end: 9), (start: 1, end: 3), (start: 2, end: 4), (start: 6, end: 7),
+                                                 (start: 8, end: 8)])
+        #expect(joined.map { [$0.start, $0.end] } == [[1, 4], [5, 9]])
+        #expect(MainJobCensusReport.covered(joined, 0, 10) == 7)
+        #expect(MainJobCensusReport.covered(joined, 3, 6) == 2)
+        #expect(MainJobCensusReport.covered(joined, 9, 12) == 0)
+        #expect(MainJobCensusReport.covered([], 0, 10) == 0)
     }
 
     @MainActor @Test func aFrozenCensusRecordsNothingAndItsRingTakesNoJob() {

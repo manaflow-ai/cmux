@@ -1,25 +1,28 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-import CmuxNextCompat
 import Darwin
 import Dispatch
 
 /// The recording side of the launch's main-job census (p08-startup task 080, queue Q11; CmuxNextLaunch's
-/// `MainJobCensus` reads it): every main-actor job the Swift runtime enqueues, and every ``MainDelivery`` hop from
-/// another thread, with its enqueuer's return addresses, its priority and its run time, in one preallocated buffer.
+/// `MainJobCensus` reads it): every main-actor job the Swift runtime enqueues, and every main-thread post the app
+/// makes (CmuxNextWakeups' `MainDelivery` hop from another thread, a ``MainRunLoopBlock``, a `DemandTimer` deadline's
+/// fire), with its enqueuer's return addresses, its priority and its run time, in one preallocated buffer.
 ///
 /// `swift_task_enqueueMainExecutor_hook` hands each main-actor job to ``enqueue(_:original:)``. A slot is claimed
-/// with one atomic add; the enqueuing thread writes the slot's time, priority and return addresses (`backtrace`, a
-/// frame-pointer walk: no lock, no allocation), then puts the job on the main dispatch queue (the queue the
-/// runtime's own main executor uses) at the job's QoS, so jobs keep their order. On the main thread the job runs
-/// between two clock reads. Chrome times every UI-thread task the same way, from its post site
-/// (base/task/common/task_annotator.cc, `TaskAnnotator::RunTask` with the task's `PostedFrom` location).
+/// with one atomic add; the enqueuing thread writes the slot's time, priority and return addresses
+/// (`backtrace_async`, a frame-pointer walk that follows a running task's async frames: no lock, no allocation),
+/// then puts the job on the main dispatch queue (the queue the runtime's own main executor uses) at the job's QoS,
+/// so jobs keep their order. On the main thread the job runs between two clock reads (``run(slot:_:)``). The app's
+/// own posts claim their slot where they post (``recordEnqueue(_:priority:label:)``) and run the same way. A timer
+/// has no useful post stack at its fire, so it is named by its owner (the slot's label), and a main-actor job its
+/// fire enqueues on the main thread takes that label too. Chrome times every UI-thread task the same way, from its
+/// post site (base/task/common/task_annotator.cc, `TaskAnnotator::RunTask` with the task's `PostedFrom` location).
 ///
 /// Bounded: the first ``capacity`` jobs are kept; later ones, and every job after ``freeze()``, take the runtime's
 /// own path and count as dropped. Debug and bench-hooks builds only, and only in a launch that armed the census.
 ///
 /// Memory safety: each buffer is one allocation of `capacity` initialized slots (frames: `capacity * depth`) made
 /// by init and never freed, because the hook may call in for the life of the process. A slot index comes only from
-/// ``recordEnqueue(_:priority:)``, which returns indices under `capacity`, or is checked against it.
+/// ``recordEnqueue(_:priority:label:)``, which returns indices under `capacity`, or is checked against it.
 ///
 /// ```swift
 /// let ring = MainJobRing(capacity: 8_192)
@@ -29,7 +32,7 @@ import Dispatch
 /// let (jobs, pending, dropped) = ring.read()
 /// ```
 @safe
-public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's enqueue fields are written once, by the thread that claimed it, before that thread queues the job on the main dispatch queue (which publishes them to the main thread); the run fields and the tally are read and written on the main thread only
+public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's enqueue fields are written once, by the thread that claimed it, before that thread queues the job on the main dispatch queue or run loop (which publishes them to the main thread); a label is written only on the main thread; the run fields, the running label and the tally are read and written on the main thread only
     typealias Original = @convention(thin) (UnownedJob) -> Void
     typealias Hook = @convention(thin) (UnownedJob, Original) -> Void
 
@@ -37,8 +40,12 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
     public enum Kind: UInt8, Sendable {
         /// A main-actor job (`Task { @MainActor }`, an `await` that resumes on the main actor, a continuation).
         case mainActor = 0
-        /// A ``MainDelivery`` hop from another thread (a main-queue block).
+        /// A `MainDelivery` hop from another thread (a main-queue block).
         case mainDelivery = 1
+        /// A ``MainRunLoopBlock`` post (a run-loop block).
+        case runLoopBlock = 2
+        /// A `DemandTimer` deadline's fire on the main thread's wake-up queue; its label is the timer's owner.
+        case timer = 3
     }
 
     /// What ``install()`` found.
@@ -68,15 +75,46 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
         public var kind: Kind
         /// `CLOCK_UPTIME_RAW` nanoseconds.
         public var enqueuedNanos: UInt64
+        /// `CLOCK_UPTIME_RAW` nanoseconds: when the job started to run.
+        public var runStartNanos: UInt64
         public var runNanos: UInt64
         /// The QoS class raw value (`JobPriority` / `qos_class_t`), 0 unspecified.
         public var priority: UInt8
+        /// The enqueuer's name when its stack cannot give one: a timer's owner, also on the main-actor jobs its fire
+        /// enqueued on the main thread. Nil for the rest.
+        public var label: String?
         /// Return addresses, the innermost first (the ring's own frames included).
         public var frames: [UInt]
+
+        public init(slot: Int, kind: Kind, enqueuedNanos: UInt64, runStartNanos: UInt64, runNanos: UInt64, priority: UInt8,
+                    label: String? = nil, frames: [UInt]) {
+            self.slot = slot
+            self.kind = kind
+            self.enqueuedNanos = enqueuedNanos
+            self.runStartNanos = runStartNanos
+            self.runNanos = runNanos
+            self.priority = priority
+            self.label = label
+            self.frames = frames
+        }
     }
 
-    /// The return addresses kept per job: the runtime's enqueue frames, then the enqueuer's.
-    public static let depth = 12
+    /// The return addresses kept per job: the ring's and the runtime's enqueue frames, then the enqueuer's (as
+    /// CmuxNextWakeups' `HopRecord.depth`).
+    public static let depth = 16
+
+    /// The image whose `swift_task_enqueueMainExecutor` calls the hook: in a main-actor job's stack, the frames
+    /// before its first one are the ring's own.
+    public static let concurrencyRuntimeImage = "libswift_Concurrency.dylib"
+    /// The images a main job's enqueue passes through between the ring and the code that enqueued it, never its
+    /// site: the Swift concurrency runtime, the Swift core library, libdispatch and its Swift overlay, and the thread
+    /// start below a worker's stack. CmuxNextWakeups' `HopFrameResolver` reads the same table.
+    public static let enqueueRuntimeImages: Set<String> = [concurrencyRuntimeImage, "libswiftCore.dylib", "libdispatch.dylib",
+                                                           "libswiftDispatch.dylib", "libsystem_pthread.dylib"]
+    /// The mangled prefixes of the `Task` and `MainActor` members the compiler emits into the caller's image
+    /// (`Task.init`, `MainActor.run`): not inlined in a DEBUG build, they would name every `Task { }` of a module as
+    /// one site. `HopFrameResolver` reads the same table.
+    public static let enqueueRuntimeSymbolPrefixes = ["$sScT", "$sScM"]
 
     public let capacity: Int
     private let clock: @Sendable () -> UInt64
@@ -89,12 +127,16 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
     private let frameCounts: UnsafeMutablePointer<Int32>
     private let frames: UnsafeMutablePointer<UnsafeMutableRawPointer?>
     // Main thread only.
+    private let labels: UnsafeMutablePointer<String?>
+    private let runStarts: UnsafeMutablePointer<UInt64>
     private let runNanos: UnsafeMutablePointer<UInt64>
     private let ran: UnsafeMutablePointer<Bool>
     private let tally: UnsafeMutablePointer<Tally>
+    /// The label of the labeled job running now, which the main-actor jobs it enqueues take.
+    private let runningLabel: UnsafeMutablePointer<String?>
 
     /// - Parameters:
-    ///   - capacity: The jobs kept (one slot each, about 130 bytes).
+    ///   - capacity: The jobs kept (one slot each, about 170 bytes).
     ///   - clock: `CLOCK_UPTIME_RAW` nanoseconds (tests pass their own).
     public init(capacity: Int, clock: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
         let count = max(capacity, 1)
@@ -111,12 +153,18 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
         unsafe frameCounts.initialize(repeating: 0, count: count)
         unsafe frames = .allocate(capacity: count * Self.depth)
         unsafe frames.initialize(repeating: nil, count: count * Self.depth)
+        unsafe labels = .allocate(capacity: count)
+        unsafe labels.initialize(repeating: nil, count: count)
+        unsafe runStarts = .allocate(capacity: count)
+        unsafe runStarts.initialize(repeating: 0, count: count)
         unsafe runNanos = .allocate(capacity: count)
         unsafe runNanos.initialize(repeating: 0, count: count)
         unsafe ran = .allocate(capacity: count)
         unsafe ran.initialize(repeating: false, count: count)
         unsafe tally = .allocate(capacity: 1)
         unsafe tally.initialize(to: Tally())
+        unsafe runningLabel = .allocate(capacity: 1)
+        unsafe runningLabel.initialize(to: nil)
     }
 
     /// `CLOCK_UPTIME_RAW` nanoseconds now, on the ring's clock.
@@ -125,8 +173,11 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
     // MARK: Recording
 
     /// Claims a slot and records an enqueue now, from any thread: its kind, `priority` (a QoS class raw value) and
-    /// the calling thread's return addresses. Nil when the ring is full or frozen (the drop is counted).
-    public func recordEnqueue(_ kind: Kind, priority: UInt8) -> Int? {
+    /// the calling thread's return addresses. `label` names the enqueuer (main thread only); with none, a main-actor
+    /// job enqueued on the main thread while a labeled job runs takes that job's label (the `Task` a `DemandTimer`
+    /// fire starts has only `DemandTimer` on its stack). Nil when the ring is full or frozen (the drop is counted).
+    @inline(never)
+    public func recordEnqueue(_ kind: Kind, priority: UInt8, label: String? = nil) -> Int? {
         guard !frozen.load(ordering: .relaxed) else { return nil }
         let slot = claims.add(1, ordering: .relaxed).oldValue
         guard slot < capacity else { return nil }
@@ -134,15 +185,38 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
         unsafe kinds[slot] = kind.rawValue
         unsafe enqueued[slot] = clock()
         unsafe priorities[slot] = priority
-        // SAFETY: backtrace writes at most `depth` addresses, into the slot's own `depth` entries of `frames`.
-        unsafe frameCounts[slot] = backtrace(frames + slot * Self.depth, Int32(Self.depth))
+        if pthread_main_np() != 0 {
+            // SAFETY: slot < capacity; the labels and the running label are main-thread only, and this is the main thread.
+            unsafe labels[slot] = label ?? (kind == .mainActor ? runningLabel.pointee : nil)
+        }
+        // A hop that an `await` enqueues (`swift_task_switch`, reached by a tail call) leaves no frame of the
+        // awaiting function on this thread's stack: `backtrace_async` follows the task's async frames to it.
+        var task: UInt32 = 0
+        // SAFETY: backtrace_async writes at most `depth` addresses, into the slot's own `depth` entries of `frames`.
+        let count = unsafe backtrace_async(frames + slot * Self.depth, Self.depth, &task)
+        unsafe frameCounts[slot] = Int32(truncatingIfNeeded: min(count, Self.depth))
         return slot
     }
 
-    /// Main thread: the job of `slot` ran for `nanos`; it counts in the tally.
-    public func recordRun(slot: Int, nanos: UInt64) {
+    /// Main thread: runs `work`, the job of `slot` (from ``recordEnqueue(_:priority:label:)``), between two clock
+    /// reads; a main-actor job `work` enqueues takes the slot's label.
+    public func run(slot: Int, _ work: () -> Void) {
+        guard slot >= 0, slot < capacity else { return work() }
+        // SAFETY: slot < capacity (checked above); the labels and the running label are main-thread only.
+        let outer = unsafe runningLabel.pointee
+        if let label = unsafe labels[slot] { unsafe runningLabel.pointee = label }
+        let start = clock()
+        work()
+        let nanos = clock() &- start
+        unsafe runningLabel.pointee = outer
+        recordRun(slot: slot, startNanos: start, nanos: nanos)
+    }
+
+    /// Main thread: the job of `slot` started at `startNanos` and ran for `nanos`; it counts in the tally.
+    public func recordRun(slot: Int, startNanos: UInt64, nanos: UInt64) {
         guard slot >= 0, slot < capacity else { return }
         // SAFETY: slot is under capacity (checked above); the run fields and the tally are main-thread only.
+        unsafe runStarts[slot] = startNanos
         unsafe runNanos[slot] = nanos
         unsafe ran[slot] = true
         unsafe tally.pointee.jobs += 1
@@ -164,16 +238,15 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
     /// No later job is recorded (startup completed).
     public func freeze() { frozen.store(true, ordering: .releasing) }
 
-    /// `work`, timed into the ring when it is recorded: ``MainDelivery``'s off-main hop. Unchanged when the ring is
+    /// `work`, timed into the ring when it is recorded: `MainDelivery`'s off-main hop. Unchanged when the ring is
     /// full or frozen.
     public func timed(_ work: @escaping @MainActor @Sendable () -> Void) -> @MainActor @Sendable () -> Void {
-        guard let slot = recordEnqueue(.mainDelivery, priority: UInt8(truncatingIfNeeded: qos_class_self().rawValue)) else { return work }
-        return { [self] in
-            let start = clock()
-            work()
-            recordRun(slot: slot, nanos: clock() &- start)
-        }
+        guard let slot = recordEnqueue(.mainDelivery, priority: Self.currentPriority) else { return work }
+        return { [self] in run(slot: slot) { work() } }
     }
+
+    /// The calling thread's QoS class raw value.
+    public static var currentPriority: UInt8 { UInt8(truncatingIfNeeded: qos_class_self().rawValue) }
 
     /// The hook's work for one main-actor job: recorded, then run on the main dispatch queue at its QoS between two
     /// clock reads; or, when the ring is full or frozen, given to the runtime's own enqueue.
@@ -183,9 +256,7 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
         let qos = DispatchQoS.QoSClass(rawValue: qos_class_t(rawValue: UInt32(priority))) ?? .unspecified
         // main-async-allow: the Swift runtime's main executor puts every main-actor job on this queue at its QoS; the ring keeps the job's place and QoS there
         DispatchQueue.main.async(qos: DispatchQoS(qosClass: qos, relativePriority: 0)) { [self] in
-            let start = clock()
-            job.runSynchronously(on: MainActor.sharedUnownedExecutor)
-            recordRun(slot: slot, nanos: clock() &- start)
+            run(slot: slot) { job.runSynchronously(on: MainActor.sharedUnownedExecutor) }
         }
     }
 
@@ -206,7 +277,8 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
             // SAFETY: base + count is inside the slot's own `depth` entries of `frames`.
             let addresses = unsafe (0 ..< count).map { unsafe UInt(bitPattern: frames[base + $0]) }
             unsafe jobs.append(Job(slot: slot, kind: Kind(rawValue: kinds[slot]) ?? .mainActor, enqueuedNanos: enqueued[slot],
-                                   runNanos: runNanos[slot], priority: priorities[slot], frames: addresses))
+                                   runStartNanos: runStarts[slot], runNanos: runNanos[slot], priority: priorities[slot],
+                                   label: labels[slot], frames: addresses))
         }
         return (jobs, kept - jobs.count, max(0, claimed - capacity))
     }
@@ -214,8 +286,8 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
     // MARK: The runtime hook
 
     /// The installed ring's address (`Unmanaged`, retained for the process), 0 before an install. The runtime's hook
-    /// is a thin function with no context, and ``MainDelivery`` has none to pass: this word is how both find the
-    /// ring the composition root made.
+    /// is a thin function with no context, and `MainDelivery`, ``MainRunLoopBlock`` and `DemandTimer`'s fire have none
+    /// to pass: this word is how they find the ring the composition root made.
     private static let installedBits = Atomic<UInt>(0)
 
     /// The ring the hook records into, nil when no launch armed the census.
@@ -235,7 +307,7 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
         return unsafe symbol.assumingMemoryBound(to: Hook?.self)
     }
 
-    /// Sends every main-actor job and ``MainDelivery`` hop of the process through this ring. Once per process, in
+    /// Sends every main-actor job and main-thread post of the process through this ring. Once per process, in
     /// `main` while it has one thread: a second ring, or a hook someone else set, finds it ``HookState/busy``.
     public func install() -> HookState {
         guard let variable = Self.hookVariable() else { return .missing }
