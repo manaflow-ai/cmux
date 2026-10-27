@@ -5194,6 +5194,30 @@ jobs:
       # notarize-nightly-dmg.sh runs the bundle notice check after Apple
       # accepts, and that check reads ghostty-next/build.zig.zon. Without the
       # submodule, run 38669958906 skipped five accepted builds.
+      # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
+      # its own actor, so a limit that every workflow's github.token shares does not refuse it.
+      # Later jobs reuse these four steps by YAML alias (*gh-app-token-read, -write, *gh-app-install,
+      # -tooling): GitHub refuses a workflow file over 512,000 bytes before any job starts.
+      - &gh-app-token-read
+        name: Mint the release App token for this job's gh calls
+        id: gh-app-token
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+
+      - &gh-app-install
+        name: Send this job's gh calls as the release App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: if [ -f scripts/ci/gh_app_token.sh ]; then bash scripts/ci/gh_app_token.sh --install; fi
+
       - *wait-through-github-api-rate-l
 
       - name: Initialize cmux-next notices submodule
@@ -5490,6 +5514,28 @@ jobs:
           path: .publish-tooling
           sparse-checkout: scripts
 
+      # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
+      # its own actor, so a limit that every workflow's github.token shares does not refuse it.
+      - &gh-app-token-write
+        name: Mint the release App token for this job's gh calls
+        id: gh-app-token
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - &gh-app-install-tooling
+        name: Send this job's gh calls as the release App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: if [ -f .publish-tooling/scripts/ci/gh_app_token.sh ]; then bash .publish-tooling/scripts/ci/gh_app_token.sh --install; fi
+
       - &wait-through-github-api-rate-l-2
         name: Wait through GitHub API rate limits in this job's gh calls
         # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
@@ -5675,6 +5721,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
         run: |
           set -euo pipefail
           python3 "$PUBLISH_TOOLING/prune_nightly_release_assets.py" \
@@ -5696,6 +5743,7 @@ jobs:
           # Every wait in this job (notes, assets, archive, gh) shares one hour
           # (GH_BUDGET_WAIT_MAX_SECONDS), so the job's 120 minutes keep 60 for the work.
           CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the uploader: App first, GH_TOKEN as fallback
         run: |
           set -euo pipefail
           if [ "$NIGHTLY_TRACK" = nightly-next ]; then
@@ -5752,6 +5800,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
         env:
           GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
+          GH_APP_TOKEN: ${{ needs.decide.outputs.track != 'nightly-next' && steps.gh-app-token.outputs.token || '' }} # App first, GH_TOKEN as fallback
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
           UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
           RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
@@ -5914,6 +5963,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
         env:
           GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
+          GH_APP_TOKEN: ${{ needs.decide.outputs.track != 'nightly-next' && steps.gh-app-token.outputs.token || '' }} # App first, GH_TOKEN as fallback
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
           UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
           RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
@@ -6077,6 +6127,10 @@ jobs:
 
       - *checkout-publication-tooling-a
 
+      - *gh-app-token-write
+
+      - *gh-app-install-tooling
+
       - &wait-through-github-api-rate-l-3
         name: Wait through GitHub API rate limits in this job's gh calls
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
@@ -6124,6 +6178,7 @@ jobs:
       - name: Prune old nightly release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
         run: |
           set -euo pipefail
           python3 "$PUBLISH_TOOLING/prune_nightly_release_assets.py" \
@@ -6139,6 +6194,7 @@ jobs:
         id: publish_assets
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
           # Off the feed's path: this job may wait out the limit as long as its timeout allows.
           CMUX_RELEASE_RATE_LIMIT_SECONDS: "3600"
         run: |
@@ -6175,6 +6231,7 @@ jobs:
         if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
           CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
           HEAD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
         run: |
@@ -6246,6 +6303,10 @@ jobs:
     steps:
       - *checkout-publication-tooling-a
 
+      - *gh-app-token-write
+
+      - *gh-app-install-tooling
+
       - *wait-through-github-api-rate-l-3
 
       - *download-nightly-variant-artif
@@ -6283,6 +6344,7 @@ jobs:
         id: publish_names
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
           CMUX_RELEASE_RATE_LIMIT_SECONDS: "3600"
         run: |
           set -euo pipefail
@@ -6384,6 +6446,10 @@ jobs:
     steps:
       - *checkout-publication-tooling-a
 
+      - *gh-app-token-read
+
+      - *gh-app-install-tooling
+
       - *wait-through-github-api-rate-l-2
 
       - name: Find the attempt that compiled the published build
@@ -6447,6 +6513,9 @@ jobs:
     # a pending continuation still uses the published feed path.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant]
     if: "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    # Only for the release App credentials (CMUX_RELEASE_APP_*), which live in this environment;
+    # it runs only on nightly-next, the environment's one deployment branch.
+    environment: release-next
     # A feed read error must not turn a run that published cmux NEXT red; the
     # macOS job then does not start (it needs this job's success and a build).
     continue-on-error: true
@@ -6474,6 +6543,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - *gh-app-token-read
+
+      - *gh-app-install
 
       - *wait-through-github-api-rate-l
 
@@ -6600,6 +6673,10 @@ jobs:
           persist-credentials: false
 
       # Checked again here: another run may have moved the old feed meanwhile.
+      - *gh-app-token-read
+
+      - *gh-app-install
+
       - *wait-through-github-api-rate-l
 
       - name: Skip a build the old feed already has
@@ -7144,6 +7221,10 @@ jobs:
       # build was signed and verified. A continued submission skipped here is
       # not retired: its artifacts expire (3 days), and the target and signing
       # jobs skip a build the old feed already has.
+      - *gh-app-token-write
+
+      - *gh-app-install
+
       - *wait-through-github-api-rate-l
 
       - name: Skip a build the old feed already has
@@ -7435,6 +7516,22 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
+      # The wrapper comes from the workflow commit: the build checkout may predate it.
+      # The publication-tooling shape test_nightly_cmux_tui_resolve.py exempts: scripts only.
+      - name: Checkout the gh token wrapper at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts/ci/gh_app_token.sh
+          sparse-checkout-cone-mode: false
+
+      - *gh-app-token-read
+
+      - *gh-app-install-tooling
+
       - *wait-through-github-api-rate-l
 
       - name: Select Xcode
@@ -7520,7 +7617,12 @@ jobs:
             scripts/ci/gh_budget_wait.sh
             scripts/ci/publish-nightly-next-r2.py
             scripts/ci/upload-r2-object.py
+            scripts/ci/gh_app_token.sh
           sparse-checkout-cone-mode: false
+
+      - *gh-app-token-write
+
+      - *gh-app-install-tooling
 
       - name: Wait through GitHub API rate limits in this job's gh calls
         # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
@@ -7540,6 +7642,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the uploader: App first, GH_TOKEN as fallback
           TRACK: ${{ needs.decide.outputs.track }}
           DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
         run: |
@@ -7855,6 +7958,22 @@ jobs:
       contents: read
     steps:
       - *checkout-step
+      # The wrapper comes from the workflow commit: the build checkout may predate it.
+      # The publication-tooling shape test_nightly_cmux_tui_resolve.py exempts: scripts only.
+      - name: Checkout the gh token wrapper at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts/ci/gh_app_token.sh
+          sparse-checkout-cone-mode: false
+
+      - *gh-app-token-read
+
+      - *gh-app-install-tooling
+
       - *wait-through-github-api-rate-l
 
       - &download-artifact-step

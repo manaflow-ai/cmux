@@ -1308,6 +1308,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_app_token.py
 
+      - name: Validate the nightly publish jobs send gh calls as the release App first
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_publish_app_token_workflow.py
+
       - name: Validate a feat-cmux-next push stops deferring to a publisher whose daemon tests are stuck
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_publisher_testing.py
