@@ -185,11 +185,16 @@ jobs:
                 per_page: 100,
               });
               const compiled = pushJobs.jobs.find((job) => job.name === landingCompile && job.conclusion === 'success');
+              const has = (name) => pushJobs.jobs.some((job) => job.name === name);
+              // Placed, placing, or compiling; or a push run under three minutes
+              // old that has not listed its placement job yet (a push kicks this
+              // dispatcher within seconds). An older run without one has no
+              // landing compile: the tip gets a DEV build.
               const pending = pushJobs.jobs.some((job) =>
                 (job.name === landingCompile || job.name === landingPlace) && job.status !== 'completed') ||
-                (push.status !== 'completed' && pushJobs.jobs.some((job) =>
-                  job.name === landingPlace && job.conclusion === 'success') &&
-                  !pushJobs.jobs.some((job) => job.name === landingCompile));
+                (push.status !== 'completed' && (
+                  (pushJobs.jobs.some((job) => job.name === landingPlace && job.conclusion === 'success') && !has(landingCompile)) ||
+                  (!has(landingPlace) && Date.now() - Date.parse(push.created_at) < 3 * 60 * 1000)));
               if (compiled) {
                 const pushTitle = `cmux NEXT DEV daily · publish ${push.id}`;
                 const { data: pushPublished } = await api.rest.actions.listWorkflowRuns({

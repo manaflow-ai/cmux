@@ -140,9 +140,9 @@ const calls = [];
 const github = { rest: {
   git: { getRef: async () => ({ data: { object: { sha: fixture.tip } } }) },
   actions: {
-    listWorkflowRuns: async ({ workflow_id, event, head_sha }) => ({ data: { workflow_runs:
+    listWorkflowRuns: async ({ workflow_id, event }) => ({ data: { workflow_runs:
       workflow_id !== 'cmux-next.yml' ? fixture.publishRuns
-        : event === 'push' ? fixture.pushRuns.filter((run) => !head_sha || run.head_sha === head_sha)
+        : event === 'push' ? fixture.pushRuns
         : fixture.sourceRuns } }),
     listJobsForWorkflowRun: async ({ run_id }) => {
       calls.push(['jobs', run_id]);
@@ -237,8 +237,10 @@ check(run([], {}) and built(run([], {})) == [TIP], "with no DEV build running th
 
 
 # The tip's push run compiles its own DEV app (cmux-next.yml dev-landing-compile).
-def push_run(run_id, status="in_progress", sha=TIP):
+def push_run(run_id, status="in_progress", sha=TIP, age_s=60):
+    created = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=age_s)
     return {"id": run_id, "head_sha": sha, "status": status, "conclusion": None if status != "completed" else "success",
+            "created_at": created.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "name": "cmux-next", "display_title": f"cmux-next · {sha}"}
 
 
@@ -265,12 +267,19 @@ check(built(calls) == [] and published(calls) == [],
       f"a landing app already handed over is not handed over again, got {calls}")
 for label, jobs, status in (("failed", landing_jobs(compile_=("completed", "failure")), "completed"),
                             ("skipped (no tree)", landing_jobs(compile_=("completed", "skipped")), "completed"),
-                            ("off", [], "in_progress"),
+                            ("off", [{"name": "cmux NEXT DEV landing placement", "status": "completed", "conclusion": "skipped"}], "in_progress"),
                             ("placement failed", landing_jobs(place=("completed", "failure")), "completed")):
     calls = run([], {33: jobs}, push_runs=[push_run(33, status=status)])
     check(built(calls) == [TIP], f"a landing compile that is {label} leaves the tip to a DEV build, got {calls}")
 calls = run([], {34: landing_jobs(compile_=("in_progress", None))}, push_runs=[push_run(34, sha="3" * 40)])
 check(built(calls) == [TIP], f"another commit's landing compile does not cover the tip, got {calls}")
+# A push run that has not listed its placement yet: young, it is about to place;
+# old (a push run without a landing compile, before cmux#25744), it covers nothing.
+calls = run([], {35: []}, push_runs=[push_run(35, age_s=30)])
+check(built(calls) == [], f"a push run seconds old that has not listed its placement covers the tip, got {calls}")
+calls = run([], {36: [{"name": "cmux-next path routing", "status": "completed", "conclusion": "success"}]},
+            push_runs=[push_run(36, age_s=10 * 60)])
+check(built(calls) == [TIP], f"a push run with no landing compile leaves the tip to a DEV build, got {calls}")
 
 # No finished run has an app: nothing is published.
 calls = run([dev_run(7, "7" * 40, "failure"), dev_run(6, "6" * 40, "failure")],
