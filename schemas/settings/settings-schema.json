@@ -486,6 +486,7 @@
               "sidebar.showSpaces",
               "sidebar.showProfileControl",
               "sidebar.showSearchButton",
+              "sidebar.noFade",
               "sidebar.minimal",
               "sidebar.style",
               "sidebar.density",
@@ -819,6 +820,7 @@
               "agentPane.showDictation",
               "agentPane.spellChecking",
               "agentPane.attachmentView",
+              "agentPane.scrollToBottomOnSend",
               "agentPane.zoom",
               "agents.defaultPermissionMode",
               "app.warnBeforeClosingAgentSession"
@@ -997,6 +999,23 @@
             "title" : {
               "key" : "settings.group.banners",
               "text" : "Banners and Sound"
+            }
+          },
+          {
+            "key" : "settings.group.sounds",
+            "rows" : [
+              "notifications.sounds.events.finished",
+              "notifications.sounds.events.needsInput",
+              "notifications.sounds.events.error",
+              "notifications.sounds.events.bell",
+              "notifications.sounds.events.message",
+              "notifications.sounds.volume",
+              "notifications.sounds.when",
+              "notifications.sounds.cooldownSeconds"
+            ],
+            "title" : {
+              "key" : "settings.group.sounds",
+              "text" : "Sounds"
             }
           },
           {
@@ -4108,7 +4127,7 @@
       },
       "help" : {
         "key" : "settings.updates.downloadAutomatically.help",
-        "text" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
+        "text" : "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.downloadAutomatically",
@@ -4133,7 +4152,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.updates.downloadAutomatically",
-        "text" : "Download and Install Updates Automatically"
+        "text" : "Download Updates Automatically"
       },
       "validation" : "portable"
     },
@@ -4293,7 +4312,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -22438,7 +22457,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -22826,6 +22845,60 @@
       "title" : {
         "key" : "settings.sidebar.showSearchButton",
         "text" : "Show Search Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.noFade.help",
+        "text" : "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.noFade",
+      "keywords" : [
+        "sidebar",
+        "fade",
+        "whole",
+        "full",
+        "everything",
+        "edges",
+        "profile",
+        "search",
+        "footer",
+        "show",
+        "hide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "noFade"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.noFade",
+        "text" : "Show Whole Sidebar Without Fade"
       },
       "validation" : "portable"
     },
@@ -31194,8 +31267,11 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "moderate",
-      "default_label" : null,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.neverDiscard",
+        "text" : "Never Discard"
+      },
       "group" : {
         "key" : "settings.group.memory",
         "text" : "Memory"
@@ -31209,7 +31285,9 @@
       "keywords" : [
         "memory saver",
         "sleep",
-        "discard"
+        "discard",
+        "freeze",
+        "reload"
       ],
       "kind" : "choice_or_number",
       "page_hidden" : false,
@@ -37378,6 +37456,56 @@
       "title" : {
         "key" : "settings.agentPane.attachmentView",
         "text" : "Attachment View"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.scrollToBottomOnSend.help",
+        "text" : "When off, sending while you are reading up keeps your place and shows new messages below."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.scrollToBottomOnSend",
+      "keywords" : [
+        "scroll",
+        "bottom",
+        "send",
+        "message",
+        "chat",
+        "latest",
+        "follow"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "scrollToBottomOnSend"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.scrollToBottomOnSend",
+        "text" : "Scroll to Bottom When I Send"
       },
       "validation" : "portable"
     },

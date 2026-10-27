@@ -17,9 +17,12 @@ import Foundation
 ///   person's own click or key (as the prompt and Settings > Accounts take it);
 /// - stream `changes` → one empty event whenever any of those may have changed.
 ///
-/// No QR code: the one this page used to show was an irx attach ticket for an iPhone app that
-/// no longer exists (`MobileIrxHost`, `PairingQRCode` stay). The page shows one again once
-/// cmux on iPhone opens a pairing link.
+/// The QR code is this Mac's pairing link (``MobileHostPairInvite``,
+/// `cmux-next://pair?mac=&team=&name=&t=&k=`), shown once the host is online for the signed-in
+/// account with iPhone connections on. cmux on iPhone opens it from the camera or its own
+/// scanner and presents `t`, a single-use pre-approval, in place of the Allow prompt (still only
+/// for a phone signed in to this account). The page asks again a minute before the code expires,
+/// so a shown code always has that long left.
 @MainActor
 final class MobilePairingPageProvider: PageProvider {
     static let statusOp = "cmux.mobilePairing.status"
@@ -40,6 +43,9 @@ final class MobilePairingPageProvider: PageProvider {
         var macName: @Sendable () async -> String
         /// Writes one setting as the person's own change.
         var write: @MainActor @Sendable (_ path: [String], _ value: JSONValue) async throws -> Void
+        /// This Mac's pairing link (``IPhoneHostService/pairInvite(macName:now:)``), nil until the
+        /// host is online for the account with iPhone connections on.
+        var invite: @MainActor @Sendable (_ macName: String) -> MobileHostPairInvite? = { _ in nil }
     }
 
     private let dependencies: Dependencies
@@ -67,7 +73,8 @@ final class MobilePairingPageProvider: PageProvider {
                     throw PageError(code: "cmux.mobilePairing.unavailable", message: MobilePairingStrings.settingsNotLoaded, retryable: true)
                 }
                 try await settings.setSetting(at: path, to: value, by: .user)
-            })
+            },
+            invite: { [weak services] macName in services?.iphone.pairInvite(macName: macName) })
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -130,9 +137,10 @@ final class MobilePairingPageProvider: PageProvider {
                                                removedReason: IPhoneHostService.removedText)
         let card = host.pageJSON
         let phones = card["phones"]?.arrayValue ?? []
+        let macName = await dependencies.macName()
         var reply: [String: JSONValue] = [
             "state": .string(state.wireName),
-            "macName": .string(await dependencies.macName()),
+            "macName": .string(macName),
             "allowed": .bool(allowed),
             "connectedPhones": JSONValue(phones.filter { $0["connected"]?.boolValue == true }.count),
             // hostd's own words, localized by the host: its status line, how a phone connects,
@@ -154,6 +162,17 @@ final class MobilePairingPageProvider: PageProvider {
         ]
         if signedIn, let account = dependencies.account().name { reply["account"] = .string(account) }
         if case .failed(let reason) = state { reply["failure"] = .string(reason) }
+        if state == .ready, let invite = dependencies.invite(macName), let qr = Self.qr(invite) { reply["qr"] = qr }
         return .object(reply)
+    }
+
+    /// The page's `qr`: the link, its code as a PNG data URL, and when to ask for a new one (a
+    /// minute before the token expires, when the host mints the next).
+    static func qr(_ invite: MobileHostPairInvite, code: PairingQRCode = PairingQRCode()) -> JSONValue? {
+        let url = invite.url
+        guard !url.isEmpty, let image = code.pngDataURL(for: url) else { return nil }
+        let refreshAt = invite.expiresAt.addingTimeInterval(-60)
+        return ["url": .string(url), "image": .string(image),
+                "expiresAt": JSONValue(Int((refreshAt.timeIntervalSince1970 * 1000).rounded()))]
     }
 }

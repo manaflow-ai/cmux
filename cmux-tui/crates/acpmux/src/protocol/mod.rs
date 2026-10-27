@@ -237,6 +237,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_FILE_PUT_CHUNK, Request),
         untyped(method::MUX_FILE_PUT_FINISH, Request),
         untyped(method::MUX_FILE_PUT_CANCEL, Request),
+        untyped(method::MUX_FILE_PUT_STATUS, Request),
+        untyped(method::MUX_FILE_PUT_DATA, Request),
         untyped(method::MUX_DISPATCH, Request),
         untyped(method::MUX_STEER, Request),
         untyped(method::MUX_BRIEFS, Request),
@@ -265,6 +267,9 @@ pub fn registry() -> Vec<MethodDecl> {
         // The person's phones and their chats (`hub/approvers.rs`, `hub/person.rs`).
         untyped(method::MUX_APPROVERS, Request),
         untyped(method::MUX_APPROVERS_SET, Request),
+        // Enrolled Macs (`hub/mac_approvers.rs`).
+        untyped(method::MUX_MAC_APPROVER_SET, Request),
+        untyped(method::MUX_MAC_APPROVERS, Request),
         untyped(method::MUX_NEW_CHAT_PICKS_SET, Request),
         untyped(method::MUX_WORKSPACE_ROOTS_SET, Request),
         untyped(method::MUX_SECRET_REQUEST, Request),

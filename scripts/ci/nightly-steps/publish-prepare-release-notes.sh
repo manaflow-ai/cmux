@@ -51,9 +51,10 @@ python3 "$PUBLISH_TOOLING/ci/nightly_release_notes.py" \
 if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" != "$NOTES_HEAD" ]; then
   ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
   # The changelog gate (2026-10-20, Lawrence: "the change log needs to be better at all
-  # times"): before any asset uploads, the span's notes must give the update card real
-  # What's New entries. A span with none fails here instead of shipping a card that says
-  # only "What's new in this build"; sign-release-notes builds the same notes later.
+  # times"): before any asset uploads, the span's What's New digest must validate, so a
+  # malformed entry fails here. A span with nothing user-facing publishes the generic
+  # "Fixes and improvements" entry with a warning (claude-sr2, 2026-10-27: that failure
+  # threw away 9 of 79 notarized builds); sign-release-notes builds the same notes later.
   gate_dir="$(mktemp -d)"
   python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
     --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \

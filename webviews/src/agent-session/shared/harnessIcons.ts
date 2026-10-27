@@ -101,3 +101,41 @@ export function subscribeHarnessIcons(listener: () => void): () => void {
 
 /** Every remembered icon, by harness id: the useSyncExternalStore snapshot render reads. */
 export const harnessIconsSnapshot = (): ReadonlyMap<string, HarnessIconSpec> => icons;
+
+// SF Symbol images (user 12922): the pages cannot draw an SF Symbol, so the host draws it once as a
+// black template PNG and answers a `data:` URL (the agent pane's `harness.symbol` op, Settings'
+// `agents.run {action: "symbol"}`). A page registers its host with `setHarnessSymbolHost`; a mark
+// draws the symbol as a CSS mask in its text color, and its monogram until the answer arrives or
+// when the host has none (an older app, a name this Mac cannot draw).
+
+type SymbolHost = (name: string) => Promise<string | null>;
+let symbolHost: SymbolHost | undefined;
+let symbols: ReadonlyMap<string, string | null> = new Map();
+const asked = new Set<string>();
+
+/** The page's host for symbol images; tests pass their own, undefined forgets every answer. */
+export function setHarnessSymbolHost(host: SymbolHost | undefined): void {
+  symbolHost = host;
+  symbols = new Map();
+  asked.clear();
+  listeners.forEach((notify) => notify());
+}
+
+/** Every symbol image answered so far (a useSyncExternalStore snapshot). */
+export const harnessSymbolsSnapshot = (): ReadonlyMap<string, string | null> => symbols;
+
+/** Asks the host for `name`'s image once; a failed ask is not kept, so a later mark asks again. */
+export function loadHarnessSymbol(name: string): void {
+  if (!symbolHost || asked.has(name) || symbols.has(name)) return;
+  asked.add(name);
+  symbolHost(name).then(
+    (src) => {
+      asked.delete(name);
+      const next = new Map(symbols);
+      next.set(name, typeof src === "string" && src.startsWith("data:image/png;base64,") ? src : null);
+      symbols = next;
+      listeners.forEach((notify) => notify());
+    },
+    () => asked.delete(name),
+  );
+}
