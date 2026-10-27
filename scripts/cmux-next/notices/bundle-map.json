@@ -47,6 +47,16 @@
       "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
+      "path": "Contents/MacOS/cmux Chromium Host",
+      "what": "the Chromium host, Chromium's browser process (Packages/macOS/CmuxNext/ChromiumHost and the CEF shim's sources, build-chromium-host.sh): first-party, statically linked with CEF's libcef_dll wrapper; it loads the app's CEF framework",
+      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
+    },
+    {
+      "path": "Contents/Frameworks/libcmux_cef_shim_remote.dylib",
+      "what": "first-party remote CEF shim: the shim ABI the app loads in Chromium host mode, a client of the host's wire (links no CEF)",
+      "notices": ["first-party"]
+    },
+    {
       "path": "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
       "what": "the remote browser host for the iPhone's browser tabs (cmux-tui/crates/cmux-remote-browser-host, its own Cargo workspace; the pinned prebuilt binary of remote-browser-host.pin.json, embed-remote-browser-host.sh): Rust, a first-party C++ shim and CEF's libcef_dll wrapper; it loads the app's CEF through the symlink Contents/Frameworks/Chromium Embedded Framework.framework",
       "notices": ["first-party", "section:rust-cmux-remote-browser-host", "rust-std", "section:manual-rust-and-zig-standard-libraries", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]

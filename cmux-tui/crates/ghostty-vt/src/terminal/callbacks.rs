@@ -64,9 +64,18 @@ unsafe extern "C" fn write_pty_trampoline(
     data: *const u8,
     len: usize,
 ) {
+    // SAFETY: `userdata` is the terminal's heap-pinned Hooks (`repr(C)`,
+    // `callbacks` first), and libghostty calls this only inside `vt_write`,
+    // while no other reference to it is live.
     let callbacks = unsafe { &mut *(userdata as *mut Callbacks) };
     if let Some(f) = callbacks.on_pty_write.as_mut() {
-        let bytes = if len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(data, len) } };
+        let bytes = if len == 0 {
+            &[]
+        } else {
+            // SAFETY: `len` is non-zero, and libghostty passes `len` readable
+            // bytes at `data` for the duration of the callback.
+            unsafe { std::slice::from_raw_parts(data, len) }
+        };
         f(bytes);
     }
 }
@@ -75,6 +84,8 @@ unsafe extern "C" fn title_changed_trampoline(
     _terminal: sys::GhosttyTerminal,
     userdata: *mut c_void,
 ) {
+    // SAFETY: `userdata` is the terminal's heap-pinned Hooks (`repr(C)`,
+    // `callbacks` first), and no other reference to it is live during the call.
     let callbacks = unsafe { &mut *(userdata as *mut Callbacks) };
     if let Some(f) = callbacks.on_title_changed.as_mut() {
         f();
@@ -82,6 +93,8 @@ unsafe extern "C" fn title_changed_trampoline(
 }
 
 unsafe extern "C" fn bell_trampoline(_terminal: sys::GhosttyTerminal, userdata: *mut c_void) {
+    // SAFETY: `userdata` is the terminal's heap-pinned Hooks (`repr(C)`,
+    // `callbacks` first), and no other reference to it is live during the call.
     let callbacks = unsafe { &mut *(userdata as *mut Callbacks) };
     if let Some(f) = callbacks.on_bell.as_mut() {
         f();
@@ -95,7 +108,9 @@ unsafe extern "C" fn size_trampoline(
     userdata: *mut c_void,
     out_size: *mut sys::GhosttySizeReportSize,
 ) -> bool {
+    // SAFETY: `userdata` is the terminal's heap-pinned Hooks, only read here.
     let hooks = unsafe { &*(userdata as *const Hooks) };
+    // SAFETY: libghostty passes a writable GhosttySizeReportSize for the call.
     unsafe { *out_size = hooks.size };
     true
 }
@@ -138,6 +153,9 @@ pub(super) unsafe fn install(raw: sys::GhosttyTerminal, hooks: &mut Hooks) {
     let has_program_status = hooks.callbacks.on_program_status.is_some();
     let userdata = hooks as *mut Hooks as *mut c_void;
     let set =
+        // SAFETY: the caller passes a live terminal (this fn's contract), and each
+        // option below gets the type it takes: the pinned `hooks` as USERDATA and a
+        // function of the matching signature for each callback.
         |option, value: *const c_void| unsafe { sys::ghostty_terminal_set(raw, option, value) };
     set(sys::GHOSTTY_TERMINAL_OPT_USERDATA, userdata);
     set(sys::GHOSTTY_TERMINAL_OPT_WRITE_PTY, write_pty_trampoline as *const c_void);
@@ -174,6 +192,8 @@ pub(super) unsafe fn uninstall(raw: sys::GhosttyTerminal) {
         sys::GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS,
         sys::GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT,
     ] {
+        // SAFETY: the caller passes a live terminal (this fn's contract); null
+        // clears each callback option.
         unsafe { sys::ghostty_terminal_set(raw, option, ptr::null()) };
     }
 }

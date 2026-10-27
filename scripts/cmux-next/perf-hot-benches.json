@@ -233,6 +233,14 @@
         "key.scroll_frame"
       ]
     },
+    "tab-strip-scroll": {
+      "what": "one coalesced wheel or trackpad delivery to a tab strip (feature tabStripScrollFrames, TabStripScroller.scroll, p04-input-087): the clamp, a binary search of the tabs in view and one scrolling-layer bounds set; applyFrames only when the tabs in view change or the gesture ends",
+      "bench": "swift test --filter 'TabStripScrollTests' (translations and applyFrames per frame); live: scripts/cmux-next/pointer-probe.swift trackpad scroll over a 60-tab strip with CMUX_ENABLE_FEATURES=tabStripScrollFrames and without, light and STRESS, reading input.frame and main stalls from debug.hangs",
+      "owner": "PL-motion-core",
+      "trace": [
+        "input.frame"
+      ]
+    },
     "intent-prewarm-hover": {
       "what": "one hover target change in the sidebar or a tab strip with intentPrewarmHover on: a compare, the dwell timer's cancel and re-arm, and the warmer's isCold lookup",
       "bench": "scripts/cmux-next/bench_hibernation.py (wake after hover vs click), then swift test --filter IntentPrewarmServiceTests",

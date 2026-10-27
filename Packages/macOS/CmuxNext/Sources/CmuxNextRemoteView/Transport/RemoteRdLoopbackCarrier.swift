@@ -4,14 +4,26 @@ import CmuxNextCompat
 
 /// A TCP connection to a host on this Mac's loopback interface: the
 /// development and local remote browser hosts (`RemoteRdLoopbackEndpoint`).
+///
+/// The bytes handed to the connection that it has not processed count against ``sendBound``, as the
+/// machine loopback carrier's outbox does: past it the carrier is backed up and the transport stops
+/// producing until `.writable` (``RemoteRdByteCarrier``).
 public nonisolated final class RemoteRdLoopbackCarrier: RemoteRdByteCarrier {
+    /// The bytes the connection may hold unprocessed before the carrier is backed up: 4 MiB, as the
+    /// machine loopback carrier's outbox.
+    public static let sendBound = 4 << 20
+
     private let connection: NWConnection
     private let handler = Mutex<(@Sendable (RemoteRdCarrierEvent) -> Void)?>(nil)
+    private let unsent: ByteCreditWindow
 
-    public init(endpoint: RemoteRdLoopbackEndpoint) {
+    public init(endpoint: RemoteRdLoopbackEndpoint, sendBound: Int = RemoteRdLoopbackCarrier.sendBound) {
         let port = NWEndpoint.Port(rawValue: endpoint.port) ?? .any
         connection = NWConnection(host: NWEndpoint.Host.ipv4(.loopback), port: port, using: .tcp)
+        unsent = ByteCreditWindow(limit: sendBound)
     }
+
+    public var isBackedUp: Bool { unsent.isPaused }
 
     public func start(queue: DispatchQueue, events: @escaping @Sendable (RemoteRdCarrierEvent) -> Void) {
         handler.withLock { $0 = events }
@@ -36,9 +48,13 @@ public nonisolated final class RemoteRdLoopbackCarrier: RemoteRdByteCarrier {
     }
 
     public func send(_ bytes: Data) {
+        let count = bytes.count
+        _ = unsent.produced(count)
+        // The completion runs on the transport's queue (the connection's), the producer's context.
         connection.send(content: bytes, completion: .contentProcessed { [weak self] error in
-            guard error != nil else { return }
-            self?.emit(.closed)
+            guard let self else { return }
+            guard error == nil else { return emit(.closed) }
+            if unsent.consumed(count), unsent.resumeIfDrained() { emit(.writable) }
         })
     }
 
