@@ -26,6 +26,9 @@
 //!   [`WorkConfig::keep_alive`] workers (default 0) and then exits; at or below that count it waits
 //!   with no timeout (thread_group_impl.cc `CanCleanupLockRequired`). An idle lane has no worker and
 //!   no timer.
+//! - **Delay.** [`Work::post_delayed`] holds an item on one `<label>-delay` thread until it is due
+//!   (Chrome's `DelayedTaskManager`), so a retry with backoff reposts itself instead of sleeping on a
+//!   thread of its own; that thread waits with no timeout while nothing is delayed (`work_delayed.rs`).
 //! - **Sync primitives.** An item may block on I/O but not wait for other work: each runs under
 //!   [`crate::blocking::with_sync_primitives_disallowed`], so a checked receive, join or
 //!   condition-variable wait in it records a `lane-sync` site (never a panic), as Chrome's
@@ -51,11 +54,11 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use crate::qos::{LiveQos, ThreadQos};
+use crate::qos::ThreadQos;
 
 /// How much a person waits for an item, as Chrome's `base::TaskPriority` plus `idle`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -372,6 +375,8 @@ pub struct LaneStats {
 /// Blocking work lanes. Build one per process and pass it by reference; tests build their own.
 pub struct Work {
     lanes: [Arc<LaneShared>; 3],
+    /// Items posted with a delay, until they are due ([`Work::post_delayed`]).
+    delayed: delayed::Delayed,
 }
 
 impl Work {
@@ -387,6 +392,7 @@ impl Work {
         let config = Arc::new(config);
         let launcher = Launcher::start(&config)?.map(Arc::new);
         Ok(Work {
+            delayed: delayed::Delayed::new(Arc::clone(&config), launcher.clone()),
             lanes: Lane::ALL.map(|lane| {
                 Arc::new(LaneShared::new(
                     lane,
@@ -410,6 +416,31 @@ impl Work {
         F: FnOnce() + Send + 'static,
     {
         self.lanes[lane.index()].submit(Job { body: Box::new(body), priority, shutdown })
+    }
+
+    /// Queues `body` on `lane` at `priority` once `delay` has passed and returns at once, as Chrome's
+    /// `PostDelayedTask` (base/task/thread_pool/delayed_task_manager.cc). A retry reposts itself this
+    /// way instead of sleeping on a thread between tries. A delayed item never blocks shutdown: with a
+    /// delay, [`Shutdown::BlockShutdown`] is [`Shutdown::SkipOnShutdown`], shutdown drops a waiting
+    /// item and refuses a new one, as Chrome refuses a delayed task once shutdown has started
+    /// (base/task/thread_pool/task_tracker.cc `WillPostTask`). A zero delay is [`Work::post`].
+    pub fn post_delayed<F>(
+        &self,
+        delay: Duration,
+        priority: Priority,
+        lane: Lane,
+        shutdown: Shutdown,
+        body: F,
+    ) -> Result<(), Refused>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let job = Job { body: Box::new(body), priority, shutdown };
+        let lane = &self.lanes[lane.index()];
+        if delay.is_zero() {
+            return lane.submit(job);
+        }
+        self.delayed.post(delay, lane, job)
     }
 
     /// Queues `body` on `lane` at `priority`; its result arrives through the returned [`Pending`]. A
@@ -446,7 +477,8 @@ impl Work {
     fn shutdown_inner(&self, deadline: Option<Instant>) -> ShutdownReport {
         // Dropped bodies (and the senders of their Pendings) are dropped outside every lock, before the
         // wait, so their callers learn at once.
-        let dropped = self.lanes.iter().flat_map(|lane| lane.close()).count();
+        let dropped =
+            self.delayed.close().len() + self.lanes.iter().flat_map(|lane| lane.close()).count();
         ShutdownReport {
             dropped,
             unfinished: self.lanes.iter().map(|lane| lane.wait_drained(deadline)).sum(),
@@ -456,6 +488,11 @@ impl Work {
     /// One row per lane.
     pub fn stats(&self) -> [LaneStats; 3] {
         self.lanes.each_ref().map(|lane| lane.stats())
+    }
+
+    /// Items posted with [`Work::post_delayed`] still waiting for their delay.
+    pub fn delayed_pending(&self) -> usize {
+        self.delayed.pending()
     }
 }
 
@@ -517,50 +554,6 @@ fn deliver<T, F: FnOnce() -> T>(sender: &SyncSender<Result<T, WorkError>>, body:
             let _ = sender.send(Err(WorkError::Panicked));
             resume_unwind(payload);
         }
-    }
-}
-
-/// Whether a thread the calling thread starts can run at `qos`. On Linux a new thread starts at its
-/// creator's nice value, and an unprivileged thread cannot lower it.
-fn can_start_at(qos: ThreadQos) -> bool {
-    match crate::qos::current() {
-        LiveQos::Nice(nice) => nice <= qos.linux_nice(),
-        _ => true,
-    }
-}
-
-struct Launch {
-    lane: Arc<LaneShared>,
-    class: WorkerClass,
-}
-
-/// The thread that starts the workers a thread above their nice value may not start (see
-/// [`can_start_at`]). It keeps the nice value of the thread that built the [`Work`], waits for
-/// requests with no timeout, and exits once every lane is gone.
-struct Launcher {
-    requests: Sender<Launch>,
-}
-
-impl Launcher {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    fn start(config: &WorkConfig) -> io::Result<Option<Launcher>> {
-        let (requests, inbox) = mpsc::channel::<Launch>();
-        config.spawner.spawn(
-            format!("{}-launch", config.label),
-            ThreadQos::UserInitiated,
-            Box::new(move || {
-                for Launch { lane, class } in inbox {
-                    lane.spawn_worker(class);
-                }
-            }),
-        )?;
-        Ok(Some(Launcher { requests }))
-    }
-
-    /// macOS sets a thread's QoS class absolutely, so any thread may start any worker.
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    fn start(_config: &WorkConfig) -> io::Result<Option<Launcher>> {
-        Ok(None)
     }
 }
 
@@ -719,12 +712,12 @@ impl LaneShared {
                     self.spawn_worker(class);
                     continue;
                 };
-                if let Err(mpsc::SendError(Launch { lane, class })) =
-                    launcher.requests.send(Launch { lane: Arc::clone(self), class })
+                if let Err(mpsc::SendError(launch)) =
+                    launcher.requests.send(Launch::Worker { lane: Arc::clone(self), class })
                 {
                     // The launcher is gone only if it panicked: start the worker here, at this
                     // thread's nice value, rather than strand its item.
-                    lane.spawn_worker(class);
+                    launch.start();
                 }
             }
         }
@@ -979,6 +972,13 @@ impl LaneShared {
 
 #[path = "work_boost.rs"]
 mod boost;
+
+#[path = "work_delayed.rs"]
+mod delayed;
+
+#[path = "work_launcher.rs"]
+mod launcher;
+use launcher::{Launch, Launcher, can_start_at};
 
 #[cfg(test)]
 #[path = "work_tests.rs"]

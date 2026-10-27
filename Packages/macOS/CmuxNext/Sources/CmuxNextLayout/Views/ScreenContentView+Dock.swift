@@ -299,7 +299,7 @@ extension ScreenContentView {
     private func sortByRank(_ view: NSView) {
         let ranks = view.subviews.enumerated().map { rank($1) * 100_000 + $0 }
         guard ranks != ranks.sorted() else { return }
-        StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(view.subviews.map(ObjectIdentifier.init), ranks))).sort(view)
+        StackingTable(ranks: Dictionary(zip(view.subviews.map(ObjectIdentifier.init), ranks), uniquingKeysWith: { first, _ in first })).sort(view)
     }
 
     // memory: fixed computed on each read and kept by no one: one rect per laid-out pane.

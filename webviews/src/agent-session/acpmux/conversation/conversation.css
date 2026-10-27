@@ -1575,7 +1575,8 @@ pre.cv-math-source {
 .cv-worked.is-quiet {
   visibility: hidden;
 }
-/* The shimmer's layers (ShimmerText.tsx): the band and its lit words show only while loops run. */
+/* The shimmer's layers (ShimmerText.tsx): the band and its lit words show only while loops run (not
+   under static status indicators, Energy Saver or animations off: `data-cmux-energy`, `data-cmux-motion`). */
 .cv-thinking.is-shimmer {
   position: relative;
 }
@@ -1586,10 +1587,10 @@ pre.cv-math-source {
   /* SPINNERS-OFF-MAIN: a band masked to a soft stripe slides across the dim words while its lit copy
      slides back by as much, so the lit words hold still under the moving stripe. Transform only: the
      compositor runs both loops, the page paints nothing per frame. */
-  :root:not([data-status-indicators="static"]) .cv-thinking.is-shimmer {
+  :root:not([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"]) .cv-thinking.is-shimmer {
     color: var(--cv-text-dim);
   }
-  :root:not([data-status-indicators="static"]) .cv-shimmer__band {
+  :root:not([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"]) .cv-shimmer__band {
     display: block;
     position: absolute;
     inset: 0;
@@ -1601,7 +1602,7 @@ pre.cv-math-source {
     mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
     animation: cmux-shimmer-band var(--cmux-breath-period, 2.4s) linear infinite;
   }
-  :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
+  :root:not([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"]) .cv-shimmer__lit {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1610,7 +1611,7 @@ pre.cv-math-source {
     animation: cmux-shimmer-lit var(--cmux-breath-period, 2.4s) linear infinite;
   }
   /* The lit words are generated content: the DOM holds the line's words once. */
-  :root:not([data-status-indicators="static"]) .cv-shimmer__lit::before {
+  :root:not([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"]) .cv-shimmer__lit::before {
     content: attr(data-text);
   }
 }
@@ -1670,7 +1671,7 @@ pre.cv-math-source {
    - shimmer: a still dot in the theme accent, and a light band crosses the row's words.
    A loading mark (no `data-working`) is always the ring. Every loop runs on the shared clock
    (ui/spinnerClock.ts), so many rows move as one, and holds still under Reduce Motion and the
-   static look (the ring stopped). */
+   static look, Energy Saver and animations off (the ring stopped). */
 .cv-spinner__dot {
   display: none;
   fill: var(--cmux-accent, currentColor);
@@ -1682,14 +1683,14 @@ pre.cv-math-source {
   display: inline;
 }
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"]) .cv-spinner:not([data-working]),
-  :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"]) .cv-spinner {
+  :root:not([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"]) .cv-spinner:not([data-working]),
+  :root:not([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"]) .cv-spinner {
     animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
   }
-  :root:not([data-status-indicators="static"])[data-working-look="breathe"] .cv-spinner[data-working] {
+  :root:not([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"])[data-working-look="breathe"] .cv-spinner[data-working] {
     animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
   }
-  :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
+  :root:not([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"])[data-working-look="shimmer"]
     .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
     .cv-tool__text {
     background: linear-gradient(100deg, var(--cv-text-dim) 30%, var(--cv-text) 50%, var(--cv-text-dim) 70%) 0 0 /
@@ -1700,7 +1701,7 @@ pre.cv-math-source {
     animation: cmux-shimmer var(--cmux-breath-period, 2.4s) linear infinite;
   }
   /* Marks with their own color (edit counts, a failed count) keep it inside the band. */
-  :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
+  :root:not([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"])[data-working-look="shimmer"]
     .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
     .cv-tool__text
     :is(.cv-edit-diff__add, .cv-edit-diff__del, .cv-tool__failed) {
@@ -3605,9 +3606,9 @@ a.cv-sha:focus-visible {
 .cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-color: var(--cv-text-muted);
 }
-/* Static status indicators and Reduce Motion: the arc holds still. */
+/* Static status indicators, Reduce Motion, Energy Saver and animations off: the arc holds still. */
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"])
+  :root:not([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"])
     .cv-plan:not([data-ended])
     .cv-plan__item[data-status="in_progress"]
     .cv-plan__mark {

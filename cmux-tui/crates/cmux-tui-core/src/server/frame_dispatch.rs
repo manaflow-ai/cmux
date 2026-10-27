@@ -22,6 +22,12 @@
 //! answered without running. A CANCEL for an id that is not in flight lost a
 //! race with its reply and is dropped.
 //!
+//! Frames are granted only at this daemon's API revision (capabilities.rs,
+//! `still_allowed`, checked again before every frame), so a body is never
+//! upgraded from another revision (`MessageWriter::upgrade_request`). While a
+//! daemon handoff is pending, a REQUEST gets its line's refusal as its ERROR
+//! frame (server/pending_handoff.rs).
+//!
 //! Only `Command` methods answer on frames yet. A feature route or a v2
 //! operation replies on its own writer, so a frame naming one gets the ERROR
 //! [`METHOD_NOT_FRAMED`] and the client sends that method as a line; the
@@ -64,7 +70,7 @@ pub(super) struct FrameCall {
 }
 
 impl FrameCall {
-    fn new(stream: u16, call: CallAux) -> Self {
+    pub(super) fn new(stream: u16, call: CallAux) -> Self {
         FrameCall {
             stream,
             call: CallAux { flags: CallFlags::empty(), ..call },

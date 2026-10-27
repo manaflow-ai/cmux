@@ -35,12 +35,16 @@ nonisolated enum UncaughtExceptionRecorder {
     static let frameLimit = 64
     private static let file = Mutex<URL?>(nil)
 
-    /// Sets the handler that writes into `url`. No other code in the app
-    /// installs an uncaught-exception handler (CEF and Ghostty do not).
-    static func install(writingTo url: URL) {
-        file.withLock { $0 = url }
+    /// Sets the handler, which writes into the file ``record(into:)`` names (nothing before that). No other code in
+    /// the app installs an uncaught-exception handler (CEF and Ghostty do not).
+    static func install() {
         // The crash has begun (CrashReporter.uncaughtException starts the crash deadline).
         NSSetUncaughtExceptionHandler { CrashReporter.uncaughtException($0, then: UncaughtExceptionRecorder.handle) }
+    }
+
+    /// Names the file the handler writes into: `AppRunMarker` names it once the previous run's record there is gone.
+    static func record(into url: URL) {
+        file.withLock { $0 = url }
     }
 
     /// Stops recording (a clean exit).

@@ -5,12 +5,13 @@ struct RFBClientMessage {
     var bytes: [UInt8] = []
 
     private mutating func u16(_ value: UInt16) {
-        bytes.append(UInt8(value >> 8))
-        bytes.append(UInt8(value & 0xFF))
+        bytes.append(UInt8(truncatingIfNeeded: value >> 8))
+        bytes.append(UInt8(truncatingIfNeeded: value))
     }
 
     private mutating func u32(_ value: UInt32) {
-        bytes.append(contentsOf: [UInt8(value >> 24), UInt8((value >> 16) & 0xFF), UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF)])
+        bytes.append(contentsOf: [UInt8(truncatingIfNeeded: value >> 24), UInt8(truncatingIfNeeded: value >> 16),
+                                  UInt8(truncatingIfNeeded: value >> 8), UInt8(truncatingIfNeeded: value)])
     }
 
     static func setPixelFormat(_ format: RFBPixelFormat) -> [UInt8] {
@@ -48,7 +49,7 @@ struct RFBClientMessage {
 
     /// Latin-1 only (RFC 6143): other characters become `?`.
     static func clientCutText(_ text: String) -> [UInt8] {
-        let latin1 = text.unicodeScalars.map { $0.value > 0xFF ? UInt8(ascii: "?") : UInt8($0.value) }
+        let latin1 = text.unicodeScalars.map { $0.value > 0xFF ? UInt8(ascii: "?") : UInt8(truncatingIfNeeded: $0.value) }
         var message = RFBClientMessage(bytes: [6, 0, 0, 0])
         message.u32(UInt32(latin1.count))
         message.bytes.append(contentsOf: latin1)

@@ -1311,6 +1311,137 @@
         }
       }
     },
+    "owner.badSnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أرسلت المهام قائمة مهام لم يتمكن cmux من قراءتها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadaci su poslali listu zadataka koju cmux ne može pročitati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opgaver sendte en opgaveliste, som cmux ikke kunne læse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aufgaben hat eine Aufgabenliste gesendet, die cmux nicht lesen konnte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasks sent a task list cmux could not read"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tareas envió una lista de tareas que cmux no pudo leer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tâches a envoyé une liste de tâches que cmux n’a pas pu lire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attività ha inviato un elenco di attività che cmux non è riuscito a leggere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タスクから cmux が読み取れないタスクリストが送られました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កិច្ចការបានផ្ញើបញ្ជីកិច្ចការដែល cmux មិនអាចអានបាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업에서 cmux가 읽을 수 없는 작업 목록을 보냈습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppgaver sendte en oppgaveliste som cmux ikke kunne lese"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadania wysłały listę zadań, której cmux nie mógł odczytać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarefas enviou uma lista de tarefas que o cmux não conseguiu ler"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задачи прислали список задач, который cmux не смог прочитать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "งานส่งรายการงานที่ cmux อ่านไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Görevler, cmux’un okuyamadığı bir görev listesi gönderdi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завдання надіслали список завдань, який cmux не зміг прочитати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Công việc đã gửi một danh sách công việc mà cmux không đọc được"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "任务发送了 cmux 无法读取的任务列表"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "任務傳送了 cmux 無法讀取的任務清單"
+          }
+        }
+      }
+    },
     "owner.notRunning": {
       "extractionState": "manual",
       "localizations": {

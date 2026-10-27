@@ -122,6 +122,7 @@ struct BlockingCallTraceTests {
         #expect(!codes.contains(0))
         #expect(BlockingKind.fileIO.traceCode == 1)
         #expect(BlockingKind.systemQuery.traceCode == 16)
+        #expect(BlockingKind.xpcReply.traceCode == 19)
     }
 
     @Test("The file hash is FNV-1a 64 of the fileID's bytes")
