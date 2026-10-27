@@ -95,3 +95,19 @@ test("a completion followed by an output-only update in the same frame is not lo
   expect(source.read(rows.sorted()).artifact.code).toBe("<p>Second</p>");
   source.dispose();
 });
+
+test("a fence still updates when a page prepend and new tail arrive together", () => {
+  const rows = new OrderedRows();
+  const fence = (body: string) => "```markdown\n# Notes\n\n" + body + "\n```";
+  put(rows, { id: "fence", version: 1, at: 1, kind: "assistant", text: fence("First") }, 10);
+  const source = new ArtifactLiveSource(
+    { kind: "markdown", lang: "md", code: "# Notes\n\nFirst", identity: "fence\u00000", revision: 1 },
+    rows.sorted(),
+  );
+  rows.clear();
+  put(rows, { id: "older", version: 1, at: 0, kind: "user" }, 1);
+  put(rows, { id: "fence", version: 2, at: 1, kind: "assistant", text: fence("Second") }, 10);
+  put(rows, { id: "tail", version: 1, at: 2, kind: "assistant" }, 11);
+  expect(source.read(rows.sorted()).artifact.code).toContain("Second");
+  source.dispose();
+});

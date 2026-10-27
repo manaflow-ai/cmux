@@ -13,6 +13,8 @@ export class RowUpdates {
   private listeners = new Set<Listener>();
   private orders = new WeakMap<AcpmuxRow, number>();
 
+  constructor(readonly rowOf: (id: string) => AcpmuxRow | undefined) {}
+
   orderOf(row: AcpmuxRow) {
     return this.orders.get(row) ?? row.at;
   }

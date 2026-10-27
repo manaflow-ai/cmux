@@ -1,6 +1,7 @@
 // One opened fence's live source. Opening may inspect history; a streamed delta reads only its
 // indexed row and at most the bounded set of historical versions, never the whole transcript.
 import { type Artifact } from "./artifactPreview";
+import { rowUpdates } from "../rowUpdates";
 import { ArtifactWrittenLive } from "./artifactWrittenLive";
 import { artifactForIdentity, artifactVersions, type ArtifactSourceRow } from "./artifactVersions";
 
@@ -46,7 +47,7 @@ export class ArtifactLiveSource {
       this.index = rows[shifted]?.id === this.rowId ? shifted : -1;
     }
     this.length = rows.length;
-    const row = rows[this.index];
+    const row = rowUpdates(rows)?.rowOf(this.rowId) ?? rows[this.index];
     const next = row && this.accepted.identity ? artifactForIdentity([row], this.accepted.identity, after) : undefined;
     if (next) {
       this.accepted = { ...this.accepted, ...next };

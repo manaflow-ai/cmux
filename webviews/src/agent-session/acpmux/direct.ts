@@ -951,7 +951,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// reuse this reference so the pane's derived rows stay memoized.
   private snapshot: AcpmuxRow[] | undefined;
   private pullRequestActivityVersion = Symbol();
-  private readonly artifactUpdates = new RowUpdates();
+  private readonly artifactUpdates = new RowUpdates((id) => this.get(id));
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
   /// plain fields: a turn's totals change with what was folded before it, not its version), so what
