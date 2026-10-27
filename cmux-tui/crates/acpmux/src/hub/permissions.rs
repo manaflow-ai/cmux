@@ -396,8 +396,10 @@ impl Hub {
             None
         };
         let outside = target.as_ref().is_some_and(|t| !t.as_ref().is_some_and(|t| t.inside));
+        // Only deny-all matters here, which MDM's off never makes: the policy as stored, with no read
+        // of the off (review 121). A read that asks reads it once there (`handle_permission_for`).
         let config_policy = self.config.read().await.permission_policy;
-        let policy = self.policy_for(session, config_policy);
+        let policy = Self::stored_policy_for(session, config_policy);
         let probe = json!({"toolCall": {"title": format!("Read {}", path.display()), "kind": "read", "rawInput": {"path": path}}});
         let rule =
             session.meta().permission_rules.as_ref().and_then(|r| super::rules::decide(r, &probe));

@@ -231,6 +231,7 @@ impl Hub {
             preview: Default::default(),
             reported_off,
             started: latch.clone(),
+            claimed_under: None,
         };
         // An off this start began under, or that began while it ran, holds though an unset
         // followed (review 73): an agent that came up in full access then is not kept.

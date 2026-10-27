@@ -156,9 +156,18 @@ pub(super) struct Pooled {
     /// unset followed. An entry a chat was claiming when an off came and went is out of the
     /// push's drain, and may not reach a chat or go back after the unset (review 120 of #23322).
     started: crate::hub::full_access_bound::OffLatch,
+    /// MDM's off as the chat that claimed it began its claim (`pool_claim`), which may have waited
+    /// on this start: an off that came and went before the start read it counts too (review 121).
+    claimed_under: Option<crate::hub::full_access_bound::OffLatch>,
 }
 
 impl Pooled {
+    /// Whether MDM's off held or began since its start or its claim began, though an unset
+    /// followed (`started`, `claimed_under`).
+    fn lived_through_off(&self) -> bool {
+        self.started.off() || self.claimed_under.as_ref().is_some_and(|c| c.off())
+    }
+
     /// Whether its harness reported full access while MDM forced it off (`reported_off`), kept
     /// for the handoff after the entry is given up (review 77 of #23322).
     pub(super) fn reported_off(&self) -> Arc<AtomicBool> {
@@ -567,7 +576,7 @@ impl Hub {
             // pool lock, as at completion (`pool_want`), so a drain after this one finds it.
             let latch = self.off_latch();
             let mut pool = lock(&self.pool.pool);
-            if latch.off() || p.started.off() || p.reported_off.load(Ordering::SeqCst) {
+            if latch.off() || p.lived_through_off() || p.reported_off.load(Ordering::SeqCst) {
                 Some(p)
             } else {
                 pool.restore(&key, p, now)
@@ -644,6 +653,9 @@ impl Hub {
         {
             return None;
         }
+        // MDM's off as this claim begins: its one read, before any pool lock (review 76), kept with
+        // the entry it claims (`Pooled::claimed_under`, review 121 of #23322).
+        let off = self.off_latch();
         let spec = self.pool_spec_for(meta, profile, defaults_env).await.ok()?;
         loop {
             let took = lock(&self.pool.pool).take(&spec.key);
@@ -678,6 +690,7 @@ impl Hub {
                         p.parked = false;
                     }
                     let id = p.session_id.clone();
+                    p.claimed_under = Some(off);
                     lock(&self.pool.claimed).insert(id.clone(), p);
                     return Some(id);
                 }
@@ -727,7 +740,7 @@ impl Hub {
         // that reported it while the off held, though it is unset now (review 76). The chat
         // starts cold under the bound.
         if p.reported_off.load(Ordering::SeqCst)
-            || ((off.off() || p.started.off()) && p.runs_full_access(&spawn.argv))
+            || ((off.off() || p.lived_through_off()) && p.runs_full_access(&spawn.argv))
         {
             tracing::info!(session = %id, "pooled session not taken: it runs in full access, which MDM forces off");
             self.pool_discard(vec![p]);
