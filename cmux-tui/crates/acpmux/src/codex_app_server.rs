@@ -813,4 +813,83 @@ mod tests {
             );
         }
     }
+    #[cfg(unix)]
+    fn running_translator() -> Arc<Translator> {
+        let tr = translator();
+        *tr.auth.lock().unwrap() = AuthGate::from_read(Ok(None));
+        let start = split(tr.start());
+        tr.inner.from_server(&json!({"id":start.server[0]["id"], "result":{}}));
+        let out = tr.inner.from_client(
+            &json!({"id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}),
+        );
+        let id = out
+            .iter()
+            .find_map(|o| match o {
+                Out::Server(v) if v["method"] == "thread/start" => Some(v["id"].clone()),
+                _ => None,
+            })
+            .unwrap();
+        tr.inner.from_server(&json!({"id":id,"result":{"thread":{"id":"thread"}}}));
+        tr.inner.from_server(
+            &json!({"method":"turn/started","params":{"threadId":"thread","turn":{"id":"turn"}}}),
+        );
+        tr
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_login_never_queues_cancellation() {
+        let tr = running_translator();
+        let file = AccessFile {
+            access_token: "a".into(),
+            account_id: "account".into(),
+            expires_at: 4_102_444_800,
+            modified: std::time::SystemTime::UNIX_EPOCH,
+        };
+        *tr.auth.lock().unwrap() = AuthGate::from_read(Ok(Some(file.clone())));
+        tr.auth.lock().unwrap().login_id = Some(json!("login"));
+        let out = tr.from_client_read(
+            &json!({"method":"session/cancel","params":{"sessionId":"thread"}}),
+            || Ok(Some(file)),
+        );
+        assert!(out.iter().any(|o| matches!(o, Out::Server(v) if v["method"] == "turn/interrupt")));
+        assert!(tr.auth.lock().unwrap().held_client.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_login_failure_denies_reverse_permissions_to_server() {
+        for response_queued in [false, true] {
+            let tr = running_translator();
+            let out = tr.inner.from_server(&json!({"id":"server-approval","method":"item/commandExecution/requestApproval","params":{"threadId":"thread","itemId":"item","command":"pwd"}}));
+            let request = out
+                .into_iter()
+                .find_map(|o| match o {
+                    Out::Client(v) if v.get("id").is_some() => Some(v),
+                    _ => None,
+                })
+                .unwrap();
+            let mut auth = tr.auth.lock().unwrap();
+            auth.login_id = Some(json!("login"));
+            if response_queued {
+                auth.held_client.push(json!({"id":request["id"],"result":{"outcome":{"outcome":"selected","optionId":"accept"}}}));
+            } else {
+                auth.held.push(Out::Client(request));
+            }
+            drop(auth);
+            let out = tr.from_server(&json!({"id":"login","error":{"code":-1,"message":"failed"}}));
+            assert!(out.iter().any(|o| matches!(o, Out::Server(v) if v["id"] == "server-approval" && v["result"]["decision"] != "accept")));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn renewal_never_steals_background_termination_reply() {
+        let tr = running_translator();
+        let out = tr.background().request(&json!({"id":"client-stop","method":TERMINATE,"params":{"threadId":"thread","processId":"process"}})).unwrap();
+        let Out::Server(request) = &out[0] else { panic!("server request") };
+        tr.auth.lock().unwrap().login_id = Some(json!("login"));
+        let out = tr.from_server(&json!({"id":request["id"],"result":{"terminated":true}}));
+        assert!(out.iter().any(|o| matches!(o, Out::Client(v) if v["id"] == "client-stop")));
+    }
 }
