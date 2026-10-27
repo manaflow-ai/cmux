@@ -59,7 +59,7 @@ extension AppDelegate {
         TerminalHooks(services: services).install()
         // The terminal key path's input-source switch keys, read off main now and on each activation.
         GhosttyRuntime.shared.inputSources.start(runner: services.work)
-        GhosttyRuntime.shared.traceHook.deliverGPUCompletions(on: services.mainWork, to: FrameScheduler.appDisplays.presents)
+        GhosttyRuntime.shared.traceHook.connect(on: services.mainWork, presents: FrameScheduler.appDisplays.presents)
         // Renderer-presented terminal frames pass through no `setContents:` hook: they count in the app's RenderStats.
         GhosttyRuntime.shared.traceHook.countPresentedFrames(in: control.renderStats.presentedFrames)
         GhosttyRuntime.shared.attach(to: services.mainWork, holdsHiddenActions: services.features.isEnabled(.terminalHiddenActionHold))

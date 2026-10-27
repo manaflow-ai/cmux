@@ -210,7 +210,13 @@ Launch path (`Packages/macOS/CmuxNext/Sources`):
 - No cmux window sets `isRestorable = false` except `BrowserPopupWindow`; AppKit state restoration runs.
 
 Chromium:
-- ChromiumWarmup: launchPreloadDelay 3 s, idleInput 750 ms, maxWait 60 s. Chromium is the default engine,
+- ChromiumWarmup (p06-scheduler-050, task 018): the launch check, `CefInitialize` and the spare window are
+  idle tasks of the main-thread scheduler, posted once startup settled (`ChromiumWarmupIdle`); the
+  preload's framework read waits behind the startup fence (p08-startup-045). inputQuiet 750 ms, counted from
+  the app's last input, with one deadline (`ChromiumWarmup.quiet`) only after input while a step waits;
+  maxDelay 5 s (500 ms for a spare), then background work. No launch timer. `CefInitialize` runs in its idle
+  task's own turn (`CEFEngine.initializeLoaded` after `libraryLoadEnded`, `CEFLoadedStart`), not in a later
+  continuation; the Chromium Host's launch start (`startWithoutIdleWait`) awaits it. Chromium is the default engine,
   and cmux pages (Home, New Tab, agent pages) are hosted in Chromium (`PageWebView.chromiumHosting`,
   perf-lead F3). `CEFEngine.makeTab` -> `CEFRuntime.shared.start` runs at once for a restored visible
   Chromium tab. 11 `CEFRuntime.shared.start(` sites (9 are user features: passwords, passkeys).
@@ -1002,6 +1008,11 @@ focused then visible. Acceptance: `views_built` == visible panes; 60-workspace t
 **067 Sparkle.** Files: `Packages/macOS/CmuxNext/Package.swift`, `CmuxNextUpdater/UpdaterService.swift`. Change: measure the
 Sparkle image and initializers; close with the number unless >= 3 ms; if so (risk:high), a protocol whose implementation
 dlopens Sparkle off main at afterStartup. Acceptance: number recorded, or otool no longer lists Sparkle and updater tests pass.
+Measure: `scripts/measure/sparkle-image-cost.sh` (fleet entry) runs `scripts/cmux-next/sparkle-image-cost.py`: per
+fresh process, `dlopen(Sparkle, RTLD_NOW)` after its system dependencies, minus a control dlopen; p50/p95/p99/max and
+the verdict (`keep-linked` under 3 ms p50, else `dlopen-off-main`); `--app` also lists the executable's non-system
+dylibs. Number: not yet run (the entry needs the hq measureScripts allowlist); Package.swift and UpdaterService.swift
+stay unchanged until the number says `dlopen-off-main`.
 
 **068 FFI and libghostty.** Files: `AppServices.swift`, `CmuxNextTerminal/GhosttyRuntime.swift`. Change: signpost first FFI
 calls and `ghostty_init`; tokio or relay starts reachable before completion move to afterStartup owners; check GhosttyNextKit

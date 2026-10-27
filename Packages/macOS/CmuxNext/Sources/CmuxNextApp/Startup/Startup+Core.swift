@@ -86,7 +86,7 @@ extension AppDelegate {
 
     /// First-window hooks and the afterStartup warm-ups (palette, icon picker, open panel) and cleanup.
     func registerFirstWindowHooks(services: AppServices) {
-        services.windows.onFirstWindow = { [weak services, startup = order.startup] _ in
+        services.windows.onFirstWindow = { [weak services, startup = order.startup] first in
             #if DEBUG || CMUX_BENCH_HOOKS
             if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
             #endif
@@ -96,8 +96,19 @@ extension AppDelegate {
             if let services, let window = services.windows.active?.window {
                 RecoveryNotice.post(store: services.recoveryDrafts, in: window, on: startup, work: services.work, mainWork: services.mainWork)
             }
-            CATransaction.setMainCompletion { [weak self] in
+            CATransaction.setMainCompletion { [weak self, weak services, weak first] in
                 DebugTimings.markLaunch("first_window_frame_committed")
+                #if DEBUG || CMUX_BENCH_HOOKS
+                // Before the gate: its later-tab warm-ups build panes. Structure only; the threads are read off main.
+                if let services {
+                    self?.control.startupReport.firstFrameCommitted(
+                        contentSubviews: first?.window?.contentView?.subviews,
+                        viewsBuilt: services.windows.controllers.reduce(0) { built, controller in
+                            controller.mountedContents.reduce(built) { $0 + $1.panes.count }
+                        },
+                        readThreads: StartupReportRecorder.threadRead(on: services.work, replyOn: services.mainWork))
+                }
+                #endif
                 self?.order.startup.firstFrameCommitted()
             }
         }

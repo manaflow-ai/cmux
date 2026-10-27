@@ -231,6 +231,35 @@ struct PointerFrameCoalescerTests {
         withExtendedLifetime(springs) {}
     }
 
+    /// The trailing delivery runs in the window's input stage, before the frame's springs and drivers,
+    /// and a client it wakes ticks in the same frame (p04-input-032; Blink dispatches rAF-aligned input
+    /// before the frame's rAF, `WidgetBase::BeginMainFrame`): a drag whose ghost settled shows the
+    /// frame's move at this vsync, not the next.
+    @Test func theTrailingDeliveryRunsBeforeTheFrameAndWakesItsClientsThisFrame() {
+        let rig = Rig()
+        let log = Log()
+        var springs: [FrameClient] = []
+        for index in 0..<4 {
+            let spring = FrameClient(owner: "spring \(index)", on: rig.scheduler) { _ in log.events.append("frame"); return false }
+            spring.activate()
+            springs.append(spring)
+        }
+        let ghost = FrameClient(owner: "ghost", on: rig.scheduler) { _ in log.events.append("ghost"); return false }
+        let consumer = rig.coalescer.consumer(owner: "drag") { input in
+            guard input.coalescedCount > 1 else { return log.events.append("leading") }
+            log.events.append("trailing")
+            ghost.activate()
+        }
+        for index in 0..<3 { consumer.post(Self.drag(x: index, at: 100 + Double(index))) }
+        #expect(log.events == ["leading"])
+        rig.tick(1)
+        #expect(log.events.dropFirst().first == "trailing", "a frame client ran before the frame's input: \(log.events)")
+        #expect(log.events.filter { $0 == "frame" }.count == 4)
+        #expect(log.events.last == "ghost", "the client the trailing delivery woke did not tick this frame: \(log.events)")
+        rig.coalescer.invalidate()
+        _ = springs
+    }
+
     // MARK: Discrete input
 
     /// The application's hook flushes a consumer's pending moves before a button, and keyed posts and
