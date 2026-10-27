@@ -84,6 +84,28 @@ struct TerminalScrollerTests {
         #expect(scroller.documentView?.frame.height == 2000)
     }
 
+    /// The window or the pane grows while the terminal shows the bottom of a long scrollback: the
+    /// clip gets taller than what is left of the document, and AppKit clamps its origin into the
+    /// document. That move is the scroll view's own layout, not a person's scroll. Before the fix the
+    /// scroller reported it as a row above the bottom, and Ghostty scrolled the terminal into its
+    /// history with the prompt out of view, further at each grow step (dogfood of chrome-parity-v1,
+    /// 2026-10-27: "resizing window makes terminal looks buggy").
+    @Test func aTallerClipAtTheBottomAsksForNoRow() {
+        let scroller = scroller()
+        var rows: [UInt64] = []
+        scroller.onScrollToRow = { rows.append($0) }
+        scroller.update(Self.bar(90)) // the bottom: rows 90 to 99 of 100
+        for height: CGFloat in [150, 200, 400] {
+            scroller.frame = NSRect(x: 0, y: 0, width: 12, height: height)
+            scroller.tile()
+            scroller.layout()
+        }
+        #expect(rows.isEmpty, "a taller clip asked Ghostty for rows \(rows)")
+        // Forty points a row at 400 pt: the knob stays at the bottom.
+        #expect(scroller.documentView?.frame.height == 4000)
+        #expect(scroller.contentView.bounds.origin.y == 3600)
+    }
+
     /// A knob drag before Ghostty answers: each move is compared with the row last asked for, not with
     /// Ghostty's offset from before the drag, so a move back to that offset still reports.
     @Test func aKnobDragReportsAMoveBackToGhosttysStaleRow() {
