@@ -147,7 +147,7 @@ public final class PageHostPool {
             scheduleBuild()
             return nil
         }
-        let start = ContinuousClock.now
+        let start = SuspendingClock.now
         spare = nil
         spareReady = false
         claimed[ObjectIdentifier(host)] = WeakHost(host)
@@ -226,8 +226,8 @@ public final class PageHostPool {
         if claims.count > Self.maximumRecords { claims.removeFirst(claims.count - Self.maximumRecords) }
     }
 
-    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
-        let (seconds, attoseconds) = (ContinuousClock.now - start).components
+    static func milliseconds(since start: SuspendingClock.Instant) -> Double {
+        let (seconds, attoseconds) = (SuspendingClock.now - start).components
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 }

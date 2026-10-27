@@ -157,7 +157,7 @@ final class ControlSnapshotPublisher {
     /// turn of the change itself.
     func publishNow() {
         guard !isStopped else { return }
-        let started = ContinuousClock.now
+        let started = SuspendingClock.now
         builds += 1
         let (built, settings, tabSearch) = topologyTracking.read({
             (Self.topology(services, cache: workspaceInfos, sequences: false), services.settings?.snapshot.root,
@@ -173,7 +173,7 @@ final class ControlSnapshotPublisher {
             snapshot.settings = settings
             snapshot.tabSearch = tabSearch
         }
-        let elapsed = ContinuousClock.now - started
+        let elapsed = SuspendingClock.now - started
         // The cache keeps the tab count as entries change: no walk of every tab per publish.
         DebugTimings.controlPublished(tabs: workspaceInfos.tabCount, elapsed)
         if elapsed > .milliseconds(2) {

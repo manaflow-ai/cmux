@@ -40,7 +40,7 @@ public nonisolated struct WindowFrame: Sendable {
     /// Reads the window's composited image back to back until `until` ms after `start`. `crop`: the
     /// part to keep, as fractions of the image (top-left origin), e.g. a tab strip at full scale. Each
     /// read waits for the window server: run it on a system lane, never on main or the pool.
-    public static func record(_ window: CGWindowID, scale: Double, crop: CGRect? = nil, from start: ContinuousClock.Instant,
+    public static func record(_ window: CGWindowID, scale: Double, crop: CGRect? = nil, from start: SuspendingClock.Instant,
                               until: Double) -> [WindowFrame] {
         var frames: [WindowFrame] = []
         // Each pass reads one image (a window server round trip); the loop ends at the deadline.
@@ -118,8 +118,8 @@ public nonisolated struct WindowFrame: Sendable {
         return Double(near) / Double(total)
     }
 
-    static func elapsed(since start: ContinuousClock.Instant) -> Double {
-        let elapsed = ContinuousClock.now - start
+    static func elapsed(since start: SuspendingClock.Instant) -> Double {
+        let elapsed = SuspendingClock.now - start
         return Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15
     }
 

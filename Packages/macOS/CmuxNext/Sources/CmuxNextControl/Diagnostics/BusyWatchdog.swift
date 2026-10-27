@@ -83,8 +83,10 @@ public final class BusyWatchdog: Sendable {
         var startNanos: UInt64
     }
 
+    /// `clock` times the window: `SuspendingClock` (`CLOCK_UPTIME_RAW`), the clock its CPU share divides by,
+    /// so a window that spans system sleep still lasts its whole awake length.
     public init(configuration: Configuration = Configuration(), log: HangLog, ledger: WakeupLedger = .shared,
-                activity: ExpectedActivity = .shared, clock: any Clock<Duration> = ContinuousClock()) {
+                activity: ExpectedActivity = .shared, clock: any Clock<Duration> = SuspendingClock()) {
         self.configuration = configuration
         self.log = log
         self.ledger = ledger

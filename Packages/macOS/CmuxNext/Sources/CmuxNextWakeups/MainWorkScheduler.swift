@@ -196,7 +196,7 @@ public final class MainWorkScheduler {
     ///   - otherLinks: The other schedulers' display links (hold long idle periods; their frames
     ///     open short ones). The default has none.
     ///   - makeLink: Makes the fake link.
-    public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
+    public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = SuspendingClock(),
                                ledger: WakeupLedger = .shared, startup: StartupPhase = .settled(),
                                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                                performTurn: TurnPerformer? = nil, idleTimer: any IdlePeriodTimer = MainRunLoopPreciseTimer(),

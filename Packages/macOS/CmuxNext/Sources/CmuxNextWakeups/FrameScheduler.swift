@@ -157,8 +157,10 @@ public final class FrameScheduler: NSObject {
 
     /// - Parameters:
     ///   - displays: The clock to subscribe to (the app's: ``appDisplays``).
+    ///   - clock: The input fallback's clock: `SuspendingClock`, the `CLOCK_UPTIME_RAW` of frame timestamps
+    ///     (Chromium's `base::TimeTicks`, base/time/time_mac.mm), so it never counts system sleep.
     ///   - sequences: Its frame sequences (nil: one on the app's trace runtime).
-    init(name: String, host: Host, displays: DisplayClock, clock: any Clock<Duration> = ContinuousClock(),
+    init(name: String, host: Host, displays: DisplayClock, clock: any Clock<Duration> = SuspendingClock(),
          ledger: WakeupLedger = .shared, budget: MainFrameBudget?, sequences: FrameSequenceTracker? = nil) {
         self.budget = budget
         self.sequences = sequences ?? FrameSequenceTracker()

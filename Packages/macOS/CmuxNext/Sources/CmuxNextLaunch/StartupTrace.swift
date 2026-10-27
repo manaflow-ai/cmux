@@ -87,10 +87,10 @@ public final class StartupTrace: Sendable {
     /// - Parameters:
     ///   - configuration: What to record, how long, and where.
     ///   - processStartNanos: `CLOCK_UPTIME_RAW` nanoseconds at process start.
-    ///   - clock: The deadline's clock; tests inject a manual one.
+    ///   - clock: The deadline's clock (`SuspendingClock`: the trace's `CLOCK_UPTIME_RAW`); tests inject a manual one.
     ///   - now: `CLOCK_UPTIME_RAW` nanoseconds now; tests inject their own.
     public init(configuration: StartupTraceConfiguration, processStartNanos: UInt64,
-                clock: any Clock<Duration> = ContinuousClock(),
+                clock: any Clock<Duration> = SuspendingClock(),
                 now: (@Sendable () -> UInt64)? = nil) {
         self.configuration = configuration
         self.processStartNanos = processStartNanos
