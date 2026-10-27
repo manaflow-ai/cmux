@@ -44,7 +44,7 @@ enum AgentBrowserProfile {
     static func ensure(_ profiles: BrowserProfileService, deadline: Duration = .seconds(5)) async throws -> String {
         if profiles.isKnown(id) { return id }
         _ = try await profiles.createProfile(id: id, name: name, color: nil, icon: nil)
-        let services = profiles.services
+        guard let services = profiles.services else { throw AppServicesReference.closing }
         try await reported(within: deadline, on: services.mainWork, deadlines: services.mainDeadlines) { profiles.isKnown(id) }
         return id
     }

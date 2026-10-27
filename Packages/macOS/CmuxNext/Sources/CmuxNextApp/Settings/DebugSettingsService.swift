@@ -56,7 +56,9 @@ enum TunableCatalog {
 /// file is read.
 @MainActor
 final class DebugSettingsService: InternalPageProvider {
-    let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     private var controller: DebugSettingsWindowController?
     private var sharedModel: DebugSettingsModel?
     /// The React page of the window and of each tab (by key), closed through the host that opened
@@ -72,18 +74,20 @@ final class DebugSettingsService: InternalPageProvider {
     nonisolated static let fileOverrideKey = "CMUX_NEXT_DEBUG_TUNABLES_FILE"
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
     }
 
     var isAvailable: Bool { DevTools.isEnabled }
     var model: DebugSettingsModel? { sharedModel }
     var window: NSWindow? {
-        controller?.window ?? services.pages.window(showing: .debugSettings, windows: services.windows.controllers)?.window
+        if let window = controller?.window { return window }
+        guard let services else { return nil }
+        return services.pages.window(showing: .debugSettings, windows: services.windows.controllers)?.window
     }
 
     /// Registers the catalog and activates the store (dev tools, or a bench run's override file).
     func start() {
-        guard let url = Self.launchFile(launch: services.environment.launch, environment: ProcessInfo.processInfo.environment) else { return }
+        guard let services, let url = Self.launchFile(launch: services.environment.launch, environment: ProcessInfo.processInfo.environment) else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
         fileURL = url
@@ -157,6 +161,7 @@ final class DebugSettingsService: InternalPageProvider {
     /// developer tools.
     func show(query: String? = nil, selection: DebugSettingsSelection? = nil, focus: Bool = true) throws {
         guard isAvailable else { throw ActionFailure(message: RefusalStrings.debugSettingsUnavailable) }
+        guard let services else { throw AppServicesReference.closing }
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
         if SettingsPresentation.tunable.value == .pane, let window = services.windows.active {
@@ -166,13 +171,13 @@ final class DebugSettingsService: InternalPageProvider {
             if services.pages.show(.debugSettings, in: window, focus: focus) != nil { return }
         }
         if controller == nil {
-            let page = webPage(model: model)
+            let page = webPage(model: model, services: services)
             windowPage = page
             let controller = DebugSettingsWindowController(model: model, content: page,
                                                            onFind: page.map { page in { _ = page.send(command: "focusSearch") } })
             controller.onClose = { [weak self] in
                 guard let self else { return }
-                if let page = windowPage { services.webUI.close(page) }
+                if let page = windowPage { self.services?.webUI.close(page) }
                 windowPage = nil
                 self.controller = nil
                 dropModelWhenUnused()
@@ -186,6 +191,7 @@ final class DebugSettingsService: InternalPageProvider {
     /// Closes the window and every Debug Settings tab.
     func close() {
         controller?.window?.performClose(nil)
+        guard let services else { return }
         for key in services.pages.keys(of: .debugSettings) {
             guard let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { continue }
             pane.close([id])
@@ -193,7 +199,7 @@ final class DebugSettingsService: InternalPageProvider {
     }
 
     private func dropModelWhenUnused() {
-        guard controller == nil, !services.pageIsOpen(.debugSettings) else { return }
+        guard controller == nil, services?.pageIsOpen(.debugSettings) != true else { return }
         sharedModel = nil
     }
 
@@ -206,7 +212,7 @@ final class DebugSettingsService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
-        if let page = webPage(model: model) {
+        if let services, let page = webPage(model: model, services: services) {
             // Called once per tab; a replaced page is no tab's view.
             if let replaced = tabPages.updateValue(page, forKey: key) { services.webUI.close(replaced) }
             DebugSettingsModel.followTheme(window?.themeScope ?? .app)
@@ -218,7 +224,7 @@ final class DebugSettingsService: InternalPageProvider {
     /// The React page over `model` when Debug Settings `debugSettings.surface` is `web` (the
     /// default), else nil (the SwiftUI view). Its own window has a standard title bar
     /// (`DebugSettingsWindowController`), so the page needs no title bar inset.
-    private func webPage(model: DebugSettingsModel) -> PageWebView? {
+    private func webPage(model: DebugSettingsModel, services: AppServices) -> PageWebView? {
         guard PageTunables.debugSettings.value == .web else { return nil }
         let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes, on: services.mainWork)
         let native = AppPageNativeProvider(services: services, page: .debugSettings)
@@ -229,7 +235,7 @@ final class DebugSettingsService: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
-        if let page = tabPages.removeValue(forKey: key) { services.webUI.close(page) }
+        if let page = tabPages.removeValue(forKey: key) { services?.webUI.close(page) }
         dropModelWhenUnused()
     }
 
@@ -241,6 +247,6 @@ final class DebugSettingsService: InternalPageProvider {
 
     /// The tab's page went (the tab store closed it); the model stays with the tab.
     func viewDiscarded(_ key: String) {
-        if let page = tabPages.removeValue(forKey: key) { services.webUI.close(page) }
+        if let page = tabPages.removeValue(forKey: key) { services?.webUI.close(page) }
     }
 }

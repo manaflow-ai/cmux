@@ -15,6 +15,7 @@ extension BrowserProfileService {
     var usesDaemonRecords: Bool { daemonServesRecords && book.recordsMigrated }
 
     var daemonServesRecords: Bool {
+        guard let services else { return false }
         let home = services.machines.local
         return home.supports(DaemonCapability.browserProfiles.rawValue) && home.store.personal.isLoaded
     }
@@ -35,6 +36,7 @@ extension BrowserProfileService {
     /// A record whose proxy this app cannot read keeps its pages off the direct path. A Chromium engine not built
     /// yet is left unbuilt; it takes the proxies as it is built (`observeHomeRecords`).
     func applyProxies() {
+        guard let services else { return }
         guard usesDaemonRecords else { return }
         let webKit = services.cache.webKit.profileStore, cef = services.cache.chromium.built
         for snapshot in services.machines.local.store.personal.browserProfiles {
@@ -54,6 +56,7 @@ extension BrowserProfileService {
     /// Returns the id.
     func createProfile(id: String = BrowserProfileRecord.newID(), name: String, color: String?, icon: String?,
                        source: [String: String]? = nil) async throws -> String {
+        guard let services else { throw AppServicesReference.closing }
         guard usesDaemonRecords else {
             return try edit { try $0.create(id: id, name: name, color: color, icon: icon, source: source) }.id
         }
@@ -68,6 +71,7 @@ extension BrowserProfileService {
     /// `createProfile` from a synchronous handler: validation errors throw
     /// now; the daemon write runs in the background.
     func createProfileNow(name: String, color: String?, icon: String?) throws {
+        guard let services else { return }
         guard usesDaemonRecords else {
             try edit { try $0.create(name: name, color: color, icon: icon) }
             return
@@ -96,6 +100,7 @@ extension BrowserProfileService {
     }
 
     private func update(_ request: UpdateBrowserProfileRequest) throws {
+        guard let services else { return }
         guard isKnown(request.id) else { throw BrowserProfileBookError.unknownProfile }
         services.machines.local.send("update-browser-profile") { try await $0.updateBrowserProfile(request) }
     }
@@ -110,6 +115,7 @@ extension BrowserProfileService {
     /// daemon and re-renders every tab's profile, hidden windows' too. A trigger, so each change of the
     /// records applies.
     func observeHomeRecords() {
+        guard let services else { return }
         services.cache.chromium.whenBuilt { [weak self] _ in self?.applyProxies() }  // before its first page's request
         let store = services.machines.local.store
         homeRecordsObservation = ServiceObservation(.visible, owner: "BrowserProfiles.homeRecords", on: services.mainWork) { [weak self] in
@@ -123,6 +129,7 @@ extension BrowserProfileService {
     /// The home daemon's records, or whether it serves them, changed: the first time it serves them, this Mac's
     /// file records are copied there and the tabs re-render once the copy ended; otherwise they re-render now.
     private func homeRecordsChanged(serves: Bool) {
+        guard let services else { return }
         guard serves, !book.recordsMigrated else {
             refreshPresentation()
             applyProxies()
@@ -144,6 +151,7 @@ extension BrowserProfileService {
     /// id is idempotent there, so an interrupted copy resumes), including the
     /// default profile's name, color and icon when the user changed them.
     func migrateRecordsToDaemon() async {
+        guard let services else { return }
         guard !migratingRecords, let connection = services.machines.local.connection else { return }
         migratingRecords = true
         defer { migratingRecords = false }

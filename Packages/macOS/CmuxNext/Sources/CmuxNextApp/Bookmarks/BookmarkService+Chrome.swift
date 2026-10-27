@@ -15,6 +15,7 @@ import Foundation
 extension BookmarkService {
     /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`).
     func attach(_ entry: BrowserEntry) {
+        guard let services else { return }
         let key = entry.tab.id.rawValue
         let adapter = BookmarkBarSourceAdapter(service: self, tabKey: key)
         let bar = BookmarksBarView()
@@ -89,6 +90,7 @@ extension BookmarkService {
     /// The star (or Bookmark This Page): bookmarks the page in the last-used
     /// folder if it is not yet bookmarked, then opens the edit bubble.
     func starPressed(tab key: String, anchor: NSView?) {
+        guard let services else { return }
         if let open = BookmarkEditBubble.current, open.isShown { return open.close() }
         guard let entry = services.cache.existingBrowser(key), let url = entry.tab.state.url, Self.canBookmark(url) else {
             return services.registry.refuse(BookmarkAppStrings.cannotBookmark)
@@ -110,9 +112,10 @@ extension BookmarkService {
     }
 
     func showBubble(for node: BookmarkNode, profile: String, isNew: Bool, anchor: NSView, tab key: String?) {
+        guard let services else { return }
         let folders = BookmarkFolderChoice.all(in: tree(profile), barTitle: BookmarkStrings.barTitle, otherTitle: BookmarkStrings.otherBookmarks)
         let bubble = BookmarkEditBubble(
-            isNew: isNew, title: node.title, folder: node.parent, folders: folders, pageTitle: { [weak self] in key.flatMap { self?.services.cache.existingBrowser($0)?.tab.state }.flatMap { $0.url?.host == node.url?.host ? $0.title : nil } },
+            isNew: isNew, title: node.title, folder: node.parent, folders: folders, pageTitle: { [weak self] in key.flatMap { self?.services?.cache.existingBrowser($0)?.tab.state }.flatMap { $0.url?.host == node.url?.host ? $0.title : nil } },
             mainWork: services.mainWork,
             onSave: { [weak self] result in
                 guard let self, let current = tree(profile).node(node.id) else { return }
@@ -127,7 +130,7 @@ extension BookmarkService {
                 guard let self, let url = node.url else { return }
                 for bookmark in tree(profile).bookmarks(for: url) { try? apply(.delete(id: bookmark.id), profile: profile) }
             },
-            onMore: { [weak self] in self?.services.bookmarkPages.open(selecting: node.id) })
+            onMore: { [weak self] in self?.services?.bookmarkPages.open(selecting: node.id) })
         bubble.show(relativeTo: anchor)
     }
 }
@@ -171,13 +174,13 @@ final class BookmarkBarSourceAdapter: BookmarksBarSource {
     }
 
     func open(_ node: BookmarkNode, disposition: BookmarkOpenDisposition) {
-        guard let service else { return }
-        BookmarkOpener(services: service.services).open(node, profile: profile, disposition: disposition, fromTab: tabKey)
+        guard let services = service?.services else { return }
+        BookmarkOpener(services: services).open(node, profile: profile, disposition: disposition, fromTab: tabKey)
     }
 
     func openAll(in folder: String) {
-        guard let service else { return }
-        BookmarkOpener(services: service.services).openAll(in: folder, profile: profile, fromTab: tabKey)
+        guard let services = service?.services else { return }
+        BookmarkOpener(services: services).openAll(in: folder, profile: profile, fromTab: tabKey)
     }
 
     func moveToBar(_ id: String, index: Int) {
@@ -189,7 +192,7 @@ final class BookmarkBarSourceAdapter: BookmarksBarSource {
     }
 
     func contextMenu(for node: BookmarkNode?) -> NSMenu? {
-        guard let registry = service?.services.registry else { return nil }
+        guard let registry = service?.services?.registry else { return nil }
         // The bar belongs to a browser tab: Bookmark This Page there is available.
         guard let node else { return registry.makeContextMenu(for: .bookmarksBar, implied: .browserFocused) }
         return registry.makeContextMenu(for: .bookmark, target: ActionTargetRef(kind: .bookmark, id: node.id), implied: .browserFocused)
@@ -200,6 +203,7 @@ extension BookmarkService {
     /// Follows `browser.showBookmarksBar` in cmux.json, the current value now. `visible`: the bars of every
     /// browser chrome show or hide; a person's change flushes before its frame.
     func follow(_ settings: SettingsController) {
+        guard let services else { return }
         barObservation = ServiceObservation(.visible, owner: "BookmarkService.showsBar", on: services.mainWork) {
             settings.snapshot.browserShowBookmarksBar
         } apply: { [weak self] shown in

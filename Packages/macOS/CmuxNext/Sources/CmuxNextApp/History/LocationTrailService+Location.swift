@@ -15,6 +15,7 @@ extension LocationTrailService {
     /// `anyTarget`: also when the keyboard is elsewhere (a page's origin).
     /// The tab is found in the window's own pane (no walk of every machine's tabs).
     func location(of state: FocusState, in controller: WindowController, anyTarget: Bool = false) -> HistoryLocation? {
+        guard let services else { return nil }
         guard anyTarget || state.target.isPaneScoped || state.target.isSidebar, let pane = state.pane,
               let tabID = state.topology.pane(pane)?.selectedTab?.id, let shown = controller.content,
               shown.workspace.id == state.topology.workspace, let paneModel = shown.paneModel(key: pane),
@@ -36,6 +37,7 @@ extension LocationTrailService {
 
     /// Whether the location's tab exists on a connected machine now.
     func isAvailable(_ location: HistoryLocation) -> Bool {
+        guard let services else { return false }
         if let page = location.page { return TopPageRoute(rawValue: page).map(hasPage) ?? false }
         // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
         guard let (_, pane) = services.locateTab(location.key.tab) else { return false }
@@ -43,6 +45,7 @@ extension LocationTrailService {
     }
 
     func hasPage(_ route: TopPageRoute) -> Bool {
+        guard let services else { return false }
         if case .page(let id) = route { return TopPages.provider(id, services: services) != nil }
         return true
     }

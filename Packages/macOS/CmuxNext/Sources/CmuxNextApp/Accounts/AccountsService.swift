@@ -15,7 +15,9 @@ import CmuxNextWakeups
 /// act through this one model (plans/cmux-next/coderouter.md).
 @MainActor
 final class AccountsService: AccountsServices {
-    let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
     private(set) lazy var model = AccountsModel(services: self)
     let keys: any ProviderKeyStoring
     /// The per-user salt behind every `acct_…` handle (Keychain, read once off the main actor).
@@ -37,7 +39,7 @@ final class AccountsService: AccountsServices {
     static let fixtureHomeKey = "CMUX_NEXT_ACCOUNTS_HOME"
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
         let environment = ProcessInfo.processInfo.environment
         #if DEBUG
         showcaseMock = services.environment.showcase ? MockAccountsServices() : nil
@@ -81,7 +83,7 @@ final class AccountsService: AccountsServices {
     }
 
     var client: CodeRouterClient? {
-        let cloud = services.cloud
+        guard let cloud = services?.cloud else { return nil }
         let auth = cloud.auth, labels = labels
         return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, tokens: { try await auth.tokens() },
                                 teamID: { await auth.teamID }, labeler: { await labels.labeler() })
@@ -96,14 +98,23 @@ final class AccountsService: AccountsServices {
         return await Task.detached { await ProviderDetector(environment: environment).detectAll() }.value
     }
 
-    var cmuxAccount: CmuxAccountState { showcaseMock?.cmuxAccount ?? CmuxAccountState(services.cloud.auth) }
+    var cmuxAccount: CmuxAccountState {
+        if let showcaseMock { return showcaseMock.cmuxAccount }
+        guard let services else { return .signedOut }
+        return CmuxAccountState(services.cloud.auth)
+    }
 
     func runCmuxAccount(_ action: CmuxAccountAction) {
         if let showcaseMock { showcaseMock.runCmuxAccount(action); model.refresh(); return }
-        services.cloud.auth.run(action, signOut: { [services] in await services.cloud.signOut() }, refresh: { [weak self] in self?.model.refresh() })
+        guard let services else { return }
+        services.cloud.auth.run(action, signOut: { [weak services] in await services?.cloud.signOut() }, refresh: { [weak self] in self?.model.refresh() })
     }
 
-    var activeTeam: ActiveTeam? { showcaseMock != nil ? showcaseMock?.activeTeam : services.cloud.isSignedIn ? services.cloud.auth.activeTeam : nil }
+    var activeTeam: ActiveTeam? {
+        if let showcaseMock { return showcaseMock.activeTeam }
+        guard let cloud = services?.cloud, cloud.isSignedIn else { return nil }
+        return cloud.auth.activeTeam
+    }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
         if let showcaseMock { return try await showcaseMock.linkedAccounts() }
@@ -155,7 +166,7 @@ final class AccountsService: AccountsServices {
     /// so the provider's own login runs where the user can see and answer it.
     @discardableResult
     private func runInTerminal(_ line: String) -> Bool {
-        let opened = services.inFrontPane { $0.newTerminalTab(typing: line + "\r") }
+        let opened = services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } ?? false
         if !opened { logger.info("no local pane for a terminal tab") }
         return opened
     }
@@ -163,7 +174,7 @@ final class AccountsService: AccountsServices {
     /// Opens `url` in a new browser tab of the main window's local pane.
     @discardableResult
     private func openPage(_ url: URL) -> Bool {
-        let opened = services.inFrontPane { $0.newBrowserTab(url: url) }
+        let opened = services?.inFrontPane { $0.newBrowserTab(url: url) } ?? false
         if !opened { logger.info("no local pane for a browser tab") }
         return opened
     }

@@ -15,6 +15,7 @@ import CmuxNextWebUpdates
 /// `cmux.app.action.run`, the same path as the palette and the CLI.
 extension SettingsWindowService {
     func pageHostLists() -> JSONValue {
+        guard let services else { return .null }
         // The app scope is not observable; reading the store's generation makes the page's
         // host-lists watch re-send the Ghostty config preview after a config edit.
         _ = services.themeStore.generation
@@ -64,7 +65,7 @@ extension SettingsWindowService {
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": backdropCatalog.catalog.pageRows,
+            "backdrops": Self.backdropCatalog(of: services).catalog.pageRows,
             "derived": .object(pageDerivedNumbers()),
         ]
     }
@@ -82,7 +83,7 @@ extension SettingsWindowService {
     /// The wallpaper grid's choices (``BackdropCatalogStore``: built off main, again after a
     /// wallpaper folder changes, so an image the person just added or a macOS wallpaper they just
     /// downloaded is listed). Started on first read.
-    var backdropCatalog: BackdropCatalogStore {
+    static func backdropCatalog(of services: AppServices) -> BackdropCatalogStore {
         let store = services.backdropCatalog
         store.start()
         return store

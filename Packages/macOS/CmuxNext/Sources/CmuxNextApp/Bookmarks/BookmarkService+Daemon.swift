@@ -16,6 +16,7 @@ extension BookmarkService {
     /// A trigger: a daemon restart that still serves bookmarks resets and
     /// fetches again. `visible`: the bars and stars show the trees it loads.
     func observeHome() {
+        guard let services else { return }
         homeObservation = ServiceObservation(.visible, owner: "BookmarkService.home", on: services.mainWork) { [weak self] in
             ObservationTrigger(self?.usesDaemon ?? false)
         } apply: { [weak self] serves in
@@ -26,6 +27,7 @@ extension BookmarkService {
     /// One switch at a time, in order: the copy and the reads run off main, each main step is one posted task, and
     /// a step of a switch a later change replaced does nothing.
     func switchHome(serves: Bool) {
+        guard let services else { return }
         homeGeneration &+= 1
         let generation = homeGeneration, previous = homeSwitch, mainWork = services.mainWork
         // task-owner: the service's one switch at a time; each waits for the one before it
@@ -72,6 +74,7 @@ extension BookmarkService {
 
     /// Reads `profile`'s tree from the daemon (one request in flight per profile).
     func fetch(_ profile: String) {
+        guard let services else { return }
         guard fetching[profile] == nil, let connection = services.machines.local.connection else { return }
         fetched.insert(profile)
         let complete = homeSettled
@@ -103,6 +106,7 @@ extension BookmarkService {
     /// and a refused write refetches. One mutation key per logical write
     /// (the daemon's exactly-once ledger replays a retried key).
     func send(_ operation: BookmarkOperation, profile: String) {
+        guard let services else { return }
         let home = services.machines.local
         let mutationID = UUID().uuidString.lowercased()
         // task-owner: one bookmark command; a failure refetches the profile
@@ -170,6 +174,7 @@ extension BookmarkService {
     /// (parents first) with the same ids: a create with an existing id is a
     /// no-op there, so an interrupted copy resumes. Deletes the file after.
     func migrateFileToDaemon() async {
+        guard let services else { return }
         guard !migrating, let file, await file.exists, let connection = services.machines.local.connection else { return }
         migrating = true
         defer { migrating = false }

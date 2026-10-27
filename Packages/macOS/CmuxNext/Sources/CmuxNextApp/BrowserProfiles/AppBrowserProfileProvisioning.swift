@@ -13,7 +13,8 @@ struct AppBrowserProfileProvisioning: BrowserProfileProvisioning {
         let fresh = await profiles.record(id) == nil
         // Browser profiles live in the local daemon, which stores their image icons.
         let png = fresh ? await Task.detached { look.avatarPNG() }.value : nil
-        let icon = if let png { try? await IconAssetStore.owner(profiles.services.machines.local)?.put("image/png", png) } else { String?.none }
+        let home = profiles.services?.machines.local
+        let icon = if let png, let home { try? await IconAssetStore.owner(home)?.put("image/png", png) } else { String?.none }
         return try await profiles.createProfile(id: id, name: name, color: fresh ? look.color.map { GroupColor.nearest(rgb: $0).rawValue } : nil,
                                                 icon: icon, source: source)
     }

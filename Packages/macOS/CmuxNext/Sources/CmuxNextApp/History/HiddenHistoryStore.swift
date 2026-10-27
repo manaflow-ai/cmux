@@ -15,7 +15,10 @@ import Observation
 final class HiddenHistoryStore {
     static let subject = "history.hidden"
 
-    private let services: AppServices
+    /// The home daemon (`AppServices.daemon`) the document is kept in, and the app's main-thread scheduler; neither
+    /// holds a reference back to the services.
+    private let daemon: DaemonService
+    private let mainWork: MainWorkScheduler
     private(set) var document = HiddenHistory()
     private var revision: UInt64?
     private var loaded = false
@@ -25,7 +28,8 @@ final class HiddenHistoryStore {
     private var observation: ServiceObservation<Bool>?
 
     init(services: AppServices) {
-        self.services = services
+        daemon = services.daemon
+        mainWork = services.mainWork
         let store = services.daemon.store
         observation = ServiceObservation(.background, owner: "HiddenHistory.connect", on: services.mainWork) {
             if case .connected = store.connectionState { true } else { false }
@@ -46,8 +50,8 @@ final class HiddenHistoryStore {
 
     private func load() {
         guard !loaded else { return }
-        let mainWork = services.mainWork
-        services.daemon.send("history-hidden-load") { [weak self] connection in
+        let mainWork = mainWork
+        daemon.send("history-hidden-load") { [weak self] connection in
             let projection = try await connection.frontendProjection(subject: Self.subject)
             let stored = projection.schemaVersion == HiddenHistory.schemaVersion && projection.projection != .null
                 ? try? JSONDecoder().blockingDecode(HiddenHistory.self, from: JSONEncoder().encode(projection.projection)) : nil
@@ -67,8 +71,8 @@ final class HiddenHistoryStore {
     private func save() {
         let document = document
         let revision = revision
-        let mainWork = services.mainWork
-        services.daemon.send("history-hidden-save") { [weak self] connection in
+        let mainWork = mainWork
+        daemon.send("history-hidden-save") { [weak self] connection in
             let value = try JSONDecoder().blockingDecode(JSONValue.self, from: JSONEncoder().encode(document))
             do {
                 let stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: HiddenHistory.schemaVersion,

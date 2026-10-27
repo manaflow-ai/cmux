@@ -49,20 +49,21 @@ nonisolated func isDisconnect(_ error: any Error) -> Bool {
 /// The home daemon (`services.machines.local`).
 @MainActor
 final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
-    private let services: AppServices
+    /// The app's machines (`AppServices.machines`), which hold no reference back to the services.
+    private let machines: MachineRegistry
 
     init(services: AppServices) {
-        self.services = services
+        machines = services.machines
     }
 
-    private var daemon: DaemonService { services.machines.local }
+    private var daemon: DaemonService { machines.local }
 
     var isAvailable: Bool { daemon.connection != nil && daemon.supports(DaemonCapabilities.sidebarLayout) }
     var changeToken: UInt64 { daemon.store.personal.revision }
 
     var legacyPins: [LegacyPins] {
-        let refs = WorkspaceLayoutRefs(machines: services.machines)
-        return services.machines.daemons.compactMap { daemon in
+        let refs = WorkspaceLayoutRefs(machines: machines)
+        return machines.daemons.compactMap { daemon in
             guard let session = daemon.store.registryID, !daemon.store.isProvisional else { return nil }
             var pins = LegacyPins(session: session, refs: [])
             for workspace in daemon.store.workspaces where workspace.pinned {
@@ -75,7 +76,7 @@ final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
     }
 
     func clearLegacyPins(_ refs: [LayoutItemRef]) {
-        let resolver = WorkspaceLayoutRefs(machines: services.machines)
+        let resolver = WorkspaceLayoutRefs(machines: machines)
         for ref in refs {
             guard let (workspace, daemon) = resolver.workspace(for: ref), workspace.pinned, let key = workspace.key,
                   daemon.supports(DaemonCapabilities.workspacePin) else { continue }

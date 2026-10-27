@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextControl
+import CmuxNextDaemonService
 import CmuxNextDesign
 import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextDiff
@@ -49,18 +51,23 @@ final class DiffPageService: InternalPageProvider {
         var viewState: JSONValue?
     }
 
-    private let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
+    /// This Mac's agent git link (``AppServices/agentGit``) and the launch's identity, read when the service is made.
+    private let localGit: AgentPaneGitLink
+    private let launch: LaunchIdentity
     /// Made on the first tab (tests pass their own).
-    private lazy var runtime = DiffPageRuntime(git: services.agentGit.local)
-    private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: services.environment.launch))
+    private lazy var runtime = DiffPageRuntime(git: localGit)
+    private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: launch))
     /// Prefs (`diff.*` settings) and viewed marks (next to the recents), shared by every tab.
-    private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs { [weak services] in services?.settings },
+    private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs { [servicesReference] in servicesReference.resolve()?.settings },
                                              viewed: DiffViewedFiles(url: DiffViewedFiles.standardURL(recents: recentsStore.url)))
     /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
     /// WebKit's default nearest 60 fps.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// Every tab's Stage, Commit and Push (cx-ueuc8), through this Mac's agent git link.
-    private lazy var diffGit: any DiffGitRunning = DiffAgentGit(link: services.agentGit.local)
+    private lazy var diffGit: any DiffGitRunning = DiffAgentGit(link: localGit)
     /// The folder picker of `cmux.diff.chooseFolder`.
     var chooser: any DiffFolderChoosing = OpenPanelFolderChooser()
     var tabs: [String: Tab] = [:]
@@ -71,7 +78,9 @@ final class DiffPageService: InternalPageProvider {
 
     init(services: AppServices, runtime: DiffPageRuntime? = nil, recents: DiffRecents? = nil, stores: DiffPageStores? = nil,
          clock: any Clock<Duration> = ContinuousClock()) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
+        localGit = services.agentGit.local
+        launch = services.environment.launch
         self.clock = clock
         if let runtime { self.runtime = runtime }
         if let recents { recentsStore = recents }
@@ -153,6 +162,7 @@ final class DiffPageService: InternalPageProvider {
     /// tab (`created` gets its surface); else as an app-only tab.
     private func show(in pane: PaneController, focus: Bool, _ tab: Tab, created: (@MainActor (SurfaceID) -> Void)?,
                       matching: (Tab) -> Bool) -> String {
+        guard let services else { return "" }
         let window = services.windowController(showing: pane)
         for candidate in window?.content?.panes.values.map({ $0 }) ?? [pane] {
             let keys = services.pages.tabIDs(in: candidate.paneKey) + candidate.pane.tabs.compactMap { services.pages.storeKey(of: $0.id) }
@@ -174,6 +184,7 @@ final class DiffPageService: InternalPageProvider {
     }
 
     private func reveal(_ key: String, in pane: PaneController) {
+        guard let services else { return }
         pane.select(services.pages.stripID(showing: key, in: pane) ?? StripTabID(key))
         pane.focusContent()
     }
@@ -223,7 +234,7 @@ final class DiffPageService: InternalPageProvider {
         if tabs[key]?.repository?.root != repository.root { tabs[key]?.turn = nil }
         tabs[key]?.repository = repository
         tabs[key]?.source = source
-        if let pane = services.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
+        if let pane = services?.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
     }
 
     /// The page a file of the diff opens on in a tab (D4): its source in the code editor, at the
@@ -248,6 +259,7 @@ final class DiffPageService: InternalPageProvider {
     /// ``filePage(for:line:)``; the editor app goes through `file.open`, Finder through the reveal.
     /// False when nothing opened (the page then says so).
     fileprivate func openFile(_ file: URL, line: Int?, target: DiffFileTarget, from key: String) -> Bool {
+        guard let services else { return false }
         guard let pane = services.linkOpener.source(tab: key) else { return false }
         switch target {
         case .tab:
@@ -275,6 +287,7 @@ final class DiffPageService: InternalPageProvider {
     // MARK: InternalPageProvider
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        guard let services else { return NSView() }
         // A store tab restored without its repository (the daemon keeps only
         // its page) shows the empty state: recents and a folder chooser.
         var tab = tabs[key] ?? Tab(repository: nil, source: .default)

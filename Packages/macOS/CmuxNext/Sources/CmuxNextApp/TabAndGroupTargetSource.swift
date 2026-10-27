@@ -11,18 +11,20 @@ import CmuxNextLayout
 /// Rename Tab Group…, Rename Group…) start from the target's own name.
 /// A right-clicked workspace's Move to Group lists SidebarEdits.joinableGroups.
 final class TabAndGroupTargetSource: PaletteTargetSource {
-    private let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     private let next: any PaletteTargetSource
 
     init(services: AppServices, next: any PaletteTargetSource) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
         self.next = next
     }
 
     func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
         switch kind {
         case .tabGroup:
-            services.machines.allWorkspaces.map(\.0).flatMap { workspace in
+            (services?.machines.allWorkspaces ?? []).map(\.0).flatMap { workspace in
                 workspace.screens.flatMap(\.panes).flatMap(\.tabGroups).map { group in
                     PaletteTargetOption(id: group.id.rawValue, title: Self.named(group.name), subtitle: workspace.displayName, symbol: "circle.fill")
                 }
@@ -39,6 +41,7 @@ final class TabAndGroupTargetSource: PaletteTargetSource {
     /// gets the kind's whole list.
     func targets(of kind: ActionTargetKind, for action: ActionID) -> [PaletteTargetOption] {
         guard kind == .tabGroup, action == "tabGroup.reopenSaved" || action == "tabGroup.deleteSaved" else { return targets(of: kind) }
+        guard let services else { return [] }
         return services.activeDaemon.store.savedTabGroups.filter { action != "tabGroup.reopenSaved" || $0.openGroup == nil }.map { saved in
             PaletteTargetOption(id: saved.id.rawValue, title: Self.named(saved.name), symbol: "bookmark")
         }
@@ -66,12 +69,12 @@ final class TabAndGroupTargetSource: PaletteTargetSource {
 
     /// The active window's sidebar groups, personal groups included, in sidebar order.
     private var workspaceGroups: [SidebarGroup] {
-        SidebarEdits.groups(in: services.windows.active?.sidebar.model.sections ?? [])
+        SidebarEdits.groups(in: services?.windows.active?.sidebar.model.sections ?? [])
     }
 
     /// Every pane on every machine.
     private var panes: [PaneModel] {
-        services.machines.allWorkspaces.map(\.0).flatMap { $0.screens.flatMap(\.panes) }
+        (services?.machines.allWorkspaces ?? []).map(\.0).flatMap { $0.screens.flatMap(\.panes) }
     }
 
     /// Descriptions belong to kinds `next` lists.

@@ -19,8 +19,9 @@ final class ViewerService {
     /// The diff open a picker choice started (one at a time; the next
     /// choice cancels it).
     private(set) var diffOpen: Task<Void, Never>?
-    /// The app's services, which the page services below are made with.
-    private let services: AppServices
+    /// The app's services, which own this as `AppServices.viewers` and which the lazy page services below are made
+    /// with on first use.
+    private unowned let services: AppServices
     /// Diff viewer tabs (plans/cmux-next/diff-host.md S4).
     private(set) lazy var diffPages = DiffPageService(services: services)
     /// Markdown page tabs (diff-host S6).

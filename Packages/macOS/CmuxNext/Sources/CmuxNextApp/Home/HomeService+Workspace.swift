@@ -24,6 +24,7 @@ extension HomeService {
     /// the one `ensure_home` named, else the one the tree marks `home` (a
     /// reconnect or a window that opened before `ensure_home` answered).
     var homeWorkspace: WorkspaceModel? {
+        guard let services else { return nil }
         let workspaces = services.machines.local.store.workspaces
         if let id = homeWorkspaceID, let named = workspaces.first(where: { $0.resourceID == id }) { return named }
         return workspaces.first { $0.kind == "home" }
@@ -39,7 +40,7 @@ extension HomeService {
             do {
                 let home = try await HomeWorkspaceClient(connection).ensureHome()
                 // Cancelled: the newer ensure_home owns the in-flight flag.
-                guard let self, !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled, let services = self.services else { return }
                 homeWorkspaceID = home
                 settleHomeEnsure(generation)
                 homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
@@ -105,6 +106,7 @@ extension HomeService {
     /// out, or the read failed (logged; the last read stays). Unread (nil) until Cloud started: a launch-time
     /// ensure builds no feed and reads no token; ``cloudDidStart()`` reads them then.
     func readCloudChiefs() async -> HomeCloudChiefs? {
+        guard let services else { return nil }
         guard services.cloudAuth.isSignedIn else { return HomeCloudChiefs() }
         guard services.cloudContext != nil else { return nil }
         let feed = services.feed
@@ -120,6 +122,7 @@ extension HomeService {
 
     /// Cloud started (`AppServices.startCloudNow`): the Chief tab is checked again with the cloud Chiefs read.
     func cloudDidStart() {
+        guard let services else { return }
         guard services.cloudAuth.isSignedIn, let connection = services.machines.local.connection,
               services.machines.local.supports(DaemonCapability.workspaceKind.rawValue) else { return }
         ensureHomeWorkspace(connection)
@@ -127,6 +130,7 @@ extension HomeService {
 
     /// Re-checks the Chief tab now (a chief was just placed on a server).
     func refreshChiefTab() {
+        guard let services else { return }
         // The Chief moved to a server: that server's session joins the sidebar too.
         services.serverReach.refresh()
         guard let connection = services.machines.local.connection,
@@ -135,6 +139,7 @@ extension HomeService {
     }
 
     private func ensureChiefTab(_ connection: DaemonConnection, home: ResourceID) async throws {
+        guard let services else { return }
         let local = services.machines.local
         guard local.supports(DaemonCapability.conversationTabs.rawValue) else {
             homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs"
@@ -219,6 +224,7 @@ extension HomeService {
     /// The view of conversation tab `tab`, made on first show. Opening Home
     /// starts the local mux's brain host once per launch.
     func tabView(for tab: TabModel) -> HomeHostView? {
+        guard let services else { return nil }
         guard tab.kind == .conversation, let conversation = tab.snapshot.conversation?.conversation else { return nil }
         if let view = tabViews[tab.id] { return view }
         let view = HomeHostView(services: services, conversation: conversation)

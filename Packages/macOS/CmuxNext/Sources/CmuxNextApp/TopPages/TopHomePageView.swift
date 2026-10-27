@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -91,7 +92,7 @@ final class TopHomePageView: NSView {
         split.autoresizingMask = [.width, .height]
         addSubview(split)
         wireList(services)
-        observe(services.home, on: services.mainWork)
+        observe(services.home, auth: services.cloud.auth, on: services.mainWork)
         services.mainWork.post(.visible, owner: "TopHomePage.firstConversation") { [weak self, home = services.home] in
             guard let self else { return }
             picksConversation = true
@@ -234,14 +235,14 @@ final class TopHomePageView: NSView {
     }
 
     /// Follows the inbox rows and the conversation an action asked to show once it is listed (recipe R-obs).
-    private func observe(_ home: HomeService, on work: MainWorkScheduler) {
+    private func observe(_ home: HomeService, auth: CloudAuth, on work: MainWorkScheduler) {
         let store = home.homeStore, sidebar = sidebar
         rowsObservation = ServiceObservation(.visible, owner: "TopHomePage.rows", on: work) { () -> RowFacts in
             // Read for their changes: each redraws the list. A Chief's pet character is its avatar when it has none of
             // its own, the team is read after the page opens (its teammates are rows once it lands), and a rename of a
             // Chief redraws its tile.
             _ = (sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefFaces, home.directory.chiefHarnesses, home.chiefRoster,
-                 home.services.settings?.snapshot.homeChiefPetMascot, home.directory.teamMembers, home.chiefNames)
+                 home.services?.settings?.snapshot.homeChiefPetMascot, home.directory.teamMembers, home.chiefNames)
             return (all: store.rows, archived: home.directory.archivedChiefs, owned: sidebar.ownerRows)
         } apply: { [weak self] facts in
             self?.rowsChanged(facts, home: home)
@@ -251,7 +252,6 @@ final class TopHomePageView: NSView {
         chiefObservation = ServiceObservation(.visible, owner: "TopHomePage.chief", on: work) { Self.chief(home) } apply: { [weak self] chief in
             self?.chiefChanged(chief, home: home)
         }
-        let auth = home.services.cloud.auth
         // Another account has its own pins.
         accountObservation = ServiceObservation(.visible, owner: "TopHomePage.account", on: work) { auth.user?.id } apply: { _ in
             sidebar.reloadPins()
@@ -263,7 +263,7 @@ final class TopHomePageView: NSView {
         }
         // The unread dot is the unread rings' color (`notifications.attention.color`, nil: the notification blue).
         unreadColorObservation = VisibleObservation(visibility.node, owner: "TopHomePage.unreadColor", on: work) {
-            home.services.settings?.snapshot.attention.color?.nsColor
+            home.services?.settings?.snapshot.attention.color?.nsColor
         } apply: { [weak self] color in
             self?.list.unreadDotColor = color
         }

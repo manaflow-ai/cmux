@@ -25,7 +25,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     let daemon: DaemonService
     let stripModel = TabStripModel()
     let view: PaneContentView
-    let services: AppServices
+    unowned let services: AppServices
     /// Weak: daemon round trips (`Task`s in the intents) can outlive the
     /// window, and a closed window frees its state.
     weak var state: WindowState?

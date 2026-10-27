@@ -7,10 +7,11 @@ import CmuxNextDaemon
 /// (each as soon as its machine is connected and its terminal found) and the
 /// file empties.
 extension ThemeCoordinator {
-    private var home: DaemonService { services.machines.local }
+    private var home: DaemonService { machines.local }
 
     /// The home daemon stores terminal themes, and `key`'s session is known.
     private func personalTarget(_ key: TerminalThemeKey) -> (session: String, terminal: String)? {
+        guard let services else { return nil }
         guard home.supports(DaemonCapability.personalTerminals.rawValue),
               let session = services.machines.daemon(machine: key.machine)?.store.registryID else { return nil }
         return (session, key.terminal)
@@ -38,6 +39,7 @@ extension ThemeCoordinator {
     /// home daemon stores them. An entry waits while its machine is not
     /// connected; one whose terminal is gone is dropped.
     func migrateTerminalThemes() {
+        guard let services else { return }
         guard home.supports(DaemonCapability.personalTerminals.rawValue), !terminalThemes.migratableThemes.isEmpty else { return }
         for (legacy, theme) in terminalThemes.migratableThemes {
             guard let split = legacy.lastIndex(of: ":") else { continue }

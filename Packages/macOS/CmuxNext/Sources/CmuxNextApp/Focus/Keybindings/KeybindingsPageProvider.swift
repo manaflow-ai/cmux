@@ -16,7 +16,9 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// through the home daemon (`KeybindingPageWrites`).
 @MainActor
 final class KeybindingsPageProvider: PageProvider {
-    private let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     /// The page's window: only its key-downs are recorded.
     var pageWindow: () -> NSWindow? = { nil }
     private var recorder: KeyRecorder?
@@ -27,10 +29,11 @@ final class KeybindingsPageProvider: PageProvider {
     private var fileListener: UUID?
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        guard let services else { throw PageError.unavailable(AppServicesReference.closingReason) }
         switch op {
         case "cmux.keybindings.list":
             return KeybindingReports.pageList(params.objectValue ?? [:], registry: services.registry,
@@ -69,7 +72,7 @@ final class KeybindingsPageProvider: PageProvider {
             // Fires after a keymap import, an edit (the page's or the socket's) and whenever keybindings.json loads.
             let id = UUID()
             changedListeners[id] = onEvent
-            if fileListener == nil {
+            if fileListener == nil, let services {
                 fileListener = services.keybindingsFile.onChange { [weak self] in
                     for listener in self?.changedListeners.values.map({ $0 }) ?? [] { listener([:]) }
                 }
@@ -79,7 +82,7 @@ final class KeybindingsPageProvider: PageProvider {
                 guard let self else { return }
                 changedListeners[id] = nil
                 if changedListeners.isEmpty, let fileListener {
-                    services.keybindingsFile.removeListener(fileListener)
+                    self.services?.keybindingsFile.removeListener(fileListener)
                     self.fileListener = nil
                 }
             }
@@ -93,7 +96,7 @@ final class KeybindingsPageProvider: PageProvider {
     /// the settings owner writes or imports the `shortcuts` object. Returns
     /// `{path}`, or `{cancelled: true}` when the person closed the panel.
     private func keymapFile(export: Bool) async throws -> JSONValue {
-        guard let settings = services.settings else {
+        guard let settings = services?.settings else {
             throw PageError(code: "cmux.keybindings.keymap_failed", message: KeybindingStrings.editingUnsupported)
         }
         // A panel that drops its reply chose nothing.
@@ -126,7 +129,7 @@ final class KeybindingsPageProvider: PageProvider {
 
     private func startRecording() {
         recorder = KeyRecorder()
-        services.keyRouter.keyRecorder = { [weak self] event, window in
+        services?.keyRouter.keyRecorder = { [weak self] event, window in
             guard let self, let page = self.pageWindow(), window === page || window?.parent === page else { return false }
             self.record(event)
             return true
@@ -135,7 +138,7 @@ final class KeybindingsPageProvider: PageProvider {
 
     private func stopRecording() {
         recorder = nil
-        services.keyRouter.keyRecorder = nil
+        services?.keyRouter.keyRecorder = nil
     }
 
     private func record(_ event: NSEvent) {

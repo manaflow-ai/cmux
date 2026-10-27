@@ -20,7 +20,9 @@ import Observation
 /// - Title: the live terminal's title is saved on the tab when it changes.
 @MainActor
 final class RemoteTerminalService {
-    let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
     /// `term_` ids of terminals by `<session>#<terminal>`, learned from a
     /// move, a new terminal, or `set-terminal-keep`.
     private var resources: [String: ResourceID] = [:]
@@ -39,7 +41,7 @@ final class RemoteTerminalService {
     private var observation: ServiceObservation<[String: String]>?
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
     }
 
     /// The app's service (`AppServices.remoteTerminals`), made on first use, never in init
@@ -62,6 +64,7 @@ final class RemoteTerminalService {
     /// A service observation: a session that drops saves its tabs' screens and discards their surfaces whether or
     /// not a window shows them.
     func start() {
+        guard let services else { return }
         let machines = services.machines
         observation = ServiceObservation(.visible, owner: "RemoteTerminals.availability", on: services.mainWork) { () -> [String: String] in
             var map: [String: String] = [:]
@@ -76,6 +79,7 @@ final class RemoteTerminalService {
     }
 
     private func availabilityChanged(_ map: [String: String]) {
+        guard let services else { return }
         let changed = Set(map.keys).union(availability.keys).filter { map[$0] != availability[$0] }
         availability = map
         guard !changed.isEmpty else { return }
@@ -89,12 +93,14 @@ final class RemoteTerminalService {
     }
 
     private func isAvailable(_ session: String) -> Bool {
+        guard let services else { return false }
         guard let daemon = services.machines.daemon(session: session) else { return false }
         return daemon.connection != nil && daemon.store.isLoaded && daemon.store.generation != nil
     }
 
     /// Asks every pane showing a remote-terminal tab that matches to show its selection again.
     private func reshow(_ matches: (RemoteTerminalRef) -> Bool) {
+        guard let services else { return }
         for controller in services.windows.controllers {
             for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
                 guard let tab = pane.selectedTab, tab.kind == .remoteTerminal, let ref = tab.remote, matches(ref) else { continue }
@@ -108,7 +114,7 @@ final class RemoteTerminalService {
     /// The live terminal when its session is attached, else the placeholder.
     func content(for tab: TabModel, home: DaemonService) -> TabContent {
         guard let ref = tab.remote else { return .placeholder(placeholder(for: tab, home: home, ref: nil)) }
-        if isAvailable(ref.sessionID), let daemon = services.machines.daemon(session: ref.sessionID) {
+        if isAvailable(ref.sessionID), let services, let daemon = services.machines.daemon(session: ref.sessionID) {
             if let resource = resource(for: ref, on: daemon) {
                 if let entry = services.cache.remoteTerminal(for: tab, ref: ref, resource: resource, daemon: daemon, size: tab.size) {
                     live[tab.id] = (ref, home)
@@ -151,6 +157,7 @@ final class RemoteTerminalService {
     /// Learns a terminal's public id from its session (`set-terminal-keep`,
     /// which also keeps it: its only view is in another layout).
     private func resolve(_ ref: RemoteTerminalRef, on daemon: DaemonService) {
+        guard let services else { return }
         let key = Self.key(ref)
         guard !resolving.contains(key), !unresolvable.contains(key), let connection = daemon.connection else { return }
         resolving.insert(key)
@@ -167,6 +174,7 @@ final class RemoteTerminalService {
 
     /// The terminal's session named it (or could not): the panes showing it show it again.
     private func resolved(_ ref: RemoteTerminalRef, resource: ResourceID?) {
+        guard let services else { return }
         let key = Self.key(ref)
         resolving.remove(key)
         if let resource {
@@ -192,8 +200,9 @@ final class RemoteTerminalService {
             placeholders[tab.id] = view
             loadSnapshot(into: view, surface: tab.surface, home: home)
         }
-        let name = ref.map { Self.machineName($0, machines: services.machines) } ?? tab.displayTitle
-        let daemon = ref.flatMap { services.machines.daemon(session: $0.sessionID) }
+        let machines = services?.machines
+        let name = ref.flatMap { ref in machines.map { Self.machineName(ref, machines: $0) } } ?? tab.displayTitle
+        let daemon = ref.flatMap { machines?.daemon(session: $0.sessionID) }
         view.onConnect = daemon.flatMap { connector(for: $0) }
         let state: RemoteTerminalPlaceholderView.State = switch daemon?.store.connectionState {
         case nil: .unknown
@@ -205,6 +214,7 @@ final class RemoteTerminalService {
     }
 
     private func connector(for daemon: DaemonService) -> (() -> Void)? {
+        guard let services else { return nil }
         let machines = services.machines
         if let ssh = machines.sshSession(daemon.machineID) {
             let service = services.ssh
@@ -219,6 +229,7 @@ final class RemoteTerminalService {
     }
 
     private func loadSnapshot(into view: RemoteTerminalPlaceholderView, surface: SurfaceID, home: DaemonService) {
+        guard let services else { return }
         guard let connection = home.connection, home.supports(DaemonCapability.remoteTerminalTabs.rawValue) else { return }
         let mainWork = services.mainWork
         // task-owner: one bounded read into a weak view; a closed tab drops the result.
@@ -234,6 +245,7 @@ final class RemoteTerminalService {
     /// Saves the last screen of a live remote terminal on its tab's session.
     @discardableResult
     private func saveSnapshot(tabID: String) -> Task<Void, Never>? {
+        guard let services else { return nil }
         guard let (_, home) = live[tabID], let entry = services.cache.existingTerminal(tabID),
               let text = entry.session.surfaceView.viewportText(), !text.isEmpty,
               let tab = home.store.tab(id: tabID), let connection = home.connection else { return nil }
@@ -256,6 +268,7 @@ final class RemoteTerminalService {
     /// Saves the live terminal's title on the tab while it is attached: a service observation (the tab's session
     /// keeps the title whether or not a window shows it); each write runs off the main thread, after the one before.
     private func followTitle(of entry: TerminalEntry, tab: TabModel, home: DaemonService) {
+        guard let services else { return }
         guard titleWatches[tab.id] == nil else { return }
         let model = entry.session.model
         let tabID = tab.id
@@ -287,6 +300,7 @@ final class RemoteTerminalService {
     /// stops being kept. A session that is not connected keeps the terminal
     /// until it is closed there.
     func viewClosed(_ tab: TabModel) {
+        guard let services else { return }
         forget(tabID: tab.id)
         services.cache.discardTerminal(tab.id)
         guard let ref = tab.remote, let daemon = services.machines.daemon(session: ref.sessionID),
@@ -314,6 +328,7 @@ final class RemoteTerminalService {
     /// does, but their terminals stay kept on their own sessions, because
     /// Restore reopens each tab on the same terminal from the stash's record.
     func stashed(_ tabIDs: [String]) {
+        guard let services else { return }
         for tabID in tabIDs {
             forget(tabID: tabID)
             services.cache.discardTerminal(tabID)

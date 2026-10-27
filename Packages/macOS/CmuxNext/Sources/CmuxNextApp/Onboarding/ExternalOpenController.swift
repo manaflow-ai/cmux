@@ -10,12 +10,14 @@ import CmuxNextOnboarding
 /// launch by a link) wait and run when the first window shows its workspace.
 @MainActor
 final class ExternalOpenController {
-    let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone, and then nothing opens.
+    private var services: AppServices? { servicesReference.resolve() }
     let router: ExternalOpenRouter
     private(set) var pending: [ExternalOpenRoute] = []
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
         // Cloud auth's own matcher, so every callback form it accepts
         // (host or path) reaches sign-in, never `link.open`.
         let auth = services.cloud.auth
@@ -57,7 +59,7 @@ final class ExternalOpenController {
     /// Workspace services: a new workspace (in the current window, or a new
     /// one) whose terminal starts in the folder.
     func newWorkspace(at path: String, newWindow: Bool) {
-        guard case .terminal(let cwd, _) = router.newTabHere(path), case let windows = services.windows else { return }
+        guard case .terminal(let cwd, _) = router.newTabHere(path), let services, case let windows = services.windows else { return }
         let target = newWindow ? UUID().uuidString.lowercased() : windows.targetWindow(preferring: windows.active?.state.id)
         let logger = services.daemon.logger
         // main-hop-allow: the task only awaits WindowManager's main-actor create (its row shows in the create's first step) and logs a failure
@@ -72,6 +74,7 @@ final class ExternalOpenController {
     }
 
     func perform(_ route: ExternalOpenRoute) {
+        guard let services else { return }
         let windows = services.windows
         guard let controller = windows.active else {
             pending.append(route)
@@ -112,7 +115,7 @@ final class ExternalOpenController {
     private var creatingWorkspace = false
 
     private func createWorkspaceForPending(in controller: WindowController) {
-        guard !creatingWorkspace, case let windows = services.windows else { return }
+        guard !creatingWorkspace, let services, case let windows = services.windows else { return }
         creatingWorkspace = true
         let target = windows.targetWindow(preferring: controller.state.id)
         let logger = services.daemon.logger
@@ -129,7 +132,7 @@ final class ExternalOpenController {
 
     /// A window installed its content: run what waited for one.
     func flush() {
-        guard !pending.isEmpty, services.windows.active?.focusedPane != nil else { return }
+        guard !pending.isEmpty, services?.windows.active?.focusedPane != nil else { return }
         let routes = pending
         pending = []
         routes.forEach(perform)
@@ -140,7 +143,7 @@ final class ExternalOpenController {
         case .browserTab(let url): pane.newBrowserTab(url: url)
         case .terminal(let cwd, let command): pane.newTerminalTab(cwd: cwd, typing: command.map { $0 + "\n" })
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
-        case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
+        case .file(let url): services?.viewers.openFile(url, in: pane, markdown: false)
         case .deepLink, .unsupported: return
         }
     }

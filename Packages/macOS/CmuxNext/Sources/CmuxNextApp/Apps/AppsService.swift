@@ -18,7 +18,9 @@ import Foundation
 /// Store's and the app pages' tabs. Nothing here runs app code.
 @MainActor
 final class AppsService {
-    let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
     let transport: DaemonAppsTransport
     let client: AppsClient
     /// The control router once the socket starts (the CodeRouter page's ops run on it).
@@ -46,7 +48,7 @@ final class AppsService {
     private let makeStorePage: ((String) -> PageWebView?)?
 
     init(services: AppServices, makeStorePage: ((String) -> PageWebView?)? = nil) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
         self.makeStorePage = makeStorePage
         transport = DaemonAppsTransport(daemon: services.daemon, mainWork: services.mainWork, inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
@@ -66,6 +68,7 @@ final class AppsService {
     }
 
     func start() {
+        guard let services else { return }
         client.start()
         let client = client, mainWork = services.mainWork
         // task-owner: one off-main load of the bundled package directories and the scope table at launch. R-hop: read
@@ -79,6 +82,7 @@ final class AppsService {
     /// Serves app-side operations, admitted machine inventory reads and the
     /// Agent Memory app's search through the supervisor's verified-app provider channel.
     func attach(router: ControlRouter) {
+        guard let services else { return }
         controlRouter = router
         let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { method, params throws(AppHostCapabilityError) in try await router.appControl(method, params) }
         let inventory = AgentCLICapabilityHandler { [weak machines = services.machines] in
@@ -107,6 +111,7 @@ final class AppsService {
     /// one (a closed window comes back, or a new one opens), as Settings
     /// does: S22, the App Store never opens a window of its own.
     func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
+        guard let services else { return }
         let route = Self.storeRoute(appID: appID, tab: tab)
         let key: String?
         if focus {
@@ -143,6 +148,7 @@ final class AppsService {
     /// command's run, whose failure the caller reports.
     @discardableResult
     func openApp(_ appID: String, command: String? = nil, focus: Bool = true, origin: ActionOrigin = .user) throws(AppsServiceError) -> ActionWork? {
+        guard let services else { throw .noWindow }
         if appID == CodeRouterPageTab.appID, PageTunables.coderouter.value == .web, command == nil,
            let provider = pageProvider(appID: appID) {
             guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
@@ -163,6 +169,7 @@ final class AppsService {
     /// The page provider of app `appID` (registered on first use): CodeRouter's
     /// web page, else the app's own pane page; nil when the app has no page.
     func pageProvider(appID: String, codeRouterAsPage: Bool = true) -> (any InternalPageProvider)? {
+        guard let services else { return nil }
         if codeRouterAsPage, appID == CodeRouterPageTab.appID, PageTunables.coderouter.value == .web {
             let tab = coderouterPage ?? CodeRouterPageTab.make(services)
             if coderouterPage == nil {
@@ -196,6 +203,7 @@ extension AppsService: InternalPageProvider {
     /// The React App Store page; it opens on the route of the show that opened or selected its tab.
     /// Missing page resources (a build without the web bundles) show an empty view, never a second store.
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        guard let services else { return NSView() }
         let discarded = discardedRoutes.removeValue(forKey: key)
         let route = storeOpens.take(for: key) ?? storeOpens.running ?? discarded ?? Self.storeRoute(appID: nil, tab: nil)
         guard let page = makeStorePage?(route) ?? PageFactory(services: services).appsWebPage(route: route) else { return NSView() }

@@ -60,9 +60,11 @@ final class HomeService {
         },
         mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
-    @ObservationIgnored let services: AppServices
+    @ObservationIgnored private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
     /// The transcript and list caches' memory consumer (`memoryHomeLabCaches`, p07-memory-081); Home views track it.
-    @ObservationIgnored private(set) lazy var labCaches: MessagesLabMemoryConsumer? = AppMemoryConsumers(services: services).makeHomeLabCaches()
+    @ObservationIgnored private(set) lazy var labCaches: MessagesLabMemoryConsumer? = services.flatMap { AppMemoryConsumers(services: $0).makeHomeLabCaches() }
     @ObservationIgnored private var availability: ServiceObservation<DaemonConnection?>?
     @ObservationIgnored private var listing: Task<Void, any Error>?
     /// The latest conversation-list read; only its answer is applied.
@@ -129,7 +131,7 @@ final class HomeService {
                                                                                                caches: homeCaches)
     /// The folder of this service's Home caches: the app's (`AppEnvironment.homeCachesDirectory`), else
     /// a temporary folder of its own, so the drafts of one `AppServices` never reach another's.
-    @ObservationIgnored private lazy var homeCaches: URL = services.environment.homeCachesDirectory
+    @ObservationIgnored private lazy var homeCaches: URL = services?.environment.homeCachesDirectory
         ?? FileManager.default.temporaryDirectory.appending(path: "cmux-home-\(UUID().uuidString)", directoryHint: .isDirectory)
     /// The last launch's Chief roster, used until the cloud Chiefs are read (`chiefRoster`).
     @ObservationIgnored var launchRoster: HomeChiefRoster?
@@ -153,15 +155,15 @@ final class HomeService {
     /// Team members and Chiefs for the Home page's New Message and New Chief.
     @ObservationIgnored private(set) lazy var directory = HomeDirectory(
         call: { [weak self] path, body in
-            guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
+            guard let feed = self?.services?.feed else { throw FeedServiceError.signedOut }
             return try await feed.call(path, body)
         },
         teamCall: { [weak self] path, body, team in
-            guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
+            guard let feed = self?.services?.feed else { throw FeedServiceError.signedOut }
             return try await feed.call(path, body, team: team)
         },
         me: { [weak self] in
-            guard let auth = self?.services.cloudAuth, let id = auth.user?.id else { return nil }
+            guard let auth = self?.services?.cloudAuth, let id = auth.user?.id else { return nil }
             return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
         })
     /// Hide Alerts for the group actions (`groupActions`): a sidebar source over the same owners
@@ -178,7 +180,7 @@ final class HomeService {
     let actor = ConversationParticipant.localUserID
 
     init(services: AppServices, chiefHome: ChiefHome? = nil) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
         homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), work: services.work)
         cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), work: services.work)
         chief = ChiefConversationOwner(home: chiefHome ?? ChiefHome.resolve(tag: services.environment.tag))
@@ -192,6 +194,7 @@ final class HomeService {
     /// launch's critical path: the restore's first workspace waits for its answer (`FirstWorkspaceLaunch`).
     /// It asks only the build's own daemon; the Chief tab it adds waits for ``start()``'s Chief owner.
     func startWorkspace() {
+        guard let services else { return }
         guard homeObservation == nil else { return }
         let (local, auth) = (services.machines.local, services.cloudAuth)
         // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it. Visible: the
@@ -212,6 +215,7 @@ final class HomeService {
     /// owners. Once; never before the first frame at launch (``postLaunchFeeds(startup:)``):
     /// a Home view shows the last list from the cache until then.
     func start() {
+        guard let services else { return }
         startWorkspace()
         // Local conversations come from the Chief owner; the build's own
         // daemon carries only the cloud proxy's events (its own conversation
@@ -238,6 +242,7 @@ final class HomeService {
     /// The Chief owner's connection: each new one reloads the list and the open sessions, and checks the
     /// Chief tab again, whether or not a Home shows (a service observation). Visible: Home shows it.
     func watchChiefOwner() {
+        guard let services else { return }
         guard availability == nil else { return }
         let chief = chief
         availability = ServiceObservation(.visible, owner: "HomeService.chiefOwner", on: services.mainWork) {
@@ -248,6 +253,7 @@ final class HomeService {
     }
 
     private func chiefOwnerChanged(_ connection: DaemonConnection?) {
+        guard let services else { return }
         homeSource.connectionChanged(connection)
         homeInbox.connectionChanged(connection)
         guard let connection else { return }
@@ -301,6 +307,7 @@ final class HomeService {
     }
 
     func reloadList(_ connection: DaemonConnection) {
+        guard let services else { return }
         listing?.cancel()
         listGeneration &+= 1
         let generation = listGeneration, logger = logger, work = services.mainWork
@@ -417,6 +424,7 @@ final class HomeService {
 
     /// Marks everything up to `seq` read for the local user (monotonic; the owner ignores regressions by rejecting them).
     func markRead(_ seq: UInt64, in conversation: String) {
+        guard let services else { return }
         guard let connection, let head = conversations.first(where: { $0.id == conversation }),
               seq > (head.readCursors[actor] ?? 0) else { return }
         let request = ConversationOpRequest(conversation: conversation, idempotencyKey: "read:\(actor):\(seq)",
@@ -463,6 +471,7 @@ extension HomeService {
     /// until a reply lands. One deadline at a time, armed for the next change; no polling. The
     /// notice is the model's, so it follows the head while no Home shows it.
     fileprivate func watchReplies() {
+        guard let services else { return }
         replyWatch = ServiceObservation(.visible, owner: "HomeService.replyWatchdog", on: services.mainWork) { [weak self] in
             self.flatMap { HomeChiefName.select(from: $0.conversations) }
         } apply: { [weak self] head in

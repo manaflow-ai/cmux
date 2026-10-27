@@ -20,6 +20,7 @@ extension RemoteTerminalService {
     /// session). `completion` gets whether it moved.
     func move(_ tab: TabModel, from source: DaemonService, to workspace: WorkspaceModel, on destination: DaemonService,
               completion: @escaping TabMoves.Completion) {
+        guard let services else { return }
         let registry = services.registry
         guard let target = Self.landingPane(in: workspace) else {
             // An empty workspace (no pane yet) cannot hold the tab.
@@ -98,6 +99,7 @@ extension RemoteTerminalService {
     /// else created in one of the machine's workspaces (a scratch one when
     /// it has none) and that tab closed.
     func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?) -> ActionWorkFailure? {
+        guard let services else { return ActionWorkFailure(AppServicesReference.closingReason) }
         // Only the tab's session stores the reference; the terminal's session
         // needs no new capability.
         guard home.supports(DaemonCapability.remoteTerminalTabs.rawValue) else {
@@ -141,6 +143,7 @@ extension RemoteTerminalService {
     /// The name stored on a reference (the placeholder label while the
     /// session is away).
     func sessionName(of daemon: DaemonService) -> String {
+        guard let services else { return "" }
         if daemon.isLocal { return daemon.identity?.machineName ?? MacName().hostName() }
         return services.machines.machineName(daemon.machineID) ?? daemon.identity?.machineName ?? daemon.identity?.session ?? daemon.machineID
     }

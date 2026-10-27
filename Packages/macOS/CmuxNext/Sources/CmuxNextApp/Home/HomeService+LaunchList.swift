@@ -28,6 +28,7 @@ extension HomeService {
 
     /// Writes the list's state for the next launch after each change (coalesced, off the main actor).
     func keepHomeListForLaunch() {
+        guard let services else { return }
         guard launchListObservation == nil else { return }
         let source = groupMuting
         let cache = sidebarLaunch
@@ -52,7 +53,7 @@ extension HomeService {
     func postLaunchFeeds(startup: StartupScheduler) {
         launchFeeds = LaunchNeedPosts(startup: startup, starts: [
             .init("Home.start", needed: "Home.startNeeded") { [weak self] in self?.start() },
-            .init("ChatsFeed.keepCurrent", needed: "ChatsFeed.keepCurrentNeeded") { [weak self] in self?.services.chatsFeed?.keepCurrent() },
+            .init("ChatsFeed.keepCurrent", needed: "ChatsFeed.keepCurrentNeeded") { [weak self] in self?.services?.chatsFeed?.keepCurrent() },
             .init("ProjectsImport.start", needed: "ProjectsImport.startNeeded") { [weak self] in if let s = self?.services { s.projectsImport.start(feed: s.chatsFeed) } },
             .init("AgentPageChats.wire", needed: "AgentPageChats.wireNeeded") { [weak self] in
                 if let s = self?.services, let feed = s.chatsFeed { AgentPageChats.wire(s.agentTabs, to: feed, opener: s.chatsOpener) }

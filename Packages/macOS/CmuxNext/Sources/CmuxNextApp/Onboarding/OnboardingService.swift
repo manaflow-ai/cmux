@@ -16,7 +16,7 @@ import os
 /// to the restored windows (Lawrence 2026-10-19, classic-migration-DESIGN.md).
 @MainActor
 final class OnboardingService {
-    let services: AppServices
+    unowned let services: AppServices
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     /// The one tool window (set up in `init`).

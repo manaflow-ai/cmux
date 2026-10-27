@@ -1,4 +1,5 @@
 import AppKit
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextDesign
 
 /// Extension install and permission prompts (fork API 12). Chromium's own
@@ -7,20 +8,24 @@ import CmuxNextDesign
 /// Owns the sheets on screen, by Chromium prompt id.
 @MainActor
 final class CEFExtensionPrompts {
-    unowned let runtime: CEFRuntime
+    /// The runtime, which owns these as `CEFRuntime.extensionPrompts` (p10-stability-091).
+    private let runtimeReference: OwnerReference<CEFRuntime>
+    /// The runtime; nil (reported) only once it is gone.
+    private var runtime: CEFRuntime? { runtimeReference.resolve() }
     private var sheets: [Int32: ExtensionPromptSheet] = [:]
 
     init(runtime: CEFRuntime) {
-        self.runtime = runtime
+        runtimeReference = CEFRuntime.childReference(runtime)
     }
 
     func arrived(promptID: Int32, browser: Int32, json: String) {
+        guard let runtime else { return }
         if promptID == 0 {
-            if let notice = ExtensionInstalledNotice(json: json) { installed(notice, browser: browser) }
+            if let notice = ExtensionInstalledNotice(json: json) { installed(notice, browser: browser, in: runtime) }
             return
         }
         guard let prompt = ExtensionInstallPrompt(id: promptID, browser: browser, json: json),
-              let scope = scope(for: browser) else {
+              let scope = scope(for: browser, in: runtime) else {
             runtime.logger.error("Extension prompt \(promptID) has no window; aborted")
             _ = runtime.shim?.installPromptReply(promptID, ExtensionInstallPrompt.Answer.abort.rawValue)
             return
@@ -29,9 +34,9 @@ final class CEFExtensionPrompts {
         let sheet = ExtensionPromptSheet(prompt: prompt)
         sheets[promptID] = sheet
         sheet.begin(in: scope) { [weak self] answer in
-            guard let self, self.sheets.removeValue(forKey: promptID) != nil else { return }
-            self.runtime.logger.notice("Extension prompt \(promptID) answered \(answer.rawValue)")
-            _ = self.runtime.shim?.installPromptReply(promptID, answer.rawValue)
+            guard let self, self.sheets.removeValue(forKey: promptID) != nil, let runtime = self.runtime else { return }
+            runtime.logger.notice("Extension prompt \(promptID) answered \(answer.rawValue)")
+            _ = runtime.shim?.installPromptReply(promptID, answer.rawValue)
         }
     }
 
@@ -50,7 +55,7 @@ final class CEFExtensionPrompts {
 
     /// The tab that asked (only that tab is blocked); else the pane window
     /// that showed a Chromium tab last; else any visible cmux window.
-    private func scope(for browser: Int32) -> CmuxDialogScope? {
+    private func scope(for browser: Int32, in runtime: CEFRuntime) -> CmuxDialogScope? {
         if let view = runtime.tabsByBrowser[browser]?.contentView, view.window != nil, !view.isHiddenOrHasHiddenAncestor { return .tab(view) }
         if let window = runtime.lastShownHost?.visibleTab?.contentView.window { return .window(window) }
         return NSApp.windows.first { $0.isVisible && $0.parent == nil && !($0 is NSPanel) && $0.canBecomeMain }.map { .window($0) }
@@ -58,7 +63,7 @@ final class CEFExtensionPrompts {
 
     /// Shows a notice on the tab (the store page that installed the
     /// extension) and refreshes the menu.
-    private func installed(_ notice: ExtensionInstalledNotice, browser: Int32) {
+    private func installed(_ notice: ExtensionInstalledNotice, browser: Int32, in runtime: CEFRuntime) {
         runtime.logger.notice("Extension installed \(notice.extensionID, privacy: .public)")
         let tab = runtime.tabsByBrowser[browser] ?? runtime.lastShownHost?.visibleTab
         tab?.emit(.notice(Strings.extensionAdded(notice.name)))

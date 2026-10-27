@@ -14,6 +14,7 @@ extension BrowserProfileService {
     /// and `followRecordProfiles` re-makes the page in the new store. Another machine's tab or an older
     /// daemon: the URL reopens in a new tab and the original closes.
     func move(_ tab: TabModel, in pane: PaneModel, to profile: String, notice: String?) {
+        guard let services else { return }
         let daemon = services.machines.daemon(forTab: tab)
         guard daemon.isLocal, daemon.supports(DaemonCapability.frontendBrowserTabProfile.rawValue) else {
             return reopen(tab, in: pane, profile: profile, closingOriginal: true, notice: notice)
@@ -30,20 +31,22 @@ extension BrowserProfileService {
     /// ``ServiceObservation`` in the visible class (it re-makes pages of hidden tabs too; a person's move
     /// flushes as the rest of their action).
     func followRecordProfiles() {
+        guard let services else { return }
         recordProfileObservation?.cancel()
         recordProfileObservation = ServiceObservation(.visible, owner: "BrowserProfiles.recordProfiles", on: services.mainWork) { [weak self] in
             self?.pagesInOtherStores() ?? []
         } apply: { [weak self] stale in
-            guard let self else { return }
+            guard let self, let cache = self.services?.cache else { return }
             for (key, profile, url) in stale {
                 logger.info("browser profile store change \(key, privacy: .public): re-making its page")
-                services.cache.recreatePage(key, in: profile, url: url)
+                cache.recreatePage(key, in: profile, url: url)
             }
         }
     }
 
     /// Live web pages of this Mac's tab records whose store is not the one the record names.
     private func pagesInOtherStores() -> [(String, BrowserProfileID, URL)] {
+        guard let services else { return [] }
         let cache = services.cache
         _ = cache.pageInstalls.revision
         return cache.browsers.compactMap { key, entry in
@@ -62,6 +65,7 @@ extension BrowserProfileService {
     /// same pane, then (when `closingOriginal`) closes the original once the
     /// new tab exists, so a pane never empties.
     func reopen(_ tab: TabModel, in pane: PaneModel, profile: String, closingOriginal: Bool, notice: String?) {
+        guard let services else { return }
         let url = currentURL(of: tab)
         let originalID = tab.id
         let registry = services.registry
@@ -90,14 +94,16 @@ extension BrowserProfileService {
 
     /// The URL a reopened copy starts on: the live page's, else the record's.
     func currentURL(of tab: TabModel) -> String {
-        services.cache.existingBrowser(tab.id)?.tab.state.url?.absoluteString
-            ?? services.cache.browserTabs.lastURL(for: tab)
+        let cache = services?.cache
+        return cache?.existingBrowser(tab.id)?.tab.state.url?.absoluteString
+            ?? cache?.browserTabs.lastURL(for: tab)
             ?? BrowserNewTabPage.blankURL
     }
 
     /// Checks that `tab` can move to `profile`: a normal browser tab in
     /// another profile.
     func requireMovable(_ tab: TabModel, to profile: String, allowSame: Bool) throws {
+        guard let services else { return }
         guard tab.kind == .browser, tab.isFrontendOwned else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.notBrowserTab) }
         guard !services.cache.browserTabs.isIncognitoTab(tab.id) else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.incognitoTab) }
         if !allowSame, profileID(ofTab: tab) == profile { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.alreadyInProfile) }

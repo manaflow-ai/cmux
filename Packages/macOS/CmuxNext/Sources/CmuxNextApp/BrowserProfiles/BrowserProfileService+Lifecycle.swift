@@ -12,6 +12,7 @@ extension BrowserProfileService {
     /// default naming it is cleared, and its engine data is removed now when
     /// no engine opened it in this process, else at the next launch.
     func delete(_ id: String) throws {
+        guard let services else { return }
         guard id != BrowserProfileRecord.defaultID else { throw BrowserProfileBookError.defaultProfile }
         guard isKnown(id) else { throw BrowserProfileBookError.unknownProfile }
         for (tab, pane) in browserTabs(in: id) {
@@ -40,6 +41,7 @@ extension BrowserProfileService {
 
     /// Every browser tab (on every machine) whose record names `id`.
     func browserTabs(in id: String) -> [(TabModel, PaneModel)] {
+        guard let services else { return [] }
         var found: [(TabModel, PaneModel)] = []
         for (workspace, _) in services.machines.allWorkspaces {
             for pane in workspace.screens.flatMap(\.panes) {
@@ -53,6 +55,7 @@ extension BrowserProfileService {
     /// this process (Chromium and WebKit keep an opened store's files until
     /// the process ends); the rest waits for the next launch.
     func cleanUpDeletedProfiles() {
+        guard let services else { return }
         // A service that never loaded its file (tests) touches no data.
         let pending = book.pendingCleanup
         guard file != nil, !pending.isEmpty else { return }
@@ -105,6 +108,7 @@ extension BrowserProfileService {
 
     /// Each profile's imported history goes into its omnibar; Keep in Sync starts watching.
     private func seedImportedHistory() {
+        guard let services else { return }
         guard importStore != nil else { return }
         let sync = services.onboarding.historySync, profiles = ordered.map(\.id)
         // task-owner: one-shot launch load of the import store; the sync owns its watches

@@ -27,7 +27,7 @@ import CmuxNextCompat
 /// on the ghost's springs run in Core Animation and the client runs only while
 /// the pointer auto-scrolls a columns screen or a dwell is armed.
 final class TabDragSession: NSObject {
-    let services: AppServices
+    unowned let services: AppServices
     var drag: Drag?
     /// Ghost of the previous drag still flying home or into its slot.
     var landing: Drag?

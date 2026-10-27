@@ -12,10 +12,12 @@ import typealias CmuxNextDaemon.SurfaceID
 /// rendered in a browser tab only on the person's own open (`userChose`); an agent's or a
 /// script's open shows its source in the editor (``FileOpenKind``, the one rule).
 final class FilePageOpener: FileOpening {
-    private let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
     }
 
     /// Files the browser tab previews (images, PDFs, media). An explicit list, because the system
@@ -86,6 +88,7 @@ final class FilePageOpener: FileOpening {
     func open(_ file: URL, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
               placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
+        guard let services else { return AppServicesReference.closingReason }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
         switch Self.route(for: url, userChose: userChose, asText: asText) {
         case .renderedPage:

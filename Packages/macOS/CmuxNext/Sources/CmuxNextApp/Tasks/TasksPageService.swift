@@ -18,14 +18,16 @@ extension InternalPageID {
 /// The layout follows the user setting `tasks.layout` live.
 @MainActor
 final class TasksPageService: InternalPageProvider {
-    private let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     private var sharedModel: TasksModel?
     /// A user run's scope and New Task focus made before the model exists: the model takes them
-    /// when the tab first shows (``makeModel()``).
+    /// when the tab first shows (``makeModel(_:)``).
     private var pendingViewState: (scope: TasksScope?, newTask: Bool)?
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
     }
 
     /// The open model (debug and tests).
@@ -37,6 +39,7 @@ final class TasksPageService: InternalPageProvider {
     /// automation opens the tab and leaves the view as it is. A tab whose view is not made yet
     /// gets them when it first shows.
     func show(scope: TasksScope?, newTask: Bool = false, focus: Bool) throws {
+        guard let services else { throw AppServicesReference.closing }
         guard let window = services.windows.active else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
         guard services.pages.show(.tasks, in: window, focus: focus) != nil else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
@@ -60,7 +63,7 @@ final class TasksPageService: InternalPageProvider {
         return TasksLayout(rawValue: preference.rawValue) ?? TasksLayout.fallback
     }
 
-    private func makeModel() -> TasksModel {
+    private func makeModel(_ services: AppServices) -> TasksModel {
         if let sharedModel { return sharedModel }
         let model = TasksModel(source: SocketTasksSource(mainWork: services.mainWork))
         model.start()
@@ -79,7 +82,8 @@ final class TasksPageService: InternalPageProvider {
     var symbol: String { "checklist" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        TasksHostView(model: makeModel(), layout: { [weak services] in Self.layout(services?.settings) })
+        guard let services else { return NSView() }
+        return TasksHostView(model: makeModel(services), layout: { [weak services] in Self.layout(services?.settings) })
     }
 
     // MARK: Discard (p07-memory-025)
@@ -90,7 +94,7 @@ final class TasksPageService: InternalPageProvider {
     func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
     func tabClosed(_ key: String) {
-        guard !services.pageIsOpen(.tasks) else { return }
+        guard services?.pageIsOpen(.tasks) != true else { return }
         pendingViewState = nil
         guard let model = sharedModel else { return }
         model.stop()

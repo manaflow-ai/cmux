@@ -45,7 +45,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// app and sleeping displays feed it (`WindowVisibilitySource`, p06-scheduler-022). The parent
     /// of every mounted workspace's node.
     let visibility: VisibilityNode
-    let services: AppServices
+    unowned let services: AppServices
     /// Shows the requested workspace, also while the window is hidden (`observeWorkspace`, WindowController+TopPage).
     var workspaceObservation: ServiceObservation<Void>?
     private var titleObservation: VisibleObservation<String>?

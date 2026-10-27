@@ -26,7 +26,13 @@ final class ThemeCoordinator {
     let terminalThemes: TerminalThemeStore
     /// Every Ghostty theme, for pickers and validation.
     let catalog: ThemeCatalog
-    let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
+    /// The app's machines (``AppServices/machines``), which hold no reference back to the services.
+    let machines: MachineRegistry
+    /// The app's one fan-out of app notices (``AppServices/appEvents``).
+    let appEvents: AppEvents
     /// A theme shown live while a picker highlights it, not saved.
     private(set) var preview: ThemePreview?
     /// Room and workspace themes just set here and not yet echoed by the
@@ -62,7 +68,9 @@ final class ThemeCoordinator {
     init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil,
          workspaceOpacities: WorkspaceBackgroundStore? = nil,
          appearanceScopes: WorkspaceBackgroundStore? = nil) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
+        machines = services.machines
+        appEvents = services.appEvents
         self.terminalThemes = terminalThemes
         catalog = ThemeCatalog(work: services.work, mainWork: services.mainWork)
         self.workspaceBackgrounds = workspaceBackgrounds
@@ -90,6 +98,7 @@ final class ThemeCoordinator {
     /// Each follower applies the current value now and a change as one `visible` task (a person's
     /// in the input-response pass).
     func followChromeTheme(_ settings: SettingsController) {
+        guard let services else { return }
         let store = services.themeStore, mainWork = services.mainWork
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
@@ -125,6 +134,7 @@ final class ThemeCoordinator {
     }
 
     private func applyChromeTheme() {
+        guard let services else { return }
         let store = services.themeStore
         let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
         store.setAppTheme(resolved.map {
@@ -137,6 +147,7 @@ final class ThemeCoordinator {
     }
 
     func start() {
+        guard let services else { return }
         let registry = services.registry
         registry.choicePreview = { [weak self] action, _, value, target in
             self?.pickerPreview(action, value: value, target: target)
@@ -154,7 +165,7 @@ final class ThemeCoordinator {
             let read = catalog.colors.compactMapValues(\.accent)
             guard read != fileAccents else { return }
             fileAccents = read
-            ThemeBridge.refresh(store: self?.services.themeStore ?? ThemeScope.app.store)
+            ThemeBridge.refresh(store: self?.services?.themeStore ?? ThemeScope.app.store)
             self?.resolver.changed()
         }
         catalog.load()
@@ -189,6 +200,7 @@ final class ThemeCoordinator {
     /// Once per launch, after the home daemon's first tree: drops the themes of its terminals that
     /// closed while the app was away. `background`: nobody waits on it.
     private func pruneAfterFirstTree(of home: DaemonStore) {
+        guard let services else { return }
         let watch = ServiceObservation(.background, owner: "ThemeCoordinator.pruneTerminalThemes", on: services.mainWork) {
             home.isLoaded
         } apply: { [weak self] loaded in
@@ -213,6 +225,7 @@ final class ThemeCoordinator {
     /// A workspace content was created or shown in `controller`'s window: it and the terminals in
     /// its panes take the applies they missed while parked.
     func contentDidShow(_ content: WorkspaceContentController) {
+        guard let services else { return }
         setTheme(of: content.themeScope, to: workspaceTheme(content.workspace.id))
         applyWorkspaceBackground(content)
         for pane in content.panes.values { applyPaneBackground(pane) }
@@ -232,11 +245,13 @@ final class ThemeCoordinator {
     // MARK: Sources
 
     func roomTheme(_ room: ProfileID) -> String? {
+        guard let services else { return nil }
         if let preview, preview.target == .room(room) { return preview.spec }
         return settled(.room(room), saved: services.machines.local.store.profile(room)?.theme)
     }
 
     func workspaceTheme(_ workspaceID: String) -> String? {
+        guard let services else { return nil }
         if let preview, preview.target == .workspace(workspaceID) { return preview.spec }
         let saved = WindowProfiles.qualified(workspaceID, machines: services.machines).flatMap {
             services.machines.local.store.personal.workspace(session: $0.session, key: $0.key)?.theme
@@ -271,6 +286,7 @@ final class ThemeCoordinator {
     /// every live surface's config at once: the config event pays for it, never a later workspace
     /// or tab switch (the perf gate's relaunch tab switches caught a config apply on the switch).
     func apply(forceSurfaces: Bool = false) {
+        guard let services else { return }
         applies.advance()
         for controller in services.windows.controllers { windowDidChange(controller) }
         if forceSurfaces { for entry in services.cache.terminals.values { entry.themeBinding.syncSurface(force: true) } }
@@ -310,6 +326,7 @@ final class ThemeCoordinator {
 
     /// The `theme` value a picker shows as current for its target.
     func currentChoice(_ action: ActionID, target: ActionTargetRef?) -> String? {
+        guard let services else { return nil }
         if action == "browserTheme" {
             // The page's forced color scheme (the toolbar's theme menu checks it).
             let entry = if let target, target.kind == .tab { services.cache.existingBrowser(target.id) } else {

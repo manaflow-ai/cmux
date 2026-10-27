@@ -13,7 +13,9 @@ import Foundation
 /// ask), and `cmux.app.clipboard.write` writes the pasteboard, only on the person's own gesture.
 @MainActor
 final class AppPageNativeProvider: PageProvider {
-    private let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     private let page: PageDescriptor
     /// Runs a confirmed namespace op on the provider that owns its namespace.
     var forward: (@MainActor (_ op: String, _ params: CmuxNextSettings.JSONValue, _ context: PageCallContext) async throws -> CmuxNextSettings.JSONValue)?
@@ -29,7 +31,7 @@ final class AppPageNativeProvider: PageProvider {
     }
 
     init(services: AppServices, page: PageDescriptor) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
         self.page = page
     }
 
@@ -39,6 +41,7 @@ final class AppPageNativeProvider: PageProvider {
             if let name = params["action"]?.stringValue, let kind = page.confirmedOps[name] {
                 return try await runConfirmed(name, kind: kind, args: params["args"] ?? .object([:]), context: context)
             }
+            guard let services else { throw PageError.unavailable(AppServicesReference.closingReason) }
             if params["action"]?.stringValue == BrowserTabOpen.action {
                 return try await BrowserTabOpen.run(args: params["args"] ?? .object([:]), page: context.page, services: services)
             }

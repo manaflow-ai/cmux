@@ -15,7 +15,9 @@ import os
 /// and deletes rows in the daemon when the user removes or clears them.
 /// Turning recording off offers to delete what was already recorded.
 final class CommandHistory {
-    private let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     private var mirrors: [String: TerminalCommandMirror] = [:]
     private var refreshing: Task<Void, Never>?
     private var observation: ServiceObservation<SyncState>?
@@ -33,7 +35,7 @@ final class CommandHistory {
     }
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
     }
 
     /// Starts keeping the daemons' switch and retention in step with the settings. Releasing the
@@ -41,6 +43,7 @@ final class CommandHistory {
     /// waits on it. The deletion offer is `userBlocking`: it answers the person's own toggle, whose
     /// settings write ends after an await, so its will-set carries no person cause.
     func start(settings: SettingsController) {
+        guard let services else { return }
         let machines = services.machines
         observation = ServiceObservation(.background, owner: "CommandHistory.state", on: services.mainWork) {
             Self.state(settings: settings, daemons: machines.daemons)
@@ -80,6 +83,7 @@ final class CommandHistory {
     }
 
     private func sync(_ state: SyncState) {
+        guard let services else { return }
         for (machine, generation) in state.machines {
             let next = Sent(generation: generation, enabled: state.enabled, retentionDays: state.retentionDays)
             // Sent on every connect, off too: the retention reaches the daemon.
@@ -103,6 +107,8 @@ final class CommandHistory {
         let prompt = DestructiveConfirmation.Prompt(title: HistoryAppStrings.deleteCommandsTitle,
                                                     body: HistoryAppStrings.deleteCommandsBody(retentionDays),
                                                     button: HistoryAppStrings.deleteCommandsButton)
+        // Without the services there is no window to ask in, so nothing is deleted.
+        guard let services else { return }
         DestructiveConfirmation.present(prompt, in: services.windows.active?.window) { [weak self] delete in
             if delete { self?.delete(since: nil) }
         }
@@ -153,7 +159,8 @@ final class CommandHistory {
     }
 
     func entries() -> [HistoryEntry] {
-        mirrors.values.flatMap(\.commands).map { command in
+        guard let services else { return [] }
+        return mirrors.values.flatMap(\.commands).map { command in
             let connected = services.machines.daemons.contains { $0.machineID == command.machine }
             return HistoryEntry(
                 id: "command:\(command.qualifiedID)", kind: .command, time: command.startedAt,
@@ -197,7 +204,7 @@ final class CommandHistory {
     }
 
     private func daemons() -> [DaemonService] {
-        services.machines.daemons.filter { daemon in
+        (services?.machines.daemons ?? []).filter { daemon in
             guard daemon.supports(DaemonCapability.terminalCommandHistory.rawValue), case .connected = daemon.store.connectionState else { return false }
             return true
         }

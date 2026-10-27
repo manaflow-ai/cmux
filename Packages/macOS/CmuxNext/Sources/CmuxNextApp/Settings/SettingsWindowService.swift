@@ -21,19 +21,28 @@ import Foundation
 /// `WorkspaceContentController`).
 @MainActor
 final class SettingsWindowService: InternalPageProvider {
-    let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
+
+    /// The app's main-thread scheduler and background work (``AppServices/mainWork``, ``AppServices/work``).
+    private let mainWork: MainWorkScheduler
+    private let work: BackgroundWork
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
+        mainWork = services.mainWork
+        work = services.work
     }
 
     /// The applied Ghostty config's diagnostics the Settings page lists (R92), made at the first page read and
     /// kept current from then on.
-    private(set) lazy var ghosttyDiagnostics = GhosttyDiagnosticsModel(mainWork: services.mainWork, work: services.work)
+    private(set) lazy var ghosttyDiagnostics = GhosttyDiagnosticsModel(mainWork: mainWork, work: work)
 
     /// The window whose tab shows Settings, if any.
     var window: NSWindow? {
-        services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
+        guard let services else { return nil }
+        return services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
     }
 
     /// One Settings page and the forms it reports unsaved.
@@ -59,6 +68,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// `route` opens a page-only place instead (`#/settings/agents?focus=agents.add`, Settings >
     /// Agents' Add panel), with no section or setting.
     func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true, route pageRoute: String? = nil) throws {
+        guard let services else { return }
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         // task-owner: one read of the device list per opening (Settings > Devices); the directory's runs go off main.
         services.work.task(.userVisible) { [devices = services.devices] in await devices.refresh() }
@@ -103,6 +113,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// A window installed its workspace content or mounted a pane: a show that waited for a window
     /// with a pane runs now.
     func windowDidShowContent() {
+        guard let services else { return }
         guard let request = waiting, let window = services.windows.active, Self.hasPane(window) else { return }
         waiting = nil
         try? show(section: request.section, setting: request.setting, focus: request.focus, route: request.route)
@@ -115,6 +126,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// Shows the workspace of `window` that holds a Settings tab (a daemon page tab, or an app-only
     /// tab in a mounted workspace) when the shown workspace has none and Home does not stand for it.
     private func revealSettingsTab(of window: WindowController) {
+        guard let services else { return }
         let page = InternalPageID.settings
         func holds(_ content: WorkspaceContentController) -> Bool {
             services.pages.tab(of: page, inPanes: content.modelPanes.map(\.id)) != nil
@@ -138,6 +150,7 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// Settings as `window`'s top page (one view per window, shown again on a repeat), on `route`.
     private func showTopPage(in window: WindowController, route: String?) {
+        guard let services else { return }
         let pageRoute = TopPageRoute.page(.settings)
         // A top page is made at its show: a page made now opens on `route`.
         opens.during(route) { _ = TopPages.show(pageRoute, services: services, in: window.state) }
@@ -175,6 +188,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// The kept page when no other tab shows it, else a new one (a second window's tab), on the
     /// route the tab's show asked for.
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        guard let services else { return NSView() }
         let route = opens.take(for: key) ?? opens.running
         if let webPage, webPage.view.superview == nil {
             // Not compared with `route`, the last place asked for: the page may have moved on.
@@ -191,6 +205,7 @@ final class SettingsWindowService: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
+        guard let services else { return }
         tabPages.removeValue(forKey: key)
         opens.forget(key)
         // A live preview left by a closed page (mid-drag) must not stay applied.
@@ -207,6 +222,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// fields) or a live preview runs (a value shown and not written: a slider mid-drag, a palette
     /// row): Chrome's kUserEdits.
     func keepReasons(for key: String) -> [CannotDiscardReason] {
+        guard let services else { return [] }
         let unsavedForm = tabPages[key]?.edits.hasUnsaved == true
         return unsavedForm || services.settings?.previewingKey != nil ? [.unsavedEdits] : []
     }
@@ -222,6 +238,7 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// The tab's page went (the tab store closed it): a later show builds a new one.
     func viewDiscarded(_ key: String) {
+        guard let services else { return }
         guard let page = tabPages.removeValue(forKey: key) else { return }
         if page.view === webPage?.view { webPage = nil }
         services.webUI.close(page.view)
@@ -230,6 +247,7 @@ final class SettingsWindowService: InternalPageProvider {
     // MARK: Host facts (the page's host lists)
 
     var rooms: [SettingsListRow]? {
+        guard let services else { return nil }
         let local = services.machines.local
         guard local.supports(DaemonCapability.profiles.rawValue) else { return nil }
         let current = services.windows.active?.state.profileID ?? .defaultProfile
@@ -239,6 +257,7 @@ final class SettingsWindowService: InternalPageProvider {
     }
 
     var machines: [SettingsListRow] {
+        guard let services else { return [] }
         let machines = services.machines
         let ssh = machines.ssh.map { session in
             SettingsListRow.machine(id: session.machineID, title: session.host.label, subtitle: session.host.destination.description,
@@ -272,11 +291,11 @@ final class SettingsWindowService: InternalPageProvider {
     /// sits where the window is: read through the active window's theme scope (the app scope when
     /// no window is open), which inherits the app theme unless a room overrides it.
     func derivedNumber(at path: [String]) -> Double? {
-        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity : nil
+        path == WindowBackgroundSetting.opacityPath ? (services?.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity : nil
     }
 
     var browserProfiles: [SettingsBrowserProfileRow] {
-        services.browserProfiles.ordered.map { record in
+        (services?.browserProfiles.ordered ?? []).map { record in
             SettingsBrowserProfileRow(id: record.id, name: record.name, color: record.color, icon: record.icon,
                                       isDefault: record.isDefault, source: record.source?["display_name"])
         }

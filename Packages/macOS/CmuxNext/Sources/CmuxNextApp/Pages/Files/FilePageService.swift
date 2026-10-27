@@ -48,7 +48,9 @@ final class FilePageService: InternalPageProvider {
     }
 
     let kind: FilePageKind
-    let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
     let clock: any Clock<Duration>
     private let images: any RemoteImageFetching
     var tabs: [String: Tab] = [:]
@@ -56,7 +58,7 @@ final class FilePageService: InternalPageProvider {
     private let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
     private let comments: (any MarkdownCommentStoring)?
-    private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings })
+    private(set) lazy var look = FilePageLook(kind: kind, settings: { [servicesReference] in servicesReference.resolve()?.settings })
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
     /// Files whose draft is over the store's limit and that already said so.
@@ -64,7 +66,9 @@ final class FilePageService: InternalPageProvider {
     /// Pages saving or reporting their last edits after their tab closed or was discarded.
     var flushing: [Task<Void, Never>] = []
     /// The local live links of the Markdown Share menu, started on the first link.
-    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock, work: services.work)
+    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock, work: work)
+    /// The app's background work (``AppServices/work``), which the live share server runs on.
+    private let work: BackgroundWork
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
@@ -74,7 +78,8 @@ final class FilePageService: InternalPageProvider {
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
          images: (any RemoteImageFetching)? = nil, documents: FileQuitDocuments? = nil,
          tableWidths: (any MarkdownTableWidthStoring)? = nil) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
+        work = services.work
         self.tableWidths = kind == .markdown
             ? tableWidths ?? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory())
             : nil
@@ -144,6 +149,7 @@ final class FilePageService: InternalPageProvider {
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
               recoveredText: String? = nil, at position: FilePosition? = nil,
               placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
+        guard let services else { return "" }
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
         let reveal = kind == .editor ? position : nil
@@ -206,6 +212,7 @@ final class FilePageService: InternalPageProvider {
     /// tab that already shows the file, or a local tab no move can take, shows where it is.
     private func show(in pane: PaneController, focus: Bool, placed: (@MainActor (SurfaceID) -> Void)? = nil, _ tab: Tab,
                       matching: (String) -> Bool) -> String {
+        guard let services else { return "" }
         let window = services.windowController(showing: pane)
         let revealsExisting = focus || placed != nil
         for candidate in window?.content?.panes.values.map({ $0 }) ?? [pane] {
@@ -241,6 +248,7 @@ final class FilePageService: InternalPageProvider {
     }
 
     private func reveal(_ key: String, in pane: PaneController) {
+        guard let services else { return }
         pane.select(services.pages.stripID(showing: key, in: pane) ?? StripTabID(key))
         pane.focusContent()
     }
@@ -255,11 +263,12 @@ final class FilePageService: InternalPageProvider {
         if let previous = tabs[key]?.file, previous != url { left(previous, tab: key) }
         tabs[key]?.file = url
         tabs[key]?.bar?.show(url)
-        if let pane = services.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
+        if let pane = services?.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
     }
 
     fileprivate func pane(of key: String) -> PaneController? {
-        services.paneController(showingTab: key) ?? services.windows.active?.focusedPane
+        guard let services else { return nil }
+        return services.paneController(showingTab: key) ?? services.windows.active?.focusedPane
     }
 
     // MARK: Host services for the tabs
@@ -269,6 +278,7 @@ final class FilePageService: InternalPageProvider {
     private(set) lazy var openConfirmation = FileOpenConfirmation()
 
     func isRecent(_ path: String) -> Bool {
+        guard let services else { return false }
         let recents = services.viewers.recents
         return recents.paths(.markdown).contains(path) || recents.paths(.file).contains(path)
     }
@@ -276,6 +286,7 @@ final class FilePageService: InternalPageProvider {
     /// A web link clicked in the page: the link setting (``LinkRouter``, cmux browser or the default
     /// browser) and, in cmux, beside the page's pane (``LinkOpener``).
     func openExternal(_ url: URL, from key: String) {
+        guard let services else { return }
         switch url.scheme?.lowercased() {
         case "http", "https":
             guard LinkRouter.shared.target(for: url) == .cmuxBrowser else { return LinkRouter.shared.open(url, in: .system) }
@@ -287,12 +298,14 @@ final class FilePageService: InternalPageProvider {
 
     /// A file link clicked in the page opens beside the page's pane (``LinkOpener``).
     func openFile(_ url: URL, from key: String) {
+        guard let services else { return }
         services.linkOpener.openFile(url, from: pane(of: key), markdown: FilePageKind.isMarkdown(url))
     }
 
     // MARK: InternalPageProvider
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        guard let services else { return NSView() }
         // A store tab with no route (an empty tab, an older daemon) shows the empty state.
         var tab = tabs[key] ?? Tab(file: nil)
         let host = FilePageTabHost(service: self, key: key)
@@ -335,6 +348,7 @@ final class FilePageService: InternalPageProvider {
     /// The Markdown omnibar above a markdown tab's page (plans/cmux-next/markdown-omnibar-DESIGN.md):
     /// the browser's omnibar row showing the file's path, its git state and the Share menu.
     func makeTopBar(for key: String) -> NSView? {
+        guard let services else { return nil }
         guard kind == .markdown, let tab = tabs[key], let page = tab.page else { return nil }
         let actions = MarkdownOmnibarActions(
             open: { [weak self] url, disposition in self?.omnibarOpen(url, disposition: disposition, from: key) },

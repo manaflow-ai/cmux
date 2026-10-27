@@ -9,6 +9,7 @@ extension HomeService {
     /// endpoint read and the link renames run off the main actor; the
     /// published socket comes back as background work (recipe R-hop).
     func publishAppLinks() {
+        guard let services else { return }
         let home = chief.home
         let control = services.environment.launch.socketPath
         let local = services.machines.local.connection
@@ -29,6 +30,7 @@ extension HomeService {
     /// Republishes the links when this app becomes active again: one app-wide notice subscription
     /// (`AppEvents`), and the work is posted in the background class.
     func observeActivation() {
+        guard let services else { return }
         guard activationObserver == nil else { return }
         let mainWork = services.mainWork
         // raw-observer-allow: this is the AppEvents subscription recipe R-notif asks for (the app's one observer); only the notice's name matches
@@ -50,6 +52,7 @@ extension HomeService {
     /// Quit: the links that still point at this app go (another build that took them over keeps
     /// them). The cache was written by the quit's save step (``flushCacheForQuit()``).
     func applicationWillTerminate() {
+        guard let services else { return }
         settleWatch?.cancel()
         if homeListPrimed { sidebarLaunch.flush() }
         ChiefAppLinks.unpublish(home: chief.home, controlSocket: services.environment.launch.socketPath,

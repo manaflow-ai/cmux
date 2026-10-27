@@ -9,7 +9,8 @@ import os
 /// keeps one `AgentSessionFold` per machine and reads only the records
 /// after its cursor when a history list asks (`refresh`), so nothing polls.
 final class AgentHistory {
-    private let services: AppServices
+    /// The app's machines (`AppServices.machines`), which hold no reference back to the services.
+    private let machines: MachineRegistry
     private var folds: [String: AgentSessionFold] = [:]
     private var generations: [String: String] = [:]
     private var refreshing: Task<Void, Never>?
@@ -19,7 +20,7 @@ final class AgentHistory {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "history")
 
     init(services: AppServices, hidden: HiddenHistoryStore) {
-        self.services = services
+        machines = services.machines
         self.hidden = hidden
     }
 
@@ -35,7 +36,7 @@ final class AgentHistory {
     }
 
     private func readAll() async {
-        for daemon in services.machines.daemons where daemon.supports("session-journal-v1") {
+        for daemon in machines.daemons where daemon.supports("session-journal-v1") {
             guard case .connected = daemon.store.connectionState, let endpoint = try? await daemon.endpoint() else { continue }
             let machine = daemon.machineID
             let fold = folds[machine] ?? AgentSessionFold(machine: machine)
@@ -74,7 +75,7 @@ final class AgentHistory {
 
     func entries() -> [HistoryEntry] {
         sessions.map { session in
-            let connected = services.machines.daemons.contains { $0.machineID == session.machine }
+            let connected = machines.daemons.contains { $0.machineID == session.machine }
             return HistoryEntry(
                 id: "agent:\(session.qualifiedID)", kind: .agent, time: session.lastActivityAt,
                 title: HistoryAppStrings.agentTitle(provider: session.provider, cwd: session.cwd), detail: session.cwd,

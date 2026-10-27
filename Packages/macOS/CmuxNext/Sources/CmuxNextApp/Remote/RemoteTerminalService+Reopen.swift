@@ -9,6 +9,7 @@ import Foundation
 extension RemoteTerminalService {
     func reopen(_ tab: TabModel, in pane: PaneModel, closingOn source: DaemonConnection, on destination: DaemonConnection,
                 completion: @escaping TabMoves.Completion) {
+        guard let services else { return }
         let browserTabs = services.cache.browserTabs, handle = pane.handle, route = tab.pageRoute
         if tab.kind == .browser, tab.appTab == nil {
             switch browserTabs.resolve(requested: nil, inherited: tab.browserEngine) {
@@ -35,6 +36,7 @@ extension RemoteTerminalService {
     /// the original and the move's completion are one task on main in the run's class (a person's: userBlocking).
     func land(_ tab: TabModel, closingOn source: DaemonConnection, on destination: DaemonConnection, completion: @escaping TabMoves.Completion,
               open: @escaping @MainActor () async throws -> SurfaceID) {
+        guard let services else { return }
         let (name, pinned, surface, id) = (tab.name.flatMap { $0.isEmpty ? nil : $0 }, tab.pinned, tab.surface, tab.id)
         let terminal = tab.kind == .pty || tab.kind == .remoteTerminal
         services.registry.trackWork(owner: "RemoteTerminals.land", on: services.mainWork) { () async throws -> Void in
@@ -48,7 +50,7 @@ extension RemoteTerminalService {
                 return ActionWorkFailure(terminal ? "move terminal to another machine" : "move tab to another machine", error)
             }
             self?.forget(tabID: id)
-            if !terminal { self?.services.cache.release(id) } // its page closes with it
+            if !terminal { self?.services?.cache.release(id) } // its page closes with it
             completion(true)
             return nil
         }

@@ -29,7 +29,11 @@ import os
 @MainActor
 final class ControlSnapshotPublisher {
     private let router: ControlRouter
-    private let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this through the control service; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
+    /// The app's main-thread scheduler (``AppServices/mainWork``), which runs every publish.
+    private let mainWork: MainWorkScheduler
     private var isStopped = false
     /// Where the key-window and app-activation notices come from (key windows are not observable).
     private let appEvents: AppEvents
@@ -58,7 +62,8 @@ final class ControlSnapshotPublisher {
     ///     their own center.
     init(router: ControlRouter, services: AppServices, appEvents: AppEvents? = nil) {
         self.router = router
-        self.services = services
+        servicesReference = AppServicesReference(services)
+        mainWork = services.mainWork
         self.appEvents = appEvents ?? services.appEvents
         publishOwner = services.mainWork.board.owner("control.snapshot.publish")
     }
@@ -73,7 +78,7 @@ final class ControlSnapshotPublisher {
         // the next request is read. A work-queue frame only marks the snapshot stale; the next read builds it
         // (`ControlSnapshotStore.fresh`), once for any number of frames, and a read waiting on its barrier now.
         router.workQueue.setAfterFrame { [weak self] in self?.workQueueFrameRan() }
-        let (work, owner) = (services.mainWork, publishOwner)
+        let (work, owner) = (mainWork, publishOwner)
         router.snapshots.setRefresher({ [weak self] in self?.flush() }, waiterAdded: { [weak self] in
             // The reader's own request: one automation task, held while the person's input response is open.
             work.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.waiterAdded() }
@@ -128,7 +133,7 @@ final class ControlSnapshotPublisher {
         guard !isStopped, !queued.contains(where: { $0.workClass <= workClass.workClass }) else { return }
         queued.insert(workClass)
         // node-free: CLI reads and their write barriers need the snapshot whatever is on screen.
-        services.mainWork.post(workClass, owner: publishOwner) { [weak self] in
+        mainWork.post(workClass, owner: publishOwner) { [weak self] in
             self?.queued.remove(workClass)
             self?.flush()
         }
@@ -156,7 +161,7 @@ final class ControlSnapshotPublisher {
     /// Builds and publishes now. It runs in a publish task or a work-queue frame a reader waits on: never in the
     /// turn of the change itself.
     func publishNow() {
-        guard !isStopped else { return }
+        guard !isStopped, let services else { return }
         let started = ContinuousClock.now
         builds += 1
         let (built, settings, tabSearch) = topologyTracking.read({
@@ -165,7 +170,7 @@ final class ControlSnapshotPublisher {
         }, changed: { [weak self] in self?.topologyChanged() })
         // Outside the build's tracking: a sequence alone never rebuilds.
         var topology = built
-        let sequences = readSequences()
+        let sequences = readSequences(services)
         Self.apply(sequences, to: &topology)
         publishedSequences = sequences
         router.snapshots.publish(rebuilt: true) { snapshot in
@@ -183,7 +188,8 @@ final class ControlSnapshotPublisher {
 
     /// Publishes the daemon sequences alone: nothing the topology shows changed since its last build.
     private func publishSequences() {
-        let sequences = readSequences()
+        guard let services else { return }
+        let sequences = readSequences(services)
         guard sequences != publishedSequences else { return }
         sequencePublishes += 1
         publishedSequences = sequences
@@ -194,7 +200,7 @@ final class ControlSnapshotPublisher {
 
     /// The daemon sequences as of now. A clean bit means the tracking armed by the last read has not fired, so
     /// only a dirty one arms the next.
-    private func readSequences() -> ControlSequenceBarrier {
+    private func readSequences(_ services: AppServices) -> ControlSequenceBarrier {
         guard sequenceTracking.isDirty else { return Self.sequences(services) }
         return sequenceTracking.read({ Self.sequences(services) }, changed: { [weak self] in self?.sequencesChanged() })
     }

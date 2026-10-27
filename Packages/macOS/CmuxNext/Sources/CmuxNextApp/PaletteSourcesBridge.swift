@@ -95,10 +95,13 @@ enum PaletteSourcesBridge {
     }
 
     final class WorkspaceSource: PaletteWorkspaceSource {
-        private let services: AppServices
-        init(services: AppServices) { self.services = services }
+        private let servicesReference: AppServicesReference
+        /// The app's services, which own the palette; nil (reported) only once they are gone.
+        private var services: AppServices? { servicesReference.resolve() }
+        init(services: AppServices) { servicesReference = AppServicesReference(services) }
 
         var workspaces: [PaletteWorkspace] {
+            guard let services else { return [] }
             let shown = services.windows.active?.state.workspaceID
             var groupNames: [String: String] = [:]
             for group in AppPaletteNavigationSource.groups(services) {
@@ -121,6 +124,7 @@ enum PaletteSourcesBridge {
         }
 
         func selectWorkspace(id: String) {
+            guard let services else { return }
             // No active window (all closed, CLI run): show it in its own window, else a new one.
             guard let window = services.windows.active else {
                 services.windows.reveal(workspaceID: id)
@@ -137,11 +141,13 @@ enum PaletteSourcesBridge {
         }
 
         func renameWorkspace(id: String, to title: String) {
+            guard let services else { return }
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { return }
             daemon.send("rename-workspace") { connection in _ = try await connection.renameWorkspace(key, to: title) }
         }
 
         func closeWorkspace(id: String) {
+            guard let services else { return }
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { return }
             guard !HomeRules.isHome(workspace) else { return services.registry.refuse(RefusalStrings.homeNotClosable) }
             let terminals = WorkspaceClose.closing(workspace, on: daemon)
@@ -150,10 +156,13 @@ enum PaletteSourcesBridge {
     }
 
     final class TabSource: PaletteTabSource {
-        private let services: AppServices
-        init(services: AppServices) { self.services = services }
+        private let servicesReference: AppServicesReference
+        /// The app's services, which own the palette; nil (reported) only once they are gone.
+        private var services: AppServices? { servicesReference.resolve() }
+        init(services: AppServices) { servicesReference = AppServicesReference(services) }
 
         var tabs: [PaletteTab] {
+            guard let services else { return [] }
             let selected = services.windows.active?.focusedPane?.selectedTab?.id
             return services.machines.allWorkspaces.map(\.0).flatMap { workspace in
                 workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
@@ -174,10 +183,11 @@ enum PaletteSourcesBridge {
         func selectTab(id: String, inputTimestamp: Double?) {
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user)
             invocation.inputTimestamp = inputTimestamp
-            _ = services.registry.perform("tab.focus", invocation: invocation)
+            _ = services?.registry.perform("tab.focus", invocation: invocation)
         }
 
         func renameTab(id: String, to title: String) {
+            guard let services else { return }
             // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
             guard let (tab, pane) = services.locateTab(id) else { return }
             let surface = tab.surface
@@ -185,6 +195,7 @@ enum PaletteSourcesBridge {
         }
 
         func closeTab(id: String) {
+            guard let services else { return }
             // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
             guard let (_, pane) = services.locateTab(id), let controller = services.paneController(for: pane) else { return }
             controller.close([StripTabID(id)])

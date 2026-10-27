@@ -18,9 +18,9 @@ extension FilePageService {
             },
         ]
         // Send to Chief and Send To… (the terminal's and pages' rows): they run on the selected text.
-        let registry = services.registry
+        let registry = services?.registry
         for id in ["home.sendSelectionToChief", "home.sendSelectionTo"] as [ActionID] {
-            guard let title = registry.title(for: id) else { continue }
+            guard let registry, let title = registry.title(for: id) else { continue }
             rows.append(.init(title: title) { [weak page] in
                 // task-owner: one selection read per menu choice; ends with the page's answer
                 Task { @MainActor in
@@ -42,8 +42,8 @@ extension FilePageService {
             guard let page, let reply = try? await page.router.callPage(op, params: .object([:])),
                   let quote = ChatQuote(selection: reply, source: file.path, kind: viewer) else { return }
             let deliver = { [weak self, weak page] (quote: ChatQuote) in
-                guard let self else { return }
-                ChatQuoteDelivery(services: self.services).deliver(quote, from: page?.window)
+                guard let services = self?.services else { return }
+                ChatQuoteDelivery(services: services).deliver(quote, from: page?.window)
             }
             guard askComment else { return deliver(quote) }
             guard let window = page.window else { return }

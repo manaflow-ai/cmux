@@ -13,7 +13,7 @@ struct BookmarkImportSink: ImportedBookmarkSink {
 
     init(service: BookmarkService) {
         self.service = service
-        mainWork = service.services.mainWork
+        mainWork = service.mainWork
     }
 
     /// `userBlocking`: the person's onboarding import waits for each source's folder.

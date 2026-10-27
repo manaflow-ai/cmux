@@ -4,9 +4,9 @@ import CmuxNextActions
 import CmuxNextDaemonService
 import Testing
 
-/// p10-stability-091: the objects under the process root hold it strongly, so none of them can read a
-/// freed owner (an `unowned` read after its owner's deinit traps). A key router keeps the registry it was
-/// made with, and a page service keeps answering after the last outside reference to its services is gone.
+/// p10-stability-091: a service's back-reference to the `AppServices` that owns it does not own it (an owner holds its
+/// children, a child's back-pointer never keeps its owner, as Chromium's `raw_ptr` back-pointers), and a call that
+/// reaches a service after its services are gone refuses instead of trapping (an `unowned` read traps there).
 @MainActor struct ProcessRootBackReferenceTests {
     @Test func aKeyRouterKeepsTheRegistryItWasMadeWith() throws {
         weak var released: ActionRegistry?
@@ -19,8 +19,10 @@ import Testing
         #expect(router.registry === released)
     }
 
+    /// Fails on the strong back-references this task first tried: every `AppServices` a test built then lived for the
+    /// rest of the test process, its observers still live.
     @Test(.timeLimit(.minutes(1)))
-    func aPageServiceAnswersAfterItsServicesLastOutsideReferenceIsGone() throws {
+    func aPageServiceDoesNotKeepItsServicesAndRefusesOnceTheyAreGone() throws {
         _ = NSApplication.shared
         weak var released: AppServices?
         let inbox: FeedPageService = autoreleasepool {
@@ -28,8 +30,8 @@ import Testing
             released = services
             return services.feedPage
         }
-        try #require(released != nil, "the page service holds its services; an unowned one would trap on the next read")
-        // No window is open: the open refuses with its message instead of trapping on a freed owner.
-        #expect(throws: ActionFailure.self) { try inbox.open(focus: false) }
+        try #require(released == nil, "the page service holds its services weakly: they go with their last outside reference")
+        let refusal = #expect(throws: ActionFailure.self) { try inbox.open(focus: false) }
+        #expect(refusal?.message == RefusalStrings.appClosing)
     }
 }

@@ -6,11 +6,13 @@ import CmuxNextBrowser
 /// `browser.extension*` registry actions, targeted at the tab, so the
 /// menu, palette, shortcuts and CLI share one handler per action.
 final class ExtensionMenuRouter: ExtensionMenuHandling {
-    private let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     private let tabKey: String
 
     init(services: AppServices, tabKey: String) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
         self.tabKey = tabKey
     }
 
@@ -49,6 +51,7 @@ final class ExtensionMenuRouter: ExtensionMenuHandling {
     }
 
     func perform(_ operation: ExtensionMenuOperation, extensionID: String?) {
+        guard let services else { return }
         if operation == .siteAccess {
             // Chromium's own action menu (site access, pin, options, remove).
             if let id = extensionID, let entry = services.cache.existingBrowser(tabKey),

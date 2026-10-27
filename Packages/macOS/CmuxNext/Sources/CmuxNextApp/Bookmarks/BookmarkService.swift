@@ -23,7 +23,14 @@ final class BookmarkService {
     var trees: [String: BookmarkTree] = [:]
     /// Bumped on every change, so views that read many profiles can observe one value.
     private(set) var generation = 0
-    @ObservationIgnored let services: AppServices
+    @ObservationIgnored private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
+    /// The app's machines (``AppServices/machines``): bookmarks live in the home daemon, `machines.local`.
+    @ObservationIgnored let machines: MachineRegistry
+    /// The app's main-thread scheduler and deadlines (``AppServices/mainWork``, ``AppServices/mainDeadlines``).
+    @ObservationIgnored let mainWork: MainWorkScheduler
+    @ObservationIgnored let mainDeadlines: MainDeadlineScheduler
     @ObservationIgnored var file: BookmarkFileStore?
     @ObservationIgnored var directory: URL?
     @ObservationIgnored var importStore: ImportedDataStore?
@@ -79,12 +86,16 @@ final class BookmarkService {
     }
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
+        machines = services.machines
+        mainWork = services.mainWork
+        mainDeadlines = services.mainDeadlines
     }
 
     /// Reads the file, observes the home daemon, and runs the one-time
     /// migrations (file to daemon, earlier browser imports into bookmarks).
     func start(directory: URL, importStore: ImportedDataStore?) {
+        guard let services else { return }
         self.directory = directory
         self.importStore = importStore
         let file = BookmarkFileStore(file: directory.appending(path: "bookmarks.json"))
@@ -119,7 +130,7 @@ final class BookmarkService {
     // MARK: Reading
 
     /// The home daemon serves bookmarks; every read and write goes there.
-    var usesDaemon: Bool { services.machines.local.supports(DaemonCapability.bookmarks.rawValue) }
+    var usesDaemon: Bool { machines.local.supports(DaemonCapability.bookmarks.rawValue) }
 
     /// `profile`'s tree; asks the daemon for it the first time.
     func tree(_ profile: String) -> BookmarkTree {
@@ -130,6 +141,7 @@ final class BookmarkService {
     /// The wire id whose bookmarks a tab shows: its browser profile, the
     /// default one for an incognito tab, so incognito shows your bookmarks.
     func profile(ofTab key: String) -> String {
+        guard let services else { return BrowserProfileRecord.defaultID }
         let engine = services.browserProfiles.engineProfile(forTab: key)
         if services.browserStores.offTheRecord.isOffTheRecord(engine) { return BrowserProfileRecord.defaultID }
         return BrowserProfileRecord.wireID(for: engine)
@@ -137,7 +149,7 @@ final class BookmarkService {
 
     /// The wire id for an engine profile (a page's `profileID`).
     func profile(of engine: BrowserProfileID) -> String {
-        services.browserStores.offTheRecord.isOffTheRecord(engine) ? BrowserProfileRecord.defaultID : BrowserProfileRecord.wireID(for: engine)
+        services?.browserStores.offTheRecord.isOffTheRecord(engine) == true ? BrowserProfileRecord.defaultID : BrowserProfileRecord.wireID(for: engine)
     }
 
     func isBookmarked(_ url: URL?, profile: String) -> Bool { tree(profile).isBookmarked(url) }
@@ -147,6 +159,7 @@ final class BookmarkService {
     /// and the home daemon is known not to serve bookmarks (it answered
     /// without the capability, or is unavailable), so the file is the truth.
     func isLoaded(_ profile: String) -> Bool {
+        guard let services else { return false }
         if usesDaemon { return loadedFromDaemon.contains(profile) }
         let home = services.machines.local
         return fileLoaded && (home.store.identity != nil || home.startup != .connecting)
@@ -208,6 +221,7 @@ final class BookmarkService {
 
     /// Every view of `profiles` redraws (stars, bars, manager pages).
     func changed(profiles: Set<String>) {
+        guard let services else { return }
         generation &+= 1
         refreshChromes(profiles: profiles)
         services.bookmarkPages.reload(profiles: profiles)

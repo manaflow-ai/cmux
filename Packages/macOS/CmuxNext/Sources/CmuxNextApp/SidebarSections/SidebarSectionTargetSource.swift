@@ -5,15 +5,19 @@ import CmuxNextSidebar
 /// Palette target lists for sidebar section actions: every section and
 /// item of the layout. Other kinds fall through to `next`.
 final class SidebarSectionTargetSource: PaletteTargetSource {
-    private let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     private let next: any PaletteTargetSource
 
     init(services: AppServices, next: any PaletteTargetSource) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
         self.next = next
     }
 
     func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
+        guard kind == .sidebarSection || kind == .sidebarItem else { return next.targets(of: kind) }
+        guard let services else { return [] }
         let doc = services.sidebarLayout.document
         switch kind {
         case .sidebarSection:
@@ -37,7 +41,7 @@ final class SidebarSectionTargetSource: PaletteTargetSource {
     func title(of target: ActionTargetRef) -> String? {
         switch target.kind {
         case .sidebarSection:
-            services.sidebarLayout.document.sections.first { $0.id.rawValue == target.id }?.title.flatMap { $0.isEmpty ? nil : $0 }
+            services?.sidebarLayout.document.sections.first { $0.id.rawValue == target.id }?.title.flatMap { $0.isEmpty ? nil : $0 }
         case .sidebarItem:
             targets(of: .sidebarItem).first { $0.id == target.id }?.title
         default:

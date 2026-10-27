@@ -1,10 +1,14 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import Foundation
 
 /// The extension mirrors, one per profile, created on first use. Owns the
 /// mirrors and decides which ones a Chromium extension change refreshes.
 @MainActor
 final class CEFExtensionStores {
-    unowned let runtime: CEFRuntime
+    /// The runtime, which owns these as `CEFRuntime.extensionStores` (p10-stability-091).
+    private let runtimeReference: OwnerReference<CEFRuntime>
+    /// The runtime; nil (reported) only once it is gone.
+    private var runtime: CEFRuntime? { runtimeReference.resolve() }
     private var stores: [BrowserProfileID: BrowserExtensionStore] = [:]
     /// The backend of a new mirror; nil: Chromium's (tests pass their own).
     private let makeBackend: ((BrowserProfileID) -> any BrowserExtensionBackend)?
@@ -13,14 +17,15 @@ final class CEFExtensionStores {
     private var menuSources: [String: BrowserExtensionMenuSource] = [:]
 
     init(runtime: CEFRuntime, makeBackend: ((BrowserProfileID) -> any BrowserExtensionBackend)? = nil) {
-        self.runtime = runtime
+        runtimeReference = CEFRuntime.childReference(runtime)
         self.makeBackend = makeBackend
     }
 
     /// The extension mirror of `profile` (created on first use, empty).
     func store(for profile: BrowserProfileID) -> BrowserExtensionStore {
         if let store = stores[profile] { return store }
-        let store = BrowserExtensionStore(profile: profile, backend: makeBackend?(profile) ?? CEFExtensionBackend(runtime: runtime, profile: profile))
+        let backend = makeBackend?(profile) ?? CEFExtensionBackend(runtime: runtimeReference, profile: profile)
+        let store = BrowserExtensionStore(profile: profile, backend: backend)
         stores[profile] = store
         return store
     }
@@ -76,6 +81,7 @@ final class CEFExtensionStores {
     /// Extensions or their actions changed: refresh the profile mirrors of
     /// the window's tabs (a pin changes both lists).
     func refresh(window: Int32, browser: Int32) {
+        guard let runtime else { return }
         runtime.omniboxKeywords.invalidate()
         var profiles: Set<BrowserProfileID> = []
         if let tab = runtime.tabsByBrowser[browser] { profiles.insert(tab.profileID) }

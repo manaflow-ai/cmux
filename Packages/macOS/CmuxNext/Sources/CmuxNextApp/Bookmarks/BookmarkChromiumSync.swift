@@ -33,9 +33,9 @@ final class BookmarkChromiumSync {
 
     init(service: BookmarkService) {
         self.service = service
-        let mainWork = service.services.mainWork
+        let mainWork = service.mainWork
         settles = BookmarkSyncSettle(settle: Self.settle, maxDelay: Self.idleMaxDelay,
-                                     deadlines: service.services.mainDeadlines) { owner, maxDelay, body in
+                                     deadlines: service.mainDeadlines) { owner, maxDelay, body in
             mainWork.postIdle(owner: owner, maxDelay: maxDelay) { _ in body() }
         }
         bridge.onEvent = { [weak self] profile, store, event in
@@ -44,7 +44,7 @@ final class BookmarkChromiumSync {
         // The file becomes the truth once the home daemon answered or gave
         // up; a reconnect lets a failed read start again. A service: the
         // stores sync whether or not a browser tab shows.
-        let home = service.services.machines.local
+        let home = service.machines.local
         homeObservation = ServiceObservation(.background, owner: "BookmarkChromiumSync.home", on: mainWork) {
             "\(home.store.identity != nil) \(home.startup) \(home.store.connectionState)"
         } apply: { [weak self] _ in

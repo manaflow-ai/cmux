@@ -11,6 +11,7 @@ import Foundation
 extension HistoryService {
     /// The local daemon's history module when it serves `history-v1`, else nil.
     var daemonHistory: DaemonHistoryClient? {
+        guard let services else { return nil }
         let daemon = services.machines.local
         guard let connection = daemon.connection, daemon.supports(DaemonHistoryClient.capability) else { return nil }
         return DaemonHistoryClient(connection: connection)
@@ -51,7 +52,8 @@ extension HistoryService {
 
     /// A location row greyed while its tab is not reachable (the daemon cannot know).
     private func reachable(_ entry: HistoryEntry) -> HistoryEntry {
-        entry.reachable { services.locationTrail.isAvailable($0) }
+        guard let trail = services?.locationTrail else { return entry }
+        return entry.reachable { trail.isAvailable($0) }
     }
 
     /// Runs a daemon mutation off the caller, then tells open pages (they also hear history-changed).
@@ -68,12 +70,12 @@ extension HistoryService {
     /// app-local logs. On the first connection, a daemon that serves `history-v1` takes over every
     /// attached profile: it imports the profile's old log and seeds the omnibox from its store.
     func adoptDaemonHistoryOnFirstConnection() {
+        guard let services else { return }
         let local = services.machines.local
         // task-owner: one wait for the local daemon's first connection; ends with it or a failed startup
         Task { [weak self, weak local] in
             if let local, local.connection == nil { await local.firstConnection() }
-            guard let self, let daemon = self.daemonHistory else { return }
-            let cache = self.services.cache
+            guard let self, let daemon = self.daemonHistory, let cache = self.services?.cache else { return }
             self.seedFromDaemon(cache.history, profile: .default, daemon)
             for (profile, entry) in cache.profileHistories { self.seedFromDaemon(entry.history, profile: profile, daemon) }
         }

@@ -20,7 +20,7 @@ import Observation
 final class SidebarBridge {
     let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel())
     let container: SidebarContainerView
-    let services: AppServices
+    unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.
     weak var state: WindowState?
     /// The rows and selection observations, also run in the turn the window shows a workspace.

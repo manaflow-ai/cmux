@@ -18,7 +18,9 @@ import CmuxNextFocus
 /// the steps are read back from it at connect. Only the Back/Forward cursor
 /// is this app's own view state.
 final class LocationTrailService {
-    let services: AppServices
+    private let servicesReference: AppServicesReference
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    var services: AppServices? { servicesReference.resolve() }
     private(set) var trail = LocationTrail()
     private var loaded = false
     private var loading = false
@@ -60,7 +62,7 @@ final class LocationTrailService {
     }
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = AppServicesReference(services)
         let (stream, continuation) = AsyncStream<@Sendable () async -> Void>.makeStream(bufferingPolicy: .bufferingNewest(1_024))
         reports = continuation
         // task-owner: the service's lifetime; ends when the stream finishes in deinit
@@ -95,6 +97,7 @@ final class LocationTrailService {
     /// ``canNavigate(_:)`` with no trail change. `visible`: the buttons enable or disable; a person's
     /// change flushes before its frame.
     func watchScope(settings: SettingsController) {
+        guard let services else { return }
         // The current scope needs no notice: the buttons read it when they are made.
         var current = true
         scopeObservation = ServiceObservation(.visible, owner: "LocationTrail.scope", on: services.mainWork) {
@@ -114,6 +117,7 @@ final class LocationTrailService {
     /// window, else the last active one), so a background CLI change does
     /// not move the trail.
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
+        guard let services else { return }
         // Under a top page the workspace's focus is not where the user is.
         guard services.windows.active === controller, controller.shownTopPage == nil else {
             return log.skipped(controller.shownTopPage == nil ? "inactive window" : "top page shown", window: controller.state.id,
@@ -158,7 +162,7 @@ final class LocationTrailService {
 
     /// What a step is (`navigation.history.scope`, BACK-FORWARD-WORKSPACES-ONLY).
     var stepScope: HistoryStepScope {
-        services.settings.flatMap { HistoryStepScope(rawValue: $0.snapshot.navigationHistorySteps) } ?? .default
+        services?.settings.flatMap { HistoryStepScope(rawValue: $0.snapshot.navigationHistorySteps) } ?? .default
     }
 
     /// The user showed top page `route` in the active window: a trail entry
@@ -167,6 +171,7 @@ final class LocationTrailService {
     /// current entry is not it (a fresh launch, a restored page), it is
     /// recorded first so Go Back leaves the page (`+PageOrigin`).
     func pageDidShow(_ route: TopPageRoute, title: String, origin: HistoryLocation? = nil, in controller: WindowController) {
+        guard let services else { return }
         guard services.windows.active === controller else { return }
         let location = HistoryLocation.page(route.rawValue, window: controller.state.id, title: title,
                                             isIncognito: services.windows.isIncognito(window: controller.state.id))
@@ -191,7 +196,7 @@ final class LocationTrailService {
     /// With workspace steps (the default) a step is a workspace or top page,
     /// so Back and Forward walk the window's trail; `surface` stays the page's own list.
     var scope: HistoryScope {
-        let configured = services.settings.flatMap { HistoryScope(rawValue: $0.snapshot.navigationHistoryScope) } ?? .default
+        let configured = services?.settings.flatMap { HistoryScope(rawValue: $0.snapshot.navigationHistoryScope) } ?? .default
         return stepScope == .workspaces && configured != .surface ? .window : configured
     }
 
@@ -202,6 +207,7 @@ final class LocationTrailService {
     /// Forward walk it, and the trail only past its ends.
     @discardableResult
     func navigate(_ direction: Direction) -> Bool {
+        guard let services else { return false }
         if direction != .last, ActionRunScope.viewChangeAllowed(), let page = pageHistory() {
             if direction == .back ? page.goBack() : page.goForward() { return true }
         }
@@ -260,6 +266,7 @@ final class LocationTrailService {
     /// The page history of what `controller` (else the active window) shows: its top page, else
     /// the internal page tab (app-only or store) its focused pane shows.
     func pageHistory(in controller: WindowController? = nil) -> (any PageHistory)? {
+        guard let services else { return nil }
         guard let controller = controller ?? services.windows.active else { return nil }
         if let route = controller.shownTopPage {
             guard case .page(let id) = route, let key = controller.topPages.key(for: route) else { return nil }
@@ -285,6 +292,7 @@ final class LocationTrailService {
     /// Shows the tab: its window comes forward, its workspace and tab are
     /// selected and its pane takes focus.
     private func focus(_ location: HistoryLocation) -> Bool {
+        guard let services else { return false }
         // A run without view-change permission (automation) moves nothing.
         guard ActionRunScope.viewChangeAllowed() else { return false }
         if let page = location.page {
@@ -328,6 +336,7 @@ final class LocationTrailService {
     }
 
     private func report(_ location: HistoryLocation, at time: Date, steps: HistoryStepScope, jump: Bool) {
+        guard let services else { return }
         guard let daemon = services.history.daemonHistory else {
             sync.unsent.insert(HistoryTrailStepID(location.key, time))
             return log.unsent(location)
@@ -347,6 +356,7 @@ final class LocationTrailService {
     /// Reads the daemon's trail once per launch (on the first connection that serves it), and
     /// again when another client changed it (`history-changed` with kind `location`).
     private func loadOnce() {
+        guard let services else { return }
         guard !loaded, !loading, let daemon = services.history.daemonHistory else { return }
         loading = true
         // task-owner: one read of the daemon's trail; ends with its reply
@@ -373,6 +383,7 @@ final class LocationTrailService {
     /// Another client changed the daemon's trail (the React History page): steps that left it
     /// leave Back/Forward too. Only the newest read applies.
     private func reread() {
+        guard let services else { return }
         guard loaded, let daemon = services.history.daemonHistory else { return }
         rereads += 1
         let generation = rereads
