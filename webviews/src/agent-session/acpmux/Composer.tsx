@@ -11,7 +11,7 @@ import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellR
 import { opensProcessTerminal } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
-import { showsLocationRow } from "./locationRow";
+import { isStartedChat, showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
@@ -1549,7 +1549,7 @@ export function Composer({
 
   // The location strip: the folder and computer chips over the card (hq#1957 composer location
   // strip, composerLocation.css), so the card holds one controls row. Only a new chat has the visible
-  // strip, before its first send (locationRow.ts): a started chat cannot change folder or machine.
+  // strip, before its first send (locationRow.ts); a started chat has it only for a move (below).
   // Keep a non-painting slot for that strip while the first prompt changes the transcript. The
   // composer is bottom-anchored, so removing the slot in the same render would move every control
   // by the strip's height (cx-ncc.58); the slot is hidden when a queue is present, whose own height
@@ -1569,38 +1569,49 @@ export function Composer({
     locationSlotWasShown.current = false;
   }
   const keepLocationSlot = !locationVisible && locationWasVisible && ownQueue(snapshot.queue).length === 0;
-  const context = locationVisible ? (
-    <ComposerContext
-      projectChoices={projectChoices}
-      onBrowseProject={onBrowseProject}
-      onNewWorktree={onNewWorktree}
-      onBrowseFolder={onBrowseFolder}
-      onConnect={onConnect}
-      {...(onOffload ? { onOffload } : {})}
-      {...(offloads ? { offloads } : {})}
-      summary={snapshot.summary}
-      sessions={snapshot.sessions}
-      peers={snapshot.peers}
-      {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
-      {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
-      {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
-      {...(onRefreshMachines ? { onRefreshMachines } : {})}
-      {...(folderNote ? { folderNote } : {})}
-      environments={environments}
-      {...(onComputer ? { onComputer } : {})}
-      onProject={
-        onProject &&
-        ((cwd, peer) => {
-          onProject(cwd, peer);
-          field.current?.focus();
-        })
-      }
-      localName={localName}
-      onNewChat={onNewChat}
-    />
-  ) : keepLocationSlot ? (
-    <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
-  ) : null;
+  // A started chat keeps the strip, as its chip's menu, only while the host offers it a move (Move
+  // to Cloud, Bring Back Local: the tab's own menu's `moves`); that menu also offers Choose folder…
+  // for a new chat. With no move, or while its queue heads the card, it has none (#20869).
+  const startedStrip =
+    !locationVisible &&
+    isStartedChat(snapshot) &&
+    ownQueue(snapshot.queue).length === 0 &&
+    onOffload !== undefined &&
+    (offloads?.length ?? 0) > 0;
+  const context =
+    locationVisible || startedStrip ? (
+      <ComposerContext
+        started={startedStrip}
+        projectChoices={projectChoices}
+        onBrowseProject={onBrowseProject}
+        onNewWorktree={onNewWorktree}
+        onBrowseFolder={onBrowseFolder}
+        onConnect={onConnect}
+        {...(onOffload ? { onOffload } : {})}
+        {...(offloads ? { offloads } : {})}
+        summary={snapshot.summary}
+        sessions={snapshot.sessions}
+        peers={snapshot.peers}
+        {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
+        {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+        {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
+        {...(onRefreshMachines ? { onRefreshMachines } : {})}
+        {...(folderNote ? { folderNote } : {})}
+        environments={environments}
+        {...(onComputer ? { onComputer } : {})}
+        onProject={
+          onProject &&
+          ((cwd, peer) => {
+            onProject(cwd, peer);
+            field.current?.focus();
+          })
+        }
+        localName={localName}
+        onNewChat={onNewChat}
+      />
+    ) : keepLocationSlot ? (
+      <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
+    ) : null;
   // Stop, for the whole turn. Claude desktop's box (Leo 2026-10-20) draws it left of the mic, the
   // mic keeping the right edge; the other look keeps it at the cluster's end.
   const stopButton = running ? (

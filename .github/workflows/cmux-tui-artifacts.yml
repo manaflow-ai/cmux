@@ -2968,6 +2968,35 @@ jobs:
           KEY: ${{ needs.tree-preflight.outputs.key }}
         run: scripts/ci/cmux-tui-point-channel.sh feat-cmux-next "$KEY"
 
+  # The tree-commit markers (scripts/cmux-next/tree-commit-marker.sh has the
+  # contract): cmux-tui/tree-commits/<sha>.json for each first-parent commit in
+  # the last 40 of this run's commit whose tree is published and daemon-tested.
+  # Main's promote guard and request-nightly-next.sh require one, so main never
+  # needs the tree key; reading it is a CDN GET, no API call. Write-once. A
+  # dispatch on feat-cmux-next (request-nightly-next.sh's backfill) runs it too.
+  mark-tree-commits:
+    environment: artifacts
+    name: mark the commits whose tree is ready
+    needs: [tree-preflight, publish-tree-tested]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 41
+
+      - name: Write the tree-commit markers
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: scripts/cmux-next/tree-commit-marker.sh write --window 40
+
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
   # and whose cmux-next Release compile passed, so the nightly builds its tip
   # with the tip's own nightly.yml and daemon. cmux-next.yml asks when the
@@ -2984,7 +3013,8 @@ jobs:
     # on any other branch also asks, for the newest recent feat-cmux-next
     # commit that shares its key: the owner of a feat-cmux-next commit's key
     # is often the branch run of the same tree.
-    needs: [tree-preflight, tree-owner-wait, publish-tree-tested]
+    # After mark-tree-commits (whatever its result): the request needs the marker.
+    needs: [tree-preflight, tree-owner-wait, publish-tree-tested, mark-tree-commits]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' && ((github.ref == 'refs/heads/feat-cmux-next' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.takeover == 'false' || needs.publish-tree-tested.result == 'success')) || (github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree-tested.result == 'success')) }}
     runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith
     # One fetch of the branch's recent history plus a jobs lookup per candidate.
