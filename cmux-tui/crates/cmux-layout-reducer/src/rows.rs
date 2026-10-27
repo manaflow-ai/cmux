@@ -111,21 +111,19 @@ impl LayoutState {
         base_column: ColumnId,
         base_row: RowId,
         events: &mut Vec<LayoutEvent>,
-    ) -> Result<(), Reject> {
-        let screen = self.screen_at_mut(at)?;
-        let screen_id = screen.id;
-        let opens_columns = !screen.columns_active;
-        screen.columns_active = true;
-        // A split screen has one column, its tree, which holds the pane.
-        let column = screen.columns.get_mut(at.column).ok_or(at.stale())?;
-        if opens_columns {
-            column.id = base_column;
+    ) {
+        let screen = self.screen_at_mut(at);
+        if !screen.columns_active {
+            screen.columns_active = true;
+            let screen_id = screen.id;
+            // A split screen has one column, its tree, which holds the pane.
+            self.column_at_mut(at).id = base_column;
             events.push(LayoutEvent::ColumnCreated { column: base_column, screen: screen_id });
         }
+        let column = self.column_at_mut(at);
         if column.rows.is_empty() {
             column.rows.push(Row { id: base_row, height_permille: 1000, len: column.panes.len() });
         }
-        Ok(())
     }
 
     /// Ids a row op would create, given whether the screen still needs a
@@ -136,14 +134,14 @@ impl LayoutState {
         mut ids: Vec<u64>,
         base_column: ColumnId,
         base_row: RowId,
-    ) -> Result<Vec<u64>, Reject> {
-        if !self.screen_at(at)?.columns_active {
+    ) -> Vec<u64> {
+        if !self.screen_at(at).columns_active {
             ids.push(base_column);
         }
-        if self.column_at(at)?.rows.is_empty() {
+        if self.column_at(at).rows.is_empty() {
             ids.push(base_row);
         }
-        Ok(ids)
+        ids
     }
 
     /// Inserts row `new_row` holding the empty pane `new_pane` at row index
@@ -156,9 +154,9 @@ impl LayoutState {
         height: u16,
         new_pane: PaneId,
         events: &mut Vec<LayoutEvent>,
-    ) -> Result<(), Reject> {
-        let screen_id = self.screen_at(at)?.id;
-        let column = self.column_at_mut(at)?;
+    ) {
+        let screen_id = self.screen_at(at).id;
+        let column = self.column_at_mut(at);
         let position = if slot == column.rows.len() {
             column.panes.len()
         } else {
@@ -170,7 +168,6 @@ impl LayoutState {
         self.panes.insert(new_pane, Vec::new());
         events.push(LayoutEvent::RowCreated { row: new_row, column: column_id, index: slot });
         events.push(LayoutEvent::PaneCreated { pane: new_pane, screen: screen_id });
-        Ok(())
     }
 
     fn column_by_id(&mut self, id: ColumnId) -> Option<&mut Column> {
@@ -210,11 +207,11 @@ pub(crate) fn insert_row(
     {
         return Err(Reject::ContentPlaced(*placed.0));
     }
-    let ids = state.row_op_ids(at, vec![new_row, new_pane, new_tab.tab], base_column, base_row)?;
+    let ids = state.row_op_ids(at, vec![new_row, new_pane, new_tab.tab], base_column, base_row);
     state.ensure_fresh(&ids)?;
-    state.open_rows(at, base_column, base_row, events)?;
-    let slot = state.column_at(at)?.row_index(at.position) + 1;
-    state.insert_row(at, slot, new_row, height_permille, new_pane, events)?;
+    state.open_rows(at, base_column, base_row, events);
+    let slot = state.column_at(at).row_index(at.position) + 1;
+    state.insert_row(at, slot, new_row, height_permille, new_pane, events);
     state.panes.get_mut(&new_pane).ok_or(Reject::UnknownPane(new_pane))?.push(new_tab.tab);
     state.tabs.insert(new_tab.tab, new_tab.content.clone());
     events.push(LayoutEvent::TabCreated { tab: new_tab.tab, pane: new_pane });
@@ -251,7 +248,7 @@ pub(crate) fn move_tab_to_row(
     if op.respawn.is_some() && !only {
         return Err(Reject::RespawnNotNeeded);
     }
-    let column = state.column_at(anchor)?;
+    let column = state.column_at(anchor);
     let target = column.row_index(anchor.position) + usize::from(!op.before);
     if op.respawn.is_none() && only {
         let from = state.locate(source)?;
@@ -274,7 +271,7 @@ pub(crate) fn move_tab_to_row(
     if let Some(respawn) = op.respawn {
         ids.push(respawn.tab);
     }
-    let ids = state.row_op_ids(anchor, ids, op.base_column, op.base_row)?;
+    let ids = state.row_op_ids(anchor, ids, op.base_column, op.base_row);
     state.ensure_fresh(&ids)?;
     if let Some(respawn) = op.respawn {
         state.panes.get_mut(&source).ok_or(Reject::UnknownPane(source))?.push(respawn.tab);
@@ -283,8 +280,8 @@ pub(crate) fn move_tab_to_row(
     }
     // `open_rows` may add a base row before the target index; the index was
     // computed against the implicit row, which becomes row 0.
-    state.open_rows(anchor, op.base_column, op.base_row, events)?;
-    state.insert_row(anchor, target, op.new_row, op.height_permille, op.new_pane, events)?;
+    state.open_rows(anchor, op.base_column, op.base_row, events);
+    state.insert_row(anchor, target, op.new_row, op.height_permille, op.new_pane, events);
     state.move_tab(op.tab, source, op.new_pane, 0, events)?;
     Ok(())
 }

@@ -55,8 +55,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 mod rows;
+mod slot;
 mod tab_moves;
 pub use rows::{ROW_HEIGHT_PERMILLE, Row, RowId, row_layout_is_valid};
+use slot::Slot;
 use std::fmt;
 
 pub type TabId = u64;
@@ -691,25 +693,6 @@ pub fn apply_once(
     Ok((next, ledger, events))
 }
 
-/// Where pane `pane` sits: indexes of its workspace, screen, column and
-/// position in the column.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Slot {
-    pub pane: PaneId,
-    pub workspace: usize,
-    pub screen: usize,
-    pub column: usize,
-    pub position: usize,
-}
-
-impl Slot {
-    /// A slot that no longer names a place in the state it came from
-    /// rejects the op like a missing pane (`apply` works on a copy).
-    fn stale(self) -> Reject {
-        Reject::UnknownPane(self.pane)
-    }
-}
-
 impl LayoutState {
     /// The pane that holds `tab`.
     pub fn pane_of(&self, tab: TabId) -> Option<PaneId> {
@@ -719,47 +702,6 @@ impl LayoutState {
     /// The number of tabs `pane` holds; an unknown pane rejects the op.
     pub(crate) fn tab_count(&self, pane: PaneId) -> Result<usize, Reject> {
         self.panes.get(&pane).map(Vec::len).ok_or(Reject::UnknownPane(pane))
-    }
-
-    pub(crate) fn slot(&self, pane: PaneId) -> Option<Slot> {
-        for (wi, workspace) in self.workspaces.iter().enumerate() {
-            for (si, screen) in workspace.screens.iter().enumerate() {
-                for (ci, column) in screen.columns.iter().enumerate() {
-                    if let Some(pi) = column.panes.iter().position(|id| *id == pane) {
-                        return Some(Slot {
-                            pane,
-                            workspace: wi,
-                            screen: si,
-                            column: ci,
-                            position: pi,
-                        });
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    pub(crate) fn screen_at(&self, slot: Slot) -> Result<&Screen, Reject> {
-        self.workspaces
-            .get(slot.workspace)
-            .and_then(|workspace| workspace.screens.get(slot.screen))
-            .ok_or(slot.stale())
-    }
-
-    pub(crate) fn screen_at_mut(&mut self, slot: Slot) -> Result<&mut Screen, Reject> {
-        self.workspaces
-            .get_mut(slot.workspace)
-            .and_then(|workspace| workspace.screens.get_mut(slot.screen))
-            .ok_or(slot.stale())
-    }
-
-    pub(crate) fn column_at(&self, slot: Slot) -> Result<&Column, Reject> {
-        self.screen_at(slot)?.columns.get(slot.column).ok_or(slot.stale())
-    }
-
-    pub(crate) fn column_at_mut(&mut self, slot: Slot) -> Result<&mut Column, Reject> {
-        self.screen_at_mut(slot)?.columns.get_mut(slot.column).ok_or(slot.stale())
     }
 
     /// Whether `id` names any pane, real column, screen, workspace or tab.
@@ -785,15 +727,6 @@ impl LayoutState {
             }
         }
         Ok(())
-    }
-
-    /// Where `pane` sits; a pane that does not exist or is in no layout
-    /// rejects the op.
-    pub(crate) fn locate(&self, pane: PaneId) -> Result<Slot, Reject> {
-        if !self.panes.contains_key(&pane) {
-            return Err(Reject::UnknownPane(pane));
-        }
-        self.slot(pane).ok_or(Reject::UnknownPane(pane))
     }
 
     fn insert_pane(&mut self, pane: PaneId) {
@@ -832,8 +765,8 @@ fn apply_kind(
                     events.push(LayoutEvent::TabCreated { tab: respawn.tab, pane: source });
                 }
             }
-            let screen_id = state.screen_at(slot)?.id;
-            let column = state.column_at_mut(slot)?;
+            let screen_id = state.screen_at(slot).id;
+            let column = state.column_at_mut(slot);
             let at = if edge.before() { slot.position } else { slot.position + 1 };
             column.note_inserted(slot.position);
             column.panes.insert(at, *new_pane);
@@ -858,7 +791,7 @@ fn apply_kind(
             if source == *anchor && state.tab_count(source)? == 1 {
                 return Err(Reject::OnlyTabSplitOutOfOwnPane);
             }
-            let screen = state.screen_at(slot)?;
+            let screen = state.screen_at(slot);
             let position = match after_column {
                 Some(column) if screen.columns_active => {
                     screen
@@ -876,14 +809,14 @@ fn apply_kind(
             } else {
                 state.ensure_fresh(&[*new_pane, *new_column, *base_column])?;
             }
-            let screen = state.screen_at_mut(slot)?;
-            if !screen.columns_active {
+            if !state.screen_at(slot).columns_active {
                 // A split screen has one column, its tree, which holds the anchor.
-                let tree = screen.columns.get_mut(slot.column).ok_or(slot.stale())?;
-                tree.id = *base_column;
+                state.column_at_mut(slot).id = *base_column;
+                let screen = state.screen_at_mut(slot);
                 screen.columns_active = true;
                 events.push(LayoutEvent::ColumnCreated { column: *base_column, screen: screen.id });
             }
+            let screen = state.screen_at_mut(slot);
             screen.columns.insert(position, Column::single(*new_column, vec![*new_pane]));
             let screen_id = screen.id;
             state.insert_pane(*new_pane);
