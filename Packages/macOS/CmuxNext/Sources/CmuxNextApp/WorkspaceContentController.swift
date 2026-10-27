@@ -325,6 +325,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         apply(LayoutMapping.shared.map(workspace), cause: cause, force: true, file, line) // after a command response that may trail its own delta
     }
 
+    /// Applies the store's layout when it changed since the last apply (no-op otherwise): a pane whose tabs changed
+    /// calls it first (`applyMovedTabs`), so a tab moved to a new pane shows there and leaves its old pane in one turn.
+    func applyLayoutIfChanged() {
+        apply(LayoutMapping.shared.map(workspace), cause: changeCauses?.take() ?? .program) // the cause the observation would apply
+    }
+
     /// `cause`: who caused the change; an automation burst's structural change lands with no
     /// spring (`LayoutModel.apply(screens:cause:)`).
     private func apply(_ result: LayoutMapping.Result, cause: ObservationCause = .program, force: Bool = false,
@@ -344,6 +350,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             if topologyMoved {
                 // The one topology of this change (adoptions inside sent none); the focus it lands
                 // rings in this frame.
+                withApplying { syncStaleStrips() } // their topology parts go out in the one below
                 sendTopology()
                 layoutView.syncWithModel()
             }
@@ -367,11 +374,22 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
         updateEmptyState()
         repairIfEmpty()
+        // Every strip matches the store before the topology: a moved tab is in its new pane only (not also in its
+        // old pane's strip until that pane's own observation runs a turn later), so focus follows it in this turn.
+        syncStaleStrips()
         // The one topology of this apply (mounts and pane snapshots inside it sent none).
         isApplying = wasApplying
         sendTopology()
         isApplying = true
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
+    }
+
+    /// Runs `body` as part of an apply: pane changes inside it send no topology of their own (the caller sends one).
+    func withApplying(_ body: () -> Void) {
+        let wasApplying = isApplying
+        isApplying = true
+        defer { isApplying = wasApplying }
+        body()
     }
 
     /// Takes the mapping's handles. A pane record a resync rebuilt under the same key keeps its

@@ -220,27 +220,22 @@ nonisolated enum AcpmuxServerPeer {
 
     /// A strict on-disk check before a Team-signed app launches its acpmux.
     /// DEV is ad-hoc and has no team to require. `team` is this app's (``SigningTeamInstall/team``, read
-    /// on the system lane at launch).
+    /// on the system lane at launch). The answer is kept per version of the file (``StaticCodeValidityCache``).
+    /// Blocks (stat calls, and the check on a miss): the app resolves its acpmux on its system lane
+    /// (`AppEnvironment.appAcpmux`), never on the main thread.
     static func executableSignedByAppTeam(_ executable: URL, team: String?) -> Bool {
         guard let team else { return true }
         guard let requirement = requirement(team: team) else { return false }
-        var code: SecStaticCode?
-        let path = executable.resolvingSymlinksInPath()
-        // SAFETY: SecStaticCodeCreateWithPath writes one retained SecStaticCode reference into `code`, a local.
-        guard unsafe SecStaticCodeCreateWithPath(path as CFURL, [], &code) == errSecSuccess, let code else { return false }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
-        return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
+        return StaticCodeValidityCache.process.isValid(executable.resolvingSymlinksInPath(), flags: flags, requirement: requirement)
     }
 
-    private static func requirement(team: String) -> SecRequirement? {
+    /// The requirement text of `team`'s Developer ID, or nil when `team` is not a plain identifier.
+    private static func requirement(team: String) -> String? {
         guard !team.isEmpty, team.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }) else {
             return nil
         }
-        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
-        var requirement: SecRequirement?
-        // SAFETY: SecRequirementCreateWithString writes one retained SecRequirement reference into `requirement`, a local.
-        guard unsafe SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess else { return nil }
-        return requirement
+        return "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
     }
 
     /// The check on a connected unix socket: this user, then this app's acpmux or (`allowForeign`)

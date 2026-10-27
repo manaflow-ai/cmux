@@ -166,7 +166,7 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet { if isDocked != oldValue { applyDockFill() } }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: two layer background colors (dock fill, zoom backing), no layout or text measure; cheaper than a deferral
         super.viewDidChangeEffectiveAppearance()
         applyDockFill()
         if backsZoom { applyZoomBacking() }

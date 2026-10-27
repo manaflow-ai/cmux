@@ -23,7 +23,7 @@ nonisolated struct RemoteVNCCredentialStore {
     /// `CMUX_NEXT_VNC_DEBUG_CREDENTIALS_FILE`, readable by this user only. An
     /// SSH session cannot unlock the login Keychain. Development builds only,
     /// like the rest of this file.
-    private func debugFileCredentials() -> VNCCredentials? {
+    func debugFileCredentials() -> VNCCredentials? {
         guard let path = ProcessInfo.processInfo.environment["CMUX_NEXT_VNC_DEBUG_CREDENTIALS_FILE"],
               let attributes = try? FileManager.default.attributesOfItem(atPath: path),
               let mode = attributes[.posixPermissions] as? Int, mode & 0o077 == 0,
@@ -32,12 +32,12 @@ nonisolated struct RemoteVNCCredentialStore {
         return VNCCredentials(username: stored.username, password: stored.password)
     }
 
-    private func keychainCredentials(for endpoint: VNCEndpoint) -> VNCCredentials? {
+    func keychainCredentials(for endpoint: VNCEndpoint) -> VNCCredentials? {
         var query = baseQuery(endpoint)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data,
+        guard blockingSecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data,
               let stored = try? JSONDecoder().blockingDecode(Stored.self, from: data) else { return nil }
         return VNCCredentials(username: stored.username, password: stored.password)
     }
@@ -46,16 +46,28 @@ nonisolated struct RemoteVNCCredentialStore {
         guard let data = try? JSONEncoder().encode(Stored(username: credentials.username, password: credentials.password)) else { return }
         let query = baseQuery(endpoint)
         let update = [kSecValueData as String: data]
-        if SecItemUpdate(query as CFDictionary, update as CFDictionary) == errSecItemNotFound {
+        if blockingSecItemUpdate(query as CFDictionary, update as CFDictionary) == errSecItemNotFound {
             var add = query
             add[kSecValueData as String] = data
             add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
-            SecItemAdd(add as CFDictionary, nil)
+            _ = blockingSecItemAdd(add as CFDictionary, nil)
         }
     }
 
     func remove(for endpoint: VNCEndpoint) {
-        SecItemDelete(baseQuery(endpoint) as CFDictionary)
+        _ = blockingSecItemDelete(baseQuery(endpoint) as CFDictionary)
+    }
+
+    /// The saved sign-ins' accounts (`host:port`), attributes only: reading no secret, it raises no Keychain
+    /// access prompt. Nil when the list cannot be read.
+    func accounts() -> Set<String>? {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: Self.service,
+                                    kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitAll]
+        var result: CFTypeRef?
+        let status = blockingSecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return [] }
+        guard status == errSecSuccess, let items = result as? [[String: Any]] else { return nil }
+        return Set(items.compactMap { $0[kSecAttrAccount as String] as? String })
     }
 
     private func baseQuery(_ endpoint: VNCEndpoint) -> [String: Any] {
