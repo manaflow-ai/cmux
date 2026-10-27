@@ -37,7 +37,6 @@ import Testing
                 panel.hero.setAvatar(picture: nil, text: "🫡")
                 panel.setShortcuts(terminal: "⌘T", agent: "⇧⌘N", switching: nil)
                 if let look {
-                    panel.hero.body.stringValue = HomeStarterStrings.welcome
                     panel.starters.look = look
                     panel.starters.setPrompts(HomeStarterContext(workspaces: ["todo-app"], working: ["Add search"],
                                                                 failures: ["Test search"], pullRequests: ["sample/todo#42"]).prompts)

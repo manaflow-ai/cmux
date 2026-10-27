@@ -17,7 +17,4 @@ struct HomeStarterStrings {
     static var setup: String { String(localized: "home.starter.setup", defaultValue: "Help me open a workspace", bundle: .module) }
     static var agent: String { String(localized: "home.starter.agent", defaultValue: "Help me start an agent", bundle: .module) }
     static var task: String { String(localized: "home.starter.task", defaultValue: "Help me choose my next task", bundle: .module) }
-    static var welcome: String {
-        String(localized: "home.starter.welcome", defaultValue: "I coordinate your workspaces and agents and report back here.", bundle: .module)
-    }
 }

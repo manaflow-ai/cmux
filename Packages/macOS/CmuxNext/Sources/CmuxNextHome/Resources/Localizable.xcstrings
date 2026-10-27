@@ -183,32 +183,6 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Giúp tôi chọn tác vụ tiếp theo"}}
       }
     },
-    "home.starter.welcome": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "I coordinate your workspaces and agents and report back here."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Ich koordiniere deine Arbeitsbereiche und Agenten und berichte hier zurück."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Je coordonne vos espaces de travail et vos agents et je vous rends compte ici."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "أنسّق مساحات عملك ووكلاءك وأطلعك على المستجدات هنا."}},
-        "es": {"stringUnit": {"state": "translated", "value": "Coordino tus espacios de trabajo y agentes y te informo aquí."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "我會協調你的工作區與代理程式，並在這裡回報。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "我会协调你的工作区和代理，并在这里汇报。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "작업공간과 에이전트를 조율하고 여기에서 알려드릴게요."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースとエージェントを調整し、ここで報告します。"}},
-        "bs": {"stringUnit": {"state": "translated", "value": "Koordiniram tvoje radne prostore i agente i javljam ti ovdje."}},
-        "da": {"stringUnit": {"state": "translated", "value": "Jeg koordinerer dine arbejdsområder og agenter og rapporterer tilbage her."}},
-        "it": {"stringUnit": {"state": "translated", "value": "Coordino i tuoi spazi di lavoro e agenti e ti aggiorno qui."}},
-        "km": {"stringUnit": {"state": "translated", "value": "ខ្ញុំសម្របសម្រួលកន្លែងធ្វើការ និងភ្នាក់ងាររបស់អ្នក ហើយរាយការណ៍ត្រឡប់នៅទីនេះ។"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "Jeg koordinerer arbeidsområdene og agentene dine og rapporterer tilbake her."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Koordynuję Twoje obszary robocze i agentów oraz informuję Cię tutaj."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "Coordeno seus espaços de trabalho e agentes e informo você aqui."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Я координирую ваши рабочие пространства и агентов и сообщаю обо всём здесь."}},
-        "th": {"stringUnit": {"state": "translated", "value": "ฉันประสานงานพื้นที่ทำงานและเอเจนต์ของคุณ และรายงานกลับที่นี่"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Çalışma alanlarınızı ve ajanlarınızı koordine ediyor, burada size bilgi veriyorum."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Я координую ваші робочі простори й агенти та звітую тут."}},
-        "vi": {"stringUnit": {"state": "translated", "value": "Tôi điều phối các không gian làm việc và tác nhân của bạn và báo cáo lại tại đây."}}
-      }
-    },
     "home.list.title": {
       "extractionState": "manual",
       "localizations": {
