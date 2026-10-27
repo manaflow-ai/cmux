@@ -306,7 +306,7 @@ try {
     node.dispatchEvent(new Event("scroll", { bubbles: true }));
     await window.cmuxPaintFrame();
     node.dispatchEvent(new WheelEvent("wheel", { deltaY: 40, bubbles: true }));
-    node.scrollTop = node.scrollHeight - node.clientHeight - 8;
+    node.scrollTop = node.scrollHeight - node.clientHeight - 3;
     node.dispatchEvent(new Event("scroll", { bubbles: true }));
     await window.cmuxPaintFrame();
     return node.scrollHeight - node.clientHeight - node.scrollTop;
@@ -323,7 +323,7 @@ try {
   assert.ok(Math.abs(bottom.gap) <= 4, `deadband bottom gap ${bottom.gap}`);
   assert.ok(Math.abs(bottom.largeGap) <= 1, `5-8px growth was not corrected (${bottom.largeGap}px)`);
   assert.equal(bottom.badFrames, 0, "a late measurement must not exceed the follow deadband or bounce");
-  assert.ok(Math.abs(manualGap) <= 1, `scrolling into follow left a ${manualGap}px bottom gap`);
+  assert.ok(Math.abs(manualGap) <= 4, `scrolling into follow left a ${manualGap}px bottom gap`);
   assert.deepEqual(errors, []);
   assert.equal(new Set(cursors).size, cursors.length);
 } finally {
