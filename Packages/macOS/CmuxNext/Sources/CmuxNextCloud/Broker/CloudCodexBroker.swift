@@ -126,6 +126,13 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
         #"as_u env HOME="$h" "$b" acp --json status"#,
     ].joined(separator: "; ")
 
+    static func supportsExternalAccess(_ output: String) -> Bool {
+        guard let data = output.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let capabilities = object["capabilities"] as? [String] else { return false }
+        return capabilities.contains("codex-external-access-v1")
+    }
+
     /// The default probe is deliberately read-only: the running bridge reports
     /// its capability and the guest marker proves that this is an owner VM.
     nonisolated public init(api: CloudAPIClient, machineID: String, scope: CloudCodexBrokerScope) {
@@ -149,12 +156,7 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
             }
             guard owner, !sharedTeamDirectory else { return Capability(ownerVM: false, protocolVersion: 0, codexExternalAccessToken: false) }
             let result = try await api.exec(machineID, command: Self.statusCommand, timeoutMs: 8_000)
-            guard result.exitCode == 0,
-                  let line = result.stdout.split(separator: "\n").last,
-                  let data = line.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let capabilities = object["capabilities"] as? [String],
-                  capabilities.contains("codex-external-access-v1") else {
+            guard result.exitCode == 0, Self.supportsExternalAccess(result.stdout) else {
                 return Capability(ownerVM: true, protocolVersion: 0, codexExternalAccessToken: false)
             }
             return Capability(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
