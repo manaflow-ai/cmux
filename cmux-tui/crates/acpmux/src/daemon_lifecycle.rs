@@ -393,7 +393,7 @@ fn wait_for_process_exit(pid: i32) -> bool {
     if fd < 0 {
         return std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
     }
-    let fd = fd as libc::c_int;
+    let Ok(fd) = libc::c_int::try_from(fd) else { return false };
     let mut poll = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
     let exited = loop {
         // SAFETY: one pollfd, a local that outlives the call; -1 blocks until it is ready.
