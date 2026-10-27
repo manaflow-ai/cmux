@@ -36,6 +36,11 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::ManagedEvents;
 
+#[cfg(unix)]
+mod socket_dirs;
+#[cfg(unix)]
+use socket_dirs::SocketDirs;
+
 pub const JOURNAL_KIND_FILTERS: [&str; 2] = ["agent.*", "plugin.chatmux.*"];
 pub const MAX_BATCH_RECORDS: usize = 100;
 pub const MAX_BATCH_BODY_BYTES: usize = 4 * 1024 * 1024;
@@ -47,7 +52,13 @@ const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const IDENTITY_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3);
 const DEFAULT_RECONNECT_MIN: Duration = Duration::from_secs(1);
 const DEFAULT_RECONNECT_MAX: Duration = Duration::from_secs(30);
-const SOCKET_SCAN_INTERVAL: Duration = Duration::from_secs(15);
+/// Only while a socket root cannot be watched: the first rescan after this,
+/// each next one twice as late, up to the cap.
+const UNWATCHED_RESCAN_FIRST: Duration = Duration::from_secs(15);
+const UNWATCHED_RESCAN_MAX: Duration = Duration::from_secs(120);
+/// A session worker retries on the reconnect backoff this many times; after
+/// that it waits for its socket root to change (the daemon binds again).
+const RETRIES_BEFORE_PARKING: u32 = 5;
 const MAX_DISCOVERED_SESSIONS: usize = 128;
 const MAX_SOCKET_ENTRIES_PER_ROOT: usize = 512;
 const SUBSCRIBE_REQUEST_ID: &str = "chatmux-journal-subscribe";
@@ -311,6 +322,8 @@ struct Shared {
     /// one permit, so records arriving while a POST is blocked cannot grow a
     /// queue of redundant debounce wakes.
     flush_wake: Arc<tokio::sync::Notify>,
+    /// Bumped on every change of a socket root (SocketDirs).
+    socket_changes: tokio::sync::watch::Receiver<u64>,
 }
 
 #[cfg(unix)]
@@ -352,6 +365,9 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
         }
     };
     let flush_wake = Arc::new(tokio::sync::Notify::new());
+    let socket_dirs = socket_directories();
+    let mut sockets = SocketDirs::new(socket_dirs.clone());
+    let mut changes = sockets.subscribe();
     let shared = Shared {
         events,
         client,
@@ -361,23 +377,43 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
         claims: Arc::new(Mutex::new(HashSet::new())),
         pool: Arc::new(Mutex::new(PoolState::default())),
         flush_wake,
+        socket_changes: sockets.subscribe(),
     };
     let flusher = tokio::spawn(run_flusher(shared.clone()));
-    let socket_dirs = socket_directories();
     let mut tasks: HashMap<String, JoinHandle<()>> = HashMap::new();
-    let mut scan = tokio::time::interval(SOCKET_SCAN_INTERVAL);
-    scan.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    discover_sessions(&shared, &socket_dirs, &mut tasks).await;
+    let mut rescan_gap = UNWATCHED_RESCAN_FIRST;
     loop {
+        // A change during the scan below wakes the next pass.
+        changes.borrow_and_update();
+        let watched = sockets.reconcile().await;
+        discover_sessions(&shared, &socket_dirs, &mut tasks).await;
+        if watched {
+            rescan_gap = UNWATCHED_RESCAN_FIRST;
+        }
         tokio::select! {
             biased;
             _ = cancellation.cancelled() => break,
-            _ = scan.tick() => discover_sessions(&shared, &socket_dirs, &mut tasks).await,
+            changed = changes.changed() => if changed.is_err() { break },
+            () = unwatched_rescan(rescan_gap), if !watched => {
+                rescan_gap = rescan_gap.saturating_mul(2).min(UNWATCHED_RESCAN_MAX);
+                // Parked session workers retry with the rescan.
+                sockets.bump();
+            }
         }
     }
+    sockets.close().await;
     abort_and_join_tasks(tasks).await;
     flusher.abort();
     let _ = flusher.await;
+}
+
+/// The rescan while a socket root cannot be watched (no root and no parent
+/// yet, or the platform watcher failed).
+#[cfg(unix)]
+async fn unwatched_rescan(after: Duration) {
+    // wakeup-allow: backoff only while a socket root cannot be watched; each rescan doubles the gap
+    // up to UNWATCHED_RESCAN_MAX, and a watched root ends the backoff
+    tokio::time::sleep(after).await;
 }
 
 /// Stop every session worker and wait until Tokio has completed cancellation.
@@ -720,10 +756,13 @@ async fn run_session(
     let mut failures = 0_u32;
     let mut volatile_resume = None;
     let mut claim: Option<SessionClaim> = None;
+    let mut socket_changes = shared.socket_changes.clone();
     loop {
         if shared.cancellation.is_cancelled() {
             return;
         }
+        // Only a root change after this attempt starts wakes a parked retry.
+        socket_changes.borrow_and_update();
         let mut stream = None;
         for socket_path in &socket_paths {
             if !safe_socket_entry(socket_path).await {
@@ -748,7 +787,7 @@ async fn run_session(
         }
         let Some(stream) = stream else {
             failures = failures.saturating_add(1);
-            if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
+            if !wait_reconnect(&shared, &mut socket_changes, failures).await {
                 return;
             }
             continue;
@@ -773,7 +812,7 @@ async fn run_session(
             ) => !matches!(result, Ok(Ok(()))),
         } {
             failures = failures.saturating_add(1);
-            if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
+            if !wait_reconnect(&shared, &mut socket_changes, failures).await {
                 return;
             }
             continue;
@@ -793,14 +832,14 @@ async fn run_session(
             .and_then(|line| parse_session_identity(&line))
         else {
             failures = failures.saturating_add(1);
-            if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
+            if !wait_reconnect(&shared, &mut socket_changes, failures).await {
                 return;
             }
             continue;
         };
         if !identity_matches(&session_name, &session_key, &identity_name) {
             failures = failures.saturating_add(1);
-            if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
+            if !wait_reconnect(&shared, &mut socket_changes, failures).await {
                 return;
             }
             continue;
@@ -870,7 +909,7 @@ async fn run_session(
             ) => !matches!(result, Ok(Ok(()))),
         } {
             failures = failures.saturating_add(1);
-            if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
+            if !wait_reconnect(&shared, &mut socket_changes, failures).await {
                 return;
             }
             continue;
@@ -949,7 +988,7 @@ async fn run_session(
         } else {
             failures = failures.saturating_add(1);
         }
-        if !wait_backoff(&shared.cancellation, reconnect_delay(failures)).await {
+        if !wait_reconnect(&shared, &mut socket_changes, failures).await {
             return;
         }
     }
@@ -1021,6 +1060,8 @@ fn enqueue_pending(
 #[cfg(unix)]
 async fn run_flusher(shared: Shared) {
     let mut armed = false;
+    // wakeup-allow: deadline the flush debounce; it waits only while armed by a record (the select
+    // below never polls it unarmed), and a reset re-arms it
     let mut timer = Box::pin(tokio::time::sleep(Duration::from_secs(24 * 60 * 60)));
     let mut wake = Box::pin(shared.flush_wake.notified());
     loop {
@@ -1229,7 +1270,29 @@ async fn wait_backoff(cancellation: &CancellationToken, delay: Duration) -> bool
     tokio::select! {
         biased;
         _ = cancellation.cancelled() => false,
+        // wakeup-allow: backoff the reconnect or POST retry's doubling delay after a failure;
+        // cancellation ends it first
         _ = tokio::time::sleep(jittered(delay)) => true,
+    }
+}
+
+/// Waits before a session worker's next connection attempt: a change of a
+/// socket root (its daemon bound the socket again) ends the wait at once;
+/// the reconnect backoff ends it only for the first RETRIES_BEFORE_PARKING
+/// failures, so a worker whose daemon is gone does not wake the relay.
+/// `false` when the forwarder stops.
+#[cfg(unix)]
+async fn wait_reconnect(
+    shared: &Shared,
+    socket_changes: &mut tokio::sync::watch::Receiver<u64>,
+    failures: u32,
+) -> bool {
+    let parked = failures > RETRIES_BEFORE_PARKING;
+    tokio::select! {
+        biased;
+        _ = shared.cancellation.cancelled() => false,
+        changed = socket_changes.changed() => changed.is_ok(),
+        retry = wait_backoff(&shared.cancellation, reconnect_delay(failures)), if !parked => retry,
     }
 }
 
@@ -1631,6 +1694,7 @@ mod tests {
             claims: Arc::new(Mutex::new(HashSet::new())),
             pool: Arc::new(Mutex::new(PoolState::default())),
             flush_wake,
+            socket_changes: tokio::sync::watch::channel(0).1,
         };
         (shared, wake)
     }
@@ -1647,6 +1711,47 @@ mod tests {
             value.trim().parse().ok()
         })?;
         Some(buffer.get(header_end..header_end.checked_add(length)?)?.to_vec())
+    }
+
+    /// A worker whose daemon is gone stops retrying on a timer once the
+    /// backoff is spent; a socket-root change (the daemon binds again) or the
+    /// forwarder's end wakes it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_parked_session_worker_waits_for_a_socket_root_change() {
+        let (root, path) = cursor_test_path("parked-worker").await;
+        let (mut shared, _wake) = test_shared(String::from("http://127.0.0.1:9"), path);
+        let (changes, receiver) = tokio::sync::watch::channel(0_u64);
+        shared.socket_changes = receiver;
+        let mut worker_changes = shared.socket_changes.clone();
+        let parked = RETRIES_BEFORE_PARKING + 1;
+
+        {
+            let wait = wait_reconnect(&shared, &mut worker_changes, parked);
+            tokio::pin!(wait);
+            assert!(
+                tokio::time::timeout(Duration::from_millis(200), wait.as_mut()).await.is_err(),
+                "no timer ends a parked wait"
+            );
+            changes.send_modify(|generation| *generation += 1);
+            assert!(
+                tokio::time::timeout(Duration::from_secs(5), wait)
+                    .await
+                    .expect("the change wakes it"),
+                "a change means retry"
+            );
+        }
+
+        // Before the backoff is spent a change ends the wait early too.
+        changes.send_modify(|generation| *generation += 1);
+        assert!(wait_reconnect(&shared, &mut worker_changes, 1).await);
+
+        drop(changes);
+        assert!(
+            !wait_reconnect(&shared, &mut worker_changes, parked).await,
+            "the forwarder's end stops the worker"
+        );
+        let _ = tokio::fs::remove_dir_all(root).await;
     }
 
     #[cfg(unix)]

@@ -32,10 +32,11 @@ use crate::pty::{
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
+const DAEMON_RETRY_FIRST: Duration = Duration::from_millis(10);
+const DAEMON_RETRY_MAX: Duration = Duration::from_millis(100);
 const THREAD_OUTPUT_BACKLOG_CAP: usize = 1024 * 1024;
 const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
 const PIPE_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(250);
-const PIPE_READ_POLL_MS: i32 = 100;
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
@@ -337,18 +338,26 @@ struct ProcessOutputCompletionState {
     child_exit: Option<i64>,
 }
 
-/// Wakes a PTY reader that is waiting in `poll` when completion reaches its
-/// bounded grace deadline. A socket pair avoids closing a descriptor from a
-/// different thread, which can race with descriptor reuse.
+/// Wakes the PTY or pipe readers waiting in `poll` when completion reaches
+/// its bounded grace deadline. A socket pair avoids closing a descriptor from
+/// a different thread, which can race with descriptor reuse. The signal byte
+/// is never read, so every reader polling the read end sees it.
 struct CancellationWake {
     writer: Mutex<UnixStream>,
+    reader: UnixStream,
 }
 
 impl CancellationWake {
     fn new() -> std::io::Result<(Arc<Self>, UnixStream)> {
         let (reader, writer) = UnixStream::pair()?;
         writer.set_nonblocking(true)?;
-        Ok((Arc::new(Self { writer: Mutex::new(writer) }), reader))
+        let subscriber = reader.try_clone()?;
+        Ok((Arc::new(Self { writer: Mutex::new(writer), reader }), subscriber))
+    }
+
+    /// One more reader's end of the wake.
+    fn subscribe(&self) -> Option<UnixStream> {
+        self.reader.try_clone().ok()
     }
 
     fn signal(&self) {
@@ -364,16 +373,22 @@ impl CancellationWake {
 }
 
 impl ProcessOutputCompletion {
+    /// The pipe readers' completion. Without a cancellation wake (no
+    /// descriptors left) a reader waits for its pipe to close; the grace
+    /// still publishes the exit on time.
     fn new(readers_remaining: usize, output: Arc<ThreadOutput>) -> Arc<Self> {
-        Self::with_post_exit_grace(readers_remaining, output, Some(PIPE_OUTPUT_DRAIN_GRACE))
+        let cancel_wake = CancellationWake::new().ok().map(|(wake, _)| wake);
+        Self::with_post_exit_grace_and_cancel(
+            readers_remaining,
+            output,
+            Some(PIPE_OUTPUT_DRAIN_GRACE),
+            cancel_wake,
+        )
     }
 
-    fn with_post_exit_grace(
-        readers_remaining: usize,
-        output: Arc<ThreadOutput>,
-        post_exit_grace: Option<Duration>,
-    ) -> Arc<Self> {
-        Self::with_post_exit_grace_and_cancel(readers_remaining, output, post_exit_grace, None)
+    /// A reader's end of the cancellation wake.
+    fn cancel_reader(&self) -> Option<UnixStream> {
+        self.cancel_wake.as_ref()?.subscribe()
     }
 
     fn with_pty_cancellation(
@@ -441,6 +456,7 @@ impl ProcessOutputCompletion {
         let mut state = self.state.lock().expect("process output completion lock");
         while state.readers_remaining != 0 && state.child_exit.is_some() {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { break };
+            // wakeup-allow: deadline the exited child's one drain grace; each reader's EOF ends the wait first
             let (next, timeout) = cmux_blocking::sync::wait_timeout(&self.wake, state, remaining)
                 .expect("process output completion lock");
             state = next;
@@ -675,17 +691,39 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
 }
 
 /// Read a PTY with an owned descriptor and an explicit cancellation wake.
-/// `Read::read` is called only after the descriptor reports readiness, so a
-/// descendant-held PTY slave cannot leave this thread blocked past the grace
-/// deadline.
 fn pump_pty(
-    mut reader: impl Read + AsRawFd,
+    reader: impl Read + AsRawFd,
     cancel_reader: UnixStream,
     output: Arc<ThreadOutput>,
     completion: Arc<ProcessOutputCompletion>,
 ) {
+    pump_readable(reader, Some(cancel_reader), output, completion);
+}
+
+/// Read a child's stdout or stderr pipe until EOF or the completion's
+/// cancellation wake, with no timed wakeup.
+fn pump_pipe(
+    stream: impl Read + AsRawFd,
+    output: Arc<ThreadOutput>,
+    completion: Arc<ProcessOutputCompletion>,
+) {
+    let cancel_reader = completion.cancel_reader();
+    pump_readable(stream, cancel_reader, output, completion);
+}
+
+/// `Read::read` is called only after the descriptor reports readiness, so a
+/// descendant that holds the PTY slave or the pipe cannot leave this thread
+/// blocked past the grace deadline: the cancellation wake ends the wait.
+/// Without a wake (`None`: no descriptors were left) the pipe's close ends it.
+fn pump_readable(
+    mut reader: impl Read + AsRawFd,
+    cancel_reader: Option<UnixStream>,
+    output: Arc<ThreadOutput>,
+    completion: Arc<ProcessOutputCompletion>,
+) {
     let reader_fd = reader.as_raw_fd();
-    let cancel_fd = cancel_reader.as_raw_fd();
+    // poll ignores a negative descriptor.
+    let cancel_fd = cancel_reader.as_ref().map_or(-1, AsRawFd::as_raw_fd);
     let mut buffer = [0_u8; 32_768];
     loop {
         let mut poll_fds = [
@@ -818,38 +856,16 @@ impl PtyControl for DeadControl {
     fn kill(&self) {}
 }
 
-fn pump_pipe(
-    mut stream: impl Read + AsRawFd,
-    output: Arc<ThreadOutput>,
-    completion: Arc<ProcessOutputCompletion>,
-) {
-    let fd = stream.as_raw_fd();
-    let mut buffer = [0_u8; 32_768];
-    loop {
-        if completion.cancelled() {
-            break;
-        }
-        let mut poll_fd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
-        let poll_result = unsafe { libc::poll(&mut poll_fd, 1, PIPE_READ_POLL_MS) };
-        if poll_result < 0 {
-            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
-                continue;
-            }
-            break;
-        }
-        if poll_result == 0 {
-            continue;
-        }
-        if poll_fd.revents & libc::POLLNVAL != 0 {
-            break;
-        }
-        match stream.read(&mut buffer) {
-            Ok(0) => break,
-            Err(_) => break,
-            Ok(count) => output.push_data(Bytes::copy_from_slice(&buffer[..count])),
-        }
-    }
-    completion.reader_finished();
+/// The gap before the next readiness check of a daemon this relay started.
+/// The relay has no event for its bind or its control readiness, so each
+/// failed check doubles the gap up to DAEMON_RETRY_MAX; the start deadline
+/// ends the checks.
+async fn wait_daemon_retry(gap: &mut Duration, deadline: Instant) {
+    let wait = (*gap).min(deadline.saturating_duration_since(Instant::now()));
+    *gap = gap.saturating_mul(2).min(DAEMON_RETRY_MAX);
+    // wakeup-allow: backoff one daemon start's readiness checks, each gap doubled up to
+    // DAEMON_RETRY_MAX; DAEMON_SOCKET_WAIT_MS ends them
+    tokio::time::sleep(wait).await;
 }
 
 async fn socket_exists(path: &Path) -> bool {
@@ -1010,6 +1026,7 @@ impl PtyDeps for RealPtyDeps {
             command.spawn().map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
 
         let deadline = Instant::now() + Duration::from_millis(DAEMON_SOCKET_WAIT_MS);
+        let mut retry_gap = DAEMON_RETRY_FIRST;
         while Instant::now() < deadline {
             if socket_exists(&socket_path).await {
                 // Probe a control round-trip before declaring readiness.
@@ -1018,7 +1035,7 @@ impl PtyDeps for RealPtyDeps {
                         Ok(control) if control_ready(&control, session).await => {
                             return Ok(EnsureDaemon { created: true, socket_path });
                         }
-                        _ => tokio::time::sleep(Duration::from_millis(50)).await,
+                        _ => wait_daemon_retry(&mut retry_gap, deadline).await,
                     }
                 }
                 // Do not unlink the path here. Another daemon may have won
@@ -1029,7 +1046,7 @@ impl PtyDeps for RealPtyDeps {
                     "cmux-tui daemon for \"{session}\" did not become control-ready"
                 ));
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            wait_daemon_retry(&mut retry_gap, deadline).await;
         }
         cleanup_daemon(child).await;
         Err(format!("cmux-tui daemon for \"{session}\" never created {}", socket_path.display()))
@@ -1108,5 +1125,40 @@ mod tests {
             .expect("spawn child");
         wait_for_child_exit_without_reaping(child.id() as libc::pid_t).expect("observe child");
         assert_eq!(child.wait().expect("reap child").code(), Some(23));
+    }
+
+    /// A descendant that keeps both pipes open cannot hold the pipe-mode
+    /// readers: after the drain grace the cancellation wake ends both of
+    /// them (they used to re-check a flag every 100 ms).
+    #[test]
+    fn pipe_readers_end_on_the_cancellation_wake_after_the_grace() {
+        let output = ThreadOutput::new();
+        let completion = ProcessOutputCompletion::new(2, Arc::clone(&output));
+        assert!(completion.cancel_reader().is_some(), "pipe mode has a cancellation wake");
+        let (stdout, _stdout_holder) = UnixStream::pair().expect("stdout pair");
+        let (stderr, _stderr_holder) = UnixStream::pair().expect("stderr pair");
+        let (ended_tx, ended_rx) = mpsc::channel();
+        let readers: Vec<_> = [stdout, stderr]
+            .into_iter()
+            .map(|stream| {
+                let output = Arc::clone(&output);
+                let completion = Arc::clone(&completion);
+                let ended = ended_tx.clone();
+                std::thread::spawn(move || {
+                    pump_pipe(stream, output, completion);
+                    let _ = ended.send(());
+                })
+            })
+            .collect();
+        let exited = Instant::now();
+        completion.child_exited(0);
+        for _ in 0..2 {
+            ended_rx.recv_timeout(Duration::from_secs(5)).expect("a reader ends after the grace");
+        }
+        assert!(exited.elapsed() >= PIPE_OUTPUT_DRAIN_GRACE, "not before the grace");
+        assert!(completion.cancelled());
+        for reader in readers {
+            reader.join().expect("reader thread");
+        }
     }
 }

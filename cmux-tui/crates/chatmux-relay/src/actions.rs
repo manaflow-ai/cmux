@@ -1007,6 +1007,20 @@ enum WaitRetryAction {
     Escalate,
 }
 
+/// How long a TERMed process group gets before SIGKILL, and the bound on the
+/// pipe drain and the final reap after it.
+const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
+/// The gap before the next of MAX_WAIT_RETRIES reaps after a failed wait.
+const WAIT_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// One step of a command's end (kill grace, pipe drain, final reap, wait
+/// retry), armed only by that step.
+fn step_deadline(after: std::time::Duration) -> std::pin::Pin<Box<tokio::time::Sleep>> {
+    // wakeup-allow: deadline one end step of a command, armed by a timeout, a cancel or a failed reap;
+    // the process's exit and closed pipes end it first
+    Box::pin(tokio::time::sleep(after))
+}
+
 fn next_wait_retry(retries: &mut u32) -> WaitRetryAction {
     *retries = retries.saturating_add(1);
     if *retries >= MAX_WAIT_RETRIES {
@@ -1096,6 +1110,7 @@ impl ProcessTreeOwner {
         drop(self.keeper_stdin.take());
         let _ =
             tokio::time::timeout(std::time::Duration::from_millis(250), self.keeper.wait()).await;
+        // wakeup-allow: bounded one non-blocking exit check after the bounded reap above
         if self.keeper.try_wait().ok().flatten().is_none() {
             let _ = self.keeper.start_kill();
             let _ = tokio::time::timeout(std::time::Duration::from_millis(250), self.keeper.wait())
@@ -1236,6 +1251,7 @@ async fn run_spec(
     let mut stderr = owner.child.stderr.take();
     let mut output: Vec<u8> = Vec::new();
     let mut timed_out = false;
+    // wakeup-allow: deadline the command's one timeout; its exit and closed pipes end the run first
     let deadline = tokio::time::sleep(std::time::Duration::from_millis(timeout_ms));
     tokio::pin!(deadline);
     let mut stdout_buf = [0_u8; 8_192];
@@ -1273,9 +1289,7 @@ async fn run_spec(
                 cancelled = true;
                 owner.terminate();
                 escalation_pending = true;
-                kill_deadline = Some(Box::pin(tokio::time::sleep(
-                    std::time::Duration::from_millis(250),
-                )));
+                kill_deadline = Some(step_deadline(KILL_GRACE));
             }
             read = async {
                 match stdout.as_mut() {
@@ -1313,9 +1327,7 @@ async fn run_spec(
                 // flight, and bound the remaining drain after a timeout.
                 final_wait_deadline = None;
                 if timed_out && (stdout_open || stderr_open) && drain_deadline.is_none() {
-                    drain_deadline = Some(Box::pin(tokio::time::sleep(
-                        std::time::Duration::from_millis(250),
-                    )));
+                    drain_deadline = Some(step_deadline(KILL_GRACE));
                 }
                 match status {
                     Ok(status) => {
@@ -1330,16 +1342,12 @@ async fn run_spec(
                         } else {
                             match next_wait_retry(&mut wait_retries) {
                                 WaitRetryAction::Retry => {
-                                    wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
-                                        std::time::Duration::from_millis(10),
-                                    )));
+                                    wait_retry_deadline = Some(step_deadline(WAIT_RETRY_DELAY));
                                 }
                                 WaitRetryAction::Escalate => {
                                     owner.kill();
                                     escalation_pending = true;
-                                    kill_deadline = Some(Box::pin(tokio::time::sleep(
-                                        std::time::Duration::from_millis(250),
-                                    )));
+                                    kill_deadline = Some(step_deadline(KILL_GRACE));
                                 }
                             }
                         }
@@ -1348,16 +1356,12 @@ async fn run_spec(
                             let _ = error;
                             match next_wait_retry(&mut wait_retries) {
                                 WaitRetryAction::Retry => {
-                                    wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
-                                        std::time::Duration::from_millis(10),
-                                    )));
+                                    wait_retry_deadline = Some(step_deadline(WAIT_RETRY_DELAY));
                                 }
                                 WaitRetryAction::Escalate => {
                                     owner.kill();
                                     escalation_pending = true;
-                                    kill_deadline = Some(Box::pin(tokio::time::sleep(
-                                        std::time::Duration::from_millis(250),
-                                    )));
+                                    kill_deadline = Some(step_deadline(KILL_GRACE));
                                 }
                             }
                         }
@@ -1375,13 +1379,9 @@ async fn run_spec(
                 // Keep the escalation timer owned by this invocation. A
                 // detached task could fire after the process exits and its
                 // PID is reused by an unrelated process.
-                kill_deadline = Some(Box::pin(tokio::time::sleep(
-                    std::time::Duration::from_millis(250),
-                )));
+                kill_deadline = Some(step_deadline(KILL_GRACE));
                 if exited.is_some() && (stdout_open || stderr_open) && drain_deadline.is_none() {
-                    drain_deadline = Some(Box::pin(tokio::time::sleep(
-                        std::time::Duration::from_millis(250),
-                    )));
+                    drain_deadline = Some(step_deadline(KILL_GRACE));
                 }
             }
             () = async {
@@ -1394,9 +1394,7 @@ async fn run_spec(
                 kill_deadline = None;
                 escalation_pending = false;
                 if exited.is_none() {
-                    final_wait_deadline = Some(Box::pin(tokio::time::sleep(
-                        std::time::Duration::from_millis(250),
-                    )));
+                    final_wait_deadline = Some(step_deadline(KILL_GRACE));
                 }
             }
             () = async {
@@ -1419,9 +1417,7 @@ async fn run_spec(
                 final_wait_deadline = None;
                 exited = Some(1);
                 if stdout_open || stderr_open {
-                    drain_deadline = Some(Box::pin(tokio::time::sleep(
-                        std::time::Duration::from_millis(250),
-                    )));
+                    drain_deadline = Some(step_deadline(KILL_GRACE));
                 }
             }
             () = async {

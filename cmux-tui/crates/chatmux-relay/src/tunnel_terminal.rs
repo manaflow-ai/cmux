@@ -69,6 +69,9 @@ pub const FRAME_KIND_PTY: u8 = 1;
 const HEADER_BYTES: usize = 5;
 /// The opened (or refused) reply must arrive within this budget.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
+/// The listener's gap after a failed accept, doubled per failure.
+const ACCEPT_RETRY_FIRST: Duration = Duration::from_millis(100);
+const ACCEPT_RETRY_MAX: Duration = Duration::from_secs(2);
 /// Writer flow control: pause the PTY source above the high-water mark of
 /// bytes queued toward the socket, resume below the low-water mark. The
 /// manager's own 1 MiB output cap stays the hard boundary above this.
@@ -536,6 +539,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     // ingest backpressure (the socket is simply not read meanwhile).
     let mut buffer = vec![0_u8; 65_536];
     let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
+    // wakeup-allow: deadline the connection's one open deadline; the open frame ends it first
     let open_deadline = tokio::time::sleep(OPEN_TIMEOUT);
     tokio::pin!(open_deadline);
     loop {
@@ -607,6 +611,7 @@ pub async fn start_tunnel_terminal_listener(
     let listener = TcpListener::bind((host, port)).await?;
     let bound = listener.local_addr()?.port();
     tokio::spawn(async move {
+        let mut accept_retry = ACCEPT_RETRY_FIRST;
         loop {
             let accepted = tokio::select! {
                 biased;
@@ -615,6 +620,7 @@ pub async fn start_tunnel_terminal_listener(
             };
             match accepted {
                 Ok((stream, _)) => {
+                    accept_retry = ACCEPT_RETRY_FIRST;
                     let manager = Arc::clone(&manager);
                     let child = cancellation.child_token();
                     tokio::spawn(serve_connection(stream, manager, child));
@@ -622,7 +628,14 @@ pub async fn start_tunnel_terminal_listener(
                 Err(_) => {
                     // Transient accept errors (EMFILE and friends) must not
                     // spin; the listener itself stays up.
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => break,
+                        // wakeup-allow: backoff only after a failed accept, each gap doubled up to
+                        // ACCEPT_RETRY_MAX; a good accept resets it
+                        () = tokio::time::sleep(accept_retry) => {}
+                    }
+                    accept_retry = accept_retry.saturating_mul(2).min(ACCEPT_RETRY_MAX);
                 }
             }
         }
