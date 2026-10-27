@@ -60,6 +60,7 @@ describe("appcast parse", () => {
       item("9999abc"),
       item("1.2.3"),
       `<item><sparkle:version>500</sparkle:version><sparkle:version>600</sparkle:version></item>`,
+      `<item><sparkle:version>700</sparkle:version><enclosure url="u" sparkle:version="800"/></item>`,
       item("99999999999999999999"),
       "<item><sparkle:version>",
     );

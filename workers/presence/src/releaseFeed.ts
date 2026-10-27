@@ -61,8 +61,10 @@ const SAFE_SHORT_VERSION = /^[0-9A-Za-z.+_-]{1,64}$/;
 /** One item's build, or null when the item names none or more than one. */
 function itemBuild(body: string): number | null {
   const found = new Set<string>();
+  // Element and enclosure-attribute forms together: an item that names two
+  // different builds is malformed, whichever forms they use.
   for (const match of body.matchAll(VERSION_ELEMENT)) found.add(match[1] ?? "");
-  if (found.size === 0) for (const match of body.matchAll(VERSION_ATTRIBUTE)) found.add(match[1] ?? "");
+  for (const match of body.matchAll(VERSION_ATTRIBUTE)) found.add(match[1] ?? "");
   if (found.size !== 1) return null;
   const [raw] = found;
   if (!raw || !/^[0-9]{1,16}$/.test(raw)) return null;

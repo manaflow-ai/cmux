@@ -31,7 +31,13 @@ export class ReleaseFeed extends DurableObject<unknown> {
     if (!this.core) await this.ctx.storage.put("feed", feed);
     const core = this.feedCore(feed);
     const path = new URL(request.url).pathname;
-    if (path.endsWith("/poke")) return Response.json(await core.poke(), { status: 202 });
+    if (path.endsWith("/poke")) {
+      const { build } = await core.poke();
+      // 202 always names a build; a feed never read successfully is a 503.
+      return build === null
+        ? Response.json({ error: "feed_unavailable" }, { status: 503, headers: { "Retry-After": "10" } })
+        : Response.json({ build }, { status: 202 });
+    }
     if (path.endsWith("/latest")) {
       const frame = await core.current();
       return frame
