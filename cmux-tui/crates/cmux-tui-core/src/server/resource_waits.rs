@@ -220,14 +220,21 @@ impl WaitDrain {
                 Err(error) => return WaitStep::Answer(Err(error)),
             }
         }
-        let expired = self.deadline.is_some_and(|deadline| Instant::now() >= deadline);
+        let now = Instant::now();
+        let mut expired = self.deadline.is_some_and(|deadline| now >= deadline);
         let woken = self.armed.as_ref().is_none_or(|armed| armed.wake.is_notified());
         if !woken && !expired {
-            return WaitStep::Pending;
+            // A deadline turn that came early asks for the deadline again.
+            // Refused (shutdown began), the wait answers now.
+            let Some(deadline) = self.deadline else { return WaitStep::Pending };
+            if self.waker.wake_after(deadline.saturating_duration_since(now)).is_ok() {
+                return WaitStep::Pending;
+            }
+            expired = true;
         }
         match &self.target {
             Some(WaitTarget::Output { .. }) => self.output(expired),
-            Some(WaitTarget::Exit { .. }) => self.exit(),
+            Some(WaitTarget::Exit { .. }) => self.exit(expired),
             None => WaitStep::Stopped,
         }
     }
@@ -242,10 +249,9 @@ impl WaitDrain {
                     "terminal wait timeout exceeds the platform deadline range",
                 )
             })?;
-            if !timeout.is_zero() {
-                self.waker.wake_after(timeout);
-            }
-            self.deadline = Some(deadline);
+            // Refused (shutdown began), the first turn is the deadline's.
+            let scheduled = timeout.is_zero() || self.waker.wake_after(timeout).is_ok();
+            self.deadline = Some(if scheduled { deadline } else { Instant::now() });
         }
         self.target = Some(target);
         self.timeout = timeout;
@@ -304,8 +310,9 @@ impl WaitDrain {
 
     /// The first turn registers before the initial query, so a concurrent
     /// exit cannot strand it; the next wake (the exit, a close or the
-    /// deadline) answers with the terminal's state.
-    fn exit(&mut self) -> WaitStep {
+    /// deadline) answers with the terminal's state, and so does a first
+    /// turn past the deadline.
+    fn exit(&mut self, expired: bool) -> WaitStep {
         let Some(WaitTarget::Exit { terminal_id }) = &self.target else {
             return WaitStep::Stopped;
         };
@@ -329,7 +336,11 @@ impl WaitDrain {
             Ok(state) => state,
             Err(error) => return WaitStep::Answer(Err(resource_wait_runtime_error(error))),
         };
-        if !first || state.field("state") == "exited" || self.timeout == Some(Duration::ZERO) {
+        if !first
+            || expired
+            || state.field("state") == "exited"
+            || self.timeout == Some(Duration::ZERO)
+        {
             return WaitStep::Answer(Ok(state));
         }
         WaitStep::Pending
@@ -405,3 +416,7 @@ pub(super) fn start_resource_wait(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "resource_waits_tests.rs"]
+mod tests;

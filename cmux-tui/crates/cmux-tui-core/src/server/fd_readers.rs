@@ -18,10 +18,15 @@
 //!   timeout: no watched descriptor ready, no wakeup. A watch added later
 //!   reaches it through a wake socket; dropping the owner closes that
 //!   socket's write end, which ends the thread and drops every reader.
+//! - One reader cannot end the others' watches: a panic in a reader ends
+//!   its own watch, and the reader drops (Chrome's pump runs each watcher's
+//!   callback on its own). If the thread ends anyway (a failed `poll`), every
+//!   reader drops and the next watch starts a new thread.
 
 use std::io::{ErrorKind, Read, Write};
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use cmux_threads::sync::Mutex;
@@ -39,10 +44,18 @@ pub(crate) trait FdReader: Send + 'static {
     fn readable(&mut self) -> bool;
 }
 
-type Queue = Arc<Mutex<Vec<Box<dyn FdReader>>>>;
+/// The readers the thread has not taken yet. Once `ended`, the thread is
+/// gone and takes none.
+#[derive(Default)]
+struct Added {
+    readers: Vec<Box<dyn FdReader>>,
+    ended: bool,
+}
 
-/// The started thread's hand-off: the readers it has not taken yet, and
-/// the write end of its wake socket.
+type Queue = Arc<Mutex<Added>>;
+
+/// The started thread's hand-off: its queue and the write end of its wake
+/// socket.
 struct Running {
     added: Queue,
     wake: UnixStream,
@@ -56,23 +69,30 @@ pub(crate) struct FdReaders {
 
 impl FdReaders {
     /// Reads `reader`'s descriptor on the readers' thread until it ends the
-    /// watch. The first watch starts the thread.
+    /// watch. The first watch starts the thread, and so does the first one
+    /// after the thread ended. An error drops `reader` unwatched.
     pub(crate) fn watch(&self, reader: Box<dyn FdReader>) -> std::io::Result<()> {
         let mut running = self.running.lock().recover_poison();
-        if running.is_none() {
-            *running = Some(start()?);
+        let mut reader = Some(reader);
+        if let Some(current) = running.as_ref() {
+            let mut added = current.added.lock().recover_poison();
+            if !added.ended {
+                added.readers.extend(reader.take());
+            }
         }
-        let Some(running) = running.as_mut() else {
+        if let Some(reader) = reader {
+            let current = start()?;
+            current.added.lock().recover_poison().readers.push(reader);
+            *running = Some(current);
+        }
+        let Some(current) = running.as_ref() else {
             return Err(std::io::Error::other("the descriptor readers did not start"));
         };
-        running.added.lock().recover_poison().push(reader);
         // One pending byte wakes the thread; a full socket means one is
-        // pending already.
-        match running.wake.write(&[1]) {
-            Ok(_) => Ok(()),
-            Err(error) if error.kind() == ErrorKind::WouldBlock => Ok(()),
-            Err(error) => Err(error),
-        }
+        // pending already. Any other failure means the thread has ended:
+        // its exit took the reader and ended that watch.
+        let _ = (&current.wake).write(&[1]);
+        Ok(())
     }
 }
 
@@ -81,22 +101,44 @@ fn start() -> std::io::Result<Running> {
     wake.set_nonblocking(true)?;
     woken.set_nonblocking(true)?;
     let added = Queue::default();
-    let taken = added.clone();
+    let exit = Exit { added: added.clone(), woken };
     // A request waits in `AcpmuxLink::call` for a reply this thread reads:
     // its class is the request's (threading-model.md, control streams).
     cmux_threads::spawn(
         "mux-fd-readers",
         crate::thread_qos::ThreadType::Interactive.qos(),
-        move || run(&taken, woken),
+        move || {
+            let mut exit = exit;
+            run(&exit.added, &mut exit.woken);
+        },
     )?;
     Ok(Running { added, wake })
 }
 
-fn run(added: &Queue, mut woken: UnixStream) {
+/// The thread's end, however it ends: its queue takes no more readers, the
+/// ones it had not taken drop, and only then does its wake socket close.
+struct Exit {
+    added: Queue,
+    woken: UnixStream,
+}
+
+impl Drop for Exit {
+    fn drop(&mut self) {
+        let left = {
+            let mut added = self.added.lock().recover_poison();
+            added.ended = true;
+            std::mem::take(&mut added.readers)
+        };
+        left.into_iter().for_each(end_watch);
+    }
+}
+
+fn run(added: &Queue, woken: &mut UnixStream) {
     let mut readers: Vec<Box<dyn FdReader>> = Vec::new();
     let mut fds: Vec<libc::pollfd> = Vec::new();
+    let mut ended: Vec<Box<dyn FdReader>> = Vec::new();
     loop {
-        readers.append(&mut added.lock().recover_poison());
+        readers.append(&mut added.lock().recover_poison().readers);
         fds.clear();
         fds.push(libc::pollfd { fd: woken.as_raw_fd(), events: libc::POLLIN, revents: 0 });
         fds.extend(readers.iter().map(|reader| libc::pollfd {
@@ -116,14 +158,26 @@ fn run(added: &Queue, mut woken: UnixStream) {
                 "cmux-tui: descriptor readers: poll failed: {}",
                 std::io::Error::last_os_error()
             );
+            readers.drain(..).for_each(end_watch);
             return;
         }
         let mut ready = fds.iter().map(|fd| fd.revents != 0);
-        if ready.next().unwrap_or(false) && !drain_wake(&mut woken) {
+        if ready.next().unwrap_or(false) && !drain_wake(woken) {
+            readers.drain(..).for_each(end_watch);
             return;
         }
-        readers.retain_mut(|reader| !ready.next().unwrap_or(false) || reader.readable());
+        // A panic in a reader ends its watch alone.
+        ended.extend(readers.extract_if(.., |reader| {
+            ready.next().unwrap_or(false)
+                && !catch_unwind(AssertUnwindSafe(|| reader.readable())).unwrap_or(false)
+        }));
+        ended.drain(..).for_each(end_watch);
     }
+}
+
+/// Drops a reader whose watch ended: a panic in its drop ends no other watch.
+fn end_watch(reader: Box<dyn FdReader>) {
+    let _ = catch_unwind(AssertUnwindSafe(move || drop(reader)));
 }
 
 /// Reads the wake bytes. False once the owner dropped (an end of file).
@@ -143,7 +197,8 @@ fn drain_wake(woken: &mut UnixStream) -> bool {
 impl Drop for FdReaders {
     fn drop(&mut self) {
         // Dropping the wake's write end ends the thread, which drops every
-        // reader with its descriptor.
+        // reader with its descriptor; dropping the queue drops the ones it
+        // had not taken.
         drop(self.running.lock().recover_poison().take());
     }
 }

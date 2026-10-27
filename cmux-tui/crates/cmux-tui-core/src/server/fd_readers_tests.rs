@@ -3,6 +3,7 @@
 //! ends every watch.
 
 use super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
@@ -104,4 +105,84 @@ fn dropping_the_readers_ends_every_watch() {
         (0..3).map(|_| dropped.recv_timeout(WAIT).expect("a reader dropped")).collect();
     ended.sort_unstable();
     assert_eq!(ended, [0, 1, 2]);
+}
+
+/// A reader that panics on its read, or, once `in_fd` is set, on the
+/// thread's next poll, outside every reader's read.
+struct Panicking {
+    stream: UnixStream,
+    in_fd: Arc<AtomicBool>,
+    dropped: Sender<()>,
+}
+
+impl FdReader for Panicking {
+    fn fd(&self) -> RawFd {
+        assert!(!self.in_fd.load(Ordering::SeqCst), "the readers' thread ends");
+        self.stream.as_raw_fd()
+    }
+
+    fn readable(&mut self) -> bool {
+        panic!("a reader panics");
+    }
+}
+
+impl Drop for Panicking {
+    fn drop(&mut self) {
+        let _ = self.dropped.send(());
+    }
+}
+
+/// The peer of a watched `Panicking`, its switch, and its drop.
+fn panicking(readers: &FdReaders) -> (UnixStream, Arc<AtomicBool>, Receiver<()>) {
+    let (peer, stream) = UnixStream::pair().unwrap();
+    stream.set_nonblocking(true).unwrap();
+    let in_fd = Arc::new(AtomicBool::new(false));
+    let (dropped, drop_seen) = channel();
+    readers.watch(Box::new(Panicking { stream, in_fd: in_fd.clone(), dropped })).unwrap();
+    (peer, in_fd, drop_seen)
+}
+
+#[test]
+fn a_panicking_reader_ends_its_own_watch_alone() {
+    let readers = FdReaders::default();
+    let Probes { mut peers, read, dropped } = probes(&readers, 2);
+    let (mut bad, _, bad_dropped) = panicking(&readers);
+    bad.write_all(b"boom").unwrap();
+    bad_dropped.recv_timeout(WAIT).expect("the panicked reader dropped");
+
+    // The other watches read on, and a later watch works.
+    peers[1].write_all(b"after").unwrap();
+    assert_eq!(read.recv_timeout(WAIT).expect("a read"), (1, b"after".to_vec()));
+    let Probes { peers: mut later, read: later_read, .. } = probes(&readers, 1);
+    later[0].write_all(b"later").unwrap();
+    assert_eq!(later_read.recv_timeout(WAIT).expect("a read"), (0, b"later".to_vec()));
+    assert!(dropped.try_recv().is_err(), "no other reader dropped");
+}
+
+#[test]
+fn an_ended_thread_drops_every_reader_and_the_next_watch_starts_another() {
+    let readers = FdReaders::default();
+    let Probes { peers: _peers, read: _read, dropped } = probes(&readers, 2);
+    let (_bad, in_fd, bad_dropped) = panicking(&readers);
+    // The thread's next poll panics outside every reader's read; a watch
+    // wakes it.
+    in_fd.store(true, Ordering::SeqCst);
+    let Probes { peers: _wake, .. } = probes(&readers, 1);
+    let mut ended: Vec<usize> =
+        (0..2).map(|_| dropped.recv_timeout(WAIT).expect("a reader dropped")).collect();
+    ended.sort_unstable();
+    assert_eq!(ended, [0, 1], "every reader of the ended thread dropped");
+    bad_dropped.recv_timeout(WAIT).expect("the panicking reader dropped");
+
+    // A watch after the end runs on a new thread. One that raced the
+    // thread's end ends with it, so the next one is read.
+    let deadline = std::time::Instant::now() + WAIT;
+    loop {
+        let Probes { peers: mut later, read: later_read, .. } = probes(&readers, 1);
+        later[0].write_all(b"later").unwrap();
+        if later_read.recv_timeout(Duration::from_millis(500)) == Ok((0, b"later".to_vec())) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "no watch was read after the thread ended");
+    }
 }

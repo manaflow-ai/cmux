@@ -187,7 +187,7 @@ impl Drop for AcpmuxLink {
 
 /// One link's socket on the descriptor readers: it cuts lines, answers
 /// calls and hands notifications to the link's owner.
-struct LinkReader<F> {
+struct LinkReader<F: FnMut(Inbound)> {
     /// The socket's read side. Its writer shares the descriptor and blocks
     /// with a timeout, so reads ask for no waiting per call (`MSG_DONTWAIT`)
     /// instead of making the descriptor non-blocking.
@@ -266,7 +266,7 @@ impl<F: FnMut(Inbound)> LinkReader<F> {
     }
 }
 
-impl<F> LinkReader<F> {
+impl<F: FnMut(Inbound)> LinkReader<F> {
     fn fail_pending(&mut self) {
         self.ended = true;
         self.closed.store(true, Ordering::Release);
@@ -276,12 +276,13 @@ impl<F> LinkReader<F> {
     }
 }
 
-impl<F> Drop for LinkReader<F> {
+impl<F: FnMut(Inbound)> Drop for LinkReader<F> {
     fn drop(&mut self) {
-        // The readers stopped (the daemon's end) before the socket ended:
-        // no call waits for a reply that cannot come.
+        // The watch ended before the socket did (the readers stopped, or
+        // this reader panicked): no call waits for a reply that cannot
+        // come, and the owner still hears the close once.
         if !self.ended {
-            self.fail_pending();
+            self.end("acpmux_closed");
         }
     }
 }
@@ -365,3 +366,7 @@ impl crate::mux::Mux {
         keys
     }
 }
+
+#[cfg(test)]
+#[path = "agent_session_link_tests.rs"]
+mod tests;

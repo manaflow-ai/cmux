@@ -137,18 +137,20 @@ impl PumpWaker {
     }
 
     /// A turn once `delay` has passed (a wait's deadline); an earlier wake
-    /// runs one sooner as well. After shutdown began nothing runs it, and
-    /// the drain ends with its connection.
-    pub(super) fn wake_after(&self, delay: Duration) {
-        let Some(mux) = self.0.upgrade().and_then(|inner| inner.mux.upgrade()) else { return };
+    /// runs one sooner as well, and so may this one (the delay thread may
+    /// fail to start: `cmux_threads::work::Work::post_delayed`), so a drain
+    /// that finds its deadline still ahead asks again. Refused once
+    /// shutdown began or the pump is gone.
+    pub(super) fn wake_after(&self, delay: Duration) -> Result<(), Refused> {
+        let mux = self.0.upgrade().and_then(|inner| inner.mux.upgrade()).ok_or(Refused)?;
         let waker = self.clone();
-        let _ = mux.post_mux_work_after(
+        mux.post_mux_work_after(
             delay,
             Priority::UserVisible,
             Lane::Files,
             Shutdown::SkipOnShutdown,
             move |_| waker.wake(),
-        );
+        )
     }
 }
 
