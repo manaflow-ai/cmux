@@ -377,7 +377,11 @@ impl State {
     }
 
     pub fn category_of(&self, task: &Task) -> Option<Category> {
-        self.statuses.get(&task.status).map(|s| s.category)
+        self.status_category(&task.status)
+    }
+
+    pub fn status_category(&self, status: &str) -> Option<Category> {
+        self.statuses.get(status).map(|s| s.category)
     }
 
     /// Resolve `CMX-12`, `task_…` or a unique id prefix to a live task id.

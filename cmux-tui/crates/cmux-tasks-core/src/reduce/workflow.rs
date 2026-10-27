@@ -30,7 +30,7 @@ fn validate_color(color: Option<u8>) -> Result<u8, Reject> {
 fn validate_prefix(prefix: &str) -> Result<(), Reject> {
     let ok = (1..=8).contains(&prefix.len())
         && prefix.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
-        && prefix.as_bytes()[0].is_ascii_uppercase();
+        && prefix.as_bytes().first().is_some_and(u8::is_ascii_uppercase);
     if ok {
         Ok(())
     } else {
@@ -198,7 +198,7 @@ impl Tx<'_> {
         if id == replacement {
             return Err(invalid("replacement must be another status"));
         }
-        let category = self.state.statuses[&id].category;
+        let category = self.status_category(&id)?;
         let remaining =
             self.state.statuses.values().filter(|s| s.id != id && s.category == category).count();
         if Category::REQUIRED.contains(&category) && remaining == 0 {
@@ -217,7 +217,7 @@ impl Tx<'_> {
         let movers: Vec<String> =
             self.state.tasks.values().filter(|t| t.status == id).map(|t| t.id.clone()).collect();
         for task in movers {
-            self.set_status(&task, &replacement, super::tasks::StatusMove::Cascade);
+            self.set_status(&task, &replacement, super::tasks::StatusMove::Cascade)?;
         }
         self.state.statuses.remove(&id);
         self.events.push(EventKind::remove(
@@ -317,7 +317,7 @@ impl Tx<'_> {
         }
         let status_in = |tx: &Self, r: &str, categories: &[Category]| -> Result<String, Reject> {
             let id = tx.state.resolve_status(r).ok_or_else(|| not_found("status", r))?;
-            if categories.contains(&tx.state.statuses[&id].category) {
+            if categories.contains(&tx.status_category(&id)?) {
                 Ok(id)
             } else {
                 Err(invalid(format!("status {r} has the wrong category for this setting")))

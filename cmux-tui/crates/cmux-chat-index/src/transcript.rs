@@ -351,13 +351,10 @@ fn message_text(content: &Value, kinds: &[&str]) -> Option<String> {
 }
 
 /// `text` cut to `MAX_TEXT` characters.
-pub fn capped(text: String) -> String {
-    match text.char_indices().nth(MAX_TEXT) {
-        Some((at, _)) => {
-            let mut cut = text[..at].to_owned();
-            cut.push('…');
-            cut
-        }
-        None => text,
+pub fn capped(mut text: String) -> String {
+    if let Some((at, _)) = text.char_indices().nth(MAX_TEXT) {
+        text.truncate(at);
+        text.push('…');
     }
+    text
 }

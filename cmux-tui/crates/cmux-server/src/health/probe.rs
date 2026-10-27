@@ -68,18 +68,24 @@ pub fn has_default_route(proc_dir: &Path) -> Option<bool> {
     let v4_default = v4.iter().flat_map(|t| t.lines().skip(1)).any(|line| {
         let fields: Vec<&str> = line.split_whitespace().collect();
         // Iface Destination Gateway Flags …; RTF_UP is 0x1.
-        fields.len() > 3
-            && fields[1] == "00000000"
-            && u32::from_str_radix(fields[3], 16).is_ok_and(|f| f & 1 == 1)
+        matches!(
+            fields.as_slice(),
+            [_, "00000000", _, flags, ..] if route_up(flags)
+        )
     });
     let v6_default = v6.iter().flat_map(|t| t.lines()).any(|line| {
         let fields: Vec<&str> = line.split_whitespace().collect();
         // dest dest_len src src_len next_hop metric refcnt use flags iface
-        fields.len() >= 10
-            && fields[0] == "00000000000000000000000000000000"
-            && fields[1] == "00"
-            && fields[9] != "lo"
-            && u32::from_str_radix(fields[8], 16).is_ok_and(|f| f & 1 == 1)
+        matches!(
+            fields.as_slice(),
+            ["00000000000000000000000000000000", "00", _, _, _, _, _, _, flags, iface, ..]
+                if *iface != "lo" && route_up(flags)
+        )
     });
     Some(v4_default || v6_default)
+}
+
+/// Whether a hex route `flags` field has RTF_UP (0x1).
+fn route_up(flags: &str) -> bool {
+    u32::from_str_radix(flags, 16).is_ok_and(|f| f & 1 == 1)
 }

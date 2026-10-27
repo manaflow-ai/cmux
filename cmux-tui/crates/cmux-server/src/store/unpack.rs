@@ -210,7 +210,7 @@ pub fn unpack(archive: &Path, dest: &Path, limits: Limits) -> Result<()> {
 /// The tar header checksum rule: the octal field at 148..156 equals the sum
 /// of all 512 bytes with that field read as spaces.
 fn tar_checksum_ok(block: &[u8]) -> bool {
-    let field = &block[148..156];
+    let Some(field) = block.get(148..156) else { return false };
     let text: String = field
         .iter()
         .map(|b| *b as char)

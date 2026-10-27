@@ -55,7 +55,7 @@ impl Tx<'_> {
 
     pub(super) fn task_delegate(&mut self, p: &TaskDelegate) -> Result<OpResult, Reject> {
         let task_id = self.task_id(&p.task)?;
-        if self.state.tasks[&task_id].archived {
+        if self.task(&task_id)?.archived {
             return Err(invalid("archived tasks cannot be delegated"));
         }
         if !is_valid_id(&p.session, prefix::SESSION) {
@@ -196,7 +196,7 @@ impl Tx<'_> {
         s.started_at = Some(self.now);
         let snapshot = s.clone();
         self.push_session_status(snapshot, session.status);
-        self.flow_after(&p.session, SessionStatus::Working);
+        self.flow_after(&p.session, SessionStatus::Working)?;
         Ok(self.session_result(&p.session))
     }
 
@@ -253,7 +253,7 @@ impl Tx<'_> {
         let snapshot = s.clone();
         if from != new_status {
             self.push_session_status(snapshot, from);
-            self.flow_after(&p.session, new_status);
+            self.flow_after(&p.session, new_status)?;
         } else {
             self.events.push(EventKind::upsert(
                 "task.agent_session.updated",
@@ -275,20 +275,19 @@ impl Tx<'_> {
         if session.status.is_terminal() {
             return Ok(self.session_result(id));
         }
-        self.end_session(id, SessionStatus::Canceled);
+        self.end_session(id, SessionStatus::Canceled)?;
         Ok(self.session_result(id))
     }
 
     /// End a non-terminal session (cancel paths) and apply the flow.
-    pub(crate) fn end_session(&mut self, id: &str, status: SessionStatus) {
-        // Callers checked that the session exists.
-        let Some(s) = self.state.sessions.get_mut(id) else { return };
+    pub(crate) fn end_session(&mut self, id: &str, status: SessionStatus) -> Result<(), Reject> {
+        let s = self.state.sessions.get_mut(id).ok_or_else(|| not_found("agent session", id))?;
         let from = s.status;
         s.status = status;
         s.ended_at = Some(self.now);
         let snapshot = s.clone();
         self.push_session_status(snapshot, from);
-        self.flow_after(id, status);
+        self.flow_after(id, status)
     }
 
     fn push_session_status(&mut self, session: AgentSession, from: SessionStatus) {
@@ -308,11 +307,11 @@ impl Tx<'_> {
 
     /// Status follows agent activity. Monotonic: never lowers the category
     /// rank, never overrides an explicit change made after the session began.
-    fn flow_after(&mut self, session_id: &str, status: SessionStatus) {
-        let session = self.state.sessions[session_id].clone();
-        let Some(task) = self.state.tasks.get(&session.task).cloned() else { return };
+    fn flow_after(&mut self, session_id: &str, status: SessionStatus) -> Result<(), Reject> {
+        let session = self.session(session_id)?;
+        let Some(task) = self.state.tasks.get(&session.task).cloned() else { return Ok(()) };
         if task.deleted {
-            return;
+            return Ok(());
         }
         let attention = match status {
             SessionStatus::AwaitingInput => Some(Some(Attention::NeedsInput)),
@@ -356,25 +355,29 @@ impl Tx<'_> {
             ));
         }
         if self.state.settings.agent_flow == AgentFlow::Off {
-            return;
+            return Ok(());
         }
         if task.manual_status_at.is_some_and(|at| at > session.created_at) {
-            return;
+            return Ok(());
         }
         let target = match status {
             SessionStatus::Working => Some(self.state.settings.started_status.clone()),
             SessionStatus::Done => self.state.settings.review_status.clone(),
             _ => None,
         };
-        let Some(target) = target.filter(|t| self.state.statuses.contains_key(t)) else { return };
-        let Some(current) = self.state.category_of(&task) else { return };
-        let to = self.state.statuses[&target].category;
+        let Some((target, to)) =
+            target.and_then(|t| self.state.status_category(&t).map(|to| (t, to)))
+        else {
+            return Ok(());
+        };
+        let Some(current) = self.state.category_of(&task) else { return Ok(()) };
         let forward = to.rank() > current.rank()
             || (status == SessionStatus::Done
                 && to == Category::Started
                 && current == Category::Started);
         if forward && to.rank() >= current.rank() && task.status != target {
-            self.set_status(&task.id, &target, super::tasks::StatusMove::Flow);
+            self.set_status(&task.id, &target, super::tasks::StatusMove::Flow)?;
         }
+        Ok(())
     }
 }

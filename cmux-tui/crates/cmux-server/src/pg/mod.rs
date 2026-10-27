@@ -292,6 +292,11 @@ impl<'a> Postgres<'a> {
                 data.display()
             )));
         }
+        let argv = self.plan.initdb_argv();
+        let Some((program, args)) = argv.split_first() else {
+            return Err(Error::internal("initdb argv is empty"));
+        };
+        let cmd = Cmd::new(program).args(args);
         let pwfile = self.plan.spec().admin_pwfile.as_ref().map(fsx::local);
         if let Some(pwfile) = &pwfile {
             let password = password_from_random(&host::random::<32>()?);
@@ -304,8 +309,6 @@ impl<'a> Postgres<'a> {
             )?;
             fsx::atomic_write(pwfile, format!("{password}\n").as_bytes(), 0o600)?;
         }
-        let argv = self.plan.initdb_argv();
-        let cmd = Cmd::new(&argv[0]).args(&argv[1..]);
         let result = self.runner.check(&cmd);
         if let Some(pwfile) = &pwfile {
             let _ = fs::remove_file(pwfile);

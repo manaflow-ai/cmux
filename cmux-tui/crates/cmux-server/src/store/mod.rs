@@ -316,7 +316,10 @@ impl Store {
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .ok_or_else(|| refuse(format!("{}: no verified package marker", dir.display())))?;
-        if marker["sha256"] != package.sha256.as_str() || marker["name"] != package.name.as_str() {
+        let names = |key: &str, want: &str| {
+            marker.get(key).and_then(serde_json::Value::as_str) == Some(want)
+        };
+        if !names("sha256", &package.sha256) || !names("name", &package.name) {
             return Err(refuse(format!("{}: the marker names another package", dir.display())));
         }
         let real_dir = fs::canonicalize(&dir).map_err(|e| Error::io(dir.display(), e))?;

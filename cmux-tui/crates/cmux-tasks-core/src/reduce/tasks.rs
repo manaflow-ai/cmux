@@ -35,9 +35,10 @@ pub(crate) fn validate_text(text: &str, what: &str) -> Result<(), Reject> {
 fn validate_due(due: &str) -> Result<(), Reject> {
     let bytes = due.as_bytes();
     let shape = bytes.len() == 10
-        && bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes.iter().enumerate().all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit());
+        && bytes.iter().enumerate().all(|(i, b)| match i {
+            4 | 7 => *b == b'-',
+            _ => b.is_ascii_digit(),
+        });
     let month = due.get(5..7).and_then(|m| m.parse::<u8>().ok()).unwrap_or(0);
     let day = due.get(8..10).and_then(|d| d.parse::<u8>().ok()).unwrap_or(0);
     if !shape || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
@@ -104,6 +105,7 @@ impl Tx<'_> {
             Some(r) => self.state.resolve_status(r).ok_or_else(|| not_found("status", r))?,
             None => self.state.settings.default_status.clone(),
         };
+        let category = self.status_category(&status)?;
         let assignee = p.assignee.as_deref().map(|a| self.resolve_assignee(a)).transpose()?;
         let labels = self.resolve_labels(&p.labels)?;
         let project = match &p.project {
@@ -132,7 +134,7 @@ impl Tx<'_> {
                 text: p.description.clone().unwrap_or_default(),
                 version: 1,
             },
-            status: status.clone(),
+            status,
             priority: p.priority.unwrap_or(Priority::None),
             assignee,
             delegate: None,
@@ -153,7 +155,6 @@ impl Tx<'_> {
             archived: false,
             deleted: false,
         };
-        let category = self.state.statuses[&status].category;
         stamp_category(&mut task, category, self.now);
         self.state.settings.next_number += 1;
         self.state.tasks.insert(task.id.clone(), task.clone());
@@ -168,7 +169,7 @@ impl Tx<'_> {
 
     pub(super) fn task_update(&mut self, p: &TaskUpdate) -> Result<OpResult, Reject> {
         let id = self.task_id(&p.task)?;
-        let current = self.state.tasks[&id].clone();
+        let current = self.task(&id)?.clone();
         if current.archived {
             return Err(invalid("archived tasks are read-only; unarchive first"));
         }
@@ -280,24 +281,28 @@ impl Tx<'_> {
             }
         }
         if let Some(status) = new_status {
-            self.set_status(&id, &status, StatusMove::Manual);
+            self.set_status(&id, &status, StatusMove::Manual)?;
         }
         Ok(self.result_for_task(&id))
     }
 
     /// Move a task to `status` and emit `task.status_changed`. Only a manual
     /// move that changes the status records `manual_status_at`, which stops
-    /// the agent flow from overriding it.
-    pub(crate) fn set_status(&mut self, id: &str, status: &str, mode: StatusMove) {
-        let from_status = self.state.tasks[id].status.clone();
+    /// the agent flow from overriding it. Callers resolved `id` and `status`.
+    pub(crate) fn set_status(
+        &mut self,
+        id: &str,
+        status: &str,
+        mode: StatusMove,
+    ) -> Result<(), Reject> {
+        let from_status = self.task(id)?.status.clone();
         if from_status == status {
-            return;
+            return Ok(());
         }
-        let from = self.state.statuses[&from_status].category;
-        let to = self.state.statuses[status].category;
+        let from = self.status_category(&from_status)?;
+        let to = self.status_category(status)?;
         let now = self.now;
-        // Callers validated the task.
-        let Some(task) = self.state.tasks.get_mut(id) else { return };
+        let task = self.state.tasks.get_mut(id).ok_or_else(|| not_found("task", id))?;
         if mode == StatusMove::Manual {
             task.manual_status_at = Some(now);
         }
@@ -315,6 +320,7 @@ impl Tx<'_> {
                 "cascade": mode == StatusMove::Cascade,
             }),
         ));
+        Ok(())
     }
 
     /// Live tasks in manual order, without `except`.
@@ -334,9 +340,11 @@ impl Tx<'_> {
         after: Option<&str>,
         before: Option<&str>,
     ) -> Result<String, Reject> {
-        let key_of = |tx: &Self, t: Option<&str>| t.map(|t| tx.state.tasks[t].sort_key.clone());
-        let lower = key_of(self, after);
-        let upper = key_of(self, before);
+        let key_of = |tx: &Self, t: Option<&str>| {
+            t.map(|t| tx.task(t).map(|task| task.sort_key.clone())).transpose()
+        };
+        let lower = key_of(self, after)?;
+        let upper = key_of(self, before)?;
         if let Some(key) = sort_key::between(lower.as_deref(), upper.as_deref())
             && !self.sort_key_taken(&key, id)
         {
@@ -497,7 +505,7 @@ impl Tx<'_> {
         }
         let sessions: Vec<String> = self.state.active_sessions(&id).map(|s| s.id.clone()).collect();
         for session in sessions {
-            self.end_session(&session, crate::model::SessionStatus::Canceled);
+            self.end_session(&session, crate::model::SessionStatus::Canceled)?;
         }
         // Validated at the top; the cascades above do not remove it.
         let task = self.state.tasks.get_mut(&id).ok_or_else(|| not_found("task", &id))?;

@@ -67,7 +67,7 @@ fn request_text(content: &Value) -> Option<String> {
         }
         _ => return None,
     };
-    let request = text.find(REQUEST_MARKER).map_or(text, |at| &text[at + REQUEST_MARKER.len()..]);
+    let request = text.split_once(REQUEST_MARKER).map_or(text, |(_, request)| request);
     prompt_text(&Value::String(request.to_owned()))
 }
 
@@ -216,9 +216,9 @@ fn environment_cwd(content: &Value) -> Option<String> {
     };
     texts.into_iter().find_map(|text| {
         let body = text.trim_start().strip_prefix("<environment_context>")?;
-        let start = body.find("<cwd>")? + "<cwd>".len();
-        let len = body[start..].find("</cwd>")?;
-        let cwd = body[start..start + len].trim();
+        let (_, after) = body.split_once("<cwd>")?;
+        let (cwd, _) = after.split_once("</cwd>")?;
+        let cwd = cwd.trim();
         (!cwd.is_empty()).then(|| cwd.to_owned())
     })
 }
@@ -441,4 +441,41 @@ pub(super) fn classify(parts: &[&str]) -> PathRole {
         && ((name.starts_with("state_") && name.contains(".sqlite"))
             || name == "session_index.jsonl");
     role(session, store)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn environment_cwd_reads_the_cwd_element() {
+        let cwd = |text: &str| environment_cwd(&json!(text));
+        assert_eq!(
+            cwd("<environment_context><cwd> /w/é </cwd></environment_context>"),
+            Some("/w/é".to_owned())
+        );
+        assert_eq!(
+            environment_cwd(
+                &json!([{"text": "hi"}, {"text": "<environment_context><cwd>/w</cwd>"}])
+            ),
+            Some("/w".to_owned())
+        );
+        for text in [
+            "<cwd>/w</cwd>",
+            "<environment_context><cwd>/w",
+            "<environment_context></cwd>/w<cwd>",
+            "<environment_context><cwd> </cwd>",
+        ] {
+            assert_eq!(cwd(text), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn request_text_keeps_what_follows_the_marker() {
+        let request = format!("ide context é{REQUEST_MARKER}\n fix the test ");
+        assert_eq!(request_text(&json!(request)), Some("fix the test".to_owned()));
+        assert_eq!(request_text(&json!("plain")), Some("plain".to_owned()));
+    }
 }
