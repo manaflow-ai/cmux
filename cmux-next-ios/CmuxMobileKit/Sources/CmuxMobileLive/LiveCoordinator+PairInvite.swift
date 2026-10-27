@@ -17,9 +17,8 @@ extension LiveCoordinator {
             log.info("pairing code for a space this account is not in")
             return false
         }
+        // Before the spaces load it is held only; steerToInvite checks the space before it moves.
         pairing.invites.hold(invite)
-        // Remembered per team, as a pick in the Macs list is: the team's Macs focus it when they load.
-        UserDefaults.standard.set(invite.mac, forKey: "cmuxMobile.live.mac.\(invite.team)")
         log.info("pairing code for \(invite.mac, privacy: .private)")
         steerToInvite()
         return true
@@ -29,10 +28,23 @@ extension LiveCoordinator {
     /// are loaded (run again when the teams or Macs arrive).
     func steerToInvite() {
         guard let pairing, let invite = pairing.invites.pending() else { return }
+        let personal = invite.team == Self.personalTeamID(userID: userID)
+        // A code taken before this account's spaces loaded is checked again once they have:
+        // one for a space this account is not in is dropped, and nothing moves for it.
+        guard personal || store.teams.contains(where: { $0.id == invite.team }) else {
+            if !store.teams.isEmpty {
+                log.info("pairing code for a space this account is not in")
+                pairing.invites.drop()
+            }
+            return
+        }
+        // Remembered per team, as a pick in the Macs list is: the team's Macs focus it when they load.
+        let pick = "cmuxMobile.live.mac.\(invite.team)"
+        if UserDefaults.standard.string(forKey: pick) != invite.mac { UserDefaults.standard.set(invite.mac, forKey: pick) }
         guard store.activeTeamID == invite.team else {
-            if invite.team == Self.personalTeamID(userID: userID) {
+            if personal {
                 selectPersonal()
-            } else if store.teams.contains(where: { $0.id == invite.team }) {
+            } else {
                 store.selectTeam(invite.team)
                 activeTeamChanged(byUser: true)
                 onFollow?(invite.team)

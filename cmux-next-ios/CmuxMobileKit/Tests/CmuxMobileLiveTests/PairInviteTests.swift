@@ -204,5 +204,25 @@ import Testing
         #expect(!live.accept(old))
         #expect(live.pairing?.invites.pending() == nil)
     }
+
+    /// A code taken before the account's spaces loaded moves nothing, and is dropped once they
+    /// load without its space.
+    @Test func aCodeTakenBeforeTheSpacesLoadIsCheckedWhenTheyDo() throws {
+        let key = "cmuxMobile.live.mac.t9"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let live = coordinator(store)
+        defer { live.stop() }
+        let invite = try #require(PairInvite(text: PairInviteTests.url(mac: "m9", team: "t9")))
+        #expect(live.accept(invite))
+        #expect(store.activeTeamID == "")
+        #expect(UserDefaults.standard.string(forKey: key) == nil)
+        store.teams = [Team(id: "t1", name: "One")]
+        live.steerToInvite()
+        #expect(live.pairing?.invites.pending() == nil)
+        #expect(store.activeTeamID != "t9")
+        #expect(UserDefaults.standard.string(forKey: key) == nil)
+    }
 }
 #endif
