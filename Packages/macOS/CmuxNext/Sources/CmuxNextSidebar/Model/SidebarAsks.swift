@@ -1,4 +1,7 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 public import Observation
 
@@ -12,7 +15,7 @@ public import Observation
 public final class SidebarAsks {
     private struct Ask {
         var card: SidebarNoticeCard
-        var answer: CheckedContinuation<Bool, Never>
+        var answer: OnceContinuation<Bool, OnceContinuationError>
     }
 
     private var asks: [Ask] = []
@@ -38,9 +41,10 @@ public final class SidebarAsks {
         }
         defer { watch?.cancel() }
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { answer in
+            // A card dropped without an answer is No, as the x is.
+            (try? await withOnceContinuation { (answer: OnceContinuation<Bool, OnceContinuationError>) in
                 if Task.isCancelled { answer.resume(returning: false) } else { asks.append(Ask(card: card, answer: answer)) }
-            }
+            }) ?? false
         } onCancel: {
             Task { @MainActor in self.answer(id, action: nil) }
         }

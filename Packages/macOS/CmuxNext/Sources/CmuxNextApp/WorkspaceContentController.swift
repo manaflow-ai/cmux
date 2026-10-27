@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextWakeups
@@ -19,7 +20,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let daemon: DaemonService
     let layoutModel = LayoutModel()
     // Built in init in this order (lazy because they hold self; no IUOs).
-    private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self, input: services.inputTap)
+    private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self, input: services.inputTap,
+                                                       mainWork: services.mainWork, hiddenWork: services.hiddenLayoutWork)
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
@@ -28,10 +30,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
     unowned let services: AppServices
-    unowned let state: WindowState
+    let state: WindowState  // strong: a task holding this content past its window reads a live state; no cycle
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
     private var observation: Task<Void, Never>?
+    /// Who caused the tree changes the observation applies (feature `automationBurstSnap`); nil: off.
+    private var changeCauses: LayoutChangeCauses?
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
     private var settlingObservation: Task<Void, Never>?
@@ -45,6 +49,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.
     let focus: FocusCoordinator
+    // wall-clock: an id seed, not a time: Unix ms keeps ids from an earlier launch and the daemon's apart.
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
     /// The last key-turn pane create (New Column, New Row) still sending: the next one sends after
     /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`).
@@ -62,14 +67,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var drawsNothing = false
     /// Parked and on no screen (not a `sidebar.multiView` companion beside the shown workspace).
     /// Its tree changes then update the model only: no layout, no view sync, no topology
-    /// (CLAUDE.md "Go past Chrome where cmux is scripted").
-    private(set) var isOffScreen = false
+    /// (CLAUDE.md "Go past Chrome where cmux is scripted"). Its root counts the passes it still gets then.
+    private(set) var isOffScreen = false { didSet { layoutView.isOffScreen = isOffScreen } }
     /// The workspace's visibility node, under its window's, that its panes' nodes hang under
     /// (`PaneController`, p06-scheduler-024). nil until p06-scheduler-023 gives each mounted workspace its
     /// node (an unmounted workspace has none); until then each pane's node is a root.
     var visibilityNode: VisibilityNode? { nil }
-    /// The latest mapping that came while off screen: applied once, at rest, when it shows.
-    private var deferredApply: LayoutMapping.Result?
+    /// The latest mapping that came while off screen: applied once, at rest, when it shows (each a hidden apply).
+    private var deferredApply: LayoutMapping.Result? { didSet { if deferredApply != nil { services.hiddenLayoutWork.noteApply() } } }
     /// Torn down (its window closed, or it unmounted to free memory): it mounts no pane, starts no
     /// observation and drives no repair or focus again, so a daemon reply or a repair that lands
     /// after the teardown leaves nothing behind (p07-memory-034). Chrome's WebContentsImpl stops
@@ -149,7 +154,17 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
+        // An agent's or a script's burst of splits lands with no spring (p06-scheduler-038).
+        if services.features.isEnabled(.automationBurstSnap) {
+            layoutModel.snapsAutomationBursts = true
+            changeCauses = LayoutChangeCauses(workspace, causes: services.mainWork.causes)
+        }
         _ = layoutView  // built here, then the bar and the content view, as before
+        // Divider, column-edge and row-edge drags move the layout once per frame (`pointerFrameDrags`), drawn resampled (`resampledDrags`).
+        layoutView.setDragInput(frames: services.dragFrameInput, resampler: services.dragResampler)
+        layoutView.resamplesStripPan = services.features.isEnabled(.stripPanResampling)
+        // Content keeps its size through a pane spring (feature `paneHoldsContentInMotion`).
+        layoutView.holdsContentInMotion = { [features = services.features] in features.isEnabled(.paneHoldsContentInMotion) }
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
@@ -170,9 +185,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
             return try await fallbackCreate(key)
         }
-        emptyView = EmptyWorkspaceView(
-            onNew: { [weak self] in self?.newFromEmptyState() }
-        )
+        emptyView = EmptyWorkspaceView(onNew: { [weak self] in self?.newFromEmptyState() })
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
             self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
@@ -221,6 +234,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         guard !isTornDown else { return }
         isTornDown = true
         for task in [observation, connectionObservation, attentionObservation, settlingObservation, canvasObservation] { task?.cancel() }
+        changeCauses?.cancel()
         focus.topologySent(by: self)
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
@@ -238,7 +252,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // `applyCurrent` applies outside the stream too; `apply` compares with what it applied.
         let (first, later) = ObservationStream.current({ ObservationTrigger(LayoutMapping.shared.map(workspace)) })
         observation = Task { [weak self] in
-            for await result in later { self?.apply(result.value) }
+            for await result in later {
+                guard let self else { return }
+                // The hop has no cause of its own: who made the changes it applies.
+                self.apply(result.value, cause: self.changeCauses?.take() ?? .program)
+            }
         }
         apply(first.value)
         // An empty workspace loaded while disconnected, or drawn from the
@@ -291,10 +309,22 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Re-applies the current store state (after a command response that
     /// may trail its own delta).
     func applyCurrent(_ file: StaticString = #fileID, _ line: UInt = #line) {
-        apply(LayoutMapping.shared.map(workspace), force: true, file, line) // after a command response that may trail its own delta
+        // In the turn of the change it follows (an action's run, a command's reply): its cause too.
+        let current = services.mainWork.causes.currentCause
+        let cause = max(changeCauses?.take() ?? current, current)
+        apply(LayoutMapping.shared.map(workspace), cause: cause, force: true, file, line) // after a command response that may trail its own delta
     }
 
-    private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
+    /// Applies the store's layout when it changed since the last apply (no-op otherwise): a pane whose tabs changed
+    /// calls it first (`applyMovedTabs`), so a tab moved to a new pane shows there and leaves its old pane in one turn.
+    func applyLayoutIfChanged() {
+        apply(LayoutMapping.shared.map(workspace), cause: changeCauses?.take() ?? .program) // the cause the observation would apply
+    }
+
+    /// `cause`: who caused the change; an automation burst's structural change lands with no
+    /// spring (`LayoutModel.apply(screens:cause:)`).
+    private func apply(_ result: LayoutMapping.Result, cause: ObservationCause = .program, force: Bool = false,
+                       _ file: StaticString = #fileID, _ line: UInt = #line) {
         guard !isTornDown else { return } // a reply that lands after teardown mounts no pane
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
@@ -310,6 +340,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             if topologyMoved {
                 // The one topology of this change (adoptions inside sent none); the focus it lands
                 // rings in this frame.
+                withApplying { syncStaleStrips() } // their topology parts go out in the one below
                 sendTopology()
                 layoutView.syncWithModel()
             }
@@ -324,7 +355,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         defer { isApplying = wasApplying }
         if layoutModel.acceptsEdgeDockDrops != appliedTree.edgeDocks { layoutModel.acceptsEdgeDockDrops = appliedTree.edgeDocks }
         if layoutModel.acceptsRowOps != appliedTree.rows { layoutModel.acceptsRowOps = appliedTree.rows } // no row op without rows-v1 (rows.md step 4)
-        layoutModel.apply(screens: result.screens)
+        layoutModel.apply(screens: result.screens, cause: cause)
         #if DEBUG
         DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)
         #endif
@@ -333,11 +364,22 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
         updateEmptyState()
         repairIfEmpty()
+        // Every strip matches the store before the topology: a moved tab is in its new pane only (not also in its
+        // old pane's strip until that pane's own observation runs a turn later), so focus follows it in this turn.
+        syncStaleStrips()
         // The one topology of this apply (mounts and pane snapshots inside it sent none).
         isApplying = wasApplying
         sendTopology()
         isApplying = true
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
+    }
+
+    /// Runs `body` as part of an apply: pane changes inside it send no topology of their own (the caller sends one).
+    func withApplying(_ body: () -> Void) {
+        let wasApplying = isApplying
+        isApplying = true
+        defer { isApplying = wasApplying }
+        body()
     }
 
     /// Takes the mapping's handles. A pane record a resync rebuilt under the same key keeps its

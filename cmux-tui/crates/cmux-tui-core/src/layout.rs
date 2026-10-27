@@ -510,7 +510,7 @@ pub(crate) fn zellij_default_pane_layout_with_ids(
     match panes {
         [] => None,
         [pane] => Some(Node::Leaf(*pane)),
-        panes if panes.len() > 12 => Some(zellij_stacked_layout(panes, next_split_id)),
+        panes if panes.len() > 12 => zellij_stacked_layout(panes, next_split_id),
         _ => {
             let first_column_len = if panes.len() <= 5 {
                 1
@@ -518,55 +518,56 @@ pub(crate) fn zellij_default_pane_layout_with_ids(
                 let remainder = panes.len() % 4;
                 if remainder == 0 { 4 } else { remainder }
             };
-            let mut columns = Vec::new();
-            columns.push(equal_split(&panes[..first_column_len], SplitDir::Down, next_split_id));
-            for column in panes[first_column_len..].chunks(4) {
-                columns.push(equal_split(column, SplitDir::Down, next_split_id));
+            let (first, rest) = panes.split_at_checked(first_column_len)?;
+            let mut columns = VecDeque::new();
+            columns.push_back(equal_split(first, SplitDir::Down, next_split_id)?);
+            for column in rest.chunks(4) {
+                columns.push_back(equal_split(column, SplitDir::Down, next_split_id)?);
             }
-            Some(equal_nodes(columns.into(), SplitDir::Right, next_split_id))
+            equal_nodes(columns, SplitDir::Right, next_split_id)
         }
     }
 }
 
-fn zellij_stacked_layout(panes: &[PaneId], next_split_id: &mut impl FnMut() -> SplitId) -> Node {
-    debug_assert!(panes.len() > 1);
-    Node::Split {
-        id: next_split_id(),
+/// The first pane beside a stack of the others; `None` for fewer than two.
+fn zellij_stacked_layout(
+    panes: &[PaneId],
+    next_split_id: &mut impl FnMut() -> SplitId,
+) -> Option<Node> {
+    let (first, rest) = panes.split_first()?;
+    let id = next_split_id();
+    let stack = Node::stack(rest.to_vec())?;
+    Some(Node::Split {
+        id,
         dir: SplitDir::Right,
         ratio: 0.5,
-        a: Box::new(Node::Leaf(panes[0])),
-        b: Box::new(
-            Node::stack(panes[1..].to_vec()).expect("stacked layout requires at least one pane"),
-        ),
-    }
+        a: Box::new(Node::Leaf(*first)),
+        b: Box::new(stack),
+    })
 }
 
 fn equal_split(
     panes: &[PaneId],
     dir: SplitDir,
     next_split_id: &mut impl FnMut() -> SplitId,
-) -> Node {
+) -> Option<Node> {
     equal_nodes(panes.iter().copied().map(Node::Leaf).collect(), dir, next_split_id)
 }
 
+/// `nodes` in equal parts along `dir`; `None` for no nodes.
 fn equal_nodes(
     mut nodes: VecDeque<Node>,
     dir: SplitDir,
     next_split_id: &mut impl FnMut() -> SplitId,
-) -> Node {
-    debug_assert!(!nodes.is_empty());
-    if nodes.len() == 1 {
-        return nodes.pop_front().expect("equal_nodes has one node");
+) -> Option<Node> {
+    let first = nodes.pop_front()?;
+    if nodes.is_empty() {
+        return Some(first);
     }
-    let first = nodes.pop_front().expect("equal_nodes has at least two nodes");
     let ratio = 1.0 / (nodes.len() + 1) as f32;
-    Node::Split {
-        id: next_split_id(),
-        dir,
-        ratio,
-        a: Box::new(first),
-        b: Box::new(equal_nodes(nodes, dir, next_split_id)),
-    }
+    let id = next_split_id();
+    let rest = equal_nodes(nodes, dir, next_split_id)?;
+    Some(Node::Split { id, dir, ratio, a: Box::new(first), b: Box::new(rest) })
 }
 
 fn walk(node: &Node, area: Rect, active_pane: Option<PaneId>, out: &mut LayoutResult) {
@@ -1114,6 +1115,44 @@ mod tests {
 
             assert_eq!(first, area);
             assert_eq!(second, area);
+        }
+    }
+
+    /// Every split id once, every ratio strictly between 0 and 1.
+    fn assert_valid_splits(node: &Node, ids: &mut HashSet<SplitId>) {
+        match node {
+            Node::Leaf(_) | Node::Stack { .. } => {}
+            Node::Split { id, ratio, a, b, .. } => {
+                assert!(ids.insert(*id), "split id {id} repeats");
+                assert!(*ratio > 0.0 && *ratio < 1.0, "ratio {ratio}");
+                assert_valid_splits(a, ids);
+                assert_valid_splits(b, ids);
+            }
+        }
+    }
+
+    #[test]
+    fn zellij_default_layout_is_a_valid_tree_at_every_shape_boundary() {
+        assert!(zellij_default_pane_layout(&[]).is_none());
+        for count in [1_u64, 2, 5, 6, 12, 13, 20] {
+            let panes: Vec<PaneId> = (1..=count).collect();
+            let mut next = 100;
+            let node = zellij_default_pane_layout_with_ids(&panes, &mut || {
+                next += 1;
+                next
+            })
+            .unwrap_or_else(|| panic!("{count} panes gave no layout"));
+            assert_eq!(node.pane_ids_vec(), panes, "{count} panes: {node:?}");
+            assert_valid_splits(&node, &mut HashSet::new());
+            match (&node, count) {
+                (Node::Leaf(1), 1) => {}
+                (Node::Split { a, b, .. }, 13..) => {
+                    assert!(matches!(**a, Node::Leaf(1)), "{node:?}");
+                    assert!(matches!(**b, Node::Stack { .. }), "{node:?}");
+                }
+                (Node::Split { .. }, 2..=12) => assert!(node.stack_expanded_pane().is_none()),
+                _ => panic!("{count} panes: unexpected shape {node:?}"),
+            }
         }
     }
 

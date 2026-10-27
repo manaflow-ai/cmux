@@ -8,6 +8,8 @@ import CmuxNextCompat
 /// connection, so the control connection never carries a long replay.
 public struct SessionJournalRead: Sendable {
     public static let shared = Self()
+    /// The v2 operation the read sends.
+    private static let subscribe: DaemonCommandName = "session.journal.subscribe"
     public struct Result: Sendable {
         /// Each record's JSON (the stream item), in journal order.
         public var records: [Data]
@@ -44,10 +46,10 @@ public struct SessionJournalRead: Sendable {
             params["start"] = .string("beginning")
         }
         let request = params
-        let response = try await transport.request(cmd: "session.journal.subscribe", timeout: deadline) { id in
+        let response = try await transport.request(cmd: Self.subscribe, timeout: deadline) { id in
             let envelope = JSONValue.object([
                 "protocol": .string("cmux.protocol/2"), "type": .string("request"), "id": .string(String(id)),
-                "operation": .string("session.journal.subscribe"), "params": .object(request),
+                "operation": .string(Self.subscribe.wire), "params": .object(request),
             ])
             return try JSONEncoder().encode(envelope)
         }

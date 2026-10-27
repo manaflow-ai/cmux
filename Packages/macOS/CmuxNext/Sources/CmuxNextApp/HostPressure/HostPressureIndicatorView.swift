@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHostPressure
+import CmuxNextWakeups
 
 /// The window's host pressure indicator in the top row, after the toolbar band
 /// and the incognito badge (`WindowRootView.hostPressureIndicator`; never the
@@ -14,13 +16,15 @@ import CmuxNextHostPressure
 /// own: it follows the same level observation, and ends with it.
 ///
 /// Off by default (cmux#22662): it subscribes to the app's `HostPressureService`
-/// only while `HostPressureSampling.samples` holds (the Debug Settings toggle
-/// `hostPressure.enabled` is on and its window can be seen). Stop condition: the
-/// toggle going off, or the window (or the whole app) hiding, minimizing, being fully occluded or
-/// closing, unsubscribes it, and the service stops the monitor and its one 15 s
-/// timer when no window is subscribed. Cleanup: leaving the window, and deinit,
-/// cancel the notification, toggle and level observations (from any thread) and
-/// unsubscribe (`HostPressureSubscription` ends itself if it is released without that). While the toggle is off it never creates the service at all.
+/// only while `HostPressureSampling.samples` holds (the feature `hostPressure`, resolved
+/// once per launch, is on and its window can be seen). Stop condition: the window's node in
+/// the visibility tree going hidden or occluded (the window minimized or fully occluded, cmux
+/// hidden, the displays asleep), or the window closing, unsubscribes it, and the service stops
+/// the monitor and its one 15 s timer when no window is subscribed. Cleanup: leaving the window
+/// cancels the node, close and forced-level subscriptions, and leaving sampling the level
+/// observation; each also ends when released with the view, from any thread
+/// (`HostPressureSubscription` and `HostPressureBanner` end themselves the same way). While the
+/// feature is off it never creates the service at all.
 final class HostPressureIndicatorView: NSView {
     static let identifier = "cmux.titlebar.hostPressure"
     let button = TitlebarBandButton(symbol: HostPressureIndicatorView.symbol(.warning, style: .gauge))
@@ -32,35 +36,45 @@ final class HostPressureIndicatorView: NSView {
     private var closedSpell: Int?
     private let services: AppServices
     private let store: TunableStore
-    private let windowVisible: @MainActor (NSWindow?) -> Bool
+    private let mainWork: MainWorkScheduler
+    /// A window's node in the visibility tree and its notices (tests pass their own).
+    private let nodeOf: @MainActor (NSWindow) -> VisibilityNode
+    private let eventsOf: @MainActor (NSWindow) -> WindowEvents
     private let makeService: @MainActor () -> HostPressureService
-    private let notifications: NotificationCenter
     private let toasts: CmuxToastCenter
+    /// Called when the indicator shows, hides or changes width: the owner places it again.
     private let onVisibilityChange: () -> Void
     private var subscription: HostPressureSubscription?
     private var service: HostPressureService? { subscription?.service }
-    /// The notification and toggle observations while in a window, and the level observation
-    /// while subscribed; both cancel from any thread, the nonisolated deinit included.
-    private let watching = HostPressureTasks()
-    private let levels = HostPressureTasks()
+    /// While in a window: its node's flips, its close and the Debug forced level.
+    private var windowWatch: VisibilitySubscription?
+    private var closeWatch: EventSubscription?
+    private var forceWatch: ServiceObservation<HostPressureForce>?
+    /// What the glyph and the banner show, while it samples.
+    private typealias LevelFacts = (level: HostPressureLevel, verdict: HostBudgetVerdict?, style: HostPressureIndicatorStyle,
+                                    banner: Bool, spell: Int)
+    private var levelWatch: ServiceObservation<LevelFacts>?
     private lazy var popover: HostPressurePopover = makePopover()
     private(set) var level = HostPressureLevel.normal
     /// Whether it is subscribed to the service now (tests read it).
     var isSampling: Bool { service != nil }
 
-    /// `store`, `notifications`, `windowVisible`, `service` and `toasts` are for tests; the app passes none.
-    init(services: AppServices, store: TunableStore = .shared, notifications: NotificationCenter = .default,
-         windowVisible: @escaping @MainActor (NSWindow?) -> Bool = HostPressureSampling.isVisible,
+    /// `store`, `mainWork`, `nodeOf`, `eventsOf`, `service` and `toasts` are for tests; the app passes none.
+    init(services: AppServices, store: TunableStore = .shared, mainWork: MainWorkScheduler? = nil,
+         nodeOf: @escaping @MainActor (NSWindow) -> VisibilityNode = { WindowVisibilitySource.of($0).node },
+         eventsOf: @escaping @MainActor (NSWindow) -> WindowEvents = { WindowEvents.of($0) },
          service: (@MainActor () -> HostPressureService)? = nil, toasts: CmuxToastCenter = .shared,
          onVisibilityChange: @escaping () -> Void) {
         self.services = services
         self.store = store
-        self.notifications = notifications
+        self.mainWork = mainWork ?? services.mainWork
+        self.nodeOf = nodeOf
+        self.eventsOf = eventsOf
         self.toasts = toasts
-        self.windowVisible = windowVisible
         self.makeService = service ?? {
             HostPressureService.shared(acpmux: QuitAgents.environment(services),
-                                       memoryPressure: services.memoryPressure.hostPressureSubscription)
+                                       memoryPressure: services.memoryPressure.hostPressureSubscription,
+                                       mainWork: services.mainWork, work: services.work, appEvents: services.appEvents)
         }
         self.onVisibilityChange = onVisibilityChange
         super.init(frame: .zero)
@@ -102,19 +116,20 @@ final class HostPressureIndicatorView: NSView {
         reconcile()
     }
 
+    // visibility-walk-allow: the body is one tint assignment, a color set like a layer color's; deferring it to the window's node would leave a forced level's capture in an occluded window with the old appearance's tint
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTint()
     }
 
-    /// The gate's inputs now: the toggle and whether the window can be seen. A forced level
-    /// (Debug Settings only, for captures) counts as seen while the indicator is in a window:
-    /// capture minis run windows the occlusion state calls hidden. The 15 s read then runs while
-    /// the level stays forced; Off restores the window gate, and leaving the window still stops it.
+    /// The gate's inputs now: the feature and whether the window can be seen (its node is visible). A forced level
+    /// (Debug Settings only, for captures) counts as seen while the indicator is in a window: capture minis run
+    /// windows the occlusion state calls hidden. The 15 s read then runs while the level stays forced; Off restores
+    /// the window gate, and leaving the window still stops it.
     var sampling: HostPressureSampling {
         let forced = HostPressureTunables.force.value(in: store) != .off && window != nil
-        return HostPressureSampling(enabled: HostPressureTunables.enabled.value(in: store),
-                                    windowVisible: forced || windowVisible(window))
+        return HostPressureSampling(enabled: services.features.isEnabled(.hostPressure),
+                                    windowVisible: forced || window.map { nodeOf($0).isVisible } == true)
     }
 
     /// Subscribes while `sampling.samples`, else unsubscribes (idempotent).
@@ -122,64 +137,57 @@ final class HostPressureIndicatorView: NSView {
         sampling.samples ? join() : leave()
     }
 
-    /// The window's and the app's visibility notifications and the toggle, while in a window.
-    /// They are tasks in `watching`, which a window change, `willClose` and deinit cancel (from
-    /// any thread).
+    /// While in a window: the window's node (occlusion, minimizing, Hide cmux and sleeping displays already reach it
+    /// through `WindowVisibilitySource` and `AppVisibilitySource`: no notice of its own), the window's close and the
+    /// Debug forced level. A window change, willClose and the view's release end them.
     private func observeWindow() {
-        watching.cancelAll()
+        stopWatching()
         guard let window else { return }
-        let center = notifications
-        let names = HostPressureSampling.windowChanges.map { ($0, window as AnyObject) } + HostPressureSampling.appChanges.map { ($0, NSApplication.shared as AnyObject) }
-        for (name, object) in names {
-            let closing = name == NSWindow.willCloseNotification
-            // task-owner: `watching` (cancelled on a window change, on willClose and in deinit); event-driven (one notification)
-            watching.add(Task { [weak self, weak object] in
-                guard let object else { return }
-                for await _ in center.notifications(named: name, object: object) {
-                    // Cancelled (willClose, a window change) on the main actor before this body ran: nothing.
-                    guard !Task.isCancelled, let self else { return }
-                    if closing {
-                        leave()
-                        watching.cancelAll()
-                    } else {
-                        reconcile()
-                    }
-                }
-            })
+        windowWatch = nodeOf(window).subscribe(owner: "HostPressureIndicator.window") { [weak self] _ in self?.reconcile() }
+        closeWatch = eventsOf(window).subscribe(NSWindow.willCloseNotification, owner: "HostPressureIndicator.close") { [weak self] in
+            self?.leave()
+            self?.stopWatching()
         }
-        let (store, enabled, force) = (store, HostPressureTunables.enabled, HostPressureTunables.force)
-        // task-owner: `watching` (cancelled on a window change, on willClose and in deinit); event-driven (Observation of the tunable store)
-        watching.add(Task { [weak self] in
-            for await _ in ObservationStream({ (enabled.value(in: store), force.value(in: store)) }) {
-                guard !Task.isCancelled, let self else { return }
-                reconcile()
-            }
-        })
+        let store = store
+        // A service observation: the forced level starts or stops the app's monitor as well as show the glyph.
+        forceWatch = ServiceObservation(.visible, owner: "HostPressureIndicator.force", on: mainWork) {
+            HostPressureTunables.force.value(in: store)
+        } apply: { [weak self] _ in
+            self?.reconcile()
+        }
+    }
+
+    private func stopWatching() {
+        windowWatch?.cancel()
+        windowWatch = nil
+        closeWatch?.cancel()
+        closeWatch = nil
+        forceWatch?.cancel()
+        forceWatch = nil
     }
 
     private func join() {
         guard subscription == nil else { return }
         let service = makeService()
         subscription = HostPressureSubscription(service)
-        // task-owner: `levels` (cancelled when it stops sampling and in deinit); event-driven (Observation)
         let store = store
-        levels.add(Task { [weak self] in
-            for await (level, verdict, style, bannerOn, spell) in ObservationStream({
-                (service.level, service.verdict, HostPressureTunables.style.value(in: store),
-                 HostPressureTunables.banner.value(in: store), service.criticalSpell)
-            }) {
-                // A value queued before leave() cancelled this shows nothing.
-                guard !Task.isCancelled, let self else { return }
-                self.style = style
-                show(level: level, verdict: verdict)
-                showBanner(bannerOn && level == .critical && closedSpell != spell, verdict: verdict, spell: spell)
-            }
-        })
+        // It exists only while this window samples (seen, or a forced level in a window), which is its gate: a node of
+        // its own would stop the forced level a capture shows in an occluded window.
+        levelWatch = ServiceObservation(.visible, owner: "HostPressureIndicator.level", on: mainWork) { () -> LevelFacts in
+            (level: service.level, verdict: service.verdict, style: HostPressureTunables.style.value(in: store),
+             banner: HostPressureTunables.banner.value(in: store), spell: service.criticalSpell)
+        } apply: { [weak self] facts in
+            guard let self else { return }
+            style = facts.style
+            show(level: facts.level, verdict: facts.verdict)
+            showBanner(facts.banner && facts.level == .critical && closedSpell != facts.spell, verdict: facts.verdict, spell: facts.spell)
+        }
     }
 
     private func leave() {
         guard let subscription else { return }
-        levels.cancelAll()
+        levelWatch?.cancel()
+        levelWatch = nil
         subscription.cancel()
         self.subscription = nil
         show(level: .normal, verdict: nil)
@@ -203,12 +211,8 @@ final class HostPressureIndicatorView: NSView {
         } else {
             popover.content.update(level: level, verdict: verdict, canStop: service?.isForced == false)
         }
-        if wasHidden != isHidden || oldWidth != width {
-            // The root lays the top row out: without this its layoutSubtreeIfNeeded keeps the old frame
-            // (zero the first time) until something else relayouts the window.
-            superview?.needsLayout = true
-            onVisibilityChange()
-        }
+        // The owner (the window's root) lays the top row out again; the indicator never invalidates it.
+        if wasHidden != isHidden || oldWidth != width { onVisibilityChange() }
     }
 
     /// "9.6 / 12": the 1-minute load against the budget's limit.
@@ -234,7 +238,7 @@ final class HostPressureIndicatorView: NSView {
         let toast = CmuxToast(id: "host-pressure.critical", message: HostPressureStrings.banner(reasons),
                               action: CmuxToast.Action(title: HostPressureStrings.showDetails), duration: CmuxToast.untilClosed)
         let handle = toasts.show(toast, in: window)
-        banner = HostPressureBanner(handle)
+        banner = HostPressureBanner(handle, mainWork: mainWork)
         handle.onAction = { [weak self] in self?.openPopover() }
         handle.onDismiss = { [weak self, weak handle] reason in
             guard let self, let handle, banner?.handle === handle else { return }
@@ -281,7 +285,7 @@ final class HostPressureIndicatorView: NSView {
         return popover
     }
 
-    /// Asks first; the stop keeps the session (a new message resumes it).
+    /// Asks first; the stop keeps the session (a new message resumes it). The service asks acpmux off the main thread.
     private func confirmStop(_ session: HostBudgetSession) {
         guard let window else { return }
         let spec = CmuxDialogSpec(title: HostPressureStrings.stopTitle(session.name), lines: [HostPressureStrings.stopBody],
@@ -290,17 +294,8 @@ final class HostPressureIndicatorView: NSView {
                                   identifier: "cmux.dialog.hostPressure.stop")
         popover.close()
         CmuxDialogCenter.shared.present(spec, in: .window(window)) { [weak self] answer in
-            guard answer.button == "stop", let service = self?.service else { return }
-            // task-owner: one stop request; it ends when acpmux answers (5 s deadline)
-            Task { _ = await service.stopSession(session) }
+            guard answer.button == "stop" else { return }
+            self?.service?.stopSession(session)
         }
-    }
-
-    /// Cancels every observation on whatever thread it runs; the subscription and the banner end
-    /// themselves on the main actor when they are released (`HostPressureSubscription`,
-    /// `HostPressureBanner`).
-    nonisolated deinit {
-        watching.cancelAll()
-        levels.cancelAll()
     }
 }

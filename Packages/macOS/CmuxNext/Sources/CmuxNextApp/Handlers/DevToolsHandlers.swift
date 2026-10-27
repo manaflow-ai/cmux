@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemonService
+import CmuxNextWakeups
 import WebKit
 
 /// The palette's Developer Tools set (`devtools.*`, plans/cmux-next/web-devtools.md)
@@ -64,8 +66,8 @@ enum DevToolsHandlers {
         if case .browser(let tab) = target, let chromium = tab as? CEFTab {
             return runChromium(command, on: chromium, context)
         }
-        guard let webView = target.webKitView else { throw ActionFailure(message: WebDevToolsLimit.chromiumOnly.message) }
-        runWebKit(command, on: webView, tab: target, context)
+        guard let webKit = target.webKitEngine else { throw ActionFailure(message: WebDevToolsLimit.chromiumOnly.message) }
+        runWebKit(command, on: webKit, tab: target, context)
     }
 
     private static func runChromium(_ command: WebDevToolsCommand, on tab: CEFTab, _ context: AppActionContext) {
@@ -81,11 +83,12 @@ enum DevToolsHandlers {
             context.services.cache.pageRequests.browserTab(tab, didRequest: .openURL(source, .foregroundTab))
         default:
             if let panel = command.panel { return tab.performDevTools(.panel(panel)) }
-            if let script = command.pageScript { return evaluate(script, in: tab) }
+            if let script = command.pageScript { return evaluate(script, in: tab, context) }
             var modes = tab.devToolsModes
             guard let calls = modes.calls(for: command, origin: origin(of: tab.state.url)) else { return }
             tab.devToolsModes = modes
-            Task {
+            // task-owner: the protocol calls, in order, off the main actor; nothing applies on main after them
+            context.services.work.task(.userBlocking) {
                 for call in calls { _ = try? await tab.devTools(method: call.method, params: call.params) }
             }
         }
@@ -96,9 +99,10 @@ enum DevToolsHandlers {
         if !tab.devTools.isOpen { tab.performDevTools(.show) }
     }
 
-    private static func runWebKit(_ command: WebDevToolsCommand, on webView: WKWebView, tab: WebInspectorTarget,
+    /// `command` on a target's WebKit engine (``WebInspectorTarget/webKitEngine``).
+    private static func runWebKit(_ command: WebDevToolsCommand, on webKit: WKWebView, tab: WebInspectorTarget,
                                   _ context: AppActionContext) {
-        let inspector = WebKitInspector(webView: webView)
+        let inspector = WebKitInspector(webView: webKit)
         switch command {
         case .openDocked: inspector.attach()
         case .openInWindow: inspector.detach()
@@ -106,14 +110,14 @@ enum DevToolsHandlers {
         case .togglePerformanceRecording: inspector.togglePageProfiling()
         case .viewPageSource: inspector.show(.sources)
         case .emptyCacheAndHardReload:
-            removeSiteData(of: webView, types: [WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache]) { webView.reloadFromOrigin() }
+            removeSiteData(of: webKit, types: [WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache]) { webKit.reloadFromOrigin() }
         case .clearSiteData:
-            removeSiteData(of: webView, types: WKWebsiteDataStore.allWebsiteDataTypes()) { webView.reloadFromOrigin() }
+            removeSiteData(of: webKit, types: WKWebsiteDataStore.allWebsiteDataTypes()) { webKit.reloadFromOrigin() }
         case .captureScreenshot:
             BrowserHandlers.copyScreenshot(context) {
                 if case .browser(let tab) = tab { return try await tab.snapshot() }
-                let image = try await webView.takeSnapshot(configuration: nil)
-                guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                let image = try await webKit.takeSnapshot(configuration: nil)
+                guard let cgImage = image.bestCGImage else {
                     throw ActionFailure(message: WebDevToolsLimit.browserTabOnly.message)
                 }
                 return cgImage
@@ -123,16 +127,17 @@ enum DevToolsHandlers {
         default:
             if let panel = command.panel { return inspector.show(panel) }
             if let script = command.pageScript {
-                if case .browser(let page) = tab { return evaluate(script, in: page) }
-                webView.evaluateJavaScript(script, completionHandler: nil)
+                if case .browser(let page) = tab { return evaluate(script, in: page, context) }
+                webKit.evaluateJavaScript(script, completionHandler: nil)
             }
         }
     }
 
     // MARK: Helpers
 
-    private static func evaluate(_ script: String, in tab: any BrowserTab) {
-        Task { _ = try? await tab.evaluate(script, world: .page, gesture: .agent) }
+    private static func evaluate(_ script: String, in tab: any BrowserTab, _ context: AppActionContext) {
+        // task-owner: one page script off the main actor; its value is dropped
+        context.services.work.task(.userBlocking) { _ = try? await tab.evaluate(script, world: .page, gesture: .agent) }
     }
 
     /// The page's origin (`https://example.com:8443`) for Storage.clearDataForOrigin.
@@ -141,10 +146,12 @@ enum DevToolsHandlers {
         return url.port.map { "\(scheme)://\(host):\($0)" } ?? "\(scheme)://\(host)"
     }
 
-    /// Removes `types` of the page's site (its host's records) from the web view's data store.
-    private static func removeSiteData(of webView: WKWebView, types: Set<String>, then done: @escaping @MainActor () -> Void) {
-        guard let host = webView.url?.host() else { return done() }
-        let store = webView.configuration.websiteDataStore
+    /// Removes `types` of the page's site (its host's records) from the WebKit engine's data store.
+    private static func removeSiteData(of webKit: WKWebView, types: Set<String>, then done: @escaping @MainActor () -> Void) {
+        guard let host = webKit.url?.host() else { return done() }
+        let store = webKit.configuration.websiteDataStore
+        // task-owner: one site-data removal, then the reload
+        // main-hop-allow: the person's DevTools command, userBlocking (p06 rule 2): WKWebsiteDataStore is main-actor and its records are not Sendable, so the filter runs on main between its two awaits
         Task {
             let records = await store.dataRecords(ofTypes: types)
             let site = records.filter { host == $0.displayName || host.hasSuffix(".\($0.displayName)") }

@@ -70,10 +70,11 @@
 //! receives and 16 moves remembered (24 h each), 8 calls at once.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::sync::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -82,7 +83,8 @@ use serde_json::{Map, Value, json};
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
 use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
-use super::{MessageWriter, Response, SurfaceId};
+use super::routes::{Route, RouteLine, RouteName};
+use super::{FrameStage, MessageWriter, Response, SurfaceId};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 
@@ -123,7 +125,6 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(15);
 const BEGIN_TIMEOUT: Duration = Duration::from_secs(30);
 /// A finish imports the chat (and may replace a moved-away copy).
 const FINISH_TIMEOUT: Duration = Duration::from_secs(60);
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Frame params refused on every verb (the guard is the daemon's own).
 const FORBIDDEN_PARAMS: &[&str] =
@@ -393,39 +394,41 @@ struct AbortParams {
     transfer_id: String,
 }
 
+/// The `agent-transfer-*` commands, decoded by their `cmd`; spec/sdk-schema.json
+/// types each variant (check-sdk-schema.py compares the fields).
+#[derive(Deserialize)]
+#[serde(tag = "cmd")]
 enum Verb {
+    #[serde(rename = "agent-transfer-receive")]
     Receive(ReceiveParams),
+    #[serde(rename = "agent-transfer-write")]
     Write(WriteParams),
+    #[serde(rename = "agent-transfer-finish")]
     Finish(FinishParams),
+    #[serde(rename = "agent-transfer-receive-abort")]
     ReceiveAbort(ReceiveAbortParams),
+    #[serde(rename = "agent-transfer-begin")]
     Begin(BeginParams),
+    #[serde(rename = "agent-transfer-read")]
     Read(ReadParams),
+    #[serde(rename = "agent-transfer-commit")]
     Commit(CommitParams),
+    #[serde(rename = "agent-transfer-abort")]
     Abort(AbortParams),
+    #[serde(rename = "agent-transfer-source")]
     Source(SourceParams),
 }
 
 impl Verb {
-    fn parse(cmd: &str, params: Map<String, Value>) -> Option<Self> {
-        if params.keys().any(|key| {
+    /// The verb of a frame (its `cmd` and params, `id` taken out); `None` for
+    /// a forbidden, unknown or malformed param or an unknown verb.
+    fn parse(frame: Map<String, Value>) -> Option<Self> {
+        if frame.keys().any(|key| {
             FORBIDDEN_PARAMS.contains(&key.as_str()) || COMMAND_PARAMS.contains(&key.as_str())
         }) {
             return None;
         }
-        let params = Value::Object(params);
-        use serde_json::from_value;
-        Some(match cmd {
-            "agent-transfer-receive" => Self::Receive(from_value(params).ok()?),
-            "agent-transfer-write" => Self::Write(from_value(params).ok()?),
-            "agent-transfer-finish" => Self::Finish(from_value(params).ok()?),
-            "agent-transfer-receive-abort" => Self::ReceiveAbort(from_value(params).ok()?),
-            "agent-transfer-begin" => Self::Begin(from_value(params).ok()?),
-            "agent-transfer-read" => Self::Read(from_value(params).ok()?),
-            "agent-transfer-commit" => Self::Commit(from_value(params).ok()?),
-            "agent-transfer-abort" => Self::Abort(from_value(params).ok()?),
-            "agent-transfer-source" => Self::Source(from_value(params).ok()?),
-            _ => return None,
-        })
+        serde_json::from_value(Value::Object(frame)).ok()
     }
 }
 
@@ -550,35 +553,31 @@ impl From<LinkError> for Failure {
     }
 }
 
-/// Handles an `agent-transfer-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if let Some(keep_open) = access_requests::try_handle(mux, client, message, writer)
-        .or_else(|| agent_update::try_handle(mux, client, message, writer))
-    {
-        return Some(keep_open);
-    }
-    if !message.contains("\"agent-transfer-") {
+/// The `cmd` names this module answers (server/routes.rs); access requests
+/// and agent updates have their own routes.
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Prefix("agent-transfer-")],
+    stage: FrameStage::AgentTransfer,
+    entry: handle,
+}];
+
+/// Answers a line whose `cmd` starts with `agent-transfer-` (the route found
+/// it by name). The line's one decode is its `Value`, which gives every
+/// reply the `id` as written, a refused one too, and then the typed
+/// [`Verb`]. `None` only for a line with no `Value` (a number past `f64`, a
+/// lone surrogate); the `Command` parse answers it. Remote-relay
+/// connections never get here.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
-    }
-    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
-        return None;
-    };
-    let cmd = match object.remove("cmd") {
-        Some(Value::String(cmd)) if cmd.starts_with("agent-transfer-") => cmd,
-        _ => return None,
     };
     let id = object.remove("id");
     // Trust first: an untrusted client gets one answer whatever it sent.
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Some(reply(writer, id, Err(Refusal::NotTrusted.into())));
     }
-    let Some(verb) = Verb::parse(&cmd, object) else {
+    let Some(verb) = Verb::parse(object) else {
         return Some(reply(writer, id, Err(Refusal::BadRequest.into())));
     };
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
@@ -602,15 +601,13 @@ pub(super) fn try_handle(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-transfer".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            let result = run(&worker_mux, &socket, prepared);
-            worker_mux.agent_transfers.calls.fetch_sub(1, Ordering::AcqRel);
-            reply(&worker_writer, worker_id, result);
-        });
-    if spawned.is_err() {
+    // The transfer waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = run(&worker_mux, &socket, prepared);
+        worker_mux.agent_transfers.calls.fetch_sub(1, Ordering::AcqRel);
+        reply(&worker_writer, worker_id, result);
+    });
+    if posted.is_err() {
         transfers.calls.fetch_sub(1, Ordering::AcqRel);
         return Some(reply(writer, id, Err(Refusal::Limit.into())));
     }

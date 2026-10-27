@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// The motion backend seam on the real hosts (p03-rendering-019). With `motion.renderServer` off a
@@ -75,8 +76,9 @@ import Testing
         #expect(LayoutTunables.motionRenderServer.key == "motion.renderServer")
         #expect(LayoutTunables.all.contains { $0.key == "motion.renderServer" })
         // A kind registers in the task that moves it, behind the switch: the split (p03-rendering-022a).
-        #expect(ScreenContentView.renderServerMotions.map(\.kind) == [.splitClose])
-        #expect(LayoutRootView.renderServerMotions.isEmpty)
+        #expect(ScreenContentView.renderServerMotions.map(\.kind) == [.splitClose, .zoom])
+        // The drop highlight (p03-rendering-032).
+        #expect(LayoutRootView.renderServerMotions.map(\.kind) == [.dropHighlight])
     }
 
     @Test func offACloseCallsNoVariantAndMovesExactlyAsBefore() {
@@ -149,7 +151,7 @@ import Testing
                                           LayoutScreen(id: "s2", name: "s2", layout: .splits(.leaf("b")))],
                                 activeScreenID: "s1", focusedPane: "a")
         let provider = ColumnCloseScrollMotionTests.Panes()
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         window.contentView = root

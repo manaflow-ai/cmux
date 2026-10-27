@@ -5,6 +5,7 @@
 //! launch-time ownership of the host process (`SpawnedHostProcess`).
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::io as std_io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, sync_channel};
@@ -13,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
-pub(crate) use super::super::sys::SpawnedHostProcess;
+pub(crate) use super::super::sys::{HostReaper, SpawnedHostProcess};
 use super::super::sys::{HostStream, PtyCustody, connect_with_retry};
 use super::super::*;
 use super::clipboard_read::{OwnerIntent, owner_rights_for};
@@ -58,7 +59,7 @@ impl InputAckReceipt {
     }
 
     pub(crate) fn wait_for(self, timeout: Duration) -> std::io::Result<()> {
-        match self.receiver.recv_timeout(timeout) {
+        match waits::recv_timeout(&self.receiver, timeout) {
             Ok(frame) => {
                 if !frame.payload.is_empty() {
                     self.abort_connection();
@@ -127,13 +128,20 @@ pub struct HostAttachment {
     /// Exact process ownership retained only between a successful launch
     /// handshake and complete Surface materialization. Adoption never
     /// carries this guard.
-    pub(crate) launch_process: Option<SpawnedHostProcess>,
+    pub(crate) launch_process: Option<LaunchedHostProcess>,
     /// The first authenticated admin attachment may inherit a protocol-v4
     /// launch barrier. A launcher releases it after committing topology;
     /// an adopter releases an abandoned barrier after validating the host.
     pub(crate) launch_activation_pending: bool,
     /// The owner's copy of this host's PTY master (`pty_custody.rs`).
     pub(crate) pty_custody: Option<PtyCustody>,
+}
+
+/// A launched host whose launch is not committed yet, and the owner's panic
+/// log that gets its crash sidecar if the launch is rolled back.
+pub(crate) struct LaunchedHostProcess {
+    pub(crate) process: SpawnedHostProcess,
+    pub(crate) panic_log: Option<HostPanicLog>,
 }
 
 impl std::fmt::Debug for HostAttachment {
@@ -422,26 +430,28 @@ impl HostAttachment {
             return Err(error.into());
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
-        let response =
-            match (!remaining.is_zero()).then(|| receiver.recv_timeout(remaining)).transpose() {
-                Ok(Some(response)) => response,
-                Ok(None) | Err(RecvTimeoutError::Timeout) => {
-                    match self.defer_or_receive_raced_cell_pixel_ack(
-                        request_id,
-                        (width_px, height_px),
-                        &receiver,
-                    )? {
-                        Some(response) => response,
-                        None => return Err(DeferredCellPixelAck.into()),
-                    }
+        let response = match (!remaining.is_zero())
+            .then(|| waits::recv_timeout(&receiver, remaining))
+            .transpose()
+        {
+            Ok(Some(response)) => response,
+            Ok(None) | Err(RecvTimeoutError::Timeout) => {
+                match self.defer_or_receive_raced_cell_pixel_ack(
+                    request_id,
+                    (width_px, height_px),
+                    &receiver,
+                )? {
+                    Some(response) => response,
+                    None => return Err(DeferredCellPixelAck.into()),
                 }
-                Err(RecvTimeoutError::Disconnected) => {
-                    self.control_responses.waiters.lock().recover_poison().remove(&request_id);
-                    anyhow::bail!(
-                        "terminal host connection closed before acknowledging cell pixel size"
-                    );
-                }
-            };
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                self.control_responses.waiters.lock().recover_poison().remove(&request_id);
+                anyhow::bail!(
+                    "terminal host connection closed before acknowledging cell pixel size"
+                );
+            }
+        };
         if response.kind != MessageKind::CellPixelSizeAck
             || response.payload.as_slice()
                 != [width_px.to_le_bytes(), height_px.to_le_bytes()].concat()
@@ -578,7 +588,7 @@ impl HostAttachment {
         // resolve() removes the waiter while holding the same mutex
         // before delivering the response. An absent entry therefore
         // means a response won the timeout race or the connection failed.
-        receiver.recv().map(Some).map_err(|_| {
+        waits::recv(receiver).map(Some).map_err(|_| {
             anyhow::anyhow!("terminal host connection closed while acknowledging cell pixel size")
         })
     }
@@ -635,17 +645,18 @@ impl HostAttachment {
 
     /// Commit the launch ownership handoff after every fallible Surface
     /// setup step succeeds. Until then, dropping this attachment exact-
-    /// kills and waits the child process through SpawnedHostProcess.
-    pub(crate) fn commit_launched_host(&mut self) {
-        if let Some(process) = self.launch_process.take() {
-            process.commit();
+    /// kills and waits the child process through SpawnedHostProcess. The
+    /// mux's `reaper` reaps the host when it exits (`Mux::host_reaper`).
+    pub(crate) fn commit_launched_host(&mut self, reaper: Option<&HostReaper>) {
+        if let Some(launched) = self.launch_process.take() {
+            launched.process.commit(reaper);
         }
     }
 
     /// The uncommitted launched host runs inside the daemon's kill-on-close
     /// job (Windows, breakaway denied): its terminal ends with that job.
     pub(crate) fn launch_ends_with_daemon_job(&self) -> bool {
-        self.launch_process.as_ref().is_some_and(SpawnedHostProcess::ends_with_daemon_job)
+        self.launch_process.as_ref().is_some_and(|launched| launched.process.ends_with_daemon_job())
     }
 
     /// Release a newly launched protocol-v4 host only after its public
@@ -739,7 +750,10 @@ impl HostAttachment {
 
 impl Drop for HostAttachment {
     fn drop(&mut self) {
-        let Some(mut process) = self.launch_process.take() else { return };
+        let Some(LaunchedHostProcess { mut process, panic_log }) = self.launch_process.take()
+        else {
+            return;
+        };
         // Surface setup failed after an authenticated launch. Ask the
         // still-live host to perform its bounded PTY group shutdown and
         // record cleanup, then wait on the exact owned host process. Only
@@ -759,7 +773,7 @@ impl Drop for HostAttachment {
             && exit.terminal_id == identity.terminal_id
             && exit.incarnation == identity.incarnation
         {
-            let _ = acknowledge_terminal_host_exit_record(&exit_path, &exit);
+            let _ = acknowledge_terminal_host_exit_record(&exit_path, &exit, panic_log.as_ref());
         }
     }
 }

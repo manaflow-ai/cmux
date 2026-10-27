@@ -19,9 +19,20 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.AgentInventoryRequest, "expected_machine_id");
+    try expectExplicitNullRejected(protocol.AgentInventoryWatchRequest, "admission_receipt");
+    try expectExplicitNullRejected(protocol.AgentInventoryWatchRequest, "expected_watch_id");
     try expectExplicitNullRejected(protocol.AgentSessionStartRequest, "home_confirmed");
     try expectExplicitNullRejected(protocol.AgentSessionStartRequest, "require_person_key");
     try expectExplicitNullRejected(protocol.AgentSessionTrustRequest, "home_confirmed");
+    try expectExplicitNullRejected(protocol.AgentTransferBeginRequest, "ask_first");
+    try expectExplicitNullRejected(protocol.AgentTransferBeginRequest, "interrupt");
+    try expectExplicitNullRejected(protocol.AgentUpdateApplyRequest, "continue_threads");
+    try expectExplicitNullRejected(protocol.AgentUpdateApplyRequest, "expected_machine_id");
+    try expectExplicitNullRejected(protocol.AgentUpdateApplyResult, "machine");
+    try expectExplicitNullRejected(protocol.AgentUpdateApplyResult, "threads_error");
+    try expectExplicitNullRejected(protocol.AgentUpdatePlanRequest, "expected_machine_id");
+    try expectExplicitNullRejected(protocol.AgentUpdatePlanResult, "machine");
     try expectExplicitNullRejected(protocol.AppsDispatchRequest, "origin");
     try expectExplicitNullRejected(protocol.AppsLinkChangedRequest, "origin");
     try expectExplicitNullRejected(protocol.AppsListRequest, "origin");
@@ -39,6 +50,9 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_images");
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_local_history");
     try expectExplicitNullRejected(protocol.ChiefInspectRequest, "query");
+    try expectExplicitNullRejected(protocol.ClientHelloRequest, "install_id");
+    try expectExplicitNullRejected(protocol.ClientHelloRequest, "proof");
+    try expectExplicitNullRejected(protocol.ClientHelloRequest, "role");
     try expectExplicitNullRejected(protocol.ClosePaneRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenGroupRequest, "end_terminals");
@@ -71,6 +85,11 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.DeleteTerminalCommandsRequest, "all");
     try expectExplicitNullRejected(protocol.FeedLocalListRequest, "unread");
     try expectExplicitNullRejected(protocol.ForgetSessionRequest, "force");
+    try expectExplicitNullRejected(protocol.FsDeleteRequest, "permanent");
+    try expectExplicitNullRejected(protocol.FsListRequest, "filter");
+    try expectExplicitNullRejected(protocol.FsListRequest, "limit");
+    try expectExplicitNullRejected(protocol.FsListRequest, "sort");
+    try expectExplicitNullRejected(protocol.FsReadRequest, "offset");
     try expectExplicitNullRejected(protocol.HistorySearchRequest, "kinds");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "machine_metadata");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "revisions");
@@ -91,6 +110,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.NewTabRequest, "keep");
     try expectExplicitNullRejected(protocol.RenameWorkspaceRequest, "release");
     try expectExplicitNullRejected(protocol.RunRequest, "new_workspace");
+    try expectExplicitNullRejected(protocol.ScriptReplEvalResult, "dropped_log_lines");
+    try expectExplicitNullRejected(protocol.ScriptRunResult, "dropped_log_lines");
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
     try expectExplicitNullRejected(protocol.SendRequest, "submit");
     try expectExplicitNullRejected(protocol.SendResult, "queued");
@@ -169,6 +190,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.LayoutChangedEvent, "layout");
     try expectExplicitNullRejected(protocol.LayoutChangedEvent, "transaction");
     try expectExplicitNullRejected(protocol.LayoutChangedEvent, "workspace");
+    try expectExplicitNullRejected(protocol.LoopbackClosedEvent, "error");
     try expectExplicitNullRejected(protocol.MachineUsageChangedEvent, "cause");
     try expectExplicitNullRejected(protocol.NotificationEvent, "cause");
     try expectExplicitNullRejected(protocol.NotificationEvent, "desktop");
@@ -194,7 +216,15 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ResizedEvent, "kitty_graphics_state");
     try expectExplicitNullRejected(protocol.ResizedEvent, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.ResizedEvent, "replay");
+    try expectExplicitNullRejected(protocol.ScriptLogEvent, "request");
+    try expectExplicitNullRejected(protocol.ScriptLogEvent, "session");
     try expectExplicitNullRejected(protocol.ScrollChangedEvent, "cause");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "cause");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "crate");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "file_hash");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "lane_sync");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "line");
+    try expectExplicitNullRejected(protocol.ServerDiagnosticSiteEvent, "method");
     try expectExplicitNullRejected(protocol.SettingsChangedEvent, "cause");
     try expectExplicitNullRejected(protocol.SizeStateEvent, "cause");
     try expectExplicitNullRejected(protocol.SizeStateEvent, "self_participant");
@@ -222,7 +252,15 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.WorkspaceMovedEvent, "origin");
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "mutation_id");
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "origin");
+    try expectExplicitNullRejected(protocol.AccessRequestStatusDelivered, "path");
+    try expectExplicitNullRejected(protocol.AccessRequestStatusDelivered, "taken");
+    try expectExplicitNullRejected(protocol.AccessRequestStatusDelivered, "value");
     try expectExplicitNullRejected(protocol.AgentRecord, "since_ms");
+    try expectExplicitNullRejected(protocol.AgentUpdateHarness, "latest");
+    try expectExplicitNullRejected(protocol.AgentUpdateHarness, "name");
+    try expectExplicitNullRejected(protocol.AgentUpdateHarness, "version");
+    try expectExplicitNullRejected(protocol.AgentUpdateOutcome, "error");
+    try expectExplicitNullRejected(protocol.AgentUpdateOutcome, "version");
     try expectExplicitNullRejected(protocol.AppRecord, "revision");
     try expectExplicitNullRejected(protocol.AppsProviderRegisterResult, "inventory_demand");
     try expectExplicitNullRejected(protocol.AttachedViewResizeResult, "participant");
@@ -239,6 +277,14 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "endpoint");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "hosting");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "provider_id");
+    try expectExplicitNullRejected(protocol.ClientHelloFeatures, "hash");
+    try expectExplicitNullRejected(protocol.ClientHelloResult, "features");
+    try expectExplicitNullRejected(protocol.ClientHelloResult, "install_id");
+    try expectExplicitNullRejected(protocol.ClientHelloResult, "nonce");
+    try expectExplicitNullRejected(protocol.ClientHelloResult, "page");
+    try expectExplicitNullRejected(protocol.ClientHelloResult, "page_events");
+    try expectExplicitNullRejected(protocol.ClientHelloResult, "page_operations");
+    try expectExplicitNullRejected(protocol.ClientHelloResult, "verified");
     try expectExplicitNullRejected(protocol.ConversationChange, "conversation");
     try expectExplicitNullRejected(protocol.ConversationChange, "message");
     try expectExplicitNullRejected(protocol.ConversationChange, "participant");
@@ -280,6 +326,15 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationThreadSummary, "status");
     try expectExplicitNullRejected(protocol.ConversationThreadSummary, "title");
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");
+    try expectExplicitNullRejected(protocol.FsEntry, "hidden");
+    try expectExplicitNullRejected(protocol.FsEntry, "revision");
+    try expectExplicitNullRejected(protocol.FsEntry, "target_kind");
+    try expectExplicitNullRejected(protocol.FsFilter, "hidden");
+    try expectExplicitNullRejected(protocol.FsSort, "dir");
+    try expectExplicitNullRejected(protocol.FsSort, "dirs_first");
+    try expectExplicitNullRejected(protocol.FsSort, "key");
+    try expectExplicitNullRejected(protocol.FsStatResult, "hidden");
+    try expectExplicitNullRejected(protocol.FsStatResult, "target_kind");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "chief");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "chief_state");
     try expectExplicitNullRejected(protocol.HomeInboxRow, "last_author");
@@ -297,6 +352,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.LayoutUndoUndone, "confirmation_required");
     try expectExplicitNullRejected(protocol.LivePane, "focused_at");
     try expectExplicitNullRejected(protocol.LivePane, "short_id");
+    try expectExplicitNullRejected(protocol.MachineCatalogEntry, "capabilities");
     try expectExplicitNullRejected(protocol.MintTerminalRendererResult, "supports_viewer_size_priority");
     try expectExplicitNullRejected(protocol.NewRowResult, "pane_id");
     try expectExplicitNullRejected(protocol.NewRowResult, "tab_id");
@@ -317,6 +373,10 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ServerStatsRequestPathIo, "lock_hold_over_1ms");
     try expectExplicitNullRejected(protocol.ServerStatsRequestPathIo, "lock_waits");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "dispatch_queue_us");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "hangs");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "ipc");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "ipc_methods");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "lock_classes");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "request_latency_us");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "request_path_io");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "resource_projection");

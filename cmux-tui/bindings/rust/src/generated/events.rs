@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2b7eb48372c3df8cc72e67889a80d49f239b8b46a4d55c94efb165fb7882cb97.
+// cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -592,6 +592,34 @@ pub struct LayoutChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackClosedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackCreditEvent {
+    pub bytes: u64,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackDataEvent {
+    pub data: String,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackEofEvent {
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MachineUsageChangedEvent {
     /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -800,6 +828,21 @@ pub struct ScreenRenamedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScriptLogEvent {
+    /// The console method that wrote the line (log, info, warn, error, debug).
+    pub level: String,
+    /// The line, its arguments joined as the console prints them.
+    pub message: String,
+    /// The id of the script-run that wrote the line; absent for a REPL session's line.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub request: Option<T::JsonValue>,
+    /// The REPL session (script-repl-open) whose cell wrote the line; absent for a script-run's line.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScrollChangedEvent {
     pub at_bottom: bool,
     /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
@@ -807,6 +850,44 @@ pub struct ScrollChangedEvent {
     pub cause: Option<T::EventCause>,
     pub offset: u64,
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerDiagnosticSiteEventFamily {
+    #[serde(rename = "blocking")]
+    Blocking,
+    #[serde(rename = "inversion")]
+    Inversion,
+    #[serde(rename = "hang")]
+    Hang,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerDiagnosticSiteEvent {
+    /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cause: Option<T::EventCause>,
+    /// Blocking and inversion: the crate of the call site without its version, or other. Never a path.
+    #[serde(rename = "crate", default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub crate_: Option<String>,
+    /// blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier.
+    pub family: ServerDiagnosticSiteEventFamily,
+    /// Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub file_hash: Option<String>,
+    /// The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer.
+    pub kind: String,
+    /// Blocking: a work item's wait for other work.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lane_sync: Option<bool>,
+    /// Blocking and inversion: the call site's line.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    /// Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -858,6 +939,26 @@ pub struct StatusEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub cause: Option<T::EventCause>,
     pub message: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StreamEndEventReason {
+    #[serde(rename = "canceled")]
+    Canceled,
+    #[serde(rename = "detached")]
+    Detached,
+    #[serde(rename = "overflow")]
+    Overflow,
+    #[serde(rename = "attach_failed")]
+    AttachFailed,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StreamEndEvent {
+    pub reason: StreamEndEventReason,
+    pub stream: u16,
 }
 
 #[rustfmt::skip]
@@ -1176,6 +1277,10 @@ pub enum Event {
     HistoryChanged(HistoryChangedEvent),
     KeybindingsChanged(KeybindingsChangedEvent),
     LayoutChanged(LayoutChangedEvent),
+    LoopbackClosed(LoopbackClosedEvent),
+    LoopbackCredit(LoopbackCreditEvent),
+    LoopbackData(LoopbackDataEvent),
+    LoopbackEof(LoopbackEofEvent),
     MachineUsageChanged(MachineUsageChangedEvent),
     Notification(NotificationEvent),
     Output(OutputEvent),
@@ -1194,10 +1299,13 @@ pub enum Event {
     ScreenChanged(ScreenChangedEvent),
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
+    ScriptLog(ScriptLogEvent),
     ScrollChanged(ScrollChangedEvent),
+    ServerDiagnosticSite(ServerDiagnosticSiteEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
     Status(StatusEvent),
+    StreamEnd(StreamEndEvent),
     SurfaceExited(SurfaceExitedEvent),
     SurfaceOutput(SurfaceOutputEvent),
     SurfaceResizeFailed(SurfaceResizeFailedEvent),
@@ -1270,6 +1378,10 @@ impl Event {
             Self::HistoryChanged(_) => Some("history-changed"),
             Self::KeybindingsChanged(_) => Some("keybindings-changed"),
             Self::LayoutChanged(_) => Some("layout-changed"),
+            Self::LoopbackClosed(_) => Some("loopback-closed"),
+            Self::LoopbackCredit(_) => Some("loopback-credit"),
+            Self::LoopbackData(_) => Some("loopback-data"),
+            Self::LoopbackEof(_) => Some("loopback-eof"),
             Self::MachineUsageChanged(_) => Some("machine-usage-changed"),
             Self::Notification(_) => Some("notification"),
             Self::Output(_) => Some("output"),
@@ -1288,10 +1400,13 @@ impl Event {
             Self::ScreenChanged(_) => Some("screen-changed"),
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
+            Self::ScriptLog(_) => Some("script-log"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
+            Self::ServerDiagnosticSite(_) => Some("server-diagnostic-site"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
             Self::Status(_) => Some("status"),
+            Self::StreamEnd(_) => Some("stream-end"),
             Self::SurfaceExited(_) => Some("surface-exited"),
             Self::SurfaceOutput(_) => Some("surface-output"),
             Self::SurfaceResizeFailed(_) => Some("surface-resize-failed"),
@@ -1363,6 +1478,10 @@ impl Event {
             Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
             Self::KeybindingsChanged(_) => Some(&KEYBINDINGS_CHANGED_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
+            Self::LoopbackClosed(_) => Some(&LOOPBACK_CLOSED_EVENT_METADATA),
+            Self::LoopbackCredit(_) => Some(&LOOPBACK_CREDIT_EVENT_METADATA),
+            Self::LoopbackData(_) => Some(&LOOPBACK_DATA_EVENT_METADATA),
+            Self::LoopbackEof(_) => Some(&LOOPBACK_EOF_EVENT_METADATA),
             Self::MachineUsageChanged(_) => Some(&MACHINE_USAGE_CHANGED_EVENT_METADATA),
             Self::Notification(_) => Some(&NOTIFICATION_EVENT_METADATA),
             Self::Output(_) => Some(&OUTPUT_EVENT_METADATA),
@@ -1381,10 +1500,13 @@ impl Event {
             Self::ScreenChanged(_) => Some(&SCREEN_CHANGED_EVENT_METADATA),
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
+            Self::ScriptLog(_) => Some(&SCRIPT_LOG_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
+            Self::ServerDiagnosticSite(_) => Some(&SERVER_DIAGNOSTIC_SITE_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
+            Self::StreamEnd(_) => Some(&STREAM_END_EVENT_METADATA),
             Self::SurfaceExited(_) => Some(&SURFACE_EXITED_EVENT_METADATA),
             Self::SurfaceOutput(_) => Some(&SURFACE_OUTPUT_EVENT_METADATA),
             Self::SurfaceResizeFailed(_) => Some(&SURFACE_RESIZE_FAILED_EVENT_METADATA),
@@ -1753,6 +1875,38 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("loopback-closed") => match serde_json::from_value::<LoopbackClosedEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackClosed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("loopback-credit") => match serde_json::from_value::<LoopbackCreditEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackCredit(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("loopback-data") => match serde_json::from_value::<LoopbackDataEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackData(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("loopback-eof") => match serde_json::from_value::<LoopbackEofEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackEof(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("machine-usage-changed") => match serde_json::from_value::<MachineUsageChangedEvent>(raw.clone()) {
             Ok(event) => Event::MachineUsageChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1897,8 +2051,24 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("script-log") => match serde_json::from_value::<ScriptLogEvent>(raw.clone()) {
+            Ok(event) => Event::ScriptLog(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("scroll-changed") => match serde_json::from_value::<ScrollChangedEvent>(raw.clone()) {
             Ok(event) => Event::ScrollChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("server-diagnostic-site") => match serde_json::from_value::<ServerDiagnosticSiteEvent>(raw.clone()) {
+            Ok(event) => Event::ServerDiagnosticSite(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1923,6 +2093,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("status") => match serde_json::from_value::<StatusEvent>(raw.clone()) {
             Ok(event) => Event::Status(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("stream-end") => match serde_json::from_value::<StreamEndEvent>(raw.clone()) {
+            Ok(event) => Event::StreamEnd(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

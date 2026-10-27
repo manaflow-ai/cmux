@@ -12,6 +12,11 @@ results in a rejected file is not stored at all until that file is fixed (`_reje
 of the series key (store.series_key), so a debug result lands in a debug series and is never a point of a bench series.
 A waterfall point's commit position is its index on the mainline's first-parent chain, as Chromium's
 Cr-Commit-Position is `refs/heads/main@{#N}`; a commit off that chain is no waterfall point.
+A perf-lab job folder (perf-lab.tgz unpacked: run_story.py's summary.json beside results/) is ingested as its
+results/ folder. For waterfall runs each story run's outcome in its summary is then recorded and judged by
+harness_alerts.py (task 214), so a story that errors on consecutive batches opens a harness-broken group, though it
+stored no result. A stored run's attachment file next to its results (`<kind>.json` whose sha256 is the declared digest) is kept in
+the store by that digest (store.keep_attachment), so `lab.py queue typecheck --latest` reads it away from the builder.
 
 `import-perf-cron` turns each good p95 of the cron's `row_history` (scripts/cmux-next/perf-cron.py, state artifact
 `perf-cron-state`) into one point of a legacy series. The cron kept p95 only, from Debug builds: a legacy point has no
@@ -27,6 +32,7 @@ Stdlib only; loads its siblings by file path, so it runs under `python3 -I`.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import math
@@ -86,6 +92,10 @@ DEFAULT_MAINLINE = "origin/feat-cmux-next"
 # A result-v1 host class in store.host_class form: chip / memory / display Hz.
 MAC_CLASS = re.compile(r"^(?P<chip>.+)/(?P<memory>[0-9]+)gb/(?P<hz>[0-9]+)hz$")
 CRON_TIME = "%Y-%m-%dT%H:%M:%SZ"
+# An attachment file ingest keeps in the store (store.keep_attachment): <kind>.json next to the results, at most this
+# big. A queue or a module list is kilobytes; a trace is uploaded to R2 instead (trace_quest.py).
+ATTACHMENT_FILE_MAX_BYTES = 8 * 2 ** 20
+JOB_SUMMARY = "summary.json"  # run_story.py's summary in a perf-lab job folder, beside its results/ folder
 
 
 class IngestError(RuntimeError):
@@ -125,11 +135,15 @@ class IngestReport:
     added_runs: int = 0
     added_results: int = 0
     unchanged_runs: int = 0
+    kept_attachments: int = 0
     rejected: list[Rejection] = field(default_factory=list)
+    outcomes: int = 0  # story outcomes newly recorded from job folders' summaries (harness_alerts.py)
+    harness_groups: list[int] = field(default_factory=list)  # harness-broken groups those outcomes opened
 
     def to_dict(self) -> dict[str, object]:
         return {"added_runs": self.added_runs, "added_results": self.added_results,
-                "unchanged_runs": self.unchanged_runs,
+                "unchanged_runs": self.unchanged_runs, "kept_attachments": self.kept_attachments,
+                "outcomes": self.outcomes, "harness_groups": list(self.harness_groups),
                 "rejected": [{"source": r.source, "reason": r.reason} for r in self.rejected]}
 
     def summary_line(self) -> str:
@@ -262,10 +276,16 @@ class _Group:
         return f"run {self.run_uuid} ({', '.join(files)})"
 
 
-def _result_files(paths: Sequence[Path | str], rejected: list[Rejection]) -> list[Path]:
-    """Each named .ndjson file, and each folder's `*.ndjson` files in name order (not recursive, as read_dir)."""
+def _result_files(paths: Sequence[Path | str], rejected: list[Rejection], jobs: list[Path]) -> list[Path]:
+    """Each named .ndjson file, and each folder's `*.ndjson` files in name order (not recursive, as read_dir). A
+    perf-lab job folder (JOB_SUMMARY in it) goes to `jobs` and gives its results/ folder's files."""
     files: list[Path] = []
     for path in map(Path, paths):
+        if path.is_dir() and (path / JOB_SUMMARY).is_file():
+            jobs.append(path)
+            path = path / "results"  # absent when the runner refused the job before any story ran
+            if not path.is_dir():
+                continue
         if path.is_dir():
             files.extend(p for p in sorted(path.glob("*.ndjson")) if not p.name.startswith(".") and p.is_file())
         elif path.is_file():
@@ -312,18 +332,42 @@ def _store_records(group: _Group, *, commit_positions: CommitPositions, host_nam
 
 
 def _insert(db: store.Store, report: IngestReport, source: str, run: store.Run, build: store.Build, host: LabHost,
-            metrics: Sequence[store.Metric]) -> None:
+            metrics: Sequence[store.Metric]) -> bool:
+    """True when the run is stored (now or before)."""
     existed = bool(db.run_metrics(run.run_uuid))
     try:
         db.insert_run(run, build=build, host=host, metrics=metrics)
     except (store.StoreError, sqlite3.IntegrityError) as error:
         report.rejected.append(Rejection(source, str(error)))
-        return
+        return False
     if existed:
         report.unchanged_runs += 1
     else:
         report.added_runs += 1
         report.added_results += len(metrics)
+    return True
+
+
+def _keep_attachments(db: store.Store, group: _Group, run: store.Run) -> int:
+    """Keeps the bytes of each of the run's attachments found next to its results: <kind>.json in a result file's
+    folder whose sha256 is the declared digest. Returns how many; any other attachment stays a digest only."""
+    folders = sorted({path.parent for path, _ in group.results})
+    kept = 0
+    for attachment in run.attachments:
+        kind, digest = attachment["kind"], attachment["digest"]
+        for folder in folders:
+            candidate = folder / f"{kind}.json"
+            try:
+                if not candidate.is_file() or candidate.stat().st_size > ATTACHMENT_FILE_MAX_BYTES:
+                    continue
+                data = candidate.read_bytes()
+            except OSError:
+                continue
+            if f"sha256:{hashlib.sha256(data).hexdigest()}" == digest:
+                db.keep_attachment(kind, data)
+                kept += 1
+                break
+    return kept
 
 
 def _file_reason(path: Path, error: perf_result.ResultError) -> str:
@@ -380,7 +424,8 @@ def ingest_paths(db: store.Store, paths: Sequence[Path | str], *, commit_positio
     groups: dict[tuple[str, str], _Group] = {}
     rejected_runs: dict[str, Path] = {}
     rejected_folders: dict[Path, Path] = {}
-    for path in _result_files(paths, report.rejected):
+    jobs: list[Path] = []
+    for path in _result_files(paths, report.rejected, jobs):
         try:
             results = perf_result.read_file(path)
         except perf_result.ResultError as error:
@@ -405,8 +450,39 @@ def ingest_paths(db: store.Store, paths: Sequence[Path | str], *, commit_positio
         except _Reject as reason:
             report.rejected.append(Rejection(group.source, str(reason)))
             continue
-        _insert(db, report, group.source, *records)
+        if _insert(db, report, group.source, *records):
+            report.kept_attachments += _keep_attachments(db, group, records[0])
+    if kind == "waterfall":
+        for folder in jobs:
+            _record_outcomes(db, folder, report, commit_positions=commit_positions, host_name=host_name)
     return report
+
+
+def _harness_alerts():
+    return _sibling("perf_lab_harness_alerts", HERE / "harness_alerts.py")
+
+
+def _record_outcomes(db: store.Store, folder: Path, report: IngestReport, *, commit_positions: CommitPositions,
+                     host_name: str | None) -> None:
+    """Records the story outcomes of a waterfall job folder's summary at its batch tip and runs the harness-broken
+    detection on them (harness_alerts.record_summary), after the folder's results are stored."""
+    harness = _harness_alerts()
+    source = str(folder / JOB_SUMMARY)
+    try:
+        summary = json.loads((folder / JOB_SUMMARY).read_text(encoding="utf-8"))
+        sha = summary.get("sha") if isinstance(summary, dict) else None
+        if not isinstance(sha, str) or not sha:
+            raise _Reject("names no measured sha")
+        position = _position(commit_positions, sha, waterfall=True, again="ingest again")
+        detected = harness.record_summary(db, summary, batch_pos=position, host=host_name)
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        report.rejected.append(Rejection(source, f"not readable JSON ({error})"))
+        return
+    except (_Reject, harness.HarnessAlertsError) as reason:
+        report.rejected.append(Rejection(source, str(reason)))
+        return
+    report.outcomes += detected.recorded
+    report.harness_groups += detected.groups_created
 
 
 def _cron_module():
@@ -517,7 +593,8 @@ def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
                         help=f"the ref whose first-parent chain orders waterfall points (default {DEFAULT_MAINLINE})")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     if command == "ingest":
-        parser.add_argument("paths", nargs="+", help="result folders (their *.ndjson files) or .ndjson files")
+        parser.add_argument("paths", nargs="+", help="result folders (their *.ndjson files), perf-lab job folders "
+                                                     "(summary.json and results/) or .ndjson files")
         parser.add_argument("--host-name", help="the lab host that measured the results (default fp-<fingerprint>)")
         parser.add_argument("--kind", default="waterfall", choices=store.RUN_KINDS,
                             help="what the runs were for; only waterfall runs are series points")

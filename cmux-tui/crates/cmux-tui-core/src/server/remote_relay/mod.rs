@@ -31,6 +31,7 @@ use std::time::Instant;
 
 use serde_json::{Value, json};
 
+use super::terminal_io_wire::SubscribeParams;
 use super::{ClientTransport, Command, MessageWriter, Mux, RequestArrival, RequestHead, Response};
 use crate::remote_relay_state::{
     BindRefused, LinkPeer, RelayLock, StreamPolicy, lock_checked, remote_participant,
@@ -107,11 +108,7 @@ impl super::ClientRegistry {
     /// A poisoned registry lock also gives `None`, which every caller treats
     /// as remote (fail closed).
     pub(super) fn transport_of(&self, client: u64) -> Option<ClientTransport> {
-        lock_checked(&self.state, RelayLock::Clients)
-            .ok()?
-            .clients
-            .get(&client)
-            .map(|record| record.transport)
+        self.state.lock().ok()?.clients.get(&client).map(|record| record.transport)
     }
 
     /// [`Self::transport_of`] with the origin the client derives, in the
@@ -120,7 +117,8 @@ impl super::ClientRegistry {
         &self,
         client: u64,
     ) -> Option<(ClientTransport, crate::request_origin::RequestOrigin)> {
-        lock_checked(&self.state, RelayLock::Clients)
+        self.state
+            .lock()
             .ok()?
             .clients
             .get(&client)
@@ -245,7 +243,7 @@ impl Mux {
     /// Install the pairing records (`cmux server pair`) the owner scope
     /// reads.
     pub fn set_pairing_records(&self, records: Arc<dyn crate::PairingRecords>) {
-        // Safety: this replaces the whole value, and the lock stays poisoned,
+        // Poison recovery: this replaces the whole value, and the lock stays poisoned,
         // so every owner read still fails closed (`owner_user`).
         *self.remote_relay().pairing.lock().unwrap_or_else(PoisonError::into_inner) = Some(records);
     }
@@ -268,7 +266,7 @@ pub(super) fn intercept(
         Command::SetClientInfo { name, capabilities, .. } => {
             set_client_info(mux, client, name.clone(), capabilities.clone())
         }
-        Command::Subscribe { tree_events: None, surface: None } => {
+        Command::Subscribe(SubscribeParams { tree_events: None, surface: None }) => {
             conversations::subscribe(mux, client, writer)
         }
         Command::ConversationList
@@ -328,21 +326,22 @@ pub(super) fn handle_watched_frame(
     // The seven `fs-v1` ops (exactly; fs_wire.rs) have their own owner and
     // checks, outside the conversation allowlist.
     #[cfg(unix)]
-    let routed = {
-        stage(super::FrameStage::Fs);
-        match routed {
-            Some(mut span) => match super::fs_wire::try_handle(mux, client, message, writer) {
+    let routed = match routed {
+        Some(mut span) if head.cmd().is_some_and(super::fs_wire::is_fs_op) => {
+            stage(super::FrameStage::Fs);
+            let line = super::routes::RouteLine { mux, client, message, writer, head: &head };
+            match super::request_hang_watch::route(&head, || super::fs_wire::handle(&line)) {
                 Some(keep_open) => return span.answered(keep_open),
                 None => Some(span),
-            },
-            None => None,
+            }
         }
+        routed => routed,
     };
     stage(super::FrameStage::RemoteRelay);
     if gate::check_frame(message).is_err() {
         return refuse(routed, REMOTE_DENIED);
     }
-    match serde_json::from_str::<super::Request>(message) {
+    match crate::line_parses::parse::<super::Request>(message) {
         // Only a `cmd` the table names parses as a `Command`, so no line
         // span is open here.
         Ok(request) => {
@@ -403,7 +402,8 @@ impl Mux {
 /// A refusal of `message` with `code` and no detail; its `id` when it has
 /// one.
 pub(super) fn refusal(message: &str, code: &str) -> Value {
-    let id = serde_json::from_str::<Value>(message).ok().and_then(|frame| frame.get("id").cloned());
+    let id =
+        crate::line_parses::parse::<Value>(message).ok().and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": code, "error_code": code});
     if let Some(id) = id
         && let Some(fields) = response.as_object_mut()

@@ -32,7 +32,7 @@ public nonisolated struct AppScopeClassTable: Sendable {
     /// Compiling an ``NSRegularExpression`` is comparatively expensive and
     /// scope checks run on every app operation. Keep the immutable compiled
     /// form beside the public rule instead of rebuilding it per lookup.
-    private final class CompiledRule: @unchecked Sendable {
+    private nonisolated final class CompiledRule: Sendable {
         let rule: Rule
         let expression: NSRegularExpression?
 

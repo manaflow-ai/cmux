@@ -10,7 +10,7 @@ import Testing
     private let clock = FakeClock()
     private let deadline = FakeDeadline()
 
-    private func makeBudget(capacity: Int, idleTimeout: Duration? = nil, memory: (any MemoryConsumerRegistry)? = nil) -> ParkedWorkspaceBudget {
+    private func makeBudget(capacity: Int?, idleTimeout: Duration? = nil, memory: (any MemoryConsumerRegistry)? = nil) -> ParkedWorkspaceBudget {
         ParkedWorkspaceBudget(capacity: capacity, idleTimeout: idleTimeout, deadline: deadline, memory: memory) { [clock] in clock.now }
     }
 
@@ -219,13 +219,53 @@ import Testing
         #expect(window.discarded.isEmpty, "the new limit released in its own turn")
         #expect(budget.currentCapacity == 0)
         let slice = MemoryReleaseSlice(limit: .criticalThreshold) { false }
-        #expect(budget.releaseMemory(within: slice) == .more)
+        #expect(budget.releaseMemory(within: slice) == .yield, "a teardown did not leave the rest of the slice to the others")
         #expect(window.discarded == ["a"], "a slice did not release the least recently parked one alone")
-        #expect(budget.releaseMemory(within: slice) == .more)
+        #expect(budget.releaseMemory(within: slice) == .yield)
         #expect(budget.releaseMemory(within: slice) == .done, "the last one that may go did not end the release")
         #expect(window.discarded == ["a", "b", "c"])
         #expect(budget.releaseMemory(within: slice) == .done)
         #expect(window.parked == ["covered"], "a kept workspace went at critical")
+    }
+
+    /// p07-memory-096: pressure takes the workspaces of windows off screen before those of the window
+    /// on screen, each least recently parked first.
+    @Test func criticalPressureTearsDownOffScreenWindowsFirst() {
+        let budget = makeBudget(capacity: nil)
+        let shown = FakeWindow(), behind = FakeWindow()
+        behind.showsOnScreen = false
+        shown.park("s0", in: budget)
+        behind.park("b0", in: budget)
+        shown.park("s1", in: budget)
+        behind.park("b1", in: budget)
+        budget.updateMemoryLimit(.criticalThreshold)
+        let slice = MemoryReleaseSlice(limit: .criticalThreshold) { false }
+        #expect(budget.releaseMemory(within: slice) == .yield)
+        #expect(budget.releaseMemory(within: slice) == .yield)
+        #expect(behind.discarded == ["b0", "b1"], "a hidden window's workspaces did not go first, least recently parked first")
+        #expect(shown.discarded.isEmpty, "the shown window's workspace went before a hidden window's")
+        #expect(budget.releaseMemory(within: slice) == .yield)
+        #expect(budget.releaseMemory(within: slice) == .done)
+        #expect(shown.discarded == ["s0", "s1"])
+    }
+
+    /// With no budget (`memoryDiscardParkedWorkspaces` off) a park arms no look and nothing goes
+    /// until critical pressure, which tears every workspace down one per slice.
+    @Test func withNoBudgetOnlyCriticalPressureTearsDown() {
+        let budget = makeBudget(capacity: nil)
+        let window = FakeWindow()
+        for id in (0..<20).map({ "w\($0)" }) { window.park(id, in: budget) }
+        #expect(!deadline.armed, "a park with no budget and no timeout armed a look")
+        budget.updateMemoryLimit(MemoryLimit(percent: 50))
+        #expect(budget.releaseMemory(within: MemoryReleaseSlice(limit: MemoryLimit(percent: 50)) { false }) == .done)
+        #expect(window.discarded.isEmpty)
+
+        budget.updateMemoryLimit(.criticalThreshold)
+        let slice = MemoryReleaseSlice(limit: .criticalThreshold) { false }
+        var slices = 0
+        while budget.releaseMemory(within: slice) == .yield { slices += 1 }
+        #expect(slices == 19)
+        #expect(window.discarded == (0..<20).map { "w\($0)" })
     }
 
     @Test func aWorkspaceParkedAtCriticalGoesOnTheNextLook() {
@@ -252,6 +292,7 @@ import Testing
 
 @MainActor
 private final class FakeWindow: ParkedWorkspaceHolder {
+    var showsOnScreen = true
     private(set) var parked: Set<String> = []
     var kept: Set<String> = []
     private(set) var discarded: [String] = []

@@ -31,7 +31,7 @@ final class PaletteSwatchView: NSView {
             layer?.addSublayer(stripe)
             return stripe
         }
-        needsLayout = true
+        needsLayout = true // invalidate: new colors (`colors`' change check), new stripes to frame
     }
 
     override func layout() {

@@ -87,8 +87,10 @@ public nonisolated struct AgentHome: Sendable, Equatable {
     static func mark(_ folder: String) {
         let path = folder + "/" + marker
         var info = stat()
-        if lstat(path, &info) == 0 { return }
-        let file = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        // SAFETY: lstat and open read the NUL-terminated copy of the path made for each call; lstat writes one struct
+        // stat into `info`, a local.
+        if unsafe lstat(path, &info) == 0 { return }
+        let file = unsafe open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         if file >= 0 { close(file) }
     }
 
@@ -98,7 +100,8 @@ public nonisolated struct AgentHome: Sendable, Equatable {
     public func move(from old: String, to new: String) -> Bool {
         guard old != new, let source = path(for: old), let target = path(for: new),
               AcpmuxPathPolicy.canonical(base) == base, Self.isRealFolder(source) else { return false }
-        return renamex_np(source, target, UInt32(RENAME_EXCL)) == 0
+        // SAFETY: renamex_np reads the NUL-terminated copies of the two paths made for the call.
+        return unsafe renamex_np(source, target, UInt32(RENAME_EXCL)) == 0
     }
 
     /// Sends workspace `id`'s folder to the Trash with `trash` (`FileManager.trashItem`): never a
@@ -138,14 +141,16 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         guard let home = standard else { return }
         // task-owner: one sweep of the trash-pending folder; nothing waits for it
         Task.detached(priority: .utility) {
-            home.emptyTrashPending { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+            home.emptyTrashPending(using: AgentPaneGitDiscard.systemTrash)
         }
     }
 
     /// Whether `path` is a folder itself (lstat: a symlink is not), owned by this user.
     static func isRealFolder(_ path: String) -> Bool {
         var info = stat()
-        return lstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR && info.st_uid == getuid()
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        return unsafe lstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR && info.st_uid == getuid()
     }
 
     /// Walks `path` from `/`: an existing component must be a real folder (never a symlink); the
@@ -160,16 +165,20 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         for (index, part) in parts.enumerated() {
             current += "/" + part
             var info = stat()
-            if lstat(current, &info) != 0 {
+            // SAFETY: lstat and mkdir read the NUL-terminated copy of the path made for each call; lstat writes one
+            // struct stat into `info`, a local.
+            if unsafe lstat(current, &info) != 0 {
                 // Only the base's own folders and the workspace folder may be made here.
-                guard errno == ENOENT, index + 1 >= baseDepth - 1, mkdir(current, 0o700) == 0 || errno == EEXIST,
-                      lstat(current, &info) == 0 else { return false }
+                guard errno == ENOENT, index + 1 >= baseDepth - 1, unsafe mkdir(current, 0o700) == 0 || errno == EEXIST,
+                      unsafe lstat(current, &info) == 0 else { return false }
             }
             guard (info.st_mode & S_IFMT) == S_IFDIR else { return false }
         }
         var info = stat()
-        guard lstat(path, &info) == 0, info.st_uid == getuid() else { return false }
-        if info.st_mode & 0o077 != 0, chmod(path, 0o700) != 0 { return false }
+        // SAFETY: lstat and chmod read the NUL-terminated copy of the path made for each call; lstat writes one struct
+        // stat into `info`, a local.
+        guard unsafe lstat(path, &info) == 0, info.st_uid == getuid() else { return false }
+        if info.st_mode & 0o077 != 0, unsafe chmod(path, 0o700) != 0 { return false }
         return true
     }
 }

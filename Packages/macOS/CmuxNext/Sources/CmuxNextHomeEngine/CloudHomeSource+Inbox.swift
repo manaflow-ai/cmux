@@ -45,10 +45,7 @@ nonisolated extension CloudHomeSource {
         state.withLock { state in
             // A configure since reset the queue and the worker count.
             guard state.generation == generation else { return nil }
-            guard !state.hydrationQueue.isEmpty else {
-                state.hydrationWorkers -= 1
-                return nil
-            }
+            guard !state.hydrationQueue.isEmpty else { state.hydrationWorkers -= 1; return nil }
             return state.hydrationQueue.removeFirst()
         }
     }

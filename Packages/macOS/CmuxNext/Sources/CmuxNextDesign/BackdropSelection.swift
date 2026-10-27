@@ -1,7 +1,6 @@
 public import AppKit
 import CmuxNextCompat
 public import Foundation
-import os
 import ImageIO
 
 /// A selectable image source for the window backdrop. Each case is one source: the bundled art,
@@ -148,7 +147,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         return follows
     }
 
-    private static let follows = OSAllocatedUnfairLock<[String: Bool]>(initialState: [:])
+    private static let follows = Mutex<[String: Bool]>([:])
 
     /// The selected image file, reading the desktop picture of the main screen for ``desktop``.
     /// Apple's moving wallpaper resolves to its cut, and a dynamic macOS wallpaper to its picture,

@@ -18,7 +18,7 @@ import Testing
         let spring = FrameClient(owner: "spring", on: window) { _ in true }
         let timer = Timer()
         var passes = 0
-        let pump = CEFMessagePump(work: { passes += 1 }, safetyNet: .none, timer: timer, clock: { media.now },
+        let pump = CEFMessagePump(work: { passes += 1 }, timer: timer, clock: { media.now },
                                   ledger: WakeupLedger(), starvation: starvation)
         pump.start()
         timer.fire()
@@ -56,7 +56,7 @@ import Testing
         let spring = FrameClient(owner: "spring", on: window) { _ in true }
         let timer = Timer()
         var passes = 0
-        let pump = CEFMessagePump(work: { passes += 1 }, safetyNet: .none, timer: timer, clock: { media.now },
+        let pump = CEFMessagePump(work: { passes += 1 }, timer: timer, clock: { media.now },
                                   ledger: WakeupLedger(), starvation: starvation)
         pump.start()
         spring.activate()

@@ -5,7 +5,8 @@
 //! Locks belong to the file handle: a second handle, even in the same
 //! process, conflicts like another process would.
 
-use std::fs::{File, OpenOptions};
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
@@ -55,13 +56,15 @@ pub enum LeaseProbe {
 }
 
 fn open(path: &Path, create: bool) -> io::Result<File> {
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(create)
-        // Others may open it to probe; the lock, not the share mode, is the lease.
-        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
-        .open(path)
+    files::open_with(
+        File::options()
+            .read(true)
+            .write(true)
+            .create(create)
+            // Others may open it to probe; the lock, not the share mode, is the lease.
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE),
+        path,
+    )
 }
 
 /// Locks the whole file (created if missing). `wait`: block until free;
@@ -82,6 +85,8 @@ pub fn lock_file(file: &File, kind: LeaseKind, wait: bool) -> io::Result<bool> {
     if !wait {
         flags |= LOCKFILE_FAIL_IMMEDIATELY;
     }
+    // SAFETY: OVERLAPPED is plain integers and a union of them; all-zero
+    // bytes are a valid value.
     let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
     // SAFETY: a valid file handle; a synchronous handle, so the zeroed
     // OVERLAPPED only names offset 0.
@@ -100,6 +105,8 @@ pub fn lock_file(file: &File, kind: LeaseKind, wait: bool) -> io::Result<bool> {
 
 /// Releases this handle's whole-file lock.
 pub fn unlock_file(file: &File) {
+    // SAFETY: OVERLAPPED is plain integers and a union of them; all-zero
+    // bytes are a valid value.
     let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
     // SAFETY: a valid handle; the whole range `lock_file` locked.
     unsafe { UnlockFileEx(file.as_raw_handle() as HANDLE, 0, u32::MAX, u32::MAX, &mut overlapped) };

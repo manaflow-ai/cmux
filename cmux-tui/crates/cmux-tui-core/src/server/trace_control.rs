@@ -18,6 +18,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::PoisonError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -102,7 +103,8 @@ pub(super) trait TraceTargets {
         deadline: Instant,
         admit: &mut dyn FnMut() -> bool,
     ) -> Vec<HostCall>;
-    /// Connects to acpmux; `None` when it does not run (it is never started).
+    /// Connects to acpmux; `None` when it does not run (it is never started,
+    /// as on a platform without agent sessions).
     fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>>;
 }
 
@@ -416,7 +418,13 @@ impl TraceTargets for LiveTargets<'_> {
     #[cfg(unix)]
     fn holder(&self, op: ControlOp, admit: &mut dyn FnMut() -> bool) -> Option<HolderSent> {
         use crate::holder_runtime::HolderService;
-        let root = self.mux.surface_options.lock().unwrap().terminal_host_root.clone()?;
+        let root = self
+            .mux
+            .surface_options
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_host_root
+            .clone()?;
         if !HolderService::may_run(&root) {
             return None;
         }
@@ -460,6 +468,13 @@ impl TraceTargets for LiveTargets<'_> {
         Vec::new()
     }
 
+    // acpmux (agent sessions) is unix-only: no acpmux to trace elsewhere.
+    #[cfg(not(unix))]
+    fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>> {
+        None
+    }
+
+    #[cfg(unix)]
     fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>> {
         use super::agent_session_attach::agent_session_link::AcpmuxLink;
         let socket = self.mux.control_clients.agent_sessions.socket()?;
@@ -529,8 +544,10 @@ pub(super) fn forward_to_holder(
 }
 
 /// acpmux's trace method (`acpmux/src/trace_control.rs`).
+#[cfg(unix)]
 const ACPMUX_TRACE_METHOD: &str = "_acpmux/trace";
 
+#[cfg(unix)]
 fn acpmux_params(op: ControlOp) -> Value {
     match op {
         ControlOp::Start { categories } => json!({"op": "start", "categories": categories}),

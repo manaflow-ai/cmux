@@ -5,7 +5,7 @@ import Foundation
 /// The job opens a workspace whose terminal runs the update, so it spawns.
 public nonisolated struct MachineAgentCLIUpdateJobRequest: TerminalSpawningRequest {
     public typealias Response = AgentCLIJobReceipt
-    public static let command = "agent-cli-update-job"
+    public static let commandName: DaemonCommandName = "agent-cli-update-job"
     public static let requiredCapability: String? = "agent-cli-update-job-v1"
     /// The exact canonical machine admitted by the caller's route.
     public let expectedMachineID: ResourceID
@@ -23,5 +23,10 @@ public nonisolated struct MachineAgentCLIUpdateJobRequest: TerminalSpawningReque
         self.expectedSessionID = expectedSessionID
         self.cli = cli.rawValue
         self.idempotencyKey = idempotencyKey
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id", cli
+        case idempotencyKey = "idempotency_key"
     }
 }

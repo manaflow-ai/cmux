@@ -158,6 +158,8 @@ extension LayoutRootView {
         screenSwitch.screens = Set(slides.keys)
         screenSwitch.pending = slides
         setLayoutInMotion(true)
+        // One motion.run for the switch, open until it lands (``endLayoutMotionIfSettled()``).
+        context.renderMotionBegan()
         setNeedsOverlaySync()
         return true
     }
@@ -225,11 +227,12 @@ extension LayoutRootView {
     }
 
     /// Ends the layout motion when nothing moves any more: no screen switch, pane spring, render
-    /// spring or gesture, and no CPU frames.
+    /// spring or gesture, and no CPU frames; its `motion.run` rests with it.
     func endLayoutMotionIfSettled() {
         guard !screenSwitch.isInFlight, !driver.isRunning,
               !screenViews.values.contains(where: { $0.hasMotion || $0.userMotionActive }) else { return }
         setLayoutInMotion(false)
+        if !rendersMotion { motionTrace.endRun() }
     }
 
     /// Removes the `keyPaths` springs a switch added on screen `id`'s layer and on its rings and dims.

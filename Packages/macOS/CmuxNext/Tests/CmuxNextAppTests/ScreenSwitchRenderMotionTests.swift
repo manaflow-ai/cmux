@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
 import QuartzCore
+import CmuxNextWakeups
 import Testing
 
 /// The tests that need Core Animation to run a spring: a real window on a real display (a window on no
@@ -45,7 +46,8 @@ struct ScreenSwitchRenderMotionTests {
         init(renderServer: Bool, reduceMotion: Bool? = false, ids: [ScreenID] = ["a", "b"]) {
             model = LayoutModel(screens: ids.map { LayoutScreen(id: $0, name: $0.rawValue, layout: .splits(.leaf(PaneID(rawValue: "\($0.rawValue)-p1")))) },
                                 activeScreenID: ids[0], focusedPane: PaneID(rawValue: "\(ids[0].rawValue)-p1"))
-            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer })
+            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer },
+                                  mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)

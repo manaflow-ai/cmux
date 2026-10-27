@@ -23,6 +23,17 @@ struct CrashKeysRecordTests {
         #expect(!text.contains("4242"), "a thread port never leaves the process: \(text)")
     }
 
+    /// The crash path's block exists before any crash handler that reads it is installed, also when the run
+    /// marker's `run.signal` does not open: the uncaught-exception handler is installed by then, and the block was
+    /// made only after that open, so the first write moved into `attachCrashKeys`, after the handlers.
+    @Test func theCrashKeysBlockExistsWhenTheSignalFileDoesNotOpen() async {
+        let directory = CrashChild.directory("crash-keys-no-signal", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(processExitsWith: .success) {
+            await CrashKeysChild.markRunWithNoSignalFile()
+        }
+    }
+
     @Test func aRecordReadBackKeepsOnlyWhatTheCrashPathWrites() throws {
         let planted = "crash_keys action_id=12 path=/Users/someone/secret pane_kind=0x41 cef_state=-1 "
             + "daemon_epoch=99999999999999999999999 token=abc hung_kind_0=300 hung_kind_1=2\n"
@@ -44,13 +55,14 @@ struct CrashKeysRecordTests {
         let directory = FileManager.default.temporaryDirectory.appending(path: "crash-keys-report-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let planted = directory.appending(path: "run.crashkeys.previous")
+        let planted = directory.appending(path: "run.crashkeys")
         try "crash_keys action_id=255 pane_kind=1 daemon_epoch=4 hung_threads=1 hung_kind_0=3 path=/Users/someone\n"
             .write(to: planted, atomically: true, encoding: .utf8)
         let keys = try #require(AppRunMarker.readCrashKeys(planted))
         let previous = PreviousRun(pid: 4242, launched: Date(timeIntervalSince1970: 1_790_000_000), recovery: false,
                                    survived: true, signal: SIGSEGV, quitting: false)
-        let service = CrashRecoveryService(bundleID: "com.cmuxterm.test.crashkeys", marksRun: false)
+        let service = CrashRecoveryService(bundleID: "com.cmuxterm.test.crashkeys", runMarker: nil,
+                                           work: BackgroundWork(label: "test.crash-keys"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let tags = try #require(service.appReport(previous, crashKeys: keys)["crash_keys"] as? [String: String])
         #expect(tags["crash_key.action_id"] == "ff")
         #expect(tags["crash_key.pane_kind"] == "terminal")
@@ -95,5 +107,19 @@ enum CrashKeysChild {
             CrashChild.badAccess()
         }
         withExtendedLifetime(marker) {}
+    }
+
+    /// The run marker's start with this run's signal file (its spare name) a folder, so its open fails and the start
+    /// returns there; exits 0 when the crash keys' block exists after it, 1 when it does not, 2 when it existed before.
+    @MainActor
+    static func markRunWithNoSignalFile() async {
+        let directory = CrashChild.directory("crash-keys-no-signal", parent: getppid())
+        if CrashReporter.crashKeysBlockIsPrepared { exit(2) }
+        try? FileManager.default.createDirectory(at: directory.appending(path: AppRunMarker.spareSignalName, directoryHint: .isDirectory),
+                                                 withIntermediateDirectories: true)
+        let marker = await CrashChild.mark(directory)
+        let prepared = CrashReporter.crashKeysBlockIsPrepared
+        withExtendedLifetime(marker) {}
+        exit(prepared ? 0 : 1)
     }
 }

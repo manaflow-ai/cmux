@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextLayout
+import CmuxNextWakeups
 import CoreGraphics
 import Testing
 
@@ -32,7 +33,7 @@ struct FocusFollowsMouseTests {
             signals.windowIsKey = { _ in box.window?.windowIsKey ?? true }
             signals.mouseButtonsDown = { box.window?.mouseButtonsDown ?? false }
             model.focusFollowsMouseOverride = focusOnScroll
-            root = LayoutRootView(model: model, contentProvider: provider, scrollFocusSignals: signals)
+            root = LayoutRootView(model: model, contentProvider: provider, scrollFocusSignals: signals, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             box.window = self

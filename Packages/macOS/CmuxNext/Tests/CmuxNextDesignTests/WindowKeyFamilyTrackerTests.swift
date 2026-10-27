@@ -23,7 +23,7 @@ import Testing
 
         var environment: WindowKeyEnvironment {
             WindowKeyEnvironment(events: events, keyWindow: { [unowned self] in self.key }, isAppActive: { [unowned self] in self.active },
-                                 nextTurn: { [unowned self] check in self.pending.append(check) })
+                                 beforeCommit: { [unowned self] check in self.pending.append(check) })
         }
 
         /// Posts `name` and returns how many checks it scheduled; runs them (the next turn).

@@ -2,6 +2,7 @@
 //! terminal a selector names. A workspace, screen, pane or tab names its
 //! current terminal.
 
+use cmux_threads::checked::fs as files;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -93,7 +94,7 @@ fn explicit_path(raw: &str, operation: &'static str) -> Result<PathBuf, Resource
     if !path.is_absolute() {
         return Err(ResourceError::validation_invalid(Some("path"), "path must be absolute"));
     }
-    let metadata = std::fs::metadata(path).map_err(|error| {
+    let metadata = files::metadata(path).map_err(|error| {
         ResourceError::operation_failed(
             operation,
             format!("{raw}: {error}"),

@@ -4,6 +4,7 @@ import CmuxNextAgentIntegrations
 import CmuxNextApps
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
 import CmuxNextPages
@@ -27,10 +28,9 @@ struct PageFactory {
     func historyWebPage() -> PageWebView? {
         guard PageTunables.history.value == .web else { return nil }
         let routes = pageRoutes(for: .history)
-        guard let page = services.pageHostPool.claim(.history, routes: routes,
-                                                      window: services.windows.active?.window, focus: false)
+        guard let page = services.pagePreloads.claim(.history, routes: routes)
             ?? services.webUI.open(PageOpenRequest(descriptor: .history, routes: routes)) else { return nil }
-        PageConnectionWatch(page: page, store: services.machines.local.store).start()
+        PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start()
         return page
     }
 
@@ -52,11 +52,12 @@ struct PageFactory {
         }
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
+        let glyphs = AppsGlyphResource(memory: AppMemoryConsumers(services: services).appCacheRegistry)
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .apps, routes: routes, route: route,
-                                                             dynamicResources: AppsGlyphResource())) else { return nil }
+                                                             dynamicResources: glyphs)) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
-        PageConnectionWatch(page: page, store: services.machines.local.store).start()
+        PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start()
         return page
     }
 
@@ -95,13 +96,11 @@ struct PageFactory {
         let cloud = cloud ?? cloudPageProvider()
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
-        let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
-        let page = services.pageHostPool.claim(.cloud, routes: routes, route: route,
-                                               documentAttributes: attributes,
-                                               window: services.windows.active?.window, focus: false)
+        let attributes = PagePreloads.Page.cloud.documentAttributes  // the Cloud preload boots with the same
+        let page = services.pagePreloads.claim(.cloud, routes: routes, route: route, documentAttributes: attributes)
             ?? services.webUI.open(PageOpenRequest(descriptor: .cloud, routes: routes, route: route, documentAttributes: attributes))
         native.anchor = { [weak page] in page }
-        if let page { PageConnectionWatch(page: page, store: services.machines.local.store).start() }
+        if let page { PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start() }
         return page
     }
 
@@ -122,7 +121,10 @@ struct PageFactory {
     func settingsPage(route: String?, edits: SettingsPageProvider.Edits = SettingsPageProvider.Edits()) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
-            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
+            var sounds: [String] = []
+            if let work = services?.work { sounds = await SettingsPageDomains.sounds(work: work) }
+            return ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": sounds,
+                    "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
         provider.edits = edits
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
@@ -166,6 +168,10 @@ struct PageFactory {
         provider.integrations = SettingsAgentIntegrations(cli: { LocalServerSource.bundledCLI() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
+        provider.setFeature = { [weak services] name, on in  // Experimental > Feature Flags (feature featureFlagsCard)
+            guard let services, services.features.isEnabled(.featureFlagsCard) else { throw PageError.unavailable("no Feature Flags card") }
+            do { try services.featureLocalOverrides.set(name, on) } catch { throw PageError.invalidParams(String(describing: error)) }
+        }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
         let registry = services.registry
         provider.sectionActions = { section in
@@ -189,14 +195,16 @@ struct PageFactory {
                 .init(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
                       environment: ProcessInfo.processInfo.environment)
             },
-            reload: { [weak services] in await services?.themes.catalog.reload() },
+            // Only the person saves or imports a theme file (`SettingsThemeFiles`): the page waits on the reload.
+            reload: { [weak services] in await services?.themes.catalog.reload(.userBlocking) },
             pickFile: { [weak services] in await services?.viewers.picker.open(.init(choose: .files))?.first })
         provider.backdropImages = SettingsWindowService.userImages.map { images in
             SettingsBackdropImages(images: images) { [weak services] in
                 await services?.viewers.picker.open(.init(choose: .files, types: [.image, .movie]))?.first
             }
         }
-        let museumArt = MuseumArtSession()
+        let appCaches = AppMemoryConsumers(services: services).appCacheRegistry
+        let museumArt = MuseumArtSession(memory: appCaches)
         provider.museumArt = museumArt
         provider.workspaceBackgrounds = SettingsWorkspaceBackgrounds(
             title: { [weak services] id in services?.workspace(id: id)?.displayName },
@@ -216,7 +224,8 @@ struct PageFactory {
         }
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native),
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
-                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
+                      PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(
+                          owner: services.home.chief, channels: services.webUI.relayChannels, deadlines: services.mainDeadlines)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
                       PageRoute(prefix: ChannelsPageProvider.prefix, provider: ChannelsPageProvider(updater: services.updater)),
@@ -235,19 +244,18 @@ struct PageFactory {
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
-                                                          })
-        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
-                                               surface: .settings,
-                                               dynamicResources: dynamicResources,
-                                               window: services.windows.active?.window, focus: false)
+                                                          }, memory: appCaches)
+        let page = services.pagePreloads.claim(.settings, routes: routes, route: route, surface: .settings,
+                                               dynamicResources: dynamicResources)
             ?? services.webUI.open(PageOpenRequest(descriptor: .settings, routes: routes, route: route,
                                                    options: Self.settingsEngineOptions, surface: .settings,
                                                    dynamicResources: dynamicResources))
         native.anchor = { [weak page] in page }
         // An image or movie dropped on Settings becomes the background (cx-t2x.8).
+        // One short copy and settings write per drop; a failed one changes nothing. The page keeps
+        // its `fileDrop` reason until it returns (PageFileDrop.take).
         page?.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in
-            // task-owner: one short copy and settings write per drop; a failed one changes nothing
-            Task { try? await provider?.useBackdropImage(url) }
+            _ = try? await provider?.useBackdropImage(url)
         }
         return page
     }

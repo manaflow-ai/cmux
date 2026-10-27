@@ -8,7 +8,7 @@ import Testing
 final class InventoryProviderBridgeFixture {
     struct Command: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-control"
+        static let commandName: DaemonCommandName = "test-control"
         var kind: String
         var count: Int = 0
     }

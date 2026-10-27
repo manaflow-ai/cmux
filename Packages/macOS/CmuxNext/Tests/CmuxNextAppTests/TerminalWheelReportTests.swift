@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import CoreGraphics
 @testable import CmuxNextTerminal
 import Foundation
@@ -23,8 +24,8 @@ import Testing
 
         @MainActor init() throws {
             _ = NSApplication.shared
-            _ = GhosttyRuntime.shared
-            session = TerminalSession(io: io)
+            GhosttyRuntime.startedForTests()
+            session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             try #require(session.surfaceView.surface != nil, "libghostty created no surface")
             window.isReleasedWhenClosed = false
             window.contentView = session.view

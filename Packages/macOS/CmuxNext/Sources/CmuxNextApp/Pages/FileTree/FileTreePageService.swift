@@ -121,7 +121,7 @@ final class FileTreePageService: InternalPageProvider {
     }
 
     /// The page gets its state in its `root` answer (``makeView(for:in:)``), not from its view.
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {}
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {}
 
     func willRemakeView(for key: String, with state: ContentViewState) {
         tabs[key]?.viewState = state.page
