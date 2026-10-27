@@ -1,0 +1,51 @@
+{
+  "$comment": "p15-oracle-093: e2e scripts 12-22 of MQ-e2e (`ls scripts/cmux-next/*-e2e.py scripts/cmux-next/*-e2e.sh`, sorted, 66), each converted to a case of this suite or excluded with a reason (p15-oracle.md section 5, item 4). The scripts stay; each case's first step names its script. `bug` is the commit whose behavior the case checks and `parent` its parent, where the case fails. oracle.py does not run `_` files. The batches of p15-oracle-092 and 094-097 hold the other scripts; the suite's coverage.json, written from all six, counts a script once it is converted or excluded here.",
+  "task": "p15-oracle-093",
+  "queue": "MQ-e2e",
+  "range": [12, 22],
+  "scripts": {
+    "scripts/cmux-next/color-transition-e2e.py": {
+      "excluded": "samples the presented backdrop and terminal colors as fast as the socket answers and checks recorded window pixels for blend steps (OKLab distance per frame, retarget, Liquid Glass): oracle runs have animations off (section 3B), snapshot-v1 has no theme or color facet, and frame smoothness is the motion-on switch arm and perf-lead benches, not a state checkpoint"
+    },
+    "scripts/cmux-next/default-theme-e2e.py": {
+      "excluded": "asserts the applied Ghostty background and every window's chrome color (debug.themes) after debug.appearance flips the app's appearance: snapshot-v1 has no theme or appearance facet, and a cli `app call debug.themes` step's expect compares the whole reply (window numbers, edge-fade geometry); converts when a themes facet lands"
+    },
+    "scripts/cmux-next/dock-split-pane-e2e.py": {
+      "case": "e2e/dock-split-pane",
+      "bug": "9799b3d99bb98bd2d31a9dc02472f196f3d80f5d",
+      "parent": "5895d36d3b8a3695c8a4999aa2c41a81dceaa913",
+      "fails_at": "dock: column.dock answers move-tab-to-column failed, so expect ok fails"
+    },
+    "scripts/cmux-next/drop-ring-e2e.py": {
+      "excluded": "drags a tab with real mouse events (debug.mouse drag) and samples the drop overlay every 50 ms for 4 s (debug.drop_highlight): case-v1 has no pointer step, no snapshot facet reads the drop ring, and a timed sample series is not a checkpoint"
+    },
+    "scripts/cmux-next/exception-report-e2e.py": {
+      "excluded": "ends the app process on purpose (an NSException, or a crash path that blocks) and checks the next launch's crash notice and report file: allow_crashes kinds are child processes only (no app kind), the app driver has no restart yet (p15-oracle-023, p15-oracle-188), and no facet reads the launch notice"
+    },
+    "scripts/cmux-next/ext-e2e.py": {
+      "excluded": "store mode downloads real Chrome Web Store extensions (oracle cases are offline, section 3D); api mode stages unpacked extensions into a fresh Chromium profile with a DevTools port and drives popups through CDP: no case-v1 fixture installs extensions and no facet reads the conformance collector"
+    },
+    "scripts/cmux-next/file-pages-e2e.py": {
+      "excluded": "edits a markdown and a code page through debug.page input, saves with Cmd-S and checks the exact bytes on disk, a conflict banner's text and a 10 MB file: driver_app builds no file fixture (fixture.repo, $CASE_ROOT paths), case-v1 has no page-input step, and no facet reads file bytes or page text"
+    },
+    "scripts/cmux-next/file-pages-r96-e2e.py": {
+      "case": "e2e/file-pages-r96",
+      "bug": "788d648a9ec0efefbbb851aea423be7e5b842161",
+      "parent": "db82ac3effe50fbe45df2dc3844e05966065218d",
+      "fails_at": "directory-diff: palette.openDirectoryDiffViewer from the CLI opens the picker and answers ok, so expect error control.unavailable fails",
+      "partial": "the picker phase only; the keys, grants, crash, dontsave and restore phases are the case's untested entries"
+    },
+    "scripts/cmux-next/free-tier-attest-e2e.sh": {
+      "excluded": "needs a Developer ID signed build started by LaunchServices, App Attest and the real cmux API at a given origin: oracle cases are offline and run unsigned tagged bench builds"
+    },
+    "scripts/cmux-next/hint-mode-e2e.py": {
+      "case": "e2e/hint-mode",
+      "bug": "cbbbc4642d8830151c41ad615541b8ddb2679b4c",
+      "parent": "9b0caf7793dbbe02b9260ee1d70299dc482a71a9",
+      "fails_at": "show-off: there is no hints.show action, so the error is control.not_found, not control.unavailable"
+    },
+    "scripts/cmux-next/home-e2e.py": {
+      "excluded": "waits up to 10 minutes for the mux agent's model reply and a child agent's report (a live model over the network), and its own Status says the Home window overlay it drives did not land: oracle runs use the mock agent pane offline"
+    }
+  }
+}

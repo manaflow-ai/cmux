@@ -1,0 +1,108 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "hint-mode",
+  "suite": "e2e",
+  "title": "Click by Hint is unavailable without preview features, Cmd-J F runs it with them, and it is unavailable again after the setting is removed (cx-zjtn.1)",
+  "priority": "P2",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "e2e-hint-mode-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config with no labs.previewFeatures key (its default is false)",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab with the keyboard",
+    "the default Cmd-J leader bindings"
+  ],
+  "requires": ["actions", "keys", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "overlays", "settings"]},
+      "settleMaxMs": 5000,
+      "note": "the scenario of scripts/cmux-next/hint-mode-e2e.py (kept)"
+    },
+    {
+      "id": "show-off",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "hints.show", "entrypoint": "script"},
+      "expect": {"outcome": "error", "error": "control.unavailable"},
+      "note": "off by default: the action is bound and refuses with the preview reason (HintHandlers); on 9b0caf7793d (the parent of cbbbc4642d8, which added it) there is no such action"
+    },
+    {
+      "id": "preview-on",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["settings", "set", "labs.previewFeatures", "true"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a settings write answers with the applied value; it runs no action"},
+      "waitFor": {"pointer": "/settings/nonDefaultKeys", "predicate": {"op": "contains", "value": "labs.previewFeatures"}, "maxMs": 5000},
+      "note": "the bundle's cmux on the app's socket, as the script's settings.set"
+    },
+    {
+      "id": "leader-f",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+j", "f"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 5000,
+      "note": "Cmd-J arms the leader and F runs hints.show (LeaderLayer.defaultChords): the second key's reply names the action, so the receipt check holds only when it ran"
+    },
+    {
+      "id": "hints-shown",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "escape",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["escape"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "Escape ends hint mode inside the hint layer; no registry action runs"},
+      "settleMaxMs": 5000,
+      "note": "hint mode ends without clicking anything"
+    },
+    {
+      "id": "preview-off",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["settings", "unset", "labs.previewFeatures"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a settings write answers with the applied value; it runs no action"},
+      "waitFor": {"pointer": "/settings/effectiveSha256", "predicate": "changed", "maxMs": 5000},
+      "note": "puts the scratch config back, so a later case of the same launch starts with the default"
+    },
+    {
+      "id": "show-off-again",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "hints.show", "entrypoint": "script"},
+      "expect": {"outcome": "error", "error": "control.unavailable"},
+      "note": "the action follows the setting back to off"
+    },
+    {
+      "id": "ended",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "overlays", "settings"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "hints.show is unavailable exactly while labs.previewFeatures is not true",
+    "Cmd-J F runs hints.show once preview features are on",
+    "after Escape the focused workspace and pane equal the launch's: hint mode clicks nothing",
+    "the settings facet at ended equals the launch's (the case leaves no setting behind)",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "the labels themselves (at least 5, unique, prefix-free, 1-2 letters) and that Escape ends hint mode: no snapshot facet reads debug.hints; a hints facet in snapshot-v1 converts them",
+    "typing a sidebar row's label switches to that workspace: the label is known only from debug.hints",
+    "Cmd-J F with preview features off: the refused leader run reports no action, which a key step's expect cannot tell from a key nothing handled"
+  ]
+}
