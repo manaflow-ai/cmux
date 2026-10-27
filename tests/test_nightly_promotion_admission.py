@@ -12,6 +12,9 @@ activity, deployment approvals) and checks the decision the workflow acts on:
   GitHub's index lags. Off, the promoted commit's own nightly build is the
   compile gate and a tip with no green Release compile is promoted itself.
   The G2 cases set scenario requireReleaseCompile.
+- G3 and G4 run only with requireApproval (off by default since 2026-10-27:
+  approval is retired); off, they are skipped and read nothing. scenario()
+  sets requireApproval so the G3/G4 cases keep testing them.
 - G3: a range that changes no release surface file is promoted; a range that
   changes one needs an approval.
 - G4: the approval must come from someone who did not land the surface
@@ -198,11 +201,13 @@ const decision = scenario.newest
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha, runId: 1,
       surfaceText: scenario.surface, sleep: async () => {},
       ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
+      ...(scenario.requireApproval === undefined ? {} : { requireApproval: scenario.requireApproval }),
     })).decision
   : await guard.decide({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha,
       surfaceText: scenario.surface, sleep: async () => {},
       ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
+      ...(scenario.requireApproval === undefined ? {} : { requireApproval: scenario.requireApproval }),
       // G1' tree check: scenario.trainVerify is its answer, 'throw' a crash.
       verifyTrain: scenario.trainVerify === undefined ? null : async () => {
         if (scenario.trainVerify === 'throw') throw new Error('merge-tree crashed');
@@ -268,6 +273,7 @@ def scenario(**overrides) -> dict:
         "approvals": [],
         "triggeringActor": "github-actions[bot]",
         "surface": SURFACE,
+        "requireApproval": True,
     }
     base.update(overrides)
     base["jobs"] = {str(k): v for k, v in base["jobs"].items()}
@@ -1077,6 +1083,58 @@ def test_by_default_a_newer_waiter_without_a_compile_is_decided() -> None:
 
 def test_the_workflow_leaves_g2_off() -> None:
     assert "requireReleaseCompile" not in WORKFLOW
+
+
+
+def test_by_default_g3_and_g4_are_skipped_and_read_nothing() -> None:
+    # Approval is retired, so the release surface (G3) and lander (G4) reads
+    # are skipped: no range listing, no tree, no per-commit read.
+    case = surface_change(lander_rule=False)
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["decision"]["gates"] == {"G3": "skipped: no approval needed", "G4": "skipped: no approval needed"}
+    assert out["decision"]["reason"] == "G3 and G4 skipped: no approval needed"
+    assert out["calls"]["trees"] == 0 and out["calls"]["commitReads"] == 0, out["calls"]
+    # G1 and the ancestry check (one compare each) still run.
+    assert out["calls"]["comparePages"] == 2, out["calls"]
+    assert out["ack"]["ok"] and out["ack"]["move"], out["ack"]
+    assert "requireApproval" not in WORKFLOW.split("promote-nightly-next-acked:")[0]
+
+
+def test_g3_and_g4_skip_still_refuses_what_g1_and_ancestry_refuse() -> None:
+    case = scenario(onSource={SHA: "diverged"}, sourceHead="e" * 40)
+    del case["requireApproval"]
+    assert run(case)["decision"]["action"] == "refuse"
+    case = scenario(rangeStatus="diverged")
+    del case["requireApproval"]
+    assert run(case)["decision"]["action"] == "refuse"
+    case = scenario(surface=SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver ON"))
+    del case["requireApproval"]
+    assert "unknown policy line" in run(case)["decision"]["reason"]
+
+
+def test_g4_reads_grow_with_the_range_only_with_require_approval() -> None:
+    # A 200-commit range that touches the surface: G4 reads every commit with
+    # requireApproval and none without it.
+    commits, activity, parent = [], [], CURRENT
+    for i in range(200):
+        sha = f"{i + 1:040x}"
+        commits.append({"sha": sha, "parents": [{"sha": parent}], "author": {"login": "teamleaderleo"},
+                        "committer": {"login": "web-flow"}, "files": [{"filename": ".github/workflows/nightly.yml" if i == 0 else "Sources/App.swift"}]})
+        activity.append({"before": parent, "after": sha, "actor": {"login": "teamleaderleo"}})
+        parent = sha
+    commits.reverse()
+    activity.reverse()
+    commits.append({"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []})
+    case = scenario(sha=parent, sourceHead=parent, onSource={parent: "identical"}, commits=commits, activity=activity, commitPulls={})
+    approved = run(case)
+    assert approved["decision"]["action"] == "needs-ack", approved["decision"]
+    assert approved["calls"]["commitReads"] == 200, approved["calls"]
+    del case["requireApproval"]
+    skipped = run(case)
+    assert skipped["decision"]["action"] == "promote", skipped["decision"]
+    assert skipped["calls"]["commitReads"] == 0 and skipped["calls"]["trees"] == 0, skipped["calls"]
 
 
 def main() -> None:
