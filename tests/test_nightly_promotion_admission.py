@@ -20,6 +20,9 @@ activity, deployment approvals) and checks the decision the workflow acts on:
 - G4: the approval must come from someone who did not land the surface
   change (push actor, PR author or merger, commit author) and did not start
   the run; a missing push actor fails closed.
+- G5: the SHA's cmux-tui tree-commit marker (files.cmux.com) reads 200 and
+  names it. A 404 refuses with the backfill command; anything else is a
+  marker read failure, never "no tree".
 - Newest request wins (decideNewest): a newer request GitHub evicted from the
   promote queue in the last day is decided before this request's own commit;
   a person's cancel, an older or ungreen commit and a dry run are not. The
@@ -195,17 +198,26 @@ const github = {
   },
 };
 const core = { notice: (m) => notices.push(m), warning: (m) => notices.push(`warning: ${m}`) };
+// G5's tree-commit marker: ready unless scenario.treeMarkers says otherwise
+// ({status, body} per commit, or 'throw' for no response).
+calls.markerReads = [];
+const readTreeMarker = async (sha) => {
+  calls.markerReads.push(sha);
+  const marker = (scenario.treeMarkers || {})[sha];
+  if (marker === 'throw') throw new Error('getaddrinfo ENOTFOUND files.cmux.com');
+  return marker || { status: 200, body: { commit: sha, key: 'f'.repeat(40), publishedBy: 'e'.repeat(40), markedBy: 'https://github.com/manaflow-ai/cmux/actions/runs/1' } };
+};
 let newest = null;
 const decision = scenario.newest
   ? (newest = await guard.decideNewest({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha, runId: 1,
-      surfaceText: scenario.surface, sleep: async () => {},
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker,
       ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
       ...(scenario.requireApproval === undefined ? {} : { requireApproval: scenario.requireApproval }),
     })).decision
   : await guard.decide({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha,
-      surfaceText: scenario.surface, sleep: async () => {},
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker,
       ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
       ...(scenario.requireApproval === undefined ? {} : { requireApproval: scenario.requireApproval }),
       // G1' tree check: scenario.trainVerify is its answer, 'throw' a crash.
@@ -1144,6 +1156,75 @@ def test_g4_reads_grow_with_the_range_only_with_require_approval() -> None:
     skipped = run(case)
     assert skipped["decision"]["action"] == "promote", skipped["decision"]
     assert skipped["calls"]["commitReads"] == 0 and skipped["calls"]["trees"] == 0, skipped["calls"]
+
+
+def test_g5_a_commit_without_a_tree_marker_is_refused_with_the_backfill() -> None:
+    # Nightly-next run 40445128409: a promote moved nightly-next to a commit
+    # whose cmux-tui tree was still building.
+    case = scenario(treeMarkers={SHA: {"status": 404}})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    reason = out["decision"]["reason"]
+    assert "has no cmux-tui tree-commit marker" in reason, reason
+    assert "gh workflow run cmux-tui-artifacts.yml -R manaflow-ai/cmux --ref feat-cmux-next" in reason, reason
+    assert "nightly-next-tick.yml" in reason, reason
+    assert out["calls"]["moves"] == 0
+
+
+def test_g5_a_marker_read_failure_is_not_a_missing_tree() -> None:
+    for marker in ({"status": 503}, {"status": 0, "error": "timeout"}, "throw",
+                   {"status": 200, "error": "the body does not parse"},
+                   {"status": 200, "body": {"commit": NEWER, "key": "f" * 40}},
+                   {"status": 200, "body": {"commit": SHA}},
+                   {"status": 200, "body": {"commit": SHA, "key": "f" * 40}},
+                   {"status": 200, "body": {"commit": SHA, "key": "f" * 40, "publishedBy": "x", "markedBy": "u"}},
+                   {"status": 200, "body": {"commit": SHA, "key": "f" * 40, "publishedBy": "e" * 40, "markedBy": ""}}):
+        case = scenario(treeMarkers={SHA: marker})
+        del case["requireApproval"]
+        out = run(case)
+        assert out["decision"]["action"] == "refuse", (marker, out["decision"])
+        reason = out["decision"]["reason"]
+        assert reason.startswith("tree marker read failed"), (marker, reason)
+        assert "has no cmux-tui tree-commit marker" not in reason, (marker, reason)
+
+
+def test_g5_reads_the_marker_of_the_promoted_commit() -> None:
+    case = scenario()
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["markerReads"] == [SHA], out["calls"]
+
+
+def test_g5_runs_after_g1() -> None:
+    # A commit off feat-cmux-next is refused by G1 before any marker read.
+    case = scenario(onSource={SHA: "diverged"}, sourceHead="e" * 40)
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse" and "is not on feat-cmux-next" in out["decision"]["reason"], out["decision"]
+    assert out["calls"]["markerReads"] == [], out["calls"]
+
+
+def test_g5_fetch_reads_the_contract_url_with_a_cache_buster() -> None:
+    script = r"""
+const guard = await import(process.env.GUARD);
+const seen = [];
+const ok = await guard.fetchTreeMarker('a'.repeat(40), { now: () => 42, fetchImpl: async (url) => {
+  seen.push(url); return { status: 200, json: async () => ({ commit: 'a'.repeat(40), key: 'f'.repeat(40) }) }; } });
+const missing = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 404 }) });
+const down = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => { throw new Error('ECONNRESET'); } });
+const garbled = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 200, json: async () => { throw new Error('Unexpected token'); } }) });
+console.log(JSON.stringify({ seen, ok, missing, down, garbled }));
+"""
+    result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
+                            env={**os.environ, "GUARD": str(GUARD)}, capture_output=True, text=True, check=True)
+    out = json.loads(result.stdout)
+    assert out["seen"] == [f"https://files.cmux.com/cmux-tui/tree-commits/{'a' * 40}.json?t=42"], out
+    assert out["ok"]["status"] == 200 and out["ok"]["body"]["commit"] == "a" * 40, out
+    assert out["missing"] == {"url": f"https://files.cmux.com/cmux-tui/tree-commits/{'a' * 40}.json", "status": 404}, out
+    assert out["down"]["status"] == 0 and "ECONNRESET" in out["down"]["error"], out
+    assert out["garbled"]["status"] == 200 and "does not parse" in out["garbled"]["error"], out
 
 
 def main() -> None:

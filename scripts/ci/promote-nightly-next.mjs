@@ -42,6 +42,15 @@
 //       nightly-train/* ref for that exact SHA has a successful
 //       "nightly-next train Release compile" job;
 // and its first parent must be the current nightly-next. G3/G4 are unchanged.
+//   G5  the cmux-tui tree of the SHA (of a train commit's second parent) is
+//       published and daemon-tested: its tree-commit marker
+//       (files.cmux.com/cmux-tui/tree-commits/<sha>.json, written by
+//       cmux-tui-artifacts.yml on feat-cmux-next; contract in
+//       scripts/cmux-next/tree-commit-marker.sh there) reads 200 and names the
+//       SHA. A 404 refuses with the backfill command; any other answer is a
+//       marker read failure, never "no tree". Nightly-next run 40445128409
+//       failed when a direct promote moved nightly-next to 5d81874b while its
+//       tree was still building. Main needs no tree key and no API call for it.
 // Anything it cannot establish is a "refuse" (fail closed).
 //
 // The functions take injected clients so tests drive them with a fake API.
@@ -105,6 +114,53 @@ export function surfaceMatcher(globs) {
 }
 
 const refuse = (reason, extra = {}) => ({ action: 'refuse', reason, ...extra });
+
+// G5: the tree-commit marker (feat-cmux-next's scripts/cmux-next/tree-commit-marker.sh).
+export const TREE_MARKER_BASE = 'https://files.cmux.com/cmux-tui/tree-commits';
+export const TREE_BACKFILL = 'gh workflow run cmux-tui-artifacts.yml -R manaflow-ai/cmux --ref feat-cmux-next';
+export const TREE_REQUEST_AGAIN = 'gh workflow run nightly-next-tick.yml -R manaflow-ai/cmux --ref main';
+
+// Reads one marker: { url, status, body } or { url, status, error }. The query
+// string bypasses a cached 404 at the CDN edge. Status 0 is no response.
+export async function fetchTreeMarker(sha, { fetchImpl = globalThis.fetch, now = () => Date.now(), timeoutMs = 30_000 } = {}) {
+  const url = `${TREE_MARKER_BASE}/${sha}.json`;
+  let response;
+  try {
+    response = await fetchImpl(`${url}?t=${now()}`, { signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    return { url, status: 0, error: error.message };
+  }
+  if (response.status !== 200) return { url, status: response.status };
+  try {
+    return { url, status: 200, body: await response.json() };
+  } catch (error) {
+    return { url, status: 200, error: `the body does not parse (${error.message})` };
+  }
+}
+
+// null when the marker says the tree of `sha` is ready, else the refusal reason.
+export async function treeMarkerGate(readTreeMarker, sha) {
+  let marker;
+  try {
+    marker = await readTreeMarker(sha);
+  } catch (error) {
+    marker = { status: 0, error: error.message };
+  }
+  const url = marker?.url || `${TREE_MARKER_BASE}/${sha}.json`;
+  if (marker?.status === 404 && !marker.error) {
+    return `${sha} has no cmux-tui tree-commit marker (${url}): its tree is not published and daemon-tested yet, or the marker was never written; nothing promoted. Backfill: ${TREE_BACKFILL} (marks every recent feat-cmux-next commit whose tree is ready), then request again: ${TREE_REQUEST_AGAIN}`;
+  }
+  if (marker?.status !== 200 || marker.error) {
+    return `tree marker read failed for ${sha} (${url}: ${marker?.error || `HTTP ${marker?.status}`}); nothing promoted. A read failure, not a missing tree: request again once files.cmux.com answers (${TREE_REQUEST_AGAIN})`;
+  }
+  const body = marker.body;
+  const hex40 = (v) => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v);
+  if (body?.commit !== sha || !hex40(body?.key) || !hex40(body?.publishedBy)
+      || typeof body?.markedBy !== 'string' || !body.markedBy.trim()) {
+    return `tree marker read failed for ${sha} (${url}): it is not a complete marker of ${sha} (commit ${body?.commit || 'none'}, key ${body?.key || 'none'}, publishedBy ${body?.publishedBy || 'none'}, markedBy ${body?.markedBy ? 'set' : 'none'}); nothing promoted`;
+  }
+  return null;
+}
 
 async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, core }) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -452,7 +508,7 @@ async function landersOf(github, owner, repo, commit, actors) {
 export async function decide({
   github, owner, repo, sha, surfaceText, core, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   debounce = false, minIntervalHours = 0, admissionAttempts = 6, admissionDelayMs = 5000, now = () => Date.now(),
-  verifyTrain = null, requireReleaseCompile = false, requireApproval = false,
+  verifyTrain = null, requireReleaseCompile = false, requireApproval = false, readTreeMarker = fetchTreeMarker,
 }) {
   if (!/^[0-9a-f]{40}$/.test(sha)) return refuse(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
 
@@ -512,6 +568,12 @@ export async function decide({
       }
     }
   }
+
+  // G5: the tree is published and daemon-tested. A train commit carries its
+  // second parent's tree minus its listed reverts; the parent's marker stands
+  // for it (the train is off unless vars.NIGHTLY_NEXT_TRAIN is on).
+  const treeRefusal = await treeMarkerGate(readTreeMarker, train ? train.tip : sha);
+  if (treeRefusal) return refuse(treeRefusal);
 
   if (debounce && Number.isFinite(minIntervalHours) && minIntervalHours > 0) {
     const { data } = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: 'nightly.yml', branch: TARGET, per_page: 1 });
