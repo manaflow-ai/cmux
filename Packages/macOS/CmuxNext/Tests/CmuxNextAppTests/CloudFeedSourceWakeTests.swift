@@ -17,7 +17,7 @@ struct CloudFeedSourceWakeTests {
         let count = Count()
         let (attempts, attempt) = AsyncStream.makeStream(of: Int.self)
         let source = CloudFeedSource(
-            apiBaseURL: URL(string: "https://api.test")!, device: "Mac", token: { "t" },
+            apiBaseURL: URL(string: "https://api.test")!, device: "Mac", mainWork: linklessMainWork(), token: { "t" },
             reconnect: Backoff(initial: .seconds(3600), maximum: .seconds(3600), jitter: 0),
             connect: { _, onSnapshot, opened in
                 count.value += 1

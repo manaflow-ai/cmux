@@ -3,7 +3,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 import WebKit
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Restored WebKit pages that start from their saved history (cx-p0im9). The page is made
 /// blank; once this Mac's daemon answers with the tab's saved history (`BrowserTabService`),
@@ -13,13 +13,21 @@ import CmuxNextWakeups
 public final class BrowserHistoryStarts {
     /// How long a held page waits for its saved history before it loads its address.
     public static let budget: Duration = .seconds(1)
+    /// How long a restored page's first load (or a local page's folder load) is waited on before its
+    /// saved scroll position and entries are given up (PageWaiters' bound; a closed page ends the wait at once).
+    static let loadLimit: Duration = .seconds(60)
+    /// The owner of a held page's budget deadline in the board and the wakeup ledger.
+    static let budgetOwner = "BrowserHistoryStarts.budget"
 
     private struct Waiting {
         weak var page: WebKitTab?
         let url: URL
-        let timer: Task<Void, Never>
+        /// The budget: loads the address when the read is slower (cancelled when it answers).
+        let timer: MainDeadline
     }
 
+    /// The app's one deadline scheduler: each held page's budget is a deadline on it.
+    private let deadlines: MainDeadlineScheduler
     private var waiting: [String: Waiting] = [:]
     /// How each held page started, by tab id (`debug.browser.page_status` `history_start`).
     public var outcomes: [String: String] = [:]
@@ -27,7 +35,12 @@ public final class BrowserHistoryStarts {
     private var engineRestored: Set<String> = []
 
     /// Makes the set of held pages (one per app, owned by the browser tab service).
-    public init() {}
+    ///
+    /// - Parameter deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`), for each held
+    ///   page's budget.
+    public init(deadlines: MainDeadlineScheduler) {
+        self.deadlines = deadlines
+    }
 
     /// Notes that tab `tabID`'s new page was made from its engine's own history (a Chromium
     /// page, made from it before it exists).
@@ -47,10 +60,14 @@ public final class BrowserHistoryStarts {
     /// its list (a fork that cannot restore, a refused state) gets the saved entries as before.
     public func takeEngineRestored(_ tabID: String, page: any BrowserTab, saved: FrontendBrowserHistory?) -> Bool {
         guard engineRestored.remove(tabID) != nil else { return false }
-        guard page.engineKind == .cef, let saved, saved.entries.indices.contains(saved.index) else { return true }
-        Task { [weak page] in
-            for await done in ObservationStream({ [weak page] in page.map { Self.ended($0.state.phase) } ?? true }) where done { break }
-            guard let page, page.state.url?.absoluteString == saved.entries[saved.index].url else { return }
+        guard page.engineKind == .cef, let saved, saved.entries.indices.contains(saved.index),
+              let loads = page as? any BrowserPageWaiting else { return true }
+        // task-owner: one restored page's first load, bounded by loadLimit; the page's close ends the wait at once
+        // main-hop-allow: when(phase:) is the page's main-actor keyed wait (PageWaiters, R-wait); its resume scrolls and restores the page in the load's order
+        Task { [weak loads] in
+            // R-wait: the page's keyed phase wait, read only on a load-phase change.
+            guard await loads?.when(phase: { Self.ended($0) }, timeout: Self.loadLimit) != nil, let page = loads,
+                  page.state.url?.absoluteString == saved.entries[saved.index].url else { return }
             if let y = saved.entries[saved.index].scrollY { page.scrollOnLoad(to: y) }
             if !page.state.canGoBack, !page.state.canGoForward, saved.entries.count > 1,
                let restoring = page as? any BrowserTab & BrowserSessionRestoring, let session = BrowserHistoryWriter.session(saved) {
@@ -65,12 +82,9 @@ public final class BrowserHistoryStarts {
         waiting[tabID]?.timer.cancel()
         // A mark left by a Chromium page that could not be made is not this page's.
         engineRestored.remove(tabID)
-        let timer = Task { [weak self] in
-            // wakeup-allow: deadline of a slow history read, cancelled when it answers;
-            // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
-            do { try await Task.sleep(for: Self.budget, tolerance: WakeLeeway.window(delay: Self.budget).tolerance) } catch { return }
-            self?.start(tabID, saved: nil)
-        }
+        // R-timer: a visible, flexible deadline (the person sees the blank page until it starts); the read's answer cancels it.
+        let timer = MainDeadline(owner: Self.budgetOwner, workClass: .visible, scheduler: deadlines)
+        timer.schedule(after: Self.budget) { [weak self] in self?.start(tabID, saved: nil) }
         waiting[tabID] = Waiting(page: page, url: url, timer: timer)
     }
 
@@ -104,12 +118,14 @@ public final class BrowserHistoryStarts {
             // No saved entries on top: a local page's could not navigate (WebKit refuses a
             // scripted replace to a file), whether or not the restore takes.
             engineRestored.insert(tabID)
+            // task-owner: one local page's folder load, bounded by loadLimit; the page's close ends the wait at once
+            // main-hop-allow: when(phase:) is the page's main-actor keyed wait (PageWaiters, R-wait); the restore must replace the load's entry before the page's scripts run
             Task { [weak self, weak page] in
                 // The load's phase, not its address: WebKit reports the address as the load is
-                // asked for, before it starts.
-                for await done in ObservationStream({ [weak page] in page.map { Self.committed($0.state.phase) } ?? true }) where done { break }
+                // asked for, before it starts. R-wait: the page's keyed phase wait (PageWaiters).
+                let committed = await page?.when(phase: { Self.committed($0) }, timeout: Self.loadLimit) != nil
                 // A page the person sent elsewhere meanwhile keeps where they went.
-                guard let self, let page, page.state.url?.absoluteString == entry.url.absoluteString else {
+                guard committed, let self, let page, page.state.url?.absoluteString == entry.url.absoluteString else {
                     self?.outcomes[tabID] = "navigated"
                     return
                 }

@@ -9,7 +9,7 @@ import Testing
 @MainActor
 @Suite struct CloudFeedSourcePongTests {
     private func source(_ clock: ManualClock) -> CloudFeedSource {
-        CloudFeedSource(apiBaseURL: URL(string: "https://api.test")!, device: "Mac", token: { "t" },
+        CloudFeedSource(apiBaseURL: URL(string: "https://api.test")!, device: "Mac", mainWork: linklessMainWork(), token: { "t" },
                         reconnect: Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0),
                         connect: nil, clock: clock)
     }

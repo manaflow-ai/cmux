@@ -137,11 +137,22 @@ public final class StashPageModel {
         }
         handle.onDismiss = { [weak self] reason in
             guard reason != .action, let self else { return }
-            // task-owner: the model's op queue (`tail`) orders it; it ends with the delete.
-            Task { @MainActor in
-                await self.run { try await $0.delete(group, tabs: tabs) }
-                if let tab { self.hiddenTabs.remove(tab.id) } else { self.hiddenGroups.remove(group.id) }
+            // The model's op queue (`tail`) orders it; it ends with the delete.
+            start { model in
+                await model.run { try await $0.delete(group, tabs: tabs) }
+                if let tab { model.hiddenTabs.remove(tab.id) } else { model.hiddenGroups.remove(group.id) }
             }
+        }
+    }
+
+    /// Starts `op` on this model from a turn that cannot wait for it: a button of the page, its first show, an Undo
+    /// toast's end. The ops queue on ``run(_:)`` (one at a time, then a reload), so a second click waits its turn.
+    public func start(_ op: @escaping @MainActor (StashPageModel) async -> Void) {
+        // task-owner: one page op; the model's op queue orders it, and it ends with its reload
+        // main-hop-allow: the model's main-actor ops (their awaits are the daemon's stash calls through the source) start from a click's or a show's turn
+        Task { [weak self] in
+            guard let self else { return }
+            await op(self)
         }
     }
 
@@ -170,6 +181,7 @@ public final class StashPageModel {
     private func run(_ op: @escaping @MainActor (any StashPageSource) async throws -> Void) async {
         let previous = tail
         // task-owner: the model's op queue; each op waits for the one before it.
+        // main-hop-allow: the op queue's link: it awaits the op before it, then this op's daemon calls, and writes the page's state between them
         let task = Task { @MainActor [weak self] in
             await previous?.value
             guard let self, let source = self.source else { return }

@@ -223,7 +223,7 @@ final class TabContentCache {
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines,
                               deadlines: deadlines, appEvents: appEvents)
         self.afterFrame = afterFrame
-        browserTabs = BrowserTabService(daemon: daemon, chromium: chromium, mainWork: mainWork)
+        browserTabs = BrowserTabService(daemon: daemon, chromium: chromium, mainWork: mainWork, deadlines: deadlines, appEvents: appEvents)
         wireNotices()
         _ = ledger.setCapacity(normalWarmCapacity)  // no surface yet: closes nothing
         warmBudgetDidChange(to: normalWarmCapacity)

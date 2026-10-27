@@ -40,6 +40,8 @@ public final class InMemoryFeedSource: FeedPostingSource {
 
     public func send(_ intent: FeedIntent) {
         if echoImmediately {
+            // task-owner: one mock echo; it ends with the commit
+            // main-hop-allow: the demo and test owner's echo: it must land after send returns, on a later turn, as the real owner's frame does
             Task { @MainActor [weak self] in self?.commit(intent) }
         } else {
             held.append(intent)

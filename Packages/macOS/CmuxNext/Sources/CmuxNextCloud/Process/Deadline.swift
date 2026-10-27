@@ -8,20 +8,13 @@ public struct DeadlineExceeded: Error, Sendable, CustomStringConvertible {
 }
 
 /// Runs `operation`, cancelling it and throwing `DeadlineExceeded` when it
-/// outlives `duration`.
+/// outlives `duration`. R-timer: a race's sleep is the `Deadline` helper's (flexible, never early, one ledger
+/// wakeup per miss); a loser that ignores cancellation is dropped instead of awaited.
 package func withDeadline<T: Sendable>(_ duration: Duration, label: String,
                                _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
-    // concurrency-allow: callers pass cancellation-aware work (URLSession, AsyncStream iteration)
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask { try await operation() }
-        group.addTask {
-            // wakeup-allow: deadline of one cross-process call: the timer side of a task-group race with the call
-            // (the group's cancelAll ends it), not a DemandTimer; flexible, never early (WakeLeeway)
-            try await Task.sleep(for: duration, tolerance: WakeLeeway.window(delay: duration).tolerance)
-            throw DeadlineExceeded(label: label)
-        }
-        defer { group.cancelAll() }
-        guard let first = try await group.next() else { throw DeadlineExceeded(label: label) }
-        return first
+    do {
+        return try await Deadline(duration).run(label, operation)
+    } catch is Deadline.Exceeded {
+        throw DeadlineExceeded(label: label)
     }
 }

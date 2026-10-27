@@ -42,7 +42,8 @@ struct MachineIconTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-machine-icon-\(UUID().uuidString.prefix(8))")
         let paths = CloudPaths(root: root), binary = URL(fileURLWithPath: "/usr/bin/false"), api = services.cloud.api
         let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "cn-icon-test")
-        let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-icon-test")
+        let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-icon-test",
+                                    mainWork: services.mainWork)
         let session = CloudMachineSession(machine: CloudMachine(id: id, displayName: "Icon VM"), link: link,
                                           mainWork: services.mainWork, work: services.work)
         services.machines.add(session)

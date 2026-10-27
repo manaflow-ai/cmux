@@ -13,7 +13,7 @@ import Testing
 
     /// No watch: these tests drive events by hand, so the order is deterministic.
     static func model() -> ScreenshotsModel {
-        ScreenshotsModel(watcher: SilentWatcher())
+        ScreenshotsModel(watcher: SilentWatcher(), mainWork: screenshotsTestWork())
     }
 
     @Test func mergesEveryFolderNewestFirst() async throws {
@@ -148,7 +148,7 @@ import Testing
     /// The real watch (CmuxNextFiles' FolderWatcher): a screenshot saved into a watched folder shows.
     @Test(.timeLimit(.minutes(1))) func theWatchShowsANewScreenshot() async throws {
         let folder = try TemporaryFolder()
-        let model = ScreenshotsModel(watcher: FolderWatcher(latency: 0.05))
+        let model = ScreenshotsModel(watcher: FolderWatcher(latency: 0.05), mainWork: screenshotsTestWork())
         defer { model.stop() }
         model.setSources([Self.source("a", folder.url)])
         await model.refresh()

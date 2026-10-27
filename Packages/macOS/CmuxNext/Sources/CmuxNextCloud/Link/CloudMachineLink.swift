@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 import os
 
@@ -11,11 +12,14 @@ import os
 /// live socket, or (re)starts the link: fresh attach endpoint, hub socket,
 /// spawn, first `connection-snapshot` within the deadline. A dead link is
 /// replaced on the next call, which the connection makes on reconnect.
-/// Its later snapshots drive ``redial`` while the client redials (cx-z5oif).
+/// Its later snapshots drive ``redial`` while the client redials (cx-z5oif). R-hop: each ``redial`` change is
+/// one visible task posted on the app's scheduler, in the order the link reports them.
 public actor CloudMachineLink {
     public nonisolated let machineID: String
     /// Whether the running link redials, from its later snapshots.
     public nonisolated let redial = CloudLinkRedial()
+    /// The app's main-thread scheduler: ``redial`` changes are posted on it.
+    private nonisolated let mainWork: MainWorkScheduler
     private let api: CloudAPIClient
     private let hub: CloudTunnelHub
     private let paths: CloudPaths
@@ -29,8 +33,11 @@ public actor CloudMachineLink {
     private var generation = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
 
-    public init(machineID: String, api: CloudAPIClient, hub: CloudTunnelHub, paths: CloudPaths, binary: URL, deviceName: String) {
+    /// `mainWork` is the app's one main-thread scheduler (``redial`` lives on the main actor).
+    public init(machineID: String, api: CloudAPIClient, hub: CloudTunnelHub, paths: CloudPaths, binary: URL, deviceName: String,
+                mainWork: MainWorkScheduler) {
         self.machineID = machineID
+        self.mainWork = mainWork
         self.api = api
         self.hub = hub
         self.paths = paths
@@ -165,8 +172,7 @@ public actor CloudMachineLink {
             let path = try await socketTask.value
             try checkGeneration(generation)
             self.socket = path
-            let redial = redial
-            await MainActor.run { redial.isRedialing = false }
+            postRedialing(false)
             watchSnapshots(child)
             logger.info("link up for \(self.machineID, privacy: .public) pid \(child.pid ?? 0)")
             return path
@@ -199,14 +205,20 @@ public actor CloudMachineLink {
 
     private func linkReported(_ reporting: ChildProcess, connected: Bool) async {
         guard child === reporting else { return }
-        let redial = redial
-        await MainActor.run { redial.isRedialing = !connected }
+        postRedialing(!connected)
     }
 
     /// A teardown: no running link redials.
     private func clearRedial() {
-        let redial = redial
-        // task-owner: one main-actor hop
-        Task { @MainActor in redial.isRedialing = false }
+        postRedialing(false)
     }
+
+    /// Posts `redialing` to ``redial`` as one visible task: the machine's sidebar row and status read it.
+    private nonisolated func postRedialing(_ redialing: Bool) {
+        let redial = redial
+        mainWork.postFromAnyThread(.visible, owner: Self.redialOwner) { redial.isRedialing = redialing }
+    }
+
+    /// The redial posts' owner in the board and the wakeup ledger.
+    private static let redialOwner = "CloudMachineLink.redial"
 }

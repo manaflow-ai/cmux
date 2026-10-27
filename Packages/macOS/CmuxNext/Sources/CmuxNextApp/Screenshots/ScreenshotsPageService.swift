@@ -33,9 +33,12 @@ final class ScreenshotsPageService {
     private var detectionGeneration: UInt64 = 0
     /// The `screenshots.*` settings, followed from the first page on (``followSettings()``).
     private var settingsWatch: FrameObservation<ScreenshotsSettings>?
+    /// The app's main-thread scheduler: each page's model lands its reads on it, and its grid follows the model on it.
+    private let mainWork: MainWorkScheduler
 
     init(services: AppServices) {
         self.services = services
+        mainWork = services.mainWork
         thumbnailsMemory = AppMemoryConsumers(services: services).registerFileGridThumbnails(thumbnails)
     }
 
@@ -58,9 +61,9 @@ final class ScreenshotsPageService {
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> ScreenshotsPageTab {
-        let model = ScreenshotsModel()
+        let model = ScreenshotsModel(mainWork: mainWork)
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, model: model,
-                                      cache: thumbnails, workspace: workspace, files: files)
+                                      cache: thumbnails, workspace: workspace, files: files, mainWork: mainWork)
         page.onClose = { [weak self] in self?.pages.removeValue(forKey: key) }
         pages[key] = page
         followSettings()

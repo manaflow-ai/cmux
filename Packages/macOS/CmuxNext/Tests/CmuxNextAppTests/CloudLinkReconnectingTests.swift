@@ -1,5 +1,6 @@
 import CmuxNextCloud
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -77,7 +78,8 @@ struct CloudLinkReconnectingTests {
                                      session: URLSession(configuration: urlSession))
             let paths = CloudPaths(root: root.appendingPathComponent("cloud", isDirectory: true))
             hub = CloudTunnelHub(api: api, paths: paths, binary: tui, deviceName: "cn-redial-test")
-            link = CloudMachineLink(machineID: "vm-redial", api: api, hub: hub, paths: paths, binary: tui, deviceName: "cn-redial-test")
+            link = CloudMachineLink(machineID: "vm-redial", api: api, hub: hub, paths: paths, binary: tui, deviceName: "cn-redial-test",
+                                    mainWork: taskTurnMainWork())
         }
 
         func mark(_ name: String) { FileManager.default.createFile(atPath: root.appendingPathComponent(name).path, contents: nil) }

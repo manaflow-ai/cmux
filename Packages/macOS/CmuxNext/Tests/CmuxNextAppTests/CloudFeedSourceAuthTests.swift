@@ -27,7 +27,7 @@ import Testing
         let (opened, opener) = AsyncStream.makeStream(of: String.self)
         let source = CloudFeedSource(
             apiBaseURL: URL(string: "https://api.test")!,
-            device: "Mac",
+            device: "Mac", mainWork: linklessMainWork(),
             token: { await tokens.next() },
             reconnect: Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0)
         ) { bearer, _, _ in

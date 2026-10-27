@@ -67,7 +67,7 @@ struct StashPageView: View {
             HStack(spacing: Metrics.panelInset * 1.5) {
                 Spacer(minLength: 0)
                 Button(StashStrings.cancel) { draft.close() }.buttonStyle(.borderless).foregroundStyle(colors.secondary)
-                Button(StashStrings.importAction) { Task { await model.importPasted(draft) } }
+                Button(StashStrings.importAction) { model.start { await $0.importPasted(draft) } }
                     .buttonStyle(.borderless).foregroundStyle(colors.primary)
                     .disabled(draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -102,7 +102,7 @@ struct StashPageView: View {
     /// shows its name and its first tabs, which are the tooltip.
     private func row(_ tab: StashedGroup.Tab, in group: StashedGroup) -> some View {
         HStack(spacing: Metrics.panelInset) {
-            Button { Task { await model.restore(group, tab: tab) } } label: {
+            Button { model.start { await $0.restore(group, tab: tab) } } label: {
                 HStack(spacing: Metrics.panelInset * 1.5) {
                     Icon(tab.isWorkspace ? .workspace : .browser, size: Metrics.iconSize)
                         .frame(width: Metrics.iconSize, height: Metrics.iconSize).foregroundStyle(colors.secondary)
@@ -123,16 +123,16 @@ struct StashPageView: View {
             .buttonStyle(.plain)
             .themedHelp(tab.isWorkspace ? tab.workspaceTabs.joined(separator: "\n") : tab.url)
             .accessibilityHint(StashStrings.restore)
-            Button { Task { await model.delete(group, tab: tab, undoIn: window()) } } label: {
+            Button { model.start { await $0.delete(group, tab: tab, undoIn: window()) } } label: {
                 Icon(.actionClose, size: Metrics.iconSize).foregroundStyle(colors.tertiary)
             }
             .buttonStyle(.plain).themedHelp(StashStrings.delete).accessibilityLabel(StashStrings.delete)
         }
         .frame(height: Self.rowHeight)
         .contextMenu {
-            Button(StashStrings.restore) { Task { await model.restore(group, tab: tab) } }
+            Button(StashStrings.restore) { model.start { await $0.restore(group, tab: tab) } }
             Divider()
-            Button(StashStrings.delete, role: .destructive) { Task { await model.delete(group, tab: tab, undoIn: window()) } }
+            Button(StashStrings.delete, role: .destructive) { model.start { await $0.delete(group, tab: tab, undoIn: window()) } }
         }
         .listRowInsets(Self.rowInsets)
         .listRowBackground(Color.clear)
@@ -145,20 +145,20 @@ struct StashPageView: View {
                 .font(Font(Typography.caption)).foregroundStyle(colors.tertiary).lineLimit(1)
             Text(group.tabs.count.formatted()).font(Font(Typography.caption)).foregroundStyle(colors.tertiary).monospacedDigit()
             Spacer(minLength: Metrics.panelInset)
-            Button(StashStrings.restoreAll) { Task { await model.restore(group) } }
+            Button(StashStrings.restoreAll) { model.start { await $0.restore(group) } }
                 .buttonStyle(.borderless).foregroundStyle(colors.secondary).fixedSize()
-            Button(StashStrings.restoreInNewWorkspace) { Task { await model.restoreInNewWorkspace(group) } }
+            Button(StashStrings.restoreInNewWorkspace) { model.start { await $0.restoreInNewWorkspace(group) } }
                 .buttonStyle(.borderless).foregroundStyle(colors.secondary).fixedSize()
-            Button(StashStrings.deleteGroup) { Task { await model.delete(group, undoIn: window()) } }
+            Button(StashStrings.deleteGroup) { model.start { await $0.delete(group, undoIn: window()) } }
                 .buttonStyle(.borderless).foregroundStyle(colors.danger).fixedSize()
         }
         .padding(.vertical, 2)
         .listRowInsets(Self.rowInsets)
         .contextMenu {
-            Button(StashStrings.restoreAll) { Task { await model.restore(group) } }
-            Button(StashStrings.restoreInNewWorkspace) { Task { await model.restoreInNewWorkspace(group) } }
+            Button(StashStrings.restoreAll) { model.start { await $0.restore(group) } }
+            Button(StashStrings.restoreInNewWorkspace) { model.start { await $0.restoreInNewWorkspace(group) } }
             Divider()
-            Button(StashStrings.deleteGroup, role: .destructive) { Task { await model.delete(group, undoIn: window()) } }
+            Button(StashStrings.deleteGroup, role: .destructive) { model.start { await $0.delete(group, undoIn: window()) } }
         }
     }
 }

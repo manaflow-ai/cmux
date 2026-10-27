@@ -62,10 +62,12 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    /// `energy` stretches the GitHub poll under Energy Saver; with `shown`, it books nothing while no window shows.
+    /// `energy` stretches the GitHub poll under Energy Saver; with `shown`, it books nothing while no window shows,
+    /// and `appNode` (the app's visibility node) aligns its booked refresh while the app is hidden.
     /// `appEvents` and `workspaceEvents` are the app's one fan-out of the NSApp and NSWorkspace notices.
     init(auth: CloudAuth, deadlines: MainDeadlineScheduler, work: BackgroundWork, appEvents: AppEvents, workspaceEvents: AppEvents,
-         energy: EnergyPolicySource, shown: ShownWindows?, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
+         energy: EnergyPolicySource, shown: ShownWindows?, appNode: VisibilityNode?, showcase: Bool = false,
+         acpmuxEnvironment: AcpmuxEnvironment? = nil) {
         self.auth = auth
         self.deadlines = deadlines
         self.work = work
@@ -73,12 +75,12 @@ final class FeedService {
         self.acpmuxEnvironment = acpmuxEnvironment
         apiBaseURL = Self.apiBaseURL(auth: auth)
         // The answer's device label is the owner's record (the install); this name is only the overlay's.
-        source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac", energy: energy) { [auth] in
+        source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac", energy: energy, mainWork: deadlines.work) { [auth] in
             try await auth.tokens().access
         }
         var observe: (@MainActor (FeedSourceEvent) -> Void)?
         localOwner = LocalFeedSourceAdapter(primary: showcase ? MockFeedSource() : source)
-        github = GitHubFeedSource(owner: localOwner, energy: energy, shown: shown)
+        github = GitHubFeedSource(owner: localOwner, energy: energy, shown: shown, deadlines: deadlines, appNode: appNode)
         model = FeedModel(source: FeedTeeSource(localOwner) { observe?($0) })
         model.githubDetail = { [weak self] item in self?.githubDetail(for: item) }
         observe = { [weak self] in self?.observe($0) }

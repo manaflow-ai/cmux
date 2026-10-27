@@ -26,3 +26,10 @@ import Foundation
 @MainActor func runMainLoopPass(for seconds: TimeInterval) {
     _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: seconds))
 }
+
+/// A main-thread scheduler with no display link whose posted turns run as main-actor tasks (tests): an
+/// async test sees a posted flush (a `ServiceObservation`'s, a `MainDeadline`'s action) after it yields,
+/// with no main run loop pass.
+@MainActor func taskTurnMainWork() -> MainWorkScheduler {
+    MainWorkScheduler.testing(ledger: WakeupLedger(), performTurn: { turn in Task { @MainActor in turn() } }) { _ in nil }
+}
