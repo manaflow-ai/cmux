@@ -199,7 +199,7 @@ pub(crate) fn mount_aliases(protected: &[PathBuf], mountinfo: &str) -> Vec<Strin
 fn local_filesystem(fs_type: &str) -> bool {
     matches!(fs_type, "ext2" | "ext3" | "ext4" | "xfs" | "btrfs" | "tmpfs" | "f2fs" | "bcachefs")
 }
-/// Reject recursive bind aliases at or below a writable root.
+/// Reject alternate views of writable roots and recursive bind aliases below them.
 /// Only a whole filesystem with no overlapping same-device mount is exempt.
 /// Loops end after the supplied roots and finite mount table.
 pub(super) fn writable_mount_aliases(roots: &[&PathBuf], mountinfo: &str) -> Vec<String> {
@@ -209,10 +209,11 @@ pub(super) fn writable_mount_aliases(roots: &[&PathBuf], mountinfo: &str) -> Vec
     };
     let mut aliases = BTreeSet::new();
     for root in roots {
-        let Some(mount) = mounts
+        let Some((index, mount)) = mounts
             .iter()
-            .filter(|mount| root.starts_with(&mount.point))
-            .max_by_key(|mount| mount.point.components().count())
+            .enumerate()
+            .filter(|(_, mount)| root.starts_with(&mount.point))
+            .max_by_key(|(_, mount)| mount.point.components().count())
         else {
             aliases.insert(format!("no containing mount for writable folder {}", root.display()));
             continue;
@@ -223,6 +224,31 @@ pub(super) fn writable_mount_aliases(roots: &[&PathBuf], mountinfo: &str) -> Vec
                 root.display(),
                 mount.fs_type
             ));
+        }
+        let Ok(rest) = root.strip_prefix(&mount.point) else {
+            aliases.insert(format!("invalid containing mount for {}", root.display()));
+            continue;
+        };
+        let underlying = mount.root.join(rest);
+        for (other_index, other) in mounts.iter().enumerate() {
+            if other_index == index || other.device != mount.device {
+                continue;
+            }
+            let Ok(suffix) = underlying.strip_prefix(&other.root) else {
+                continue;
+            };
+            let alternate = if suffix.as_os_str().is_empty() {
+                other.point.clone()
+            } else {
+                other.point.join(suffix)
+            };
+            if alternate.as_path() != root.as_path() {
+                aliases.insert(format!(
+                    "{} is also visible at {}",
+                    root.display(),
+                    alternate.display()
+                ));
+            }
         }
     }
     for (index, mount) in mounts.iter().enumerate() {
@@ -307,9 +333,12 @@ mod tests {
             ("2 1 8:1 /elsewhere /work rw - ext4 root rw\n", "/work"),
             ("2 1 8:1 / /work/cache rw - ext4 root rw\n", "/work/cache"),
         ] {
-            assert_eq!(
-                writable_mount_aliases(&[&root], &format!("{base}{entry}")),
-                vec![format!("{expected} is a bind mount inside the writable folder /work")]
+            let reasons = writable_mount_aliases(&[&root], &format!("{base}{entry}"));
+            assert!(
+                reasons.contains(&format!(
+                    "{expected} is a bind mount inside the writable folder /work"
+                )),
+                "{reasons:?}"
             );
         }
         for entry in [
