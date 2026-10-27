@@ -273,6 +273,55 @@ fn shutdown_stops_restarts_waits_for_block_and_names_late_workers() {
 }
 
 #[test]
+fn a_fatal_worker_that_errs_while_stopping_is_not_fatal_and_block_workers_finish() {
+    let (supervisor, events) = supervisor();
+    supervisor
+        .supervise_thread(
+            "conn",
+            Fatal,
+            ShutdownBehavior::Block { deadline: WAIT },
+            |stop: &StopToken| {
+                while !stop.wait_timeout(WAIT) {}
+                Err::<(), _>("peer closed during stop")
+            },
+        )
+        .unwrap();
+    let flushed = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&flushed);
+    supervisor
+        .supervise_thread(
+            "journal",
+            Fatal,
+            ShutdownBehavior::Block { deadline: WAIT },
+            move |stop: &StopToken| {
+                while !stop.wait_timeout(WAIT) {}
+                std::thread::sleep(Duration::from_millis(20));
+                flag.store(true, Ordering::SeqCst);
+            },
+        )
+        .unwrap();
+    let report = supervisor.shutdown();
+    assert!(report.late.is_empty());
+    assert!(flushed.load(Ordering::SeqCst), "the other Block worker ran to its end");
+    wait_until_finished(&supervisor, "conn");
+    assert!(events.try_recv().is_err(), "a stop is not a failure, for Fatal workers too");
+}
+
+#[test]
+fn a_handle_stop_ends_a_fatal_worker_that_errs_quietly() {
+    let (supervisor, events) = supervisor();
+    let worker = supervisor
+        .supervise_thread("conn", Fatal, ShutdownBehavior::Skip, |stop: &StopToken| {
+            while !stop.wait_timeout(WAIT) {}
+            Err::<(), _>("peer closed during stop")
+        })
+        .unwrap();
+    worker.stop();
+    wait_until_finished(&supervisor, "conn");
+    assert!(events.try_recv().is_err());
+}
+
+#[test]
 fn a_handle_stops_its_own_worker_only() {
     let (supervisor, _events) = supervisor();
     let loop_body = |stop: &StopToken| while !stop.wait_timeout(WAIT) {};
@@ -425,6 +474,80 @@ mod tasks {
         let deadline = Instant::now() + WAIT;
         while !supervisor.live_workers().is_empty() {
             assert!(Instant::now() < deadline, "skip task not aborted");
+            tokio::task::yield_now().await;
+        }
+        assert!(events.try_recv().is_err(), "a stop is not a failure");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_fatal_task_whose_setup_panics_is_fatal() {
+        let (supervisor, events) = supervisor();
+        supervisor
+            .supervise_task("setup-task", Fatal, ShutdownBehavior::Skip, |_stop| {
+                boom("bind failed before the loop");
+                async {}
+            })
+            .unwrap();
+        assert_eq!(
+            next(&events).await,
+            Event::Fatal(FatalReport {
+                worker: "setup-task".into(),
+                reason: FatalReason::Failed(panicked("bind failed before the loop")),
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_restart_task_whose_setup_panics_restarts_then_gives_up() {
+        let (supervisor, events) = supervisor();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&runs);
+        supervisor
+            .supervise_task_restarting(
+                "setup-restart",
+                fast().budget(1, Duration::from_secs(60)),
+                ShutdownBehavior::Skip,
+                move |_stop| {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    boom("cache build failed");
+                    async {}
+                },
+            )
+            .unwrap();
+        let failure = panicked("cache build failed");
+        assert_eq!(next(&events).await, Event::Restarting("setup-restart".into(), failure.clone()));
+        assert_eq!(
+            next(&events).await,
+            Event::Fatal(FatalReport {
+                worker: "setup-restart".into(),
+                reason: FatalReason::GaveUp {
+                    restarts: 1,
+                    window: Duration::from_secs(60),
+                    last: failure,
+                },
+            })
+        );
+        assert_eq!(runs.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_fatal_task_that_errs_after_its_stop_is_not_fatal() {
+        let (supervisor, events) = supervisor();
+        let worker = supervisor
+            .supervise_task(
+                "conn-task",
+                Fatal,
+                ShutdownBehavior::Block { deadline: WAIT },
+                |stop| async move {
+                    stop.cancelled().await;
+                    Err::<(), _>("peer closed during stop")
+                },
+            )
+            .unwrap();
+        worker.stop();
+        let deadline = Instant::now() + WAIT;
+        while !supervisor.live_workers().is_empty() {
+            assert!(Instant::now() < deadline, "conn-task still live");
             tokio::task::yield_now().await;
         }
         assert!(events.try_recv().is_err(), "a stop is not a failure");
