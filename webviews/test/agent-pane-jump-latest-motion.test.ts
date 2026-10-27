@@ -382,8 +382,8 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       const tops = [start.top, ...frames.slice(0, landed + 1).map((frame) => frame.top)];
       expect(tops.slice(1).filter((top, index) => top < tops[index]! - 1)).toEqual([]);
       expect(frames.filter((frame) => frame.fromEnd <= 1 && frame.rowAboveCard < -1)).toEqual([]);
-      const restarts = await page.evaluate(() =>
-        (window as unknown as { jumpSmoothCalls: number[] }).jumpSmoothCalls.length,
+      const restarts = await page.evaluate(
+        () => (window as unknown as { jumpSmoothCalls: number[] }).jumpSmoothCalls.length,
       );
       console.info("jump ride", { engine: name, restarts, frames: frames.length, landingGap: end.fromEnd });
       // A moving target must remain on one animation clock, rather than restarting the native

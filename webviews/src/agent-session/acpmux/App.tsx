@@ -87,6 +87,9 @@ import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import { animateScroll, stopScroll } from "./threadMinimap/scrollMotion";
+import { JUMP_CURVE, jumpDuration } from "./threadMinimap/model";
+import { cssTimeMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
@@ -1855,8 +1858,6 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 const WARM_VIEWPORTS = 1;
 /// How far above the latest message the reader is before Jump to latest shows.
 const JUMP_LATEST_DISTANCE = 80;
-/// A smooth jump lands on the latest message once this has passed, even if a streaming reply grew past it.
-const JUMP_LATEST_SETTLE_MS = 600;
 /// A move off the latest row the reader did not make (no wheel, pointer, touch or key in the
 /// transcript this long before it) and that stays within about a line of it is not a scroll up.
 /// WebKit on macOS keeps whole-pixel offsets and nudged a growing reply's offset a pixel above
@@ -2158,7 +2159,6 @@ export function VirtualTranscript({
       scrollPacer.current?.cancel();
     };
   }, []);
-  const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
   const jumpTarget = useRef<number | undefined>(undefined);
@@ -2169,6 +2169,13 @@ export function VirtualTranscript({
   /// composer does, so the column matches the composer's and nothing reflows as a chat starts to scroll.
   const [lane, setLane] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const stopJump = useCallback(() => {
+    if (jumpTarget.current !== undefined && ref.current) stopScroll(ref.current);
+    jumpTarget.current = undefined;
+  }, []);
+  // The shared animation owns one RAF and its input listeners. Leaving this chat or unmounting
+  // cancels that ride before the next session can reuse this scroller.
+  useLayoutEffect(() => stopJump, [sessionId, stopJump]);
   /// The bottom stack's height over the view's foot: room under the last row, out of the view.
   const [dockSpace, setDockSpace] = useState(0);
   const dockSpaceRef = useRef(0);
@@ -3087,9 +3094,7 @@ export function VirtualTranscript({
       scrolledTo.current = { top: 0, atLatest: false };
       seenAnchor.current = undefined;
       scrollPacer.current?.cancel();
-      clearTimeout(settle.current);
-      settle.current = undefined;
-      jumpTarget.current = undefined;
+      stopJump();
       setScrollAt(0, 0);
       follow(true);
     }
@@ -3172,10 +3177,9 @@ export function VirtualTranscript({
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         // Jump to latest's glide in flight heads for the new end instead of snapping there.
         const jumping = jumpTarget.current !== undefined;
-        if (jumping && Math.abs(latest - jumpTarget.current!) > 0.5) {
-          jumpTarget.current = latest;
-          node.scrollTo({ top: latest, behavior: "smooth" });
-        }
+        // The shared animation reads the moving end every frame on its original clock.
+        // Retargeting a native smooth-scroll here restarted its easing at every measurement.
+        if (jumping) jumpTarget.current = latest;
         const settled = jumping ? clamped : settleFollowBottom(node, latest) || clamped;
         if (settled) followTrace.set(latest);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
@@ -3371,9 +3375,7 @@ export function VirtualTranscript({
   findTotalHeight.current = layout.totalHeight;
   const findMoved = useCallback((node: HTMLDivElement) => {
     // A Find match moved the view: a Jump to latest in flight ends here, not at the latest row.
-    jumpTarget.current = undefined;
-    clearTimeout(settle.current);
-    settle.current = undefined;
+    stopJump();
     scrolledTo.current = scrollPosition(node, findTotalHeight.current);
     followingRef.current = scrolledTo.current.atLatest;
     setFollowing(scrolledTo.current.atLatest);
@@ -3419,9 +3421,7 @@ export function VirtualTranscript({
     // The reader asked for this row: the view stops following the reply, or the run opening below
     // would pull it back to the latest line.
     const next = Math.max(0, top - node.clientHeight / 3);
-    jumpTarget.current = undefined;
-    clearTimeout(settle.current);
-    settle.current = undefined;
+    stopJump();
     scrolledTo.current = { top: next, atLatest: false };
     follow(false);
     node.scrollTop = next;
@@ -3571,9 +3571,7 @@ export function VirtualTranscript({
     revealing.current = undefined;
     revealWindow.current = 0;
     foldAnchor.current = undefined;
-    jumpTarget.current = undefined;
-    clearTimeout(settle.current);
-    settle.current = undefined;
+    stopJump();
     // The room the stack grew while scrolled up is room under the last row again (`room`).
     heldRoom.current = dockSpaceRef.current;
     node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
@@ -3608,8 +3606,6 @@ export function VirtualTranscript({
     // there (a first step inside the deadband read as layout work), and not stopped (a longer one
     // read as the reader's scroll up).
     if (jumpTarget.current !== undefined) {
-      // WebKit keeps the offset to whole pixels: within one of the end is there.
-      if (next >= jumpTarget.current - 1) jumpTarget.current = undefined;
       scrolledTo.current = { top: next, atLatest: true };
       seenAnchor.current = null;
       followTrace.set(next);
@@ -3694,17 +3690,35 @@ export function VirtualTranscript({
     const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     // The layout the room just taken committed (flushSync above), not the one this render closed over.
     const target = Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight);
-    jumpTarget.current = reduce || target - node.scrollTop <= 0.5 ? undefined : target;
-    node.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
-    // The landing: whether the smooth scroll arrived, was cut short as rows above settled, or the
-    // reply grew past it. Only the reader's own scroll meanwhile cancels it.
-    clearTimeout(settle.current);
-    settle.current = setTimeout(() => {
-      settle.current = undefined;
-      jumpTarget.current = undefined;
-      const scroller = ref.current;
-      if (scroller) scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    }, JUMP_LATEST_SETTLE_MS);
+    stopJump();
+    // Use the rail's shared curve and distance duration, scaled by the host's move token.
+    const move = cssTimeMs(
+      node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "",
+    );
+    const duration = reduce
+      ? 0
+      : jumpDuration(target - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
+    jumpTarget.current = target;
+    animateScroll(
+      node,
+      () =>
+        Math.max(
+          0,
+          node.scrollHeight > 0
+            ? node.scrollHeight - node.clientHeight
+            : latestLayout.current.layout.totalHeight - node.clientHeight,
+        ),
+      duration,
+      JUMP_CURVE,
+      () => {
+        jumpTarget.current = undefined;
+        scrolledTo.current = { top: node.scrollTop, atLatest: true };
+        seenAnchor.current = null;
+        followTrace.set(node.scrollTop);
+        scrollPacer.current?.cancel();
+        setScrollAt(node.scrollTop, 0);
+      },
+    );
   };
   useEffect(() => {
     const node = ref.current;
@@ -3719,9 +3733,11 @@ export function VirtualTranscript({
         ((event.type === "wheel" && (event as WheelEvent).deltaY < 0) ||
           (event.type === "keydown" && ["ArrowUp", "PageUp", "Home"].includes((event as KeyboardEvent).key)));
       if (movingUp) follow(false);
-      clearTimeout(settle.current);
-      settle.current = undefined;
-      jumpTarget.current = undefined;
+      if (jumpTarget.current !== undefined) {
+        stopJump();
+        scrolledTo.current = { top: node?.scrollTop ?? 0, atLatest: false };
+        follow(false);
+      }
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { capture: true, passive: true });
@@ -3790,7 +3806,7 @@ export function VirtualTranscript({
         : undefined;
     gutterRelease.current = gutter?.release;
     return () => {
-      clearTimeout(settle.current);
+      stopJump();
       for (const name of inputs) node?.removeEventListener(name, reader, { capture: true });
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
