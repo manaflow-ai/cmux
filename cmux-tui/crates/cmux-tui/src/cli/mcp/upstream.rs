@@ -477,9 +477,11 @@ impl<B: super::Backend> super::Server<B> {
         let inner = proxied.inner.clone();
         let computer_use = (proxied.name == computer_use_gate::SERVER)
             .then(|| name[proxied.prefix.len() + 1..].to_owned());
+        let arguments = Value::Object(arguments.clone());
         let gate = match computer_use {
             Some(tool) => computer_use_gate::gate(
                 &tool,
+                &arguments,
                 self.backend.app_caller(),
                 super::super::app::caller_from(|key| std::env::var(key).ok()),
                 // The time the script has left, not its whole limit.
@@ -487,11 +489,6 @@ impl<B: super::Backend> super::Server<B> {
             ),
             None => Gate::Run,
         };
-        Some(ProxiedCall {
-            inner,
-            name: name.to_owned(),
-            arguments: Value::Object(arguments.clone()),
-            gate,
-        })
+        Some(ProxiedCall { inner, name: name.to_owned(), arguments, gate })
     }
 }

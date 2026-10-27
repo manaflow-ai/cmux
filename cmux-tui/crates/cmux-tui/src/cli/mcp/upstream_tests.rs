@@ -261,7 +261,7 @@ fn a_computer_use_call_before_setup_shows_the_card_then_runs() {
     let requests = card_requests(&calls);
     assert_eq!(requests.len(), 1, "{requests:?}");
     assert_eq!(requests[0]["kind"], "computer_use");
-    assert!(requests[0]["reason"].as_str().unwrap().contains("look"), "{requests:?}");
+    assert_eq!(requests[0]["reason"], "It wants to use apps on this Mac.", "{requests:?}");
     let timeout = requests[0]["timeout_seconds"].as_u64().unwrap();
     assert!((1..=300).contains(&timeout), "{timeout}");
 }

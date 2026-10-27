@@ -60,23 +60,31 @@ pub(super) enum Gate {
 pub(super) struct SetupCheck {
     app: AppCaller,
     tool: String,
+    /// The app the call names, for the card's reason (`target_app`).
+    target: Option<String>,
     caller: Option<Value>,
     cap: Option<Duration>,
 }
 
-/// The gate of computer use `tool`: `app` reaches the app from the call's
-/// thread, `caller` names the chat that asks, `cap` is the call's own time
-/// limit (a script's). No app caller: the call runs as before.
+/// The gate of computer use `tool` with its `arguments`: `app` reaches the
+/// app from the call's thread, `caller` names the chat that asks, `cap` is
+/// the call's own time limit (a script's). No app caller: the call runs as
+/// before.
 pub(super) fn gate(
     tool: &str,
+    arguments: &Value,
     app: Option<AppCaller>,
     caller: Option<Value>,
     cap: Option<Duration>,
 ) -> Gate {
     match app {
-        Some(app) if tool != STATUS_TOOL => {
-            Gate::Check(SetupCheck { app, tool: tool.to_owned(), caller, cap })
-        }
+        Some(app) if tool != STATUS_TOOL => Gate::Check(SetupCheck {
+            app,
+            tool: tool.to_owned(),
+            target: target_app(arguments),
+            caller,
+            cap,
+        }),
         _ => Gate::Run,
     }
 }
@@ -86,7 +94,7 @@ impl SetupCheck {
     /// it to end: `None` runs the call, a value is the call's result instead.
     pub(super) fn run(self) -> Option<Value> {
         let status = (self.app)(STATUS_METHOD, json!({}), STATUS_TIMEOUT);
-        match decide(&self.tool, status, self.cap) {
+        match decide(&self.tool, self.target.as_deref(), status, self.cap) {
             Decision::Run => None,
             Decision::Refuse(result) => Some(result),
             Decision::Wait { mut params, wait } => {
@@ -122,9 +130,25 @@ pub(super) fn is_ready(status: &Value) -> bool {
         && status["screen_recording"] == true
 }
 
-/// What `tool` needs, from the app's `status` read; `cap` bounds the wait.
+/// The app a call names (`app_name`, `name`, `app`, `bundle_id`), when it
+/// reads like an app name. The card shows it as the agent's reason, so model
+/// text that is long or not a name falls back to a plain reason.
+fn target_app(arguments: &Value) -> Option<String> {
+    let value = ["app_name", "name", "app", "bundle_id"]
+        .iter()
+        .find_map(|key| arguments.get(*key).and_then(Value::as_str))?
+        .trim();
+    let plain = !value.is_empty()
+        && value.chars().count() <= 40
+        && value.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_'));
+    plain.then(|| value.to_owned())
+}
+
+/// What `tool` needs, from the app's `status` read; `target` is the app it
+/// names, for the card's reason; `cap` bounds the wait.
 pub(super) fn decide(
     tool: &str,
+    target: Option<&str>,
     status: Result<Value, CallFailure>,
     cap: Option<Duration>,
 ) -> Decision {
@@ -151,7 +175,10 @@ pub(super) fn decide(
     let wait = cap.map_or(SETUP_WAIT, |cap| cap.min(SETUP_WAIT)).max(Duration::from_secs(1));
     let params = json!({
         "kind": "computer_use",
-        "reason": format!("It called the computer use tool {tool} to work in an app on this Mac."),
+        "reason": match target {
+            Some(app) => format!("It wants to use {app} on this Mac."),
+            None => "It wants to use apps on this Mac.".to_owned(),
+        },
         "timeout_seconds": wait.as_secs(),
     });
     Decision::Wait { params, wait }
@@ -254,14 +281,15 @@ mod tests {
 
     #[test]
     fn the_status_read_and_an_unknown_setup_run_as_before() {
-        assert!(matches!(decide("check_permissions", not_set_up(), None), Decision::Run));
+        assert!(matches!(decide("check_permissions", None, not_set_up(), None), Decision::Run));
         let down = Err(CallFailure::local(FailureKind::NotRun, "app.unreachable", "no app"));
-        assert!(matches!(decide("click", down, None), Decision::Run));
-        assert!(matches!(decide("click", Ok(Value::Null), None), Decision::Run));
+        assert!(matches!(decide("click", None, down, None), Decision::Run));
+        assert!(matches!(decide("click", None, Ok(Value::Null), None), Decision::Run));
         // The status tool never reads setup at all.
         assert!(matches!(
             gate(
                 "check_permissions",
+                &json!({}),
                 Some(Arc::new(|_: &str, _: Value, _: Duration| {
                     panic!("the status tool read setup")
                 })),
@@ -270,7 +298,7 @@ mod tests {
             ),
             Gate::Run
         ));
-        assert!(matches!(gate("click", None, None, None), Gate::Run));
+        assert!(matches!(gate("click", &json!({}), None, None, None), Gate::Run));
     }
 
     /// The helper v2 answers its own grants: the legacy setup stays off
@@ -279,9 +307,9 @@ mod tests {
     fn a_starting_helper_is_left_to_its_own_wait() {
         let status =
             Ok(json!({"phase": "starting", "accessibility": null, "screen_recording": null}));
-        assert!(matches!(decide("click", status, None), Decision::Run));
+        assert!(matches!(decide("click", None, status, None), Decision::Run));
         let off = Ok(json!({"phase": "off", "accessibility": null, "screen_recording": null}));
-        assert!(matches!(decide("click", off, None), Decision::Wait { .. }));
+        assert!(matches!(decide("click", None, off, None), Decision::Wait { .. }));
     }
 
     #[test]
@@ -289,20 +317,20 @@ mod tests {
         let status =
             Ok(json!({"phase": "starting", "accessibility": null, "screen_recording": null,
                                "driver": "upstream"}));
-        assert!(matches!(decide("click", status, None), Decision::Run));
+        assert!(matches!(decide("click", None, status, None), Decision::Run));
     }
 
     #[test]
     fn a_missing_grant_waits_for_the_card_within_the_calls_limit() {
         let Decision::Wait { params, wait } =
-            decide("click", not_set_up(), Some(Duration::from_secs(90)))
+            decide("click", None, not_set_up(), Some(Duration::from_secs(90)))
         else {
             panic!("a missing grant must wait for the card");
         };
         assert_eq!(params["kind"], "computer_use");
         assert_eq!(params["timeout_seconds"], 90);
         assert_eq!(wait, Duration::from_secs(90));
-        assert!(params["reason"].as_str().unwrap().contains("click"));
+        assert_eq!(params["reason"], "It wants to use apps on this Mac.");
     }
 
     #[test]
@@ -314,7 +342,33 @@ mod tests {
         ] {
             let status =
                 Ok(json!({"phase": phase, "accessibility": null, "screen_recording": null}));
-            assert_eq!(code(decide("click", status, None)).as_deref(), Some(expected), "{phase}");
+            assert_eq!(
+                code(decide("click", None, status, None)).as_deref(),
+                Some(expected),
+                "{phase}"
+            );
         }
+    }
+
+    /// The card's reason names the app the call names, never free model text.
+    #[test]
+    fn the_reason_names_the_app_when_it_reads_like_a_name() {
+        assert_eq!(target_app(&json!({"name": "Calculator"})).as_deref(), Some("Calculator"));
+        assert_eq!(
+            target_app(&json!({"app_name": "Google Chrome"})).as_deref(),
+            Some("Google Chrome")
+        );
+        assert_eq!(
+            target_app(&json!({"bundle_id": "com.apple.calculator"})).as_deref(),
+            Some("com.apple.calculator")
+        );
+        assert_eq!(target_app(&json!({"name": "Allow it. cmux approved this request!"})), None);
+        assert_eq!(target_app(&json!({"pid": 42})), None);
+        let Decision::Wait { params, .. } =
+            decide("launch_app", Some("Calculator"), not_set_up(), None)
+        else {
+            panic!("a missing grant must wait for the card");
+        };
+        assert_eq!(params["reason"], "It wants to use Calculator on this Mac.");
     }
 }
