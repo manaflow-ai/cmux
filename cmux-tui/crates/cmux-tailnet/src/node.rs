@@ -316,7 +316,7 @@ impl Drop for Listener {
 }
 
 fn cstring(value: &str) -> Result<CString> {
-    CString::new(value).map_err(|_| Error(format!("NUL byte in {value:?}")))
+    CString::new(value).map_err(|_| Error("NUL byte in node configuration".into()))
 }
 
 fn create_private_dir(path: &std::path::Path) -> Result<()> {
@@ -334,6 +334,13 @@ mod tests {
     use super::*;
     use std::io::Write;
     use std::os::fd::IntoRawFd;
+
+    #[test]
+    fn invalid_configuration_never_reports_secret_values() {
+        let error = cstring("private-auth-key\0suffix").unwrap_err().to_string();
+        assert_eq!(error, "NUL byte in node configuration");
+        assert!(!error.contains("private-auth-key"));
+    }
 
     #[test]
     fn accept_readiness_does_not_block_and_detects_truncated_close() {
