@@ -55,10 +55,13 @@ import Testing
     }
 
     /// Where the row's content starts (its leading icon slot, empty when the row has no icon),
-    /// where its last trailing mark ends, and where that mark is centered.
-    private static func insets(_ row: WorkspaceRowView) throws -> (leading: CGFloat, trailing: CGFloat, lastMidX: CGFloat) {
+    /// where its last trailing mark ends (the title's end in a row with no mark), and where that
+    /// mark is centered (nil with no mark).
+    private static func insets(_ row: WorkspaceRowView) throws -> (leading: CGFloat, trailing: CGFloat, lastMidX: CGFloat?) {
         let marks = [try badge(row), try glyph(row), row.mutedMark, row.presenceDots, row.disclosureButton] as [NSView]
-        let last = try #require(marks.filter { !$0.isHidden && $0.frame.width > 0 }.max { $0.frame.maxX < $1.frame.maxX })
+        guard let last = marks.filter({ !$0.isHidden && $0.frame.width > 0 }).max(by: { $0.frame.maxX < $1.frame.maxX }) else {
+            return (row.icon.frame.minX, row.bounds.width - row.title.frame.maxX, nil)
+        }
         return (row.icon.frame.minX, row.bounds.width - last.frame.maxX, last.frame.midX)
     }
 
@@ -67,15 +70,19 @@ import Testing
         let unread = try Self.row(sidebar, Self.unreadID), selected = try Self.row(sidebar, Self.selectedID)
         #expect(selected.isSelected && !unread.isSelected)
         let gutter = SidebarStyle.horizontalInset
-        // The status glyph centers on the trailing column (10990df76a738), whose slot ends at the inset.
+        // A status glyph centers on the trailing column (10990df76a738), whose slot ends at the inset. A row with
+        // no mark (the selected row: `.working` with no agent at work shows idle) runs its title to the inset.
         let columnTrailing = gutter + (SidebarStyle.trailingSlotSide - SidebarStyle.statusGlyphSize) / 2
-        var trailings: [CGFloat] = []
         for (name, row) in [("unselected", unread), ("selected", selected)] {
             let (leading, trailing, lastMidX) = try Self.insets(row)
-            trailings.append(trailing)
-            let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
-            #expect(abs(lastMidX - column) < 0.5, "\(name): the last mark centers at \(lastMidX), the trailing column at \(column)")
-            #expect(abs(trailing - columnTrailing) < 0.5, "\(name): icon slot \(leading) pt in, marks \(trailing) pt in, column \(columnTrailing)")
+            if row === unread { #expect(lastMidX != nil, "the unread row shows its count and status glyph") }
+            if let lastMidX {
+                let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
+                #expect(abs(lastMidX - column) < 0.5, "\(name): the last mark centers at \(lastMidX), the trailing column at \(column)")
+                #expect(abs(trailing - columnTrailing) < 0.5, "\(name): icon slot \(leading) pt in, marks \(trailing) pt in, column \(columnTrailing)")
+            } else {
+                #expect(leading == trailing, "\(name): icon slot \(leading) pt in, title ends \(trailing) pt in")
+            }
             #expect(row.title.frame.minX == gutter, "\(name): the title at the inset (no empty icon slot)")
             // The pill's own inset from the list's edges is the same token, plus the trim on the right.
             #expect(leading == gutter, "\(name): text \(leading) pt in, pill inset \(gutter)")
@@ -83,8 +90,6 @@ import Testing
             #expect(sidebar.list.bounds.width - row.frame.maxX == gutter + SidebarStyle.rowTrailingTrim,
                     "\(name): pill ends \(sidebar.list.bounds.width - row.frame.maxX) pt in")
         }
-        // Selected or not, the marks end at one x.
-        #expect(trailings.count == 2 && abs(trailings[0] - trailings[1]) < 0.5, "trailing insets \(trailings)")
     }
 
     @Test func thePillAlignsWithTheSectionHeaderAndTheDivider() throws {
