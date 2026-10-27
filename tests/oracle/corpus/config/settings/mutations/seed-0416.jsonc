@@ -1,0 +1,24 @@
+{
+	"deviceHub": {
+		"url": ""
+	},
+	"appearance": {
+		"surfaces": {
+			"splitDivider": {
+				"color": "#12345"
+			}
+		},
+		"themeEdits": {
+			"*": "★",
+			"Work": ""
+		}
+	},
+	"sidebar": {
+		"priorityView": {
+			"shown": "true"
+		}
+	},
+	"browser": {
+		"defaultEngine": 10E-1
+	}
+}

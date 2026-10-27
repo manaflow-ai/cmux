@@ -2403,6 +2403,7 @@ fn run_server(
         surface_options.terminal_host_root = Some(
             cmux_tui_core::terminal_host_runtime::terminal_host_root(state_root, &args.session),
         );
+        surface_options.host_panic_log = owner_start::host_panic_log(args.headless, &args.session);
         // Set by the Cloud VM boot supervisor on a snapshot clone; see
         // SurfaceOptions::adopt_template_terminal.
         if let Some(template) = CLOUD_TEMPLATE_ENV.get() {
@@ -2488,6 +2489,7 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    drop(mux.start_metrics_file(state_root.as_deref()));
     // The features each app's client hello is reconciled with, before the
     // first client: this owner outlives the app that started it.
     cmux_tui_core::server::install_daemon_features(

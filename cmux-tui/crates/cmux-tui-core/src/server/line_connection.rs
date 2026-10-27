@@ -19,7 +19,9 @@
 //! (mojo/public/cpp/bindings/message.h) ends the sender: nothing after the
 //! bad byte is interpreted.
 //!
-//! REQUEST and CANCEL frames go to [`frame_dispatch`] (p05-ipc-071).
+//! REQUEST and CANCEL frames go to [`frame_dispatch`] (p05-ipc-071), and so
+//! do INPUT frames, which queue on the stream they name until its opener is
+//! answered ([`pending_streams`], p05-ipc-087).
 
 use std::fmt;
 
@@ -142,6 +144,9 @@ pub(super) enum ConnectionBadMessage {
     Wire(BadMessage),
     /// A valid frame of a kind this daemon does not route.
     UnroutedKind { kind: FrameKind },
+    /// A stream frame (INPUT) naming a stream this connection never
+    /// announced (server/pending_streams.rs).
+    UnknownStream { kind: FrameKind, stream: u16 },
     /// A REQUEST or CANCEL frame that its method or the requests in flight
     /// refuse.
     Call(frame_dispatch::CallRefusal),
@@ -155,6 +160,7 @@ impl ConnectionBadMessage {
         match self {
             ConnectionBadMessage::Wire(bad) => bad.reason(),
             ConnectionBadMessage::UnroutedKind { .. } => "unrouted_kind",
+            ConnectionBadMessage::UnknownStream { .. } => "unknown_stream",
             ConnectionBadMessage::Call(refusal) => refusal.reason(),
             ConnectionBadMessage::UnexpectedFds => "unexpected_fds",
         }
@@ -167,6 +173,9 @@ impl fmt::Display for ConnectionBadMessage {
             ConnectionBadMessage::Wire(bad) => write!(f, "{bad}"),
             ConnectionBadMessage::UnroutedKind { kind } => {
                 write!(f, "no route for {} frames", kind.name())
+            }
+            ConnectionBadMessage::UnknownStream { kind, stream } => {
+                write!(f, "{} frame on never-announced stream {stream}", kind.name())
             }
             ConnectionBadMessage::Call(refusal) => write!(f, "{refusal}"),
             ConnectionBadMessage::UnexpectedFds => write!(f, "a file descriptor arrived"),
@@ -214,7 +223,7 @@ pub(super) fn serve_connection(
             cmux_hang_watch::register_thread(cmux_hang_watch::ThreadKind::Io, "mux-line-out");
         // Every ready item up to 256 KiB leaves in one writev (p05-ipc-088).
         let mut batch = Vec::new();
-        // mq14-allow: the writer thread waits for its own queue (a checked wait).
+        // mq14-allow: the writer thread waits for its own queue (an idle wait).
         while writer_outbound.recv_batch(&mut batch) {
             // Each batch's write is a 100 ms hang scope; the wait above is not.
             let _batch = writer_hangs.item(WatchKind::LineOut);
