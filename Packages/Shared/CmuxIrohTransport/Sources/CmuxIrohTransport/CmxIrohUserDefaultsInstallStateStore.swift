@@ -20,10 +20,13 @@ public final class CmxIrohUserDefaultsInstallStateStore: CmxIrohInstallStateStor
 
     /// Creates a state store over one defaults suite.
     ///
-    /// - Parameter suiteName: The suite's name. Returns nil for a name `UserDefaults(suiteName:)`
-    ///   refuses (the app's bundle identifier or `NSGlobalDomain`).
+    /// - Parameter suiteName: The suite's name. Returns nil for `NSGlobalDomain` on every platform
+    ///   (swift-corelibs-foundation opens it as a suite) and for any other name
+    ///   `UserDefaults(suiteName:)` refuses (the app's bundle identifier on Apple platforms).
     public init?(suiteName: String) {
-        guard UserDefaults(suiteName: suiteName) != nil else { return nil }
+        guard suiteName != UserDefaults.globalDomain,
+              UserDefaults(suiteName: suiteName) != nil
+        else { return nil }
         domain = .suite(suiteName)
     }
 

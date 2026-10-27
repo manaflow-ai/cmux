@@ -1,3 +1,5 @@
+// Only the dns_sd browse ingress is here; the portable install-state store tests are in
+// CmxIrohUserDefaultsInstallStateStoreTests.swift.
 #if canImport(dnssd)
 import Dispatch
 import Foundation
@@ -59,31 +61,6 @@ struct CmxIrohSharedStateConcurrencyTests {
             count += 1
         }
         #expect(count == 0)
-    }
-
-    @Test
-    func suiteStoreRoundTripsAcrossThreadsAndInstances() throws {
-        let suiteName = "CmxIrohSharedStateConcurrencyTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName))
-
-        DispatchQueue.concurrentPerform(iterations: 64) { index in
-            store.set("value-\(index)", forKey: "key-\(index)")
-        }
-
-        let reopened = try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName))
-        for index in 0 ..< 64 {
-            #expect(reopened.string(forKey: "key-\(index)") == "value-\(index)")
-        }
-        #expect(defaults.string(forKey: "key-7") == "value-7")
-        store.set(nil, forKey: "key-7")
-        #expect(reopened.string(forKey: "key-7") == nil)
-    }
-
-    @Test
-    func suiteStoreRefusesTheGlobalDomain() {
-        #expect(CmxIrohUserDefaultsInstallStateStore(suiteName: "NSGlobalDomain") == nil)
     }
 
     private static func offerAdd(_ ingress: CmxIrohBonjourBrowseIngress) {
