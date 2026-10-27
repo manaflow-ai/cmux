@@ -23,6 +23,15 @@ pub struct HostLock {
     _file: File,
 }
 
+impl Drop for HostLock {
+    fn drop(&mut self) {
+        // Release the advisory lock before File's close.  Some runners can
+        // observe the close asynchronously; an explicit unlock makes the
+        // handoff to the next host deterministic.
+        let _ = self._file.unlock();
+    }
+}
+
 #[derive(Debug)]
 pub enum LockError {
     /// Another open file holds the flock: a host already runs for this home.
