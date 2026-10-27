@@ -1958,8 +1958,43 @@ jobs:
               ;;
           esac
 
+      # cmux NEXT Nightly takes its compiled, unsigned app from an earlier nightly-next build when
+      # nothing it is built from changed (scripts/ci/nightly_release_product_reuse.py). The key is
+      # job_input_fingerprint.py nightly-release-product: the tree minus docs, tests and other
+      # products, this workflow, decide's outputs below, Xcode, the SDK and the cmux-tui tree; never
+      # a branch, commit or run. A record is taken only from this repository's own push run of this
+      # workflow on nightly-next whose build-nightly-app succeeded, with its archive's SHA-256
+      # checked; DEV records are another namespace and are never read. A hit unpacks the app and its
+      # dSYMs and skips every step that only feeds xcodebuild; the version, build number and
+      # CMUXCommit are stamped later, and signing, notarization and publication always run.
+      # vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE=0 switches the lookup off.
+      - name: Look up the nightly app compiled on the same inputs
+        id: nightly-product
+        if: inputs.nightly_next_unsigned_run == '' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true'
+        # The lookup bounds itself (--timeout 240, then a miss): it never waits out a rate limit.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # format(): an unset variable is null, and null == '0' is true.
+          SKIP_REASON: ${{ format('{0}', vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE) == '0' && 'vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE is 0' || '' }}
+          CMUX_TUI_TREE_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
+          NIGHTLY_PRODUCT_TRACK: ${{ needs.decide.outputs.track }}
+          NIGHTLY_PRODUCT_CHANNEL: ${{ needs.decide.outputs.channel }}
+          NIGHTLY_PRODUCT_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
+          NIGHTLY_PRODUCT_APP_NAME: ${{ needs.decide.outputs.app_name }}
+          NIGHTLY_PRODUCT_URL_SCHEME: ${{ needs.decide.outputs.url_scheme }}
+          NIGHTLY_PRODUCT_ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
+          NIGHTLY_PRODUCT_ICON_NAME: ${{ needs.decide.outputs.icon_name }}
+          NIGHTLY_PRODUCT_VARIANTS: ${{ needs.decide.outputs.variants }}
+          NIGHTLY_PRODUCT_COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
+          NIGHTLY_PRODUCT_IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
+          NIGHTLY_PRODUCT_SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
+          NIGHTLY_PRODUCT_EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
+          NIGHTLY_PRODUCT_PASSWORD_READERS_OUT: ${{ needs.decide.outputs.password_readers_out }}
+        run: scripts/ci/nightly-release-product.sh lookup >> "$GITHUB_OUTPUT"
+
       - name: Compute Xcode compilation cache key
-        if: inputs.nightly_next_unsigned_run == ''
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         id: compilation-cache-key
         run: |
           set -euo pipefail
@@ -1993,7 +2028,7 @@ jobs:
             xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
       - name: Install compilation dependencies
-        if: inputs.nightly_next_unsigned_run == ''
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
@@ -2003,7 +2038,7 @@ jobs:
       # serial build path (2026-10-09). Their target dirs keep the dependency
       # builds between nightly-next runs; cargo still rebuilds what changed.
       - name: Restore the acpmux and OptChat Chief dependency builds (cmux-next)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next') && runner.environment != 'self-hosted'
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next') && runner.environment != 'self-hosted') && steps.nightly-product.outputs.hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
@@ -2022,7 +2057,7 @@ jobs:
       # Fast and build-only runs do not resolve a published tree and keep their
       # existing local-build paths.
       - name: Fetch the resolved cmux-tui tree companions
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true'
+        if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true') && steps.nightly-product.outputs.hit != 'true'
         env:
           CMUX_TUI_TREE_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
           CMUX_TUI_TREE_TARGET: aarch64-apple-darwin
@@ -2035,7 +2070,7 @@ jobs:
           echo "Using attested same-tree acpmux companion: $acpmux_bin"
 
       - name: Build in-tree acpmux for the compilation cache
-        if: inputs.nightly_next_unsigned_run == ''
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         env:
           CMUX_NEXT_ACPMUX_ARCHS: ${{ needs.decide.outputs.compile_archs }}
         run: |
@@ -2058,7 +2093,7 @@ jobs:
       # bundle nothing, and the app starts the bundled Chief only on DEV and
       # NIGHTLY bundle ids (HomeBrainHost.bundledChiefAllowed).
       - name: Build the OptChat Chief (cmux-next)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
         run: |
           set -euo pipefail
           chief_bin="$RUNNER_TEMP/cmux-next-optchat-chief/optchat-chief"
@@ -2098,7 +2133,7 @@ jobs:
       # It builds in the background too, and is bundled with the Chief after
       # xcodebuild. An unsigned resume restores the app and builds neither.
       - name: Build the cmux-next iPhone host (cmux-mobile-host)
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
+        if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true'
         run: |
           set -euo pipefail
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
@@ -2167,7 +2202,7 @@ jobs:
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
-        if: inputs.nightly_next_unsigned_run == ''
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       - name: Set up Go for the SSH daemon assets
@@ -2189,7 +2224,7 @@ jobs:
       # Nothing earlier reads them: optchat-chief compiles in the committed
       # inspector page (build-web-bundles.sh only checks that page in-tree).
       - name: Set up Bun (cmux-next web bundles)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -2197,7 +2232,7 @@ jobs:
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
       - name: Setup Node (cmux-next web bundles)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -2205,7 +2240,7 @@ jobs:
       # A pattern, not a name: an artifact that is not there yet downloads
       # nothing instead of failing.
       - name: Download the web bundles built on Linux (cmux-next)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -2214,7 +2249,7 @@ jobs:
           merge-multiple: true
 
       - name: Build the web bundles (cmux-next)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
         run: |
           set -euo pipefail
           if python3 scripts/ci/nightly_linux_inputs.py install-web "$RUNNER_TEMP/nightly-linux-inputs/web"; then
@@ -2230,7 +2265,7 @@ jobs:
         run: python3 scripts/ci/background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine
 
       - name: Build nightly app (Release)
-        if: inputs.nightly_next_unsigned_run == ''
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         env:
           IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
           SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
@@ -2322,7 +2357,7 @@ jobs:
       # script on the built app, with the variables Xcode gave it, so the copy,
       # its checks and Resources/bin are what the phase made before.
       - name: Bundle the OptChat Chief and the iPhone host
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
+        if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true'
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/nightly-helper-builds"
@@ -2348,7 +2383,7 @@ jobs:
       # bundle-notices replaces that copy with this tree's. The sign job
       # verifies the bundle against scripts/cmux-next/notices/bundle-map.json.
       - name: Download the third-party notices generated on Linux (cmux-next)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -2357,7 +2392,7 @@ jobs:
           merge-multiple: true
 
       - name: Generate third-party notices (cmux-next)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
         env:
           CMUX_NOTICES_ALLOW_CARGO: "1"
         run: |
@@ -2386,7 +2421,7 @@ jobs:
       # hosted sign job signs the app afterwards. The checks refuse a
       # framework that exports code or that something loads.
       - name: Drop the empty Iroh.framework stub (nightly-next)
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
+        if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true'
         run: |
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
@@ -2416,7 +2451,7 @@ jobs:
           scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/cmux"
 
       - name: Bound Xcode compilation cache size
-        if: inputs.nightly_next_unsigned_run == ''
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         id: compilation-cache-bound
         run: |
           set -euo pipefail
@@ -2524,7 +2559,7 @@ jobs:
       # notarize-nightly-dmg.sh to notarize. It builds with the reviewed rustc
       # that cmux-tui pins: the notices check (rust-std) needs a reviewed rustc.
       - name: Assemble the Computer Use helper
-        if: inputs.nightly_next_unsigned_run == ''
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: |
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
@@ -2621,7 +2656,7 @@ jobs:
           retention-days: 14
 
       - name: Strip unsigned nightly app before transfer
-        if: inputs.nightly_next_unsigned_run == ''
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: |
           set -euo pipefail
           products="build-universal/Build/Products/Release"
@@ -2733,6 +2768,46 @@ jobs:
           [ "$status" = 0 ] || { echo "the dSYM upload to Sentry failed (status ${status:-none})" >&2; exit 1; }
 
       # A failed or cancelled job leaves no background helper build running.
+      # The record a later nightly-next build on the same inputs looks up (Look up the nightly app
+      # compiled on the same inputs): the products as this job hands them on, their SHA-256 and
+      # where they were compiled. A build without the Chromium engine or the remote browser host
+      # (unreadable optional inputs) is never recorded.
+      - name: Pack the nightly app for reuse
+        id: nightly-product-pack
+        if: success() && steps.nightly-product.outputs.key != ''
+        continue-on-error: true
+        env:
+          KEY: ${{ steps.nightly-product.outputs.key }}
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          REUSED_FROM_RUN: ${{ steps.nightly-product.outputs.hit == 'true' && steps.nightly-product.outputs.source_run_id || '' }}
+          REUSED_FROM_SHA: ${{ steps.nightly-product.outputs.hit == 'true' && steps.nightly-product.outputs.source_sha || '' }}
+          COMPILED_RUN: ${{ steps.nightly-product.outputs.hit == 'true' && steps.nightly-product.outputs.compiled_run_id || '' }}
+        run: scripts/ci/nightly-release-product.sh record >> "$GITHUB_OUTPUT"
+
+      - name: Upload the nightly app for reuse
+        id: nightly-product-upload
+        if: steps.nightly-product-pack.outputs.archive != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-next-release-archive-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          path: ${{ steps.nightly-product-pack.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
+
+      - name: Upload the nightly app record
+        if: steps.nightly-product-upload.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-next-release-product-${{ steps.nightly-product.outputs.key }}
+          path: ${{ steps.nightly-product-pack.outputs.manifest }}
+          if-no-files-found: error
+          # As long as the archive it names.
+          retention-days: 2
+          overwrite: true
+
       - name: Stop the helper builds still running
         if: always() && inputs.nightly_next_unsigned_run == ''
         run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"

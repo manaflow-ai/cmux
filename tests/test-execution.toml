@@ -1074,6 +1074,10 @@ path = "tests/test_nightly_release_product_key.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_release_product_reuse.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_feat_ci_guard_group.py"
 lane = "linux-guard"
 

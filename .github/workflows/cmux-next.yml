@@ -1579,6 +1579,8 @@ jobs:
             python3 tests/test_dev_release_product_reuse.py
             # The cmux NEXT Nightly app's key and record namespace: never a DEV key or record.
             python3 tests/test_nightly_release_product_key.py
+            # The nightly app's products pack and unpack safely, and nightly.yml keys what it skips.
+            python3 tests/test_nightly_release_product_reuse.py
             # The advisory test-compile check: its plan, the lane phase and red only for a compile failure.
             python3 tests/test_ci_compile_test_plan.py
             # A merge goes to the landing gate installed from cmuxterm-hq, never a guard in a checkout.
