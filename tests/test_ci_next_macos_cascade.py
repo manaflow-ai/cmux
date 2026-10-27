@@ -689,11 +689,13 @@ class Stall(unittest.TestCase):
         for name in readers:
             with self.subTest(job=name):
                 timeout = jobs[name]["timeout-minutes"]
-                hosted = {"needs": {"macos-placement": {"outputs": {"hosted_jobs": f" {name} "}}}}
+                hosted = {"needs": {"macos-placement": {"outputs": {"hosted_jobs": f" {name} ", "placed_attempt": "1"}},
+                                    "release-compile-fast": {"result": "skipped", "outputs": {"verdict": ""}}},
+                          "github": {"event_name": "push", "ref": "refs/heads/feat-cmux-next", "run_attempt": "1"}}
                 cold, warm = (90, 60) if name in cascade.HOSTED_FRESH_JOBS else (45, 20)
                 self.assertEqual(evaluate(timeout, hosted), cold)
-                self.assertEqual(evaluate(timeout, {"needs": {"macos-placement": {"outputs": {"hosted_jobs": ""}}}}),
-                                 warm)
+                hosted["needs"]["macos-placement"]["outputs"]["hosted_jobs"] = ""
+                self.assertEqual(evaluate(timeout, hosted), warm)
                 if name in cascade.HOSTED_FRESH_JOBS:
                     self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], jobs[name]["runs-on"])
 
@@ -1059,6 +1061,17 @@ class Wiring(unittest.TestCase):
         context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
         context["needs"]["release-compile-fast"] = {"result": "skipped", "outputs": {"verdict": ""}}
         self.assertEqual(evaluate(jobs["runs-on"], context), "glaeda-side-std-xcode-26.6")
+        # The 90 min timeout goes with the hosted route and nothing else (Codex review of #25827).
+        for attempt, actor, placed, fast, expected in (
+                ("1", "teamleaderleo", "1", "skipped", 90), ("1", "teamleaderleo", "1", "failure", 60),
+                ("2", BOT, "1", "skipped", 60), ("2", BOT, "2", "skipped", 60), ("2", "teamleaderleo", "1", "skipped", 60)):
+            with self.subTest(attempt=attempt, actor=actor, placed=placed, fast=fast):
+                context = self.context(attempt, actor, runner="", hosted=" release-compile ", placed=placed)
+                context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
+                context["needs"]["release-compile-fast"] = {"result": fast, "outputs": {"verdict": ""}}
+                route = evaluate(jobs["runs-on"], context)
+                self.assertEqual(evaluate(jobs["timeout-minutes"], context), expected)
+                self.assertEqual(route == HOSTED, expected == 90)
 
     def test_attempt_1_takes_the_hosted_spill_the_placement_chose(self):
         for name in CASCADED:
