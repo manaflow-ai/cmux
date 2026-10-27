@@ -80,38 +80,58 @@ public struct MachineSectionListView: View {
     public var body: some View {
         let rows = model.rows
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(rows) { row in
-                HStack(spacing: Metrics.panelInset) {
-                    Image(systemName: row.isLocal ? "laptopcomputer" : "cloud").foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: Metrics.space2) {
-                            Text(verbatim: row.name).font(Font(Typography.body)).lineLimit(1)
-                            MachineHealthDot(health: row.health)
-                        }
-                        Text(verbatim: row.isConnected ? AddMachineStrings.connected : AddMachineStrings.offline)
-                            .font(Font(Typography.caption)).foregroundStyle(.secondary)
-                    }
-                    .themedHelp(row.healthHelp ?? "")
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(Text(verbatim: [row.name, row.isConnected ? AddMachineStrings.connected : AddMachineStrings.offline,
-                                                        row.healthHelp ?? ""].filter { !$0.isEmpty }.joined(separator: ", ")))
-                    Spacer(minLength: Metrics.panelInset)
-                    Button {
-                        newWorkspace(row.id)
-                    } label: {
-                        Image(systemName: "plus")
+            if rows.isEmpty {
+                VStack(alignment: .leading, spacing: Metrics.space2) {
+                    Text(verbatim: AddMachineStrings.devicesEmpty)
+                        .font(Font(Typography.body))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(action: addMachine) {
+                        Label(AddMachineStrings.addMachine, systemImage: "plus.circle")
+                            .font(Font(Typography.body))
                     }
                     .buttonStyle(.borderless)
-                    .accessibilityLabel(Text(AddMachineStrings.newWorkspace))
-                    .disabled(!row.isConnected)
                 }
-                .padding(.vertical, 3).padding(.horizontal, Metrics.panelInset)
+                .padding(.vertical, Metrics.space2)
+                .padding(.horizontal, Metrics.panelInset)
+            } else {
+                ForEach(rows) { row in
+                    HStack(alignment: .center, spacing: Metrics.panelInset) {
+                        Icon(row.isLocal ? .machineLocal : .machineRemote, size: Metrics.iconSize)
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: Metrics.space2) {
+                                Text(verbatim: row.name).font(Font(Typography.body)).lineLimit(1)
+                                MachineHealthDot(health: row.health)
+                            }
+                            Text(verbatim: row.isConnected ? AddMachineStrings.connected : AddMachineStrings.offline)
+                                .font(Font(Typography.caption)).foregroundStyle(.secondary)
+                        }
+                        .themedHelp(row.healthHelp ?? "")
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(Text(verbatim: [row.name, row.isConnected ? AddMachineStrings.connected : AddMachineStrings.offline,
+                                                            row.healthHelp ?? ""].filter { !$0.isEmpty }.joined(separator: ", ")))
+                        Spacer(minLength: Metrics.panelInset)
+                        Button {
+                            newWorkspace(row.id)
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(Text(AddMachineStrings.newWorkspace))
+                        .disabled(!row.isConnected)
+                    }
+                    .padding(.vertical, 2).padding(.horizontal, Metrics.panelInset)
+                }
             }
-            Button(action: addMachine) {
-                Label(AddMachineStrings.addMachine, systemImage: "plus.circle").font(Font(Typography.body))
+            if !rows.isEmpty {
+                Button(action: addMachine) {
+                    Label(AddMachineStrings.addMachine, systemImage: "plus.circle")
+                        .font(Font(Typography.body))
+                }
+                .buttonStyle(.borderless)
+                .padding(.vertical, 2).padding(.horizontal, Metrics.panelInset)
             }
-            .buttonStyle(.borderless)
-            .padding(.vertical, 3).padding(.horizontal, Metrics.panelInset)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

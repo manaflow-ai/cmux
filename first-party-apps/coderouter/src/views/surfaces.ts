@@ -23,7 +23,7 @@ function summary(d: Core) {
       Row({
         title: s.scope?.kind === "team" ? s.scope.team_name : t("scope.personal", "Personal"),
         subtitle: `${healthWord(s.health)} · ${usageSummary(s.usage_today)}`,
-        symbol: "arrow.triangle.branch",
+        symbol: "account.routed",
         tint: healthTone(s.health)
       })
         .onTap(() => act.openPane("dashboard"))

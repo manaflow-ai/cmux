@@ -45,7 +45,7 @@
         "en": "CodeRouter",
         "ja": "CodeRouter"
       },
-      "symbol": "arrow.triangle.branch",
+      "symbol": "account.routed",
       "options": {
         "defaultRegion": "bottom",
         "maxRows": 12
@@ -57,7 +57,7 @@
         "en": "CodeRouter Health",
         "ja": "CodeRouter の状態"
       },
-      "symbol": "arrow.triangle.branch",
+      "symbol": "account.routed",
       "options": {
         "placement": "titlebar"
       }
@@ -68,7 +68,7 @@
         "en": "CodeRouter",
         "ja": "CodeRouter"
       },
-      "symbol": "arrow.triangle.branch"
+      "symbol": "account.routed"
     }
   },
   "presentation": {
