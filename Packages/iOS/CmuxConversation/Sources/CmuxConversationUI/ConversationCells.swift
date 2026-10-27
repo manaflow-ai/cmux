@@ -25,6 +25,27 @@ final class MessageCell: UICollectionViewCell {
         return card
     }()
     private var hasLinkCard = false
+    /// An agent's browser or Secure Store card (ConversationCards.swift),
+    /// created for the first card row this cell shows.
+    private(set) lazy var cardView: ConversationCardView = {
+        let card = ConversationCardView()
+        hasCardView = true
+        shiftable.insertSubview(card, belowSubview: reactionBadge)
+        return card
+    }()
+    private(set) var hasCardView = false
+    /// Next-step chips inside the reply bubble, created on first use.
+    private(set) lazy var chipsView: ConversationChipsView = {
+        let chips = ConversationChipsView()
+        hasChipsView = true
+        shiftable.insertSubview(chips, belowSubview: reactionBadge)
+        return chips
+    }()
+    private(set) var hasChipsView = false
+    /// VoiceOver elements of the row's cards (summary, buttons, chips).
+    var cardAccessibilityElements: [ConversationAccessibilityElement] = []
+    /// Runs a card button from VoiceOver; the controller sets it.
+    var cardActionHandler: ((ConversationCardAction) -> Bool)?
     let avatar = ConversationAvatarView()
     let reactionBadge = ReactionBadgeView()
     let footerLabel = UILabel()
@@ -205,12 +226,14 @@ final class MessageCell: UICollectionViewCell {
         configureImages(model: model, layout: layout)
         configureFiles(model: model, layout: layout)
         configurePoll(model: model, layout: layout)
+        configureCards(model: model, layout: layout)
 
         if let bubbleFrame = layout.bubbleFrame {
             bubble.isHidden = false
             textLabel.isHidden = layout.textFrame == nil
             bubble.side = model.isOutgoing ? .trailing : .leading
-            bubble.hasTail = model.showsTail && !layout.linkCardIsLast
+            // A card under the bubble ends the row untailed; the bubble has no tail then either.
+            bubble.hasTail = model.showsTail && !layout.linkCardIsLast && layout.cards?.cardFrame == nil
             bubble.fillColor = model.isOutgoing
                 ? (message.delivery?.isFailed == true ? ConversationTheme.failedBubble : ConversationTheme.outgoingBubble)
                 : ConversationTheme.incomingBubble
@@ -444,6 +467,7 @@ final class MessageCell: UICollectionViewCell {
             // Images take the bubble outline; the last one in a run gets the
             // tail, which hangs below the full-height photo as in Messages.
             let tailed = model.showsTail && index == layout.imageFrames.count - 1 && model.message.text.isEmpty && layout.fileFrames.isEmpty
+                && layout.cards == nil
             var frame = layout.imageFrames[index]
             if tailed { frame.size.height += ConversationTheme.tailDrop }
             view.frame = frame

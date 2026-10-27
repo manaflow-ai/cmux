@@ -310,6 +310,9 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var deliveredQuietly: Bool
     /// I tapped Notify Anyway for this quietly delivered message.
     public var notifiedAnyway: Bool
+    /// Cards an agent posted in the message (`card` parts): a live browser,
+    /// a Secure Store sign-in, next-step chips. `text` holds only its text.
+    public var cards: [ConversationCard]
 
     public init(
         id: String,
@@ -336,7 +339,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         scheduledAt: Date? = nil,
         systemEvent: ConversationSystemEvent? = nil,
         deliveredQuietly: Bool = false,
-        notifiedAnyway: Bool = false
+        notifiedAnyway: Bool = false,
+        cards: [ConversationCard] = []
     ) {
         self.id = id
         self.seq = seq
@@ -363,6 +367,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.systemEvent = systemEvent
         self.deliveredQuietly = deliveredQuietly
         self.notifiedAnyway = notifiedAnyway
+        self.cards = cards
     }
 
     /// A Send Later message still waiting on the server (or failed to send).

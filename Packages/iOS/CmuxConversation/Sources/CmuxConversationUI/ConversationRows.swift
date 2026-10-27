@@ -79,6 +79,8 @@ struct MessageRowModel: Hashable {
     var bodyText: String { linkSplit?.bodyText ?? message.text }
     /// Set for poll messages (see ConversationPolls.swift).
     var poll: PollRowModel? = nil
+    /// Set for messages with agent cards (see ConversationCards.swift).
+    var cards: CardRowModel? = nil
     /// "Show Original" / "View Translation" and friends under a translated bubble.
     var translation: ConversationTranslationCaption? = nil
 }
@@ -373,6 +375,11 @@ enum ConversationRowBuilder {
         if let statusMessageID, let old = store.messageIndex(id: statusMessageID), old < start { stale.append(old) }
         if let new = plan.statusIndex, new < start, !stale.contains(new) { stale.append(new) }
         for i in 0..<start {
+            // A card's chosen chips and Added state read the messages after it.
+            if !messages[i].cards.isEmpty, messages[i].nextSteps != nil || messages[i].signInCard != nil {
+                if !stale.contains(i) { stale.append(i) }
+                continue
+            }
             guard let replyTo = messages[i].replyToID else { continue }
             if let quoted = store.messageIndex(id: replyTo), quoted < start { continue }
             if !stale.contains(i) { stale.append(i) }
@@ -422,10 +429,10 @@ enum ConversationRowBuilder {
     }
 
     /// Appends the rows of one message, copied from `memo` when they were
-    /// built from the same inputs before (polls and scheduled messages read
-    /// more of the store and are always built).
+    /// built from the same inputs before (polls, cards and scheduled
+    /// messages read more of the store and are always built).
     private static func appendRows(for original: ConversationMessage, entry: ConversationRunPlan.Entry, context: Context, memo: ConversationRowMemo?, typingPlaced: inout Bool, into rows: inout [ConversationRow]) {
-        guard let memo, !original.isScheduled, original.poll == nil else {
+        guard let memo, !original.isScheduled, original.poll == nil, original.cards.isEmpty else {
             appendRows(for: original, entry: entry, context: context, typingPlaced: &typingPlaced, into: &rows)
             return
         }
@@ -493,7 +500,7 @@ enum ConversationRowBuilder {
         let quote = message.replyToID.flatMap { store.message(id: $0) }.map {
             ReplyQuote(text: $0.text.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty)
         }
-        rows.append(.message(PollRowModel.attach(to: MessageRowModel(
+        rows.append(.message(CardRowModel.attach(to: PollRowModel.attach(to: MessageRowModel(
             rowID: message.rowID,
             message: message,
             isOutgoing: isOutgoing,
@@ -508,7 +515,7 @@ enum ConversationRowBuilder {
             isFirstInGroup: !groupedWithPrevious,
             footer: footer,
             replyQuote: quote,
-            isEmojiOnly: message.attachments.isEmpty && message.linkPreview == nil && isEmojiOnly(message.text),
+            isEmojiOnly: message.attachments.isEmpty && message.linkPreview == nil && message.cards.isEmpty && isEmojiOnly(message.text),
             reactionKinds: message.reactions.reduce(into: [ConversationReaction]()) { kinds, mark in
                 if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }
             },
@@ -516,7 +523,7 @@ enum ConversationRowBuilder {
             meID: meID,
             linkSplit: ConversationLinkSplit.split(text: message.text, preview: message.linkPreview),
             translation: translation?.caption
-        ), store: store)))
+        ), store: store), store: store)))
     }
 
     private static func firstName(_ name: String) -> String {

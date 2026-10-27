@@ -37,6 +37,17 @@ public final class ConversationViewController: UIViewController {
     /// A tapped link in a message: return true when the host handled it (a
     /// file preview); false, or unset, opens it with the system.
     public var onOpenLink: ((URL) -> Bool)?
+    /// A message of mine that a card sends (a chosen next step, the Secure
+    /// Store note): the host sends it its own way (an outbox while offline).
+    /// Unset, the store sends it.
+    public var onSendCardMessage: ((String) -> Void)?
+    /// "Open browser" on a browser card (card, message id): return true when
+    /// the host opened the live browser or desktop; false, or unset, shows
+    /// the card's latest screenshot full screen.
+    public var onOpenBrowserCard: ((ConversationBrowserCard, String) -> Bool)?
+    /// Add on a Secure Store card (card, message id): return true when the
+    /// host took the sign-in; false, or unset, explains it is added on the Mac.
+    public var onAddSignIn: ((ConversationSignInCard, String) -> Bool)?
     let options: ConversationPresentationOptions
 
     let layout = ConversationTranscriptLayout()

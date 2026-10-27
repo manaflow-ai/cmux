@@ -251,12 +251,14 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             return attachment
         }
 
-        /// Reads the bytes of every attachment part not seen yet, so the
-        /// message renders from them (the owner serves no URL).
+        /// Reads the bytes of every attachment part (and browser card
+        /// screenshot) not seen yet, so the message renders from them (the
+        /// owner serves no URL). A live browser card's edits each name a new
+        /// screenshot; each is read once.
         private func hydrate(_ object: [String: Any]) async {
             guard let id = conversationID else { return }
-            for part in object["parts"] as? [[String: Any]] ?? [] where part["type"] as? String == "attachment" {
-                guard let hash = part["hash"] as? String, attachmentBytes[hash] == nil else { continue }
+            for part in object["parts"] as? [[String: Any]] ?? [] {
+                guard let hash = ChiefWire.byteHash(part), attachmentBytes[hash] == nil else { continue }
                 var data = Data()
                 while true {
                     guard let chunk = try? await call("conversation-attachment-read", [

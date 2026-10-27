@@ -73,7 +73,11 @@ final class MessageCellAccessibility {
             quote.frameProvider = { shifted(frame) }
             elements.append(quote)
         }
-        elements.append(bubble)
+        // A card-only message has no text bubble: its cards speak for it.
+        if layout.bubbleFrame != nil || layout.emojiFrame != nil || !layout.imageFrames.isEmpty || cell.cardAccessibilityElements.isEmpty {
+            elements.append(bubble)
+        }
+        elements.append(contentsOf: cell.cardAccessibilityElements)
         if !model.reactionKinds.isEmpty, !cell.reactionBadge.isHidden {
             reactions.accessibilityValue = model.reactionKinds.map(ConversationAccessibilityText.tapbackName).joined(separator: ", ")
             reactions.frameProvider = { [unowned cell] in cell.shiftable.convert(cell.reactionBadge.frame, to: cell.contentView) }
@@ -125,6 +129,11 @@ extension ConversationViewController {
         // An audio message speaks its duration and transcript as its content.
         var spoken = message
         if let audio = cell.audioAccessibilityText { spoken.text = audio }
+        // The bubble speaks the text; the cards are their own elements.
+        cell.cardActionHandler = { [weak self, weak cell] action in
+            guard let self, let model = cell?.model else { return false }
+            return self.performCardAction(action, model: model)
+        }
         ax.bubble.accessibilityLabel = ConversationAccessibilityText.messageLabel(
             spoken,
             isOutgoing: model.isOutgoing,

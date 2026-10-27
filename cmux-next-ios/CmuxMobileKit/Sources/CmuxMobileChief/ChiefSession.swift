@@ -585,6 +585,8 @@ public final class ChiefSession {
         }
         guard let message = lastMessage else { return unavailableReason ?? "Ask Chief to run agents on your Macs." }
         if message.isUnsent { return "Message unsent" }
+        // A card-only message (a live browser, a sign-in) previews as its card's line.
+        if message.text.isEmpty, !message.cards.isEmpty { return message.textWithCards }
         if message.text.isEmpty, !message.attachments.isEmpty { return "Attachment" }
         return message.text
     }

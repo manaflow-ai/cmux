@@ -77,6 +77,49 @@ struct ChiefWire {
         )
     }
 
+    /// A `card` part (https://github.com/manaflow-ai/cmux/issues/25830) as the
+    /// model's card; nil for a kind or shape this phone does not know (the
+    /// owner refuses those, so it is an older phone reading a newer card).
+    /// A browser card's screenshot renders from `bytes` like an attachment.
+    func card(_ part: [String: Any], bytes: [String: Data] = [:]) -> ConversationCard? {
+        guard part["type"] as? String == "card" else { return nil }
+        let url = (part["url"] as? String).flatMap { URL(string: $0) }
+        switch part["kind"] as? String {
+        case "browser":
+            guard let step = part["step"] as? String else { return nil }
+            let surface = ConversationBrowserCard.Surface(rawValue: part["surface"] as? String ?? "browser") ?? .browser
+            let image = (part["image"] as? [String: Any]).flatMap { record -> ConversationAttachment? in
+                guard let hash = record["hash"] as? String, !hash.isEmpty else { return nil }
+                var attachmentPart = record
+                attachmentPart["type"] = "attachment"
+                attachmentPart["name"] = "Screenshot"
+                attachmentPart["mime_type"] = record["mime_type"] as? String ?? "image/png"
+                return attachment(attachmentPart, bytes: bytes[hash])
+            }
+            return ConversationBrowserCard(
+                surface: surface, step: step, live: part["live"] as? Bool ?? false,
+                target: ConversationBrowserCard.Target(wire: part["target"] as? String), url: url, image: image
+            ).map(ConversationCard.browser)
+        case "sign_in":
+            guard let site = part["site"] as? String else { return nil }
+            return ConversationSignInCard(site: site, url: url).map(ConversationCard.signIn)
+        case "next_steps":
+            let choices = (part["choices"] as? [Any] ?? []).compactMap { $0 as? String }
+            return ConversationNextSteps(choices: choices).map(ConversationCard.nextSteps)
+        default:
+            return nil
+        }
+    }
+
+    /// The hash of a part's bytes to read: an attachment's, or a browser card's screenshot.
+    static func byteHash(_ part: [String: Any]) -> String? {
+        switch part["type"] as? String {
+        case "attachment": return part["hash"] as? String
+        case "card": return (part["image"] as? [String: Any])?["hash"] as? String
+        default: return nil
+        }
+    }
+
     /// `peerReadSeq`: Chief's read cursor; my messages at or below it read as Read.
     func message(_ object: [String: Any], peerReadSeq: Int, bytes: [String: Data] = [:]) -> ConversationMessage? {
         guard let id = object["id"] as? String, let seq = (object["seq"] as? NSNumber)?.intValue,
@@ -110,7 +153,8 @@ struct ChiefWire {
             attachments: retracted == nil ? parts.compactMap { attachment($0, bytes: ($0["hash"] as? String).flatMap { bytes[$0] }) } : [],
             delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil,
             mentions: linked.mentions,
-            links: linked.links
+            links: linked.links,
+            cards: retracted == nil ? parts.compactMap { card($0, bytes: bytes) } : []
         )
     }
 

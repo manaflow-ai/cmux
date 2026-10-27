@@ -269,6 +269,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             return
         }
         if handlePollTap(cell: cell, model: model, local: local) { return }
+        if handleCardTap(cell: cell, model: model, local: local) { return }
         if let caption = cell.cellLayout?.translationFrame, caption.insetBy(dx: 0, dy: -6).contains(cell.shiftable.convert(local, from: cell)) {
             store.translations.toggleOriginal(rowID: model.rowID)
             return

@@ -72,6 +72,9 @@ struct MessageCellLayout {
     var translationFrame: CGRect? = nil
     /// Document balloons (tail area excluded, like `bubbleFrame`), one per file.
     var fileFrames: [CGRect] = []
+    /// An agent's cards: the browser or Secure Store balloon under the
+    /// content, and next-step chips inside the text bubble.
+    var cards: ConversationCardCellLayout? = nil
 
     /// The row ends in a caption line ("Replay", "Edited", "Delivered", ...)
     /// rather than a bubble.
@@ -146,6 +149,7 @@ final class MessageLayoutCache {
 
     nonisolated static func measuresOffMain(_ model: MessageRowModel) -> Bool {
         model.poll == nil && model.linkSplit == nil && model.message.linkPreview == nil && model.message.audioAttachment == nil
+            && model.message.cards.isEmpty
     }
 
     /// Text and layout for `model`, exactly as `layout(for:)` builds them,
@@ -478,6 +482,10 @@ extension MessageCellLayout {
         var textFrame: CGRect?
         var emojiFrame: CGRect?
         var audioFrame: CGRect?
+        // Next-step chips ride inside the reply's text bubble, under its text.
+        let nextSteps = message.nextSteps
+        var chipsFrame: CGRect?
+        var chipsLayout: ConversationChipsLayout?
         if let audio = message.audioAttachment?.audio {
             let audioLayout = AudioBubbleLayout.compute(audio: audio, text: text, maxBubbleWidth: maxBubbleWidth)
             let frame = bubbleRect(bodyWidth: audioLayout.bodyWidth, y: y, height: audioLayout.height)
@@ -503,36 +511,76 @@ extension MessageCellLayout {
                 y: y, width: size.width, height: size.height
             )
             y += rowHeight
-        } else if !bodyText.isEmpty {
+        } else if !bodyText.isEmpty || nextSteps != nil {
             let hPad = t.bubbleHorizontalPadding, vPad = t.bubbleVerticalPadding
-            let size = BubbleTextCache.shared.size(of: text, width: bubbleTextWidth(width: width, margin: margin))
-            let textHeight = max(size.height, t.bubbleFont.lineHeight)
+            let hasText = !bodyText.isEmpty
+            let size = hasText ? BubbleTextCache.shared.size(of: text, width: bubbleTextWidth(width: width, margin: margin)) : .zero
+            let textHeight = hasText ? max(size.height, t.bubbleFont.lineHeight) : 0
             // ChatKit rounds the balloon up to the pixel grid ("Are we still on
             // for dinner tonight?" is 249.70 pt of text in a 278.00 x 40.33
             // balloon at @3x); the text keeps its 14 pt leading inset and the
             // rounding lands on the trailing side.
-            let bodyWidth = max(pixelCeil(size.width + 2 * hPad), t.minBubbleWidth)
+            var bodyWidth = max(pixelCeil(size.width + 2 * hPad), t.minBubbleWidth)
+            var chipsHeight: CGFloat = 0
+            if let nextSteps {
+                // Full-width rows: the bubble takes the widest a bubble may be.
+                bodyWidth = maxBubbleWidth
+                let chips = ConversationCardStyle.chipsLayout(nextSteps.choices, width: bodyWidth - 2 * hPad)
+                chipsLayout = chips
+                chipsHeight = chips.height + (hasText ? ConversationCardStyle.chipsTopGap : 0)
+            }
             // ChatKit rounds the text's height to the nearest pixel and adds
             // the insets: 42.67 pt for a 22.674 pt line at XL, 57.33 for
             // 33.41 at AX1 (40.33 at Large either way). Rows then land on the
             // pixel grid where Messages puts them (232.33, 276.67, 321.00).
-            let h = pixelRound(textHeight) + 2 * vPad
+            let textBlock = hasText ? pixelRound(textHeight) : 0
+            let h = textBlock + chipsHeight + 2 * vPad
             let rowHeight = h
             let frame = bubbleRect(bodyWidth: bodyWidth, y: y, height: h)
             bubbleFrame = frame
             let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
-            textFrame = CGRect(
-                x: bodyMinX + (bodyWidth > size.width + 2 * hPad + 1 ? (bodyWidth - size.width) / 2 : hPad),
-                y: frame.minY + vPad,
-                width: size.width,
-                height: textHeight
-            )
+            if hasText {
+                // Short text centers in a minimum-width bubble; beside chips it stays leading.
+                let centered = nextSteps == nil && bodyWidth > size.width + 2 * hPad + 1
+                textFrame = CGRect(
+                    x: bodyMinX + (centered ? (bodyWidth - size.width) / 2 : hPad),
+                    y: frame.minY + vPad,
+                    width: size.width,
+                    height: textHeight
+                )
+            }
+            if let chipsLayout {
+                chipsFrame = CGRect(
+                    x: bodyMinX + hPad, y: frame.minY + vPad + textBlock + (hasText ? ConversationCardStyle.chipsTopGap : 0),
+                    width: bodyWidth - 2 * hPad, height: chipsLayout.height
+                )
+            }
             y += rowHeight
         }
         if model.linkSplit?.cardFirst == false { placeLinkCard() }
-        let linkCardIsLast = linkCardFrame != nil && (model.linkSplit?.cardFirst == false || bubbleFrame == nil)
 
-        let primary = (linkCardIsLast ? linkCardFrame : nil) ?? bubbleFrame ?? emojiFrame ?? fileFrames.last ?? imageFrames.last ?? CGRect(x: incomingBodyLeading, y: y, width: 40, height: 1)
+        // The browser or Secure Store card: its own untailed balloon, last in the row.
+        var cardFrame: CGRect?
+        var cardLayout: ConversationCardLayout?
+        if let card = message.browserCard.map(ConversationCard.browser) ?? message.signInCard.map(ConversationCard.signIn),
+           let layout = ConversationCardStyle.cardLayout(card, maxWidth: maxBubbleWidth) {
+            if bubbleFrame != nil || linkCardFrame != nil || emojiFrame != nil || !imageFrames.isEmpty || !fileFrames.isEmpty {
+                y += t.groupedSpacing
+            }
+            let frame = CGRect(
+                x: model.isOutgoing ? outgoingBodyTrailing - layout.size.width : incomingBodyLeading,
+                y: y, width: layout.size.width, height: layout.size.height
+            )
+            cardFrame = frame
+            cardLayout = layout
+            y += layout.size.height
+        }
+        let cards: ConversationCardCellLayout? = cardFrame == nil && chipsFrame == nil
+            ? nil
+            : ConversationCardCellLayout(cardFrame: cardFrame, card: cardLayout, chipsFrame: chipsFrame, chips: chipsLayout)
+        let linkCardIsLast = linkCardFrame != nil && cardFrame == nil && (model.linkSplit?.cardFirst == false || bubbleFrame == nil)
+
+        let primary = cardFrame ?? (linkCardIsLast ? linkCardFrame : nil) ?? bubbleFrame ?? emojiFrame ?? fileFrames.last ?? imageFrames.last ?? CGRect(x: incomingBodyLeading, y: y, width: 40, height: 1)
         let firstContent = imageFrames.first ?? fileFrames.first ?? (model.linkSplit?.cardFirst == true ? linkCardFrame : nil) ?? bubbleFrame ?? linkCardFrame ?? emojiFrame ?? primary
         // Body rect (no tail) of the first content block.
         let firstBody: CGRect = {
@@ -553,7 +601,7 @@ extension MessageCellLayout {
 
         // Same rule as the row's tail reservation below.
         let tailedImage = bubbleFrame == nil && emojiFrame == nil && linkCardFrame == nil && (!imageFrames.isEmpty || !fileFrames.isEmpty)
-        let drawsTail = model.showsTail && (bubbleFrame != nil || linkCardFrame != nil || tailedImage)
+        let drawsTail = model.showsTail && cardFrame == nil && (bubbleFrame != nil || linkCardFrame != nil || tailedImage)
 
         var avatarFrame: CGRect?
         if model.showsAvatar {
@@ -615,7 +663,7 @@ extension MessageCellLayout {
 
         var threadPath: CGPath?
         if let quoteFrame, let quote = model.replyQuote {
-            let pieces = imageFrames + fileFrames + [bubbleFrame, emojiFrame, audioFrame, linkCardFrame].compactMap { $0 }
+            let pieces = imageFrames + fileFrames + [bubbleFrame, emojiFrame, audioFrame, linkCardFrame, cardFrame].compactMap { $0 }
             let replyTop = pieces.min { $0.minY < $1.minY } ?? primary
             // The thread line drops from under the quote and joins the reply.
             var quoteBody = quoteFrame
@@ -636,6 +684,7 @@ extension MessageCellLayout {
 
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
         if let linkCardFrame { content = content.union(linkCardFrame) }
+        if let cardFrame { content = content.union(cardFrame) }
         content = fileFrames.reduce(content) { $0.union($1) }
         if content.isNull { content = primary }
         // The tail hangs below the body; reserve it in the row and the lifted preview.
@@ -674,7 +723,8 @@ extension MessageCellLayout {
             linkCard: linkCard,
             linkCardIsLast: linkCardIsLast,
             translationFrame: translationFrame,
-            fileFrames: fileFrames
+            fileFrames: fileFrames,
+            cards: cards
         )
     }
 }

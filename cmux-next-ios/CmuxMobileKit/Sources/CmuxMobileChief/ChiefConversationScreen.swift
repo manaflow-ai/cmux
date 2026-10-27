@@ -134,6 +134,17 @@ struct ChiefConversationController: UIViewControllerRepresentable {
             FilePreviewRequest(reference: link.reference, source: source, line: link.line).present(from: conversation)
             return true
         }
+        // A chosen next step or the Secure Store note goes through the session,
+        // so it waits in the outbox while Chief is not connected.
+        conversation.onSendCardMessage = { [weak session] text in
+            session?.send(ConversationComposeMessage(text: text))
+        }
+        // "Open browser" (browser:right, machine:<id>): this iPhone has no view of
+        // the Mac's Home browser column or of a Cloud machine's desktop yet, so the
+        // package shows the card's latest screenshot full screen (onOpenBrowserCard
+        // unset). Add on a Secure Store card: no phone-to-Mac route carries a
+        // password to the Mac's Secure Store, so the package's sheet says to add
+        // it on the Mac (onAddSignIn unset).
         // Select mode's Forward opens New Message with the draft, as in the lab.
         conversation.onForward = { [compose] draft in
             compose?.present(forwarding: draft)
