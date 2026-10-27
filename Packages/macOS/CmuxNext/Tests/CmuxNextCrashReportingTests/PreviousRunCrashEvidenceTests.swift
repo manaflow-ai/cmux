@@ -200,4 +200,28 @@ import Testing
         #expect(sent.tags?["crash_key.daemon_pid"] == "77")
         #expect(hint.attachments.count == 1)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// sentry-cocoa 9 calls only `beforeSendWithHint` when it is set, so the recorder (086) must record there too:
+    /// the previous run's crash lands as a file with its crash keys and `blackbox.txt`, and is never sent.
+    @Test("The recorder records the previous run's crash with its evidence")
+    func recorderKeepsTheEvidence() throws {
+        let policy = CrashReportingPolicy(bundleID: "com.cmuxterm.app.nightly", shortVersion: "1.0", build: "42", isDebugBuild: false,
+                                          telemetryOptIn: true, managedDisablesTelemetry: false, processEnvironment: [:])
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "sentry-recorder-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = SentryRecorderTransport(directory: directory, lane: { $0() })
+        let options = CrashReporter(policy: policy, previousRun: Self.evidence(), recorder: recorder).options()
+        let beforeSend = try #require(options.beforeSendWithHint)
+        #expect(!options.enableAutoSessionTracking)
+        let event = Self.event()
+
+        #expect(beforeSend(event, Hint()) == nil, "a recorded event is never sent")
+
+        let file = String(decoding: try Data(contentsOf: recorder.file(eventID: event.eventId.sentryIdString)), as: UTF8.self)
+        #expect(file.contains("crash_key.daemon_pid"))
+        #expect(file.contains(CrashReporter.blackboxFileName))
+    }
+    #endif
 }

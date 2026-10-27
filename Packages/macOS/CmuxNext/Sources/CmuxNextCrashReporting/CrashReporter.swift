@@ -84,6 +84,25 @@ public final class CrashReporter: Sendable {
     public let previousRun: PreviousRunCrashEvidence?
     private let sentryHandlers = Mutex<SignalActions?>(nil)
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// With `CMUX_NEXT_SENTRY_RECORDER=<dir>`, every event goes to a file in `<dir>` instead of Sentry.
+    private let recorder: SentryRecorderTransport?
+
+    /// - Parameters:
+    ///   - previousRun: The previous run's files, read when its crash event is sent; nil after a clean
+    ///     exit or outside the app process.
+    ///   - recorder: Records events instead of sending them; by default the one the process
+    ///     environment asks for (``SentryRecorderTransport/environmentKey``).
+    public init(policy: CrashReportingPolicy,
+                hangTracking: HangTracking = .sentry,
+                previousRun: PreviousRunCrashEvidence? = nil,
+                recorder: SentryRecorderTransport? = SentryRecorderTransport(environment: ProcessInfo.processInfo.environment)) {
+        self.policy = policy
+        self.hangTracking = hangTracking
+        self.previousRun = previousRun
+        self.recorder = recorder
+    }
+    #else
     /// - Parameter previousRun: The previous run's files, read when its crash event is sent; nil after a clean
     ///   exit or outside the app process.
     public init(policy: CrashReportingPolicy, hangTracking: HangTracking = .sentry, previousRun: PreviousRunCrashEvidence? = nil) {
@@ -91,6 +110,7 @@ public final class CrashReporter: Sendable {
         self.hangTracking = hangTracking
         self.previousRun = previousRun
     }
+    #endif
 
     /// Whether Sentry runs in this process.
     public var isStarted: Bool { sentryHandlers.withLock { $0 != nil } }
@@ -127,14 +147,28 @@ public final class CrashReporter: Sendable {
         options.enableLogs = false
         let scrubber = SentryEventScrubber()
         let labels = CrashEventLabels(policy: policy)
-        let previousRun = previousRun
-        // The hint form of beforeSend: only its hint can add an attachment to one event (the previous run's
-        // crash). The previous run's tags go on before the scrub, so they are scrubbed with the rest.
-        options.beforeSendWithHint = { event, hint in
-            previousRun?.decorate(event, hint: hint)
+        let prepare: (Event) -> Event = { event in
             let scrubbed = scrubber.scrub(event)
             labels.apply(to: scrubbed)
             return scrubbed
+        }
+        if let previousRun {
+            // The hint form of beforeSend: only its hint can add an attachment to one event (the previous run's
+            // crash). The previous run's tags go on before the scrub, so they are scrubbed with the rest.
+            // sentry-cocoa 9 calls only this one when it is set, never `beforeSend` too.
+            let prepareWithHint: (Event, Hint) -> Event = { event, hint in
+                previousRun.decorate(event, hint: hint)
+                return prepare(event)
+            }
+            options.beforeSendWithHint = { event, hint in prepareWithHint(event, hint) }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            recorder?.install(on: options, prepareWithHint: prepareWithHint)
+            #endif
+        } else {
+            options.beforeSend = { event in prepare(event) }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            recorder?.install(on: options, prepare: prepare)
+            #endif
         }
         options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
         options.beforeSendSpan = { span in scrubber.scrub(span) }
