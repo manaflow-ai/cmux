@@ -41,6 +41,83 @@ fn screenshot_out_is_made_absolute_except_stdout() {
     assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
 }
 
+/// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names
+/// a folder of the caller's working directory, so the app gets it absolute:
+/// the app runs elsewhere, and a space's default directory must be absolute.
+/// `~/…` is left for the app to expand, an empty `--cwd=` still clears, and a
+/// bare `--cwd` (true) stays a bool for the app to refuse.
+#[test]
+fn an_action_cwd_is_made_absolute_except_home_and_empty() {
+    let sent = |words: &[&str]| {
+        let (method, params) =
+            call(run_action("space set-defaults", &args(words), ActionName::Cli).unwrap());
+        assert_eq!(method, "action.run");
+        params["args"]["cwd"].clone()
+    };
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(sent(&["--cwd", "."]), json!(cwd.to_string_lossy()));
+    assert_eq!(sent(&["--cwd", "sub"]), json!(cwd.join("sub").to_string_lossy()));
+    assert_eq!(sent(&["--cwd=./sub/x"]), json!(cwd.join("sub/x").to_string_lossy()));
+    assert_eq!(sent(&["--cwd", "~/x"]), json!("~/x"));
+    assert_eq!(sent(&["--cwd", "/srv/app"]), json!("/srv/app"));
+    assert_eq!(sent(&["--cwd="]), json!(""));
+    assert_eq!(sent(&["--cwd"]), json!(true));
+}
+
+/// A remote, cloud or agent action's `--cwd` is a folder on the machine it runs
+/// on, so it is sent as typed, never resolved against the caller's directory.
+#[test]
+fn a_remote_or_cloud_action_cwd_is_sent_as_typed() {
+    let sent = |action: &str, name: ActionName| {
+        let (_, params) = call(run_action(action, &args(&["--cwd", "."]), name).unwrap());
+        params["args"]["cwd"].clone()
+    };
+    for action in
+        ["open-remote", "remote open-terminal-here", "cloud start-session", "agent new-chat"]
+    {
+        assert_eq!(sent(action, ActionName::Cli), json!("."), "{action}");
+    }
+    for action in [
+        "remote.openRemote",
+        "cloudStartSession",
+        "palette.newAgentChat",
+        "agent.openSessionWorkspace",
+    ] {
+        assert_eq!(sent(action, ActionName::Any), json!("."), "{action}");
+    }
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(sent("tab new", ActionName::Cli), json!(cwd.to_string_lossy()));
+}
+
+/// `cmux cloud new-machine --bootstrap-script FILE` uploads a file of the
+/// caller's working directory, so the app gets it absolute; `--persistent`
+/// alone is a true flag and `--size` keeps its value.
+#[test]
+fn new_machine_bootstrap_script_is_made_absolute() {
+    let (method, params) = call(
+        run_action(
+            "cloud new-machine",
+            &args(&[
+                "--persistent",
+                "--size",
+                "medium",
+                "--bootstrap",
+                "lane",
+                "--bootstrap-script",
+                "boot.sh",
+            ]),
+            ActionName::Cli,
+        )
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(params["args"]["bootstrapScript"], json!(cwd.join("boot.sh").to_string_lossy()));
+    assert_eq!(params["args"]["persistent"], json!(true));
+    assert_eq!(params["args"]["size"], json!("medium"));
+    assert_eq!(params["args"]["bootstrap"], json!("lane"));
+}
+
 #[test]
 fn non_app_scopes_are_left_to_the_resource_grammar() {
     assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);
@@ -253,6 +330,28 @@ fn action_run_maps_flags_to_target_and_arguments() {
             "args": { "title": "Build", "keep_case": "true" },
         })
     );
+}
+
+#[test]
+fn both_agent_tab_command_forms_forward_the_peer_host() {
+    for words in [
+        vec!["agent", "open-tab", "session-id", "--target", "pane_0123", "--host", "cmux16"],
+        vec![
+            "action",
+            "run",
+            "agent.openSessionTab",
+            "--target",
+            "pane_0123",
+            "--session",
+            "session-id",
+            "--host",
+            "cmux16",
+        ],
+    ] {
+        let (_, params) = call(parse(&args(&words)).unwrap().unwrap());
+        assert_eq!(params["target"], "pane_0123");
+        assert_eq!(params["args"], json!({"session": "session-id", "host": "cmux16"}));
+    }
 }
 
 #[test]

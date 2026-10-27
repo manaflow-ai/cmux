@@ -154,8 +154,18 @@ mock.module("../services/vms/routeHelpers", () => ({
   withAuthedVmApiRoute: async (_request: Request, _route: string, _attrs: unknown, _failureLog: string, handler: (context: { user: { id: string } }) => Promise<Response>) => handler({ user: { id: "owner" } }),
 }));
 mock.module("../services/runs/http", () => ({
+  RunRequestError: class RunRequestError extends Error {
+    readonly code: string;
+    readonly status: number;
+
+    constructor(code: string, message: string, _action: string, status = 400) {
+      super(message);
+      this.code = code;
+      this.status = status;
+    }
+  },
   runJson: (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } }),
-  runError: (error: unknown) => new Response(JSON.stringify({ error: error instanceof Error ? error.constructor.name : "error" }), { status: 500, headers: { "content-type": "application/json" } }),
+  runError: (error: unknown) => new Response(JSON.stringify({ error: error instanceof Error && "code" in error ? String(error.code) : error instanceof Error ? error.constructor.name : "error" }), { status: error instanceof Error && "status" in error ? Number(error.status) : 500, headers: { "content-type": "application/json" } }),
 }));
 const promotionRoute = await import("../app/api/runs/[id]/attempts/[attemptId]/promote/route");
 

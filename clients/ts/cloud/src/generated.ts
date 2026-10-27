@@ -60,6 +60,11 @@ export type Body = {
   readonly type: "steps"
   readonly steps: ReadonlyArray<Step>
 } | {
+  readonly type: "chief"
+  readonly chief: string
+  readonly conversation: ConversationId
+  readonly prompt: string
+} | {
   readonly type: "code"
   readonly ref: CodeRef
   readonly egress?: ReadonlyArray<EgressHost>

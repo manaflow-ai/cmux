@@ -163,6 +163,11 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     promotion = workflow("cloud-vm-image-contract.yml")["jobs"]["promote"]
     assert promotion.get("environment") == "cloud-vm-image-promotion"
 
+    image_promote = workflow("cloud-vm-image-promote.yml")
+    assert set(image_promote["on"]) == {"workflow_dispatch"}
+    assert image_promote.get("permissions") == {"contents": "read", "actions": "read"}
+    assert image_promote["jobs"]["promote"].get("environment") == "cmux-next-vm-image-dev"
+
     backend_jobs = workflow("backend.yml")["jobs"]
     for job_name in ("migrations-development", "preview", "preview-cleanup"):
         assert "vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1'" in backend_jobs[job_name].get("if", ""), (

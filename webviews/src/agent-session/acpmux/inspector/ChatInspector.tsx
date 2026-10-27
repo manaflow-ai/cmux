@@ -141,6 +141,18 @@ export const inspectorChatShift = (paneWidth: number, width: number, column?: Ch
   return lacks > 0 && lacks <= room ? lacks : 0;
 };
 
+/// Whether the floating panel lies over the chat's column: the right gutter cannot hold it and the
+/// column cannot move left far enough (inspectorChatShift is 0 though it lacks room). Then the card,
+/// full length otherwise, stops above the composer's stack so it never covers the composer.
+export const inspectorOverChat = (paneWidth: number, width: number, column?: ChatColumn, wide = false) => {
+  if (paneWidth <= 0 || width <= 0) return false;
+  const columnInset = transcriptColumn(paneWidth, column).inset;
+  const inset = wide
+    ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 2 * HANDOFF_FORM_EDGE)) / 2)
+    : columnInset;
+  return width + 2 * FLOAT_MARGIN - inset > 0 && inspectorChatShift(paneWidth, width, column, wide) === 0;
+};
+
 /// Whether the Inspector shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
 /// chat tab), not stepped aside for a diff split, and only over the chat: never while a view takes
 /// the pane in its place (`covered`: a turn's diff in place hides the header, and the toggle with it).
@@ -164,6 +176,45 @@ const SIDE_PANEL = ":scope > .acpmux-artifact";
 export function inspectorTopOffset(tabRowHeight: number, environmentRowVisible: boolean): string {
   const headerTop = tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
   return environmentRowVisible ? `calc(${headerTop} + var(--ui-row-height))` : headerTop;
+}
+
+/// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: from the top of its highest
+/// child to the shell's foot. A new chat's dock is `display: contents` (bottomStack.css), so its own
+/// box is empty and only its children have one. One ResizeObserver on the dock and its children (a
+/// MutationObserver re-observes when its children change), both disconnected when `on` goes false or
+/// the shell changes.
+function useDockHeight(shell: HTMLElement | null | undefined, on: boolean): number {
+  const [height, setHeight] = useState(0);
+  useLayoutEffect(() => {
+    const dock = on ? shell?.querySelector<HTMLElement>(".acpmux-dock") : null;
+    if (!shell || !dock) return;
+    const read = () => {
+      let top = Infinity;
+      for (const part of [dock, ...dock.children]) {
+        const box = part.getBoundingClientRect();
+        if (box.height > 0) top = Math.min(top, box.top);
+      }
+      setHeight(top === Infinity ? 0 : Math.max(0, Math.round(shell.getBoundingClientRect().bottom - top)));
+    };
+    const resize = new ResizeObserver(read);
+    const observe = () => {
+      resize.disconnect();
+      resize.observe(dock);
+      for (const child of dock.children) resize.observe(child);
+    };
+    observe();
+    read();
+    const children = new MutationObserver(() => {
+      observe();
+      read();
+    });
+    children.observe(dock, { childList: true });
+    return () => {
+      children.disconnect();
+      resize.disconnect();
+    };
+  }, [shell, on]);
+  return height;
 }
 
 /// The chat's room in the pane: the pane's width less the side panel's beside the chat, and that
@@ -283,6 +334,8 @@ export function useChatInspector({
   on: boolean;
   button?: ReactNode;
   panel?: ReactNode;
+  // The native command palette shares the header's visibility and uncover behavior.
+  toggle?: () => void;
   // Opens the Inspector with `section` unfolded (the running line's counts: App.tsx).
   reveal?: (section: InspectorSectionId) => void;
 } {
@@ -370,6 +423,7 @@ export function useChatInspector({
     : undefined;
   return {
     on: true,
+    toggle,
     reveal,
     button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
     panel: (
@@ -502,6 +556,10 @@ function InspectorPresence({
   const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
   const push = pushes(display.inspector);
   const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column, wide);
+  const overChat = !push && inspectorOverChat(paneWidth, width, column, wide);
+  // Over the chat, the card stops above the composer's stack: its height, followed while it lies over
+  // the chat (one ResizeObserver on the dock, disconnected when it no longer does or the panel goes).
+  const dockHeight = useDockHeight(shell, drawn && overChat);
   const tabRowHeight = useTabRow().height;
   // Left's machine · folder chip occupies its own row below the header/tab row. Keep the Inspector
   // below it while open so the card never covers the chip; Right preserves the original header slot,
@@ -588,6 +646,7 @@ function InspectorPresence({
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
       under={inspectorTop}
       side={push ? 0 : side}
+      foot={overChat ? dockHeight : undefined}
       presence={presence}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
@@ -650,6 +709,7 @@ export function InspectorPanel({
   width,
   placement,
   under,
+  foot,
   side = 0,
   presence,
   onClose,
@@ -660,6 +720,8 @@ export function InspectorPanel({
   width: number;
   placement: InspectorPlacement;
   under?: string;
+  /// Over the chat's column, the composer's stack height in px: the card stops above it.
+  foot?: number;
   /// Floating, how far from the pane's right edge the chat ends (the side panel's width): the panel
   /// floats in the chat's gutter, left of the side panel.
   side?: number;
@@ -687,12 +749,14 @@ export function InspectorPanel({
       className="ui-glass ui-glass-floats acpmux-chat-inspector"
       data-placement={placement}
       data-chrome={title ? "title" : onClose ? chrome : "none"}
+      data-over-chat={foot !== undefined ? "" : undefined}
       style={
         {
           width,
           // Pushing, its enter and exit run its right margin from minus this (inspector.css).
           "--acpmux-inspector-width": `${width}px`,
           ...(under ? { "--acpmux-inspector-top": under } : {}),
+          ...(foot !== undefined ? { "--acpmux-inspector-foot": `${foot}px` } : {}),
           ...(side > 0 ? { "--acpmux-inspector-side": `${side}px` } : {}),
         } as CSSProperties
       }

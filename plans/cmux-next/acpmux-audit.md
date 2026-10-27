@@ -100,3 +100,18 @@ lands.
   (ssh peers, `cmux host add`) read the file back at once, and they are rare.
 - `session/new` (finding 6) is not changed in batch 1: replying before the spawn changes the
   create contract for every client and needs D8 ids end to end.
+
+## Notice to PL-acpmux: new chat typing prewarm (2026-10-27)
+
+Landed 16a6e86a783..f1e15ab50ab (Lawrence 2026-10-26, "warm it up while the person types").
+- `pool.hintedPerHarness` (default 1): at most that many hinted entries per harness across
+  folders; the newest hint wins (`hub/pool/policy.rs` `cap_hinted`).
+- `_acpmux/prewarm` `release: true`: takes the hint back for that harness and cwd, and ends the
+  entry unless last-used wants it. It starts nothing, so the trust gate skips it.
+- The pane (`webviews/.../newChatPrewarm.ts`) hints on the first typed character of a
+  sessionless chat or the New Tab page. It releases after 3 s empty, on a harness or folder
+  change, and on pagehide.
+- Bench: `scripts/measure/acpmux-overhead.sh --arg=bench=prewarm`. Enter-to-first-output numbers
+  are pending: the M4 Pro measure mini (cmux7s) was offline.
+- Base debt seen: `_acpmux/typing` is in Swift `knownParams` but not in
+  `cmux-agent-pane-policy/policy.json`.

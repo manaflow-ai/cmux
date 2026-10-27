@@ -46,6 +46,8 @@ health = ["vercel", "whoami"]      # run with the secret injected (`chief pack c
 
 [tool]                             # what must be on PATH; `chief pack install NAME` runs one of these
 bin = "vercel"
+# script = "vercel"                # or: the CLI is this file of the pack's folder (gdocs ships its own);
+#                                  #   the turn's bin/<bin> runs it, with [inject] env set per call
 brew = "vercel-cli"
 npm = "vercel"
 url = "https://vercel.com/docs/cli"
@@ -102,7 +104,9 @@ names) is checked against a strict character set at load, and a server needs exa
 ## 4. Where packs come from, and which are on
 
 1. Shipped in the host binary (`toolpacks::BUILTIN`, `include_str!` of `optchat-chief/toolpacks/`):
-   `github`, `cmux`, `browser` on (the default set), `vercel` shipped off (the data-only proof). At
+   `github`, `cmux`, `browser`, `gdocs` on (the default set; gdocs: chief-gdocs-DESIGN.md), `vercel`
+   shipped off (the data-only proof). A pack's script (`BUILTIN_SCRIPTS`) is written beside its
+   pack.toml, mode 0755. At
    host start they are written to the shared folder `~/.cmux/chief/toolpacks/NAME/`
    (`$MUX_HOME/../toolpacks`) with `# cmux-managed: true` (pack.toml) or `cmux-managed: true`
    (SKILL.md front matter); the host rewrites a managed file on update and never touches a copy whose

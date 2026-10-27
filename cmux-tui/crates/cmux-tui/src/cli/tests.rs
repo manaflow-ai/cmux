@@ -10,6 +10,256 @@ fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
 }
 
+#[cfg(unix)]
+mod remote_cli_docs {
+    use super::*;
+    use std::collections::HashSet;
+
+    const DOCUMENTS: &[(&str, &str)] = &[
+        (
+            "docs/remote-agents-and-cloud.md",
+            include_str!("../../../../../docs/remote-agents-and-cloud.md"),
+        ),
+        ("acpmux README", include_str!("../../../acpmux/README.md")),
+        ("acpmux skill", include_str!("../../../acpmux/skills/acpmux/SKILL.md")),
+    ];
+
+    fn command_lines(text: &str, binary: &str) -> Vec<Vec<String>> {
+        fn shell_words(text: &str) -> Vec<String> {
+            let mut words = Vec::new();
+            let mut word = String::new();
+            let mut quote = None;
+            let mut escaped = false;
+            for character in text.chars() {
+                if escaped {
+                    word.push(character);
+                    escaped = false;
+                    continue;
+                }
+                if character == '\\' && quote != Some('\'') {
+                    escaped = true;
+                    continue;
+                }
+                if let Some(closing) = quote {
+                    if character == closing {
+                        quote = None;
+                    } else {
+                        word.push(character);
+                    }
+                    continue;
+                }
+                match character {
+                    '\'' | '"' => quote = Some(character),
+                    ';' | '#' => break,
+                    character if character.is_whitespace() => {
+                        if !word.is_empty() {
+                            words.push(std::mem::take(&mut word));
+                        }
+                    }
+                    character => word.push(character),
+                }
+            }
+            if !word.is_empty() {
+                words.push(word);
+            }
+            words
+                .into_iter()
+                .map(|word| {
+                    word.trim_matches(|character| "`[]()<>.,:".contains(character)).to_owned()
+                })
+                .collect()
+        }
+
+        let mut snippets = Vec::new();
+        let mut in_fence = false;
+        for line in text.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if in_fence && (trimmed == binary || trimmed.starts_with(&format!("{binary} "))) {
+                snippets.push(trimmed.to_owned());
+            }
+            let mut rest = line;
+            while let Some(open) = rest.find('`') {
+                let after_open = &rest[open + 1..];
+                let Some(close) = after_open.find('`') else { break };
+                let snippet = &after_open[..close];
+                if snippet.trim_start() == binary
+                    || snippet.trim_start().starts_with(&format!("{binary} "))
+                {
+                    snippets.push(snippet.trim().to_owned());
+                }
+                rest = &after_open[close + 1..];
+            }
+        }
+        snippets
+            .into_iter()
+            .flat_map(|snippet| {
+                snippet
+                    .split(';')
+                    .filter_map(|part| {
+                        let words = shell_words(part.trim_start_matches("$ "));
+                        (words.first().is_some_and(|word| word == binary) && words.len() > 1)
+                            .then_some(words)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    fn action_names() -> HashSet<String> {
+        let catalog: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../plans/cmux-next/action-surfaces.json"
+        ))
+        .expect("action-surfaces.json is valid JSON");
+        catalog["actions"]
+            .as_array()
+            .expect("actions array")
+            .iter()
+            .filter(|action| action["cli"] == "offered")
+            .filter_map(|action| action["cli_name"].as_str().map(str::to_owned))
+            .collect()
+    }
+
+    fn action_name(words: &[String], names: &HashSet<String>) -> Option<String> {
+        let words = words
+            .iter()
+            .skip(1)
+            .filter(|word| !matches!(word.as_str(), "--json" | "--jsonl" | "--quiet"))
+            .take_while(|word| !word.starts_with('-'))
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        (1..=words.len())
+            .rev()
+            .map(|count| words[..count].join(" "))
+            .find(|name| names.contains(name))
+    }
+
+    fn action_flag_allowed(action: &str, flag: &str) -> bool {
+        let common =
+            matches!(flag, "--target" | "--wait" | "--no-wait" | "--interactive" | "--focus");
+        match action {
+            "agent open" => {
+                common || matches!(flag, "--name" | "--key" | "--cwd" | "--host" | "--group")
+            }
+            "agent open-tab" => common || matches!(flag, "--host"),
+            "cloud exec" => common || matches!(flag, "--command" | "--arg"),
+            _ => true,
+        }
+    }
+
+    fn missing_commands(text: &str, names: &HashSet<String>) -> Vec<String> {
+        let mut missing = Vec::new();
+        for words in command_lines(text, "cmux") {
+            let parser_words = words[1..]
+                .iter()
+                .filter(|word| !matches!(word.as_str(), "--json" | "--jsonl" | "--quiet"))
+                .cloned()
+                .collect::<Vec<_>>();
+            // A bare scope reference in prose (`cmux vm`, `cmux harness`) is
+            // not a noun/verb command and has no action to resolve.
+            if parser_words.len() < 2 {
+                continue;
+            }
+            let action = action_name(&words, names);
+            // Cloud verbs are app actions whose existence is checked by the
+            // socket. Require a catalog match rather than generic parsing.
+            // Resource commands still resolve through the CLI parser.
+            let parser = builtin_command(&parser_words)
+                || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
+            if action.is_none() && !parser {
+                missing.push(words.join(" "));
+            } else if let Some(action) = action {
+                let command_words = action.split_whitespace().count();
+                for flag in words
+                    .iter()
+                    .skip(1 + command_words)
+                    .filter(|word| word.starts_with("--"))
+                    .map(|word| word.split('=').next().unwrap_or(word))
+                {
+                    if !action_flag_allowed(&action, flag) {
+                        missing.push(format!("{} (flag {flag})", words.join(" ")));
+                    }
+                }
+            }
+        }
+        missing
+    }
+
+    fn builtin_command(words: &[String]) -> bool {
+        let words = words.iter().map(String::as_str).collect::<Vec<_>>();
+        matches!(
+            words.as_slice(),
+            ["action", "list", ..]
+                | ["action", "describe", ..]
+                | ["action", "run", ..]
+                | ["harness", "add", ..]
+                | ["harness", "secret", "set", ..]
+                | ["harness", "doctor", ..]
+                | ["link", "machine", "update", ..]
+                | ["docs", "search", ..]
+        )
+    }
+
+    #[test]
+    fn documented_cmux_commands_resolve_in_the_parser_or_action_catalog() {
+        let names = action_names();
+        let missing = DOCUMENTS
+            .iter()
+            .flat_map(|(source, text)| {
+                missing_commands(text, &names)
+                    .into_iter()
+                    .map(move |command| format!("{source}: {command}"))
+            })
+            .collect::<Vec<_>>();
+        assert!(missing.is_empty(), "documented cmux command drifted:\n{}", missing.join("\n"));
+    }
+
+    #[test]
+    fn a_deliberately_stale_cmux_line_is_rejected() {
+        let names = action_names();
+        let missing = missing_commands("`cmux cloud deliberately-stale-action`", &names);
+        assert_eq!(missing, vec!["cmux cloud deliberately-stale-action"]);
+    }
+
+    #[test]
+    fn cloud_help_lists_every_offered_cloud_action() {
+        let missing = action_names()
+            .into_iter()
+            .filter_map(|name| name.strip_prefix("cloud ").map(str::to_owned))
+            .filter(|name| !CLOUD_HELP.contains(name))
+            .collect::<Vec<_>>();
+        assert!(missing.is_empty(), "cloud help omitted catalog actions: {missing:?}");
+    }
+
+    #[test]
+    fn cloud_exec_without_command_returns_actionable_usage() {
+        let args = strings(&["cloud", "exec", "--target", "machine:builder"]);
+        assert!(app::parse(&args).is_err());
+        let args =
+            strings(&["cloud", "exec", "--target", "machine:builder", "--arg", "command=uname -a"]);
+        assert!(app::parse(&args).is_ok());
+        assert!(CLOUD_HELP.contains("cloud <action>"));
+        assert!(AGENT_HELP.contains("agent open-tab"));
+        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
+    }
+
+    #[test]
+    fn documented_action_flag_typos_are_rejected() {
+        let names = action_names();
+        let missing = missing_commands(
+            "```sh\ncmux cloud exec --target machine:builder --comand uname\n```",
+            &names,
+        );
+        assert_eq!(
+            missing,
+            vec!["cmux cloud exec --target machine:builder --comand uname (flag --comand)"]
+        );
+    }
+}
+
 #[test]
 fn removed_route_is_detected_after_global_options() {
     assert!(removed_route_requested(&strings(&["route", "list"])));

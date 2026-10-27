@@ -328,6 +328,13 @@ impl Link {
     }
 
     pub async fn terminate(&self, grace: std::time::Duration) -> Result<()> {
+        // Debug builds only: `ACPMUX_TEST_STALL_HOST_TERMINATE` makes the terminate wait forever,
+        // as one does on a host whose link stopped reading (its queue full), so the daemon's
+        // integration tests can drive that path. Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("ACPMUX_TEST_STALL_HOST_TERMINATE").is_some() {
+            std::future::pending::<()>().await;
+        }
         self.send(ControllerFrame::Terminate { grace_ms: grace.as_millis() as u64 }).await
     }
 

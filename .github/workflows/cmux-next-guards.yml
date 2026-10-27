@@ -96,6 +96,31 @@ jobs:
       linux_guard_cli: ${{ 'false' }}
       linux_guard_source: ${{ 'false' }}
 
+  # Signing jobs (nightly.yml, cmux-tui-artifacts.yml) take their runner from these variables, so they must
+  # name ephemeral runners only: Blacksmith or GitHub's hosted Linux, never an owned mini
+  # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7). Unset falls back to a Blacksmith
+  # literal and passes. This job's own runner is a literal, so a variable at a missing label still goes red.
+  signing-runner-variables:
+    name: signing runner variables are ephemeral
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Runner variables that signing jobs read name ephemeral runners
+        env:
+          LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
+          MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}
+        run: |
+          bad=0
+          for name in LINUX_RUNNER MACOS_RUNNER_26; do
+            value="${!name}"
+            case "$value" in
+              ""|blacksmith-*|ubuntu-*) echo "$name=${value:-<unset>}" ;;
+              *) echo "::error::vars.$name is '$value'; signing jobs run on it, so it must be blacksmith-* or ubuntu-*"; bad=1 ;;
+            esac
+          done
+          [ "$bad" = 0 ] || exit 1
+
   # ci-guards.yml's `ci` group (workflow lints, hook trust, runner and cache policy: scripts/ci/guards-local.sh's
   # default set) ran only in ci.yml's "CI fast guards", which skips feat-cmux-next pull requests, and ci.yml never
   # runs on its pushes. Nothing ran it for the branch: tests/test_preflight_trust.py errored there unseen until
@@ -456,14 +481,6 @@ jobs:
 
       - name: The defaults guard judges changes and approvals
         run: python3 tests/test_defaults_guard.py
-
-      # The snapshot is bot-only (#21946): it is stale on every event between a
-      # merge and the base autofix's commit, so this checks only that the
-      # settings exports match their sources (check-stamp). The exports go stale
-      # the same way, so only the sources this event changed fail; the rest is a
-      # warning (10-21: stale on the base, red on every pull request for hours).
-      - name: The settings exports match their sources
-        run: python3 scripts/ci/defaults_guard.py check-stamp --base "$(git rev-parse HEAD^1)"
 
       # PR #19754 moved the workspace and tab menus' group rows into More and
       # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").

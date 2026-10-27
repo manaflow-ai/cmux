@@ -442,10 +442,17 @@ jobs:
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
-          CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results.json
+          CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
+          CMUX_WEB_TEST_RAW_LOG_DIR: ${{ runner.temp }}/webviews-head-results/raw-logs
           CMUX_WEB_TEST_SKIP_BASE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
-        run: ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
+        run: |
+          # Replay uses this exact runner and result parser, with the base's tests and bun.
+          # Different deadline policies can otherwise turn an old named failure into a new timeout.
+          mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
+          cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/webviews_test_results.py \
+            "$RUNNER_TEMP/webviews-head-results/runner/"
+          ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Upload head webview results
         if: ${{ always() && github.event_name == 'pull_request' }}
@@ -455,7 +462,7 @@ jobs:
           # the original head results while retrying only the base comparison.
           name: react-apps-head-results-shard${{ matrix.shard }}
           overwrite: true
-          path: ${{ runner.temp }}/webviews-head-results.json
+          path: ${{ runner.temp }}/webviews-head-results/
           if-no-files-found: error
           retention-days: 14
 
@@ -598,7 +605,7 @@ jobs:
             CMUX_WEB_TEST_FILES="$(cat "$files")" \
               CMUX_WEB_TEST_RESULTS="$BASE_RESULTS" \
               env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
-              bash ../scripts/ci/run-webviews-tests.sh || true
+              bash "$RUNNER_TEMP/head-results/runner/run-webviews-tests.sh" || true
           fi
           python3 ../scripts/ci/guards_new_reds.py --label "Webview test" "$HEAD_RESULTS" "$BASE_RESULTS"
 

@@ -56,8 +56,8 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     );
     anyhow::ensure!(
         metadata.mode() & 0o022 == 0,
-        "{} is writable by another user; inspect it before removing group/other write permission",
-        dir.display()
+        "{}",
+        writable_refusal(dir, metadata.mode(), "700")
     );
     refuse_extended_acl(&opened, dir)?;
     if metadata.mode() & 0o077 != 0 {
@@ -77,6 +77,24 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         dir.display()
     );
     Ok(())
+}
+
+/// Why a state path another account may write is refused, and the exact
+/// `chmod` (to `owner_only`, 700 or 600) that fixes it. Such a path is never
+/// narrowed here: another account may have changed what is in it, and it came
+/// from elsewhere (a `mkdir` or a shell redirect under umask 002), since acpmux
+/// makes its own state owner-only whatever the umask.
+#[cfg(unix)]
+fn writable_refusal(path: &Path, mode: u32, owner_only: &str) -> String {
+    let text = path.display().to_string();
+    let plain = !text.is_empty()
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-+,:@%".contains(&b));
+    let word = if plain { text } else { format!("'{}'", text.replace('\'', r"'\''")) };
+    format!(
+        "{} is writable by another user (mode {:o}): check that nothing in it was changed, then make it owner-only with `chmod {owner_only} {word}`",
+        path.display(),
+        mode & 0o777
+    )
 }
 
 /// Every namespace owner above an acpmux state directory must be this user
@@ -157,8 +175,8 @@ fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> 
     );
     anyhow::ensure!(
         metadata.mode() & 0o022 == 0,
-        "{} is writable by another user; inspect it before removing group/other write permission",
-        path.display()
+        "{}",
+        writable_refusal(path, metadata.mode(), "600")
     );
     refuse_extended_acl(file, path)?;
     if metadata.mode() & 0o077 != 0 {
@@ -325,20 +343,63 @@ pub fn socket_path() -> PathBuf {
     let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
+    let cwd = std::env::current_dir().ok();
+    let (configured, home) = socket_inputs(configured.as_deref(), &home(), cwd.as_deref());
     let resolved = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
         configured.as_deref(),
-        &home(),
+        &home,
         uid,
     ));
     // Another user owns or can write the shared directory: never trust a
     // socket there. The long path fails to bind with a clear error instead.
     let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
     if resolved.parent() == Some(dir.as_path()) && !private_dir(&dir, uid) {
-        return absolute(
-            configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock")),
-        );
+        return absolute(configured.map(PathBuf::from).unwrap_or_else(|| home.join("acpmux.sock")));
     }
     absolute(resolved)
+}
+
+/// The configured socket and the home [`socket_path`] derives the socket from.
+#[cfg(unix)]
+fn socket_inputs(
+    configured: Option<&str>,
+    home: &Path,
+    cwd: Option<&Path>,
+) -> (Option<String>, PathBuf) {
+    // Both absolute before the short alias is derived from them: a started daemon gets them
+    // absolute (`daemon/login_placement.rs` `daemon_env`) and must derive the same one.
+    let absolute = |p: &Path| match cwd {
+        Some(cwd) if p.is_relative() => cwd.join(p),
+        _ => p.to_path_buf(),
+    };
+    let configured = configured.map(|c| absolute(Path::new(c)).to_string_lossy().into_owned());
+    (configured, absolute(home))
+}
+
+#[cfg(all(test, unix))]
+mod socket_input_tests {
+    use super::*;
+
+    /// A daemon a command starts is handed its home and socket absolute
+    /// (`daemon/login_placement.rs` `daemon_env`): from relative ones, the command must derive
+    /// the same socket, short alias included, or it waits on one the daemon never binds.
+    #[test]
+    fn a_long_relative_home_or_socket_uses_the_same_socket_alias() {
+        let cwd = Path::new("/work/a-folder-long-enough-that-its-socket-needs-a-short-alias");
+        let long = "x".repeat(80);
+        let alias = |configured: Option<&str>, home: &Path, cwd: &Path| {
+            let (configured, home) = socket_inputs(configured, home, Some(cwd));
+            cmux_agent_pane_policy::environment::socket_path(configured.as_deref(), &home, 501)
+        };
+        let elsewhere = Path::new("/elsewhere");
+        assert_eq!(alias(None, Path::new(&long), cwd), alias(None, &cwd.join(&long), elsewhere));
+        let sock = format!("{long}/a.sock");
+        let abs_sock = cwd.join(&sock).to_string_lossy().into_owned();
+        assert_eq!(
+            alias(Some(&sock), Path::new("/h"), cwd),
+            alias(Some(&abs_sock), Path::new("/h"), elsewhere)
+        );
+    }
 }
 
 /// A relative `ACPMUX_SOCKET` against this process's folder: the daemon
@@ -581,6 +642,21 @@ pub struct StoreConfig {
     /// Segment roll size in bytes for the event log.
     #[serde(default = "default_segment_bytes")]
     pub segment_bytes: u64,
+    /// Days a closed chat's event log is kept whole (`hub/retention.rs`): after them, the
+    /// harness's raw lines and long tool output are removed from it, the chat's messages kept.
+    /// Default 14; 0 keeps every log whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_log_days: Option<u32>,
+}
+
+impl StoreConfig {
+    /// How long a closed chat's log is kept whole; None: always.
+    pub fn closed_log_retention(&self) -> Option<std::time::Duration> {
+        match self.closed_log_days.unwrap_or(14) {
+            0 => None,
+            days => Some(std::time::Duration::from_secs(u64::from(days) * 86_400)),
+        }
+    }
 }
 
 fn default_segment_bytes() -> u64 {
@@ -589,7 +665,11 @@ fn default_segment_bytes() -> u64 {
 
 impl Default for StoreConfig {
     fn default() -> Self {
-        Self { mode: StoreMode::Local, segment_bytes: default_segment_bytes() }
+        Self {
+            mode: StoreMode::Local,
+            segment_bytes: default_segment_bytes(),
+            closed_log_days: None,
+        }
     }
 }
 
@@ -767,24 +847,14 @@ pub struct Config {
     pub store: StoreConfig,
     #[serde(default)]
     pub permission_policy: PermissionPolicy,
-    /// `defaultPermissionMode`: the permission mode a new chat starts in when
-    /// the person has not picked one for its harness (`hub/start_mode.rs`):
-    /// `fullAccess`, `standard` or `ask`. Absent: the cmux setting
-    /// `agents.defaultPermissionMode`, else `fullAccess`. For acpmux without
-    /// the cmux app, and for hermetic tests.
+    /// `defaultPermissionMode`: the permission mode a new chat starts in
+    /// (`hub/start_mode.rs`): `fullAccess`, `standard` or `ask`. Absent: the
+    /// cmux setting `agents.defaultPermissionMode`, else `fullAccess`. For
+    /// acpmux without the cmux app, and for hermetic tests. A
+    /// `lastPermissionMode` an older build wrote beside it is ignored and
+    /// dropped at the next save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
-    /// `lastPermissionMode`, `lastPermissionModeChange`: the level of the latest mode pick
-    /// from the app pane, and how many changes to the cmux setting acpmux had counted then,
-    /// in which count (`hub/start_mode_state.rs`; `hub/start_mode.rs` `start_level`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_permission_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_permission_mode_change: Option<PermissionModeChange>,
-    /// `lastPermissionModeSetting`: an older build's record beside a pick (the setting's value
-    /// then). Read once to upgrade the pick (`Hub::start_level`), never written.
-    #[serde(default, skip_serializing)]
-    pub last_permission_mode_setting: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -804,6 +874,10 @@ pub struct Config {
     /// ended. Default 90000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_start_timeout_ms: Option<u64>,
+    /// Free bytes on acpmux's disk under which `daemon status` says `disk.low`
+    /// (`recovery.rs`; 1 GiB when unset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_low_bytes: Option<u64>,
     /// `silentTurnMs`: how long a turn may go with no sign of its model at work
     /// (no message, thought, tool call, plan, request or model harness line;
     /// the agent's own bookkeeping does not count) before the chat logs
@@ -827,7 +901,7 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_end_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
-    /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
+    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
@@ -847,11 +921,12 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
     /// `vmHost`: this machine is a dedicated agent VM (a Chief's cloud
-    /// subagent host), so the VM boundary is the sandbox: a remote chain's
-    /// Claude Code runs there without Seatbelt (`hub/remote_sandbox.rs`).
-    /// Honored off macOS only, read from this file only (no RPC sets it).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub vm_host: bool,
+    /// subagent host, a VM cmux created), so the VM boundary is the sandbox:
+    /// a remote chain's Claude Code runs there without Seatbelt
+    /// (`hub/remote_sandbox.rs`). Honored off macOS only. Absent: on exactly
+    /// when cmux created this VM (`hub/vm_host.rs`); `_acpmux/vm_host` sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_host: Option<bool>,
     /// `pool`: hidden pre-created sessions that make a harness switch
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
@@ -1227,17 +1302,6 @@ impl Config {
     }
 }
 
-/// `lastPermissionModeChange`: where acpmux's count of changes to the cmux
-/// setting `agents.defaultPermissionMode` stood at a mode pick
-/// (`hub/start_mode_state.rs`). `epoch` names the count: a count started
-/// again (its state file lost) has another, so an older pick never matches it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PermissionModeChange {
-    pub epoch: String,
-    pub changes: u64,
-}
-
 fn is_default_kind(k: &HarnessKind) -> bool {
     *k == HarnessKind::Acp
 }
@@ -1326,6 +1390,7 @@ pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
 pub mod folder_profiles;
+pub mod harness_icon;
 pub mod profiles;
 pub use profiles::{
     Diagnostic as ProfileDiagnostic, LoadedProfiles, ProfileMeta, ProfileSource, ProfileSources,

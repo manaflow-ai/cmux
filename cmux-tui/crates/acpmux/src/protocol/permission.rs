@@ -58,6 +58,9 @@ pub struct PermissionRespondParams {
     /// A question's answers, by question.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub answers: Option<Value>,
+    /// Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<Value>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<RequestMeta>,
 }
@@ -190,6 +193,11 @@ pub struct PermissionGroupList {
     pub chat_allowance: ChatAllowance,
     pub coverage: PermissionCoverage,
     pub batching: PermissionBatching,
+    /// Set when this reader's group allows would be refused, with the
+    /// refusal's reason (`permission.person_required`: only the person
+    /// allows a group, and a peer's link never is one). A deny still counts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_refused: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

@@ -38,7 +38,7 @@
   --cv-edge: var(--page-edge, 18px);
   /* Resolved where it is used: 100% is the pane's width there. */
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
-  --cv-font: system-ui;
+  --cv-font: var(--font-ui);
   /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
      --cv-mono in front of it. */
   --cv-mono-default: var(--cmux-diff-code-font-family, ui-monospace, "SF Mono", Menlo, monospace);
@@ -200,6 +200,7 @@
   font-size: var(--text-caption);
   line-height: 1.25;
   text-align: center;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task, with its
@@ -218,6 +219,7 @@
   font-size: var(--text-detail);
   line-height: 18px;
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__context > details > summary {
   display: flex;
@@ -275,6 +277,7 @@
   font-size: var(--text-detail);
   line-height: 18px;
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__bubble--collapsed {
   display: -webkit-box;
@@ -293,6 +296,7 @@
   line-height: 18px;
   color: var(--cv-text-muted);
   cursor: pointer;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__expand:hover {
   color: var(--agent-text);
@@ -328,7 +332,7 @@
   color: var(--cv-text-muted);
   white-space: nowrap;
   user-select: none;
-  cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__more:hover {
   color: var(--cv-text);
@@ -353,7 +357,7 @@
   font: inherit;
   font-size: var(--text-detail);
   text-align: start;
-  cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__paste:hover {
   background: color-mix(in srgb, var(--agent-text) 8%, var(--agent-control));
@@ -391,7 +395,6 @@
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
-  cursor: default;
 }
 .cv-user__cancel:hover {
   color: var(--cv-text);
@@ -460,7 +463,6 @@
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
-  cursor: default;
 }
 .cv-thinking__cancel:hover {
   color: var(--cv-text);
@@ -504,6 +506,7 @@
   white-space: nowrap;
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-artifact-versions {
   display: inline-flex;
@@ -516,6 +519,7 @@
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
   color: var(--agent-muted);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-artifact-tabs {
   display: inline-flex;
@@ -525,13 +529,14 @@
 }
 .acpmux-artifact-tab {
   all: unset;
+  cursor: pointer;
   height: 24px;
   padding: 0 10px;
   border-radius: 6px;
   font-size: var(--text-detail);
   line-height: 24px;
   color: var(--agent-muted);
-  cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-artifact-tab:hover:not([aria-pressed="true"]) {
   color: var(--agent-text);
@@ -651,6 +656,7 @@
   line-height: var(--cv-meta-row);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* At the end of another agent's message line its age comes straight before Copy. */
 .cv-received-actions .cv-user__time {
@@ -661,6 +667,7 @@
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
   line-height: var(--cv-meta-row);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .cv-user__read {
   display: inline-flex;
@@ -685,6 +692,7 @@
   font-variant-numeric: tabular-nums;
   text-align: center;
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* The prompt open for editing: the bubble's place and shape, its text editable, Cancel and Send under it. */
 .cv-user__edit {
@@ -719,6 +727,7 @@
 }
 .cv-user__edit-button {
   all: unset;
+  cursor: pointer;
   box-sizing: border-box;
   height: 26px;
   padding: 0 10px;
@@ -728,7 +737,7 @@
   line-height: 26px;
   color: var(--cv-text);
   box-shadow: inset 0 0 0 1px var(--cv-rule);
-  cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .cv-user__edit-button:hover {
   background: var(--cv-faint-rule);
@@ -1203,7 +1212,7 @@ pre.cv-math-source {
   transition: none;
 }
 /* The thread is drawn up by a followed view's composer growth (VirtualTranscript `lift`) in the frame
-   the card grows: under Reduce Motion's 0.01ms transitions it would keep its old transform for that
+   the card grows: under Reduce Motion's 0.01ms transitions it would keep its old position for that
    frame, with the latest row under the card. */
 .acpmux-thread {
   transition: none;
@@ -1278,6 +1287,7 @@ pre.cv-math-source {
   font-family: var(--cv-font);
   font-size: var(--text-control);
   line-height: 20px;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 /* Like the composer card, its rim clears under appearance.borders = none (composer-edges.test.ts). */
 :root[data-borders="none"] .acpmux-ask { border-color: transparent; }
@@ -1293,13 +1303,13 @@ pre.cv-math-source {
    line of their own under it, so none of them is cut off (cx-ncc.111). */
 .acpmux-ask-toggle {
   all: unset;
+  cursor: pointer;
   display: flex;
   flex: 1 1 10rem;
   align-items: center;
   gap: 6px;
   min-inline-size: 0;
   border-radius: 5px;
-  cursor: default;
 }
 .acpmux-ask-chevron {
   flex: none;
@@ -1352,9 +1362,11 @@ pre.cv-math-source {
   font-size: var(--text-detail);
   line-height: 1.35;
   overflow-wrap: anywhere;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-ask-action {
   all: unset;
+  cursor: pointer;
   box-sizing: border-box;
   height: 22px;
   padding: 0 8px;
@@ -1362,7 +1374,7 @@ pre.cv-math-source {
   color: var(--cv-text);
   font-size: var(--text-detail);
   line-height: 22px;
-  cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-ask-action:hover {
   background: color-mix(in srgb, var(--cv-fg) 7%, transparent);
@@ -1397,6 +1409,7 @@ pre.cv-math-source {
   padding-inline: 18px 4px;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-ask-details p,
 .acpmux-ask-details ul {
@@ -1418,6 +1431,7 @@ pre.cv-math-source {
   padding-inline-start: 18px;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 @media (prefers-reduced-motion: reduce) {
   .acpmux-ask-chevron {
@@ -1458,6 +1472,9 @@ pre.cv-math-source {
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   user-select: none;
+}
+:is(button, a[href]).cv-worked {
+  cursor: pointer;
 }
 .cv-worked.is-toggle {
   cursor: pointer;
@@ -1658,6 +1675,12 @@ pre.cv-math-source {
   min-height: var(--cv-tool-row-height);
   line-height: 20px;
   color: var(--cv-text-dim);
+}
+/* `all: unset` takes the shared pointing hand away (the cursor inherits the page's arrow): a row
+   that is a button or link (a tool row that opens, "Subagent finished", a background task) gets it
+   back; a plain line keeps the arrow (clickable-cursor.test.ts). */
+:is(button, a[href]).cv-tool {
+  cursor: pointer;
 }
 .cv-tool.is-strong {
   color: var(--cv-tool-strong);
@@ -2016,6 +2039,7 @@ pre.cv-math-source {
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-tool-error__hook {
   margin-right: 6px;
@@ -2040,6 +2064,7 @@ pre.cv-math-source {
     inset 0 0 0 1px var(--cv-card-ring);
   font-size: var(--text-detail);
   line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-tool-error-card__cause {
   flex: 1;
@@ -2146,6 +2171,7 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* Quick commands end before the hint shows. */
 @media (prefers-reduced-motion: no-preference) {
@@ -2255,6 +2281,7 @@ pre.cv-math-source {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 10%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .cv-received__name.is-plain {
   cursor: pointer;
@@ -2361,6 +2388,7 @@ a.cv-sha:focus-visible {
   color: var(--cv-text-dim);
   font-size: var(--text-control);
   cursor: pointer;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .cv-received__more:hover,
 .cv-received__more:focus-visible {
@@ -2372,7 +2400,7 @@ a.cv-sha:focus-visible {
   max-width: none;
   margin: 2px 0 6px 22px;
 }
-.cv-received__details > .cv-tool-output {
+.cv-received__details .cv-tool-output {
   margin: 2px 0 0;
 }
 .cv-rotor.is-flipped {
@@ -2408,6 +2436,7 @@ a.cv-sha:focus-visible {
   color: var(--cv-text-muted);
   font-size: var(--text-caption);
   line-height: 14px;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .cv-mcp-call__body {
   margin: 0;
@@ -2452,6 +2481,7 @@ a.cv-sha:focus-visible {
   padding: 6px 12px;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
@@ -2546,6 +2576,7 @@ a.cv-sha:focus-visible {
   line-height: var(--text-detail--line-height);
   color: var(--cv-text-muted);
   cursor: pointer;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-output-more:hover {
   color: var(--cv-text);
@@ -2568,6 +2599,7 @@ a.cv-sha:focus-visible {
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 /* An empty footer (turns.ts isEmptyFooter: no label, no answer to copy, only Pin, Fork and the age,
    all hover-only) takes no line: the row is its turn gap alone, and pointed at, the controls show
@@ -2697,6 +2729,7 @@ a.cv-sha:focus-visible {
   cursor: pointer;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-turn-note__summary::-webkit-details-marker {
   display: none;
@@ -2956,7 +2989,8 @@ a.cv-sha:focus-visible {
   margin-inline: 0;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
+  /* Mixed from the opaque surface: the page color is clear in a translucent window. */
+  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) 94%, transparent);
   -webkit-backdrop-filter: blur(24px);
   backdrop-filter: blur(24px);
   color: var(--agent-text);
@@ -3189,6 +3223,7 @@ a.cv-sha:focus-visible {
   font: inherit;
   font-size: var(--text-detail);
   cursor: pointer;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-turn-preview-load:hover {
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
@@ -3394,7 +3429,6 @@ a.cv-sha:focus-visible {
   --glass-edge: var(--acpmux-jump-latest-rim, color-mix(in srgb, var(--agent-text) 18%, transparent));
   --glass-elevation: var(--elevation-2);
   color: var(--agent-text);
-  cursor: default;
   opacity: 0;
   pointer-events: none;
   transform: translate3d(-50%, 6px, 0);
@@ -3533,6 +3567,7 @@ a.cv-sha:focus-visible {
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .cv-plan__items {
   margin: 0;
@@ -3615,6 +3650,7 @@ a.cv-sha:focus-visible {
   padding-inline-start: 2px;
   font-size: var(--text-body);
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .cv-activity__label {
   min-width: 0;
@@ -3651,6 +3687,7 @@ a.cv-sha:focus-visible {
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-bgtask__detail {
   flex: 1;
@@ -3690,6 +3727,7 @@ a.cv-sha:focus-visible {
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
   overflow-wrap: anywhere;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* ---------- A policy the chat's harness cannot keep (CompactionNote.tsx) ---------- */
@@ -3725,6 +3763,7 @@ a.cv-sha:focus-visible {
   padding-left: 22.5px;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-agent-pair__toggle {
   all: unset;
@@ -3745,6 +3784,7 @@ a.cv-sha:focus-visible {
   list-style: none;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-agent-pair__held li {
   display: -webkit-box;
@@ -3845,11 +3885,11 @@ article.acpmux-row:empty {
   padding-bottom: var(--cv-turn-gap);
 }
 
-/* A steer the agent has not read yet (PendingSteer.tsx): plain Send now leads the prompt's action
-   row, before its receipt, age and message buttons. */
+/* An unread steer shows only Send now and remove, with the same quiet height as hover actions. */
 .cv-user__pending {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   margin: 0;
   padding: 0;
   font-family: var(--cv-font);
@@ -3857,6 +3897,7 @@ article.acpmux-row:empty {
   line-height: var(--cv-meta-row);
   color: var(--cv-text-dim);
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .cv-user__send-now {
   border: 0;
@@ -3864,7 +3905,6 @@ article.acpmux-row:empty {
   background: none;
   font: inherit;
   color: inherit;
-  cursor: default;
 }
 .cv-user__send-now:hover:not(:disabled) {
   color: var(--cv-text);
@@ -3877,11 +3917,13 @@ article.acpmux-row:empty {
 .cv-user__take-back {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: var(--cv-meta-row);
+  height: var(--cv-meta-row);
   border: 0;
   padding: 0;
   background: none;
   color: inherit;
-  cursor: default;
 }
 .cv-user__take-back:hover:not(:disabled) {
   color: var(--cv-text);
@@ -3889,44 +3931,13 @@ article.acpmux-row:empty {
 .cv-user__take-back:disabled {
   opacity: 0.5;
 }
-/* Send now worked (PendingSteer.tsx): Send now and the X fade, then fold their width to nothing.
-   The action row keeps its one line, so nothing above or below moves; the timer that removes them
-   reads the same fold duration (fold.ts foldMs), 0 under Reduce Motion or with animation off. */
-.cv-user__pending--leaving {
-  overflow: hidden;
-  pointer-events: none;
-  max-width: 0;
-  opacity: 0;
-}
-.cv-user__pending--leaving .cv-user__send-now:disabled,
-.cv-user__pending--leaving .cv-user__take-back:disabled {
-  opacity: 1;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .cv-user__pending--leaving {
-    animation: cv-user-pending-leave var(--cv-fold-duration) var(--cv-actions-ease) forwards;
-  }
-}
-@keyframes cv-user-pending-leave {
-  from {
-    max-width: var(--cv-pending-width);
-    opacity: 1;
-  }
-  45% {
-    max-width: var(--cv-pending-width);
-    opacity: 0;
-  }
-  to {
-    max-width: 0;
-    opacity: 0;
-  }
-}
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */
 .cv-message__note {
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-message__note.is-failed {
   color: var(--agent-status-failure);
@@ -3960,6 +3971,7 @@ article.acpmux-row:empty {
   color: var(--cv-text-muted);
   cursor: pointer;
   opacity: 0;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-received:hover .cv-received__reply,
 .cv-received:focus-within .cv-received__reply {
@@ -3977,6 +3989,7 @@ article.acpmux-row:empty {
   font-size: var(--text-caption);
   line-height: var(--cv-meta-row);
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */

@@ -143,7 +143,7 @@ export default agentPaneEntry({
       snapshot: turns(claude),
     },
     "prompt-hover": {
-      note: "Hovering the latest prompt shows its row under the bubble's right edge: read check, age, dot, Copy, Retry, Fork, Edit.",
+      note: "Hovering the latest prompt shows its row under the bubble's right edge: age, Copy, Retry, Fork, Edit, without a check or state dot.",
       snapshot: turns(claude),
       play: async (ctx) => ctx.hover({ text: "Now cover it with a test that fakes two timeouts" }),
     },

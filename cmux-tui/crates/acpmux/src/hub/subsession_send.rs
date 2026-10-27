@@ -31,17 +31,14 @@ impl Hub {
         // A child reports to its parent; it never stops the parent's turn.
         let to_parent =
             caller.meta().subsession.as_ref().is_some_and(|l| l.started_by == target.id);
-        // A message waits for the receiver's turn to end unless the sender
-        // asks for its next step: a steered prompt can cancel the tool call
-        // the agent is running (coordinator lane, 2026-10-20).
-        let mut deliver = deliver.unwrap_or(Delivery::AfterTurn);
-        // Nor does it steer into the parent's turn, which could cancel the parent's tool call.
-        if deliver == Delivery::NextStep && to_parent {
-            deliver = Delivery::AfterTurn;
-        }
+        // A message goes into the receiver's running turn unless the sender asks to queue it, in
+        // both directions: a steer never cancels the tool call the agent runs (it reads the message
+        // at its next tool boundary, #22797), and an agent that takes no message mid-turn gets it
+        // when the turn ends (`send_family_prompt`). Leo, 2026-10-22: agent messages steer by default.
+        let deliver = deliver.unwrap_or(Delivery::NextStep);
         if deliver == Delivery::Interrupt && to_parent {
             return Err(RpcError::invalid_params(
-                "a sub-session never interrupts its parent: send without interrupt, and the message waits for the parent's turn to end",
+                "a sub-session never interrupts its parent: send without interrupt. A working parent reads the message at its next tool step (or when its turn ends, if its agent takes no message mid-turn); an idle one starts a turn with it",
             ));
         }
         // An interrupt stops the running turn only once the message is accepted, so a message the
@@ -72,10 +69,9 @@ impl Hub {
 pub enum Delivery {
     /// Into the running turn: the agent reads it at its next tool step, the
     /// way a person's mid-turn message reaches Claude Code. An agent that
-    /// takes no prompt mid-turn gets it when the turn ends instead.
+    /// takes no prompt mid-turn gets it when the turn ends instead. The default.
     NextStep,
     /// Queued behind the running turn: the agent reads it when the turn ends.
-    /// The default.
     AfterTurn,
     /// Stops the running turn first, then runs it.
     Interrupt,
@@ -83,7 +79,7 @@ pub enum Delivery {
 
 impl Delivery {
     /// `deliver` (`next_step`, `after_turn`, `interrupt`) or the older
-    /// `interrupt: true`; None is the default, `AfterTurn`.
+    /// `interrupt: true`; None is the default, `NextStep`.
     pub fn parse(deliver: Option<&str>, interrupt: bool) -> Result<Option<Self>, RpcError> {
         let named = match deliver {
             None => None,

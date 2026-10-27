@@ -150,7 +150,7 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
       const raw = sessionStorage.getItem("cmux.acpmux.snapshot");
       if (!raw) throw new Error("started chat did not persist an Acpmux snapshot");
       const current = JSON.parse(raw) as Record<string, any>;
-      const summary = { ...(current.summary ?? {}), cwd };
+      const summary = { ...current.summary, cwd };
       const next = { ...current, summary, rows: [...(current.rows ?? [])] };
       const bridge = (window as any).cmuxAcpmuxBridge;
       if (!bridge?.receive) throw new Error("Acpmux bridge receive is unavailable");

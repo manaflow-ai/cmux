@@ -9,6 +9,35 @@ import type { PlayContext } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
+import { SCREEN_RECORDING_POSTER_JPEG } from "../../gallery/fixtures/videoPoster";
+
+/// A screen recording on the Desktop, as the host's `video.info` reads it (AgentPaneVideoInfo.swift).
+const VIDEO_PATH = "/Users/dev/Desktop/Screen Recording 2026-10-25 at 10.42.13.mov";
+const VIDEO_INFO = {
+  durationMs: 42_400,
+  width: 1920,
+  height: 1080,
+  poster: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
+  frames: [5300, 15900, 26500, 37100].map((atMs) => ({ atMs, data: SCREEN_RECORDING_POSTER_JPEG })),
+};
+
+/// Drops a screenshot and the screen recording on the composer, as Finder does (Leo's capture).
+function dropScreenshotAndVideo(ctx: PlayContext) {
+  const view = ctx.document.defaultView!;
+  const png = Uint8Array.from(
+    atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+    (char) => char.charCodeAt(0),
+  );
+  const files = [
+    new view.File([png], "Screenshot.png", { type: "image/png" }),
+    new view.File([new Uint8Array([0, 0, 0, 0x14, 0x66, 0x74, 0x79, 0x70])], VIDEO_PATH.split("/").pop()!, {
+      type: "video/quicktime",
+    }),
+  ];
+  const drop = new view.Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
+}
 
 // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
 // mic, which moves one slot left. The plays that start a draft from an empty prompt measure that move.
@@ -674,6 +703,30 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
       },
     },
+    // Austin (dogfood 2026-10-20): typing "1. " drew the list number with its left edge cut off.
+    // The marker hangs left of the item, and the editor scrolls, so it clips at the editor's edge.
+    "ordered-list-draft": {
+      note: "A numbered draft up to 10: every number draws whole inside the prompt, none cut at its left edge.",
+      ready: { draft: Array.from({ length: 10 }, (_, i) => `${i + 1}. Step ${i + 1}`).join("\n") },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-md ol > li").length === 10);
+        const editor = ctx.find({ selector: ".acpmux-md" });
+        const item = ctx.find({ selector: ".acpmux-md ol > li:last-child" });
+        // The widest marker ("10.", in the tabular digits markers use) plus WebKit's gap before the
+        // text must fit between the editor's clipping edge and the item's text.
+        const probe = ctx.document.createElement("span");
+        probe.textContent = "10.";
+        probe.style.position = "absolute";
+        probe.style.fontVariantNumeric = "tabular-nums";
+        editor.parentElement!.append(probe);
+        const fontSize = parseFloat(ctx.document.defaultView!.getComputedStyle(editor).fontSize);
+        const marker = probe.getBoundingClientRect().width + 1.2 * fontSize;
+        probe.remove();
+        const room = item.getBoundingClientRect().left - editor.getBoundingClientRect().left;
+        if (room < marker) throw new Error(`the list number needs ${marker}px but the prompt leaves ${room}px`);
+      },
+    },
     // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): a pasted image draws as a cropped
     // thumbnail above the prompt, with a small × that shows on hover; a click opens the viewer.
     "image-attached": {
@@ -839,7 +892,7 @@ export default agentPaneEntry({
         for (const name of ["notes.md", "build-logs.zip", "repro.mov"]) {
           const chip = chips.find((entry) => entry.name === name);
           if (!chip) throw new Error(`no saved chip names ${name}`);
-          if (chip.note !== "Sent as file path") throw new Error(`${name}'s chip must say it goes as its file path`);
+          if (chip.note) throw new Error(`${name}'s chip must not expose delivery mechanics`);
           if (!chip.path.endsWith(`/${name}`) || !chip.path.includes("/Chat Uploads/"))
             throw new Error(`${name}'s chip must link the copy the host saved, not ${chip.path}`);
         }
@@ -932,6 +985,41 @@ export default agentPaneEntry({
         );
         if (ctx.document.querySelector("output.acpmux-attachment-note"))
           throw new Error("a folder dropped in a chat on this Mac must link, not be refused");
+      },
+    },
+    "video-dropped": {
+      note: 'Leo, 2026-10-25: "also why dont we have previews of videos we should". A screen recording dropped from the Desktop beside a screenshot, in a chat on this Mac: the host knows its path (chat.attach.dropped) and reads its poster and length off its main thread (video.info), so its chip is the poster in the image\'s tile with a play glyph and "0:42"; a click plays it in Quick Look. Before, it was a bare file name.',
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+      },
+      play: async (ctx) => {
+        dropScreenshotAndVideo(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+      },
+    },
+    "video-reading": {
+      note: "A dropped screen recording while the host still reads its poster: its tile spins in the shape it will have, its × removes it, and a send waits for it a few seconds at most (composer/videoAttachments.ts).",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+      },
+      nativeDelayMs: { "video.info": 3_600_000 },
+      play: async (ctx) => {
+        dropScreenshotAndVideo(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image.acpmux-attachment-pending"));
       },
     },
     "attachment-loading": {
@@ -1287,14 +1375,14 @@ export default agentPaneEntry({
       }),
     },
     "steer-waiting-stack": {
-      note: "Two steers the agent has not read, one after the other: each one's plain Send now leads the action row under its bubble, before the receipt and message buttons.",
+      note: "Two steers the agent has not read, one after the other: each footer contains only Send now and remove until the steer is sent or read.",
       snapshot: waitingSteers(),
       play: async (ctx) => {
         await ctx.hover({ text: "Use the cache dir, not tmp" });
         const lines = [...ctx.document.querySelectorAll(".cv-user__pending")];
         if (lines.length !== 2) throw new Error(`expected two Send now marks, found ${lines.length}`);
         for (const line of lines) {
-          if (line.querySelector("svg")) throw new Error("Send now still has a clock icon");
+          if (line.querySelector(".cv-user__read")) throw new Error("a queue footer still has a read receipt");
           const actions = line.parentElement;
           if (!actions?.classList.contains("cv-user__actions")) throw new Error("Send now is not in the action row");
           if (actions.firstElementChild !== line) throw new Error("Send now does not lead the action row");
@@ -1306,7 +1394,7 @@ export default agentPaneEntry({
     // Leo, 2026-10-24: "where's the, like, X button? All I see is the send now. There's no, like,
     // you know, sort of retract and send now."
     "steer-waiting-x": {
-      note: "Play: hover a steer Claude has not read, in a Claude Code chat under its own family name (claude-sr2): Send now and the X (take it back to edit) lead its action row.",
+      note: "Play: hover a steer Claude has not read, in a Claude Code chat under its own family name (claude-sr2): Send now and the X (take it back to edit) are its complete action row.",
       snapshot: waitingSteerSr2(),
       play: async (ctx) => {
         await ctx.hover({ text: "Also keep the old flag working" });
@@ -1318,7 +1406,7 @@ export default agentPaneEntry({
     // Leo, 2026-10-24: "after i clicked send now and it worked it should just disappear" and "with
     // the animation as well".
     "steer-send-now-leaves": {
-      note: "Play: Send now on a steer Claude has not read: acpmux says it worked, and Send now and the X fade and fold away while the steer still waits for Claude to read it. The action row keeps its line: the bubble, the row and the transcript do not move.",
+      note: "Play: Send now on a steer Claude has not read: acpmux accepts delivery, and Send now and the X are replaced by normal hover actions while the steer still waits for Claude to read it. The action row keeps its line: the bubble, the row and the transcript do not move.",
       snapshot: waitingSteerSr2(),
       native: { "chat.queue.edit": { ok: true } },
       play: async (ctx) => {
@@ -1334,40 +1422,17 @@ export default agentPaneEntry({
       },
     },
     "steer-marks": {
-      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, plain Send now leads the action row under the bubble (Send now stops the current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
+      note: "Unread steers show only queue controls. Sent or read prompts show normal hover actions without checks or state dots.",
       snapshot: steerMarks(),
     },
     "steer-read-hover": {
-      note: "Play: hover the steer the agent read: the same row as any prompt (two checks, age, Copy, Retry, Fork), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
+      note: "Hover a read steer: only age, Copy, Retry and available message actions remain.",
       snapshot: steerMarks(),
       play: async (ctx) => {
+        await ctx.hover({ text: "Use the cache dir, not tmp" });
         const steer = ctx.find({ text: "Use the cache dir, not tmp" }).closest(".cv-user");
-        const receipt = steer?.querySelector('.cv-user__read[data-read="true"]');
-        if (!receipt) throw new Error("the read steer shows no read check");
-        receipt.setAttribute("data-gallery-target", "steer-read");
-        // The read steer sits above a frame-tall transcript that settles at its end after the
-        // stage is ready. Bring the steer into view and wait until the transcript has stopped
-        // scrolling: a scroll puts a title tooltip away (ui/titleTooltips.ts), so a hover that
-        // landed while it still moved never showed one.
-        steer?.scrollIntoView({ block: "center" });
-        const scroller = ctx.document.querySelector(".acpmux-scroll");
-        let top = Number.NaN;
-        let still = performance.now();
-        await ctx.waitFor(() => {
-          const now = performance.now();
-          if (scroller?.scrollTop !== top) {
-            top = scroller?.scrollTop ?? 0;
-            still = now;
-          }
-          return now - still > 300;
-        });
-        await ctx.hover({ selector: '[data-gallery-target="steer-read"]' });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent?.startsWith("Read by") ?? false,
-        );
-        const transcript = ctx.document.querySelector(".acpmux-scroll")?.textContent ?? "";
-        if (/Steered|Steering/.test(transcript)) throw new Error("a steer is labeled in the transcript");
+        if (steer?.querySelector(".cv-user__pending, .cv-user__read, .cv-user__dot"))
+          throw new Error("a read steer still has queue controls or state marks");
       },
     },
     "queued-long": {

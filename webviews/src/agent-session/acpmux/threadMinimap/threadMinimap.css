@@ -44,6 +44,10 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  /* An ordered list (each prompt's place for assistive tech), with none of a list's own spacing. */
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 /* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
    (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). */
@@ -297,7 +301,7 @@
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
     var(--elevation-2);
   color: var(--agent-text);
-  font: var(--text-body, 13px) / 20px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: var(--text-body, 13px) / 20px var(--font-ui);
   -webkit-font-smoothing: antialiased;
   cursor: default;
 }
@@ -447,4 +451,14 @@
 .acpmux-scrollmap__mark[data-bookmarked]:not([data-tone="current"]):not([data-tone="active"]) .acpmux-minimap__bar,
 .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked]:not([data-tone="current"]):not([data-tone="active"]) .acpmux-minimap__bar {
   opacity: var(--acpmux-minimap-mark, 0.7);
+}
+/* The rows the rail does not draw (tickWindow.ts): one block as tall as they are. */
+.acpmux-minimap__gap {
+  flex: none;
+}
+/* A tick's list item (its place among every prompt for assistive tech): a plain block around its
+   tick, so it takes the tick's 10 px and the list's rows stay where they were. */
+.acpmux-minimap__entry {
+  flex: none;
+  display: block;
 }

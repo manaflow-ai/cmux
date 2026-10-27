@@ -92,6 +92,17 @@
             }
           },
           {
+            "key" : "settings.group.autoArchive",
+            "rows" : [
+              "workspaces.autoArchive.style",
+              "workspaces.autoArchive.idleDays"
+            ],
+            "title" : {
+              "key" : "settings.group.autoArchive",
+              "text" : "Auto-Archive"
+            }
+          },
+          {
             "key" : "settings.group.history",
             "rows" : [
               "navigation.historyScope",
@@ -416,7 +427,8 @@
               "ui.reducedBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
-              "appearance.inactiveWindowDim"
+              "appearance.inactiveWindowDim",
+              "appearance.wallpaperTint"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -788,6 +800,7 @@
             "rows" : [
               "agentPane.display.width",
               "agentPane.display.fullWidth",
+              "agentPane.display.vscodeMinimap",
               "agentPane.display.font.preset",
               "agentPane.display.font.size",
               "agentPane.display.font.lineHeight",
@@ -795,6 +808,7 @@
               "agentPane.display.code.scale",
               "agentPane.display.inspector.placement",
               "agentPane.display.environment.placement",
+              "agentPane.display.minimap",
               "agentPane.links.outsideRoots",
               "agentPane.images.remote",
               "agentPane.needsYou.enabled",
@@ -805,6 +819,7 @@
               "agentPane.showDictation",
               "agentPane.spellChecking",
               "agentPane.attachmentView",
+              "agentPane.scrollToBottomOnSend",
               "agentPane.zoom",
               "agents.defaultPermissionMode",
               "app.warnBeforeClosingAgentSession"
@@ -854,6 +869,7 @@
               "agents.subsessions.enabled",
               "agents.subsessions.answerQuestions",
               "agents.subsessions.maxChildren",
+              "agents.subsessions.maxRunning",
               "agents.subsessions.maxDepth"
             ],
             "title" : {
@@ -920,6 +936,16 @@
             }
           },
           {
+            "key" : "settings.group.chiefEngine",
+            "rows" : [
+              "home.chiefEngine"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefEngine",
+              "text" : "Engine"
+            }
+          },
+          {
             "key" : "settings.group.chiefReactions",
             "rows" : [
               "chief.reactionsCanWake",
@@ -945,7 +971,7 @@
           "text" : "Chief"
         },
         "trail" : [
-
+          "notices"
         ]
       },
       {
@@ -1185,6 +1211,16 @@
             }
           },
           {
+            "key" : "settings.group.import",
+            "rows" : [
+              "browser.import.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.import",
+              "text" : "Import"
+            }
+          },
+          {
             "key" : "settings.group.memory",
             "rows" : [
               "browser.hibernation",
@@ -1354,6 +1390,16 @@
               "key" : "settings.group.hangReports",
               "text" : "Hang Reports"
             }
+          },
+          {
+            "key" : "settings.group.sshLinks",
+            "rows" : [
+              "ssh.linkAllowedHosts"
+            ],
+            "title" : {
+              "key" : "settings.group.sshLinks",
+              "text" : "SSH Links"
+            }
           }
         ],
         "id" : "privacy",
@@ -1490,7 +1536,6 @@
         "aliases" : [
 
         ],
-        "dev_only" : true,
         "groups" : [
 
         ],
@@ -4056,7 +4101,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -4064,7 +4109,7 @@
       },
       "help" : {
         "key" : "settings.updates.downloadAutomatically.help",
-        "text" : "Off: a found update waits, and one click downloads and installs it."
+        "text" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.downloadAutomatically",
@@ -4089,7 +4134,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.updates.downloadAutomatically",
-        "text" : "Download Updates Automatically"
+        "text" : "Download and Install Updates Automatically"
       },
       "validation" : "portable"
     },
@@ -4459,7 +4504,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 900,
+      "default" : 600,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -5338,6 +5383,72 @@
     },
     {
       "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sshLinks",
+        "text" : "SSH Links"
+      },
+      "help" : {
+        "key" : "settings.machines.sshLinkHosts.help",
+        "text" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ssh.linkAllowedHosts",
+      "keywords" : [
+        "ssh",
+        "link",
+        "url",
+        "host",
+        "trust",
+        "allow",
+        "always",
+        "machine",
+        "security"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "ssh",
+        "linkAllowedHosts"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.machines.sshLinkHosts",
+        "text" : "Always Allowed SSH Link Hosts"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -5491,6 +5602,65 @@
       "title" : {
         "key" : "settings.agents.subsessions.maxChildren",
         "text" : "Open Sub-sessions per Session"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        1000,
+        500.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 16,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.maxRunning.help",
+        "text" : "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.maxRunning",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "limit",
+        "running",
+        "concurrency",
+        "parallel",
+        "queue"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "maxRunning"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -998,
+        1999,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.maxRunning",
+        "text" : "Running Sub-sessions per Session"
       },
       "validation" : "portable"
     },
@@ -8480,6 +8650,157 @@
       "title" : {
         "key" : "settings.screenshots.folders",
         "text" : "More Screenshot Folders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "suggest",
+        "quiet",
+        "groups",
+        "manual",
+        "off"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.autoArchiveSuggest",
+            "text" : "Suggest Archiving"
+          },
+          "value" : "suggest"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.autoArchiveQuiet",
+            "text" : "Archive Automatically"
+          },
+          "value" : "quiet"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.autoArchiveGroups",
+            "text" : "Only in Groups With a Rule"
+          },
+          "value" : "groups"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.autoArchiveManual",
+            "text" : "Only When I Tidy"
+          },
+          "value" : "manual"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.autoArchiveOff",
+            "text" : "Never"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "suggest",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.autoArchive",
+        "text" : "Auto-Archive"
+      },
+      "help" : {
+        "key" : "settings.autoArchive.style.help",
+        "text" : "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.autoArchive.style",
+      "keywords" : [
+        "archive",
+        "auto archive",
+        "idle",
+        "old",
+        "stale",
+        "tidy",
+        "clean up",
+        "declutter",
+        "workspaces",
+        "sidebar"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "autoArchive",
+        "style"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.autoArchive.style",
+        "text" : "Idle Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        365,
+        183
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 3,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.autoArchive",
+        "text" : "Auto-Archive"
+      },
+      "help" : {
+        "key" : "settings.autoArchive.idleDays.help",
+        "text" : "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.autoArchive.idleDays",
+      "keywords" : [
+        "archive",
+        "idle",
+        "days",
+        "age",
+        "old"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "autoArchive",
+        "idleDays"
+      ],
+      "range" : {
+        "max" : 365,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "days"
+      },
+      "refuses" : [
+        -363,
+        729,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.autoArchive.idleDays",
+        "text" : "Idle For"
       },
       "validation" : "portable"
     },
@@ -11801,6 +12122,58 @@
       "title" : {
         "key" : "settings.appearance.inactiveWindowDim",
         "text" : "Dim Inactive Windows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.wallpaperTint.help",
+        "text" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.wallpaperTint",
+      "keywords" : [
+        "wallpaper",
+        "desktop",
+        "tint",
+        "tinting",
+        "glass",
+        "color",
+        "colour",
+        "space",
+        "background"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "wallpaperTint"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.wallpaperTint",
+        "text" : "Tint with Desktop Wallpaper"
       },
       "validation" : "portable"
     },
@@ -18103,6 +18476,65 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.vscodeMinimap.help",
+        "text" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.vscodeMinimap",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "minimap",
+        "vscode",
+        "vs code",
+        "code",
+        "map",
+        "overview",
+        "scroll",
+        "scrollbar",
+        "right",
+        "toggle"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "vscodeMinimap"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.vscodeMinimap",
+        "text" : "VS Code Minimap"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "markdown",
         "system",
         "serif",
@@ -18573,6 +19005,92 @@
       "title" : {
         "key" : "settings.agentPane.display.environment",
         "text" : "Session Info Chip"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "compact",
+        "full",
+        "off"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatMinimapRail",
+            "text" : "Rail"
+          },
+          "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatMinimapFull",
+            "text" : "Full Map"
+          },
+          "value" : "full"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "compact",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.minimap.help",
+        "text" : "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.minimap",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "minimap",
+        "thread minimap",
+        "map",
+        "overview",
+        "scroll",
+        "vscode",
+        "rail",
+        "tick",
+        "ticks",
+        "wave",
+        "prompt rail",
+        "scroll rail",
+        "prompts"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "minimap"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.minimap",
+        "text" : "Chat Minimap"
       },
       "validation" : "portable"
     },
@@ -30369,6 +30887,61 @@
         true,
         false
       ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.import",
+        "text" : "Import"
+      },
+      "help" : {
+        "key" : "settings.browser.importEnabled.help",
+        "text" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.import.enabled",
+      "keywords" : [
+        "import",
+        "browser",
+        "chrome",
+        "safari",
+        "arc",
+        "firefox",
+        "bookmarks",
+        "history",
+        "passwords",
+        "cookies",
+        "suggestions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "import",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.importEnabled",
+        "text" : "Import from Other Browsers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -33065,7 +33638,8 @@
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox"
+        "fox",
+        "mochi"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -33132,6 +33706,13 @@
             "text" : "Fox"
           },
           "value" : "fox"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.mochi",
+            "text" : "Mochi"
+          },
+          "value" : "mochi"
         }
       ],
       "consumers" : [
@@ -33170,6 +33751,80 @@
       "title" : {
         "key" : "settings.home.chiefPetMascot",
         "text" : "Character"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "local",
+        "hosted"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chiefEngine.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefEngine.local",
+            "text" : "This Mac"
+          },
+          "value" : "local"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefEngine.hosted",
+            "text" : "Hosted"
+          },
+          "value" : "hosted"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefEngine",
+        "text" : "Engine"
+      },
+      "help" : {
+        "key" : "settings.home.chiefEngine.help",
+        "text" : "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefEngine",
+      "keywords" : [
+        "chief",
+        "engine",
+        "backend",
+        "hosted",
+        "cloud",
+        "local",
+        "optchat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefEngine"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefEngine",
+        "text" : "Engine"
       },
       "validation" : "portable"
     },
@@ -35270,6 +35925,645 @@
     },
     {
       "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.notifications.sounds.sameAsSound",
+        "text" : "Same as Sound"
+      },
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.events.finished",
+      "keywords" : [
+        "sound",
+        "alert",
+        "chime"
+      ],
+      "kind" : "sound",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "sounds",
+        "events",
+        "finished"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.sounds.event.finished",
+        "text" : "Agent Finished"
+      },
+      "validation" : "domain:sound"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.notifications.sounds.sameAsSound",
+        "text" : "Same as Sound"
+      },
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.events.needsInput",
+      "keywords" : [
+        "sound",
+        "alert",
+        "chime"
+      ],
+      "kind" : "sound",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "sounds",
+        "events",
+        "needsInput"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.sounds.event.needsInput",
+        "text" : "Agent Needs Input"
+      },
+      "validation" : "domain:sound"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.notifications.sounds.sameAsSound",
+        "text" : "Same as Sound"
+      },
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.events.error",
+      "keywords" : [
+        "sound",
+        "alert",
+        "chime"
+      ],
+      "kind" : "sound",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "sounds",
+        "events",
+        "error"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.sounds.event.error",
+        "text" : "Error"
+      },
+      "validation" : "domain:sound"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.notifications.sounds.sameAsSound",
+        "text" : "Same as Sound"
+      },
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.events.bell",
+      "keywords" : [
+        "sound",
+        "alert",
+        "chime"
+      ],
+      "kind" : "sound",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "sounds",
+        "events",
+        "bell"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.sounds.event.bell",
+        "text" : "Terminal Notification"
+      },
+      "validation" : "domain:sound"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.notifications.sounds.sameAsSound",
+        "text" : "Same as Sound"
+      },
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.events.message",
+      "keywords" : [
+        "sound",
+        "alert",
+        "chime"
+      ],
+      "kind" : "sound",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "sounds",
+        "events",
+        "message"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.sounds.event.message",
+        "text" : "cmux notify Message"
+      },
+      "validation" : "domain:sound"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : {
+        "key" : "settings.notifications.sounds.volume.help",
+        "text" : "Sounds cmux plays itself. A banner's default sound follows the system alert volume."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.volume",
+      "keywords" : [
+        "sound",
+        "loud",
+        "quiet"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "sounds",
+        "volume"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.sounds.volume",
+        "text" : "Volume"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "unlessViewed",
+        "whenInactive",
+        "always"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.notifications.sounds.when.unlessViewed",
+            "text" : "Unless the Pane Is in Front"
+          },
+          "value" : "unlessViewed"
+        },
+        {
+          "title" : {
+            "key" : "settings.notifications.sounds.when.whenInactive",
+            "text" : "Only When cmux Is Inactive"
+          },
+          "value" : "whenInactive"
+        },
+        {
+          "title" : {
+            "key" : "settings.notifications.sounds.when.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "unlessViewed",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.when",
+      "keywords" : [
+        "sound",
+        "focused",
+        "background"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "sounds",
+        "when"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.sounds.when",
+        "text" : "Play Sounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        60,
+        30
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1.5,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : {
+        "key" : "settings.notifications.sounds.cooldown.help",
+        "text" : "Many notifications at once sound once. An agent asking for input still sounds. 0 turns it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.cooldownSeconds",
+      "keywords" : [
+        "sound",
+        "rate limit",
+        "throttle",
+        "burst"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "sounds",
+        "cooldownSeconds"
+      ],
+      "range" : {
+        "max" : 60,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.5,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -60,
+        120,
+        "1"
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.sounds.cooldown",
+        "text" : "Burst Cooldown"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "Ops" : {
+            "events" : {
+              "needsInput" : "Ping"
+            },
+            "sound" : "Glass",
+            "volume" : 0.5
+          },
+          "ws_1" : "none"
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : {
+        "key" : "settings.notifications.sounds.workspaces.help",
+        "text" : "Sounds per workspace id. Set one from the workspace's sidebar menu."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.workspaces",
+      "keywords" : [
+        "sound",
+        "mute"
+      ],
+      "kind" : "sound_rules",
+      "page_hidden" : true,
+      "path" : [
+        "notifications",
+        "sounds",
+        "workspaces"
+      ],
+      "refuses" : [
+        "Glass",
+        [
+
+        ],
+        {
+          "ws_1" : 1
+        },
+        {
+          "ws_1" : {
+            "volume" : "loud"
+          }
+        },
+        {
+          "ws_1" : {
+            "events" : {
+              "ringing" : "Ping"
+            }
+          }
+        }
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.sounds.workspaces",
+        "text" : "Workspace Sounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "Ops" : {
+            "events" : {
+              "needsInput" : "Ping"
+            },
+            "sound" : "Glass",
+            "volume" : 0.5
+          },
+          "ws_1" : "none"
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : {
+        "key" : "settings.notifications.sounds.groups.help",
+        "text" : "Sounds per group id or name. Set one from the group's sidebar menu."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.groups",
+      "keywords" : [
+        "sound",
+        "mute"
+      ],
+      "kind" : "sound_rules",
+      "page_hidden" : true,
+      "path" : [
+        "notifications",
+        "sounds",
+        "groups"
+      ],
+      "refuses" : [
+        "Glass",
+        [
+
+        ],
+        {
+          "ws_1" : 1
+        },
+        {
+          "ws_1" : {
+            "volume" : "loud"
+          }
+        },
+        {
+          "ws_1" : {
+            "events" : {
+              "ringing" : "Ping"
+            }
+          }
+        }
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.sounds.groups",
+        "text" : "Group Sounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "Ops" : {
+            "events" : {
+              "needsInput" : "Ping"
+            },
+            "sound" : "Glass",
+            "volume" : 0.5
+          },
+          "ws_1" : "none"
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : {
+        "key" : "settings.notifications.sounds.agents.help",
+        "text" : "Sounds per agent kind, such as claude or codex."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.agents",
+      "keywords" : [
+        "sound",
+        "mute"
+      ],
+      "kind" : "sound_rules",
+      "page_hidden" : true,
+      "path" : [
+        "notifications",
+        "sounds",
+        "agents"
+      ],
+      "refuses" : [
+        "Glass",
+        [
+
+        ],
+        {
+          "ws_1" : 1
+        },
+        {
+          "ws_1" : {
+            "volume" : "loud"
+          }
+        },
+        {
+          "ws_1" : {
+            "events" : {
+              "ringing" : "Ping"
+            }
+          }
+        }
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.sounds.agents",
+        "text" : "Agent Sounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -36090,6 +37384,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.scrollToBottomOnSend.help",
+        "text" : "When off, sending while you are reading up keeps your place and shows new messages below."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.scrollToBottomOnSend",
+      "keywords" : [
+        "scroll",
+        "bottom",
+        "send",
+        "message",
+        "chat",
+        "latest",
+        "follow"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "scrollToBottomOnSend"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.scrollToBottomOnSend",
+        "text" : "Scroll to Bottom When I Send"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0.5,
         2,
         1.25
@@ -36186,7 +37530,7 @@
       },
       "help" : {
         "key" : "settings.agents.defaultPermissionMode.help",
-        "text" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again."
+        "text" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.defaultPermissionMode",

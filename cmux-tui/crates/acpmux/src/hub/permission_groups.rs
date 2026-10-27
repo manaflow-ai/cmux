@@ -19,6 +19,8 @@ const MAX_GROUPS: usize = 64;
 #[derive(Debug, Default)]
 pub(super) struct PermissionState {
     pub pending: HashMap<String, PendingPermission>,
+    /// What the asks no longer pending were answered, for a later answer (`permission_settled.rs`).
+    pub settled: super::permissions::settled::Settled,
     groups: VecDeque<Group>,
     pub chat_allowed: bool,
 }
@@ -329,8 +331,10 @@ impl Hub {
         params: Value,
         control: Control,
     ) -> Result<Value, RpcError> {
-        // Checked again here, at the answer, not only in the remote guard.
-        self.web_control_check(session, control)?;
+        // The Web's asking rule, at the answer: a deny only narrows
+        // (`Hub::web_answer_check`). A group allow carries no proof.
+        let narrows = params["decision"].as_str() == Some("deny");
+        self.web_answer_check(session, control, narrows, false)?;
         let text = |key: &str| -> Result<String, RpcError> {
             params[key]
                 .as_str()
@@ -421,6 +425,8 @@ impl Hub {
         let mut replies = Vec::new();
         for (id, outcome) in answers {
             if let Some(pending) = state.pending.remove(&id) {
+                // Told to a later answer at once (`permission_settled.rs`), as one answer is.
+                state.settled.remember(&id, None, &outcome);
                 replies.push((id, pending.reply, outcome));
             }
         }

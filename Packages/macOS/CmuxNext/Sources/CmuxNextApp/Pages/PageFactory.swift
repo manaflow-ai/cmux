@@ -1,6 +1,7 @@
 import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentIntegrations
+import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextHomeEngine
@@ -160,7 +161,8 @@ struct PageFactory {
         let registry = services.registry
         provider.sectionActions = { section in
             .array(SettingsSchema.actions(in: section).compactMap { id in
-                guard let descriptor = registry.descriptor(for: id) else { return nil }
+                // An action a setting turns off (Import from Browser with `browser.import.enabled` off) leaves the page.
+                guard let descriptor = registry.descriptor(for: id), registry.settingOffReason(id) == nil else { return nil }
                 return ["id": .string(id.rawValue), "title": .string(descriptor.title),
                         "enabled": .bool(registry.isAvailable(id))]
             })
@@ -173,6 +175,12 @@ struct PageFactory {
                 // Inside home: `~/…` (the schema accepts absolute or `~/` paths); home itself stays absolute.
                 return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
             }
+        }
+        provider.themeOverrides = { GhosttyRuntime.shared.configDiagnosticsSnapshot?.colorOverrides ?? [] }
+        provider.openThemeOverride = { [weak services] override in
+            guard let services else { return false }
+            return services.linkOpener.openFile(URL(fileURLWithPath: override.file), from: services.windows.active?.focusedPane,
+                                                asText: true, at: FilePosition(line: override.line))
         }
         provider.themeFiles = SettingsThemeFiles(
             folders: {
@@ -209,7 +217,17 @@ struct PageFactory {
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
-                      PageRoute(prefix: ChannelsPageProvider.prefix, provider: ChannelsPageProvider(updater: services.updater)),
+                      PageRoute(prefix: ChannelsPageProvider.prefix,
+                                provider: ChannelsPageProvider(updater: services.updater, daemon: { @MainActor [weak services] in
+                                    // The acpmux this app starts; none in a showcase or with the mock agent host.
+                                    guard let environment = services.flatMap(QuitAgents.environment) else { return nil }
+                                    return (AcpmuxDaemonSummary.title, await AcpmuxDaemonSummary.current(environment).text)
+                                }, machines: { PageFactory.otherMachines(DaemonUpdateBoard.shared) },
+                                // The person's Update on a machine of that row: the shared policy asks it again.
+                                updateMachine: { id in
+                                    await DaemonUpdateBoard.shared.update(id) { await DaemonUpdatePolicy.shared.retry($0) }
+                                        ? nil : DaemonUpdateBoard.updateRefused
+                                })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
@@ -248,5 +266,13 @@ struct PageFactory {
         let native = AppPageNativeProvider(services: services, page: page)
         native.forward = { op, params, context in try await relay.call(op, params: params, context: context) }
         return page.namespaces.map { PageRoute(prefix: $0, provider: relay) } + [PageRoute(prefix: "cmux.app.", provider: native)]
+    }
+
+    /// Settings > Updates' row of other machines from the daemon update board: a machine that
+    /// cannot update in place gets the Update button.
+    static func otherMachines(_ board: DaemonUpdateBoard) -> ChannelsPageProvider.Machines? {
+        guard let row = board.otherMachines else { return nil }
+        return ChannelsPageProvider.Machines(title: row.title, lines: row.lines, updates: row.machines.map { $0.canUpdate ? $0.id : nil },
+                                             updateLabel: DaemonUpdateBoard.updateLabel)
     }
 }

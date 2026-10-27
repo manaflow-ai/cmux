@@ -98,6 +98,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: Validate workflow files stay under GitHub's size limit
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_workflow_file_size.py
+
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
@@ -325,6 +329,10 @@ jobs:
       - name: Validate Resources property lists have unique keys
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_resources_plist_unique_keys.py
+
+      - name: Validate dev builds declare http/https at Alternate rank
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_web_url_handler_rank.py
 
       - name: Validate the release-media scenes and changelog patcher
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -735,6 +743,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_main.py
 
+      - name: Validate that no workflow polls the API with GITHUB_TOKEN
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_github_token_polling.py
+
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
@@ -889,6 +901,26 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_have_no_path_filters.py
 
+      - name: Validate the CI quota hold gate stays on optional workflows only
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_quota_hold_gate.py
+
+      - name: Validate the PR size advisory and its exclusion allowlist
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_size_advisory.py
+
+      - name: Validate pr-checks skips advisory jobs only on base-only updates
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pr_checks_base_only.py
+
+      - name: Validate gh-call attribution lines make no extra API call
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_gh_call_log.py
+
+      - name: Validate refused routing reads say why and retry once on Retry-After
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_route_refusal_detail.py
+
       - name: Validate workflow write permissions are job-scoped
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
@@ -924,6 +956,10 @@ jobs:
       - name: Validate pull request caches are read-only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
+
+      - name: Validate rust-cache keeps self-hosted runners' ~/.cargo/bin
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_cache_keeps_runner_bin.py
 
       - name: Validate signing secrets are read only in protected environments
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1236,6 +1272,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_owner_wait_defers.py
 
+      - name: Validate the cmux-tui tree hand-off cap
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_tree_handoff.py
+
       - name: Validate the cmux-tui pin duplicate skip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_pin_duplicate_skip.py
@@ -1244,9 +1284,29 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_lane_daemon_tests.py
 
+      - name: Validate the feat-cmux-next channel pointer only moves forward
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_point_channel.py
+
       - name: Validate superseded cmux-tui pushes skip their builds and daemon tests
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_superseded_push.py
+
+      - name: Validate nightly builds and signers never cancel or replace a waiting run
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_delivery_concurrency.py
+
+      - name: Validate nightly publish-path gh calls wait through a rate limit
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_gh_budget_wait.py
+
+      - name: Validate the run artifact download waits through a refused GitHub call
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_download_run_artifact_retries.py
+
+      - name: Validate publish gh calls go out as the release App first, github.token as fallback
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_gh_app_token.py
 
       - name: Validate a feat-cmux-next push stops deferring to a publisher whose daemon tests are stuck
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1293,6 +1353,10 @@ jobs:
       - name: Validate feat-cmux-next publishes its cmux-tui tree before the daemon tests
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_feat_publish_order.py
+
+      - name: Validate cmux-tui publication retries a rate-limited attestation and a slow fetch
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_publish_retries.py
 
       - name: Validate nightly API tag finalization
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1390,6 +1454,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
 
+      - name: Validate the nightly-next R2 publisher
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_publish_nightly_next_r2.py
+
       - name: Validate the nightly-next feed rollback
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_feed_rollback.py
@@ -1397,6 +1465,10 @@ jobs:
       - name: Validate the nightly-next release-ring tags
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_ring.py
+
+      - name: Validate the old feed's Linux publication and appcast writer
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_legacy_publish_linux.py
 
       - name: Validate the cmux NEXT Edge feed composer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1418,13 +1490,25 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_arm64_only.py
 
-      - name: Validate the nightly web bundles build before Rust
+      - name: Validate the nightly Ghostty CLI helper cache key
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_ghostty_helper_cache.py
+
+      - name: Validate the nightly web bundles build before the Release build
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_web_bundles_order.py
+
+      - name: Validate nightly helper builds beside the Release build
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_helpers_beside_release_build.py
 
       - name: Validate the nightly-next release notes fetch (published span only)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_release_notes_fetch.py
+
+      - name: Validate nightly.yml stays under GitHub's 512,000-byte workflow limit
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_workflow_size.py
 
       - name: Validate the nightly cmux-tui resolver (newest published tree, no wait)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1459,11 +1543,17 @@ jobs:
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
+          python3 tests/test_ci_nightly_no_hosted_mac.py
+          python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
 
       - name: Validate unsigned nightly resume provenance and routing
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_unsigned_resume.py
+
+      - name: Validate the nightly signing jobs take a Blacksmith label with a moving queue
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_sign_runner.py
 
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}
@@ -1585,6 +1675,10 @@ jobs:
       - name: Validate nightly Sparkle delta bases and feed
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: ./tests/test_generate_nightly_deltas.sh
+
+      - name: Validate a rewritten nightly appcast keeps each item's first-publish pubDate
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_appcast_keep_pubdates.py
 
       - name: Validate Sparkle key export permissions
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

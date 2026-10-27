@@ -20,20 +20,10 @@ fn ends_turn(answer: &Value) -> bool {
 
 /// The agent's `session/prompt` for a prompt of turn `turn_id` (its own, or
 /// a `steer` into it): the agent's answer, or the answer of a steer that
-/// ended this turn first.
-pub(super) async fn agent_prompt(
-    session: &Session,
-    child: &ChildAgent,
-    params: Value,
-    turn_id: &str,
-    steer: bool,
-) -> Result<Value, RpcError> {
-    agent_prompt_hook(session, child, params, turn_id, steer, || {}).await
-}
-
-/// The same request, with a synchronous hook after the prompt is written to the child and before
-/// its answer is awaited. The first-message title path uses this gap so a harness title update can
-/// win without waiting for the whole turn.
+/// ended this turn first. `on_sent` runs once the prompt is written to the child, before its
+/// answer is awaited: the first-message title path uses this gap so a harness title update can
+/// win without waiting for the whole turn, and a family message lets go of its gate there
+/// (`full_access_bound.rs` `family_gate`).
 pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     session: &Session,
     child: &ChildAgent,
@@ -86,6 +76,10 @@ impl Hub {
         let (control, trust_gate) = (opts.control, opts.trust_gate);
         let prompt_id = opts.prompt_id.unwrap_or_default();
         self.check_steer(session, control, opts.full_access_device.as_deref())?;
+        // A family message is checked again here, as a dispatched one is, and the gate held
+        // until it is written: it was checked before an MDM off push may have come
+        // (`family_gate`).
+        let family_gate = self.family_gate(session, opts.provenance.as_ref()).await?;
         // A running turn has a live agent.
         let child = self.child_for(session).await?;
         let agent_sid = session
@@ -115,19 +109,26 @@ impl Hub {
         let step_now = {
             let mut now =
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            now.waiting.insert(prompt_id.clone());
-            now.step.remove(&prompt_id)
+            let author = crate::author::of_provenance(opts.provenance.as_ref());
+            now.waiting.insert(prompt_id.clone(), author.map(str::to_owned));
+            now.step.remove(&prompt_id) || opts.steer_now
         };
         if step_now {
             params["_meta"]["steerNow"] = json!(true);
         }
-        let answer = agent_prompt(session, &child, params, turn_id, true).await;
+        // Counted in the turn before the agent can read it (`lane_reports.rs`).
+        let count = self.lane_steer_in(session, opts.provenance.as_ref());
+        let answer =
+            agent_prompt_hook(session, &child, params, turn_id, true, || drop(family_gate)).await;
         session
             .steer_now
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .waiting
             .remove(&prompt_id);
+        if let Some(count) = count {
+            count.done(steer_entered_turn(&answer));
+        }
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else { return Err(e) };
@@ -159,5 +160,27 @@ impl Hub {
         };
         merge_mux_meta(&mut r, json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}));
         Ok(r)
+    }
+}
+
+/// Whether a steer's answer means it went into the running turn: any answer but one that found
+/// no turn or was withdrawn before the agent read it. One the turn took that ended in an error
+/// was still part of it.
+fn steer_entered_turn(answer: &Result<Value, RpcError>) -> bool {
+    !matches!(answer, Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN)
+        || e.message.starts_with(crate::claude_stdio::STEER_WITHDRAWN))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_steer_the_turn_took_counts_as_in_it() {
+        let err = |m: &str| Err(RpcError::internal(m.to_owned()));
+        assert!(steer_entered_turn(&Ok(json!({}))));
+        assert!(steer_entered_turn(&err("agent process closed")));
+        assert!(!steer_entered_turn(&err(crate::claude_stdio::STEER_NO_TURN)));
+        assert!(!steer_entered_turn(&err(crate::claude_stdio::STEER_WITHDRAWN)));
     }
 }

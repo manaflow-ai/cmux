@@ -48,6 +48,7 @@ import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
+import { AuthorChip } from "./multiplayer/Faces";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -224,7 +225,9 @@ export function ComposerQueue({
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
       return kept.length === current.size ? current : new Set(kept);
     });
-    if (editing && !queue.some((entry) => entry.id === editing)) {
+    // The edited prompt left, or turned out to be a teammate's (its authored record came in while
+    // the editor was open): the editor closes, and what was typed goes back to the composer.
+    if (editing && !queue.some((entry) => entry.id === editing && entry.author === undefined)) {
       const open = draft.current;
       if (open?.id === editing && open.text.trim() && open.text !== open.original) onLost?.(open.text.trim(), editing);
       draft.current = undefined;
@@ -313,6 +316,17 @@ export function ComposerQueue({
   // The person's prompts only: another agent's message draws in the transcript.
   const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
   // A paused queue of agent messages alone still says so, with Resume.
+  // Who each row belongs to, as last drawn. A native menu keeps the actions it opened with: one
+  // picked after a row turned out to be a teammate's (its authored record came in while the menu
+  // was open) does nothing, as the row now offers nothing.
+  const owners = (rows: readonly QueuedEntry[]) =>
+    rows.map((entry) => `${entry.id}\u0000${entry.author?.id ?? ""}`).join("\u0001");
+  const drawnOwners = useRef("");
+  const drawnRows = useRef<readonly QueuedEntry[]>([]);
+  useLayoutEffect(() => {
+    drawnOwners.current = owners(shown);
+    drawnRows.current = shown;
+  });
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
@@ -344,10 +358,25 @@ export function ComposerQueue({
     }, 1000);
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
+  // A teammate's prompt in a shared chat: shown with its author, never changed from here.
+  const theirs = (entry: QueuedEntry) => entry.author !== undefined;
+  const whileOwnersHold = (items: ContextMenuItem[]): ContextMenuItem[] => {
+    const opened = owners(shown);
+    return items.map((entry) => ({
+      ...entry,
+      onSelect: () => {
+        if (drawnOwners.current === opened) entry.onSelect();
+      },
+    }));
+  };
   const cancelEdit =
     onCancelEdit &&
     (async (entry: QueuedEntry) => {
       const attachments = await queuedAttachments(entry.images, readImage);
+      // Its images read, the row may have turned out to be a teammate's (or gone): then it is
+      // theirs, and nothing is taken out of the queue.
+      const now = drawnRows.current.find((row) => row.id === entry.id);
+      if (!now || theirs(now)) return;
       await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
     });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
@@ -376,13 +405,22 @@ export function ComposerQueue({
   // agent's waiting message (drawn in the transcript) may still be its neighbour in the queue: it
   // moves one place in the whole queue then.
   const queueIndex = (entry: QueuedEntry) => queue.findIndex((q) => q.id === entry.id);
+  // Where a move to the row shown at `index` lands in the whole queue, or undefined when it cannot:
+  // past either end, or across a teammate's prompt (each row it passes shifts one place, and a
+  // teammate's prompt is theirs to move).
+  const moveTarget = (entry: QueuedEntry, index: number): number | undefined => {
+    const target = shown[index];
+    const from = queueIndex(entry);
+    const to = target ? queueIndex(target) : from + (index < shown.indexOf(entry) ? -1 : 1);
+    if (from < 0 || to < 0 || to >= queue.length || to === from) return undefined;
+    const passed = to < from ? queue.slice(to, from) : queue.slice(from + 1, to + 1);
+    return passed.some((q) => q.author !== undefined) ? undefined : to;
+  };
   const move =
     onChange &&
     ((entry: QueuedEntry, index: number) => {
-      const target = shown[index];
-      const from = queueIndex(entry);
-      const to = target ? queueIndex(target) : from + (index < shown.indexOf(entry) ? -1 : 1);
-      if (from < 0 || to < 0 || to >= queue.length) return;
+      const to = moveTarget(entry, index);
+      if (to === undefined) return;
       // A move into the folded part opens the queue, so the moved row stays in sight.
       if (folded && index >= visible.length) unfold(true);
       refocus.current = entry.id;
@@ -399,6 +437,7 @@ export function ComposerQueue({
     focusRow(index);
   };
   const save = (entry: QueuedEntry, text: string) => {
+    if (entry.author !== undefined) return cancel(shown.indexOf(entry));
     const images = entry.images ?? [];
     const kept = images.filter((image) => !dropped.has(image.id));
     draft.current = undefined;
@@ -418,6 +457,8 @@ export function ComposerQueue({
   const rowKeyDown = (event: React.KeyboardEvent<HTMLElement>, entry: QueuedEntry, index: number) => {
     if (event.target !== event.currentTarget) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // A teammate's prompt is theirs to change (acpmux `queue.not_author`): its row only walks.
+    const mine = !theirs(entry);
     const done = () => {
       event.preventDefault();
       event.stopPropagation();
@@ -426,16 +467,16 @@ export function ComposerQueue({
       // ⌘↩ on a row does nothing: Send now is a click (above). It would send the prompt from the
       // composer otherwise.
       done();
-    } else if (event.key === "Enter" && plain && onChange) {
+    } else if (event.key === "Enter" && plain && onChange && mine) {
       done();
       setEditing(entry.id);
-    } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && event.altKey && move) {
+    } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && event.altKey && move && mine) {
       done();
       move(entry, index + (event.key === "ArrowUp" ? -1 : 1));
     } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && plain) {
       done();
       focusRow(index + (event.key === "ArrowUp" ? -1 : 1));
-    } else if ((event.key === "Delete" || event.key === "Backspace") && plain && remove) {
+    } else if ((event.key === "Delete" || event.key === "Backspace") && plain && remove && mine) {
       done();
       remove(entry);
       focusAfter(index);
@@ -466,44 +507,48 @@ export function ComposerQueue({
     ),
     onSelect,
   });
-  const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
-    ...(canSendNow(entry)
-      ? [
-          {
-            id: "steer",
-            ariaLabel: t("composer.queueSteer"),
-            label: t("composer.queueSteer"),
-            onSelect: () => sendNow?.(entry),
-          },
-        ]
-      : []),
-    ...(onChange ? [item("edit", t("composer.queueEditMessage"), "↩", () => setEditing(entry.id))] : []),
-    ...(move
-      ? [
-          {
-            ...item("up", t("composer.queueMoveUp"), "⌥↑", () => move(entry, index - 1)),
-            disabled: queueIndex(entry) <= 0,
-            separatorBefore: true,
-          },
-          {
-            ...item("down", t("composer.queueMoveDown"), "⌥↓", () => move(entry, index + 1)),
-            disabled: queueIndex(entry) === queue.length - 1,
-          },
-        ]
-      : []),
-    ...(remove
-      ? [
-          {
-            ...item("delete", t("composer.queueDelete"), "⌫", () => remove(entry)),
-            destructive: true,
-            separatorBefore: true,
-          },
-        ]
-      : []),
-  ];
+  const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] =>
+    theirs(entry)
+      ? []
+      : whileOwnersHold([
+          ...(canSendNow(entry)
+            ? [
+                {
+                  id: "steer",
+                  ariaLabel: t("composer.queueSteer"),
+                  label: t("composer.queueSteer"),
+                  onSelect: () => sendNow?.(entry),
+                },
+              ]
+            : []),
+          ...(onChange ? [item("edit", t("composer.queueEditMessage"), "↩", () => setEditing(entry.id))] : []),
+          ...(move
+            ? [
+                {
+                  ...item("up", t("composer.queueMoveUp"), "⌥↑", () => move(entry, index - 1)),
+                  disabled: moveTarget(entry, index - 1) === undefined,
+                  separatorBefore: true,
+                },
+                {
+                  ...item("down", t("composer.queueMoveDown"), "⌥↓", () => move(entry, index + 1)),
+                  disabled: moveTarget(entry, index + 1) === undefined,
+                },
+              ]
+            : []),
+          ...(remove
+            ? [
+                {
+                  ...item("delete", t("composer.queueDelete"), "⌫", () => remove(entry)),
+                  destructive: true,
+                  separatorBefore: true,
+                },
+              ]
+            : []),
+        ]);
   // The row's actions, as ChatGPT and Codex show them: Steer (a glyph and its word), the trash can
   // (an icon named by its tooltip), and the ⋯ menu. Plain glyphs: a soft pill on hover only.
   const actions = (entry: QueuedEntry) => {
+    if (theirs(entry)) return null;
     const side = sideChat?.(entry);
     return (
       <span className="acpmux-queued-actions">
@@ -600,6 +645,7 @@ export function ComposerQueue({
         >
           {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
           <span className="acpmux-queued-clamp">
+            {entry.author && <AuthorChip author={entry.author} inline />}
             {entry.next && (
               <span className="acpmux-queued-kind" data-kind="steer">
                 {t("composer.steering")}
@@ -691,7 +737,7 @@ export function ComposerQueue({
             className="acpmux-queued"
             key={entry.id}
             data-prompt-id={entry.id}
-            aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Delete"
+            aria-keyshortcuts={theirs(entry) ? undefined : "Enter Alt+ArrowUp Alt+ArrowDown Delete"}
             {...rovingTabStopProps(false, (event) => rowKeyDown(event, entry, index))}
           >
             {editing === entry.id ? (

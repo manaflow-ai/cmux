@@ -258,6 +258,10 @@ path = "tests/test_ci_nightly_off_blacksmith.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_nightly_no_hosted_mac.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_no_shallow_dev_fetch.py"
 lane = "linux-guard"
 
@@ -306,11 +310,23 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cmux_next_compile_revert.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cmux_next_linux_compile_status.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pull_request_caches_are_read_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_rust_cache_keeps_runner_bin.py"
 lane = "linux-guard"
 
 [[test]]
@@ -690,6 +706,26 @@ path = "tests/test_ci_required_checks_have_no_path_filters.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_quota_hold_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_size_advisory.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_checks_base_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_call_log.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_route_refusal_detail.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_permissions_are_job_scoped.py"
 lane = "linux-guard"
 
@@ -966,6 +1002,10 @@ path = "tests/test_nightly_artifact_alias.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_workflow_size.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
 
@@ -1046,7 +1086,11 @@ path = "tests/test_dev_release_product_reuse.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_merge_compile_guard.py"
+path = "tests/test_nightly_release_product_key.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_release_product_reuse.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1063,6 +1107,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_leo_bans.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1196,6 +1244,10 @@ path = "tests/test_resources_plist_unique_keys.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_url_handler_rank.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_release_media.py"
 lane = "linux-guard"
 
@@ -1205,6 +1257,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_merge_pbxproj.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_appcast_keep_pubdates.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1261,6 +1317,10 @@ path = "tests/test_cmux_next_dev_release_host_root.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_hybrid_ref_capture.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_release_build_retention.py"
 lane = "linux-guard"
 
@@ -1285,6 +1345,10 @@ path = "tests/test_nightly_next_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_publish_nightly_next_r2.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_source_archive.py"
 lane = "linux-guard"
 
@@ -1293,7 +1357,15 @@ path = "tests/test_nightly_next_arm64_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_ghostty_helper_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_web_bundles_order.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_helpers_beside_release_build.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1469,6 +1541,10 @@ path = "tests/test_cmux_tui_owner_wait_defers.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_tree_handoff.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_pin_duplicate_skip.py"
 lane = "linux-guard"
 
@@ -1505,6 +1581,11 @@ path = "tests/test_defaults_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_settings_stamp_not_committed.py"
+lane = "manual"
+reason = "CLAUDE.md forbids adding a CI test (Lawrence 2026-10-23: \"not to add gates/tests in CI, but you have to run them yourself\"), and #23915 deleted the gate this covers rather than replacing it. Run it with `python3 -m unittest tests.test_settings_stamp_not_committed` when changing scripts/cmux-next/check-settings-exports.sh, settings-exports.txt or any of its readers."
+
+[[test]]
 path = "tests/test_generated_files_guard.py"
 lane = "linux-guard"
 
@@ -1522,6 +1603,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_lane_daemon_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_point_channel.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1573,6 +1658,10 @@ path = "tests/test_cmux_tui_feat_publish_order.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_publish_retries.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_intent_familiar_warning.py"
 lane = "linux-guard"
 
@@ -1605,11 +1694,27 @@ path = "tests/test_nightly_build_state.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_download_run_artifact_retries.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_budget_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_app_token.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_trusted_routing.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_unsigned_resume.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_runner.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1622,6 +1727,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_status.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_no_github_token_polling.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1674,6 +1783,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_ring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_legacy_publish_linux.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1829,6 +1942,11 @@ path = "tests/test_ci_package_lane_prebuild.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_lane_suite_skips.py"
+lane = "manual"
+reason = "A regression test for package-test-lane.sh suite's skip reporting, run by its author (CLAUDE.md: no new CI tests). Stdlib Python with a fake swift and xcrun; runs anywhere: python3 tests/test_ci_package_lane_suite_skips.py."
+
+[[test]]
 path = "tests/test_cmux_bug_triage.py"
 lane = "linux-guard"
 
@@ -1898,4 +2016,20 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_step_coverage.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_delivery_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_xcode_build_timeline.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_landing_place.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_landing_workflow.py"
 lane = "linux-guard"

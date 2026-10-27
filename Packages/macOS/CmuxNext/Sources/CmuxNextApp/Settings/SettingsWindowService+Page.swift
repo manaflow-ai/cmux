@@ -17,7 +17,7 @@ extension SettingsWindowService {
         // host-lists watch re-send the Ghostty config preview after a config edit.
         _ = services.themeStore.generation
         return [
-            // The Development category (dev_only) shows only in DEV builds.
+            // The Development category (dev_only) shows only in DEV builds; Devices shows in every build.
             "dev_build": .bool(DevTools.isDebugBuild),
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map(Self.machineRow)),
@@ -48,6 +48,10 @@ extension SettingsWindowService {
             "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
             // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).
             "ghostty_diagnostics": GhosttyDiagnosticsModel.shared.diagnostics.map { .array($0.map(GhosttyDiagnosticsControl.json)) } ?? .null,
+            // The Theme section's notice: colors the Ghostty config sets itself, which no theme changes.
+            "theme_overrides": .array(GhosttyDiagnosticsModel.shared.colorOverrides.map { override in
+                ["key": .string(override.key), "file": .string((override.file as NSString).abbreviatingWithTildeInPath), "line": .number(Double(override.line))]
+            }),
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "iphone": services.iphone.pageJSON,

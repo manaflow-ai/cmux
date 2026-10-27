@@ -573,6 +573,12 @@
       "row": "stateful_singletons",
       "allow": 1,
       "why": "CmuxNextCompat BlockingViolationTable.shared: one process-wide table of main-thread blocking call sites; the main thread writes a fixed call-site index (128 sites) and a lock-free single-producer ring (64), and a utility drain queue resolves frames and calls the installed sink; touched only on the violation path; blocking calls happen in any module with no injection point; other modules hold a BlockingDetector handle that only the composition root makes (BlockingDetector.forProcess()), tests bind their own table through a task-local. Approved by the Performance Lead with PL-arch, 2026-10-24."
+    },
+    {
+      "date": "2026-10-25",
+      "row": "observer_sites",
+      "allow": 7,
+      "why": "DesktopWallpaperWatch (from #23009): macOS posts no public notice when the desktop picture changes, so one watch per app (owned by BackdropImageStore.shared, injected into every WindowMaterialView) follows the wallpaper store folder with a file-system source (not an observer) and re-reads the main screen's picture on the seven system moments that can change it or that it must catch up after: macOS's com.apple.desktop notice, a Space switch, waking, a screen-parameter change, a window's occlusion changing (it reads nothing while no window shows, so a window shown, unhidden or uncovered catches it up), a window becoming key and a window changing screens. Each is observed once per app. The original PR's app-activation and AppleInterfaceThemeChanged observers were dropped (the view's own appearance callback covers the second); Codex review of 7bb4472 asked for wake and com.apple.desktop back."
     }
   ],
   "observer_wrappers": [

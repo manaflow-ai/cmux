@@ -11,6 +11,9 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -83,6 +86,12 @@ def runner(name: str, *, busy: bool = False, status: str = "online", labels=(STD
 
 def env(**overrides: str) -> dict:
     return {"SIDE_LABEL": SIDE, "JOBS": " ".join(JOBS), "GITHUB_RUN_ATTEMPT": "1", **overrides}
+
+
+def placed_in(attempt: str, actor: str) -> str:
+    """The attempt macos-placement last ran in: it runs on attempt 1 and on the rescue's attempt 2
+    (github-actions[bot]); any other attempt carries an earlier attempt's job, outputs and all."""
+    return attempt if attempt == "1" or attempt == "2" and actor == "github-actions[bot]" else "1"
 
 
 class Decide(unittest.TestCase):
@@ -201,6 +210,21 @@ class Decide(unittest.TestCase):
             self.assertEqual(placement.decide(env(), runners)[:2], ((), ()))
         shared.assert_called_once()
 
+    def test_a_refused_runner_read_retries_with_cmux_bot(self):
+        # 2026-10-26 22:47Z: the routing App's runner read returned 403; cmux-bot reads again.
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            output = Path(tmp) / "out"
+            refused, bot = mock.Mock(), mock.Mock()
+            refused.runners.side_effect = OSError("HTTP Error 403: Forbidden")
+            bot.runners.return_value = [runner("mini-a-glaeda-3")]
+            clients = {"t": refused, "bot": bot}
+            with mock.patch.object(placement.pool, "GitHub", side_effect=lambda token, repo, **_: clients[token]):
+                placement.main(env(ROUTE_TOKEN="t", ROUTE_TOKEN_FALLBACK="bot", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                   GITHUB_OUTPUT=str(output)))
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(lines["owned_jobs"], " cmux-scheme-compile ")
+            bot.runners.assert_called_once_with()
+
     def test_main_writes_the_outputs(self):
         # The script's ::warning:: lines stay out of the guard job's log.
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
@@ -259,6 +283,84 @@ SNAPSHOT = ROOT / "tests/fixtures/side-lane-placement/fleet-2026-10-20T2222Z.jso
 FAST = "glaeda-fast-light-xcode-26.6"
 
 
+class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
+    """The workflow takes the placement's runner outputs as they are (cmux-next.yml's release-compile and the
+    other Mac jobs), so no output names the dedicated nightly-next runner or its pool, whether that runner is
+    idle, busy or the only one online (test_ci_next_macos_cascade's guard on release-compile's runs-on)."""
+
+    ROUTES = ("runner", "gui_runner", "session_runner", "free_gui_runner", "free_session_runner", "fast_runner",
+              "gateway_runner", "retry_runner", "free_retry_runner", "hosted_runner")
+
+    def place_step(self) -> tuple[dict, dict]:
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text())
+        step = next(step for step in workflow["jobs"]["macos-placement"]["steps"] if step.get("id") == "place")
+        return workflow, step
+
+    def place_step_env(self, workflow: dict, step: dict, side: str, attempt: str, token: str) -> dict:
+        """The step's `env:` as the workflow evaluates it on a feat push, from repository variables shaped like
+        the real ones, so a workflow edit to SIDE_LABEL, NIGHTLY_POOL or any input reaches the guard."""
+        context = github_context("push", ref="refs/heads/feat-cmux-next", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
+                                 MACOS_RUNNER_26="blacksmith-12vcpu-macos-26", CI_NIGHTLY_NEXT_TRUSTED_POOL=NIGHTLY_POOL,
+                                 CI_NIGHTLY_NEXT_TRUSTED_RUNNER=NIGHTLY_RUNNER,
+                                 CI_NEXT_PROMOTE_POOL="glaeda-promote-side-trusted-std-xcode-26.6",
+                                 CI_FAST_LANE_RUNNER="glaeda-fast-light-xcode-26.6",
+                                 CI_COMPILE_CHECK_GATEWAY="glaeda-side-light-xcode-26.6")
+        context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, event={}, token="g")
+        context["inputs"] = {}
+        context["needs"] = {"path_route": {"outputs": {"native": "true", "swift_canary": "true", "scheme": "true"}}}
+        context["steps"] = {"route-token": {"outputs": {"token": token}},
+                            "snapshot-read-token": {"outputs": {"token": token}}}
+        context["env"] = dict(context["env"], **{key: evaluate(value, context) if "${{" in str(value) else value
+                                                 for key, value in workflow["env"].items()})
+        values = {key: evaluate(value, context) if "${{" in str(value) else value for key, value in step["env"].items()}
+        values = {key: "" if value is None else str(value) for key, value in values.items()}
+        self.assertEqual(values["SIDE_LABEL"], context["env"]["CMUX_NEXT_SIDE_ROUTE"])
+        return values
+
+    def test_no_route_output_names_the_nightly_runner(self):
+        workflow, step = self.place_step()
+        # The step's `run:` with the script call stubbed: the shell after it can still add routes.
+        call = "python3 scripts/ci/side_lane_placement.py\n"
+        self.assertEqual(step["run"].count(call), 1)
+        shell = step["run"].replace(call, ":\n")
+        dedicated = runner("cmux22", labels=(NIGHTLY_POOL, NIGHTLY_RUNNER, "glaeda-trusted-next-nightly"))
+        fleets = {"idle nightly and side": [dedicated, runner("mini-a-glaeda-3")],
+                  "only the nightly runner online": [dedicated, runner("mini-a-glaeda-3", status="offline")],
+                  "nightly runner busy": [{**dedicated, "busy": True}, runner("mini-a-glaeda-3", busy=True)],
+                  # Fail-open states: no runner listed, the listing refused, no routing token.
+                  "empty fleet": [], "unreadable fleet": RuntimeError("HTTP 403"), "no token": None}
+        ready_with = {"idle nightly and side", "only the nightly runner online"}
+        for why, runners in fleets.items():
+            for side in (SIDE, "glaeda-side-light-xcode-26.6"):
+                for attempt in ("1", "2"):
+                    with self.subTest(why=why, side=side, attempt=attempt), tempfile.TemporaryDirectory() as tmp:
+                        output = Path(tmp) / "out"
+                        values = self.place_step_env(workflow, step, side, attempt, "" if runners is None else "t")
+                        values.update(GITHUB_OUTPUT=str(output), GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                      GITHUB_RUN_ATTEMPT=attempt)
+                        free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+                        with mock.patch.object(placement.pool, "GitHub") as github, \
+                                mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
+                                contextlib.redirect_stdout(io.StringIO()):
+                            if isinstance(runners, Exception):
+                                github.return_value.runners.side_effect = runners
+                            else:
+                                github.return_value.runners.return_value = runners
+                            placement.main(values)
+                        # Then the rest of the step, as the runner runs it; a later line wins, as in GITHUB_OUTPUT.
+                        subprocess.run(["bash", "-e", "-c", shell], check=True,
+                                       env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), **values})
+                        lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                        for key in self.ROUTES:
+                            value = lines.get(key, "")
+                            self.assertNotIn(NIGHTLY_POOL, value, key)
+                            self.assertNotIn(NIGHTLY_RUNNER, value, key)
+                            self.assertNotIn("nightly", value, key)
+                        # The step only knows the nightly runner on attempt 1 (NIGHTLY_POOL, NIGHTLY_RUNNER).
+                        ready = attempt == "1" and why in ready_with
+                        self.assertEqual(lines.get("nightly_runner_ready", ""), "true" if ready else "")
+
+
 class FastRoute(unittest.TestCase):
     """The fast tier takes its reserved label only while a runner carrying it is idle (2026-10-25:
     15 runs' fast tiers queued an hour behind the two runners left on the light fast label)."""
@@ -294,6 +396,195 @@ class FastRoute(unittest.TestCase):
                     github.return_value.runners.return_value = runners
                     placement.main(values)
                 self.assertIn(f"fast_runner={expected}\n", output.read_text())
+
+
+FRESH = "glaeda-dev-std-xcode-26.6"
+
+
+class FreshRoute(unittest.TestCase):
+    """A feed's compile takes the freshness slot (one extra runner per owned std mini) while it is idle, then
+    the side route and the cascade (2026-10-26: no DEV publish from 21:01Z, every DEV Release compile queued
+    behind PR compiles on the 22 busy side runners)."""
+
+    def test_idle_fresh_runners_take_the_feeds_compiles_only(self):
+        idle = [runner("mini-a-glaeda-12", labels=(FRESH,)), runner("mini-b-glaeda-12", busy=True, labels=(FRESH,))]
+        values = {"FRESH_LABEL": FRESH, "FRESH_JOBS": "cmux-scheme-compile", "FRESH_SLOT_JOBS": "cmux-scheme-compile",
+                  "JOBS": " ".join(JOBS)}
+        self.assertEqual(placement.fresh_route(values, idle), (FRESH, ("cmux-scheme-compile",)))
+        # A feed's compile the slot's hook does not admit (a push's Release compile) never takes it.
+        self.assertEqual(placement.fresh_route({**values, "FRESH_JOBS": "release-compile"}, idle), ("", ()))
+        self.assertEqual(placement.fresh_route({**values, "FRESH_SLOT_JOBS": ""}, idle), ("", ()))
+        # No FRESH_JOBS (a PR run), a job this run does not have, or no label: nothing takes the slot.
+        self.assertEqual(placement.fresh_route({**values, "FRESH_JOBS": ""}, idle), ("", ()))
+        self.assertEqual(placement.fresh_route({**values, "FRESH_JOBS": "not-a-job"}, idle), ("", ()))
+        self.assertEqual(placement.fresh_route({**values, "FRESH_LABEL": ""}, idle), ("", ()))
+
+    def test_a_busy_offline_or_unread_slot_routes_nothing(self):
+        values = {"FRESH_LABEL": FRESH, "FRESH_JOBS": "cmux-scheme-compile", "FRESH_SLOT_JOBS": "cmux-scheme-compile",
+                  "JOBS": " ".join(JOBS)}
+        busy = [runner("mini-a-glaeda-12", busy=True, labels=(FRESH,)),
+                runner("mini-b-glaeda-12", status="offline", labels=(FRESH,))]
+        for runners in (busy, [], None, [runner("mini-c-glaeda-1")]):
+            with self.subTest(runners=runners):
+                self.assertEqual(placement.fresh_route(values, runners), ("", ()))
+
+    def test_routed_jobs_leave_the_side_route_and_the_cascade(self):
+        trimmed = placement.without_jobs({"JOBS": "fast-tier release-compile", "CASCADE_RUNS": " release-compile ",
+                                          "FIRST_JOBS": "release-compile", "FRESH_JOBS": "release-compile"},
+                                         ("release-compile",))
+        self.assertEqual(trimmed, {"JOBS": "fast-tier", "CASCADE_RUNS": "", "FIRST_JOBS": "", "FRESH_JOBS": ""})
+
+    def test_main_writes_the_fresh_route(self):
+        idle = [runner("mini-a-glaeda-12", labels=(FRESH,)), runner("mini-b-glaeda-1", busy=True)]
+        for runners, label, jobs in ((idle, FRESH, " cmux-scheme-compile "), (idle[1:], "", "")):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = env(FRESH_LABEL=FRESH, FRESH_JOBS="cmux-scheme-compile", FRESH_SLOT_JOBS="cmux-scheme-compile",
+                             CASCADE_RUNS=" cmux-scheme-compile ",
+                             GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux")
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(None, None, None)), \
+                        mock.patch.object(placement.cascade, "place", wraps=placement.cascade.place) as place, \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = runners
+                    placement.main(values)
+                text = output.read_text()
+                self.assertIn(f"fresh_runner={label}\n", text)
+                self.assertIn(f"fresh_jobs={jobs}\n", text)
+                # A routed compile is no longer the cascade's: it takes no Blacksmith slot as well.
+                cascade_env = place.call_args.args[0]
+                self.assertEqual("cmux-scheme-compile" in cascade_env["CASCADE_RUNS"].split(), not label)
+
+
+class FreshSlotJobs(unittest.TestCase):
+    """cmux-next.yml's FRESH_SLOT_JOBS names exactly the jobs the slot's glaeda hook admits
+    (dev_compile_refusal, glaeda#1636): a job it refuses would fail in setup instead of falling back."""
+
+    def test_the_workflow_routes_only_what_the_slot_admits(self):
+        workflow = Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next.yml"
+        text = workflow.read_text()
+        match = re.search(r"^\s*FRESH_SLOT_JOBS:\s*(.+)$", text, re.MULTILINE)
+        self.assertIsNotNone(match)
+        self.assertEqual(set(match.group(1).split()), {"cmux-scheme-compile", "release-compile"})
+        # Every slot job reads the slot in its runs-on (a slot job that never reads it would still be dropped
+        # from the cascade by fresh_route() and lose its Blacksmith overflow).
+        for job in match.group(1).split():
+            self.assertIn(f"contains(needs.macos-placement.outputs.fresh_jobs, ' {job} ')", text)
+
+    def test_a_pushs_release_compile_takes_an_idle_slot(self):
+        idle = [runner("mini-a-glaeda-2", labels=(FRESH,)), runner("mini-b-glaeda-2", labels=(FRESH,))]
+        values = {"FRESH_LABEL": FRESH, "FRESH_JOBS": "release-compile",
+                  "FRESH_SLOT_JOBS": "cmux-scheme-compile release-compile", "JOBS": " ".join(JOBS)}
+        self.assertEqual(placement.fresh_route(values, idle), (FRESH, ("release-compile",)))
+        busy = [runner("mini-a-glaeda-2", busy=True, labels=(FRESH,))]
+        self.assertEqual(placement.fresh_route(values, busy), ("", ()), "busy: the side route and the cascade")
+
+
+class GatewayRoute(unittest.TestCase):
+    """The build-fleet compiles take vars.CI_COMPILE_CHECK_GATEWAY, or a wider class of it, only while a
+    runner is idle there. At 06:00Z on 2026-10-26 the light side label had 5 jobs running and 44 queued,
+    the oldest 58 minutes, and PR #24155's app compile (build fleet) queued there three times."""
+
+    def light(self, *busy: bool) -> list[dict]:
+        return [runner(f"light-{index}-glaeda-1", busy=flag, labels=(LIGHT, LIGHT_SIDE))
+                for index, flag in enumerate(busy)]
+
+    def std(self, *busy: bool) -> list[dict]:
+        return [runner(f"mini-{index}-glaeda-3", busy=flag) for index, flag in enumerate(busy)]
+
+    def test_an_idle_gateway_runner_takes_the_compiles(self):
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, self.light(True, False)), LIGHT_SIDE)
+
+    def test_a_busy_light_gateway_spills_to_an_idle_std_side_runner(self):
+        self.assertEqual(placement.compatible_labels(LIGHT_SIDE), (LIGHT_SIDE, SIDE))
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE},
+                                                 self.light(True, True) + self.std(True, False)), SIDE)
+
+    def test_no_idle_runner_anywhere_routes_nothing(self):
+        busy = self.light(True, True) + self.std(True) + [runner("mini-x-glaeda-3", status="offline")]
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, busy), "")
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, []), "")
+
+    def test_unread_runners_and_an_unset_variable_route_nothing(self):
+        # Nobody saw a runner free, so the gateway jobs skip and their Mac fallbacks run.
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, None), "")
+        self.assertEqual(placement.gateway_route({}, self.light(False)), "")
+
+    def test_each_gateway_job_needs_its_own_idle_runner_beyond_the_runs_own_jobs(self):
+        runners = self.light(False) + self.std(False, False)
+        both = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": " app-compile-fleet swift-canary-fleet"}
+        self.assertEqual(placement.gateway_route(both, runners), SIDE)
+        self.assertEqual(placement.gateway_route(both, runners, {SIDE: 1}), "")
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, runners, {LIGHT_SIDE: 1}), SIDE)
+
+    def test_the_cascade_gains_the_mac_fallback_only_once(self):
+        self.assertEqual(placement.with_gateway_cascade({"CASCADE_RUNS": " fast-tier ", "GATEWAY_CASCADE": "release-compile"})
+                         ["CASCADE_RUNS"], " fast-tier release-compile ")
+        self.assertEqual(placement.with_gateway_cascade({"CASCADE_RUNS": " release-compile ",
+                                                         "GATEWAY_CASCADE": "release-compile"})["CASCADE_RUNS"],
+                         " release-compile ")
+        self.assertEqual(placement.with_gateway_cascade({"CASCADE_RUNS": ""}), {"CASCADE_RUNS": ""})
+
+    def run_main(self, runners: list[dict], **overrides: str) -> dict[str, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            values = env(SIDE_LABEL=LIGHT_SIDE, GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t",
+                         GITHUB_REPOSITORY="manaflow-ai/cmux", **overrides)
+            free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+            with mock.patch.object(placement.pool, "GitHub") as github, \
+                    mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                github.return_value.runners.return_value = runners
+                placement.main(values)
+            return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+    def test_with_no_idle_gateway_the_compiles_skip_and_the_release_compile_takes_blacksmith(self):
+        gateway = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "app-compile-fleet", "GATEWAY_CASCADE": "release-compile",
+                   "CASCADE_RUNS": " cmux-scheme-compile "}
+        lines = self.run_main(self.light(True, True) + self.std(True, True), **gateway)
+        self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), ("", "1"))
+        self.assertIn(" release-compile ", lines["blacksmith_12_jobs"])
+        # The one idle std side runner is the run's scheme compile's, which races for it, not the gateway's.
+        lines = self.run_main(self.light(True, True) + self.std(True, False), **gateway)
+        self.assertEqual(lines["gateway_runner"], "")
+        # A second idle runner takes the compile; the Mac fallback stays out of the cascade.
+        lines = self.run_main(self.light(True, True) + self.std(True, False, False), **gateway)
+        self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), (SIDE, "1"))
+        self.assertNotIn("release-compile", lines["blacksmith_12_jobs"])
+        self.assertEqual(self.run_main(self.light(False), GITHUB_RUN_ATTEMPT="2", **gateway)["gateway_attempt"], "2")
+
+    def test_only_the_side_jobs_that_run_count_against_the_gateway(self):
+        runners = self.light(True) + self.std(False, False)
+        values = env(SIDE_LABEL=LIGHT_SIDE, GATEWAY_JOBS="app-compile-fleet swift-canary-fleet",
+                     CASCADE_RUNS=" swift-canary release-compile cmux-scheme-compile ")
+        # GUI suites take another label; swift-canary and release-compile stand in for the gateway jobs.
+        self.assertEqual(placement.gateway_taken(values, runners), {SIDE: 1})
+        self.assertEqual(placement.gateway_taken({**values, "CASCADE_RUNS": " swift-canary "}, runners), {})
+        self.assertEqual(placement.gateway_taken({**values, "CASCADE_RUNS": ""}, runners, FAST), {FAST: 1})
+
+    def test_a_running_fleet_fast_check_keeps_its_mac_fallback_out_of_the_cascade(self):
+        values = {"CASCADE_RUNS": " fast-tier release-compile ", "FIRST_JOBS": "release-compile"}
+        trimmed = placement.without_cascade(values, "release-compile")
+        self.assertEqual((trimmed["CASCADE_RUNS"], trimmed["FIRST_JOBS"]), (" fast-tier ", ""))
+        push = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "release-compile-fast",
+                "CASCADE_RUNS": " release-compile ", "FIRST_JOBS": "release-compile"}
+        free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+        for runners, cascaded in ((self.light(False, False), False), (self.light(True, True), True)):
+            with self.subTest(idle=not cascaded), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = env(SIDE_LABEL=LIGHT_SIDE, GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t",
+                             GITHUB_REPOSITORY="manaflow-ai/cmux", **push)
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = runners + self.std(True)
+                    placement.main(values)
+                lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual("release-compile" in lines["blacksmith_12_jobs"], cascaded)
+
+    def test_without_the_variable_nothing_is_judged(self):
+        lines = self.run_main(self.light(False))
+        self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), ("", ""))
 
 
 class SpillToCompatiblePool(unittest.TestCase):
@@ -401,7 +692,8 @@ class CmuxNextWiring(unittest.TestCase):
                                                          "labels": [{"name": "full-ci"}]}})
         outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner,
                                                     "gui_runner": GUI if runner else "",
-                                                    "session_runner": GUI if runner else ""}
+                                                    "session_runner": GUI if runner else "",
+                                                    "placed_attempt": placed_in(attempt, triggering_actor)}
         # path_route (#17164) gates every Mac job; these cases are native changes.
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
@@ -518,10 +810,12 @@ class CmuxNextWiring(unittest.TestCase):
                     unplaced = self.context(attempt, triggering_actor=bot)
                     unplaced["needs"] = {}
                     self.assertFalse(str(evaluate(runs_on, unplaced)).startswith("glaeda-"), (name, attempt))
-                # A free Blacksmith slot the placement found takes the overflow.
-                free = self.context("3", runner=STD, triggering_actor=bot)
-                free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
-                self.assertEqual(evaluate(runs_on, free), FALLBACK)
+                # The placement never runs on attempt 3, so a retry label there was read in an earlier
+                # attempt (a re-run of failed jobs carries it): stale, so the owned fallback, never it
+                # (run 40398277457, 2026-10-26: a 39-minute-old slot, then 55 minutes with no runner).
+                stale = self.context("3", runner=STD, triggering_actor=bot)
+                stale["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
+                self.assertEqual(evaluate(runs_on, stale), overflow(name))
                 # A person's re-run stays minis-first at any attempt.
                 self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)), on(name, STD))
 

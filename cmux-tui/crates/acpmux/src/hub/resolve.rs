@@ -326,6 +326,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_count: 0,
         usage: None,
         context_breakdown: None,
+        usage_limits: None,
         available_commands: None,
         goal: None,
         permission_rules: None,
@@ -354,5 +355,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         worktree: None,
         subsession: None,
         subsession_limits: Default::default(),
+        lineage: None,
+        subagent_retry_open: false,
     }
 }

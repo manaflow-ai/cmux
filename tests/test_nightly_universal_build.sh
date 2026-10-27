@@ -3,7 +3,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
+# nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
+WORKFLOW_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-expanded.XXXXXX")"
+python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$WORKFLOW_FILE"
+trap 'rm -f "$WORKFLOW_FILE"' EXIT
 
 if ! awk '
   /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
@@ -146,7 +149,7 @@ if ! awk '
   in_prepare && /runs-on: \$\{\{ github\.repository_owner/ { saw_matrix_runner=1 }
   in_prepare && /strategy:/ { saw_serial_fallback=1 }
   in_prepare && /PREPARE_FALLBACK/ { saw_runner_matrix=1; saw_primary_tolerated=1 }
-  in_prepare && /blacksmith-12vcpu-macos-26/ { saw_blacksmith=1 }
+  in_prepare && /blacksmith-6vcpu-macos-26/ { saw_blacksmith=1 }
   in_prepare && /env\.PREPARE_FALLBACK == '\''true'\''/ { saw_fallback=1 }
   in_prepare && /actions\/runs\/\$GITHUB_RUN_ID\/artifacts\?name=/ { saw_artifact_probe=1 }
   in_prepare && /steps\.reuse\.outputs\.exists != '\''true'\''/ { saw_reuse_gate=1 }
@@ -175,7 +178,7 @@ if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! awk -v refresh_runner="runs-on: macos-26" '
+if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
@@ -263,7 +266,7 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || 'macos-15' }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || 'blacksmith-6vcpu-macos-15' }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
@@ -388,7 +391,7 @@ if ! awk '
   /^  generate-nightly-deltas:/ { job="delta"; next }
   /^  republish-nightly-deltas:/ { job="republish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  job == "delta" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly\]/ { saw_publish_need=1 }
+  job == "delta" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly(, pick-nightly-sign-runner)?\]/ { saw_publish_need=1 }
   job == "delta" && /fail-fast: false/ { saw_matrix=1 }
   job == "republish" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, generate-nightly-deltas\]/ { saw_delta_need=1 }
   # The tag itself: commits/<name> resolves a same-named branch (cx-urd.67).
@@ -994,7 +997,7 @@ done
 # already has. A cmux NIGHTLY-identity submission still in Apple's queue is
 # continued (never resubmitted) until it is resolved or 6 hours old.
 legacy_dir="$(mktemp -d)"
-trap 'rm -rf "$legacy_dir"' EXIT
+trap 'rm -rf "$legacy_dir" "$WORKFLOW_FILE"' EXIT
 legacy_feed() {  # <file> <build>...
   local file="$1"; shift
   {
@@ -1250,7 +1253,7 @@ adopt_fix=1111111111111111111111111111111111111111
 requirement() {  # <run answer> <compare answer> [required...] -> "exit:first word"
   local run="$1" compare="$2"; shift 2
   local out code
-  out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$run" FAKE_COMPARE="$compare" \
+  out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$run" FAKE_COMPARE="$compare" NIGHTLY_LEGACY_GIT_URL="" \
     bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$@")"
   code=$?
   printf '%s:%s' "$code" "${out%% *}"
@@ -1279,9 +1282,74 @@ notes_sha=2222222222222222222222222222222222222222
 mkdir -p "$legacy_dir/notes"
 printf '{"build": "3850073942601", "head": "%s"}\n' "$notes_sha" > "$legacy_dir/notes/3850073942601.json"
 notes_out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$good_run" FAKE_COMPARE=ahead NOTES_BASE="file://$legacy_dir/notes" \
-  bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$adopt_fix")"
+  NIGHTLY_LEGACY_GIT_URL="" bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$adopt_fix")"
 if [ "$notes_out" != "ok $notes_sha" ]; then
   echo "FAIL: the build commit must come from the build's release notes when they exist (got '$notes_out')"
+  exit 1
+fi
+# Ancestry comes from git first (GitHub's compare refuses big diffs under load, run
+# 40340830337); the compare API answers only when git cannot. A local repository:
+# base -> adopt -> build on one line, side on another.
+anc_repo="$legacy_dir/ancestry"
+git init -q "$anc_repo"
+git -C "$anc_repo" config uploadpack.allowAnySHA1InWant true
+git -C "$anc_repo" config uploadpack.allowFilter true
+anc_commit() { git -C "$anc_repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$1" && git -C "$anc_repo" rev-parse HEAD; }
+anc_base="$(anc_commit base)"
+anc_adopt="$(anc_commit adopt)"
+anc_build="$(anc_commit build)"
+git -C "$anc_repo" checkout -q --detach "$anc_base"
+anc_side="$(anc_commit side)"
+ancestry() {  # <required> <compare answer> -> "exit:first word"
+  local out code
+  out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$anc_build nightly-next .github/workflows/nightly.yml" FAKE_COMPARE="$2" \
+    NIGHTLY_LEGACY_GIT_URL="file://$anc_repo" \
+    bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$1")"
+  code=$?
+  printf '%s:%s' "$code" "${out%% *}"
+}
+for case in \
+  "0:ok|$anc_adopt|error|a build that contains the required commit is allowed from git, with the compare API down" \
+  "0:ok|$anc_build|error|a build at the required commit is allowed" \
+  "3:missing|$anc_side|ahead|a build on another line is refused from git, whatever the compare API says" \
+  "0:ok|3333333333333333333333333333333333333333|ahead|a commit git cannot fetch falls back to the compare API" \
+  "1:error:|3333333333333333333333333333333333333333|error|git and the compare API both failing fails closed"; do
+  IFS='|' read -r expected required compare message <<<"$case"
+  actual="$(ancestry "$required" "$compare")"
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: $message (expected '$expected', got '$actual')"
+    exit 1
+  fi
+done
+# --commit: the macOS job passes the app's own commit; no run or notes are read.
+commit_check() {  # <build sha> <required> -> "exit:first word"
+  local out code
+  out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN=error FAKE_COMPARE=error NIGHTLY_LEGACY_GIT_URL="file://$anc_repo" \
+    bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" --commit manaflow-ai/cmux "$1" "$2")"
+  code=$?
+  printf '%s:%s' "$code" "${out%% *}"
+}
+[ "$(commit_check "$anc_build" "$anc_adopt")" = "0:ok" ] || { echo "FAIL: --commit must check the given commit"; exit 1; }
+[ "$(commit_check "$anc_side" "$anc_adopt")" = "3:missing" ] || { echo "FAIL: --commit must refuse a commit that lacks the required one"; exit 1; }
+short_rc=0
+PATH="$req_gh_dir:$PATH" bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" --commit manaflow-ai/cmux abc >/dev/null 2>&1 || short_rc=$?
+[ "$short_rc" -eq 2 ] || { echo "FAIL: --commit needs a full SHA"; exit 1; }
+# A stalled fetch is bounded and falls back to the compare API.
+stall_dir="$legacy_dir/stallgit"
+mkdir -p "$stall_dir"
+printf '#!/usr/bin/env bash\ncase "$*" in *fetch*) sleep 30 ;; esac\nexec /usr/bin/git "$@"\n' > "$stall_dir/git"
+chmod +x "$stall_dir/git"
+stall_start=$SECONDS
+stall_out="$(PATH="$stall_dir:$req_gh_dir:$PATH" FAKE_RUN=error FAKE_COMPARE=ahead NIGHTLY_LEGACY_GIT_URL="file://$anc_repo" \
+  NIGHTLY_LEGACY_GIT_SECONDS=2 bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" --commit manaflow-ai/cmux "$anc_side" "$anc_adopt")"
+if [ "${stall_out%% *}" != ok ] || [ $((SECONDS - stall_start)) -ge 20 ]; then
+  echo "FAIL: a stalled git fetch must be cut off and fall back to the compare API (got '$stall_out')"
+  exit 1
+fi
+# The macOS job checks the app's commit through the script, not the compare API alone.
+if ! grep -Fq 'nightly-next-legacy-requirement.sh --commit "$GITHUB_REPOSITORY" "$sha" $REQUIRED' "$WORKFLOW_FILE" \
+  || grep -Fq 'compare/$required...$sha' "$WORKFLOW_FILE"; then
+  echo "FAIL: the cmux NIGHTLY-identity macOS job must check required commits through nightly-next-legacy-requirement.sh --commit"
   exit 1
 fi
 # The macOS job's refusal of an app that lacks a required commit is never
@@ -1335,7 +1403,7 @@ for expected in \
   'CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh' \
   "REQUIRED: \${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}" \
   "requirement in use: required: " \
-  'compare/$required...$sha' \
+  'nightly-next-legacy-requirement.sh --commit "$GITHUB_REPOSITORY" "$sha" $REQUIRED' \
   "scripts/ci/nightly-next-legacy-resolve.py" \
   "./scripts/ci/nightly-next-legacy-orphan-meta.sh" \
   'xcrun stapler validate "legacy-app/cmux NIGHTLY.app"'; do
@@ -1373,7 +1441,7 @@ for expected in \
   "name: cmux-nightly-identity-signed" \
   "dmg_sha256: \${{ steps.handoff.outputs.dmg_sha256 }}" \
   "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}"; do
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}"; do
   grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
 for expected in \
@@ -1387,7 +1455,7 @@ for expected in \
 done
 for expected in \
   "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}" \
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" \
   'stapled_flag=(--require-stapled-app)' \
   './scripts/ci/verify-dmg-artifact.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
   "tested_sha256: \${{ steps.verify.outputs.tested_sha256 }}"; do

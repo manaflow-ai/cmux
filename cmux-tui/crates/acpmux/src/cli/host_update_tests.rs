@@ -134,7 +134,10 @@ const PEER_DAEMON: &str = "peer-daemon-run";
 /// A fake acpmux of `build` whose daemon, once started, reports `runs`
 /// (None: it never answers). Like cmux-tui, it answers as acpmux only
 /// under that file name. `$HOME/daemon` holds the build of the daemon
-/// that runs (absent: none), `$HOME/started` every build started.
+/// that runs (absent: none), `$HOME/started` every build started. On a
+/// macOS peer (`$HOME/launchd-host`) a daemon holds `daemon.lock`: one that
+/// starts while another runs exits at once, and `$HOME/daemon-pid` says
+/// whose it is (4242: launchd's job, 5151: started in place).
 #[cfg(unix)]
 fn fake_acpmux(build: &str, runs: Option<&str>) -> String {
     let start = match runs {
@@ -146,10 +149,11 @@ fn fake_acpmux(build: &str, runs: Option<&str>) -> String {
 echo "acpmux $*" >> "$HOME/calls"
 case "$*" in
 --version) if [ "${{0##*/}}" = acpmux ]; then echo "acpmux 1.0.0 ({build})"; else echo "cmux 1.0.0"; fi;;
-"--json daemon status") if [ -f "$HOME/daemon" ]; then printf '{{\n  "build": "%s",\n  "pid": 4242,\n  "personInstance": "{PEER_DAEMON}"\n}}\n' "$(cat "$HOME/daemon")"; else printf '{{\n  "running": false,\n  "error": "daemon not running"\n}}\n'; fi;;
+"--json daemon status") if [ -f "$HOME/daemon" ]; then printf '{{\n  "build": "%s",\n  "pid": %s,\n  "personInstance": "{PEER_DAEMON}"\n}}\n' "$(cat "$HOME/daemon")" "$(cat "$HOME/daemon-pid" 2>/dev/null || echo 4242)"; else printf '{{\n  "running": false,\n  "error": "daemon not running"\n}}\n'; fi;;
 "--json ls") cat "$HOME/sessions.json";;
 "daemon shutdown"*) rm -f "$HOME/daemon";;
-"--json daemon start"|__start) {start};;
+"--json daemon start"|__start) if [ -f "$HOME/launchd-host" ] && [ -f "$HOME/daemon" ]; then echo 'daemon.lock held' >> "$HOME/calls"
+  else {start}; if [ -f "$HOME/launchd-host" ]; then if [ "$1" = __start ]; then echo 4242; else echo 5151; fi > "$HOME/daemon-pid"; fi; fi;;
 esac
 "#
     )
@@ -160,16 +164,19 @@ esac
 /// the build in `$HOME/old-build`), `$HOME/fails-<unit>` does not start,
 /// and a stop without `KillMode=process` (the unit's, or the migration's
 /// runtime drop-in) ends the agent host `$HOME/agents`. `$HOME/no-systemd`:
-/// no manager answers. `show` (not logged: every update script reads it)
-/// prints `acpmux.service`'s `Environment=` settings, its drop-ins'
-/// included, or `$HOME/unit-environment` as it is (what systemd prints for
-/// values it quotes). Like the daemon
+/// no manager answers. A timer only needs its unit file; `show -p LoadState`
+/// and `-p FragmentPath` find a unit in `~/.config/systemd/user` only. `show` (not
+/// logged: every update script reads it) prints `acpmux.service`'s
+/// `Environment=` settings, its drop-ins' included, or `$HOME/unit-environment`
+/// as it is (what systemd prints for values it quotes). Like the daemon
 /// (`config::private_state_dir`, which opens its home with `O_NOFOLLOW`),
 /// acpmux.service never answers when `~/.acpmux` is a link and no drop-in
 /// sets `ACPMUX_HOME`.
 #[cfg(unix)]
 const FAKE_SYSTEMCTL: &str = r#"#!/bin/sh
 d="$HOME/.config/systemd/user"; r="$XDG_RUNTIME_DIR/systemd/user"
+if [ "$2" = show ] && [ "$5" = LoadState ]; then if [ -f "$d/$3" ]; then echo loaded; else echo not-found; fi; exit 0; fi
+if [ "$2" = show ] && [ "$5" = FragmentPath ]; then if [ -f "$d/$3" ]; then echo "$d/$3"; fi; exit 0; fi
 if [ "$2" = show ] && [ -f "$HOME/unit-environment" ]; then cat "$HOME/unit-environment"; exit 0; fi
 if [ "$2" = show ]; then cat "$d/$3" "$d/$3.d/"*.conf 2>/dev/null | sed -n 's/^Environment=//p' | tr '\n' ' '; echo; exit 0; fi
 echo "systemctl $*" >> "$HOME/calls"
@@ -186,6 +193,7 @@ cat) test -f "$d/$3";;
 is-active) test -f "$HOME/active-$4";;
 restart) rm -f "$HOME/daemon"; under "$3"; starts "$3";;
 enable)
+  case "$4" in *.timer) test -f "$d/$4"; exit;; esac
   test -f "$d/$4" && test ! -f "$HOME/fails-$4" || exit 1
   touch "$HOME/active-$4"; under "$4"
   if [ "$4" = acpmux.service ]; then starts acpmux.service; else cp "$HOME/old-build" "$HOME/daemon"; fi;;
@@ -404,9 +412,12 @@ impl FakePeer {
     }
 
     fn update(&self, if_idle: bool) -> PeerUpdate {
-        let opts =
-            UpdateOptions { binary_dir: Some(self.home.join("binaries")), if_idle, caller: None };
-        update_peer(self, &opts)
+        self.update_with(if_idle, false)
+    }
+
+    fn update_with(&self, if_idle: bool, keep_newer: bool) -> PeerUpdate {
+        let binary_dir = Some(self.home.join("binaries"));
+        update_peer(self, &UpdateOptions { binary_dir, if_idle, keep_newer, caller: None })
     }
 
     /// `update(true)` run from the session `session` of the daemon `daemon`.
@@ -415,6 +426,7 @@ impl FakePeer {
         let opts = UpdateOptions {
             binary_dir: Some(self.home.join("binaries")),
             if_idle: true,
+            keep_newer: false,
             caller: Some(caller),
         };
         update_peer(self, &opts)
@@ -583,11 +595,63 @@ fn a_current_peer_or_one_without_a_binary_is_left_alone() {
     let peer = FakePeer::new("wrong-platform");
     let other = if cfg!(target_os = "linux") { "Darwin arm64" } else { "Linux x86_64" };
     peer.write("uname", other);
-    let up = update_peer(&peer, &UpdateOptions { binary_dir: None, if_idle: false, caller: None });
+    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: false, caller: None };
+    let up = update_peer(&peer, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::NeedsBinary, Some("wrongPlatform")));
     let why = up.error.as_deref().unwrap_or("");
     assert!(why.contains("--binary-dir") && why.contains("fake is "), "{why}");
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+}
+
+#[test]
+#[cfg(unix)]
+fn keep_newer_leaves_a_later_or_own_build_and_updates_an_older_one() {
+    // A self-update moved the peer past the pushed build (a later day).
+    let peer = FakePeer::new("keep-newer");
+    peer.write("daemon", "fedcba987 2026-10-25");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update_with(false, true);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("newer")), "{up:?}");
+    assert!(!up.outcome.failed());
+    peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), "fedcba987 2026-10-25");
+    // Without --keep-newer it moves back, as before.
+    assert_eq!(peer.update(false).outcome, Outcome::Updated);
+
+    // Someone's own build (local changes) is kept, whatever its date.
+    let peer = FakePeer::new("keep-own");
+    peer.write("daemon", "fedcba987+dirty.0badf00d 2026-10-01");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update_with(false, true);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("ownBuild")), "{up:?}");
+    peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), "fedcba987+dirty.0badf00d 2026-10-01");
+
+    // Someone's own build is kept also when the pushed binary names no
+    // build (a source-archive build stamped `nogit`).
+    let peer = FakePeer::new("keep-own-unnamed");
+    peer.write("daemon", "fedcba987+dirty.0badf00d 2026-10-01");
+    peer.offer("nogit 2026-10-26", Some("nogit 2026-10-26"));
+    let up = peer.update_with(false, true);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("ownBuild")), "{up:?}");
+    peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), "fedcba987+dirty.0badf00d 2026-10-01");
+
+    // An older build is still updated.
+    let peer = FakePeer::new("keep-older");
+    peer.offer(NEW, Some(NEW));
+    assert_eq!(peer.update_with(false, true).outcome, Outcome::Updated);
+}
+
+#[test]
+fn a_build_is_kept_over_an_older_days_or_as_someones_own() {
+    let new = Some(NEW);
+    assert_eq!(keeps_over("fedcba987 2026-10-25", new), Some("newer"));
+    assert_eq!(keeps_over("fedcba987+dirty.0badf00d 2026-10-01", new), Some("ownBuild"));
+    assert_eq!(keeps_over(NEW, new), None, "the same day is not newer");
+    assert_eq!(keeps_over(OLD, new), None);
+    assert_eq!(keeps_over("fedcba987", new), None, "no date is not newer");
+    assert_eq!(keeps_over("fedcba987 2026-10-25", Some("a1b2c3d4e")), None);
+    let own = "fedcba987+dirty.0badf00d 2026-10-01";
+    assert_eq!(keeps_over(own, None), Some("ownBuild"), "own, whatever is pushed");
+    assert_eq!(keeps_over("fedcba987 2026-10-25", None), None, "no pushed date: not newer");
 }
 
 #[test]
@@ -791,8 +855,8 @@ fn a_moved_daemon_is_reached_through_the_settings_its_move_carried() {
     // One rule for the daemon's home and socket: the move to acpmux.service
     // carries them into its drop-in (#24079), and every update script reads
     // them back from the unit (SERVICE_ENV), so the next update, from a
-    // shell that has neither, checks the daemon where it listens instead of
-    // rolling a healthy one back.
+    // shell or the timer that has neither, checks the daemon where it
+    // listens instead of rolling a healthy one back.
     let peer = FakePeer::new("carried-socket");
     peer.under_foreign_unit(false);
     peer.offer(NEW, Some(NEW));
@@ -1050,19 +1114,43 @@ const MAC_TARGET: &str = "aarch64-apple-darwin";
 /// daemon at once (`OS_REASON_CODESIGNING`). `bootout` returns before the old
 /// daemon has exited (`$HOME/exiting`, until the next `ps` sees it gone), and
 /// a `bootstrap` before then starts a daemon that finds `daemon.lock` held.
+/// `$HOME/no-gui`: no one is logged in at the screen, so there is no GUI
+/// domain (`print gui/<uid>` fails) and a bootstrap into it fails with 125.
+/// `$HOME/refuses-bootstrap`: the domain is there but takes no job (the probe
+/// neither); `$HOME/refuses-daemon-bootstrap`: it takes the probe, not the
+/// daemon's job. The probe's temporary plist is logged as `PROBE`.
 #[cfg(unix)]
 const FAKE_LAUNCHCTL: &str = r#"#!/bin/sh
-echo "launchctl $*" >> "$HOME/calls"
+case "$3" in */probe.plist) echo "launchctl $1 $2 PROBE" >> "$HOME/calls";; *) echo "launchctl $*" >> "$HOME/calls";; esac
 case "$1" in
-print) test -f "$HOME/loaded" || exit 113; printf 'gui/501/com.acpmux.daemon = {\n\tstate = running\n\tpid = 4242\n\tlast exit code = (never exited)\n}\n';;
-bootout) test -f "$HOME/loaded" || { echo 'Boot-out failed: 3: No such process' >&2; exit 3; }; rm -f "$HOME/loaded" "$HOME/daemon"; touch "$HOME/exiting";;
+print) case "$2" in
+  */*/*) test -f "$HOME/loaded" || exit 113
+    if [ "$(cat "$HOME/daemon-pid" 2>/dev/null || echo 4242)" = 4242 ]; then printf 'gui/501/com.acpmux.daemon = {\n\tstate = running\n\tpid = 4242\n\tlast exit code = (never exited)\n}\n'
+    else printf 'gui/501/com.acpmux.daemon = {\n\tstate = waiting\n\tlast exit code = 1\n}\n'; fi;;
+  *) test ! -f "$HOME/no-gui" || { echo 'Could not print domain: 125: Domain does not support specified action' >&2; exit 125; };;
+  esac;;
+bootout) case "$2" in */com.acpmux.probe) exit 0;; esac
+  test ! -f "$HOME/no-gui" || { echo 'Boot-out failed: 125: Domain does not support specified action' >&2; exit 125; }
+  test -f "$HOME/loaded" || { echo 'Boot-out failed: 3: No such process' >&2; exit 3; }; rm -f "$HOME/loaded"
+  if [ "$(cat "$HOME/daemon-pid" 2>/dev/null || echo 4242)" = 4242 ]; then rm -f "$HOME/daemon"; touch "$HOME/exiting"; fi;;
+print-disabled) test ! -f "$HOME/print-disabled-fails" || { echo 'Could not print disabled services: 5: Input/output error' >&2; exit 5; }
+  test ! -f "$HOME/disabled-daemon" || printf 'disabled services = {\n\t"com.apple.Siri.agent" => enabled\n\t"com.acpmux.daemon" => disabled\n}\n';;
 bootstrap)
+  test ! -f "$HOME/no-gui" || { echo 'Bootstrap failed: 125: Domain does not support specified action' >&2; exit 125; }
+  test ! -f "$HOME/refuses-bootstrap" || { echo 'Bootstrap failed: 5: Input/output error' >&2; exit 5; }
+  case "$3" in */probe.plist) exit 0;; esac
+  test ! -f "$HOME/disabled-daemon" || { echo 'Bootstrap failed: 5: Input/output error' >&2; exit 5; }
+  test ! -f "$HOME/refuses-daemon-bootstrap" || { echo 'Bootstrap failed: 5: Input/output error' >&2; exit 5; }
   test ! -f "$HOME/loaded" || { echo 'Bootstrap failed: 5: Input/output error' >&2; exit 5; }
   touch "$HOME/loaded"
   if [ -f "$HOME/exiting" ]; then echo 'daemon.lock held' >> "$HOME/calls"; else ~/.local/bin/acpmux __start; fi;;
 kickstart) rm -f "$HOME/daemon"; echo 'OS_REASON_CODESIGNING' >> "$HOME/calls";;
 esac
 "#;
+
+/// `plutil -lint`: a plist that is there and does not say BROKEN parses.
+#[cfg(unix)]
+const FAKE_PLUTIL: &str = "#!/bin/sh\n[ -f \"$2\" ] && ! grep -q BROKEN \"$2\" && { echo \"$2: OK\"; exit 0; }\necho \"$2: Unexpected character B at line 1\"; exit 1\n";
 
 /// `ps -p`: the old daemon is still there once after a `bootout`.
 #[cfg(unix)]
@@ -1081,6 +1169,9 @@ impl FakePeer {
         }
         self.exe("fakebin/launchctl", FAKE_LAUNCHCTL);
         self.exe("fakebin/ps", FAKE_PS);
+        self.exe("fakebin/plutil", FAKE_PLUTIL);
+        self.write("Library/LaunchAgents/com.acpmux.daemon.plist", "<plist/>\n");
+        self.write("launchd-host", "");
         self.write("loaded", "");
     }
 
@@ -1106,7 +1197,19 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
     peer.under_launchd();
     let plist = format!("{}/Library/LaunchAgents/com.acpmux.daemon.plist", peer.home.display());
     let bootstrap = format!("launchctl bootstrap gui/{uid} {plist}");
+    let probe = [
+        format!("launchctl print gui/{uid}"),
+        format!("launchctl bootout gui/{uid}/com.acpmux.probe"),
+        format!("launchctl bootstrap gui/{uid} PROBE"),
+        format!("launchctl bootout gui/{uid}/com.acpmux.probe"),
+        format!("launchctl print-disabled gui/{uid}"),
+    ];
     let restart = [
+        probe[0].clone(),
+        probe[1].clone(),
+        probe[2].clone(),
+        probe[3].clone(),
+        probe[4].clone(),
         format!("launchctl print {job}"),
         format!("launchctl bootout {job}"),
         "ps -p 4242".to_owned(),
@@ -1144,6 +1247,7 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
         &UpdateOptions {
             binary_dir: Some(peer.home.join("binaries")),
             if_idle: false,
+            keep_newer: false,
             caller: None,
         },
     );
@@ -1151,10 +1255,312 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
     assert_eq!(peer.daemon(), OLD);
     assert_eq!(
         peer.take_launchd_calls(),
-        [format!("launchctl print {job}"), format!("launchctl bootout {job}"), bootstrap]
+        [
+            probe.to_vec(),
+            vec![format!("launchctl print {job}"), format!("launchctl bootout {job}"), bootstrap]
+        ]
+        .concat()
     );
+}
+
+/// A host that answers to nothing: a held peer must never reach it.
+struct Unreachable;
+
+impl Remote for Unreachable {
+    fn host(&self) -> &str {
+        "cmux@mini-a.tail0.ts.net"
+    }
+
+    fn exec(&self, script: &str, _: Option<&[u8]>) -> Result<RemoteOut> {
+        panic!("a held peer was reached: {script}")
+    }
+
+    fn push(&self, _: &Path, remote: &str) -> Result<()> {
+        panic!("a held peer got {remote}")
+    }
+
+    fn spawn(&self, script: &str) -> Result<std::process::Child> {
+        panic!("a held peer was reached: {script}")
+    }
+}
+
+/// Leo, 2026-10-26: a machine reserved for someone else ("cmux16 is reserved for lawrencecchen
+/// until 10-28") must never have its daemon restarted by the update queue. Held by its host's first
+/// label, it is left alone with no ssh at all, and that is no failure (exit 0); a holds file that
+/// cannot be read leaves it alone too.
+#[test]
+fn a_held_peer_is_left_alone_without_reaching_it() {
+    let dir = std::env::temp_dir().join(format!("acpmux-held-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("update-holds.json");
+    let holds = r#"{"holds": {"mini-a": {"reason": "reserved for a teammate", "until": "2026-10-28T23:59:59Z"}}}"#;
+    std::fs::write(&path, holds).unwrap();
+    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: true, caller: None };
+    let now = 1_793_000_000_000; // 2026-10-26
+    let up = update_unless_held("peer-a", &Unreachable, &path, now, &opts);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Held, Some("held")), "{up:?}");
+    assert!(!up.outcome.failed(), "held is no failure: the command exits 0");
+    let row = up.to_json("peer-a", "cmux@mini-a.tail0.ts.net");
+    assert_eq!((row["outcome"].as_str(), row["ok"].as_bool()), (Some("held"), Some(true)));
+    assert!(row["error"].as_str().unwrap().contains("reserved for a teammate"), "{row}");
+    assert!(up.line().starts_with("held, left alone: mini-a is held"), "{}", up.line());
+
+    std::fs::write(&path, "{not json").unwrap();
+    let up = update_unless_held("peer-a", &Unreachable, &path, now, &opts);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Failed, Some("holdsUnreadable")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// This uid, as the scripts' `id -u` prints it.
+#[cfg(unix)]
+fn uid() -> String {
+    let uid = Command::new("id").arg("-u").output().unwrap();
+    String::from_utf8_lossy(&uid.stdout).trim().to_owned()
+}
+
+/// Leo, 2026-10-26: "Couldn't update cmux16: Bootstrap failed: 125: Domain
+/// does not support specified action; the rollback failed too: Bootstrap
+/// failed: 125: ...". A Mac no one is logged in to at the screen has no GUI
+/// domain: its daemon restarts in place, as acpmux's own start over ssh
+/// places it then (#24474), and launchd is not asked to stop or start
+/// anything; a build that does not answer is rolled back in place too.
+#[test]
+#[cfg(unix)]
+fn a_mac_with_no_gui_login_restarts_its_daemon_in_place_and_rolls_back_there() {
+    let peer = FakePeer::new("nogui");
+    peer.under_launchd();
+    peer.write("no-gui", "");
+    let _ = std::fs::remove_file(peer.home.join("loaded"));
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(up.build.as_deref(), Some(NEW));
+    assert_eq!(peer.daemon(), NEW);
+    assert!(peer.exists("agents"), "the agents are kept");
+    assert_eq!(up.in_place.as_deref(), Some("noGuiLogin"));
+    assert_eq!(up.to_json("m", "m")["inPlace"], "noGuiLogin");
+    assert_eq!(peer.take_launchd_calls(), [format!("launchctl print gui/{}", uid())]);
+
+    let never = "b2c3d4e5f 2026-10-22";
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(never, None));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::RolledBack, Some("noAnswer")),
+        "{up:?}"
+    );
+    assert_eq!((peer.daemon(), up.build.as_deref()), (NEW.to_owned(), Some(NEW)));
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)));
+}
+
+/// Review of #25602: launchd that takes no job (the probe's bootstrap fails)
+/// is asked before anything stops, so neither the restart nor its rollback
+/// boots out the daemon that runs: it is left running on its build, and the
+/// binary is put back. That holds even when a start in place would fail too.
+#[test]
+#[cfg(unix)]
+fn launchd_that_takes_no_job_leaves_the_running_daemon_alone() {
+    let peer = FakePeer::new("refused");
+    peer.under_launchd();
+    peer.write("refuses-bootstrap", "");
+    // A start in place would fail too: this binary's daemon never answers.
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, None));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("launchdRefused")),
+        "{up:?}"
+    );
+    assert!(up.error.as_deref().unwrap_or("").contains("left running"), "{up:?}");
+    assert_eq!(peer.daemon(), OLD, "the old daemon still runs");
+    assert!(peer.exists("loaded"), "its job was never booted out");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+    let calls = peer.take_launchd_calls();
+    assert!(!calls.iter().any(|c| c.contains("bootout gui/") && c.ends_with("com.acpmux.daemon")));
+}
+
+/// A rollback whose launchd stops taking jobs between the restart and the
+/// rollback stops nothing more: whatever runs keeps running, and the row
+/// says the rollback stopped nothing, never just "the rollback failed too".
+#[test]
+#[cfg(unix)]
+fn a_rollback_launchd_refuses_stops_nothing_and_says_so() {
+    let peer = FakePeer::new("refused-rollback");
+    peer.under_launchd();
+    // The new build's daemon starts but reports another build, and its start
+    // turns launchd's refusal on, so the rollback finds launchd taking no job.
+    let other = "c3d4e5f6a 2026-10-22";
+    let pushed = fake_acpmux(NEW, Some(other))
+        .replace("echo '", "touch \"$HOME/refuses-bootstrap\"; echo '");
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &pushed);
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("buildMismatch")),
+        "{up:?}"
+    );
+    let error = up.error.as_deref().unwrap_or("");
+    assert!(error.contains("the rollback stopped nothing"), "{error}");
+    assert!(!error.contains("the rollback failed too"), "{error}");
+    assert_eq!(peer.daemon(), other, "the running daemon was not stopped");
+}
+
+/// The probe passes but the daemon's own bootstrap fails after the bootout
+/// (in the restart and in its rollback): the daemon starts in place, so the
+/// host is never left without one.
+#[test]
+#[cfg(unix)]
+fn a_bootstrap_that_fails_after_the_bootout_starts_the_daemon_in_place() {
+    let peer = FakePeer::new("daemon-refused");
+    peer.under_launchd();
+    peer.write("refuses-daemon-bootstrap", "");
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!((peer.daemon(), up.in_place.as_deref()), (NEW.to_owned(), Some("bootstrapFailed")));
+
+    peer.write("loaded", "");
+    let never = "b2c3d4e5f 2026-10-22";
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(never, None));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::RolledBack, Some("noAnswer")),
+        "{up:?}"
+    );
+    assert_eq!(peer.daemon(), NEW, "a daemon runs after the rollback");
+}
+
+/// Review of #25602 at a72d1894: launchd can take jobs (the probe passes)
+/// while it refuses the daemon's own, as when its label was disabled there
+/// after the restart. The rollback from a daemon that runs but is not the
+/// pushed build then asks first, refuses, and stops nothing: that daemon is
+/// left running even though the previous build's start in place would fail
+/// too, and the row says so instead of "the rollback failed too".
+#[test]
+#[cfg(unix)]
+fn a_rollback_to_a_daemon_launchd_has_disabled_leaves_the_running_daemon() {
+    let peer = FakePeer::new("disabled-rollback");
+    peer.under_launchd();
+    // The previous build's start in place would fail: its daemon never answers.
+    peer.exe(".local/bin/acpmux", &fake_acpmux(OLD, None));
+    // The new build's daemon starts but reports another build, and its start
+    // disables the daemon's label in launchd.
+    let other = "c3d4e5f6a 2026-10-22";
+    let pushed =
+        fake_acpmux(NEW, Some(other)).replace("echo '", "touch \"$HOME/disabled-daemon\"; echo '");
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &pushed);
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("buildMismatch")),
+        "{up:?}"
+    );
+    let error = up.error.as_deref().unwrap_or("");
+    assert!(error.contains("the rollback stopped nothing"), "{error}");
+    assert!(error.contains("com.acpmux.daemon disabled"), "{error}");
+    assert!(!error.contains("the rollback failed too"), "{error}");
+    assert_eq!((peer.daemon(), up.build.as_deref()), (other.to_owned(), Some(other)));
+    assert!(peer.exists("loaded"), "the running daemon's job was not booted out");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, None), "the binary went back");
+    let calls = peer.take_calls();
+    let bootouts =
+        calls.iter().filter(|c| c.ends_with("/com.acpmux.daemon") && c.contains("bootout"));
+    assert_eq!(bootouts.count(), 1, "only the update's own restart booted the job out: {calls:?}");
+    assert!(!calls.iter().any(|c| c.contains("daemon start")), "{calls:?}");
+}
+
+/// Review of #25602 at a72d1894: the restart follows where the daemon runs.
+/// An update with no one logged in starts it in place; once someone logs in,
+/// the next update finds it outside launchd's job, shuts it down keeping its
+/// agents, and only then bootstraps the job, so the job's daemon gets
+/// `daemon.lock` (the fake enforces it) instead of exiting while the old one
+/// keeps running.
+#[test]
+#[cfg(unix)]
+fn an_update_after_someone_logs_in_hands_the_in_place_daemon_to_launchd() {
+    let peer = FakePeer::new("login-later");
+    peer.under_launchd();
+    peer.write("no-gui", "");
+    let _ = std::fs::remove_file(peer.home.join("loaded"));
+    peer.write("daemon-pid", "5151");
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = peer.update(true);
+    assert_eq!((up.outcome, up.in_place.as_deref()), (Outcome::Updated, Some("noGuiLogin")));
+    assert_eq!((peer.daemon(), peer.read("daemon-pid").trim()), (NEW.to_owned(), "5151"));
+    peer.take_calls();
+
+    // Someone logs in at the screen.
+    let _ = std::fs::remove_file(peer.home.join("no-gui"));
+    let newer = "d4e5f6a7b 2026-10-23";
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(newer, Some(newer)));
+    let up = peer.update(true);
+    assert_eq!((up.outcome, up.in_place.as_deref()), (Outcome::Updated, None), "{up:?}");
+    assert_eq!(up.build.as_deref(), Some(newer));
+    assert_eq!((peer.daemon(), peer.read("daemon-pid").trim()), (newer.to_owned(), "4242"));
+    assert!(peer.exists("loaded"), "the daemon runs as launchd's job");
+    assert!(peer.exists("agents"), "the agents are kept");
+    let calls = peer.take_calls();
+    assert!(!calls.iter().any(|c| c == "daemon.lock held"), "{calls:?}");
+    let shutdown = calls.iter().position(|c| c.contains("daemon shutdown --keep-agents"));
+    let bootstrap = calls.iter().position(|c| c.contains("bootstrap") && c.ends_with(".plist"));
+    assert!(shutdown.is_some() && shutdown < bootstrap, "{calls:?}");
+
+    // The next update restarts launchd's job as usual.
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = peer.update_with(true, false);
+    assert_eq!((up.outcome, up.in_place.as_deref()), (Outcome::Updated, None), "{up:?}");
+    assert_eq!((peer.daemon(), peer.read("daemon-pid").trim()), (NEW.to_owned(), "4242"));
+    assert!(!peer.take_calls().iter().any(|c| c.contains("daemon shutdown")));
+}
+
+/// Review of #25602 at d486002d: a `launchctl print-disabled` that fails
+/// says nothing about the daemon's job, so the restart refuses before the
+/// bootout instead of going on as if the job were enabled.
+#[test]
+#[cfg(unix)]
+fn a_launchd_that_cannot_say_whether_the_job_is_disabled_stops_nothing() {
+    let peer = FakePeer::new("print-disabled-fails");
+    peer.under_launchd();
+    peer.write("print-disabled-fails", "");
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("launchdRefused")),
+        "{up:?}"
+    );
+    assert!(up.error.as_deref().unwrap_or("").contains("did not say whether"), "{up:?}");
+    assert_eq!(peer.daemon(), OLD, "the old daemon still runs");
+    assert!(peer.exists("loaded"), "its job was never booted out");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+}
+
+/// A plist launchd cannot read is found before anything stops.
+#[test]
+#[cfg(unix)]
+fn a_daemon_plist_launchd_cannot_read_stops_nothing() {
+    let peer = FakePeer::new("bad-plist");
+    peer.under_launchd();
+    peer.write("Library/LaunchAgents/com.acpmux.daemon.plist", "BROKEN");
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("launchdRefused")),
+        "{up:?}"
+    );
+    assert!(up.error.as_deref().unwrap_or("").contains("acpmux host setup writes it again"));
+    assert_eq!(peer.daemon(), OLD, "the old daemon still runs");
+    assert!(peer.exists("loaded"));
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
 }
 
 #[cfg(unix)]
 #[path = "host_lock_tests.rs"]
 mod lock;
+
+#[cfg(unix)]
+#[path = "host_self_update_tests.rs"]
+mod self_update;

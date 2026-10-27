@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFloating
 import CmuxNextHomeEngine
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
@@ -109,16 +110,21 @@ extension AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
         tabs.launchImages = services.launchImages
+        tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
-        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host) { [weak services] in
+        let home = ChiefHome.resolve(tag: services.environment.tag)
+        let chief = ChiefHomeAcpmux(home: home, local: tabs.host) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
         }
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
+        // A subagent tab made under another Chief home of this Mac attaches there (#25262).
+        tabs.chiefHomes = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: home), work: services.work,
+                                             environment: { ChiefHomeAcpmux.environment(home: $0) })
         tabs.localSessionHost = chief.localRouter(tabs.host)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
@@ -192,7 +198,8 @@ extension AgentTabStore {
         tabs.gitLink = { [weak services, weak tabs] key in
             guard let services else { return nil }
             guard let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession,
-                  AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost) == .remote else { return services.agentGit.local }
+                  AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost,
+                                    listedHere: services.machines.daemon(forTab: tab).isLocal) == .remote else { return services.agentGit.local }
             // A tab naming another machine than the one listing it reads nothing (never this Mac's folder).
             guard let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
             return services.agentGit.link(for: daemon)
@@ -320,5 +327,28 @@ extension AgentTabStore {
         }
         services.madeAgentTabs = tabs
         return tabs
+    }
+
+    /// The agent avatars on `model`'s page, for every agent view (tabs, spares and standalone chats):
+    /// its cards ask for them, its chat menu sets and removes them over `view`'s window.
+    func wireAgentAvatars(_ model: AgentPaneModel, view: AgentPaneView) {
+        model.onAgentAvatar = { [weak self] session in await self?.agentAvatars?.avatar(session) }
+        model.onSetAgentAvatar = { [weak self, weak view] session in
+            guard let self, let agentAvatars else { return nil }
+            let src = await agentAvatars.choose(session, window: view?.window)
+            if src != nil { agentAvatarChanged(session) }
+            return src
+        }
+        model.onRemoveAgentAvatar = { [weak self] session in
+            self?.agentAvatars?.remove(session)
+            self?.agentAvatarChanged(session)
+        }
+    }
+
+    /// Every agent page (tabs and standalone chats) asks for session `session`'s avatar again: a
+    /// Set or Remove in one pane reaches the cards and chips that other panes draw of the same session.
+    func agentAvatarChanged(_ session: String) {
+        for view in views.values { view.agentAvatarChanged(session) }
+        for view in standaloneViews.allObjects { view.agentAvatarChanged(session) }
     }
 }

@@ -29,6 +29,10 @@ fn is_mirrored_session(summary: &Value) -> bool {
     summary.get("peer").and_then(Value::as_str).is_some()
 }
 
+/// The `clientInfo.name` a peer link gives in `initialize`: the daemon it connects to keeps no
+/// presence for it, whatever it serves the link as (`server/view.rs`).
+pub const CLIENT_NAME: &str = "acpmux-peer";
+
 /// The link's own `_acpmux/attach` of a peer's session `id`: it subscribes and reads no history,
 /// and names its byte limit all the same, as `bound_page` does for a client's attach. A peer on an
 /// older build reads `limit: 0` as no limit and has none of its own, so it answers with the whole
@@ -53,6 +57,8 @@ pub enum PeerNotice {
     Notification {
         method: String,
         params: Value,
+        /// The link it came on (`Peer::link_epoch` when it was read).
+        link: u64,
     },
 }
 
@@ -67,8 +73,10 @@ pub struct Peer {
     peer_token: Option<String>,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
-    out: mpsc::Sender<String>,
-    out_rx: Mutex<Option<mpsc::Receiver<String>>>,
+    /// Outbound frames, each tagged with the link epoch it was admitted on:
+    /// `serve` drops one whose link is gone, so it never goes out on the next.
+    out: mpsc::Sender<(u64, String)>,
+    out_rx: Mutex<Option<mpsc::Receiver<(u64, String)>>>,
     next_id: AtomicI64,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>,
     pub connected: AtomicBool,
@@ -95,9 +103,17 @@ pub struct Peer {
     subagent_transcript: AtomicBool,
     /// Whether the peer saves a message's attachments (`attach.rs`).
     send_attach: AtomicBool,
+    /// The peer lists `promptUploads` (`prompt_uploads.rs`).
+    prompt_uploads: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
+    /// The peer token this connection presented (`stale_token`).
+    presented: StdMutex<Option<String>>,
+    /// From the WebSocket opening until `stale_token` cleared it: callers'
+    /// requests and notifications are refused, so none goes out on a link
+    /// that is dropped to reconnect as a peer, or waits to go out on the next.
+    admitting: AtomicBool,
     attached: StdMutex<HashSet<String>>,
     notices: mpsc::Sender<(String, u64, PeerNotice)>,
     stop: AtomicBool,
@@ -111,10 +127,16 @@ pub struct Peer {
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
+    /// The sessions this instance's link purged before its list (`hub/purge_tombstones.rs`).
+    pub(crate) purge_tombstones: crate::hub::purge_tombstones::PurgeTombstones,
     /// The peer's last `_acpmux/host_health` and when it came (`peer_health.rs`).
     health: StdMutex<Option<(u64, Value)>>,
     /// An ask for it is out.
     health_asking: AtomicBool,
+    /// The pending key of the handshake's `_acpmux/watch`. The reader publishes that reply's
+    /// list itself, before it reads the next frame, so a `session_changed` the peer sent after
+    /// the reply reaches the hub after the list, never before it.
+    watch_key: StdMutex<Option<String>>,
 }
 
 impl Peer {
@@ -148,7 +170,10 @@ impl Peer {
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
             send_attach: AtomicBool::new(false),
+            prompt_uploads: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
+            presented: StdMutex::new(None),
+            admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
             stop: AtomicBool::new(false),
@@ -157,8 +182,10 @@ impl Peer {
             link: StdMutex::new(Link::default()),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
+            purge_tombstones: Default::default(),
             health: StdMutex::new(None),
             health_asking: AtomicBool::new(false),
+            watch_key: StdMutex::new(None),
         })
     }
 
@@ -287,6 +314,90 @@ impl Peer {
         Ok((remote.token, peer))
     }
 
+    /// `remote_tokens`, read again (`TOKEN_REREADS`) while the remote has
+    /// no peer token: a daemon that is starting listens a few seconds before
+    /// it writes `run/peer.token`, and the one that stopped removed its own.
+    /// A connect inside that window would be served as Web, holding every
+    /// prompt to the Web's rules until the link next drops. A remote too old
+    /// to make a token has none after the rereads and is served as Web.
+    async fn remote_tokens_settled(&self) -> Result<(String, Option<String>), String> {
+        const STOPPED: &str = "peer stopped";
+        if self.stop.load(Ordering::SeqCst) {
+            return Err(STOPPED.to_owned());
+        }
+        let mut tokens = self.remote_tokens().await?;
+        for wait in TOKEN_REREADS {
+            if tokens.1.is_some() {
+                break;
+            }
+            if !self.reread_wait(wait).await {
+                return Err(STOPPED.to_owned());
+            }
+            tokens = self.remote_tokens().await?;
+        }
+        Ok(tokens)
+    }
+
+    /// Sleeps `wait` before a token reread; false, at once, when the peer
+    /// stops (before or during it), so no further ssh read is made.
+    async fn reread_wait(&self, wait: Duration) -> bool {
+        if self.stop.load(Ordering::SeqCst) {
+            return false;
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(wait) => {}
+            _ = self.stop_signal.notified() => {
+                // Put the permit back for `run` and `serve`, which wait on it too.
+                self.stop_signal.notify_one();
+            }
+        }
+        !self.stop.load(Ordering::SeqCst)
+    }
+
+    /// Why an `ssh://` connection the remote served as Web should connect
+    /// again: the remote has a peer token now that this connection did not
+    /// present (it restarted between the token read and the handshake, or
+    /// had not written its token yet). One read per such connection, and
+    /// rereads (`TOKEN_REREADS`) while the remote has no token (it is
+    /// restarting, or wrote it after this connection's last read), all
+    /// before the link is admitted, so a live link is never torn down for a
+    /// late token; None when it was served as a peer, when a read fails, on
+    /// stop, or when the remote still has no token or the same one (it
+    /// serves this daemon as Web for another reason, and reconnecting would
+    /// not change that).
+    async fn stale_token(&self) -> Option<String> {
+        self.ssh_parts()?;
+        let served_as_web =
+            self.served_as.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some("remote");
+        if !served_as_web {
+            return None;
+        }
+        let presented = self.presented.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if self.stop.load(Ordering::SeqCst) {
+            return None;
+        }
+        let (_, mut now) = self.remote_tokens().await.ok()?;
+        for wait in TOKEN_REREADS {
+            if now.is_some() {
+                break;
+            }
+            if !self.reread_wait(wait).await {
+                return None;
+            }
+            now = self.remote_tokens().await.ok()?.1;
+        }
+        (now.is_some() && now != presented).then(|| {
+            "the peer served this daemon as remote, and it has a new peer token; reconnecting"
+                .to_owned()
+        })
+    }
+
+    /// How the peer said at its last handshake that it serves this daemon: `peer`, `remote`
+    /// (as a Web client), or None from a peer too old to say.
+    pub fn served_as(&self) -> Option<String> {
+        self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     pub fn remote_build(&self) -> Option<String> {
         self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone())
     }
@@ -330,6 +441,11 @@ impl Peer {
         self.send_attach.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it reads uploaded files a message names.
+    pub fn supports_prompt_uploads(&self) -> bool {
+        self.prompt_uploads.load(Ordering::SeqCst)
+    }
+
     pub fn summary(&self) -> Value {
         let link = self.link();
         let (health, health_at) = self.health_summary();
@@ -366,19 +482,58 @@ impl Peer {
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
-        if !self.connected.load(Ordering::SeqCst) {
+        self.request_on(m, params, None).await
+    }
+
+    /// `request` on the link of epoch `epoch` only, when the caller read it before (it labels
+    /// what the answer holds with it, `hub/peer_snapshot.rs`): unreachable once that link ended.
+    pub async fn request_on(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+    ) -> Result<Value, RpcError> {
+        // Read before the check: `run` moves the epoch on before it fails what
+        // waits, so a request that is registered after that sees the change.
+        let epoch = epoch.unwrap_or_else(|| self.link_epoch());
+        if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
+        self.link_request_on(m, params, Some(epoch)).await
+    }
+
+    /// `request` with no admission check: the handshake's `initialize`.
+    async fn link_request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
+        self.link_request_on(m, params, None).await
+    }
+
+    /// Sends `m` on the link of epoch `epoch` (any link when None).
+    async fn link_request_on(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+    ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
         self.pending.lock().await.insert(key.clone(), tx);
+        if m == method::MUX_WATCH {
+            *self.watch_key.lock_or_recover() = Some(key.clone());
+        }
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
         let _forget = ForgetPending { pending: self.pending.clone(), key: Some(key) };
+        // The link it was admitted on went down before it was registered: `run`
+        // already failed what waited, and the next link drops its frame, so a
+        // prompt (which has no deadline) would wait for good.
+        if epoch.is_some_and(|e| e != self.link_epoch() || !self.connected.load(Ordering::SeqCst)) {
+            return Err(self.unreachable_error());
+        }
         // One frame larger than the peer reads with would drop the link and every chat on it.
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
-        if self.out.send(line).await.is_err() {
+        let tag = epoch.unwrap_or_else(|| self.link_epoch());
+        if self.out.send((tag, line)).await.is_err() {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
         // A prompt or a wait answers when the peer's turn ends, however long that is; the
@@ -390,7 +545,21 @@ impl Peer {
             tokio::time::timeout(self.timings.request, rx).await
         };
         match answer {
-            Ok(Ok(r)) => r,
+            // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
+            // No display line of the peer's own reaches this daemon's clients, on any route that
+            // returns a peer's reply or its error's data (`hub::drop_display_lines`).
+            Ok(Ok(r)) => r
+                .map(|mut result| {
+                    crate::hub::drop_display_lines(&mut result);
+                    result
+                })
+                .map_err(|mut e| {
+                    crate::recovery::annotate_peer(&mut e, &self.name);
+                    if let Some(data) = e.data.as_mut() {
+                        crate::hub::drop_display_lines(data);
+                    }
+                    e
+                }),
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
             }
@@ -399,9 +568,15 @@ impl Peer {
     }
 
     pub async fn notify(&self, m: &str, params: Value) -> Result<(), RpcError> {
+        // Read before the check, as in `request`: a frame tagged with a link
+        // that went down is dropped by `serve`, never sent on the next one.
+        let epoch = self.link_epoch();
+        if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
+            return Err(self.unreachable_error());
+        }
         let line = Message::notification(m, params).bounded_line().map_err(RpcError::too_large)?;
         self.out
-            .send(line)
+            .send((epoch, line))
             .await
             .map_err(|_| RpcError::internal(format!("peer {} connection closed", self.name)))
     }
@@ -447,10 +622,11 @@ impl Peer {
 
     async fn connect_once(
         self: &Arc<Self>,
-        out_rx: &mut mpsc::Receiver<String>,
+        out_rx: &mut mpsc::Receiver<(u64, String)>,
     ) -> Result<(), String> {
         if self.ssh_parts().is_some() {
-            let (token, peer_token) = self.remote_tokens().await?;
+            let (token, peer_token) = self.remote_tokens_settled().await?;
+            *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = peer_token.clone();
             let (stream, remote_port) = self.open_tunnel().await?;
             let req = self.ws_request(
                 &format!("ws://127.0.0.1:{remote_port}"),
@@ -471,6 +647,7 @@ impl Peer {
             .map_err(|e| e.to_string())?;
             return self.serve(ws, out_rx).await;
         }
+        *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // The peer token never crosses a network in clear.
         let peer_token = match self.peer_token.as_deref() {
             Some(_) if !carries_peer_token(&self.url) => {
@@ -521,13 +698,14 @@ impl Peer {
     async fn serve<S>(
         self: &Arc<Self>,
         ws: tokio_tungstenite::WebSocketStream<S>,
-        out_rx: &mut mpsc::Receiver<String>,
+        out_rx: &mut mpsc::Receiver<(u64, String)>,
     ) -> Result<(), String>
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
         use tokio_tungstenite::tungstenite::Message as Frame;
         let (mut sink, mut source) = ws.split();
+        self.admitting.store(true, Ordering::SeqCst);
         self.connected.store(true, Ordering::SeqCst);
         *self.last_error.lock_or_recover() = None;
         self.with_link(|l| l.opened(crate::store::now_ms()));
@@ -535,11 +713,12 @@ impl Peer {
 
         // Handshake in a task so the read loop below can serve the responses.
         let me = self.clone();
+        let (stale_tx, mut stale_rx) = oneshot::channel::<String>();
         let handshake = tokio::spawn(async move {
             let init = me
-                .request(
+                .link_request(
                     method::INITIALIZE,
-                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-peer", "version": crate::hub::VERSION}}),
+                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}}),
                 )
                 .await?;
             let v = init
@@ -555,6 +734,12 @@ impl Peer {
             *me.remote_version.lock_or_recover() = Some((v, b));
             *me.served_as.lock().unwrap_or_else(|e| e.into_inner()) =
                 init.pointer("/_meta/acpmux/origin").and_then(Value::as_str).map(str::to_owned);
+            // Before any session is watched or attached on this link.
+            if let Some(why) = me.stale_token().await {
+                let _ = stale_tx.send(why);
+                return Ok(());
+            }
+            me.admitting.store(false, Ordering::SeqCst);
             *me.person_instance.lock().unwrap_or_else(|e| e.into_inner()) = init
                 .pointer("/_meta/acpmux/personInstance")
                 .and_then(Value::as_str)
@@ -574,19 +759,9 @@ impl Peer {
             me.subagent_transcript
                 .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
             me.send_attach.store(lists(crate::attach::FEATURE), Ordering::SeqCst);
-            let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
-            let sessions = watch
-                .get("sessions")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter(|session| !is_mirrored_session(session))
-                .cloned()
-                .collect();
-            let _ = me
-                .notices
-                .send((me.name.clone(), me.generation, PeerNotice::Sessions(sessions)))
-                .await;
+            me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
+            // The reader published the reply's list (`watch_key`), so Connected follows it.
+            me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             me.with_link(|l| l.ready(crate::store::now_ms()));
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
@@ -609,6 +784,7 @@ impl Peer {
         );
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
+        let mut stale_settled = false;
         let mut ticks: u64 = 0;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
@@ -618,6 +794,13 @@ impl Peer {
             }
             tokio::select! {
                 _ = self.stop_signal.notified() => break Ok(()),
+                // Once only: a finished oneshot is not polled again.
+                stale = &mut stale_rx, if !stale_settled => {
+                    stale_settled = true;
+                    if let Ok(why) = stale {
+                        break Err(why);
+                    }
+                }
                 _ = &mut handshake_deadline, if !self.link().is_ready() => {
                     break Err(format!("handshake timed out after {}s", timings.handshake.as_secs()));
                 }
@@ -652,9 +835,19 @@ impl Peer {
                     let Ok(msg) = Message::parse(&text) else { continue };
                     match msg {
                         Message::Response { id, result, error } => {
-                            if let Some(tx) = self.pending.lock().await.remove(&id.to_string()) {
-                                let _ = tx.send(match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) });
+                            let key = id.to_string();
+                            // Not held while a notice waits for room: a caller registers under it.
+                            let tx = self.pending.lock().await.remove(&key);
+                            let Some(tx) = tx else { continue };
+                            let reply = match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) };
+                            let watch = self.watch_key.lock_or_recover().take_if(|k| *k == key).is_some();
+                            if let (true, Ok(list)) = (watch, &reply) {
+                                let notice = PeerNotice::Sessions(watch_sessions(list));
+                                if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
+                                    break Ok(());
+                                }
                             }
+                            let _ = tx.send(reply);
                         }
                         Message::Notification { method: m, params } => {
                             let p = params.unwrap_or(Value::Null);
@@ -674,7 +867,7 @@ impl Peer {
                                     seq: p.get("seq").and_then(Value::as_u64).unwrap_or(0),
                                 }
                             } else {
-                                PeerNotice::Notification { method: m, params: p }
+                                PeerNotice::Notification { method: m, params: p, link: self.link_epoch() }
                             };
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(());
@@ -689,7 +882,12 @@ impl Peer {
                     }
                 }
                 line = out_rx.recv() => {
-                    let Some(line) = line else { break Ok(()) };
+                    let Some((epoch, line)) = line else { break Ok(()) };
+                    // Admitted on a link that went down: its caller was failed
+                    // with that link, so it never goes out on this one.
+                    if epoch != self.link_epoch() {
+                        continue;
+                    }
                     let text = line.trim_end_matches('\n').to_owned();
                     match tokio::time::timeout(budget, sink.send(Frame::Text(text.into()))).await {
                         Ok(Ok(())) => {}
@@ -703,6 +901,23 @@ impl Peer {
         result
     }
 }
+
+/// The sessions an `_acpmux/watch` reply lists, without the rows the peer itself mirrors.
+fn watch_sessions(reply: &Value) -> Vec<Value> {
+    reply
+        .get("sessions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|session| !is_mirrored_session(session))
+        .cloned()
+        .collect()
+}
+
+/// The waits before each reread of a remote that has no peer token yet
+/// (`Peer::remote_tokens_settled`, `Peer::stale_token`).
+const TOKEN_REREADS: [Duration; 3] =
+    [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
 
 /// The requests whose answer waits on the agent's turn, never on the link alone.
 pub(crate) fn waits_on_turn(m: &str) -> bool {
@@ -981,5 +1196,156 @@ mod remote_config_tests {
         assert_eq!(peer_token_text("a".repeat(63).as_bytes()), None);
         let read = [br#"{"websocket":{"token":"t"}}"#.as_slice(), b"\0", good.as_bytes()].concat();
         assert_eq!(split_remote_read(&read).1, Some(good));
+    }
+}
+
+#[cfg(test)]
+mod link_epoch_tests {
+    use super::*;
+
+    /// A prompt admitted on a link that went down before it was registered fails at once: the
+    /// next link drops its frame, and a prompt has no deadline, so it would wait for good.
+    #[tokio::test]
+    async fn a_prompt_admitted_on_a_link_that_went_down_fails_instead_of_waiting() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        let admitted_on = peer.link_epoch();
+        // The link drops and the next one is up again before the request registers.
+        peer.link_ended();
+        let answer = tokio::time::timeout(
+            Duration::from_secs(5),
+            peer.link_request_on(method::SESSION_PROMPT, json!({}), Some(admitted_on)),
+        )
+        .await
+        .expect("a prompt on a dead link must not wait");
+        assert!(answer.is_err());
+        assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
+    }
+}
+
+#[cfg(test)]
+mod frame_epoch_tests {
+    use super::*;
+    use tokio_tungstenite::WebSocketStream;
+    use tokio_tungstenite::tungstenite::{Message as Frame, protocol::Role};
+
+    /// A frame admitted on a link that went down is dropped when `serve` dequeues it, even
+    /// when its sender woke only after the next link opened; one admitted on the live link
+    /// goes out.
+    #[tokio::test]
+    async fn a_frame_tagged_with_an_ended_link_never_goes_out_on_the_next() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        let stale = peer.link_epoch();
+        peer.link_ended();
+        peer.out.send((stale, r#"{"jsonrpc":"2.0","method":"stale"}"#.to_owned())).await.unwrap();
+        let live = peer.link_epoch();
+        peer.out.send((live, r#"{"jsonrpc":"2.0","method":"live"}"#.to_owned())).await.unwrap();
+
+        let (ours, theirs) = tokio::io::duplex(1 << 16);
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+        let link = peer.clone();
+        let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+
+        let mut seen = Vec::new();
+        while !seen.iter().any(|t: &String| t.contains("\"live\"")) {
+            let frame = tokio::time::timeout(Duration::from_secs(5), server.next())
+                .await
+                .expect("the live frame goes out")
+                .expect("the link stays open")
+                .unwrap();
+            if let Frame::Text(text) = frame {
+                seen.push(text.to_string());
+            }
+        }
+        assert!(!seen.iter().any(|t| t.contains("\"stale\"")), "a stale frame went out: {seen:?}");
+        serving.abort();
+    }
+}
+
+#[cfg(test)]
+mod watch_order_tests {
+    use super::*;
+    use tokio_tungstenite::WebSocketStream;
+    use tokio_tungstenite::tungstenite::{Message as Frame, protocol::Role};
+
+    /// A `session_changed` the peer sends right after its `_acpmux/watch` reply is newer than
+    /// the reply's list, so it reaches the hub after the list: a purge of a listed session
+    /// leaves no row behind, where a list that came second put the purged row back.
+    #[tokio::test]
+    async fn a_purge_sent_right_after_the_watch_reply_lands_after_its_list() {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-po");
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+        let hub = crate::hub::Hub::new(cfg, store);
+        let (tx, mut rx) = mpsc::channel(64);
+        let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
+
+        let (ours, theirs) = tokio::io::duplex(1 << 16);
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+        let link = peer.clone();
+        let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+        // The peer answers every request; its watch reply lists m1, and the purge of m1
+        // follows it in the same write.
+        let fake = tokio::spawn(async move {
+            let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
+            while let Some(Ok(frame)) = server.next().await {
+                let Frame::Text(text) = frame else { continue };
+                let msg: Value = serde_json::from_str(&text).unwrap();
+                let Some(id) = msg.get("id").cloned() else { continue };
+                let watch = msg["method"] == method::MUX_WATCH;
+                let result = if watch { json!({"sessions": [row]}) } else { json!({}) };
+                let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
+                if !watch {
+                    server.send(Frame::Text(reply.to_string().into())).await.unwrap();
+                    continue;
+                }
+                let purge = json!({"jsonrpc": "2.0", "method": method::MUX_SESSION_CHANGED,
+                    "params": {"kind": "purged", "seq": 2, "session": {"sessionId": "m1"}}});
+                server.feed(Frame::Text(reply.to_string().into())).await.unwrap();
+                server.send(Frame::Text(purge.to_string().into())).await.unwrap();
+            }
+        });
+
+        let mut seen = Vec::new();
+        let (mut connected, mut purged) = (false, false);
+        while !(connected && purged) {
+            let (_, _, notice) = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+                .await
+                .expect("the handshake settles and the purge comes")
+                .expect("the link stays open");
+            connected |= matches!(notice, PeerNotice::Connected);
+            purged |=
+                matches!(&notice, PeerNotice::SessionChanged { kind, .. } if kind == "purged");
+            seen.push(notice);
+        }
+        let at = |want: fn(&PeerNotice) -> bool| seen.iter().position(want).unwrap();
+        let list = at(|n| matches!(n, PeerNotice::Sessions(_)));
+        let purge = at(|n| matches!(n, PeerNotice::SessionChanged { .. }));
+        let ready = at(|n| matches!(n, PeerNotice::Connected));
+        assert!(list < purge, "the list came after a newer purge: {seen:?}");
+        assert!(list < ready, "connected before the list: {seen:?}");
+
+        // The hub applies them in the order the link gave them; a second Connected is a
+        // barrier: once it settled, every notice before it was applied.
+        let mut settled = peer.settled();
+        for notice in seen.into_iter().chain([PeerNotice::Connected]) {
+            hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(5), settled.wait_for(|n| *n >= 2))
+            .await
+            .expect("the hub applies the notices")
+            .unwrap();
+        let rows = hub.remote_sessions();
+        assert!(rows.is_empty(), "the purged row came back: {rows:?}");
+        serving.abort();
+        fake.abort();
     }
 }

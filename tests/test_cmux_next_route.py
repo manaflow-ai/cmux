@@ -220,7 +220,53 @@ class GraphGenerator(unittest.TestCase):
                 self.assertEqual(generator.literal_reads(Path(directory)), ["plans/cmux-next/actions.md"])
 
 
+class MacReleaseInputs(unittest.TestCase):
+    """mac_release: what the Mac Release compile (the package through xcodebuild) sees and the Linux SwiftPM check does not."""
+
+    def test_package_sources_stay_on_linux(self):
+        for changed in ([f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"],
+                        [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Localizable.xcstrings"],
+                        # The Xcode app target is not in this compile (the scheme compile builds it).
+                        ["App/main.swift"], ["cmux.xcodeproj/project.pbxproj"]):
+            with self.subTest(changed=changed):
+                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "false")
+
+    def test_inputs_only_xcodebuild_sees_need_the_mac(self):
+        for changed in ([f"{PACKAGE}/Package.swift"], [f"{PACKAGE}/Package.resolved"],
+                        ["Packages/Shared/CmuxTheme/Package.swift"], [f"{PACKAGE}/Sources/CmuxNextApp/Info.plist"],
+                        [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Media.xcassets/Contents.json"],
+                        ["scripts/ci/xcode-pins.txt"], ["scripts/cmux-next/check-release-compile.sh"],
+                        ["scripts/cmux-next/lib/fleet-only.sh"], ["scripts/cmux-next/stale-pcm-retry-needed.sh"]):
+            with self.subTest(changed=changed):
+                self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "true")
+
+    def test_every_tier_includes_it(self):
+        self.assertEqual(outputs(route(ROOT, "push", [], set()))["mac_release"], "true")
+        source = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"
+        self.assertEqual(outputs(route(ROOT, "pull_request", [source], {"full-ci"}))["mac_release"], "true")
+
+
 class PullRequestTiers(unittest.TestCase):
+    def test_changed_swift_suite_is_prioritized(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(CloudAPIClientRunTests)\.")
+
+    def test_changed_swift_source_prioritizes_its_matching_suite(self):
+        result = tiers([f"{PACKAGE}/Sources/CmuxNextApp/CloudStartSessionAsks.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(CloudStartSessionAsksTests)\.")
+
+    def test_nested_changed_swift_suite_is_prioritized(self):
+        result = tiers([f"{PACKAGE}/Sources/CmuxNextPopups/WebAuth/WebAuthCallback.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(WebAuthCallbackTests)\.")
+
+    def test_isolated_suites_are_left_to_their_dedicated_steps(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextControlTests/CLISurfaceParityTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], "")
+
+    def test_cloud_bring_back_stays_prioritized_for_new_cases(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudBringBackTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(CloudBringBackTests)\.")
+
     def test_ui_pr_runs_its_own_tests_without_the_daemon(self):
         result = tiers(PR_17470)
         self.assertEqual(result["swift_targets"], "CmuxNextAppTests")

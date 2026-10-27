@@ -13,6 +13,7 @@ pub mod events;
 pub mod inventory;
 pub mod mailbox;
 pub mod permission;
+pub mod presence;
 pub mod process;
 pub mod session;
 #[cfg(test)]
@@ -154,6 +155,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
         request::<events::ViewParams, events::Done>(method::MUX_VIEW),
+        request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
         request::<events::SessionRef, events::Done>(method::MUX_MARK_UNREAD),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
@@ -164,6 +166,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SUBSESSION_GET, Request),
         untyped(method::MUX_SUBSESSION_LIMITS, Request),
         untyped(method::MUX_SUBSESSION_LIST, Request),
+        untyped(method::MUX_SUBSESSION_RETRY, Request),
         untyped(method::MUX_SUBSESSION_SEND, Request),
         untyped(method::MUX_SUBSESSION_START, Request),
         untyped(method::MUX_SUBSESSION_STOP, Request),
@@ -187,6 +190,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_STEP_NOW, Request),
         untyped(method::MUX_STEER_WITHDRAW, Request),
         untyped(method::MUX_AGENT_PAIR_RESUME, Request),
+        request::<RetryParams, RetryResult>(method::MUX_RETRY),
         untyped(method::MUX_PROCESS_LIST, Request),
         untyped(method::MUX_PROCESS_TAIL, Request),
         untyped(method::MUX_PROCESS_KILL, Request),
@@ -194,6 +198,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_REPORT, Request),
         untyped(method::MUX_WORKTREE_CLEAN, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
+        untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         untyped(method::MUX_KILL, Request),
         untyped(method::MUX_WATCH_TAKE_OVER, Request),
@@ -212,6 +217,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_WAIT, Request),
+        untyped(method::MUX_WATCH_ADD, Request),
+        untyped(method::MUX_WATCH_LS, Request),
+        untyped(method::MUX_WATCH_RM, Request),
         untyped(method::MUX_ASK, Request),
         untyped(method::MUX_WARM, Request),
         untyped(method::MUX_PREWARM, Request),
@@ -296,6 +304,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_HARNESS_RESTORE, Request),
         untyped(method::MUX_HARNESS_DOCTOR, Request),
         untyped(method::MUX_HARNESS_SECRET_SET, Request),
+        untyped(method::MUX_HARNESS_ICON, Request),
         untyped(method::MUX_HARNESS_HEALTH, Request),
         request::<inventory::InventoryWatchParams, Value>(method::MUX_HARNESS_INVENTORY_WATCH),
         request::<inventory::InventoryRefreshParams, Value>(method::MUX_HARNESS_INVENTORY_REFRESH),
@@ -329,11 +338,13 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
+        untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/place", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
+        untyped("_acpmux/peer_snapshot", Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),
@@ -344,6 +355,7 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
+        notification::<presence::PresenceNote>(method::MUX_PRESENCE),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),

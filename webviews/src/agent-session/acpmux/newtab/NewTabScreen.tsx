@@ -6,8 +6,9 @@ import type { ConnectKind } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
-import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
+import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
+import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
@@ -48,7 +49,6 @@ import {
   inStrip,
   shellEntry,
   shortHost,
-  stepSelection,
   type CreateKind,
   type ScreenRow,
 } from "./screenModel";
@@ -176,6 +176,10 @@ type Props = NewTabScreenActions & {
   /// true until the host's handshake answers: `startCwd` is not known yet, so the chip names the
   /// project the tab inherited (the handshake starts its chat there) rather than none.
   startPending?: boolean;
+  /// The prompt changed: `text` and what its Enter would start (the chip's agent in the chat's
+  /// folder; no target for a saved environment, no project or a shell command). The pane warms
+  /// that agent while the person types (newChatPrewarm.ts).
+  onPromptTyped?(text: string, target?: { harness?: string; cwd?: string }): void;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -349,6 +353,7 @@ export function NewTabScreen(props: Props) {
     setAttachments,
     pending: reading,
     unsettled,
+    videoReading,
     cancel,
     retry,
     attachError,
@@ -363,7 +368,10 @@ export function NewTabScreen(props: Props) {
     ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
-  const holdForAttachments = useSendWhenAttached(unsettled);
+  // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
+  // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
+  // for a few seconds at most (composer/videoAttachments.ts).
+  const holdForAttachments = useSendWhenAttached(unsettled + videoReading);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -732,10 +740,17 @@ export function NewTabScreen(props: Props) {
     if (entry) {
       setShell(true);
       setText(entry.command);
+      props.onPromptTyped?.("");
       return;
     }
     setText(next);
     setSelected(undefined);
+    // A shell command, a saved environment (another machine's agent) or no project start no
+    // agent here to warm; an address the person ends up typing releases it once cleared.
+    props.onPromptTyped?.(
+      shell ? "" : next,
+      environment || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
+    );
   };
   const submit = () => {
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
@@ -743,8 +758,11 @@ export function NewTabScreen(props: Props) {
     if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
-    // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
-    const row = rows.length ? rows[current] : suggested[defaultSelection(suggested)];
+    // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
+    // address with no row selected (↑ from the top row): there is no prompt to send.
+    const list = rows.length ? rows : suggested;
+    const opensTop = !rows.length || (current < 0 && isAddress(text.trim(), home));
+    const row = opensTop ? list[defaultSelection(list)] : rows[current];
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
     const keeps =
       !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
@@ -915,6 +933,13 @@ export function NewTabScreen(props: Props) {
       edit(completion);
       return;
     }
+    // ← and → on a row the arrows picked go back to the text, and the caret moves there at once (the
+    // default action: no preventDefault). Return then sends the prompt, until typing selects the top
+    // row. The top row typing selects stays: ← to fix a typo in an address keeps Return opening it.
+    if (plain && kept >= 0 && rows.length && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      pick(-1);
+      return;
+    }
     if (event.key === "Tab" && plain && rows.length && current < rows.length - 1) {
       // Tab steps the open suggestions, as in Chrome's omnibox; Enter still performs the action.
       // From the last row, with none open, and Shift-Tab always, focus moves on, so the keyboard
@@ -923,7 +948,10 @@ export function NewTabScreen(props: Props) {
       pick(stepSelection(current, 1, rows.length));
       return;
     }
-    const step = listStep(event);
+    // In the text (no row selected), a prompt of several lines keeps ↑ and ↓ for the caret, as in
+    // the chat's composer; the rows take them from the caret's first (↑) or last (↓) line. In the
+    // list they always step the rows.
+    const step = current < 0 && movesCaretInPrompt(event, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
       pick(stepSelection(current, step, rows.length));
@@ -1399,7 +1427,7 @@ export function NewTabScreen(props: Props) {
         {...(browseProject ? { onBrowse: browseProject } : {})}
       />,
     );
-  return (
+  const page = (
     <ContextMenu
       className="nt-menu-host"
       items={
@@ -1602,6 +1630,8 @@ export function NewTabScreen(props: Props) {
       </div>
     </ContextMenu>
   );
+  // The chips' menus open down and drop their key hints here (newTabComposer.ts).
+  return <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>;
 }
 
 /// The stage's widgets in runs: next to each other, Projects and Quick Actions share a cards
@@ -1627,6 +1657,15 @@ function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
   if (event.key === "n") return 1;
   if (event.key === "p") return -1;
   return undefined;
+}
+
+/// Whether ↑ or ↓ (no modifier) has a line of the prompt to move the caret to: one above the caret
+/// for ↑, one below it for ↓ (Composer.tsx's rule for a recalled prompt).
+function movesCaretInPrompt(event: React.KeyboardEvent, field: HTMLTextAreaElement): boolean {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+  if (event.key === "ArrowUp") return field.value.slice(0, field.selectionStart).includes("\n");
+  if (event.key === "ArrowDown") return field.value.slice(field.selectionEnd).includes("\n");
+  return false;
 }
 
 /// A control that takes typed keys itself: a text field, or a menu or list with type-ahead.

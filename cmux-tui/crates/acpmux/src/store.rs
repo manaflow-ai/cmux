@@ -15,6 +15,9 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+mod compact;
+pub use compact::{CompactMode, Compaction, Staged};
+
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -191,6 +194,11 @@ pub struct SessionMeta {
     /// sent after each turn; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_breakdown: Option<Value>,
+    /// The account's plan usage limits (`claude_stdio::usage_limits`), newest
+    /// per window, from Claude Code's `rate_limit_event`; none from any other
+    /// harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_limits: Option<Value>,
     /// The agent's newest `available_commands_update` (its slash commands), so
     /// opening a chat names them without reading its log back to the start,
     /// where an agent lists them once (perf100).
@@ -305,6 +313,34 @@ pub struct SessionMeta {
     /// or by an ancestor within its budget; unset fields inherit.
     #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
     pub subsession_limits: SubsessionLimits,
+    /// The session whose agent started this one, recorded once at creation from
+    /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
+    /// shell, or its `start_session` tool. `None` for a session a person or
+    /// the app started (a root), and for one saved before lineage existed.
+    /// Never copied to a fork or a moved-in session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<Lineage>,
+    /// The log holds a subagent entry with a retry waiting or in flight that no later entry
+    /// cleared yet (`hub/subagent_retry.rs`): the next load clears it, as the restart dropped
+    /// that retry. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub subagent_retry_open: bool,
+}
+
+/// Where a session sits in the tree of sessions that started each other
+/// (`hub/lineage.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Lineage {
+    /// The session whose agent started it.
+    pub parent: String,
+    /// The root of its tree: the first ancestor no agent started.
+    pub root: String,
+    /// 1 for a child of a root, 2 for a grandchild, and so on.
+    pub depth: u32,
+    /// The parent's tool call that started it, when acpmux could tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 /// A sub-session's place in its family (`hub/subsessions.rs`).
@@ -500,6 +536,13 @@ pub trait Store: Send + Sync {
     fn load(&self, id: &str) -> Result<Option<SessionMeta>>;
     fn save(&self, meta: &SessionMeta) -> Result<()>;
     fn append(&self, id: &str, record: &EventRecord) -> Result<()>;
+    /// Flush one session's event log and metadata to stable storage.
+    ///
+    /// The default is sufficient for memory stores and older implementations; local stores
+    /// override it to sync the segment and its containing directories.
+    fn flush_session(&self, _id: &str) -> Result<()> {
+        self.flush()
+    }
     /// Events with `seq > after`, at most `limit`.
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>>;
     /// Visit records with `seq > after` in order until `visit` returns false.
@@ -573,6 +616,25 @@ pub trait Store: Send + Sync {
     }
     /// Close the session's log until it is next written (a closed session's).
     fn close_log(&self, _id: &str) {}
+    /// Retention (`store/compact.rs`): the log's last `seq` when it was last compacted.
+    fn compacted_seq(&self, _id: &str) -> Option<u64> {
+        None
+    }
+    /// Retention: when the log was last written, in ms, from its newest segment. None: the store
+    /// keeps no log on disk, or the chat has none.
+    fn log_written_at(&self, _id: &str) -> Option<u64> {
+        None
+    }
+    /// Reads the log and, unless a dry run, writes its compacted segments beside it. None: the
+    /// store keeps no log on disk, or the chat has none.
+    fn stage_compaction(&self, _id: &str, _mode: CompactMode) -> Result<Option<Staged>> {
+        Ok(None)
+    }
+    /// Puts a staged compaction in place unless the log changed since (false). The caller holds
+    /// the chat's append lock.
+    fn commit_compaction(&self, _id: &str, _staged: Staged) -> Result<bool> {
+        Ok(false)
+    }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -723,9 +785,14 @@ impl LocalStore {
     }
 
     /// Whether the session's log holds a record: a segment with a byte in it (no line
-    /// is read). Every session the hub creates logs `created` right after its first
-    /// save, so a record without a log is a purged session's that a late save wrote back.
+    /// is read), or a compaction's record (`store/compact.rs`), which keeps a closed
+    /// chat's log however little of it stays. Every session the hub creates logs `created`
+    /// right after its first save, so a record without a log is a purged session's that a
+    /// late save wrote back.
     fn has_records(&self, id: &str) -> Result<bool> {
+        if std::fs::symlink_metadata(self.marker(id)).is_ok() {
+            return Ok(true);
+        }
         for (_, path) in self.segments(id)? {
             // An unreadable segment counts as a log: the session is listed as before.
             match std::fs::symlink_metadata(&path) {
@@ -797,10 +864,11 @@ fn record_dir(line: &[u8]) -> Option<&[u8]> {
 /// file's length when it has none), found by a binary search on line headers: the records of a
 /// segment are appended in `seq` order. A line whose header does not read (an older field
 /// order) ends the search at the file's length, which reads the segment from its end as before.
-fn offset_of_seq(path: &Path, before: u64) -> Result<u64> {
+/// The caller reads back from the offset through the same `file`: log retention may rename a
+/// compacted segment over the path meanwhile (`store/compact.rs`).
+fn offset_of_seq(file: &mut File, before: u64) -> Result<u64> {
     use std::io::{Seek, SeekFrom};
     const PROBE: usize = 64 * 1024;
-    let mut file = crate::config::private_state_file(path)?;
     let len = file.seek(SeekFrom::End(0))?;
     let mut buf = vec![0u8; PROBE];
     // A segment whose last record is before `before` (every older segment of a page) needs no
@@ -859,18 +927,17 @@ fn offset_of_seq(path: &Path, before: u64) -> Result<u64> {
 /// Visits `path`'s lines newest first, reading 64 KiB blocks from the end, until `visit`
 /// returns false: a tail costs its own bytes, not the segment's.
 fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
-    for_each_line_rev_from(path, u64::MAX, visit)
+    for_each_line_rev_from(&mut crate::config::private_state_file(path)?, u64::MAX, visit)
 }
 
-/// `for_each_line_rev` over the bytes before offset `end` (a line start, or past the end).
+/// `for_each_line_rev` over the bytes of `file` before offset `end` (a line start, or past the end).
 fn for_each_line_rev_from(
-    path: &Path,
+    file: &mut File,
     end: u64,
     visit: &mut dyn FnMut(&[u8]) -> bool,
 ) -> Result<()> {
     use std::io::{Seek, SeekFrom};
     const BLOCK: u64 = 64 * 1024;
-    let mut file = crate::config::private_state_file(path)?;
     let mut end = file.seek(SeekFrom::End(0))?.min(end);
     // The blocks of a line whose start is in an earlier block, newest first: each block is read
     // and scanned once, so a line of many megabytes costs its length, not its length squared.
@@ -1002,6 +1069,18 @@ impl Store for LocalStore {
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
     }
 
+    fn flush_session(&self, id: &str) -> Result<()> {
+        let writers = self.writers.lock_or_recover();
+        if let Some(writer) = writers.open.get(id) {
+            writer.file.sync_all()?;
+        }
+        let session = self.dir(id);
+        sync_directory(&session.join("events"))?;
+        sync_directory(&session)?;
+        sync_directory(&self.root)?;
+        Ok(())
+    }
+
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         // One lock hold from the eviction to the write: the least recently written log is
         // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
@@ -1109,6 +1188,14 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        // Debug builds only: `ACPMUX_TEST_SCAN_DELAY_MS` holds each log scan, as a slow disk or a
+        // long log does (`tests/restart_reattach.rs`). Bounded; release builds have no seam.
+        #[cfg(debug_assertions)]
+        if let Some(ms) =
+            std::env::var("ACPMUX_TEST_SCAN_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok())
+        {
+            std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
+        }
         let mut line = Vec::new();
         for (_, path) in self.segments(id)? {
             let mut reader =
@@ -1158,8 +1245,9 @@ impl Store for LocalStore {
                 continue;
             }
             let mut done = false;
-            let end = offset_of_seq(&path, before)?;
-            for_each_line_rev_from(&path, end, &mut |line| {
+            let mut file = crate::config::private_state_file(&path)?;
+            let end = offset_of_seq(&mut file, before)?;
+            for_each_line_rev_from(&mut file, end, &mut |line| {
                 match record_seq(line) {
                     Some(seq) if seq >= before => return true,
                     Some(seq) if seq <= after => {
@@ -1213,6 +1301,22 @@ impl Store for LocalStore {
         }
     }
 
+    fn compacted_seq(&self, id: &str) -> Option<u64> {
+        LocalStore::compacted_seq(self, id)
+    }
+
+    fn log_written_at(&self, id: &str) -> Option<u64> {
+        LocalStore::log_written_at(self, id)
+    }
+
+    fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
+        LocalStore::stage_compaction(self, id, mode)
+    }
+
+    fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
+        LocalStore::commit_compaction(self, id, staged)
+    }
+
     fn delete(&self, id: &str) -> Result<()> {
         self.writers.lock_or_recover().open.remove(id);
         let dir = self.dir(id);
@@ -1251,6 +1355,23 @@ impl Store for LocalStore {
     fn briefs_path(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("briefs.json"))
     }
+}
+
+/// Sync a directory entry after a file or subdirectory was created or replaced.
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let dir = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)?;
+    dir.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 /// Open one event segment for append, owner-only from creation and after an
