@@ -172,14 +172,11 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         !closed && tab.sendClick(x: point.x, y: point.y)
     }
 
-    /// `document.execCommand('copy')` in the page's world as the person's gesture (`BrowserScriptGesture.agent`:
-    /// the person's own command): the fork's `tabEvaluate` on renderer paths, a `Runtime.evaluate` with
-    /// `userGesture` on an older fork.
+    /// `document.execCommand('copy')` as the person's own command (`CEFTab.perform`, gesture `.agent`), sent
+    /// in this turn with nothing waiting on it.
     func copySelection() {
         guard !closed else { return }
-        let tab = tab
-        // task-owner: one copy per menu choice; ends with the page's answer or the evaluation deadline
-        Task { _ = try? await tab.evaluate("document.execCommand('copy')", world: .page, gesture: .agent) }
+        _ = tab.perform("document.execCommand('copy')", gesture: .agent)
     }
 
     /// After an in-place discard, the discarded entry's own URL comes back by Chromium's restore on

@@ -253,6 +253,36 @@ import Testing
         await rig.until { copies.count == 4 }
         #expect(copies.last == .some(nil) && Spy.copies.count == 3)
         #expect(Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
+        #expect(rig.runtime.surfaceCopies.count == 0, "an answered copy still waits")
+
+        // A copy still waiting when its browser closes gets no picture.
+        Spy.copyStart = 1
+        tab.copySurface(maxPixelSize: CGSize(width: 100, height: 100)) { copies.append($0) }
+        #expect(rig.runtime.surfaceCopies.count == 1)
+        rig.runtime.handle(.beforeClose(browser: 7))
+        #expect(copies.count == 5 && copies.last == .some(nil))
+        #expect(rig.runtime.surfaceCopies.count == 0)
+    }
+
+    /// A menu's Copy is a page script sent with the person's gesture and no waiter: `tabEvaluate` on fork API 29 (no
+    /// DevTools session), a `Runtime.evaluate` before it.
+    @Test(arguments: [Int32(24), 29]) func aPerformedScriptLeavesWithNoWaiter(forkAPI: Int32) async throws {
+        let rig = try Rig(forkAPI: forkAPI)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        if forkAPI < 29 { await rig.answeringDevTools { Spy.devToolsCalls.contains("Page.addScriptToEvaluateOnNewDocument") } }
+        await rig.settle()
+        Spy.devToolsCalls = []
+        #expect(tab.perform("document.execCommand('copy')", gesture: .agent))
+        if forkAPI >= 29 {
+            let call = try #require(Spy.evaluations.last)
+            #expect(call.world == "" && call.gesture == 1)
+            #expect(Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
+            // Its answer finds no caller and changes nothing.
+            rig.runtime.handle(.evaluateResult(token: call.token, status: 1, value: "true"))
+        } else {
+            #expect(Spy.devToolsCalls == ["Runtime.evaluate"])
+        }
     }
 
     /// Below fork API 38 there is no surface copy: no picture at once, no shim call and no DevTools.

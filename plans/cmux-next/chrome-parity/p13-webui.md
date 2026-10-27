@@ -1077,7 +1077,9 @@ from 17 to 11 hits. Of 078's sites three stay: the picture fallback, the debug p
 `mouseMoved`, which has no native path (077 kept no mouse-move export). The other eight are 013's bridge and setup
 sites (5), 014's `devToolsEvaluate` fallback and the `.devTools` event case (declared and matched). A surface copy keeps
 alpha, so `snapshotKeepsClearAreas` is true for a page that copies. Test: PageChromiumDevToolsFreeTests,
-CEFRendererPathsTests (aTabOnForkAPI38CopiesItsSurfaceWithNoDevToolsCall, aForkBeforeTheSurfaceCopyAnswersNoPictureAtOnce).
+CEFRendererPathsTests (aTabOnForkAPI38CopiesItsSurfaceWithNoDevToolsCall, aForkBeforeTheSurfaceCopyAnswersNoPictureAtOnce,
+aPerformedScriptLeavesWithNoWaiter). The copy and the menu's Copy start no task: the copy's answer comes in a
+synchronous turn (`CEFSurfaceCopies`), and Copy is sent with no waiter (`CEFTab.perform`).
 
 **079 Push channel.** Files: fork include/cef_cmux.h, libcef/renderer/, ChromiumPageHostBridge.swift, pageClient.ts.
 Change: a fork export posts a string to the page's registered receiver; router batches and replies use it.

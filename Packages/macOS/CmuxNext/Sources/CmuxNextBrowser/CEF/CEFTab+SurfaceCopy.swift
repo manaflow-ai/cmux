@@ -1,5 +1,6 @@
 public import CoreGraphics
 public import Foundation
+import CmuxNextWakeups
 
 /// A picture of a tab's page that Chromium copied from its surface and encoded (``CEFTab/copySurface(maxPixelSize:done:)``).
 public nonisolated struct CEFSurfaceCopy: Sendable, Equatable {
@@ -29,38 +30,89 @@ extension CEFTab {
 
     /// Copies the page as it last drew, fitted inside `maxPixelSize` (never scaled up), as a PNG with
     /// alpha. The request leaves in the caller's turn, so a copy asked for before the page hides
-    /// pictures the shown page. The base64 answer is decoded off the main actor.
+    /// pictures the shown page.
     ///
     /// - Parameters:
     ///   - maxPixelSize: The largest picture, in pixels.
     ///   - done: Runs once on the main actor with the picture, or nil when the fork has no surface
-    ///     copy, the page drew nothing, or the browser went away.
+    ///     copy, the page drew nothing, the browser went away or no answer came in time.
     public func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (CEFSurfaceCopy?) -> Void) {
-        guard copiesSurface, let browserID, !isClosed, let width = Self.pixelLimit(maxPixelSize.width),
-              let height = Self.pixelLimit(maxPixelSize.height) else { return done(nil) }
-        let runtime = runtime
-        let call = runtime.startSiteCall(browserID) { shim, id in
-            shim.tabCopySurface?(browserID, id, width, height, CEFSurfaceCopyFormat.png.rawValue, 0) ?? 0
+        guard copiesSurface, let browserID, !isClosed, let width = CEFSurfaceCopies.pixelLimit(maxPixelSize.width),
+              let height = CEFSurfaceCopies.pixelLimit(maxPixelSize.height) else { return done(nil) }
+        runtime.surfaceCopies.start(browser: browserID, runtime: runtime, done: done) { shim, reply in
+            shim.tabCopySurface?(browserID, reply, width, height, CEFSurfaceCopyFormat.png.rawValue, 0) ?? 0
         }
-        // task-owner: one surface copy; ends with Chromium's reply, its refusal or the site-reply deadline
-        Task { @MainActor in
-            guard let reply = try? await runtime.siteReply(to: call, what: "surface copy") else { return done(nil) }
-            done(await Self.surfaceCopy(reply))
+    }
+}
+
+/// The surface copies waiting for Chromium's answer, by reply id (one per runtime, ``CEFRuntime/surfaceCopies``).
+/// Every answer comes in a synchronous turn (the shim's CMUX_SHIM_REPLY, the host's REPLY to a refused start, a
+/// deadline on ``CEFRuntime/waitDeadlines``, the browser's close): no task waits, as the built-in extension loads.
+final class CEFSurfaceCopies {
+    /// How long a copy may take: past it the page gets no picture (the fork's own Viz deadline is 2 s).
+    static let timeout: Duration = .seconds(5)
+    /// The `WakeupLedger` owner of the copies' deadlines.
+    static let deadlineOwner = "CEFSurfaceCopies.copy"
+
+    private struct Pending {
+        let browser: Int32
+        let done: @MainActor (CEFSurfaceCopy?) -> Void
+        let deadlines: AlignedWakeups
+        let deadline: AlignedWakeups.Ticket
+    }
+
+    private var pending: [Int32: Pending] = [:]
+
+    /// Copies waiting now.
+    var count: Int { pending.count }
+
+    /// Sends one copy under a fresh reply id (from the site replies' ids, so the two never meet); `send` makes
+    /// the shim call. `done` runs once: with the answer, or nil for a refused start, the deadline or the close.
+    func start(browser: Int32, runtime: CEFRuntime, done: @escaping @MainActor (CEFSurfaceCopy?) -> Void,
+               send: @escaping (CEFShimLibrary, Int32) -> Int32) {
+        let id = runtime.nextSiteReply
+        runtime.nextSiteReply = id == .max ? 1 : id + 1
+        let deadlines = runtime.waitDeadlines
+        let deadline = deadlines.schedule(owner: Self.deadlineOwner, after: Self.timeout) { [weak self] in
+            self?.finish(id, nil)
+        }
+        pending[id] = Pending(browser: browser, done: done, deadlines: deadlines, deadline: deadline)
+        let sent = runtime.sendAsync { shim in send(shim, id) }
+        runtime.whenAnswered(sent, label: "surface copy") { [weak self] started in
+            if started != 1 { self?.finish(id, nil) }
         }
     }
 
-    /// A side of the copy's limit in whole pixels; nil when it is below one pixel or not a number.
+    /// A CMUX_SHIM_REPLY: true when it answers one of the copies (value = width | height << 32 in pixels, 0
+    /// for none; json = the PNG in base64), which then takes no site reply waiter.
+    func answer(reply id: Int32, value: Int64, json: String) -> Bool {
+        guard pending[id] != nil else { return false }
+        finish(id, Self.copy(value: value, base64: json))
+        return true
+    }
+
+    /// The browser closed: its copies get no picture.
+    func browserClosed(_ browser: Int32) {
+        for (id, copy) in pending where copy.browser == browser { finish(id, nil) }
+    }
+
+    /// The picture of an answer; nil when it has no size or no image.
+    nonisolated static func copy(value: Int64, base64: String) -> CEFSurfaceCopy? {
+        let width = value & 0xFFFF_FFFF, height = (value >> 32) & 0xFFFF_FFFF
+        guard width > 0, height > 0, let data = Data(base64Encoded: base64), !data.isEmpty else { return nil }
+        return CEFSurfaceCopy(data: data, pixelSize: CGSize(width: Int(width), height: Int(height)))
+    }
+
+    /// A side of the copy's limit in whole pixels; nil below one pixel.
     nonisolated static func pixelLimit(_ side: CGFloat) -> Int32? {
         guard side >= 1 else { return nil }
         return Int32(clamping: Int(min(side, CGFloat(Int32.max)).rounded(.down)))
     }
 
-    /// The picture of a CMUX_SHIM_REPLY: value = width | height << 32 in pixels (0: none), json = the
-    /// image in base64, which can be megabytes.
-    @concurrent
-    nonisolated static func surfaceCopy(_ reply: CEFSiteReply) async -> CEFSurfaceCopy? {
-        let width = reply.value & 0xFFFF_FFFF, height = (reply.value >> 32) & 0xFFFF_FFFF
-        guard width > 0, height > 0, let data = Data(base64Encoded: reply.json), !data.isEmpty else { return nil }
-        return CEFSurfaceCopy(data: data, pixelSize: CGSize(width: Int(width), height: Int(height)))
+    /// Ends copy `id` once.
+    private func finish(_ id: Int32, _ copy: CEFSurfaceCopy?) {
+        guard let waiting = pending.removeValue(forKey: id) else { return }
+        _ = waiting.deadlines.cancel(waiting.deadline)
+        waiting.done(copy)
     }
 }

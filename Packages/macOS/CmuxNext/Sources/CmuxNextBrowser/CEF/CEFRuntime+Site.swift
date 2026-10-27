@@ -106,43 +106,25 @@ extension CEFRuntime {
     func siteCall(_ browser: Int32, what: String,
                   start: (CEFShimLibrary, Int32) -> Int32) async throws -> CEFSiteReply {
         guard shim != nil else { throw BrowserTabError.closed }
-        return try await siteReply(to: startSiteCall(browser, start: start), what: what)
-    }
-
-    /// ``siteCall(_:what:start:)``'s start alone, sent in the caller's turn: for an op that must
-    /// leave before what the turn does next (a page's surface copy before the page hides). Await
-    /// its answer with ``siteReply(to:what:)``, which also forgets the reply id.
-    func startSiteCall(_ browser: Int32, start: (CEFShimLibrary, Int32) -> Int32) -> CEFSiteCall {
         let id = nextSiteReply
         nextSiteReply = nextSiteReply == .max ? 1 : nextSiteReply + 1
         siteReplyBrowsers[id] = browser
-        return CEFSiteCall(id: id, started: sendAsync { start($0, id) })
-    }
-
-    /// The CMUX_SHIM_REPLY of a call ``startSiteCall(_:start:)`` sent.
-    func siteReply(to call: CEFSiteCall, what: String) async throws -> CEFSiteReply {
         defer {
-            siteReplyBrowsers[call.id] = nil
-            earlySiteReplies[call.id] = nil
+            siteReplyBrowsers[id] = nil
+            earlySiteReplies[id] = nil
         }
         let timeout = Self.siteReplyTimeout
         // In host mode the start result is the host's REPLY: a refusal fails here, not at the
         // deadline. The site reply that may come meanwhile waits in earlySiteReplies.
-        guard try await answer(call.started, label: "CEF \(what)", timeout: timeout) == 1 else {
+        guard try await answer(sendAsync { start($0, id) }, label: "CEF \(what)", timeout: timeout) == 1 else {
             throw BrowserTabError.closed
         }
         // CEF may answer before this task awaits (no cookies at all).
-        if let early = earlySiteReplies[call.id] { return early }
-        return try await siteReplies.reply(for: call.id, timeout: timeout) {
+        if let early = earlySiteReplies[id] { return early }
+        return try await siteReplies.reply(for: id, timeout: timeout) {
             BrowserTabError.timedOut("CEF \(what) (\(timeout))")
         }
     }
-}
-
-/// A call ``CEFRuntime/startSiteCall(_:start:)`` sent: its reply id and the shim's start result.
-nonisolated struct CEFSiteCall {
-    let id: Int32
-    let started: CEFShimAnswer<Int32>
 }
 
 extension CEFRuntime: ThemeResponsive {
