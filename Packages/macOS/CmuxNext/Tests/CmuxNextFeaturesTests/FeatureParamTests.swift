@@ -250,9 +250,46 @@ struct FeatureParamTests {
         }
     }
 
-    @Test func aParamValueOfAnotherJSONTypeMakesTheDocumentMalformed() {
-        let json = #"{"version": 1, "default": {"FeaturesSerial": 2, "FeatureParams": {"tunedThing": {"retries": [5]}}}}"#
-        #expect(throws: FeatureRemoteDocumentError.self) { try Self.overrides(json) }
+    /// A null, array or object is a param value that does not parse: it is
+    /// rejected alone, and the document's `Features` still apply.
+    @Test func aParamValueOfAnotherJSONTypeIsRejectedAndTheDocumentApplies() throws {
+        let remote = try Self.overrides("""
+        {"version": 1, "default": {"FeaturesSerial": 2, "Features": {"offThing": "on"}, "FeatureParams": {
+          "tunedThing": {"retries": [5], "scale": null, "deadline": {"seconds": 1}, "eager": true}}}}
+        """)
+        #expect(remote.values == ["offThing": true])
+        var reported: [FeatureParamList.Rejection] = []
+        let list = Self.params(remote: remote.params, report: { reported.append($0) })
+        #expect(list.value(Self.retries) == 2)
+        #expect(list.value(Self.scale) == 1.5)
+        #expect(list.value(Self.deadline) == .milliseconds(50))
+        #expect(list.value(Self.eager))
+        #expect(reported.map(\.description) == [
+            "tunedThing.retries=\"[…]\" source=remote: not an int",
+            "tunedThing.scale=\"null\" source=remote: not a finite number",
+            "tunedThing.deadline=\"{…}\" source=remote: not a finite number",
+        ])
+        #expect(list.rejections == reported)
+    }
+
+    /// A bad param value in a cohort the person is not in changes nothing for them.
+    @Test func aParamValueOfAnotherJSONTypeInAnotherCohortLeavesThisCohortWhole() throws {
+        let json = """
+        {"version": 1,
+         "default": {"FeaturesSerial": 2, "Features": {"offThing": "on"}, "FeatureParams": {"tunedThing": {"retries": "5"}}},
+         "cohorts": {"wave-1": {"FeaturesSerial": 3, "FeatureParams": {"tunedThing": {"retries": [5]}}}}}
+        """
+        let remote = try Self.overrides(json)
+        #expect(remote.values == ["offThing": true])
+        let list = Self.params(remote: remote.params)
+        #expect(list.value(Self.retries) == 5)
+        #expect(list.rejections.isEmpty)
+
+        let wave = try Self.overrides(json, cohort: "wave-1")
+        #expect(wave.values == ["offThing": true])
+        let waveList = Self.params(remote: wave.params)
+        #expect(waveList.value(Self.retries) == 2)
+        #expect(waveList.rejections.map(\.description) == ["tunedThing.retries=\"[…]\" source=remote: not an int"])
     }
 
     // MARK: Local overrides

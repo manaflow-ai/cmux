@@ -135,6 +135,9 @@ public nonisolated struct FeatureRemoteDocument: Sendable, Equatable {
 
     /// One `FeatureParams` value: text, or a JSON number or boolean written as
     /// its text (`8`, `0.05`, `true`), so the registry's parse decides either way.
+    /// Any other JSON value decodes too, to a marker no param type parses, so
+    /// ``FeatureParamList`` rejects that one value and the document still
+    /// applies, as a bad `FieldTrialParams` value never invalidates Chrome's seed.
     private struct ParamWire: Decodable {
         let text: String
 
@@ -146,8 +149,30 @@ public nonisolated struct FeatureRemoteDocument: Sendable, Equatable {
                 text = String(flag)
             } else if let integer = try? value.decode(Int.self) {
                 text = String(integer)
+            } else if let number = try? value.decode(Double.self) {
+                text = String(number)
+            } else if value.decodeNil() {
+                text = "null"
+            } else if (try? decoder.unkeyedContainer()) != nil {
+                text = "[…]"
+            } else if (try? decoder.container(keyedBy: AnyKey.self)) != nil {
+                text = "{…}"
             } else {
-                text = try String(value.decode(Double.self))
+                text = "<unrepresentable number>"
+            }
+        }
+
+        /// Any object key: only used to tell an object from other values.
+        private struct AnyKey: CodingKey {
+            let stringValue: String
+            var intValue: Int? { nil }
+
+            init(stringValue: String) {
+                self.stringValue = stringValue
+            }
+
+            init?(intValue _: Int) {
+                nil
             }
         }
     }
