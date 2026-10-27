@@ -99,11 +99,8 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
     };
     let mut emit = |r: &StepResult| print_step(r, json_out);
     let remote = SshRemote(&plan.host);
-    let (mut done, port) = machine_steps(&remote, &plan, &local, fix, &mut emit);
-    // Once the daemon runs: how it stays current (a Linux host's timer).
-    let update = gate(Step::Update, &done).unwrap_or_else(|| update_step::update(&remote, fix));
-    emit(&update);
-    done.push(update);
+    let (mut done, port) =
+        machine_steps(&remote, &plan, &local, fix, Some(&update_step::update), &mut emit);
     let local_name = hosts::short_name(&crate::hand::pair::hostname());
     let t = PeerTarget {
         name: &plan.name,
@@ -177,28 +174,36 @@ pub(crate) fn pick_target(peers: &[Value], target: &str) -> (String, String, Opt
         .unwrap_or_else(|| (hosts::short_name(target), target.to_owned(), None))
 }
 
-/// reach, install, daemon and harness: the steps on the machine itself,
-/// and the port the peer link uses (the daemon step's).
+/// How a running daemon stays current: [`update_step::update`].
+type UpdateStep<'a> = &'a dyn Fn(&dyn Remote, bool) -> StepResult;
+
+/// reach, install, daemon, update and harness: the steps on the machine
+/// itself, and the port the peer link uses (the daemon step's). The
+/// `update` step runs right after the daemon's, when one is given.
 fn machine_steps(
     r: &dyn Remote,
     plan: &Plan,
     local: &Local,
     fix: bool,
+    update: Option<UpdateStep<'_>>,
     emit: &mut dyn FnMut(&StepResult),
 ) -> (Vec<StepResult>, u16) {
     let mut done = Vec::new();
     let mut port = plan.port.unwrap_or(crate::peer::SSH_PEER_PORT);
-    for step in [Step::Reach, Step::Install, Step::Daemon, Step::Harness] {
-        let result = gate(step, &done).unwrap_or_else(|| match step {
-            Step::Reach => reach(r),
-            Step::Install => install(r, &plan.name, &plan.remote_binary, fix),
-            Step::Daemon => {
+    for step in [Step::Reach, Step::Install, Step::Daemon, Step::Update, Step::Harness] {
+        let result = match (step, update, gate(step, &done)) {
+            (Step::Update, None, _) => continue,
+            (_, _, Some(skip)) => skip,
+            (Step::Reach, ..) => reach(r),
+            (Step::Install, ..) => install(r, &plan.name, &plan.remote_binary, fix),
+            (Step::Daemon, ..) => {
                 let (result, listening) = daemon(r, &plan.name, plan.port, fix);
                 port = listening;
                 result
             }
+            (Step::Update, Some(update), _) => update(r, fix),
             _ => harness(r, &plan.name, &plan.harnesses, local, fix),
-        });
+        };
         emit(&result);
         done.push(result);
     }

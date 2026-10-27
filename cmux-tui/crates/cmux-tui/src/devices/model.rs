@@ -17,8 +17,9 @@ pub(crate) struct Sources {
     pub pairing: Value,
     /// Remote hosting (`~/.cmux/host/remote.json`): the owner, `allow` and `grants`.
     pub remote: Value,
-    /// The concrete `Host` names of the person's `~/.ssh/config` (and its includes).
-    pub ssh_hosts: Vec<String>,
+    /// The concrete `Host` names of the person's `~/.ssh/config` (and its
+    /// includes), each with the `HostName` its blocks give it.
+    pub ssh_hosts: Vec<crate::machine_runtime::SshConfigHost>,
 }
 
 /// What a device is to a person.
@@ -328,13 +329,14 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             || nodes.iter().any(|n| n.answers_to(&host))
             || NOT_COMPUTERS.contains(&host.as_str())
     };
+    // An alias whose HostName is a peer, a tailnet node or a forge is that machine.
     let mut ssh: Vec<Available> = sources
         .ssh_hosts
         .iter()
-        .filter(|h| !known(h))
+        .filter(|h| !known(&h.alias) && !h.host_name.as_deref().is_some_and(known))
         .map(|h| Available {
-            name: h.clone(),
-            address: h.clone(),
+            name: h.alias.clone(),
+            address: h.alias.clone(),
             os: String::new(),
             mine: true,
             found: Found::SshConfig,

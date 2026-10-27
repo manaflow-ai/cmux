@@ -190,7 +190,7 @@ fn read_sources(notes: &mut Vec<String>) -> Sources {
         },
         _ => Value::Null,
     };
-    Sources { peers, pairing, remote, ssh_hosts: crate::machine_runtime::ssh_config_hosts() }
+    Sources { peers, pairing, remote, ssh_hosts: crate::machine_runtime::ssh_config_targets() }
 }
 
 fn choice(flags: &Flags) -> anyhow::Result<Choice> {

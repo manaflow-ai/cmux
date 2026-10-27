@@ -8,6 +8,7 @@ use super::network::{
     WeftNetwork,
 };
 use super::removal;
+use crate::machine_runtime::SshConfigHost;
 
 fn tailscale_up() -> NetworkStatus {
     NetworkStatus {
@@ -243,10 +244,24 @@ fn available_lists_online_network_computers_that_are_not_devices_mine_first() {
 #[test]
 fn ssh_config_hosts_follow_the_network_computers_without_repeats() {
     let mut src = sources();
-    src.ssh_hosts =
-        ["Zeta", "github.com", "vm-1", "10.0.4.2", "mini-7", "build-box", "old-air", "alpha"]
-            .map(str::to_owned)
-            .to_vec();
+    let host = |alias: &str, host_name: Option<&str>| SshConfigHost {
+        alias: alias.to_owned(),
+        host_name: host_name.map(str::to_owned),
+    };
+    src.ssh_hosts = vec![
+        host("Zeta", None),
+        host("github.com", None),
+        host("vm-1", None),
+        host("10.0.4.2", None),
+        host("mini-7", None),
+        host("build-box", None),
+        host("old-air", None),
+        host("alpha", Some("alpha.internal")),
+        // Aliases of a forge, a peer's address and a tailnet node.
+        host("gh", Some("github.com")),
+        host("vm", Some("10.0.4.2")),
+        host("studio-ts", Some("old-air.tail1234.ts.net")),
+    ];
     let listing = model::merge(&src, tailscale_up(), &nodes());
     let rows: Vec<(&str, model::Found)> =
         listing.available.iter().map(|a| (a.name.as_str(), a.found)).collect();

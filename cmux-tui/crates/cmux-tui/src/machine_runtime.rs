@@ -278,24 +278,56 @@ fn discover_ssh_config_hosts() -> Vec<MachineConnectionTarget> {
 /// The concrete `Host` names of `~/.ssh/config` and the files it includes,
 /// in file order (no patterns, no negations).
 pub(crate) fn ssh_config_hosts() -> Vec<String> {
+    ssh_config_targets().into_iter().map(|host| host.alias).collect()
+}
+
+/// One concrete `Host` of the ssh config and the `HostName` its own
+/// `Host` blocks give it (`%h` replaced by the alias; the first one wins,
+/// as ssh takes it). Wildcard blocks and `Match` are not read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SshConfigHost {
+    pub alias: String,
+    pub host_name: Option<String>,
+}
+
+/// [`ssh_config_hosts`] with each host's `HostName`.
+pub(crate) fn ssh_config_targets() -> Vec<SshConfigHost> {
     let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
         return Vec::new();
     };
     let home = PathBuf::from(home);
     let ssh_root = home.join(".ssh");
-    ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, &home)
+    ssh_config_targets_from_path(&ssh_root.join("config"), &ssh_root, &home)
 }
 
+#[cfg(test)]
 fn ssh_config_hosts_from_path(config: &Path, ssh_root: &Path, home: &Path) -> Vec<String> {
+    ssh_config_targets_from_path(config, ssh_root, home).into_iter().map(|h| h.alias).collect()
+}
+
+fn ssh_config_targets_from_path(
+    config: &Path,
+    ssh_root: &Path,
+    home: &Path,
+) -> Vec<SshConfigHost> {
     let mut discovery = SshConfigDiscovery {
         ssh_root,
         home,
         visited: HashSet::new(),
         seen_hosts: HashSet::new(),
         hosts: Vec::new(),
+        host_names: HashMap::new(),
     };
     discovery.visit(config, 0);
-    discovery.hosts
+    let mut host_names = discovery.host_names;
+    discovery
+        .hosts
+        .into_iter()
+        .map(|alias| {
+            let host_name = host_names.remove(&alias.to_ascii_lowercase());
+            SshConfigHost { alias, host_name }
+        })
+        .collect()
 }
 
 struct SshConfigDiscovery<'a> {
@@ -304,6 +336,8 @@ struct SshConfigDiscovery<'a> {
     visited: HashSet<PathBuf>,
     seen_hosts: HashSet<String>,
     hosts: Vec<String>,
+    /// Each alias's first `HostName`, by lowercased alias.
+    host_names: HashMap<String, String>,
 }
 
 impl SshConfigDiscovery<'_> {
@@ -320,6 +354,9 @@ impl SshConfigDiscovery<'_> {
         }
         let Ok(contents) = fs::read_to_string(path) else { return };
         let mut includes = Vec::new();
+        // The concrete aliases of the `Host` block being read (none in a
+        // `Match` block, or one whose names are all patterns).
+        let mut block: Vec<String> = Vec::new();
         for line in contents.lines() {
             let mut words = ssh_config_words(line);
             let Some(first) = words.first_mut() else { continue };
@@ -332,14 +369,26 @@ impl SshConfigDiscovery<'_> {
             let mut values = inline_value.into_iter().chain(words.into_iter().skip(1));
             match keyword.as_str() {
                 "host" => {
+                    block.clear();
                     for host in values.by_ref() {
                         if self.hosts.len() >= SSH_CONFIG_MAX_HOSTS {
                             return;
                         }
-                        if is_concrete_ssh_host(&host)
-                            && self.seen_hosts.insert(host.to_ascii_lowercase())
-                        {
+                        if !is_concrete_ssh_host(&host) {
+                            continue;
+                        }
+                        block.push(host.to_ascii_lowercase());
+                        if self.seen_hosts.insert(host.to_ascii_lowercase()) {
                             self.hosts.push(host);
+                        }
+                    }
+                }
+                "match" => block.clear(),
+                "hostname" => {
+                    if let Some(name) = values.next() {
+                        for alias in &block {
+                            let resolved = name.replace("%h", alias);
+                            self.host_names.entry(alias.clone()).or_insert(resolved);
                         }
                     }
                 }
@@ -984,6 +1033,34 @@ mod tests {
         assert_eq!(
             ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, home),
             vec!["buildbox", "duplicate", "mini", "quoted-host"]
+        );
+    }
+
+    #[test]
+    fn ssh_config_discovery_reads_each_hosts_first_host_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        let ssh_root = home.join(".ssh");
+        fs::create_dir_all(&ssh_root).unwrap();
+        fs::write(
+            ssh_root.join("config"),
+            "Host gh\n  HostName github.com\nHost gh\n  HostName example.com\n\
+             Host mini mini-b\n  HostName %h.tail1234.ts.net\nHost *.corp\n  HostName x\n\
+             Match host plain\n  HostName y\nHost plain\n",
+        )
+        .unwrap();
+        let host = |alias: &str, host_name: Option<&str>| SshConfigHost {
+            alias: alias.to_owned(),
+            host_name: host_name.map(str::to_owned),
+        };
+        assert_eq!(
+            ssh_config_targets_from_path(&ssh_root.join("config"), &ssh_root, home),
+            vec![
+                host("gh", Some("github.com")),
+                host("mini", Some("mini.tail1234.ts.net")),
+                host("mini-b", Some("mini-b.tail1234.ts.net")),
+                host("plain", None),
+            ]
         );
     }
 

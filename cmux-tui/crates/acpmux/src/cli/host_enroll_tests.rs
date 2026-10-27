@@ -99,6 +99,42 @@ fn states(results: &[StepResult]) -> Vec<(Step, StepState)> {
     results.iter().map(|r| (r.step, r.state)).collect()
 }
 
+/// The machine's steps without `update`, which host_enroll_update_tests.rs
+/// covers; [`the_update_step_runs_between_the_daemon_and_the_harness`] runs it.
+fn machine_steps(
+    r: &dyn Remote,
+    plan: &Plan,
+    local: &Local,
+    fix: bool,
+    emit: &mut dyn FnMut(&StepResult),
+) -> (Vec<StepResult>, u16) {
+    super::machine_steps(r, plan, local, fix, None, emit)
+}
+
+#[test]
+fn the_update_step_runs_between_the_daemon_and_the_harness() {
+    let local = local_with("order", "pi", "command = \"/Users/leo/bin/pi\"\n");
+    let update = |_: &dyn Remote, _: bool| StepResult::new(Step::Update, StepState::Ok, "timer");
+    let old: &[(&str, &str)] = &[(LOCAL_BIN, "old")];
+    let fake = host_with(old, Some(("old", false)), LOCAL_BIN, crate::hub::BUILD);
+    let mut lines = Vec::new();
+    let results = super::machine_steps(&fake, &plan(&[]), &local, false, Some(&update), &mut |r| {
+        lines.push(r.step)
+    })
+    .0;
+    let order = [Step::Reach, Step::Install, Step::Daemon, Step::Update, Step::Harness];
+    assert_eq!(results.iter().map(|r| r.step).collect::<Vec<_>>(), order);
+    assert_eq!(lines, order, "emitted in the order they ran");
+    assert_eq!(results[3].state, StepState::Ok);
+    // No daemon, no update: it is skipped like the harness.
+    let current: &[(&str, &str)] = &[(LOCAL_BIN, crate::hub::BUILD)];
+    let fake = host_with(current, None, LOCAL_BIN, crate::hub::BUILD);
+    let results =
+        super::machine_steps(&fake, &plan(&[]), &local, false, Some(&update), &mut |_| {}).0;
+    assert_eq!(results[2].state, StepState::Fail, "{results:?}");
+    assert_eq!((results[3].step, results[3].state), (Step::Update, StepState::Skip));
+}
+
 #[test]
 fn ssh_stderr_is_classified() {
     let cases = [

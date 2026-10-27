@@ -16,13 +16,29 @@ const MARK: &str = "ACPMUX_AU=";
 
 /// What the step reads before it changes anything: the kernel, whether the
 /// host is a cmux Cloud VM, whether automatic updates were turned off, and
-/// whether a user systemd manager runs with the timer enabled in it.
+/// whether a user systemd manager runs with the timer enabled in it. An
+/// enabled timer counts (`timer`) only when the manager loads both units from
+/// `~/.config/systemd/user` with acpmux's own text; any other enabled one is
+/// someone else's (`foreign`), which runs what it likes.
 pub(super) fn probe_script() -> String {
     let home = hosts::REMOTE_HOME;
     let off = hosts::NO_AUTO_UPDATE;
     let cloud = hosts::CLOUD_VM_MARK;
+    let service = hosts::UPDATE_SERVICE;
+    let timer = hosts::UPDATE_TIMER;
     format!(
-        r#"echo "{MARK}os=$(uname -s)"; [ ! -e {cloud} ] || echo {MARK}cloud; [ ! -e {home}/{off} ] || echo {MARK}off; if systemctl --user show-environment >/dev/null 2>&1; then echo {MARK}systemd; [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" != enabled ] || echo {MARK}timer; fi"#
+        r#"echo "{MARK}os=$(uname -s)"; [ ! -e {cloud} ] || echo {MARK}cloud; [ ! -e {home}/{off} ] || echo {MARK}off
+if systemctl --user show-environment >/dev/null 2>&1; then echo {MARK}systemd
+if [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" = enabled ]; then
+au_d=$HOME/.config/systemd/user; au_own=1
+for au_f in acpmux-update.service acpmux-update.timer; do [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own=; done
+cmp -s - "$au_d/acpmux-update.service" <<'ACPMUX_UPDATE_SERVICE' || au_own=
+{service}ACPMUX_UPDATE_SERVICE
+cmp -s - "$au_d/acpmux-update.timer" <<'ACPMUX_UPDATE_TIMER' || au_own=
+{timer}ACPMUX_UPDATE_TIMER
+if [ -n "$au_own" ]; then echo {MARK}timer; else echo {MARK}foreign; fi
+fi
+fi"#
     )
 }
 
@@ -33,7 +49,10 @@ pub(super) struct Found {
     pub cloud: bool,
     pub off: bool,
     pub systemd: bool,
+    /// acpmux's own timer is enabled.
     pub timer: bool,
+    /// An enabled `acpmux-update.timer` that acpmux did not write.
+    pub foreign: bool,
 }
 
 pub(super) fn parse(stdout: &str) -> Found {
@@ -44,6 +63,7 @@ pub(super) fn parse(stdout: &str) -> Found {
             "off" => found.off = true,
             "systemd" => found.systemd = true,
             "timer" => found.timer = true,
+            "foreign" => found.foreign = true,
             other => {
                 if let Some(os) = other.strip_prefix("os=") {
                     os.clone_into(&mut found.os);
@@ -89,6 +109,15 @@ pub(super) fn update(r: &dyn Remote, fix: bool) -> StepResult {
     }
     if found.timer {
         return ok(EVERY);
+    }
+    if found.foreign {
+        return warn(
+            "an acpmux-update.timer acpmux did not write is enabled here, so cmux does not know what it runs",
+            None,
+        )
+        .with_fix(format!(
+            "Remove that timer and its service on {host}, then check again with --fix."
+        ));
     }
     if !found.systemd {
         return warn(

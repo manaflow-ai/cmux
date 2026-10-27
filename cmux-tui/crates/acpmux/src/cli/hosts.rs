@@ -27,7 +27,9 @@ mod host_lock;
 mod host_migrate;
 #[path = "host_update.rs"]
 mod host_update;
-pub(crate) use host_auto_update::{NO_AUTO_UPDATE, install_script, take_auto_update_off};
+pub(crate) use host_auto_update::{
+    NO_AUTO_UPDATE, UPDATE_SERVICE, UPDATE_TIMER, install_script, take_auto_update_off,
+};
 pub(crate) use host_hold::hold;
 #[cfg(test)]
 pub(crate) use host_lock::unfence;

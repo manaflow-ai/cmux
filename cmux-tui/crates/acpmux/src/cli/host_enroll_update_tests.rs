@@ -155,6 +155,25 @@ fn a_unit_someone_else_wrote_is_left_alone_and_said() {
 }
 
 #[test]
+fn an_enabled_timer_acpmux_did_not_write_is_not_counted_or_replaced() {
+    for fix in [false, true] {
+        let host = Host::new(&["os=Linux", "systemd", "foreign"]);
+        let r = update(&host, fix);
+        assert_eq!(r.state, StepState::Warn, "{r:?}");
+        assert!(r.detail.contains("acpmux did not write"), "{r:?}");
+        assert!(r.fix.as_deref().unwrap().starts_with("Remove that timer"), "{r:?}");
+        assert!(host.fenced.borrow().is_empty(), "nothing written over it");
+    }
+    let script = probe_script();
+    assert!(
+        script.contains("FragmentPath")
+            && script.contains(crate::cli::hosts::UPDATE_SERVICE)
+            && script.contains(crate::cli::hosts::UPDATE_TIMER),
+        "own units are told apart by where they load from and their text: {script}"
+    );
+}
+
+#[test]
 fn another_update_holding_the_lock_is_a_warning() {
     let mut host = Host::new(&["os=Linux", "systemd"]);
     host.locked = true;

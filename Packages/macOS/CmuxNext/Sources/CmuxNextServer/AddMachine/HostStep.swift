@@ -28,7 +28,7 @@ public nonisolated struct HostStep: RawRepresentable, Hashable, Sendable, Codabl
     public static let identity = HostStep(rawValue: "identity")
 
     /// The steps in the order they run. A newer cmux-tui may send others; they show by their raw name.
-    public static let known: [HostStep] = [.reach, .install, .daemon, .harness, .update, .peer, .peerBack, .identity]
+    public static let known: [HostStep] = [.reach, .install, .daemon, .update, .harness, .peer, .peerBack, .identity]
 }
 
 public nonisolated enum HostStepState: String, Equatable, Sendable, Codable {
